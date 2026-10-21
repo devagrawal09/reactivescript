@@ -57,6 +57,7 @@ export class Node {
   quiet = false; refreshBy: number | null = null;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
+  keyBy: string | null = null;                         // ST-4: a keyed collection is reconciled by this key
   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
@@ -142,7 +143,7 @@ export class Runtime {
   declare(decls: Decl[], region: Region) {
     for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
     for (const d of decls) {                                           // E-7: equations are a system
-      if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; region.scope.set(d.name, n); }
+      if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
     }
@@ -548,6 +549,7 @@ export class Runtime {
       else if (n.deferred) n.lagging = false;
       if (n.quiet && v instanceof PendingVal && n.answered) v = n.value;                              // AC-4: a quiet re-ask reveals silently; nothing pends
       else if (n.quiet && !(v instanceof PendingVal)) { if (n.refreshBy !== null && this.groupOpen(n.refreshBy)) n.heldBy = n.refreshBy; else { n.quiet = false; n.refreshBy = null; } }   // D-31: a refresh in a hold lands into it
+      if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
       if (ch.size > 0) { n.value = v; n.changed = true; n.changedSinceCommit = true; }
@@ -566,6 +568,22 @@ export class Runtime {
     if (n.heldBy !== null) n.taint.add(n.heldBy);
     n.state = "clean"; n.evaluated = true;
     return n.value;
+  }
+  /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object. */
+  private reconcile(old: unknown[], nu: unknown[], key: string): unknown[] {
+    const byKey = new Map<unknown, Record<string, unknown>>();
+    for (const o of old) if (isObj(o)) byKey.set(o[key], o);
+    return nu.map(e => { if (!isObj(e)) return e; const o = byKey.get(e[key]); if (!o) return e; this.applyDiff(o, e); return o; });
+  }
+  private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>) {
+    for (const k of new Set([...Object.keys(o), ...Object.keys(e)])) {
+      const a = o[k], b = e[k];
+      if (isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b)) { this.applyDiff(a, b); continue; }
+      if (Object.is(a, b)) continue;
+      if (!(k in e)) delete o[k]; else o[k] = b;
+      this.notify(o, k);
+    }
+    if (Array.isArray(o) && Array.isArray(e) && o.length !== e.length) { o.length = e.length; this.notify(o, "length"); }
   }
   private transient(n: Node): unknown {                                // imperative reads see σ (H-10)
     if (n.hasCommitted) return n.committed;
@@ -683,6 +701,25 @@ export class Runtime {
       }
       case "arr": { const items = e.items.map(i => this.ev(i, region, env)); const bad = items.find(isAbsent); return bad ?? items; }
       case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
+      case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
+        const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
+        const copied = new Set<object>();
+        const cow = (o: unknown) => { const c = Array.isArray(o) ? [...o] : isObj(o) ? { ...o } : o; if (isObj(c)) copied.add(c); return c; };
+        const d = cow(seed);
+        const en = new Map(env); en.set("d", d);
+        for (const st of e.body) {
+          if (st.k === "let") en.set(st.name, this.ev(st.e, region, en));
+          else if (st.k === "expr") this.ev(st.e, region, en);
+          else if (st.k === "write") {
+            if (st.target.name !== "d") throw new RuleError("ST-3a", `a draft block writes only its draft, not ${st.target.name}`);
+            const path = st.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, en)));
+            const last = path.pop()!; let o = d as Record<string, unknown>;
+            for (const k of path) { if (!copied.has(o[k] as object)) o[k] = isObj(o[k]) ? cow(o[k]) : (/^\d+$/.test(k) ? [] : {}); o = o[k] as Record<string, unknown>; }   // copy on write along the path: untouched sub-objects keep identity
+            o[last] = this.ev(st.e, region, en);
+          } else throw new RuleError("ST-3b", `${st.k} in a draft block`);
+        }
+        return d;
+      }
       case "fn": {
         const imperative = !this.demandMode;                           // SC-3
         return (...args: unknown[]) => {
@@ -860,6 +897,7 @@ function freeVars(e: Expr, out: Set<string>) {
     case "arr": e.items.forEach(a => freeVars(a, out)); break;
     case "rec": e.fields.forEach(f => freeVars(f.v, out)); break;
     case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
+    case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }
   }
 }
 

@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -100,9 +100,11 @@ function parseDecl(c: Cursor): Decl {
   const save = c.i;
   const name = c.ident();
   c.ws(false);
+  let key: string | undefined;
+  if (name && !KEYWORDS.has(name) && c.keyword("key")) { c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
   if (name && !KEYWORDS.has(name) && c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") {
     c.i++; c.ws();
-    return { k: "eq", name, e: parseExpr(c), line };
+    return { k: "eq", name, e: parseExpr(c), line, key };
   }
   c.i = save;
   if (c.peekIdent() && /^[A-Za-z_$][A-Za-z0-9_$.\[\]]*\s*:=/.test(c.src.slice(c.i)))
@@ -162,6 +164,10 @@ export function parseExpr(c: Cursor): Expr {
     if (!c.keyword("then")) c.fail("then"); c.ws(); const t = parseExpr(c); c.ws();
     if (!c.keyword("else")) c.fail("else"); c.ws(); const f = parseExpr(c);
     return { k: "if", c: cond, t, f };
+  }
+  if (c.keyword("draft")) {                                           // ST-3: draft(e) { d.k := v }
+    c.ws(); c.expect("("); c.ws(); const seed = parseExpr(c); c.ws(); c.expect(")"); c.ws();
+    return { k: "draft", seed, body: parseBlock(c) };
   }
   if (c.keyword("fn")) {
     c.ws(); c.expect("("); c.ws(); const params: string[] = [];
@@ -331,7 +337,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
   const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") ||
-    (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && c.peek() === "=" && c.peek(1) !== "="; return ok; })();
+    (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && ((c.peek() === "=" && c.peek(1) !== "=") || c.startsWith("key ")); return ok; })();
   c.i = save; return r;
 }
 function parseElement(c: Cursor): Markup {

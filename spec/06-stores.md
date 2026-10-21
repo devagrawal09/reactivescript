@@ -3,9 +3,9 @@
 **Status: OPEN (2026-10-21).** Structured values, sources with a standing
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
-F-9, F-11 and the derived rules they restate. In `ref/`: ST-1, ST-2,
-ST-2a/c, ST-5, AC-1…AC-5 (S-store-1, S-store-4, S-solid-8/9/15/20/26/32…35/37).
-Not yet: ST-3 draft, ST-4 key, ST-6 yield, AC-6 until.
+F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Not yet: AC-6
+`until`, optimistic path writes.
 
 ---
 
@@ -44,8 +44,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **ST-3a.** `draft(e) Block` evaluates `e` (normally `pre x -> seed`),
   binds a copy of it to `d` in the block, runs the block (the only place
   `:=` appears in reactive scope, and only on paths rooted at `d`), and the
-  equation's value is `d`. Writes are the delta (O(changes)); identity of
-  untouched sub-objects is preserved.
+  equation's value is `d`. Writes are the delta (O(changes)); the copy is
+  made along written paths only, so untouched sub-objects keep identity
+  (S-store-2). E-6 then compares the draft with the previous value per
+  path: an unchanged key's readers and effects are quiet.
 - **ST-3b.** The block is reactive scope for reads: every read is an input.
   It is not imperative scope: no `io` calls, no writes to anything but `d`
   (W-1 applies), no `await` except as an equation input.
@@ -55,10 +57,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 
 ## ST-4 — Key
 
-- **ST-4a.** `x: T[] key k = e` declares that elements of `x` have identity
-  `k`. A new result is **reconciled** by `k`: rows with the same key keep
-  their object identity and receive per-key path updates; new keys create,
-  missing keys remove. `pending?` and `latest` on an element follow the key.
+- **ST-4a.** `x: T[] key k = e` (abstract syntax `x key k = e`) declares
+  that elements of `x` have identity `k`. A new result is **reconciled** by
+  `k`: rows with the same key keep their object identity and receive
+  per-key path updates (their readers run only for changed keys); new keys
+  create, missing keys remove; a reorder moves rows (S-store-3). `pending?`
+  and `latest` on an element follow the key.
 - **ST-4b.** `for u in x` over a keyed collection uses the key for row
   identity (RG-2a). An unkeyed `for` over records whose values change is a
   diagnostic (`UNSTABLE_LIST_IDENTITY`, bin S).
@@ -78,9 +82,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 ## ST-6 — Streams
 
 - **ST-6a.** `yield v` in an equation body is another answer to the same
-  question: a quiet update (F-9), each landing its own change. A change to
-  an input restarts the body (R-4) and runs its `finally`. `yield` has no
-  meaning in imperative scope.
+  question: a quiet update (F-9), each landing its own change —
+  `pending?` is `false` after the first answer. A change to an input
+  restarts the body (R-4) — later answers of the old body are inert — and
+  runs its `finally`. `yield` has no meaning in imperative scope. In `ref/`
+  a stream is a flight that lands more than once (S-store-5); the body form
+  waits on 07's concrete syntax.
 - **ST-6b.** `await` of an async iterable is its latest answer; the loop is
   implied. A keyed structured stream reconciles each answer (ST-4).
 - **ST-6c.** Solid: an async-generator memo/projection; `live(fn)`.
@@ -153,10 +160,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 ## Scenarios
 
 - `S-store-1`: path writes notify per key; a root write compares per path (ST-2). ✓
-- `S-store-2`: draft delta keeps identity (ST-3). — pending
-- `S-store-3`: keyed reconcile; rows keep identity across a new result (ST-4). — pending
+- `S-store-2`: draft delta keeps identity (ST-3). ✓
+- `S-store-3`: keyed reconcile; rows keep identity across a new result (ST-4). ✓
 - `S-store-4`: `source x = e` derived until written; refresh is quiet (ST-5, AC-4). ✓
-- `S-store-5`: yield stream, restart on input change (ST-6). — pending
+- `S-store-5`: stream of answers, restart on input change (ST-6). ✓
 - Solid ports: S-8 (+ rejection variant), S-9 (inverted: no escape), S-15,
   S-20 (+ the race the fallback won), S-26 rows 4–7 (+ verdict-inert guess),
   S-32 (+ two rejected variants), S-33, S-34, S-35 (+ derived flight), S-37

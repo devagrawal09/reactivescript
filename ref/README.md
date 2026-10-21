@@ -18,17 +18,17 @@ Phase 1 is checked against `scenarios/` only; runtime diffing against
 `@solidjs/signals` begins in phase 3, where divergences are expected and
 recorded.
 
-Status: phase 3 (holds) plus the imperative forms of 06 (`action`, inline
-`action { }`, `optimistic`, `refresh`, `affects`, `source x = e`, per-key
-pending). `node --experimental-strip-types ref/run.ts [filter]`
-runs `scenarios/S-*.md`; S-core-1, S-region-1..6, S-hold-1..5, S-store-1/4
+Status: phase 3 (holds) plus 06 (`action`, inline `action { }`,
+`optimistic`, `refresh`, `affects`, `source x = e`, per-key pending,
+`draft`, `key`, streams as repeated landings). `node --experimental-strip-types ref/run.ts [filter]`
+runs `scenarios/S-*.md`; S-core-1, S-region-1..6, S-hold-1..5, S-store-1..5
 and thirty-eight ports of Solid's SCENARIOS (S-solid-*) pass — every scenario
 not behind portals, two roots, imperative probes, draft/key/yield or S-39
 (per-change membership with served reads and joining, loading/errored
 boundaries, `on` re-arm, probes/lanes, lane holds, superseded flights,
 action holds with revert, guesses with correction and provenance, quiet
-re-asks, declared pending). Not modelled yet: `draft`, `key`, `yield`,
-`until`, optimistic path writes, revert of held path writes.
+re-asks, declared pending). Not modelled yet: `until`, a `yield` body form,
+optimistic path writes, revert of held path writes.
 
 Scenario actions: `handler \`stmts\`` (an imperative run; may call an action,
 which suspends at a statement-level `await`), `resolve x v` / `reject x e`

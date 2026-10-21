@@ -6,10 +6,10 @@ Rules: AC-1, AC-3, ST-5, H-11.
 
 ```
 source name := "Ann"
-source draft = name
+source shown = name
 source saved := false
-action rename(n) { optimistic draft := n; saved := true; await fetch("save"); name := n }
-<p>{draft} / {if saved then "saved" else "unsaved"} / {if pending? draft then "p" else "-"} {if pending? saved then "p" else "-"}</p>
+action rename(n) { optimistic shown := n; saved := true; await fetch("save"); name := n }
+<p>{shown} / {if saved then "saved" else "unsaved"} / {if pending? shown then "p" else "-"} {if pending? saved then "p" else "-"}</p>
 ```
 
 ## Frames
@@ -20,9 +20,9 @@ action rename(n) { optimistic draft := n; saved := true; await fetch("save"); na
 | 1       | handler `rename("Bob")`  | `Bob / unsaved / - p`  |
 | 2       | resolve "save" 0         | `Bob / saved / - -`    |
 
-Instant 1: the guess shows; `saved = true` is held; `pending? draft` is
+Instant 1: the guess shows; `saved = true` is held; `pending? shown` is
 `false` (verdict-inert), `pending? saved` is `true`. Instant 2: `name := n`
-after the `await` is the action's; `draft` re-derives to the guess — a
+after the `await` is the action's; `shown` re-derives to the guess — a
 silent confirm; the body returns; the guess ends and the held write commits
 in one frame. Never `Ann / unsaved` after 1 (guess held) nor `Bob / saved`
 (held write leaked).
@@ -31,10 +31,10 @@ in one frame. Never `Ann / unsaved` after 1 (guess held) nor `Bob / saved`
 
 ```
 -- reject: OPTIMISTIC_OUTSIDE_HOLD
--- handler: optimistic draft := "Zed"
+-- handler: optimistic shown := "Zed"
 source name := "Ann"
-source draft = name
-<p>{draft}</p>
+source shown = name
+<p>{shown}</p>
 ```
 
 A guess outside a hold does not exist (D-32); here it is unwritable.
@@ -42,7 +42,7 @@ A guess outside a hold does not exist (D-32); here it is unwritable.
 ```
 -- reject: OPTIMISTIC_NO_QUESTION
 -- handler: fix()
-source draft := "Ann"
-action fix() { optimistic draft := "Zed"; await fetch("x") }
-<p>{draft}</p>
+source shown := "Ann"
+action fix() { optimistic shown := "Zed"; await fetch("x") }
+<p>{shown}</p>
 ```
