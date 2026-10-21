@@ -47,6 +47,9 @@ export class Node {
   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
   heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
+  served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
+  triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
+  kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
@@ -105,7 +108,7 @@ export class Runtime {
   private groupOpen(c: number) { return this.openChanges.has(this.find(c)); }
   private tracking: Node | null = null;
   private demandMode = true;
-  private servedPending = new Set<Node>();              // pending flights a display was served the committed value for: they keep their change open
+  private probing = 0;                                  // inside `latest`: reads σ′, never served
   program: Program;
 
   constructor(program: Program) {
@@ -195,7 +198,7 @@ export class Runtime {
     if (this.instant === 0) for (const n of this.allNodes()) if (n.kind === "source") { n.changed = true; n.evaluated = true; }
 
     // Phase 2 — settle (E-3) against σ′: readers of the in-flight structure, effect computes, boundaries (H-5/H-6).
-    const settleAll = () => { const holding: Node[] = []; this.servedPending.clear(); this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
+    const settleAll = () => { const holding: Node[] = []; this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
     let holding = settleAll();
 
     // Hold decision per change group (H-2, H-3, H-4; Solid D-1..D-5): a reader holds the group it joined; a group with no holder commits.
@@ -204,7 +207,7 @@ export class Runtime {
     for (let pass = 0; pass < 3; pass++) {
       const heldRoots = new Set<number>();
       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
-      for (const n of this.servedPending) if (n.heldBy !== null) heldRoots.add(this.find(n.heldBy));   // a flight a display still waits on keeps its change open (F-2)
+      for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal && b.heldBy !== null) heldRoots.add(this.find(b.heldBy));   // a flight a display still waits on keeps its change open (F-2)
       let any = false;
       for (const g of roots()) {
         if (heldRoots.has(g)) { this.openChanges.add(g); continue; }
@@ -217,7 +220,7 @@ export class Runtime {
     if (!this.committedOnce && !committedSome) {
       for (const h of holding) if (!h.region.boundary) this.diagnostics.push(`ASYNC_OUTSIDE_LOADING_BOUNDARY: ${h.name} is pending at mount with no loading boundary; the mount is held`);
     }
-    if (committedSome) this.committedOnce = true;
+    if (!this.committedOnce && !this.openChanges.has(this.find(0)) && committedSome) this.committedOnce = true;   // the view attaches when the mount's change commits
     // Verdicts are final only after the decision (H-9): lane readers re-settle against the decided world, then show ahead (H-7).
     for (const n of this.allNodes()) if (n.lane) { n.evaluated = false; n.state = "dirty"; }
     this.settle(this.view, [], null);
@@ -254,9 +257,12 @@ export class Runtime {
   private commitGroup(g: number) {
     for (const n of this.allNodes()) {
       if (n.heldBy !== null && this.find(n.heldBy) === g) {
-        n.heldBy = null; if (n.hasValue) { n.committed = n.value; n.hasCommitted = true; }
+        n.heldBy = null;
         if (n.kind === "source") this.notify(n, "");                   // readers served the old committed value re-run
       }
+      const stillHeld = n.heldBy !== null && this.openChanges.has(this.find(n.heldBy)) && this.find(n.heldBy) !== g;
+      const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
+      if (n.hasValue && !stillHeld && !openTaint && !(n.value instanceof PendingVal)) { n.committed = n.value; n.hasCommitted = true; }
       if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
     }
     this.commit(this.view, g);
@@ -275,17 +281,19 @@ export class Runtime {
         if (i.node.lane) { i.node.heldOn = null; return; }                                                                 // H-7: lanes never hold
         // changes this reader consumes that are already held (its own instant's fresh writes are not held yet)
         const open = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+        const entangles = i.node.taint.has(this.instant) || i.node.triggered;                                              // consumed this instant's writes, or this instant's writes caused the pass (D-4)
+        const join = () => {                                                                                               // the changes this reader consumes become one (D-4); the current instant joins only if entangled
+          for (const c of open) this.union(open[0], c);
+          if (entangles || open.length === 0) { if (open.length) this.union(this.instant, open[0]); return this.find(this.instant); }
+          return this.find(open[0]);
+        };
         if (v instanceof PendingVal) {
           const eb = nearest(boundary, "errored"); if (eb && eb.showingFallback) { eb.stillWaiting = true; i.node.heldOn = null; return; }   // pending is not an answer
           const lb = nearest(boundary, "loading");
           if (lb && lb.armed) { lb.caught.push(i.node); i.node.heldOn = null; return; }                                   // H-5: caught, holds nothing
-          for (const c of open) this.union(this.instant, c);                                                                // the reader joins every held change it consumes
-          i.node.heldOn = this.find(this.instant); holding.push(i.node); return;                                            // H-4 / H-6
+          i.node.heldOn = join(); holding.push(i.node); return;                                                            // H-4 / H-6
         }
-        if (open.length > 0) {                                                                                             // derived from a held change: reveals with it, holds nothing (H-8, Solid D-1)
-          for (const c of open) this.union(this.instant, c);
-          i.node.heldOn = this.find(this.instant); return;
-        }
+        if (open.length > 0) { i.node.heldOn = join(); return; }                                                           // derived from a held change: reveals with it, holds nothing (H-8, D-1)
         if (i.node.taint.has(this.instant)) { i.node.heldOn = this.find(this.instant); return; }                           // consumed this instant's writes: shows at its commit (F-2)
         i.node.heldOn = null; i.shown = fmt(v); return;                                                                    // only committed / served values: shows now (Solid D-3)
       }
@@ -395,12 +403,12 @@ export class Runtime {
 
   // ---- invalidation / pull (E-3, E-6, E-8) ----
   private notify(t: Target, key: string) { for (const s of this.subs.get(t)?.get(key) ?? []) this.markDirty(s); }
-  unsubscribe(n: Node) { for (const [t, ks] of n.deps) for (const k of ks) this.subs.get(t)?.get(k)?.delete(n); n.deps.clear(); }
+  unsubscribe(n: Node, clear = true) { for (const [t, ks] of n.deps) for (const k of ks) this.subs.get(t)?.get(k)?.delete(n); if (clear) n.deps.clear(); }
   private subscribe(n: Node) { for (const [t, ks] of n.deps) for (const k of ks) { let m = this.subs.get(t); if (!m) this.subs.set(t, (m = new Map())); let st = m.get(k); if (!st) m.set(k, (st = new Set())); st.add(n); } }
   private markDirty(m: Node, st: "dirty" | "check" = "dirty") {
     const rank = { clean: 0, check: 1, dirty: 2 } as const;
     if (rank[m.state] >= rank[st]) return;
-    m.state = st;
+    m.state = st; m.evaluated = false;                                  // may be re-pulled within the same instant (second settle pass)
     for (const s of this.subs.get(m)?.get("") ?? []) this.markDirty(s, "check");
   }
   pull(n: Node): unknown {
@@ -409,15 +417,18 @@ export class Runtime {
     n.demanded = true;
     if (n.evaluated) return n.value;
     let recompute = !n.hasValue || n.state === "dirty";
-    if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal)) recompute = true;   // a held display re-runs its pass each instant (served reads live in evaluation)
+    const notified = n.state !== "clean" || !n.hasValue;
+    if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal || n.served.size > 0)) recompute = true;   // a held or served display re-runs its pass each instant
     if (!recompute) {
       n.taint = new Set();
       for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); for (const t of d.taint) n.taint.add(t); if (n.state === "check" && d.changed) { recompute = true; break; } }
       if (!recompute && n.state === "check") recompute = true;
     }
     if (recompute) {
+      const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
       this.unsubscribe(n); for (const d of n.preDeps) d.preSubs.delete(n); n.preDeps.clear();
-      const prevTracking = this.tracking; this.tracking = n; n.lane = false; const prevFlight = n.flight; n.flight = null; n.taint = new Set();
+      const prevTracking = this.tracking; this.tracking = n; n.lane = false; const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.served = new Set();
+      n.triggered = notified;
       let v: unknown;
       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
       this.tracking = prevTracking;
@@ -428,6 +439,13 @@ export class Runtime {
       n.hasValue = true;
       if (!isAbsent(v)) n.answered = true;
       if (n.flight && n.flight !== prevFlight) n.heldBy = this.instant;   // a new question: the flight belongs to this change (R-4)
+      if (n.heldBy !== null) n.taint.add(n.heldBy);
+      // D-10: while this value is held by an open change, the committed pass's inputs stay subscribed.
+      const heldNow = [...n.taint].some(t => this.openChanges.has(this.find(t)) || t === this.instant);
+      if (n.kind === "eq" && heldNow) { for (const [t, ks] of [...oldDeps, ...n.kept]) { let s2 = n.kept.get(t); if (!s2) n.kept.set(t, (s2 = new Set())); for (const k of ks) s2.add(k); } }
+      else n.kept.clear();
+      for (const [t, ks] of n.kept) { let s2 = n.deps.get(t); if (!s2) n.deps.set(t, (s2 = new Set())); for (const k of ks) s2.add(k); }
+      this.unsubscribe(n, false); this.subscribe(n);   // re-subscribe with kept inputs included
     }
     if (n.heldBy !== null) n.taint.add(n.heldBy);
     n.state = "clean"; n.evaluated = true;
@@ -470,7 +488,7 @@ export class Runtime {
           const held = b.heldBy !== null && b.heldBy !== this.instant && this.groupOpen(b.heldBy);
           const future = b.kind === "source" || b.value instanceof PendingVal;                   // a landed answer is consumed, not served
           const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
-          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed) { if (b.value instanceof PendingVal) this.servedPending.add(b); return b.committed; }   // D-3: served the committed value
+          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
           for (const t of b.taint) this.tracking.taint.add(t);
         }
         return v;
@@ -496,7 +514,7 @@ export class Runtime {
       }
       case "latest": {                                                 // R-9 probe: reads σ′
         if (this.tracking) this.tracking.lane = true;
-        return this.ev(e.e, region, env);
+        this.probing++; try { return this.ev(e.e, region, env); } finally { this.probing--; }
       }
       case "pending": {                                                // R-9 / H-9 verdict
         if (this.tracking) this.tracking.lane = true;

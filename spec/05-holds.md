@@ -61,6 +61,17 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   write ever shows ahead (S-solid-2: `Panel 1` beside `Count 0` is
   impossible).
 
+- **H-3a (Membership is the tick's).** [Solid D-4, D-10] An instant `d`
+  joins an open change `c` only through a pass that `d`'s own writes
+  *triggered* and that consumed `c`'s held value — not through the
+  maintenance re-run of a reader that was already held (S-solid-3: the
+  unrelated `title` write is not swallowed). An equation whose held pass
+  dropped an input keeps the inputs of its committed pass subscribed until
+  it commits, so a write to a kept input still triggers it (S-solid-12:
+  `count` reaches `selected` though the held pass reads only `fixed`, and
+  the pass joins). The view attaches when the mount's own change commits,
+  not when any change does (S-solid-11 instant 1).
+
 - **H-4 (Who holds).** [F-3] A reader holds the group it joined iff it is
   pending after its pass, it is still the display (its region is live and it
   will still be a reader after the instant), no armed boundary catches it
@@ -145,7 +156,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 ## Scenarios
 
 Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
-this spec's own. Ported so far: S-1, S-2, S-4. Divergences found and fixed
+this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S-7, S-10,
+S-11, S-12, S-13. Divergences found and fixed
 by porting are recorded in the rule they changed.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
