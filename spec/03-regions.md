@@ -103,6 +103,24 @@ A component is a function from a props value to a region whose tail is a view.
   child writes it (O-4), or passes a handler the child calls. (Solid: `ref`
   props.)
 
+### RG-6 Instantiation
+
+A call to a function with a `ref` parameter or a node-declaring body (E-9).
+
+- **RG-6a (Once, in the caller's region).** The call creates a region nested
+  in the region of the call site; the body's sources, effects, and nested
+  regions are owned by it. The call is not re-evaluated; its result is a value
+  (often an equation) bound in the caller.
+- **RG-6b (Arguments).** Ref arguments are equations passed by reference and
+  keep updating inside the body. Value arguments are snapshots at
+  instantiation (E-4). An expression passed to a ref parameter is wrapped as an
+  equation at the call site.
+- **RG-6c (Composition).** Pure transforms compose by lifting (`double(count)`
+  is an equation); primitives compose by instantiation (`debounce(ref query,
+  300)` owns an effect). A function's kind is visible in its signature; the
+  call site need not know which it is, only that the first re-evaluates and
+  the second does not.
+
 ### RG-5 Boundaries
 
 `loading` and `errored` are regions whose content is a nested region that the

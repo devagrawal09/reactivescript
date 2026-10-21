@@ -59,6 +59,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **SC-3 Lexical inheritance.** A closure created in a scope is in that scope.
   A `fn` value created in reactive scope is a pure function; a closure created
   in an apply block or handler is imperative and may write.
+- **SC-4 Handler positions.** An event attribute in a view (`on*={…}`) takes an
+  imperative function. An arrow literal written there is imperative scope
+  regardless of the enclosing view; a named function there must be `io` or
+  pure. The event is the function's parameter.
 
 ---
 
@@ -100,6 +104,18 @@ Function application `f(e…)` covers both language functions and FFI imports;
   an instant has no value in that frame: no cached value for E-6 and no `pre`
   (P-6). When next demanded it is evaluated from scratch and counts as changed.
   Its *region* (03) is unaffected; this is about state, not lifetime.
+- **E-9 (Parameters: value or ref).** A `fn` parameter is a *value* parameter
+  by default; `ref x` declares a *ref* parameter, which denotes an equation
+  inside the body. A call with only value parameters is **lifted** (E-2): it
+  is an equation over its arguments' inputs and re-evaluates with them. A call
+  to a function with any `ref` parameter, or whose body declares a source,
+  effect, or region, is an **instantiation** (03 RG-6): it happens once at the
+  call site. In an instantiation, value arguments are snapshots (E-4) and ref
+  arguments are passed as equations.
+- **E-10 (Nodes need a region).** A function whose body declares a source,
+  effect, or region and reads a value parameter from inside that declaration
+  is rejected: the parameter must be `ref`. (This is the lost-reactivity bug
+  as a compile error: a lifted call has no region to own the node.)
 
 ### W — Writes
 
@@ -119,6 +135,21 @@ Function application `f(e…)` covers both language functions and FFI imports;
   its declaring region or a region nested in it, or by a handler that was
   handed the source explicitly. Exported sources export a reader; the writer is
   exported only when declared so. (Full rule: 03-regions O-4.)
+
+### IO — Effectful functions
+
+- **IO-1 (Rows, reserved).** A `fn` is pure unless its row says `io`. A
+  function is `io` if its body writes a source, performs an external effect,
+  or calls an `io` function. The row is inferred; the annotation `! io` exists
+  for declarations and for display.
+- **IO-2 (Call position).** An `io` function may be called only in imperative
+  scope. Calling one in reactive scope is rejected (the write rule, W-1,
+  cannot be bypassed through a call).
+- **IO-3 (FFI).** An imported function has no row and is assumed pure
+  value→value. A declaration may mark an import `io`. This assumption is the
+  trust boundary; it is not checked.
+
+(The other rows — `pending`, `lane` — and inference: 04-rows.)
 
 ### C — Causality
 
