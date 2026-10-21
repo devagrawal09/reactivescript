@@ -224,24 +224,15 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     if (c.startsWith("{")) { c.i++; c.ws(); const e = parseExpr(c); c.ws(); c.expect("}"); out.push({ k: "read", e }); continue; }
     if (c.keyword("if")) {
       c.ws(); const cond = parseExpr(c); c.ws(); c.expect("{");
-      const t = parseMarkup(c, "}"); c.ws();
-      let f: Markup[] = [];
-      if (c.keyword("else")) { c.ws(); c.expect("{"); f = parseMarkup(c, "}"); }
-      out.push({ k: "mif", c: cond, t, f }); continue;
+      const t = parseBlockBody(c); c.ws();
+      let f: { decls: Decl[]; body: Markup[] } = { decls: [], body: [] };
+      if (c.keyword("else")) { c.ws(); c.expect("{"); f = parseBlockBody(c); }
+      out.push({ k: "mif", c: cond, t: t.body, tDecls: t.decls, f: f.body, fDecls: f.decls }); continue;
     }
     if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
       if (!c.keyword("in")) c.fail("in"); c.ws(); const xs = parseExpr(c); c.ws(); c.expect("{");
-      const decls: Decl[] = [];
-      for (;;) {
-        c.ws();
-        const save = c.i;
-        const isDecl = c.startsWith("source ") || c.startsWith("effect") ||
-          (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && c.peek() === "=" && c.peek(1) !== "="; c.i = save; return ok; })();
-        if (!isDecl) break;
-        decls.push(parseDecl(c)); c.ws(); c.eat(";");
-      }
-      const body = parseMarkup(c, "}");
+      const { decls, body } = parseBlockBody(c);
       out.push({ k: "mfor", name, xs, decls, body }); continue;
     }
     if (closeTag === null && (c.startsWith("source ") || c.startsWith("effect") || c.startsWith("view "))) return out;
@@ -251,6 +242,16 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     if (s.trim() === "" && closeTag === null && c.peek() === "\n") { c.i++; if (looksLikeDecl(c)) return out; continue; }
     out.push({ k: "text", s });
   }
+}
+/** A reactive block body: declarations, then markup, up to the closing `}` (03: any block is decls then view). */
+function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
+  const decls: Decl[] = [];
+  for (;;) {
+    c.ws();
+    if (!looksLikeDecl(c)) break;
+    decls.push(parseDecl(c)); c.ws(); c.eat(";");
+  }
+  return { decls, body: parseMarkup(c, "}") };
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();

@@ -4,7 +4,7 @@ import { Runtime, RuleError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string };
+type Rejected = { rule: string; program: string; handlers: string[] };
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[] };
 
 const strip = (s: string) => s.replace(/`/g, "").trim();
@@ -34,7 +34,8 @@ export function parseScenario(name: string, md: string): Scenario {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
         const r = /--\s*reject:\s*([\w-]+)/.exec(first);
-        if (r) rejected.push({ rule: r[1], program: rest.join("\n") });
+        if (r) rejected.push({ rule: r[1], program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
+          handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
       }
     }
   }
@@ -75,7 +76,7 @@ export function runScenario(sc: Scenario): Result {
       const rt = new Runtime(parseProgram(rj.program));
       rt.step([]);
       // handlers in rejected programs: run any `handler:` comment lines
-      for (const m of rj.program.matchAll(/--\s*handler:\s*(.*)/g)) rt.handler(parseStmts(m[1]));
+      for (const m of rj.handlers) rt.handler(parseStmts(m));
       ok = false; lines.push(`  ✗ rejected(${rj.rule}): accepted`);
     } catch (e) {
       const rule = e instanceof RuleError ? e.rule : e instanceof ParseError ? (/([A-Z]+-\d+)/.exec(e.message)?.[1] ?? "parse") : "crash";

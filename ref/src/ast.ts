@@ -33,7 +33,7 @@ export type Markup =
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }
   | { k: "read"; e: Expr }
   | { k: "text"; s: string }
-  | { k: "mif"; c: Expr; t: Markup[]; f: Markup[] }
+  | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] };
 
 export type Program = { decls: Decl[] };

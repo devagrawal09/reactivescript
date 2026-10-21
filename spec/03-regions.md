@@ -15,9 +15,11 @@ when the region ends. Regions nest; the program is the root region.
 - **O-1 (Every declaration has a region).** A source, equation, effect, or
   reader is declared in exactly one region: the innermost enclosing block.
   There is no unowned declaration.
-- **O-2 (Release).** When a region ends: its effects' cleanups run (EF-5), its
-  readers leave the view, its sources and equations cease to exist, and its
-  nested regions end first (innermost out). Nothing outside the region may
+- **O-2 (Release).** When a region ends: its readers leave the view, its
+  sources and equations cease to exist, its nested regions end first
+  (innermost out), and its effects' cleanups run (EF-5) — in the observe phase
+  of the instant that ended it, before any apply block of that instant, since
+  cleanups are imperative. Nothing outside the region may
   hold a reference to any of them afterward (O-3 is the only way out).
 - **O-3 (Escape).** A value declared in region `R` may be stored into a source
   or returned to a region that outlives `R` only through an explicit `escape`.
