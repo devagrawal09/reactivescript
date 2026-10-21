@@ -70,7 +70,9 @@ export function runScenario(sc: Scenario): Result {
       if (!got) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: no instant produced`); break; }
       const norm = (s: string) => s.replace(/\s+/g, " ").trim();
       const frameOk = norm(got.frame) === norm(r.frame);
-      const effOk = rows.indexOf(r) < own || got.effects.join("; ") === r.effects.join("; ");
+      const prefixed = rows.indexOf(r) < own;
+      const effOk = prefixed || got.effects.join("; ") === r.effects.join("; ");
+      if (prefixed && t.program) { continue; }                          // a variant with its own program: prefix rows only drive state
       if (frameOk && effOk) lines.push(`  ✓ ${t.title} instant ${r.instant}: ${norm(got.frame)}${got.effects.length ? "  [" + got.effects.join("; ") + "]" : ""}`);
       else { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: expected frame '${norm(r.frame)}' effects [${r.effects.join("; ")}], got '${norm(got.frame)}' effects [${got.effects.join("; ")}]`); }
     }

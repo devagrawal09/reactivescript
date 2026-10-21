@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "fallback", "on", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -284,6 +284,12 @@ function parseControl(c: Cursor): Markup | null {
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
       return { k: "loading", on, fallback, decls, body };
+  }
+  if (c.keyword("errored")) {
+      c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(); c.expect("{");
+      const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
+      const { decls, body } = parseBlockBody(c);
+      return { k: "errored", fallback, decls, body };
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();

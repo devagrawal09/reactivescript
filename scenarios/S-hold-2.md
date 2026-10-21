@@ -1,0 +1,95 @@
+# S-hold-2 — shared input, three panels; `on` releases one
+
+Mirrors Solid `concepts/async-reactivity` (the dashboard). Rules: H-2, H-4,
+H-5, H-6, H-7, R-4.
+
+## Program
+
+```
+source period := "q1"
+summary = await fetch("s:" + period)
+trend   = await fetch("t:" + period)
+audit   = await fetch("a:" + period)
+<div>
+  <p>{latest period}</p>
+  {loading fallback { <p>skel</p> } {
+    <div><p>{summary}</p> <p>{trend}</p> <p>{audit}</p></div>
+  }}
+</div>
+```
+
+## Frames
+
+| instant | action                   | frame           |
+| ------- | ------------------------ | --------------- |
+| 0       | mount                    | `q1 skel`       |
+| 1       | resolve summary 1        | `q1 skel`       |
+| 2       | resolve trend 2          | `q1 skel`       |
+| 3       | resolve audit 3          | `q1 1 2 3`      |
+| 4       | handler `period := "q2"` | `q2 1 2 3`      |
+| 5       | resolve summary 10       | `q2 1 2 3`      |
+| 6       | resolve audit 30         | `q2 1 2 3`      |
+| 7       | resolve trend 20         | `q2 10 20 30`   |
+
+The write to `period` is held until the slowest panel answers; the three
+change together (H-2). `latest period` moves at once (H-7).
+
+## Variant: the audit panel takes its own skeleton with `on`
+
+```
+source period := "q1"
+summary = await fetch("s:" + period)
+trend   = await fetch("t:" + period)
+audit   = await fetch("a:" + period)
+<div>
+  <p>{latest period}</p>
+  {loading fallback { <p>skel</p> } {
+    <div><p>{summary}</p> <p>{trend}</p></div>
+  }}
+  {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+</div>
+```
+
+| instant | action                   | frame               |
+| ------- | ------------------------ | ------------------- |
+| 0       | mount                    | `q1 skel askel`      |
+| 1       | resolve summary 1        | `q1 skel askel`      |
+| 2       | resolve trend 2          | `q1 1 2 askel`       |
+| 3       | resolve audit 3          | `q1 1 2 3`           |
+| 4       | handler `period := "q2"` | `q2 1 2 3`           |
+| 5       | resolve summary 10       | `q2 1 2 3`           |
+| 6       | resolve trend 20         | `q2 10 20 askel`     |
+| 7       | resolve audit 30         | `q2 10 20 30`        |
+
+Instant 4: the `on` boundary re-arms and takes its panel out of the hold
+(H-6), but the other two panels still hold the write, so the page waits.
+Instant 6: the hold commits; the re-armed boundary shows its skeleton from
+that swap because its own request has not landed (H-5: the fallback
+belongs to the frame of the change that armed it).
+
+## Variant: audit lands first — its skeleton is never seen
+
+```
+source period := "q1"
+summary = await fetch("s:" + period)
+trend   = await fetch("t:" + period)
+audit   = await fetch("a:" + period)
+<div>
+  <p>{latest period}</p>
+  {loading fallback { <p>skel</p> } {
+    <div><p>{summary}</p> <p>{trend}</p></div>
+  }}
+  {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+</div>
+```
+
+| instant | action                   | frame               |
+| ------- | ------------------------ | ------------------- |
+| 0       | mount                    | `q1 skel askel`     |
+| 1       | resolve summary 1        | `q1 skel askel`     |
+| 2       | resolve trend 2          | `q1 1 2 askel`      |
+| 3       | resolve audit 3          | `q1 1 2 3`           |
+| 4       | handler `period := "q2"` | `q2 1 2 3`           |
+| 5       | resolve audit 30         | `q2 1 2 3`           |
+| 6       | resolve summary 10       | `q2 1 2 3`           |
+| 7       | resolve trend 20         | `q2 10 20 30`        |

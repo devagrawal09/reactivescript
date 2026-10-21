@@ -45,6 +45,7 @@ Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
 Control   ::= if Expr RBlock else RBlock         -- each branch is a reactive block (region)
             | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
             | loading [on(Expr)] fallback { Markup* } RBlock    -- 05 H-5/H-6
+            | errored fallback { Markup* } RBlock              -- 05 H-12
                                               -- inside an element, text is literal: control forms are braced,
                                               -- `{if c { … }}`, the way JSX braces `{cond && …}` (found by ref/: S-hold-1)
 

@@ -111,7 +111,10 @@ and it commits as one frame when nothing held is still pending.
 - **H-12 (Errors).** [F-12] An error value reaching a reader under `errored`
   sends that region to its fallback, which is then the display (H-4: readers
   behind it hold nothing). Pending is never an error: `errored` does not
-  catch it. An error that escapes every boundary halts the instant and the
+  catch it — and it is not an answer either: an `errored` region on its
+  fallback stays there while the content under it is pending, and leaves
+  only when a value replaces the error (Solid D-39; found by `ref/`:
+  S-hold-5 instant 2). An error that escapes every boundary halts the instant and the
   reactive system. Apply-block errors are imperative and ordinary; compute-
   half errors are values (E-12).
 

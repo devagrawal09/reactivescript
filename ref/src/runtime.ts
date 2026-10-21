@@ -71,13 +71,15 @@ type Write = { node: Node; path: (string | number)[]; value: unknown };
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
-type BoundaryItem = { k: "loading"; m: Extract<Markup, { k: "loading" }>; region: Region; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; pendingUnder: Node[] };
+type BoundaryItem = { k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean };
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst }
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
   | { k: "mif"; m: Extract<Markup, { k: "mif" }>; cond: Node; region: Region; committed: { branch: string; inst: ViewInst } | null; inflight: { branch: string; inst: ViewInst } | null }
   | { k: "mfor"; m: Extract<Markup, { k: "mfor" }>; xs: Node; region: Region; committedRows: Row[]; inflightRows: Row[] }
   | BoundaryItem;
+
+function nearest(b: BoundaryItem | null, kind: "loading" | "errored"): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === kind) return x; return null; }
 
 // ---------------------------------------------------------------- runtime
 export class Runtime {
@@ -239,7 +241,12 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
-        if (v instanceof PendingVal && !i.node.lane) { if (boundary && boundary.armed) boundary.pendingUnder.push(i.node); else holding.push(i.node); }   // H-4, H-5
+        if (v instanceof ErrVal) { const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node); return; }       // H-12
+        if (v instanceof PendingVal && !i.node.lane) {
+          const eb = nearest(boundary, "errored"); if (eb && eb.showingFallback) { eb.stillWaiting = true; return; }     // H-4/H-12: pending is not an answer
+          const lb = nearest(boundary, "loading");
+          if (lb && lb.armed) lb.caught.push(i.node); else holding.push(i.node);                                           // H-5 / H-6
+        }
         return;
       }
       case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
@@ -280,11 +287,17 @@ export class Runtime {
         return;
       }
       case "loading": {
-        if (i.onNode) { this.pull(i.onNode); if (i.onNode.changedSinceCommit && !i.armed) i.armed = true; }   // H-6: `on` re-arms
-        i.pendingUnder = [];
+        if (i.onNode) { this.pull(i.onNode); if (i.onNode.changed && !i.armed) i.armed = true; }   // H-6: a change to what `on` reads re-arms
+        i.caught = [];
         this.settle(i.content, holding, i);
-        if (i.armed) { i.showingFallback = i.pendingUnder.length > 0; if (!i.showingFallback) i.armed = false; }  // H-5: catch; disarm when ready
-        else for (const n of i.pendingUnder) holding.push(n);          // (not reached: disarmed passes `i` with armed=false)
+        if (i.armed) { i.showingFallback = i.caught.length > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready
+        if (i.showingFallback) this.settle(i.fallback, holding, boundary);
+        return;
+      }
+      case "errored": {
+        i.caught = []; i.stillWaiting = false;
+        this.settle(i.content, holding, i);
+        i.showingFallback = i.caught.length > 0 || (i.showingFallback && i.stillWaiting);   // H-12: fallback until a new *answer* (D-39)
         if (i.showingFallback) this.settle(i.fallback, holding, boundary);
         return;
       }
@@ -295,11 +308,11 @@ export class Runtime {
     switch (i.k) {
       case "text": return;
       case "comp": return this.commit(i.inst);
-      case "read": { const val = i.node.value; i.shown = val instanceof ViewValue ? (this.commit(val), null) : fmt(val); return; }
+      case "read": { const val = i.node.value; if (val instanceof ViewValue) { this.commit(val); i.shown = null; } else if (val instanceof PendingVal) { i.shown = i.shown ?? ""; } else i.shown = fmt(val); return; }
       case "el": { for (const c of i.children) this.commitItem(c); return; }
       case "mif": { if (i.inflight !== i.committed) { i.committed?.inst.region.dispose(); i.committed = i.inflight; } if (i.committed) this.commit(i.committed.inst); return; }
       case "mfor": { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; for (const r of i.committedRows) this.commit(r.inst); return; }
-      case "loading": { this.commit(i.content); this.commit(i.fallback); return; }
+      case "loading": case "errored": { i.committedFallback = i.showingFallback; this.commit(i.content); this.commit(i.fallback); return; }
     }
   }
   private renderCommitted(v: ViewInst): string { return v.items.map(i => this.renderItem(i)).join(""); }
@@ -311,7 +324,7 @@ export class Runtime {
       case "el": return i.children.map(c => this.renderItem(c)).join("");
       case "mif": return i.committed ? this.renderCommitted(i.committed.inst) : "";
       case "mfor": return i.committedRows.map(r => this.renderCommitted(r.inst)).join("");
-      case "loading": return i.showingFallback ? this.renderCommitted(i.fallback) : this.renderCommitted(i.content);
+      case "loading": case "errored": return i.committedFallback ? this.renderCommitted(i.fallback) : this.renderCommitted(i.content);
     }
   }
   /** H-7: during a hold, lane readers in the committed structure show σ′ unless their own lane is pending. */
@@ -323,7 +336,7 @@ export class Runtime {
       case "comp": return this.patchLanes(i.inst);
       case "mif": { if (i.committed) this.patchLanes(i.committed.inst); return; }
       case "mfor": { for (const r of i.committedRows) this.patchLanes(r.inst); return; }
-      case "loading": { this.patchLanes(i.content); return; }
+      case "loading": case "errored": { this.patchLanes(i.content); return; }
       case "text": return;
     }
   }
@@ -395,7 +408,9 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, region, en); };
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        this.track(b, ""); return this.pull(b);
+        this.track(b, ""); const v = this.pull(b);
+        if (b.lane && this.tracking && this.demandMode) this.tracking.lane = true;   // R-10: lane flows through equations
+        return v;
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, e.p); return v[e.p]; }
       case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, String(i)); return v[String(i)]; }
@@ -511,9 +526,9 @@ export class Runtime {
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [] };
-      case "loading": {
-        const item: BoundaryItem = { k: "loading", m, region, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, pendingUnder: [] };
-        if (m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
+      case "loading": case "errored": {
+        const item: BoundaryItem = { k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false };
+        if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
         const cr = new Region(region, this, item); this.declare(m.decls, cr);
         item.content = this.instantiate(m.body, cr);
         item.fallback = this.instantiate(m.fallback, new Region(region, this, region.boundary));
