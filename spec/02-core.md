@@ -54,7 +54,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
   blocks, compute expressions of effects, and views. Contains declarations and
   expressions only. Has no statement position.
 - **SC-2 Imperative scope.** Apply blocks and event handlers. Ordinary JS
-  statements. Writes are legal only here.
+  statements. Writes are legal only here. Every read of a reactive value here
+  is a snapshot of the committed state; no `peek` is needed or allowed.
 - **SC-3 Lexical inheritance.** A closure created in a scope is in that scope.
   A `fn` value created in reactive scope is a pure function; a closure created
   in an apply block or handler is imperative and may write.
@@ -78,8 +79,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   snapshot: it is evaluated once, in the instant the declaration is reached,
   and `e`'s inputs do not become inputs of `x`. This is the only implicit
   snapshot in reactive scope; every other snapshot is `peek`.
-- **E-5 (peek).** `peek e` evaluates `e` against the committed state and
-  contributes no inputs to the enclosing equation.
+- **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
+  committed state and contributes no inputs to the enclosing equation. It has
+  no meaning in imperative scope, where every read is already a snapshot
+  (SC-2).
 - **E-6 (Equality cuts).** An equation whose re-evaluation yields a value equal
   to its previous value has not changed: it is not part of the instant's cone
   from that point on, its dependents are not re-evaluated through it, and
@@ -87,6 +90,14 @@ Function application `f(e…)` covers both language functions and FFI imports;
   Equality for structured values is per path (06-stores); there is no
   per-equation override. "Notify even if unchanged" is not a thing an
   equation can ask for — a re-ask is quiet (V-9, H-9).
+- **E-7 (Equations are a system).** Within a reactive block the order of
+  equation declarations is irrelevant; an equation may be used before the line
+  that declares it. Only sources (their initializers, E-4) and effects (EF)
+  keep declaration order. Each name is declared once. C-1 rejects cycles.
+- **E-8 (Undemanded equations retain nothing).** An equation not demanded in
+  an instant has no value in that frame: no cached value for E-6 and no `pre`
+  (P-6). When next demanded it is evaluated from scratch and counts as changed.
+  Its *region* (03) is unaffected; this is about state, not lifetime.
 
 ### W — Writes
 
@@ -141,11 +152,16 @@ Function application `f(e…)` covers both language functions and FFI imports;
   declared, after settle — the mount hook.
 - **EF-5 (Cleanup).** `B` may return a function; it runs before the next run of
   `B` and when the effect's region ends.
+- **EF-6 (Order is unspecified).** The order in which apply blocks run within
+  one instant's observe phase is not specified. A program whose behavior
+  depends on it is incorrect. (`ref/` uses declaration order; scenarios must
+  not rely on it.)
 
 ### V — Views
 
-- **V-1 (Readers).** Each `{e}` and `attr={e}` in a view is a reader (V-4 in
-  vocabulary) with equation `e`.
+- **V-1 (Readers).** Each `{e}` and `attr={e}` in a view is one reader (V-4 in
+  vocabulary) with equation `e`: `{a + b}` is a single reader with inputs
+  `{a, b}`, not two. Holds and equality cuts are per reader.
 - **V-2 (Conditional).** `if c { M₁ } else { M₂ }` in a view: `c` is an
   equation; the branch markup is a region (03-regions) that exists only while
   `c` selects it; switching ends one region and begins the other.
