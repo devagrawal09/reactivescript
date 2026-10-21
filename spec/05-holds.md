@@ -83,7 +83,9 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-5 (Armed boundary catches).** [F-4] A `loading` region is **armed**
   until it has shown content, and again after `on`. While armed, pending
-  readers under it belong to the boundary, not the hold: the hold does not
+  readers under it — and *born-held* readers, whose value derives from a
+  held change and has no committed value of its own (Solid D-12,
+  S-solid-14) — belong to the boundary, not the hold: the hold does not
   wait for them, and the boundary shows its fallback in their place. The
   fallback belongs to the frame of whatever armed the boundary (the mount, or
   the `on` change) and appears with that frame — possibly never, if that
@@ -99,7 +101,12 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-7 (Lanes).** [F-6] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
-  screen, and never holds the instant. But pending work *inside* the lane —
+  screen, and never holds the instant. A lane has identity — the probed
+  source — and a pending reader in lane `x` holds every reader of lane `x`
+  (S-solid-24: the header keeps `0` while `details` is pending under a
+  disarmed boundary), unless an armed boundary catches it (then the lane
+  reveals at once). A boundary whose `on` reads a probe shows its fallback
+  now, beside the held frame (D-17, S-solid-21). But pending work *inside* the lane —
   an `await` over `latest x`, a derivation of it that is pending — holds the
   lane: the lane's readers keep what they showed and reveal together when
   it lands. A lane hold and the instant's hold are independent on both sides.
@@ -157,7 +164,9 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
 this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S-7, S-10,
-S-11, S-12, S-13. Divergences found and fixed
+S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24. Not yet
+expressible: S-5 (two roots), S-8, S-9, S-15, S-20 (`action`), S-23
+(portals). Divergences found and fixed
 by porting are recorded in the rule they changed.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current

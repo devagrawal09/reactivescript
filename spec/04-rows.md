@@ -36,13 +36,21 @@ and where they may not go.
   a lifted call to it is a pending equation. Rows compose through calls like
   values.
 - **R-4 (Flights).** The in-flight work of a pending equation belongs to its
-  question (V-9). An input change asks a new question: the old flight is
+  question (V-9), and the question belongs to the change whose pass asked it:
+  a pending pass triggered by change `d` is `d`'s, whether or not a new
+  request was issued (S-solid-16 variant: `page` re-asks `details` through
+  `pageData` without a new fetch). An input change asks a new question: the old flight is
   abandoned (its answer, if it lands, is discarded), the body restarts from
   the top, and the old body's `finally` runs. A re-ask (`refresh`) restarts
   the body for the *same* question — quiet (F-9).
 - **R-5 (Static inputs).** Because inputs are collected at compile time, a
   read after an `await` is a dependency like any other. There is no tracking
-  window; `UNTRACKED_READ_AFTER_AWAIT` is unwritable.
+  window; `UNTRACKED_READ_AFTER_AWAIT` is unwritable. Likewise an absent
+  operand (pending or error) does not erase the equation's other inputs:
+  `"d:" + pageData + ":" + count` depends on `count` even while `pageData` is
+  pending (found by `ref/`: S-solid-16 variant — a dynamic-tracking
+  evaluator that short-circuits on absence drops `count` and lets its hold
+  commit).
 - **R-6 (Errors).** A rejected `await` is an error value (E-12): it ends the
   wait, flows like a value, is caught by `errored`, and is retried by a new
   question or `refresh`. There is no separate errored state.
