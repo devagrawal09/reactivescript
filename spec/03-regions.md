@@ -80,9 +80,28 @@ release. An effect cannot declare sources, equations, or nested effects inside
 
 ### RG-4 Components
 
-A component is a function from props to a region. See `03a` (next batch):
-application creates a region in the caller's region; props are equations
-passed by reference, never snapshots.
+A component is a function from a props value to a region whose tail is a view.
+
+- **RG-4a (Application is a view form).** `<C attr={e} …>children</C>` is
+  markup. It may appear only in a view; there is no expression-position
+  application. Applying `C` creates a region nested in the view's region, with
+  the view's lifetime (an `if` branch or `for` row that contains `<C/>` owns
+  it).
+- **RG-4b (Props are one structured equation).** `props` is a single value
+  whose fields are equations: `props.x` and `{ x } = props` are projections and
+  keep updating. A prop is never a snapshot unless the body takes one (E-4,
+  `peek`). Spread, rest, `merge`, and `omit` are operations on this value
+  (06-stores treats its path semantics). Named parameters are not a separate
+  form; destructuring covers the signature use.
+- **RG-4c (Children).** `children` is a view value evaluated in the *caller's*
+  region: its readers are the caller's, its lifetime is the caller's, and the
+  child only decides where it is placed. A child that needs to create its
+  content more than once, or conditionally own it, asks for a function prop
+  instead, which is ordinary.
+- **RG-4d (No return channel).** A component body evaluates to its view and
+  nothing else. To expose a value upward, the caller passes a source and the
+  child writes it (O-4), or passes a handler the child calls. (Solid: `ref`
+  props.)
 
 ### RG-5 Boundaries
 
