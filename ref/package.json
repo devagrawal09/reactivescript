@@ -1,0 +1,6 @@
+{
+  "name": "reactivescript-ref",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --experimental-strip-types run.ts" }
+}

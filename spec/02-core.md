@@ -168,8 +168,12 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **C-2 (pre).** `pre x` denotes the value `x` had in the frame of the
   previous committed instant — not at its previous *evaluation*. If `x` was not
   demanded in that instant (E-3), `pre x` is `undefined`. Before instant 0 it is
-  `undefined`. `pre x` contributes no input to the enclosing equation; it is
-  how a cycle is broken.
+  `undefined`. `pre x` is a **delayed input**: it contributes no instantaneous
+  dependency (so it is how a cycle is broken, C-1), but when `x`'s frame value
+  changes in instant `n`, an equation reading `pre x` is invalidated for
+  instant `n+1`. An equal write still opens an instant (W-3), so delayed
+  inputs surface on the next write of any kind, not only writes that reach
+  `x`. (Found by `ref/`: S-core-1 instant 2.)
 - **C-2a (Initial value).** `pre x -> e` is `pre x` where that is defined and
   `e` otherwise. `pre x` has type `T | undefined`; `pre x -> e` with `e : T`
   has type `T`. This is the only way to discharge the `undefined`; there is no
@@ -287,7 +291,7 @@ view <p>{if show then double else "-"} {label}</p>
 | ------- | -------------------------------- | ------------ | --------- | ----------------------------------------------- |
 | 0       | mount                            | `0 prev 0`   | `log(0)`  | EF-4; C-2a discharges `undefined`               |
 | 1       | handler `count := 1`             | `2 prev 0`   | `log(2)`  | one instant; `pre` is frame 0's `double`        |
-| 2       | handler `count := 1`             | `2 prev 0`   | —         | E-6: equal value cuts; effect does not run      |
+| 2       | handler `count := 1`             | `2 prev 2`   | —         | E-6: equal value cuts; effect does not run      |
 | 3       | handler `count := 5; count := 7` | `14 prev 2`  | `log(14)` | two writes, one instant (W-3)                   |
 | 4       | handler `show := false`          | `- prev 14`  | —         | `double` still demanded by the effect's compute half; `pre` is frame 3 |
 | 5       | handler `count := 8`             | `- prev 14`  | `log(16)` | `label` reads `pre double` = frame 4's 14       |
