@@ -8,6 +8,9 @@ export type Expr =
   | { k: "un"; op: string; e: Expr }
   | { k: "pre"; name: string; init?: Expr }
   | { k: "peek"; e: Expr }
+  | { k: "await"; e: Expr; init?: Expr }                       // R-1, R-7
+  | { k: "latest"; e: Expr }                                   // R-9 probe
+  | { k: "pending"; e: Expr }                                  // R-9 probe (`pending? e`)
   | { k: "if"; c: Expr; t: Expr; f: Expr }
   | { k: "member"; o: Expr; p: string }
   | { k: "index"; o: Expr; i: Expr }
@@ -36,6 +39,7 @@ export type Markup =
   | { k: "read"; e: Expr }
   | { k: "text"; s: string }
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
-  | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] };
+  | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
+  | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] };   // H-5/H-6
 
 export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view

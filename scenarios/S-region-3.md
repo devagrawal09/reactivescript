@@ -10,10 +10,10 @@ source b := { id: "b" }
 source c := { id: "c" }
 source items := []
 <ul>
-  for item in items {
+  {for item in items {
     source hits := 0
     <li>{item.id}:{hits}</li>
-  }
+  }}
 </ul>
 ```
 

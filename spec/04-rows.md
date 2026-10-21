@@ -63,7 +63,8 @@ and where they may not go.
   `pending? x` is `true` iff `x`'s value is not the final answer to a new
   question (F-9); on a first load, both probes do what a read of `x` does —
   there is no verdict until there is a value.
-- **R-10 (Lane row).** The result of a probe of `x` carries row `lane(x)`. The
+- **R-10 (Lane row).** A probe is itself a dependency on `x` (a lane one):
+  the probing reader re-evaluates when `x` changes. The result of a probe of `x` carries row `lane(x)`. The
   row flows through equations like `pending`: `y = latest x * 2` has
   `lane(x)`; an expression over probes of two sources has both lanes. It
   stops at readers: a reader of a lane-typed value renders in that lane. This

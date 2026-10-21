@@ -18,8 +18,9 @@ Phase 1 is checked against `scenarios/` only; runtime diffing against
 `@solidjs/signals` begins in phase 3, where divergences are expected and
 recorded.
 
-Status: phase 1 running. `node --experimental-strip-types ref/run.ts [filter]`
-runs `scenarios/S-*.md`; S-core-1 and S-region-1..6 pass (components, instantiation).
+Status: phase 3 (holds) running alongside phase 1. `node --experimental-strip-types ref/run.ts [filter]`
+runs `scenarios/S-*.md`; S-core-1, S-region-1..6 and S-hold-1,3 pass (two-version
+state, boundaries, probes/lanes, joining, superseded flights).
 
 Findings so far (each is now a rule): demand propagates through cut nodes
 (E-3/E-8); `pre` is a delayed input (C-2); dependencies are per object

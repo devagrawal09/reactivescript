@@ -39,10 +39,14 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
 
-Markup    ::= <tag attr={Expr}*> (Markup | {Expr})* </tag>
+Markup    ::= Element | Control                  -- at block level, control forms are bare
+Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
             | <C attr={Expr}*> Markup* </C>      -- RG-4a: component application (C capitalised)
-            | if Expr RBlock else RBlock         -- each branch is a reactive block (region)
+Control   ::= if Expr RBlock else RBlock         -- each branch is a reactive block (region)
             | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
+            | loading [on(Expr)] fallback { Markup* } RBlock    -- 05 H-5/H-6
+                                              -- inside an element, text is literal: control forms are braced,
+                                              -- `{if c { … }}`, the way JSX braces `{cond && …}` (found by ref/: S-hold-1)
 
 Block     ::= Stmt*                            -- imperative scope (SC-2)
 Stmt      ::= x := Expr                        -- write to a source

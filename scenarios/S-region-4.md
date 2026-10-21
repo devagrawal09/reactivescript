@@ -8,10 +8,10 @@ Rules exercised: RG-3, EF-2, EF-4, EF-5, O-2.
 source open := true
 source n := 0
 <div>
-  if open {
+  {if open {
     effect (n) { log("run " + str(n)); fn () => log("cleanup " + str(n)) }
     <p>{n}</p>
-  } else { <p>closed</p> }
+  } else { <p>closed</p> }}
 </div>
 ```
 

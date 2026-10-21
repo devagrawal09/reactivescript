@@ -12,7 +12,7 @@ component Greeting(props) {
 source name := "a"
 source show := true
 <div>
-  if show { <Greeting name={name}>{"hi"}</Greeting> }
+  {if show { <Greeting name={name}>{"hi"}</Greeting> }}
 </div>
 ```
 

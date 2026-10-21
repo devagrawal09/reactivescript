@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "fallback", "on", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -175,6 +175,13 @@ function parseUnary(c: Cursor): Expr {
     return { k: "pre", name };
   }
   if (c.keyword("peek")) { c.ws(); return { k: "peek", e: parseUnary(c) }; }
+  if (c.keyword("await")) {
+    c.ws(); const e = parseUnary(c); c.ws(false);
+    if (c.eat("->")) { c.ws(); return { k: "await", e, init: parseUnary(c) }; }
+    return { k: "await", e };
+  }
+  if (c.keyword("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
+  if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
 }
 function parsePostfix(c: Cursor): Expr {
@@ -238,20 +245,13 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     if (closeTag && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }
     if (closeTag === "}" && c.startsWith("}")) { c.i++; return out; }
     if (c.startsWith("<")) { out.push(parseElement(c)); continue; }
-    if (c.startsWith("{")) { c.i++; c.ws(); const e = parseExpr(c); c.ws(); c.expect("}"); out.push({ k: "read", e }); continue; }
-    if (c.keyword("if")) {
-      c.ws(); const cond = parseExpr(c); c.ws(); c.expect("{");
-      const t = parseBlockBody(c); c.ws();
-      let f: { decls: Decl[]; body: Markup[] } = { decls: [], body: [] };
-      if (c.keyword("else")) { c.ws(); c.expect("{"); f = parseBlockBody(c); }
-      out.push({ k: "mif", c: cond, t: t.body, tDecls: t.decls, f: f.body, fDecls: f.decls }); continue;
+    if (c.startsWith("{")) {
+      c.i++; c.ws();
+      const ctl = parseControl(c);                                   // `{if …}` / `{for …}` / `{loading …}` inside an element
+      if (ctl) { c.ws(); c.expect("}"); out.push(ctl); continue; }
+      const e = parseExpr(c); c.ws(); c.expect("}"); out.push({ k: "read", e }); continue;
     }
-    if (c.keyword("for")) {
-      c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
-      if (!c.keyword("in")) c.fail("in"); c.ws(); const xs = parseExpr(c); c.ws(); c.expect("{");
-      const { decls, body } = parseBlockBody(c);
-      out.push({ k: "mfor", name, xs, decls, body }); continue;
-    }
+    if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push(ctl); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
     // text up to < { } or newline
     let s = "";
@@ -264,6 +264,34 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     }
     out.push({ k: "text", s });
   }
+}
+/** Control forms of a view: `if c { … } else { … }`, `for x in e { … }`, `loading … { … }`. Bare at block level, braced inside elements. */
+function parseControl(c: Cursor): Markup | null {
+  const save = c.i;
+  if (c.keyword("if")) {
+    c.ws(); const cond = parseExpr(c); c.ws();
+    if (!c.startsWith("{")) { c.i = save; return null; }              // `if … then …` is an expression (E-11)
+    c.expect("{");
+      const t = parseBlockBody(c); c.ws();
+      let f: { decls: Decl[]; body: Markup[] } = { decls: [], body: [] };
+      if (c.keyword("else")) { c.ws(); c.expect("{"); f = parseBlockBody(c); }
+      return { k: "mif", c: cond, t: t.body, tDecls: t.decls, f: f.body, fDecls: f.decls };
+  }
+  if (c.keyword("loading")) {
+      c.ws(); let on: Expr | undefined;
+      if (c.keyword("on")) { c.ws(); c.expect("("); c.ws(); on = parseExpr(c); c.ws(); c.expect(")"); c.ws(); }
+      if (!c.keyword("fallback")) c.fail("fallback"); c.ws(); c.expect("{");
+      const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
+      const { decls, body } = parseBlockBody(c);
+      return { k: "loading", on, fallback, decls, body };
+  }
+  if (c.keyword("for")) {
+      c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
+      if (!c.keyword("in")) c.fail("in"); c.ws(); const xs = parseExpr(c); c.ws(); c.expect("{");
+      const { decls, body } = parseBlockBody(c);
+      return { k: "mfor", name, xs, decls, body };
+  }
+  return null;
 }
 /** A reactive block body: declarations, then markup, up to the closing `}` (03: any block is decls then view). */
 function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {

@@ -60,6 +60,11 @@ export function runScenario(sc: Scenario): Result {
         if (r.action === "mount") { pending = rt.step([]); got = pending.shift(); }
         else if (r.action === "(effect)") got = pending.shift();
         else if (r.action.startsWith("handler")) { pending = rt.handler(parseStmts(r.action.slice(7))); got = pending.shift(); }
+        else if (/^(resolve|reject)\s/.test(r.action)) {
+          const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action)!;
+          const valueExpr = parseStmts(m[3])[0]; const value = valueExpr.k === "expr" ? rt.runStmts([valueExpr], (rt as any).virtualScope(), new Map()) : undefined;
+          pending = rt.land(m[2], value, m[1] === "reject"); got = pending.shift();
+        }
         else throw new Error(`unknown action '${r.action}'`);
       } catch (e) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: ${(e as Error).message}`); break; }
       if (!got) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: no instant produced`); break; }

@@ -82,7 +82,10 @@ and it commits as one frame when nothing held is still pending.
   appears with the commit. Only probes (H-7) and the fallbacks they arm show
   ahead of it.
 
-- **H-9 (Verdicts).** [F-9] `pending? x` is `true` iff `x`'s value in `σ` is
+- **H-9 (Verdicts).** [F-9] A verdict is final only at commit: lane readers
+  are settled again after the hold decision, against the committed world, so
+  a `pending?` that was `true` during settle reads `false` in the frame that
+  commits the answer (found by `ref/`: S-hold-1 instant 3). `pending? x` is `true` iff `x`'s value in `σ` is
   not the final answer to a *new question*: an input changed and the answer
   is not committed, or a landed answer waits in a hold, or in-flight work
   declared `affects x`. A re-ask (`refresh`, polling, a confirming refetch)
