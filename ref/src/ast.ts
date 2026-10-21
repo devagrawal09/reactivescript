@@ -29,7 +29,7 @@ export type Stmt =
 export type Param = { name: string; ref: boolean };            // E-9
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number }
-  | { k: "eq"; name: string; e: Expr; line: number }
+  | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean }   // deferred: declared lag (V-16, D-40)
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number }       // body: decls then a value
   | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number }; // body: decls then a view

@@ -32,8 +32,12 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-1 (The screen is whole).** [F-1] Every frame is `σ` after a commit: a
   value and everything on screen derived from it changed in the same frame.
-  The one exception is declared lag (`deferred`, 06): it may lag the screen,
-  never lead it.
+  The one exception is declared lag: `deferred x = …` declares that `x`'s
+  previous answer is acceptable while the next loads. Its first load holds
+  like any; after that its re-asks hold nothing — readers keep the answer
+  they show, `pending? x` is `true`, and each landing is its own change
+  (S-solid-41). It may lag the screen, never lead it: a re-ask that read a
+  held input lands into that hold and shows with its commit (F-7).
 
 - **H-2 (A change is held by its pending readers).** [F-2] An instant is a
   change. Its writes and the flights it opens belong to it. After settle, the
@@ -159,9 +163,16 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   reverts the guess. A newer hold's guess on `x` wins over an older hold's
   late answer. (Full form, targets, lowering: 06-stores.)
 
-- **H-12 (Errors).** [F-12] An error value reaching a reader under `errored`
-  sends that region to its fallback, which is then the display (H-4: readers
-  behind it hold nothing). Pending is never an error: `errored` does not
+- **H-12 (Errors).** [F-12, D-41] An error value reaching a reader under
+  `errored` sends that region to its fallback, which is then the display
+  (H-4: readers behind it hold nothing and keep no change open). An error
+  is an answer: a held rejection is staged like a value and reveals with
+  its frame — the fallback moves with the frame of the change whose answer
+  caused it, and so does a recovery (S-solid-42: `1 | 1 | 1` stays until
+  `slow` lands, then `2 | Error | 2` as one frame; the error stays the
+  display through a retry, and recovering to the last good value is still a
+  new answer, so the effect's arm runs). An effect's apply receives an
+  error value like any answer (E-12); only pending withholds the apply. Pending is never an error: `errored` does not
   catch it — and it is not an answer either: an `errored` region on its
   fallback stays there while the content under it is pending, and leaves
   only when a value replaces the error (Solid D-39; found by `ref/`:
@@ -182,10 +193,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
 this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S-7, S-10,
 S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24, S-25,
-S-26 (rows 0–3), S-27, S-29, S-30, S-31, S-40. Not yet expressible: S-5
+S-26 (rows 0–3), S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
+S-42+S-43. Not yet expressible: S-5
 (two roots), S-8, S-9, S-15, S-20 (`action`), S-23 (portals), S-28
 (imperative probes), S-39 (one reader, two orders), S-26 rows 4–7
-(`refresh`/`affects`/optimistic — 06). Divergences found and fixed
+(`refresh`/`affects`/optimistic — 06), S-37 (stores — 06). Divergences found and fixed
 by porting are recorded in the rule they changed.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current

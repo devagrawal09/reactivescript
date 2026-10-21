@@ -26,6 +26,7 @@ RBlock    ::= Decl* Markup*                   -- declarations, then the block's 
 Decl      ::= source x := Expr                -- V-1; ':=' assigns now — a snapshot (E-4)
             | x = Expr                        -- V-2, equation
             | effect (Expr*) Block            -- V-3; compute exprs ‖ apply block
+            | deferred x = Expr               -- V-16; declared lag (05 H-1)
             | fn f (Param*) => Expr           -- pure function (E-9)
             | fn f (Param*) { Decl* ; Expr }  -- function with a body: decls then a value
             | component C (props) RBlock      -- RG-4: a function from props to a region with a view

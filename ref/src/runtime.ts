@@ -51,6 +51,7 @@ export class Node {
   served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
+  deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
@@ -128,7 +129,7 @@ export class Runtime {
   declare(decls: Decl[], region: Region) {
     for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); }
     for (const d of decls) {                                           // E-7: equations are a system
-      if (d.k === "eq" && !this.instantiates(d.e, region)) region.scope.set(d.name, this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)));
+      if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; region.scope.set(d.name, n); }
       if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
     }
     for (const d of decls) {
@@ -249,7 +250,7 @@ export class Runtime {
     for (const c of this.pendingCleanups) c(); this.pendingCleanups = [];
     for (const e of [...this.effects]) {
       if (!e.alive) continue;
-      const settled = e.computes.every(c => !isAbsent(c.value) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));
+      const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));   // E-12: an error is an answer
       const fire = settled && (!e.ran || e.computes.some(c => c.changedSinceCommit));
       if (!fire) continue;
       for (const c of e.computes) c.changedSinceCommit = false;
@@ -285,7 +286,13 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
-        if (v instanceof ErrVal) { const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node); i.node.heldOn = null; return; }   // H-12
+        { const eb = nearest(boundary, "errored"); if (eb && eb.showingFallback && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-39)
+        if (v instanceof ErrVal) {                                                                                         // H-12 / D-41: an error is an answer; it reveals with its frame
+          const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node);
+          const openE = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+          i.node.heldOn = openE.length || i.node.taint.has(this.instant) ? this.find(openE[0] ?? this.instant) : null;
+          return;
+        }
         const ownServed = [...i.node.served].some(b => b.heldBy === this.instant && b.value instanceof PendingVal);
         const openPlain = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
         const plainHeld = ownServed || openPlain.length > 0 || i.node.taint.has(this.instant) || (v instanceof PendingVal && i.node.served.size > 0);
@@ -377,8 +384,13 @@ export class Runtime {
       }
       case "errored": {
         i.caught = []; i.stillWaiting = false;
+        const was = i.showingFallback;
         this.settle(i.content, holding, i);
         i.showingFallback = i.caught.length > 0 || (i.showingFallback && i.stillWaiting);   // H-12: fallback until a new *answer* (D-39)
+        if (i.showingFallback !== was) {                                                      // D-41: the change belongs to the frame of the answer that caused it
+          const owners = (i.caught.length ? i.caught : this.contentReaders(i.content)).flatMap(r => [...r.taint]).filter(t => this.openChanges.has(this.find(t)) || t === this.instant);
+          i.armedBy = owners.length ? owners[0] : this.instant;
+        }
         if (i.showingFallback) this.settle(i.fallback, holding, boundary);
         return;
       }
@@ -405,7 +417,11 @@ export class Runtime {
         if (g === null || this.find(i.rowsOpenedBy) === g) { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; }
         for (const r of i.committedRows) this.commit(r.inst, g); return;
       }
-      case "loading": case "errored": { i.committedFallback = i.showingFallback; if (g === null) i.laneAttached = true; this.commit(i.content, g); this.commit(i.fallback, g); return; }
+      case "loading": case "errored": {
+        if (g === null) i.laneAttached = true;
+        if (g === null || this.find(i.armedBy) === g || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;   // H-5 / D-41: the fallback moves with the frame of the change that armed it
+        this.commit(i.content, g); this.commit(i.fallback, g); return;
+      }
     }
   }
   private renderCommitted(v: ViewInst): string { return v.items.map(i => this.renderItem(i)).join(""); }
@@ -419,6 +435,11 @@ export class Runtime {
       case "mfor": return i.committedRows.map(r => this.renderCommitted(r.inst)).join("");
       case "loading": case "errored": return i.committedFallback ? this.renderCommitted(i.fallback) : this.renderCommitted(i.content);
     }
+  }
+  private contentReaders(v: ViewInst): Node[] {
+    const out: Node[] = [];
+    const walk = (i: VItem) => { switch (i.k) { case "read": out.push(i.node); break; case "el": i.children.forEach(walk); break; case "comp": v2(i.inst); break; case "mif": if (i.inflight) v2(i.inflight.inst); break; case "mfor": i.inflightRows.forEach(r => v2(r.inst)); break; case "loading": case "errored": v2(i.content); break; } };
+    const v2 = (x: ViewInst) => x.items.forEach(walk); v2(v); return out;
   }
   /** H-7: during a hold, lane readers in the committed structure show σ′ unless their own lane is pending. */
   private patchLanes(v: ViewInst) { for (const i of v.items) this.patchItem(i); }
@@ -475,12 +496,14 @@ export class Runtime {
       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
       this.tracking = prevTracking;
       this.subscribe(n);
+      if (n.deferred && n.answered && v instanceof PendingVal) { n.lagging = true; v = n.value; }   // D-40: a declared-lag re-ask keeps showing its last answer
+      else if (n.deferred) n.lagging = false;
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
       if (ch.size > 0) { n.value = v; n.changed = true; n.changedSinceCommit = true; }
       n.hasValue = true;
       if (!isAbsent(v)) n.answered = true;
-      if (n.kind === "eq" && notified && v instanceof PendingVal) n.heldBy = this.instant;   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
+      if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered)) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
       if (n.heldBy !== null) n.taint.add(n.heldBy);
       // D-10: while this value is held by an open change, the committed pass's inputs stay subscribed.
       const heldNow = [...n.taint].some(t => this.openChanges.has(this.find(t)) || t === this.instant);
@@ -576,6 +599,7 @@ export class Runtime {
         if (this.tracking) this.tracking.lanes.add(n);
         this.track(n, ""); if (n.kind !== "source") this.pull(n);     // a probe is a (lane) dependency
         if (e.e.k === "latest") return n.value instanceof PendingVal;  // the latest channel's own verdict: x's own async is up (S-solid-27)
+        if (n.lagging) return true;                                    // D-40: lagging behind a new question
         if (n.firstPaint) return false;                                // R-7
         if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
         return n.value instanceof PendingVal || (n.heldBy !== null && (n.heldBy === this.instant || this.groupOpen(n.heldBy)));
@@ -602,7 +626,8 @@ export class Runtime {
       }
       case "call": {
         const f = this.ev(e.f, region, env);
-        const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f; if (bad) return bad;
+        const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
+        if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
