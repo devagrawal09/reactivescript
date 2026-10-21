@@ -1,6 +1,8 @@
 // Reference runtime for spec/02-core.md §4 and spec/03-regions.md.
 // Pull-based settle with push invalidation; per-path dependencies (phase-1 store model).
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>;
+export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
 
 export class RuleError extends Error { rule: string; constructor(rule: string, msg: string) { super(`${rule}: ${msg}`); this.rule = rule; } }
 
@@ -42,11 +44,11 @@ export class Node {
 
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
-  scope = new Map<string, Node | { constant: unknown }>();
+  scope = new Map<string, Binding>();
   alive = true;
   parent: Region | null; rt: Runtime;
   constructor(parent: Region | null, rt: Runtime) { this.parent = parent; this.rt = rt; parent?.children.add(this); }
-  lookup(name: string): Node | { constant: unknown } | undefined { return this.scope.get(name) ?? this.parent?.lookup(name); }
+  lookup(name: string): Binding | undefined { return this.scope.get(name) ?? this.parent?.lookup(name); }
   dispose() {
     if (!this.alive) return; this.alive = false;
     for (const c of [...this.children]) c.dispose();
@@ -56,6 +58,7 @@ export class Region {
   }
 }
 
+type Binding = Node | { constant: unknown } | { fn: FnDecl } | { comp: CompDecl };
 type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void };
 
 type Write = { node: Node; path: (string | number)[]; value: unknown };
@@ -69,6 +72,7 @@ export class Runtime {
   pendingCleanups: (() => void)[] = [];   // region disposals during settle run in observe (O-2, EF-5)
   subs = new Map<Target, Map<string, Set<Node>>>();
   log: string[] = [];
+  diagnostics: string[] = [];
   instant = -1;
   // evaluation context
   private tracking: Node | null = null;
@@ -87,11 +91,17 @@ export class Runtime {
   declare(decls: Decl[], region: Region) {
     // E-7: equations are a system — bind all names first, then sources' initializers in order.
     for (const d of decls) {
-      if (d.k === "eq") region.scope.set(d.name, this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)));
+      if (d.k === "fn") region.scope.set(d.name, { fn: d });
+      if (d.k === "component") region.scope.set(d.name, { comp: d });
+    }
+    for (const d of decls) {
+      if (d.k === "eq" && !this.instantiates(d.e, region)) region.scope.set(d.name, this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)));
       if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
     }
     for (const d of decls) {
-      if (d.k === "source") {
+      if (d.k === "eq" && this.instantiates(d.e, region)) {          // E-9 / RG-6: once, in a nested region
+        region.scope.set(d.name, this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, region));
+      } else if (d.k === "source") {
         const n = region.scope.get(d.name) as Node;
         n.value = this.snapshot(d.init, region); n.hasValue = true; n.state = "clean";   // E-4
         n.changed = true;
@@ -101,6 +111,31 @@ export class Runtime {
         region.effects.push(rec); this.effects.push(rec);
       }
     }
+  }
+  /** E-9: a call to a fn with a ref parameter or a node-declaring body is an instantiation. */
+  private fnOf(e: Expr, region: Region): FnDecl | null {
+    if (e.k !== "call" || e.f.k !== "id") return null;
+    const b = region.lookup(e.f.name); return b && "fn" in b ? b.fn : null;
+  }
+  private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.length > 0; }
+  private instantiates(e: Expr, region: Region) { const f = this.fnOf(e, region); return !!f && this.isInstantiating(f); }
+  private instantiateFn(call: Extract<Expr, { k: "call" }>, region: Region): Node {
+    const f = this.fnOf(call, region)!;
+    const r = new Region(region, this);                               // RG-6a: nested in the caller's region
+    f.params.forEach((p, i) => {
+      const arg = call.args[i];
+      if (p.ref) {                                                    // RG-6b: ref args are equations
+        const b = arg?.k === "id" ? region.lookup(arg.name) : undefined;
+        r.scope.set(p.name, b instanceof Node ? b : this.mkNode("eq", `${f.name}.${p.name}`, region, rt => arg ? rt.evalExpr(arg, region) : undefined));
+      } else {                                                        // value args: snapshots at instantiation
+        if (arg && isReactive(arg, region)) this.diagnostics.push(`SNAPSHOT_ARGUMENT: ${f.name}(…): argument for value parameter ${p.name} is reactive and is snapshotted; declare the parameter ref`);
+        r.scope.set(p.name, { constant: arg ? this.snapshot(arg, region) : undefined });
+      }
+    });
+    this.declare(f.decls, r);
+    const tb = f.tail.k === "id" ? r.lookup(f.tail.name) : undefined;
+    if (tb instanceof Node) return tb;
+    return this.mkNode("eq", `${f.name}()`, r, rt => rt.evalExpr(f.tail, r));
   }
   mkNode(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) {
     const n = new Node(kind, name, region, compute); region.nodes.add(n); return n;
@@ -199,7 +234,7 @@ export class Runtime {
       n.preDeps.clear();
       const prevTracking = this.tracking; this.tracking = n;
       let v: unknown;
-      try { v = n.compute!(this); } catch (e) { v = new ErrVal(e); }
+      try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
       this.tracking = prevTracking;
       this.subscribe(n);
       const ch = new Set<Path>();
@@ -214,7 +249,7 @@ export class Runtime {
   private transient(n: Node): unknown {
     if (n.evaluated) return n.value;
     const prevTracking = this.tracking; this.tracking = null;
-    let v: unknown; try { v = n.compute!(this); } catch (e) { v = new ErrVal(e); }
+    let v: unknown; try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
     this.tracking = prevTracking; return v;
   }
   private track(t: Target, key: string) {
@@ -236,6 +271,12 @@ export class Runtime {
         const b = region.lookup(e.name);
         if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
+        if ("fn" in b) {
+          if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
+          const f = b.fn;
+          return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, region, en); };
+        }
+        if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
         this.track(b, ""); return this.pull(b);
       }
       case "member": { const v = this.ev(e.o, region, env); if (isErr(v)) return v; if (!isObj(v)) return undefined; this.track(v, e.p); return v[e.p]; }
@@ -316,7 +357,25 @@ export class Runtime {
     switch (m.k) {
       case "text": return { k: "text", s: m.s };
       case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)) };
-      case "el": return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };
+      case "el": {
+        if (/^[A-Z]/.test(m.tag)) {                                   // RG-4a: application is a view form
+          const b = region.lookup(m.tag);
+          if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
+          const comp = b.comp;
+          const r = new Region(region, this);
+          const props: Record<string, unknown> = {};
+          for (const a of m.attrs) {                                   // RG-4b: props are equations of the caller
+            const node = this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region));
+            Object.defineProperty(props, a.name, { enumerable: true, get: () => { this.track(node, ""); return this.pull(node); } });
+          }
+          const children = new ViewValue(region, m.children.map(c => this.inst1(c, region)));   // RG-4c: caller's region
+          Object.defineProperty(props, "children", { enumerable: true, get: () => children });
+          r.scope.set(comp.props, { constant: props });
+          this.declare(comp.decls, r);
+          return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
+        }
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };
+      }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => Boolean(rt.evalExpr(m.c, region))), region, branch: null, inst: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, rows: [] };
     }
@@ -325,7 +384,8 @@ export class Runtime {
   private renderItem(i: VItem): string {
     switch (i.k) {
       case "text": return i.s;
-      case "read": return fmt(this.pull(i.node));
+      case "comp": return this.render(i.inst);
+      case "read": { const v = this.pull(i.node); return v instanceof ViewValue ? this.render(v) : fmt(v); }
       case "el": { for (const a of i.attrs) this.pull(a.node); return i.children.map(c => this.renderItem(c)).join(""); }
       case "mif": {
         const c = this.pull(i.cond); const want = isErr(c) ? "f" : c ? "t" : "f";
@@ -362,7 +422,7 @@ export class Runtime {
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type VItem =
-  | { k: "text"; s: string } | { k: "read"; node: Node }
+  | { k: "text"; s: string } | { k: "read"; node: Node } | { k: "comp"; inst: ViewInst }
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
   | { k: "mif"; m: Extract<Markup, { k: "mif" }>; cond: Node; region: Region; branch: "t" | "f" | null; inst: ViewInst | null }
   | { k: "mfor"; m: Extract<Markup, { k: "mfor" }>; xs: Node; region: Region; rows: Row[] };
@@ -381,11 +441,33 @@ const BUILTINS: Record<string, unknown> = {
   fail: (msg: string) => { throw new Error(msg); },
 };
 
+/** Does an expression read any reactive binding (source/equation) in scope? Used for SNAPSHOT_* diagnostics. */
+function isReactive(e: Expr, region: Region): boolean {
+  const names = new Set<string>(); freeVars(e, names);
+  for (const n of names) { const b = region.lookup(n); if (b instanceof Node) return true; }
+  return false;
+}
+function freeVars(e: Expr, out: Set<string>) {
+  switch (e.k) {
+    case "id": out.add(e.name); break;
+    case "pre": case "peek": case "lit": break;
+    case "bin": freeVars(e.l, out); freeVars(e.r, out); break;
+    case "un": freeVars(e.e, out); break;
+    case "if": freeVars(e.c, out); freeVars(e.t, out); freeVars(e.f, out); break;
+    case "member": freeVars(e.o, out); break;
+    case "index": freeVars(e.o, out); freeVars(e.i, out); break;
+    case "call": freeVars(e.f, out); e.args.forEach(a => freeVars(a, out)); break;
+    case "arr": e.items.forEach(a => freeVars(a, out)); break;
+    case "rec": e.fields.forEach(f => freeVars(f.v, out)); break;
+    case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
+  }
+}
+
 // ---------------------------------------------------------------- static checks (C-1, W-1 shape)
 function staticChecks(p: Program) {
   const eqs = new Map<string, Expr>(); const names = new Set<string>();
   for (const d of p.decls) { if (d.k === "eq") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); eqs.set(d.name, d.e); names.add(d.name); } if (d.k === "source") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); names.add(d.name); } }
-  const free = (e: Expr, out: Set<string>) => {
+  function free(e: Expr, out: Set<string>) {
     switch (e.k) {
       case "id": out.add(e.name); break;
       case "pre": case "peek": case "lit": break;                     // C-2, E-5: not inputs
@@ -399,7 +481,7 @@ function staticChecks(p: Program) {
       case "rec": e.fields.forEach(f => free(f.v, out)); break;
       case "fn": { const o = new Set<string>(); free(e.body, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
     }
-  };
+  }
   const color = new Map<string, 1 | 2>();
   const visit = (n: string, stack: string[]) => {
     if (color.get(n) === 2) return; if (color.get(n) === 1) throw new RuleError("C-1", `instantaneous cycle: ${[...stack, n].join(" → ")}`);

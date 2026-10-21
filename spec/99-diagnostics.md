@@ -37,6 +37,8 @@ Bins:
 | `NO_OWNER_BOUNDARY`               | U   | same                                                               |
 | `RUN_WITH_DISPOSED_OWNER`         | U   | O-3: `escape` is the only cross-region move                        |
 | `SETTLED_CLEANUP_UNOWNED`         | U   | EF-4/EF-5 with O                                                   |
+| `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
+| `SNAPSHOT_INITIALIZER` (new)      | S   | E-4: source initializer reads a reactive value nothing else reads     |
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary                  |

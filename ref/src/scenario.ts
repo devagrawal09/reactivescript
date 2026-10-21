@@ -4,7 +4,7 @@ import { Runtime, RuleError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string; handlers: string[] };
+type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean };
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[] };
 
 const strip = (s: string) => s.replace(/`/g, "").trim();
@@ -33,8 +33,8 @@ export function parseScenario(name: string, md: string): Scenario {
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
-        const r = /--\s*reject:\s*([\w-]+)/.exec(first);
-        if (r) rejected.push({ rule: r[1], program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
+        const r = /--\s*(reject|warn):\s*([\w-]+)/.exec(first);
+        if (r) rejected.push({ rule: r[2], warn: r[1] === "warn", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
           handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
       }
     }
@@ -72,6 +72,14 @@ export function runScenario(sc: Scenario): Result {
     if (pending.length) { ok = false; lines.push(`  ✗ ${t.title}: ${pending.length} unlisted chained instant(s): ${pending.map(p => p.frame).join(" | ")}`); }
   }
   for (const rj of sc.rejected) {
+    if (rj.warn) {
+      try {
+        const rt = new Runtime(parseProgram(rj.program)); rt.step([]);
+        const hit = rt.diagnostics.find(d => d.startsWith(rj.rule));
+        if (hit) lines.push(`  ✓ warn(${rj.rule}): ${hit}`); else { ok = false; lines.push(`  ✗ warn(${rj.rule}): no diagnostic (got: ${rt.diagnostics.join(" | ") || "none"})`); }
+      } catch (e) { ok = false; lines.push(`  ✗ warn(${rj.rule}): ${(e as Error).message}`); }
+      continue;
+    }
     try {
       const rt = new Runtime(parseProgram(rj.program));
       rt.step([]);

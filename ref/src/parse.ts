@@ -1,5 +1,5 @@
 // Hand-rolled scanner/parser for the abstract syntax (spec/02-core.md §1).
-import type { Decl, Expr, Markup, Program, Stmt, Target } from "./ast.ts";
+import type { Decl, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
 
 export class ParseError extends Error {}
 
@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -65,6 +65,24 @@ function parseDecl(c: Cursor): Decl {
     while (!c.startsWith(")")) { inputs.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "effect", inputs, body: parseBlock(c), line };
+  }
+  if (c.keyword("fn")) {
+    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
+    const params: Param[] = [];
+    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); params.push({ name: c.ident() ?? c.fail("param"), ref }); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); c.ws();
+    if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line }; }
+    c.expect("{");
+    const decls: Decl[] = [];
+    for (;;) { c.ws(); if (!looksLikeDecl(c)) break; decls.push(parseDecl(c)); c.ws(); c.eat(";"); }
+    c.ws(); const tail = parseExpr(c); c.ws(); c.expect("}");
+    return { k: "fn", name, params, decls, tail, line };
+  }
+  if (c.keyword("component")) {
+    c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
+    const props = c.ident() ?? c.fail("props name"); c.ws(); c.expect(")"); c.ws(); c.expect("{");
+    const { decls, body } = parseBlockBody(c);
+    return { k: "component", name, props, decls, view: body, line };
   }
   const save = c.i;
   const name = c.ident();
@@ -257,7 +275,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") ||
     (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && c.peek() === "=" && c.peek(1) !== "="; return ok; })();
   c.i = save; return r;
 }

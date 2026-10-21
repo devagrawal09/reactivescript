@@ -26,6 +26,10 @@ RBlock    ::= Decl* Markup*                   -- declarations, then the block's 
 Decl      ::= source x = Expr                 -- V-1; initializer is a snapshot (E-4)
             | x = Expr                        -- V-2, equation
             | effect (Expr*) Block            -- V-3; compute exprs ‖ apply block
+            | fn f (Param*) => Expr           -- pure function (E-9)
+            | fn f (Param*) { Decl* ; Expr }  -- function with a body: decls then a value
+            | component C (props) RBlock      -- RG-4: a function from props to a region with a view
+Param     ::= x | ref x                       -- E-9: value or ref parameter
 
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | pre x | pre x -> Expr            -- previous frame's value of x; with initial (C-2, C-2a)
@@ -36,6 +40,7 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
 
 Markup    ::= <tag attr={Expr}*> (Markup | {Expr})* </tag>
+            | <C attr={Expr}*> Markup* </C>      -- RG-4a: component application (C capitalised)
             | if Expr RBlock else RBlock         -- each branch is a reactive block (region)
             | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
 
@@ -123,10 +128,14 @@ Function application `f(e…)` covers both language functions and FFI imports;
   is errored. There is no `try`/`catch` in reactive scope; the `errored`
   boundary (03 RG-5, 05) is where an error becomes fallback content. (Solid
   F-12.) An error in an apply block is imperative and ordinary.
-- **E-10 (Nodes need a region).** A function whose body declares a source,
-  effect, or region and reads a value parameter from inside that declaration
-  is rejected: the parameter must be `ref`. (This is the lost-reactivity bug
-  as a compile error: a lifted call has no region to own the node.)
+- **E-10 (Snapshot arguments).** At an instantiation, a value parameter
+  receives a snapshot. Passing a *reactive* expression to a value parameter
+  is therefore a silent loss of reactivity and is a diagnostic at the call
+  site (`SNAPSHOT_ARGUMENT`, bin S) — not an error, because "options read
+  once" is legitimate. The check lives at the call site because that is where
+  both facts are known: the parameter's kind and the argument's reactivity.
+  (First drafted as a rejection inside the function body; `ref/` S-region-6
+  showed that rejects `counter(n, 10)`, the legitimate case.)
 
 ### W — Writes
 
