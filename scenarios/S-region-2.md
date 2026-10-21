@@ -5,7 +5,7 @@ Rules exercised: RG-1b, RG-1c, E-11.
 ## Program
 
 ```
-source user = { name: "a" }
+source user := { name: "a" }
 <div>
   if user { <p>{user.name}</p> } else { <p>none</p> }
 </div>

@@ -9,8 +9,8 @@ component Greeting(props) {
   shout = props.name + "!"
   <p>{shout} {props.children}</p>
 }
-source name = "a"
-source show = true
+source name := "a"
+source show := true
 <div>
   if show { <Greeting name={name}>{"hi"}</Greeting> }
 </div>

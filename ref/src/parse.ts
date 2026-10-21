@@ -56,7 +56,9 @@ function parseDecl(c: Cursor): Decl {
   c.ws();
   const line = c.line;
   if (c.keyword("source")) {
-    c.ws(); const name = c.ident() ?? c.fail("source name"); c.ws(); c.expect("="); c.ws();
+    c.ws(); const name = c.ident() ?? c.fail("source name"); c.ws();
+    if (c.eat("=") && !c.startsWith(":")) c.fail("E-4: a source is declared with ':=' (assign now); 'source x = e' is reserved");
+    c.expect(":="); c.ws();
     return { k: "source", name, init: parseExpr(c), line };
   }
   if (c.keyword("effect")) {

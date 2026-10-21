@@ -5,8 +5,8 @@ Rules exercised: E-1, E-2, E-4, E-6, W-1, W-2, W-3, C-2, C-2a, EF-2, EF-4, P-6.
 ## Program
 
 ```
-source count = 0
-source show  = true
+source count := 0
+source show := true
 double = count * 2
 label  = "prev " + pre double -> 0
 effect (double) { log(double) }
@@ -27,8 +27,8 @@ effect (double) { log(double) }
 ## Variant: no effect (`double` undemanded while `show` is false)
 
 ```
-source count = 0
-source show  = true
+source count := 0
+source show := true
 double = count * 2
 label  = "prev " + pre double -> 0
 <p>{if show then double else "-"} {label}</p>
@@ -46,20 +46,20 @@ rules previous frame. Confirm in `ref/` phase 3.
 
 ```
 -- reject: W-1
-source count = 0
+source count := 0
 double = count * 2
 effect (count) { double := 4 }
 ```
 
 ```
 -- reject: W-2
-source count = 0
+source count := 0
 count := 1
 ```
 
 ```
 -- reject: C-1
-source s = 0
+source s := 0
 a = b + 1
 b = a + 1
 <p>{a}</p>

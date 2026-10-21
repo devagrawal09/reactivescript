@@ -5,13 +5,13 @@ Rules exercised: RG-2a, RG-2b, RG-2c, E-4.
 ## Program
 
 ```
-source a = { id: "a" }
-source b = { id: "b" }
-source c = { id: "c" }
-source items = []
+source a := { id: "a" }
+source b := { id: "b" }
+source c := { id: "c" }
+source items := []
 <ul>
   for item in items {
-    source hits = 0
+    source hits := 0
     <li>{item.id}:{hits}</li>
   }
 </ul>

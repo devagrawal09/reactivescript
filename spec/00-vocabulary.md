@@ -12,7 +12,7 @@ the definition here must agree with it; the Solid term is given in brackets.
 ## V-1. Source
 
 A named value that is **written** from imperative scope and never derived. It
-has an initial answer (its initializer, read once — V-11) and, optionally, a
+is declared with `:=` — an assignment, done once (E-4) —  and, optionally, a
 standing **question** (V-9) that re-derives it until it is next written.
 
 Solid: `createSignal`, `createStore`; with a question, `createSignal(fn)`,

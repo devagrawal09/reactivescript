@@ -7,11 +7,11 @@ Rules exercised: E-9, E-10 (diagnostic), RG-6a, RG-6b, RG-6c.
 ```
 fn double(v) => v * 2
 fn counter(ref base, step) {
-  source extra = 0
+  source extra := 0
   total = base + extra + step
   total
 }
-source n = 1
+source n := 1
 d = double(n)
 t = counter(n, 10)
 <p>{d} {t}</p>
@@ -39,7 +39,7 @@ fn watch(v) {
   effect (v) { log(v) }
   v
 }
-source n = 1
+source n := 1
 w = watch(n)
 <p>{w}</p>
 ```
@@ -47,9 +47,9 @@ w = watch(n)
 ```
 -- reject: E-9
 fn counter(ref base) {
-  source extra = 0
+  source extra := 0
   base + extra
 }
-source n = 1
+source n := 1
 <p>{counter(n)}</p>
 ```

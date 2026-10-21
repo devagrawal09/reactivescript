@@ -23,7 +23,7 @@ Program   ::= RBlock                          -- the program is a reactive block
 RBlock    ::= Decl* Markup*                   -- declarations, then the block's view (V-5); no keyword
                                               -- (markup begins at '<', '{', 'if', 'for'; a declaration at a keyword or 'x =')
 
-Decl      ::= source x = Expr                 -- V-1; initializer is a snapshot (E-4)
+Decl      ::= source x := Expr                -- V-1; ':=' assigns now — a snapshot (E-4)
             | x = Expr                        -- V-2, equation
             | effect (Expr*) Block            -- V-3; compute exprs ‖ apply block
             | fn f (Param*) => Expr           -- pure function (E-9)
@@ -86,10 +86,17 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **E-3 (Demand).** An equation's body is evaluated only when a reader, an
   effect's compute half, or another demanded equation reaches it in the current
   instant. Unreached equations have no observable cost or effect.
-- **E-4 (Initializer snapshot).** The initializer of `source x = e` is a
-  snapshot: it is evaluated once, in the instant the declaration is reached,
-  and `e`'s inputs do not become inputs of `x`. This is the only implicit
-  snapshot in reactive scope; every other snapshot is `peek`.
+- **E-4 (Initializer is an assignment).** A source is declared with `:=`:
+  `source x := e` assigns `x` the value of `e` once, in the instant the
+  declaration is reached, and `e`'s inputs do not become inputs of `x`. The
+  operator carries the meaning: `=` is always an equation (holds for all
+  time), `:=` is always "assign the current value now" — once in a
+  declaration, on every execution in imperative scope. There is no implicit
+  snapshot anywhere; the other explicit one is `peek`. `source x = e` is
+  reserved (a source with a standing question, 06-stores `follows`).
+  Diagnostic (warning): an initializer that reads a reactive value no
+  equation, reader, or effect in the region reads again — the author probably
+  meant an equation (`SNAPSHOT_INITIALIZER`, bin S).
 - **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
   committed state and contributes no inputs to the enclosing equation. It has
   no meaning in imperative scope, where every read is already a snapshot
@@ -139,12 +146,14 @@ Function application `f(e…)` covers both language functions and FFI imports;
 
 ### W — Writes
 
-- **W-1 (Write position).** `x := e` is legal only in imperative scope (SC-2)
-  and only when `x` is a source (V-1). An equation, a `peek`, a function
+- **W-1 (Write position).** `x := e` as a statement is legal only in
+  imperative scope (SC-2) and only when `x` is a source (V-1); as a
+  declaration (`source x := e`) it is the initializer (E-4). An equation, a `peek`, a function
   parameter, or an imperative local written with `:=` is a plain local, not a
   source.
 - **W-2 (No writes in reactive scope).** Reactive scope has no statement
-  position; a write there is a parse error, not a semantic one.
+  position; a bare `x := e` there (without `source`) is a parse error, not a
+  semantic one.
 - **W-3 (Instant).** All writes performed by one imperative run — one handler
   invocation, one apply block, one resumed continuation — form one instant
   (V-6). There is no API to split or merge instants from inside a run.
@@ -293,8 +302,8 @@ An instant proceeds in three phases and no phase overlaps another:
 `scenarios/S-core-1.md` — the counter.
 
 ```
-source count = 0
-source show  = true
+source count := 0
+source show := true
 double = op*(count, 2)
 label  = op+("prev ", pre double -> 0)
 effect (double) { log(double) }

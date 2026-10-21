@@ -5,8 +5,8 @@ Rules exercised: RG-3, EF-2, EF-4, EF-5, O-2.
 ## Program
 
 ```
-source open = true
-source n = 0
+source open := true
+source n := 0
 <div>
   if open {
     effect (n) { log("run " + str(n)); fn () => log("cleanup " + str(n)) }
