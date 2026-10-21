@@ -82,7 +82,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
   committed state and contributes no inputs to the enclosing equation. It has
   no meaning in imperative scope, where every read is already a snapshot
-  (SC-2).
+  (SC-2). `peek e` of an equation nothing demands evaluates it from scratch
+  (P-3) without making it part of the frame: it stays undemanded for E-8/P-6.
+  (Solid: `untrack` on a lazy memo.)
 - **E-6 (Equality cuts).** An equation whose re-evaluation yields a value equal
   to its previous value has not changed: it is not part of the instant's cone
   from that point on, its dependents are not re-evaluated through it, and
