@@ -18,9 +18,13 @@ The synchronous core (02 §4) has one state `σ`. Holds add a second:
   held instant live here; async answers land here; equations settle against
   it. Only probes read it (R-9).
 
-There is at most one in-flight version. A hold is exactly an instant that
-cannot commit (H-2); while it is open, later instants' writes join it (H-3),
-and it commits as one frame when nothing held is still pending.
+Membership is per **change**: every write and every flight belongs to the
+instant that made it, and a reader that consumes a held change joins it.
+Changes merge when one reader consumes two; a merged group commits as one
+frame when no reader is pending on it and no flight it opened is still
+awaited by a display. (Revised 2026-10-21 after porting Solid S-2 and S-4:
+the first draft had one in-flight version that every later instant joined,
+which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 ---
 
@@ -31,28 +35,40 @@ and it commits as one frame when nothing held is still pending.
   The one exception is declared lag (`deferred`, 06): it may lag the screen,
   never lead it.
 
-- **H-2 (Hold = instant).** [F-2] An instant settles against `σ′ = σ + Δ`. If
-  any **holding reader** (H-4) is pending after settle, the instant is held:
-  `σ` is unchanged, the screen keeps its frame, `σ′` stays open. When every
-  holding reader has an answer, the instant commits: `σ := σ′`, one frame,
-  then the observe phase (effects' apply blocks run against the committed
-  instant, not before). Instant 0 (mount) can be held; the screen shows
-  nothing until it commits. `action { … }` keeps one instant open across its
-  awaited work.
+- **H-2 (A change is held by its pending readers).** [F-2] An instant is a
+  change. Its writes and the flights it opens belong to it. After settle, the
+  change is **held** iff some reader that consumed it is pending (H-4) or a
+  flight it opened is still awaited by a display (a served reader, H-3). A
+  held change commits nothing: `σ` is unchanged and the screen keeps its
+  frame. When nothing holds it, it commits as one frame — its writes and
+  landed answers become `σ`, the structure it mounted attaches, its readers
+  show — and then the observe phase runs (apply blocks see the committed
+  instant). Instant 0 (mount) can be held; the screen shows nothing until it
+  commits. `action { … }` keeps one change open across its awaited work.
 
-- **H-3 (Joining).** [F-2, Solid's tick ruling] An instant opened while a
-  hold is open writes into the same `σ′` and commits with it. A new question
-  on a source already in flight supersedes the flight (R-4). There is one
-  in-flight version, never a stack.
+- **H-3 (Served, or joined).** [F-2, Solid D-1, D-3, D-4] A reader in change
+  `d` that **directly** reads a value held by an open change `c ≠ d` — an
+  uncommitted write, or a flight still pending — is *served* `σ`'s value for
+  it and shows now; it holds nothing, but `c` stays open while a display is
+  still waiting on that flight. An **equation** never serves: it computes on
+  `σ′`, and a reader that consumes a value derived from `c`'s held writes, or
+  a landed answer of `c`, **joins** `c` — its reveal belongs to `c`'s commit
+  and `d` merges into `c`'s group. A reader that consumed `d`'s own fresh
+  writes shows at `d`'s commit. A new question on a source already in flight
+  supersedes the flight (R-4). So two unrelated changes do not wait for each
+  other (S-solid-4: `1:0` beside a stale `detailsA`), while a shared
+  derivation makes them one (`sum` variant), and nothing derived from a held
+  write ever shows ahead (S-solid-2: `Panel 1` beside `Count 0` is
+  impossible).
 
-- **H-4 (Who holds).** [F-3] A reader holds an instant iff it is pending in
-  `σ′`, it is still the display (its region is live and it will still be a
-  reader after the instant), and no armed boundary catches it (H-5), and it
-  is not a lane reader (H-7). A reader the instant itself removes holds
-  nothing; a reader behind a fallback holds nothing; an effect's compute
-  half, an unread equation, a snapshot, or a probe holds nothing. A reader
-  that can be served `σ`'s value for the same read shows it and holds
-  nothing.
+- **H-4 (Who holds).** [F-3] A reader holds the group it joined iff it is
+  pending after its pass, it is still the display (its region is live and it
+  will still be a reader after the instant), no armed boundary catches it
+  (H-5 — the catch takes precedence over being served), and it is not a lane
+  reader (H-7). A reader the instant itself removes holds nothing; a reader
+  behind a fallback holds nothing; an effect's compute half, an unread
+  equation, a snapshot, or a probe holds nothing. A held reader's pass is
+  re-run every instant: it is the display, and serving happens in the pass.
 
 - **H-5 (Armed boundary catches).** [F-4] A `loading` region is **armed**
   until it has shown content, and again after `on`. While armed, pending
@@ -126,7 +142,11 @@ and it commits as one frame when nothing held is still pending.
   `OPEN-QUESTIONS.md`. Scenarios that touch them are marked `inherits Q-n`
   and the expected frame is whichever column Solid rules.
 
-## Scenarios (mirror Solid's `SCENARIOS.md`, ids `S-hold-n` ↔ `S-n`)
+## Scenarios
+
+Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
+this spec's own. Ported so far: S-1, S-2, S-4. Divergences found and fixed
+by porting are recorded in the rule they changed.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
 flight of equation `x`. Frames list, per instant, the screen and the probe

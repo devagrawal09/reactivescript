@@ -1,6 +1,6 @@
-# S-hold-3 — joining: a second write lands in the same in-flight version
+# S-hold-3 — a second write during a hold: served committed, not joined
 
-Rules: H-2, H-3, H-4, H-10, R-4.
+Rules: H-2, H-3, H-4, H-10, R-4. (H-3 rewritten after Solid S-4.)
 
 ## Program
 
@@ -18,13 +18,14 @@ product = await fetch("p:" + id)
 | 0       | mount                               | ``      |
 | 1       | resolve product { name: "A" }       | `A 0`   |
 | 2       | handler `id := "b"`                 | `A 0`   |
-| 3       | handler `n := 1`                    | `A 0`   |
+| 3       | handler `n := 1`                    | `A 1`   |
 | 4       | resolve product { name: "B" }       | `B 1`   |
 
 Instant 0: no boundary, so the mount itself is held (H-2) and nothing shows.
-Instant 2 opens a hold; instant 3's write joins it (H-3): `n` is `1` in σ′
-but the screen still shows `0` (H-1: never a new value beside a stale one).
-Instant 4: both commit together.
+Instant 2 opens a hold. Instant 3: `n`'s change needs no async; the reader
+is served `product`'s committed value and shows `A 1` now (Solid D-3 —
+this table first said `A 0`, which was the divergence porting Solid's S-4
+caught). Instant 4: `product` lands.
 
 ## Variant: superseded flight
 

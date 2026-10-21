@@ -44,6 +44,9 @@ export class Node {
   preDeps = new Set<Node>(); preSubs = new Set<Node>();
   lane = false;                                        // R-10: read a probe during last compute
   flight: Flight | null = null; answered = false; firstPaint = false;   // R-1, R-7
+  heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
+  taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
+  heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
@@ -75,8 +78,8 @@ type BoundaryItem = { k: "loading" | "errored"; m: Extract<Markup, { k: "loading
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst }
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
-  | { k: "mif"; m: Extract<Markup, { k: "mif" }>; cond: Node; region: Region; committed: { branch: string; inst: ViewInst } | null; inflight: { branch: string; inst: ViewInst } | null }
-  | { k: "mfor"; m: Extract<Markup, { k: "mfor" }>; xs: Node; region: Region; committedRows: Row[]; inflightRows: Row[] }
+  | { k: "mif"; m: Extract<Markup, { k: "mif" }>; cond: Node; region: Region; committed: { branch: string; inst: ViewInst; openedBy: number } | null; inflight: { branch: string; inst: ViewInst; openedBy: number } | null }
+  | { k: "mfor"; m: Extract<Markup, { k: "mfor" }>; xs: Node; region: Region; committedRows: Row[]; inflightRows: Row[]; rowsOpenedBy: number }
   | BoundaryItem;
 
 function nearest(b: BoundaryItem | null, kind: "loading" | "errored"): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === kind) return x; return null; }
@@ -93,10 +96,16 @@ export class Runtime {
   log: string[] = [];
   diagnostics: string[] = [];
   instant = -1;
-  holdOpen = false;                                    // H-2: an instant that could not commit
+  openChanges = new Set<number>();                     // roots of held groups (H-2, per-change membership: Solid D-1..D-5)
+  parent = new Map<number, number>();                  // union-find over changes
   committedOnce = false;
+  get holdOpen() { return this.openChanges.size > 0; }
+  find(c: number): number { let r = c; while (this.parent.has(r) && this.parent.get(r) !== r) r = this.parent.get(r)!; return r; }
+  union(a: number, b: number) { const ra = this.find(a), rb = this.find(b); if (ra !== rb) this.parent.set(Math.max(ra, rb), Math.min(ra, rb)); }
+  private groupOpen(c: number) { return this.openChanges.has(this.find(c)); }
   private tracking: Node | null = null;
   private demandMode = true;
+  private servedPending = new Set<Node>();              // pending flights a display was served the committed value for: they keep their change open
   program: Program;
 
   constructor(program: Program) {
@@ -172,50 +181,56 @@ export class Runtime {
       if (w.path.length === 0) {
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
         if (d.size === 0) continue;
-        w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; this.notify(w.node, "");
+        w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; this.notify(w.node, "");
       } else {
         let o = w.node.value as Record<string, unknown>;
         const keys = w.path.map(String); const last = keys.pop()!;
         for (const k of keys) { if (!isObj(o[k])) { o[k] = /^\d+$/.test(k) ? [] : {}; this.notify(o, k); } o = o[k] as Record<string, unknown>; }
         const d = new Set<Path>(); diffPaths(o[last], w.value, "", d);
         if (d.size === 0) continue;
-        o[last] = w.value; w.node.changedSinceCommit = true; this.notify(o, last);
+        o[last] = w.value; w.node.changedSinceCommit = true; w.node.heldBy = this.instant; this.notify(o, last);
         if (Array.isArray(o)) this.notify(o, "length");
       }
     }
     if (this.instant === 0) for (const n of this.allNodes()) if (n.kind === "source") { n.changed = true; n.evaluated = true; }
 
     // Phase 2 — settle (E-3) against σ′: readers of the in-flight structure, effect computes, boundaries (H-5/H-6).
-    const holding: Node[] = [];
-    this.settle(this.view, holding, null);
-    for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; }
+    const settleAll = () => { const holding: Node[] = []; this.servedPending.clear(); this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
+    let holding = settleAll();
 
-    // Hold decision (H-2, H-4).
-    if (holding.length > 0) {
-      if (!this.committedOnce) for (const h of holding) if (!h.region.boundary) this.diagnostics.push(`ASYNC_OUTSIDE_LOADING_BOUNDARY: ${h.name} is pending at mount with no loading boundary; the mount is held`);
-      this.holdOpen = true;
-      // H-7: lane readers show σ′ beside the held screen (unless their own lane is pending).
-      this.patchLanes(this.view);
-      return { frame: this.committedOnce ? this.renderCommitted(this.view) : "", effects: [] };
+    // Hold decision per change group (H-2, H-3, H-4; Solid D-1..D-5): a reader holds the group it joined; a group with no holder commits.
+    const roots = () => { const r = new Set<number>(); for (const c of this.openChanges) r.add(this.find(c)); r.add(this.find(this.instant)); return r; };
+    let committedSome = false;
+    for (let pass = 0; pass < 3; pass++) {
+      const heldRoots = new Set<number>();
+      for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
+      for (const n of this.servedPending) if (n.heldBy !== null) heldRoots.add(this.find(n.heldBy));   // a flight a display still waits on keeps its change open (F-2)
+      let any = false;
+      for (const g of roots()) {
+        if (heldRoots.has(g)) { this.openChanges.add(g); continue; }
+        this.openChanges.delete(g); any = true; committedSome = true;
+        this.commitGroup(g);
+      }
+      if (!any) break;
+      holding = settleAll();                                           // readers that were served committed values re-run (sources notified)
     }
-
-    // Phase 3 — commit (σ := σ′) and observe: structure swap, pre bookkeeping (P-6, E-8), effects (EF-2..EF-6).
-    // Verdicts are final at commit (H-9): decide effect firing, close the hold, then re-settle lane readers.
-    const fire = new Set<EffectRec>();
-    for (const e of this.effects) if (e.alive && (!e.ran || e.computes.some(c => c.changedSinceCommit))) fire.add(e);
-    this.holdOpen = false;
-    for (const n of this.allNodes()) { n.changedSinceCommit = false; if (n.lane) { n.evaluated = false; n.state = "dirty"; } }
+    if (!this.committedOnce && !committedSome) {
+      for (const h of holding) if (!h.region.boundary) this.diagnostics.push(`ASYNC_OUTSIDE_LOADING_BOUNDARY: ${h.name} is pending at mount with no loading boundary; the mount is held`);
+    }
+    if (committedSome) this.committedOnce = true;
+    // Verdicts are final only after the decision (H-9): lane readers re-settle against the decided world, then show ahead (H-7).
+    for (const n of this.allNodes()) if (n.lane) { n.evaluated = false; n.state = "dirty"; }
     this.settle(this.view, [], null);
-    this.commit(this.view);
-    this.committedOnce = true;
-    const frame = this.renderCommitted(this.view);
+    this.patchLanes(this.view);
+    const frame = this.committedOnce ? this.renderCommitted(this.view) : "";
+
+    // Phase 3 — observe: pre bookkeeping (P-6, E-8); effects (EF-2..EF-6) whose computes are committed.
     const preChanged: Node[] = [];
     for (const n of this.allNodes()) {
       const inFrame = n.kind === "source" || n.demanded;
       const newPrev = inFrame ? n.value : undefined;
       if (n.hasPrev !== inFrame || !Object.is(n.prev, newPrev)) preChanged.push(n);
       n.prev = newPrev; n.hasPrev = inFrame;
-      if (n.hasValue) { n.committed = n.value; n.hasCommitted = true; }
       if (!inFrame) { n.hasValue = false; n.value = undefined; n.hasCommitted = false; }   // E-8
     }
     for (const x of preChanged) for (const s of x.preSubs) this.markDirty(s);   // C-2 delayed input
@@ -223,13 +238,28 @@ export class Runtime {
     for (const c of this.pendingCleanups) c(); this.pendingCleanups = [];
     for (const e of [...this.effects]) {
       if (!e.alive) continue;
-      if (!fire.has(e) || e.computes.some(c => isAbsent(c.value))) continue;   // R-2: pending compute → no apply
+      const settled = e.computes.every(c => !isAbsent(c.value) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));
+      const fire = settled && (!e.ran || e.computes.some(c => c.changedSinceCommit));
+      if (!fire) continue;
+      for (const c of e.computes) c.changedSinceCommit = false;
       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
       const r = this.runStmts(e.body, e.region, new Map(), e.computes.map(c => c.value));
       if (typeof r === "function") e.cleanup = r as () => void;
     }
     this.effects = this.effects.filter(e => e.alive);
     return { frame, effects: this.log.slice(logBefore) };
+  }
+
+  /** Commit a change group: its writes and landed answers become σ, its structure attaches, its readers show. */
+  private commitGroup(g: number) {
+    for (const n of this.allNodes()) {
+      if (n.heldBy !== null && this.find(n.heldBy) === g) {
+        n.heldBy = null; if (n.hasValue) { n.committed = n.value; n.hasCommitted = true; }
+        if (n.kind === "source") this.notify(n, "");                   // readers served the old committed value re-run
+      }
+      if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
+    }
+    this.commit(this.view, g);
   }
 
   // ---- settle / commit / render over the two structure versions ----
@@ -241,13 +271,23 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
-        if (v instanceof ErrVal) { const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node); return; }       // H-12
-        if (v instanceof PendingVal && !i.node.lane) {
-          const eb = nearest(boundary, "errored"); if (eb && eb.showingFallback) { eb.stillWaiting = true; return; }     // H-4/H-12: pending is not an answer
+        if (v instanceof ErrVal) { const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node); i.node.heldOn = null; return; }   // H-12
+        if (i.node.lane) { i.node.heldOn = null; return; }                                                                 // H-7: lanes never hold
+        // changes this reader consumes that are already held (its own instant's fresh writes are not held yet)
+        const open = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+        if (v instanceof PendingVal) {
+          const eb = nearest(boundary, "errored"); if (eb && eb.showingFallback) { eb.stillWaiting = true; i.node.heldOn = null; return; }   // pending is not an answer
           const lb = nearest(boundary, "loading");
-          if (lb && lb.armed) lb.caught.push(i.node); else holding.push(i.node);                                           // H-5 / H-6
+          if (lb && lb.armed) { lb.caught.push(i.node); i.node.heldOn = null; return; }                                   // H-5: caught, holds nothing
+          for (const c of open) this.union(this.instant, c);                                                                // the reader joins every held change it consumes
+          i.node.heldOn = this.find(this.instant); holding.push(i.node); return;                                            // H-4 / H-6
         }
-        return;
+        if (open.length > 0) {                                                                                             // derived from a held change: reveals with it, holds nothing (H-8, Solid D-1)
+          for (const c of open) this.union(this.instant, c);
+          i.node.heldOn = this.find(this.instant); return;
+        }
+        if (i.node.taint.has(this.instant)) { i.node.heldOn = this.find(this.instant); return; }                           // consumed this instant's writes: shows at its commit (F-2)
+        i.node.heldOn = null; i.shown = fmt(v); return;                                                                    // only committed / served values: shows now (Solid D-3)
       }
       case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
       case "mif": {
@@ -261,7 +301,7 @@ export class Runtime {
             const r = new Region(i.region, this);
             if (want === "t" && i.m.c.k === "id") { const b = i.region.lookup(i.m.c.name); if (b) r.scope.set(i.m.c.name, b); }   // RG-1c
             this.declare(want === "t" ? i.m.tDecls : i.m.fDecls, r);
-            i.inflight = { branch: want, inst: this.instantiate(want === "t" ? i.m.t : i.m.f, r) };
+            i.inflight = { branch: want, inst: this.instantiate(want === "t" ? i.m.t : i.m.f, r), openedBy: this.instant };
           }
         }
         this.settle(i.inflight!.inst, holding, boundary);
@@ -282,6 +322,7 @@ export class Runtime {
           rows.push({ elem, region: r, inst: this.instantiate(i.m.body, r) });
         }
         for (const l of pool.values()) for (const r of l) if (!i.committedRows.includes(r)) r.region.dispose();   // uncommitted rows dropped now
+        if (rows.length !== i.inflightRows.length || rows.some((r, k) => r !== i.inflightRows[k])) i.rowsOpenedBy = this.instant;
         i.inflightRows = rows;
         for (const r of rows) this.settle(r.inst, holding, boundary);
         return;
@@ -303,16 +344,27 @@ export class Runtime {
       }
     }
   }
-  private commit(v: ViewInst) { for (const i of v.items) this.commitItem(i); }
-  private commitItem(i: VItem) {
+  private commit(v: ViewInst, g: number) { for (const i of v.items) this.commitItem(i, g); }
+  private commitItem(i: VItem, g: number) {
     switch (i.k) {
       case "text": return;
-      case "comp": return this.commit(i.inst);
-      case "read": { const val = i.node.value; if (val instanceof ViewValue) { this.commit(val); i.shown = null; } else if (val instanceof PendingVal) { i.shown = i.shown ?? ""; } else i.shown = fmt(val); return; }
-      case "el": { for (const c of i.children) this.commitItem(c); return; }
-      case "mif": { if (i.inflight !== i.committed) { i.committed?.inst.region.dispose(); i.committed = i.inflight; } if (i.committed) this.commit(i.committed.inst); return; }
-      case "mfor": { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; for (const r of i.committedRows) this.commit(r.inst); return; }
-      case "loading": case "errored": { i.committedFallback = i.showingFallback; this.commit(i.content); this.commit(i.fallback); return; }
+      case "comp": return this.commit(i.inst, g);
+      case "read": {
+        const val = i.node.value;
+        if (val instanceof ViewValue) { this.commit(val, g); i.shown = null; return; }
+        if (i.node.heldOn !== null) return;                             // still held on another group: keeps what it showed
+        if (val instanceof PendingVal) { i.shown = i.shown ?? ""; } else i.shown = fmt(val); return;
+      }
+      case "el": { for (const c of i.children) this.commitItem(c, g); return; }
+      case "mif": {
+        if (i.inflight !== i.committed && i.inflight && this.find(i.inflight.openedBy) === g) { i.committed?.inst.region.dispose(); i.committed = i.inflight; }
+        if (i.committed) this.commit(i.committed.inst, g); return;
+      }
+      case "mfor": {
+        if (this.find(i.rowsOpenedBy) === g) { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; }
+        for (const r of i.committedRows) this.commit(r.inst, g); return;
+      }
+      case "loading": case "errored": { i.committedFallback = i.showingFallback; this.commit(i.content, g); this.commit(i.fallback, g); return; }
     }
   }
   private renderCommitted(v: ViewInst): string { return v.items.map(i => this.renderItem(i)).join(""); }
@@ -352,18 +404,20 @@ export class Runtime {
     for (const s of this.subs.get(m)?.get("") ?? []) this.markDirty(s, "check");
   }
   pull(n: Node): unknown {
-    if (n.kind === "source") return this.demandMode ? n.value : (n.hasCommitted ? n.committed : n.value);   // H-10: snapshots see σ
+    if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ
     if (!this.demandMode) return this.transient(n);
     n.demanded = true;
     if (n.evaluated) return n.value;
     let recompute = !n.hasValue || n.state === "dirty";
+    if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal)) recompute = true;   // a held display re-runs its pass each instant (served reads live in evaluation)
     if (!recompute) {
-      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); if (n.state === "check" && d.changed) { recompute = true; break; } }
+      n.taint = new Set();
+      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); for (const t of d.taint) n.taint.add(t); if (n.state === "check" && d.changed) { recompute = true; break; } }
       if (!recompute && n.state === "check") recompute = true;
     }
     if (recompute) {
       this.unsubscribe(n); for (const d of n.preDeps) d.preSubs.delete(n); n.preDeps.clear();
-      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.flight = null;
+      const prevTracking = this.tracking; this.tracking = n; n.lane = false; const prevFlight = n.flight; n.flight = null; n.taint = new Set();
       let v: unknown;
       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
       this.tracking = prevTracking;
@@ -373,7 +427,9 @@ export class Runtime {
       if (ch.size > 0) { n.value = v; n.changed = true; n.changedSinceCommit = true; }
       n.hasValue = true;
       if (!isAbsent(v)) n.answered = true;
+      if (n.flight && n.flight !== prevFlight) n.heldBy = this.instant;   // a new question: the flight belongs to this change (R-4)
     }
+    if (n.heldBy !== null) n.taint.add(n.heldBy);
     n.state = "clean"; n.evaluated = true;
     return n.value;
   }
@@ -410,6 +466,13 @@ export class Runtime {
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
         this.track(b, ""); const v = this.pull(b);
         if (b.lane && this.tracking && this.demandMode) this.tracking.lane = true;   // R-10: lane flows through equations
+        if (this.tracking && this.demandMode) {
+          const held = b.heldBy !== null && b.heldBy !== this.instant && this.groupOpen(b.heldBy);
+          const future = b.kind === "source" || b.value instanceof PendingVal;                   // a landed answer is consumed, not served
+          const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
+          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed) { if (b.value instanceof PendingVal) this.servedPending.add(b); return b.committed; }   // D-3: served the committed value
+          for (const t of b.taint) this.tracking.taint.add(t);
+        }
         return v;
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, e.p); return v[e.p]; }
@@ -441,8 +504,8 @@ export class Runtime {
         if (!n) return false;
         this.track(n, ""); if (n.kind !== "source") this.pull(n);     // a probe is a (lane) dependency
         if (n.firstPaint) return false;                                // R-7
-        if (!n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
-        return n.value instanceof PendingVal || (this.holdOpen && n.changedSinceCommit);
+        if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
+        return n.value instanceof PendingVal || (n.heldBy !== null && this.groupOpen(n.heldBy));
       }
       case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
@@ -525,7 +588,7 @@ export class Runtime {
         return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
-      case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [] };
+      case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
         const item: BoundaryItem = { k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false };
         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));

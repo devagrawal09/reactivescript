@@ -19,9 +19,9 @@ Phase 1 is checked against `scenarios/` only; runtime diffing against
 recorded.
 
 Status: phase 3 (holds) running alongside phase 1. `node --experimental-strip-types ref/run.ts [filter]`
-runs `scenarios/S-*.md`; S-core-1, S-region-1..6 and S-hold-1..5 pass (two-version
-state, loading/errored boundaries, `on` re-arm, probes/lanes, lane holds,
-joining, superseded flights).
+runs `scenarios/S-*.md`; S-core-1, S-region-1..6 and S-hold-1..5 and S-solid-1,2,4 pass
+(per-change membership with served reads and joining, loading/errored
+boundaries, `on` re-arm, probes/lanes, lane holds, superseded flights).
 
 Findings so far (each is now a rule): demand propagates through cut nodes
 (E-3/E-8); `pre` is a delayed input (C-2); dependencies are per object
