@@ -1,23 +1,52 @@
-# S-solid-26 — `pending?` is about a new question (Solid S-26 rows 0–3; D-23, D-24)
+# S-solid-26 — `pending?` is about a new question (Solid S-26; D-23, D-24)
 
-Rows 4–7 (`refresh`, `affects`, optimistic) wait on 06-stores.
+Rules: R-9, H-9, AC-4, AC-5, AC-3.
 
 ## Program
 
 ```
 source id := 1
 user = await fetch("u:" + id)
+action reload() { affects user; refresh user; await fetch("gate") }
 {loading fallback { <p>…</p> } { <div><p>{user.name}</p> <p>{if pending? user then "updating" else ""}</p></div> }}
 ```
 
 ## Frames
 
-| instant | action                        | frame            |
-| ------- | ----------------------------- | ---------------- |
-| 0       | mount                         | `…`              |
-| 1       | resolve user { name: "Ann" }  | `Ann `           |
-| 2       | handler `id := 2`             | `Ann updating`   |
-| 3       | resolve user { name: "Bob" }  | `Bob `           |
+| instant | action                         | frame            |
+| ------- | ------------------------------ | ---------------- |
+| 0       | mount                          | `…`              |
+| 1       | resolve user { name: "Ann" }   | `Ann `           |
+| 2       | handler `id := 2`              | `Ann updating`   |
+| 3       | resolve user { name: "Bob" }   | `Bob `           |
+| 4       | handler `refresh user`         | `Bob `           |
+| 5       | resolve user { name: "Bob2" }  | `Bob2 `          |
+| 6       | handler `reload()`             | `Bob2 updating`  |
+| 7       | resolve user { name: "Bob3" }  | `Bob2 updating`  |
+| 8       | resolve "gate" 0               | `Bob3 `          |
 
 Instant 0: the probe's own read suspends with the first load — no verdict,
 nothing observable (D-24). Instant 2: an input changed — a new question.
+Instant 4: a re-ask of the same question is quiet; the fresh value reveals
+silently (5). Instant 6: `affects` declares a reload: pending. Instant 7:
+the re-ask lands into the action's hold (D-31) and reveals at its commit.
+
+## Variant: a guess over `user` is verdict-inert (row 7)
+
+```
+source id := 1
+user = await fetch("u:" + id)
+source shown = user.name
+action nick(n) { optimistic shown := n; await fetch("gate") }
+{loading fallback { <p>…</p> } { <div><p>{shown}</p> <p>{if pending? shown then "updating" else ""}</p></div> }}
+```
+
+| instant | action                         | frame            |
+| ------- | ------------------------------ | ---------------- |
+| 0       | mount                          | `…`              |
+| 1       | resolve user { name: "Ann" }   | `Ann `           |
+| 2       | handler `nick("Annie")`        | `Annie `         |
+| 3       | resolve "gate" 0               | `Ann `           |
+
+The guess shows; `pending? shown` stays `false`. The body's end corrects
+it by the truth at hand (D-35).

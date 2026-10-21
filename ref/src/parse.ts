@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -57,9 +57,9 @@ function parseDecl(c: Cursor): Decl {
   const line = c.line;
   if (c.keyword("source")) {
     c.ws(); const name = c.ident() ?? c.fail("source name"); c.ws();
-    if (c.eat("=") && !c.startsWith(":")) c.fail("E-4: a source is declared with ':=' (assign now); 'source x = e' is reserved");
-    c.expect(":="); c.ws();
-    return { k: "source", name, init: parseExpr(c), line };
+    if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line }; }
+    c.expect("="); c.ws();
+    return { k: "source", name, init: parseExpr(c), line, question: true };   // ST-5: a source with a standing question
   }
   if (c.keyword("effect")) {
     c.ws(); c.expect("("); c.ws();
@@ -71,6 +71,13 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("deferred")) {
     c.ws(); const name = c.ident() ?? c.fail("deferred name"); c.ws(); c.expect("="); c.ws();
     return { k: "eq", name, e: parseExpr(c), line, deferred: true };
+  }
+  if (c.keyword("action")) {
+    c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
+    const params: string[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); c.ws();
+    return { k: "action", name, params, body: parseBlock(c), line };
   }
   if (c.keyword("fn")) {
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
@@ -121,6 +128,14 @@ export function parseStmts(src: string): Stmt[] {
 
 function parseStmt(c: Cursor): Stmt {
   c.ws();
+  if (c.keyword("optimistic")) {
+    c.ws(); const name = c.ident() ?? c.fail("target"); const path: Target["path"] = [];
+    for (;;) { if (c.eat(".")) path.push(c.ident() ?? c.fail("member")); else if (c.eat("[")) { c.ws(); path.push(parseExpr(c)); c.ws(); c.expect("]"); } else break; }
+    c.ws(); c.expect(":="); c.ws(); return { k: "optimistic", target: { name, path }, e: parseExpr(c) };
+  }
+  if (c.keyword("refresh")) { c.ws(); return { k: "refresh", name: c.ident() ?? c.fail("name") }; }
+  if (c.keyword("affects")) { c.ws(); return { k: "affects", name: c.ident() ?? c.fail("name") }; }
+  if (c.keyword("action")) { c.ws(); return { k: "action", body: parseBlock(c) }; }
   if (c.keyword("let")) { c.ws(); const name = c.ident() ?? c.fail("let name"); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
   // write?  target := expr
   const save = c.i;
@@ -315,7 +330,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") ||
     (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && c.peek() === "=" && c.peek(1) !== "="; return ok; })();
   c.i = save; return r;
 }

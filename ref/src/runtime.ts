@@ -1,7 +1,7 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
-type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>;
+type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>;
 
 export class RuleError extends Error { rule: string; constructor(rule: string, msg: string) { super(`${rule}: ${msg}`); this.rule = rule; } }
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
@@ -52,11 +52,18 @@ export class Node {
   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
+  question = false;                                    // ST-5: `source x = e` — an equation until written
+  guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false;   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
+  quiet = false; refreshBy: number | null = null;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+  affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
+  heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
 
-type Binding = Node | { constant: unknown } | { fn: FnDecl } | { comp: CompDecl };
+type Binding = Node | { constant: unknown } | { fn: FnDecl } | { comp: CompDecl } | { action: ActionDecl };
+/** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
+type Run = { stmts: Stmt[]; i: number; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null };
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
@@ -115,6 +122,12 @@ export class Runtime {
   private probeReads: Set<Node> | null = null;          // `pending?` over a composite: nodes read inside
   private heldLanes = new Set<Node>();                  // H-7: lanes with pending work this instant
   private bornHeldOwn: { reader: Node; lb: BoundaryItem }[] = [];
+  openActions = new Set<Run>();                         // AC-1: an action's change stays open until its body returns
+  private suspended: Run[] = [];                        // runs waiting on a flight
+  private started: Run[] = [];                          // runs started by the current imperative run, not yet assigned a change
+  private currentRun: Run | null = null;
+  private pendingJoin: number[] = []; private pendingReverts: number[] = []; private pendingBodyEnds: number[] = [];
+  private pendingGuesses: { node: Node; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
   program: Program;
 
   constructor(program: Program) {
@@ -127,14 +140,15 @@ export class Runtime {
 
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
-    for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); }
+    for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; region.scope.set(d.name, n); }
-      if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
+      if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
+      else if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
     }
     for (const d of decls) {
       if (d.k === "eq" && this.instantiates(d.e, region)) region.scope.set(d.name, this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, region));
-      else if (d.k === "source") {
+      else if (d.k === "source" && !d.question) {
         const n = region.scope.get(d.name) as Node;
         n.value = this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
@@ -180,32 +194,46 @@ export class Runtime {
     if (!f) throw new Error(`no flight ${target}`);
     f.state = reject ? "rejected" : "resolved"; f.value = reject ? new Error(String(value)) : value;
     for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
-    return this.step([]);
+    const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
+    for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
+    const w = this.pendingWrites; this.pendingWrites = [];
+    return this.step(w);
   }
 
   private runInstant(writes: Write[]) {
     // Phase 1 — write (W-3, W-4, H-3): into σ′; notify subscribers; E-6 per path.
     for (const n of this.allNodes()) { n.changed = false; n.demanded = false; n.evaluated = false; }
+    for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = [];                    // a continuation's instant is the action's change
+    for (const r of this.started) r.change = this.instant; this.started = [];
+    for (const g of this.pendingReverts) this.revertGroup(g); this.pendingReverts = [];
     for (const w of writes) {
+      if (w.node.heldBy !== null && w.node.heldBy !== this.instant && this.groupOpen(w.node.heldBy)) this.union(this.instant, w.node.heldBy);   // D-8: a second proposal for a held slot joins its hold
       if (w.path.length === 0) {
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
         if (d.size === 0) continue;
-        w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; this.notify(w.node, "");
+        w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; w.node.heldKeys.set("", this.instant); this.notify(w.node, "");
       } else {
         let o = w.node.value as Record<string, unknown>;
         const keys = w.path.map(String); const last = keys.pop()!;
         for (const k of keys) { if (!isObj(o[k])) { o[k] = /^\d+$/.test(k) ? [] : {}; this.notify(o, k); } o = o[k] as Record<string, unknown>; }
         const d = new Set<Path>(); diffPaths(o[last], w.value, "", d);
         if (d.size === 0) continue;
-        o[last] = w.value; w.node.changedSinceCommit = true; w.node.heldBy = this.instant; this.notify(o, last);
+        o[last] = w.value; w.node.changedSinceCommit = true; w.node.heldBy = this.instant; w.node.heldKeys.set(keys.concat(last).join("."), this.instant); this.notify(o, last);
         if (Array.isArray(o)) this.notify(o, "length");
       }
     }
+    for (const { node, value } of this.pendingGuesses) { node.guess = value; node.hasGuess = true; node.guessBy = this.instant; node.corrected = false; this.notify(node, ""); }   // AC-3: a guess shows from this instant's settle
+    this.pendingGuesses = [];
+    for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
+    this.pendingRefresh = [];
+    for (const n of this.pendingAffects) n.affectedBy = this.instant;                                        // AC-5
+    this.pendingAffects = [];
     if (this.instant === 0) for (const n of this.allNodes()) if (n.kind === "source") { n.changed = true; n.evaluated = true; }
 
     // Phase 2 — settle (E-3) against σ′: readers of the in-flight structure, effect computes, boundaries (H-5/H-6).
     const settleAll = () => { const holding: Node[] = []; this.heldLanes.clear(); this.bornHeldOwn = []; this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
     let holding = settleAll();
+    if (this.bodyEndCorrections()) { for (const n of this.allNodes()) if (n.hasGuess && n.corrected) this.notify(n, ""); holding = settleAll(); }
 
     // Hold decision per change group (H-2, H-3, H-4; Solid D-1..D-5): a reader holds the group it joined; a group with no holder commits.
     const roots = () => { const r = new Set<number>(); for (const c of this.openChanges) r.add(this.find(c)); r.add(this.find(this.instant)); return r; };
@@ -214,8 +242,10 @@ export class Runtime {
       const heldRoots = new Set<number>();
       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
       for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
+      for (const a of this.openActions) if (a.change !== null) heldRoots.add(this.find(a.change));          // AC-1: an action holds its change until its body returns
+      for (const l of this.heldLanes) { if (l.heldBy !== null) heldRoots.add(this.find(l.heldBy)); for (const t of l.taint) heldRoots.add(this.find(t)); }   // H-7: a held lane keeps its change staged (S-solid-33: the landing stays uncommitted)
       let any = false;
-      if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))}`);
+      if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
       for (const g of roots()) {
         if (heldRoots.has(g)) { this.openChanges.add(g); continue; }
         this.openChanges.delete(g); any = true; committedSome = true;
@@ -273,8 +303,26 @@ export class Runtime {
       const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
       if (n.hasValue && !stillHeld && !openTaint && !(n.value instanceof PendingVal)) { n.committed = n.value; n.hasCommitted = true; }
       if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
+      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; this.notify(n, ""); }   // H-11: a guess lives as long as its hold
+      for (const [k, c] of n.heldKeys) if (this.find(c) === g) n.heldKeys.delete(k);
+      if (n.affectedBy !== null && this.find(n.affectedBy) === g) n.affectedBy = null;
+      if (n.refreshBy !== null && this.find(n.refreshBy) === g) { n.refreshBy = null; if (!(n.value instanceof PendingVal)) n.quiet = false; }
     }
     this.commit(this.view, g);
+  }
+  /** AC-1: an action body ended without a commit — its writes and guesses revert. */
+  private revertGroup(g: number) {
+    for (const n of this.allNodes()) {
+      if (n.heldBy !== null && this.find(n.heldBy) === g) {
+        n.heldBy = null; n.heldKeys.clear();
+        if (n.kind === "source" || (n.question && !n.compute)) { if (n.hasCommitted) { n.value = n.committed; n.hasValue = true; } n.changedSinceCommit = false; n.evaluated = true; n.changed = true; this.notify(n, ""); }
+        else this.markDirty(n);
+      }
+      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; this.notify(n, ""); }
+      if (n.affectedBy !== null && this.find(n.affectedBy) === g) n.affectedBy = null;
+      if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
+    }
+    this.openChanges.delete(g);
   }
 
   // ---- settle / commit / render over the two structure versions ----
@@ -405,7 +453,7 @@ export class Runtime {
         const val = i.node.value;
         if (val instanceof ViewValue) { this.commit(val, g); i.shown = null; return; }
         if (i.node.heldOn !== null) return;                             // still held on another group: keeps what it showed
-        if (i.node.lane && [...i.node.lanes].some(l => this.heldLanes.has(l))) return;   // H-7: its lane is held: keeps what it showed
+        if (i.node.lane && [...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) return;   // H-7: its lane is held: keeps what it showed
         if (val instanceof PendingVal) { i.shown = i.shown ?? ""; } else i.shown = fmt(val); return;
       }
       case "el": { for (const c of i.children) this.commitItem(c, g); return; }
@@ -445,7 +493,7 @@ export class Runtime {
   private patchLanes(v: ViewInst) { for (const i of v.items) this.patchItem(i); }
   private patchItem(i: VItem) {
     switch (i.k) {
-      case "read": { if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l))) i.shown = fmt(i.node.value); return; }
+      case "read": { if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) i.shown = fmt(i.node.value); return; }
       case "el": { for (const c of i.children) this.patchItem(c); return; }
       case "comp": return this.patchLanes(i.inst);
       case "mif": {
@@ -498,12 +546,15 @@ export class Runtime {
       this.subscribe(n);
       if (n.deferred && n.answered && v instanceof PendingVal) { n.lagging = true; v = n.value; }   // D-40: a declared-lag re-ask keeps showing its last answer
       else if (n.deferred) n.lagging = false;
+      if (n.quiet && v instanceof PendingVal && n.answered) v = n.value;                              // AC-4: a quiet re-ask reveals silently; nothing pends
+      else if (n.quiet && !(v instanceof PendingVal)) { if (n.refreshBy !== null && this.groupOpen(n.refreshBy)) n.heldBy = n.refreshBy; else { n.quiet = false; n.refreshBy = null; } }   // D-31: a refresh in a hold lands into it
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
       if (ch.size > 0) { n.value = v; n.changed = true; n.changedSinceCommit = true; }
       n.hasValue = true;
+      if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
       if (!isAbsent(v)) n.answered = true;
-      if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered)) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
+      if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
       if (n.heldBy !== null) n.taint.add(n.heldBy);
       // D-10: while this value is held by an open change, the committed pass's inputs stay subscribed.
       const heldNow = [...n.taint].some(t => this.openChanges.has(this.find(t)) || t === this.instant);
@@ -548,11 +599,16 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, region, en); };
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
+        if ("action" in b) { const a = b.action; return Object.assign((...args: unknown[]) => { const en = new Map(env); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, region, en, true); }, { io: true }); }   // AC-1: an action is io
         this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
+        if (b.hasGuess && this.demandMode && !this.committedView) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
+          if (this.tracking) { this.tracking.lane = true; this.tracking.lanes.add(b); }
+          return b.guess;
+        }
         if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.tracking.lanes.add(l); }   // R-10: lane flows through equations
         if (this.tracking && this.demandMode) {
           const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
-          const future = (b.kind === "source" && b.heldBy !== this.instant) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
+          const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
           const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
           if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
           if (!b.lane && !this.probing) for (const t of b.taint) this.tracking.taint.add(t);   // lane work and probes are the lane's, not the instant's (F-6)
@@ -601,8 +657,19 @@ export class Runtime {
         if (e.e.k === "latest") return n.value instanceof PendingVal;  // the latest channel's own verdict: x's own async is up (S-solid-27)
         if (n.lagging) return true;                                    // D-40: lagging behind a new question
         if (n.firstPaint) return false;                                // R-7
+        if (n.affectedBy !== null && (n.affectedBy === this.instant || this.groupOpen(n.affectedBy))) return true;   // AC-5: a declared new question
+        if (n.quiet) return false;                                     // AC-4 / D-31: a re-ask of the same question is quiet, even landed into a hold
         if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
-        return n.value instanceof PendingVal || (n.heldBy !== null && (n.heldBy === this.instant || this.groupOpen(n.heldBy)));
+        const open = (c: number | null) => c !== null && (c === this.instant || this.groupOpen(c));
+        if (n.value instanceof PendingVal) return true;
+        if (n.hasGuess && !n.corrected && open(n.heldBy)) { const dg = new Set<Path>(); diffPaths(n.value, n.guess, "", dg); if (dg.size === 0) return false; }   // D-35: a held answer equal to the guess is a silent confirm (S-solid-34)
+        if (e.e.k === "member" || e.e.k === "index") {                   // ST-2c / D-30: pending is per key — a held path write pends exactly its key
+          const path: string[] = []; let x: Expr = e.e; while (x.k === "member" || x.k === "index") { path.unshift(x.k === "member" ? x.p : String(this.ev(x.i, region, env))); x = x.o; }
+          if (n.changedSinceCommit && n.heldKeys.size === 0 && open(n.heldBy)) return true;   // a re-derived family: every key re-asks
+          for (const [k, c] of n.heldKeys) if (open(c) && (k === "" || k === path.join(".") || k.startsWith(path.join(".") + ".") || path.join(".").startsWith(k + "."))) return true;
+          return false;
+        }
+        return open(n.heldBy);
       }
       case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
@@ -639,23 +706,82 @@ export class Runtime {
 
   // ---- imperative scope (SC-2) ----
   runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = []): unknown {
+    params.forEach((p, i) => env.set(`$${i}`, p));
+    env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
+    return this.startRun(stmts, region, env, false);
+  }
+  /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
+  private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean): unknown {
+    const run: Run = { stmts, i: 0, region, env, change: null, flight: null, action, bind: null };
+    if (action) { this.openActions.add(run); this.started.push(run); }
+    return this.resume(run);
+  }
+  private resume(run: Run): unknown {
     return this.untracked(() => {
-      params.forEach((p, i) => env.set(`$${i}`, p));
-      const envIo = new Map([...env, ["log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true })]]);
-      let result: unknown;
-      for (const s of stmts) {
-        if (s.k === "let") envIo.set(s.name, this.ev(s.e, region, envIo));
-        else if (s.k === "expr") result = this.ev(s.e, region, envIo);
-        else {
-          const b = region.lookup(s.target.name);
-          if (!b || !(b instanceof Node) || b.kind !== "source") throw new RuleError("W-1", `write to non-source ${s.target.name}`);
-          const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, envIo)));
-          this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, envIo) });
+      const { region, env } = run; let result: unknown;
+      const prev = this.currentRun; this.currentRun = run;
+      try {
+        if (run.flight) {                                                  // resuming after `await`
+          const f = run.flight; run.flight = null;
+          if (f.state === "rejected") { this.endRun(run, true); return undefined; }
+          if (run.bind) env.set(run.bind, f.value); run.bind = null;
         }
-      }
-      return result;
+        for (; run.i < run.stmts.length; run.i++) {
+          const s = run.stmts[run.i];
+          const awaited = s.k === "let" && s.e.k === "await" ? s.e : s.k === "expr" && s.e.k === "await" ? s.e : null;
+          if (awaited) {                                                   // statement-level await: suspend the run on a pending flight
+            const v = this.ev(awaited.e, region, env);
+            if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = s.k === "let" ? s.name : null; run.i++; this.suspended.push(run); return undefined; }
+            const val = v instanceof Flight ? (v.state === "rejected" ? (this.endRun(run, true), undefined) : v.value) : v;
+            if (v instanceof Flight && v.state === "rejected") return undefined;
+            if (s.k === "let") env.set(s.name, val); else result = val;
+            continue;
+          }
+          if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
+          else if (s.k === "expr") result = this.ev(s.e, region, env);
+          else if (s.k === "action") this.startRun(s.body, region, new Map(env), true);     // AC-1 inline: one change for one run
+          else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); this.pendingRefresh.push(n); }
+          else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
+          else if (s.k === "optimistic") {
+            if (!run.action) throw new RuleError("OPTIMISTIC_OUTSIDE_HOLD", "optimistic outside an action body");
+            const n = this.nodeNamed(s.target.name, region);
+            if (!n || !n.question) throw new RuleError("OPTIMISTIC_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
+            if (s.target.path.length) throw new RuleError("UNSUPPORTED", "optimistic path writes are not modelled yet");
+            this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
+          } else {
+            const b = region.lookup(s.target.name);
+            if (!b || !(b instanceof Node) || !(b.kind === "source" || b.question)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
+            const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
+            this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });
+          }
+        }
+        this.endRun(run, false);
+        return result;
+      } finally { this.currentRun = prev; }
     });
   }
+  private endRun(run: Run, rejected: boolean) {
+    if (!run.action) return;
+    this.openActions.delete(run);
+    if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct
+    if (rejected) { this.pendingReverts.push(this.find(run.change)); return; }
+    this.pendingBodyEnds.push(this.find(run.change));                       // D-35: corrected at the instant, against the settled truth
+  }
+  /** D-35: the body's end corrects a guess nothing authoritative is answering — by the truth at hand. */
+  private bodyEndCorrections(): boolean {
+    let any = false;
+    for (const g0 of this.pendingBodyEnds) { const g = this.find(g0);
+      for (const n of this.allNodes()) if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) {
+        const truth = n.demanded ? n.value : this.pull(n);
+        if (truth instanceof PendingVal) continue;                            // its own source is still answering: that answer corrects (D-34)
+        const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg); if (dg.size) { n.guess = truth; n.corrected = true; any = true; }
+      }
+    }
+    this.pendingBodyEnds = []; return any;
+  }
+  /** D-34: a corrected guess's readers keep what they showed until the hold commits (the lane is frozen, not held). */
+  private frozen(n: Node) { return n.hasGuess && n.corrected && n.guessBy !== null && (n.guessBy === this.instant || this.groupOpen(n.guessBy)); }
+  private nodeNamed(name: string, region: Region): Node | null { const b = region.lookup(name); return b instanceof Node ? b : null; }
   private virtualScope(): Region {
     const all: Region[] = []; const walk = (r: Region) => { for (const c of r.children) walk(c); all.push(r); }; walk(this.root);
     const scope = new Map<string, Binding>();
@@ -663,6 +789,8 @@ export class Runtime {
     const virt = new Region(null, this, null); virt.scope = scope; return virt;
   }
   handler(stmts: Stmt[]) { this.runStmts(stmts, this.virtualScope(), new Map()); const w = this.pendingWrites; this.pendingWrites = []; return this.step(w); }
+  /** Scenario helper: land the flight an action run is suspended on. */
+  awaitedFlights(): Flight[] { return this.suspended.map(r => r.flight!).filter(Boolean); }
   findNode(name: string): Node | null { const b = this.virtualScope().lookup(name); return b instanceof Node ? b : null; }
 
   // ---- view instantiation (V, RG-1, RG-2, RG-4, H-5) ----
@@ -740,7 +868,7 @@ function staticChecks(p: Program) {
   const eqs = new Map<string, Expr>(); const names = new Set<string>();
   for (const d of p.decls) {
     if (d.k === "eq") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); eqs.set(d.name, d.e); names.add(d.name); }
-    if (d.k === "source") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); names.add(d.name); }
+    if (d.k === "source") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); names.add(d.name); if (d.question) eqs.set(d.name, d.init); }
   }
   const color = new Map<string, 1 | 2>();
   const visit = (n: string, stack: string[]) => {

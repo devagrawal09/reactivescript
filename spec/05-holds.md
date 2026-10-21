@@ -48,7 +48,13 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   landed answers become `σ`, the structure it mounted attaches, its readers
   show — and then the observe phase runs (apply blocks see the committed
   instant). Instant 0 (mount) can be held; the screen shows nothing until it
-  commits. `action { … }` keeps one change open across its awaited work.
+  commits. `action { … }` keeps one change open across its awaited work
+  (AC-1): its body is a holder like a pending reader, and a continuation
+  after `await` is the same change (S-solid-8, S-solid-9). A write to a slot
+  an open change holds is a second proposal: the writer's instant joins that
+  change and reveals with it (Solid D-8; S-solid-34 — the two actions on
+  `id` are one hold). A held lane (H-7) keeps its change staged as well: a
+  landing the lane is waiting on stays uncommitted (S-solid-33).
 
 - **H-3 (Served, or joined).** [F-2, Solid D-1, D-3, D-4, D-23] A reader
   that **directly** reads a flight still pending — of its own change or of an
@@ -153,15 +159,28 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   not `σ`, not `σ′`, not a probe. The instant begins when the run ends
   (W-3); from then `v` is in `σ′` (probes see it) and in `σ` at commit.
 
-- **H-11 (Optimistic).** [F-11] `optimistic x := e`, legal only inside an
-  open hold (an `action` body), writes a *guess* into the screen's version
-  for `x` — shown now, verdict-inert (`pending? x` unaffected by the guess
-  alone), `latest x` unaffected — for as long as that hold is open. When
-  `x`'s own source answers: equal confirms silently; different corrects at
-  the hold's commit, atomically with the hold's other writes, and
-  `pending? x` is `true` while they differ. The hold closing without a commit
-  reverts the guess. A newer hold's guess on `x` wins over an older hold's
-  late answer. (Full form, targets, lowering: 06-stores.)
+- **H-11 (Optimistic).** [F-11, D-32…D-35] `optimistic x := e`, legal only
+  inside an action body (AC-3) and only on a source with a question (ST-5),
+  writes a *guess* for `x`: from the instant's settle it is the graph's
+  value (equations derive from it — S-solid-33: `related` re-asks from the
+  guess) and the screen's, display-ahead — its readers are in a lane whose
+  identity is `x` (H-7), so they show now unless pending work inside that
+  lane holds it. It is verdict-inert: `pending? x` is unaffected by the
+  guess alone (S-solid-32, S-solid-35); `latest x` answers the guess
+  (S-solid-33, S-solid-34 — the first draft said "unaffected"; Solid's
+  D-26 and S-33 say otherwise). It lives as long as the hold it was made
+  over: the hold's commit ends it and reveals the truth in the same frame;
+  the hold ending without a commit reverts it. When `x`'s own question
+  answers: an answer equal to the guess confirms silently — the held answer
+  is not pending (S-solid-34 instant 5); a different answer **corrects the
+  graph now** (derivations re-derive from the truth, `latest x` is the
+  truth, `pending? x` is `true`) while the screen keeps what it showed
+  until the commit — and a guess the screen never showed is void
+  (S-solid-33). An older question's late answer is superseded (R-4) and
+  moves nothing (S-solid-34). When the body returns and nothing
+  authoritative is in flight for `x`, the guess is corrected by the truth
+  at hand, against the settled instant (S-solid-35; S-solid-26 variant).
+  Lowering and the full form: 06-stores.
 
 - **H-12 (Errors).** [F-12, D-41] An error value reaching a reader under
   `errored` sends that region to its fallback, which is then the display
@@ -193,12 +212,15 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
 this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S-7, S-10,
 S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24, S-25,
-S-26 (rows 0–3), S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
-S-42+S-43. Not yet expressible: S-5
-(two roots), S-8, S-9, S-15, S-20 (`action`), S-23 (portals), S-28
-(imperative probes), S-39 (one reader, two orders), S-26 rows 4–7
-(`refresh`/`affects`/optimistic — 06), S-37 (stores — 06). Divergences found and fixed
-by porting are recorded in the rule they changed.
+S-26, S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
+S-42+S-43, and with 06: S-8, S-9 (inverted — no escape), S-15, S-20,
+S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37. Not yet expressible: S-5
+(two roots), S-23 (portals), S-28 (imperative probes), S-39 (one reader,
+two orders). Divergences found and fixed
+by porting are recorded in the rule they changed. Solid's probe columns
+(`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
+on-screen probe in a held lane keeps what it showed (D-25, S-solid-24), so
+ports show the probe only where it is not in the held lane.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
 flight of equation `x`. Frames list, per instant, the screen and the probe

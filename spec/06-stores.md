@@ -3,7 +3,9 @@
 **Status: OPEN (2026-10-21).** Structured values, sources with a standing
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
-F-9, F-11 and the derived rules they restate.
+F-9, F-11 and the derived rules they restate. In `ref/`: ST-1, ST-2,
+ST-2a/c, ST-5, AC-1…AC-5 (S-store-1, S-store-4, S-solid-8/9/15/20/26/32…35/37).
+Not yet: ST-3 draft, ST-4 key, ST-6 yield, AC-6 until.
 
 ---
 
@@ -27,8 +29,9 @@ F-9, F-11 and the derived rules they restate.
   otherwise the root changed. With a key (ST-4) the result is reconciled
   instead.
 - **ST-2c (Pending is per key).** [Solid D-30, S-37] A held path write makes
-  `pending? x.a` true and leaves `pending? x.b` false; a re-ask of a source
-  with a question (ST-5) makes the whole family pending.
+  `pending? x.a` true and leaves `pending? x.b` false; a root write or a
+  re-ask of a source with a question (ST-5) makes the whole family pending
+  (S-solid-37 and its variant).
 
 ## ST-3 — Draft
 
@@ -93,26 +96,40 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   `action { … }` inline in a handler is the same for one run. There is no
   escape: a write after an `await` is still the action's (the language has
   the scope, so none of 2.0's generator plumbing — S-9's "fresh write
-  escapes" is unwritable). A rejection inside the body ends the change
-  without a commit: its writes and guesses revert.
+  escapes" is unwritable; S-solid-9 is the inverted port). A rejection
+  inside the body ends the change without a commit: its writes and guesses
+  revert (S-solid-8 variant). An action body suspends only at a
+  statement-level `await` (`await e` or `let v = await e`); the instant
+  begins when the run suspends or returns (H-10). An action called from a
+  handler is launched, not awaited: the handler continues, and the
+  handler's own writes are the same instant's change (D-7's same-tick
+  adoption).
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.
-- **AC-3 (optimistic).** `optimistic x := e`, legal only inside an open
-  change (an action body) and only on a source with a question (ST-5):
-  writes a guess that is the displayed value for `x` from the instant's
-  settle, verdict-inert, until the hold commits or `x`'s own answer differs
-  (H-11). Equal confirms silently; different corrects at the commit; the
-  hold ending without a commit reverts; a newer hold's guess wins over an
-  older hold's late answer. Lowers to `createOptimistic`/
-  `createOptimisticStore` by usage.
+- **AC-3 (optimistic).** `optimistic x := e`, legal only inside an action
+  body (`OPTIMISTIC_OUTSIDE_HOLD`, unwritable) and only on a source with a
+  question (ST-5; `OPTIMISTIC_NO_QUESTION`): writes a guess that is the
+  graph's and the screen's value for `x` from the instant's settle,
+  display-ahead and verdict-inert, until the hold it was made over commits
+  or `x`'s own answer differs — the full rule is H-11. `x`'s truth is
+  whatever its question gives: a constant (`source draft = "Ann"`), another
+  source (`source draft = name`, S-solid-32), or an `await`. Lowers to
+  `createOptimistic`/`createOptimisticStore` by usage. Path targets
+  (`optimistic x.a := v`) are per key like writes (ST-2c); not in `ref/`
+  yet.
 - **AC-4 (refresh).** `refresh x`, in imperative scope anywhere, re-asks
   `x`'s question (ST-5) or re-runs an `await` equation for the same inputs:
-  quiet — `pending? x` stays `false`, the fresh value reveals silently. An
-  awaited `refresh x` resolves when the re-ask lands.
+  quiet — `pending? x` stays `false`, `x` keeps showing its last answer
+  while the re-ask is up, and the fresh value reveals silently
+  (S-solid-26 instants 4–5, S-solid-37). On a question source it drops a
+  write's override (S-store-4). Issued inside an open change, the landing is
+  staged into that change and reveals at its commit, still quiet (Solid
+  D-31; S-solid-26 instant 7). Any other target is `INVALID_REFRESH_TARGET`.
+  An awaited `refresh x` resolves when the re-ask lands (not in `ref/`).
 - **AC-5 (affects).** `affects x`, in imperative scope anywhere, declares
   that work now in flight will change `x`: `pending? x` is `true` until
-  that work (the enclosing change, or the next re-ask of `x`) lands.
+  the change it was declared in commits (S-solid-26 instants 6–8).
 - **AC-6 (until).** `await until(cond)` in an action holds the change until
   the reactive predicate `cond` settles truthy, reading the authoritative
   view with the action's own guesses carved out (so optimism cannot confirm
@@ -135,10 +152,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 
 ## Scenarios
 
-- `S-store-1`: path writes, per-key pending (ST-2, S-37).
-- `S-store-2`: draft delta keeps identity (ST-3).
-- `S-store-3`: keyed reconcile; rows keep identity across a new result (ST-4).
-- `S-store-4`: `source x = e` derived until written; refresh is quiet (ST-5, AC-4).
-- `S-store-5`: yield stream, restart on input change (ST-6).
-- Solid ports: S-8, S-9 (as the unwritable escape), S-15, S-20, S-26 rows
-  4–7, S-32…S-35, S-37.
+- `S-store-1`: path writes notify per key; a root write compares per path (ST-2). ✓
+- `S-store-2`: draft delta keeps identity (ST-3). — pending
+- `S-store-3`: keyed reconcile; rows keep identity across a new result (ST-4). — pending
+- `S-store-4`: `source x = e` derived until written; refresh is quiet (ST-5, AC-4). ✓
+- `S-store-5`: yield stream, restart on input change (ST-6). — pending
+- Solid ports: S-8 (+ rejection variant), S-9 (inverted: no escape), S-15,
+  S-20 (+ the race the fallback won), S-26 rows 4–7 (+ verdict-inert guess),
+  S-32 (+ two rejected variants), S-33, S-34, S-35 (+ derived flight), S-37
+  (+ per-key variant). ✓

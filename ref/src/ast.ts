@@ -24,15 +24,20 @@ export type Target = { name: string; path: (string | Expr)[] };
 export type Stmt =
   | { k: "write"; target: Target; e: Expr }
   | { k: "let"; name: string; e: Expr }
-  | { k: "expr"; e: Expr };
+  | { k: "expr"; e: Expr }
+  | { k: "optimistic"; target: Target; e: Expr }                // AC-3
+  | { k: "refresh"; name: string }                              // AC-4
+  | { k: "affects"; name: string }                              // AC-5
+  | { k: "action"; body: Stmt[] };                              // AC-1 inline
 
 export type Param = { name: string; ref: boolean };            // E-9
 export type Decl =
-  | { k: "source"; name: string; init: Expr; line: number }
+  | { k: "source"; name: string; init: Expr; line: number; question?: boolean }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean }   // deferred: declared lag (V-16, D-40)
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number }       // body: decls then a value
-  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number }; // body: decls then a view
+  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number }  // body: decls then a view
+  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number };                  // AC-1
 
 export type Markup =
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }
