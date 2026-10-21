@@ -6,7 +6,7 @@ Rules exercised: RG-1a, RG-1b, E-4, O-2.
 
 ```
 source open = true
-view <div>
+<div>
   if open {
     source clicks = 0
     <p>{clicks}</p>
@@ -36,7 +36,7 @@ re-ran its initializer (RG-1a). Instant 4: truthy→truthy does not switch
 ```
 -- reject: W-1
 source open = true
-view <div>
+<div>
   if open {
     total = 1
     <p>{total}</p>

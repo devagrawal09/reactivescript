@@ -26,8 +26,7 @@ export type Stmt =
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number }
   | { k: "eq"; name: string; e: Expr; line: number }
-  | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
-  | { k: "view"; m: Markup[]; line: number };
+  | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number };
 
 export type Markup =
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }
@@ -36,4 +35,4 @@ export type Markup =
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] };
 
-export type Program = { decls: Decl[] };
+export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view

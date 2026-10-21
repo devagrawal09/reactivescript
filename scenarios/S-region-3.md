@@ -9,7 +9,7 @@ source a = { id: "a" }
 source b = { id: "b" }
 source c = { id: "c" }
 source items = []
-view <ul>
+<ul>
   for item in items {
     source hits = 0
     <li>{item.id}:{hits}</li>

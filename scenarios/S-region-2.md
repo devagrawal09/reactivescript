@@ -6,7 +6,7 @@ Rules exercised: RG-1b, RG-1c, E-11.
 
 ```
 source user = { name: "a" }
-view <div>
+<div>
   if user { <p>{user.name}</p> } else { <p>none</p> }
 </div>
 ```

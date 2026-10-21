@@ -80,6 +80,7 @@ export class Runtime {
     this.root = new Region(null, this);
     staticChecks(program);
     this.declare(program.decls, this.root);
+    this.views.push(this.instantiate(program.view, this.root));
   }
 
   // ---- declarations (E-1, E-4, E-7, EF-1, V) ----
@@ -98,8 +99,6 @@ export class Runtime {
         const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
         const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true };
         region.effects.push(rec); this.effects.push(rec);
-      } else if (d.k === "view") {
-        this.views.push(this.instantiate(d.m, region));
       }
     }
   }

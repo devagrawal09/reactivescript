@@ -49,8 +49,8 @@ Solid: a render effect.
 
 ## V-5. View
 
-Markup at the tail of a reactive block. The set of readers of a program is the
-set of expression positions inside its views. A view inside a `for` row, an `if`
+Markup at the tail of a reactive block — there is no keyword for it. The set
+of readers of a program is the set of expression positions inside its views. A view inside a `for` row, an `if`
 branch, or a boundary belongs to that region (V-8).
 
 Solid: JSX output of a component; `insert`, attribute bindings.

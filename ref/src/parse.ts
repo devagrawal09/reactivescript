@@ -39,19 +39,17 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "view", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
+const KEYWORDS = new Set(["source", "effect", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
   const decls: Decl[] = [];
   c.ws();
-  while (!c.eof()) {
-    decls.push(parseDecl(c));
-    c.ws();
-    c.eat(";");
-    c.ws();
-  }
-  return { decls };
+  while (!c.eof() && looksLikeDecl(c)) { decls.push(parseDecl(c)); c.ws(); c.eat(";"); c.ws(); }
+  const view = parseMarkup(c, null);
+  c.ws();
+  if (!c.eof()) c.fail("declaration or markup");
+  return { decls, view };
 }
 
 function parseDecl(c: Cursor): Decl {
@@ -68,7 +66,6 @@ function parseDecl(c: Cursor): Decl {
     c.expect(")"); c.ws();
     return { k: "effect", inputs, body: parseBlock(c), line };
   }
-  if (c.keyword("view")) { c.ws(); return { k: "view", m: parseMarkup(c, null), line }; }
   const save = c.i;
   const name = c.ident();
   c.ws(false);
@@ -235,11 +232,16 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
       const { decls, body } = parseBlockBody(c);
       out.push({ k: "mfor", name, xs, decls, body }); continue;
     }
-    if (closeTag === null && (c.startsWith("source ") || c.startsWith("effect") || c.startsWith("view "))) return out;
+    if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
     // text up to < { } or newline
     let s = "";
     while (!c.eof() && !"<{}\n".includes(c.peek())) { s += c.peek(); c.i++; }
-    if (s.trim() === "" && closeTag === null && c.peek() === "\n") { c.i++; if (looksLikeDecl(c)) return out; continue; }
+    if (!inElement) {
+      // outside an element, bare text is not markup: a block is declarations, then markup
+      if (s.trim() === "") { if (c.peek() === "\n") c.i++; continue; }
+      if (s.includes(":=")) c.fail("W-2: write in reactive scope (no statement position)");
+      c.fail("declaration or markup");
+    }
     out.push({ k: "text", s });
   }
 }
@@ -255,7 +257,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("view ") ||
+  const r = c.startsWith("source ") || c.startsWith("effect") ||
     (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && c.peek() === "=" && c.peek(1) !== "="; return ok; })();
   c.i = save; return r;
 }

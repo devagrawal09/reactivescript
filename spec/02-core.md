@@ -18,12 +18,14 @@ Concrete syntax is `07-surface.md`, decided last. All examples in `spec/` and
 `scenarios/` use this form.
 
 ```
-Program   ::= Decl*
+Program   ::= RBlock                          -- the program is a reactive block
+
+RBlock    ::= Decl* Markup*                   -- declarations, then the block's view (V-5); no keyword
+                                              -- (markup begins at '<', '{', 'if', 'for'; a declaration at a keyword or 'x =')
 
 Decl      ::= source x = Expr                 -- V-1; initializer is a snapshot (E-4)
             | x = Expr                        -- V-2, equation
             | effect (Expr*) Block            -- V-3; compute exprs ‖ apply block
-            | view Markup                     -- V-5; reader positions inside
 
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | pre x | pre x -> Expr            -- previous frame's value of x; with initial (C-2, C-2a)
@@ -34,8 +36,8 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
 
 Markup    ::= <tag attr={Expr}*> (Markup | {Expr})* </tag>
-            | if Expr { Markup } else { Markup }
-            | for x in Expr { Decl* ; Markup }   -- keyed form: 06-stores
+            | if Expr RBlock else RBlock         -- each branch is a reactive block (region)
+            | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
 
 Block     ::= Stmt*                            -- imperative scope (SC-2)
 Stmt      ::= x := Expr                        -- write to a source
@@ -205,6 +207,9 @@ Function application `f(e…)` covers both language functions and FFI imports;
 
 ### V — Views
 
+- **V-0 (The view is the tail).** The markup at the tail of a reactive block
+  is that block's view. There is no keyword; a block with no markup has no
+  readers of its own.
 - **V-1 (Readers).** Each `{e}` and `attr={e}` in a view is one reader (V-4 in
   vocabulary) with equation `e`: `{a + b}` is a single reader with inputs
   `{a, b}`, not two. Holds and equality cuts are per reader.
@@ -284,7 +289,7 @@ source show  = true
 double = op*(count, 2)
 label  = op+("prev ", pre double -> 0)
 effect (double) { log(double) }
-view <p>{if show then double else "-"} {label}</p>
+<p>{if show then double else "-"} {label}</p>
 ```
 
 | instant | action                           | frame `<p>`  | effect    | notes                                           |

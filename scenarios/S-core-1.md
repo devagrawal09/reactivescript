@@ -10,7 +10,7 @@ source show  = true
 double = count * 2
 label  = "prev " + pre double -> 0
 effect (double) { log(double) }
-view <p>{if show then double else "-"} {label}</p>
+<p>{if show then double else "-"} {label}</p>
 ```
 
 ## Frames
@@ -31,7 +31,7 @@ source count = 0
 source show  = true
 double = count * 2
 label  = "prev " + pre double -> 0
-view <p>{if show then double else "-"} {label}</p>
+<p>{if show then double else "-"} {label}</p>
 ```
 
 | instant | action                  | frame       |
@@ -62,5 +62,5 @@ count := 1
 source s = 0
 a = b + 1
 b = a + 1
-view <p>{a}</p>
+<p>{a}</p>
 ```
