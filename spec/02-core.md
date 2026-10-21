@@ -26,7 +26,7 @@ Decl      ::= source x = Expr                 -- V-1; initializer is a snapshot 
             | view Markup                     -- V-5; reader positions inside
 
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
-            | pre x                           -- previous committed value of x (C-2)
+            | pre x | pre x -> Expr            -- previous frame's value of x; with initial (C-2, C-2a)
             | peek Expr                       -- snapshot read (V-11)
             | if Expr then Expr else Expr
             | Expr . field | Expr [ Expr ]    -- projections (full treatment: 06-stores)
@@ -80,6 +80,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   snapshot in reactive scope; every other snapshot is `peek`.
 - **E-5 (peek).** `peek e` evaluates `e` against the committed state and
   contributes no inputs to the enclosing equation.
+- **E-6 (Equality cuts).** An equation whose re-evaluation yields a value equal
+  to its previous value has not changed: it is not part of the instant's cone
+  from that point on, its dependents are not re-evaluated through it, and
+  effects over it do not run. Equality for atomic values is `Object.is`.
+  Equality for structured values is per path (06-stores); there is no
+  per-equation override. "Notify even if unchanged" is not a thing an
+  equation can ask for — a re-ask is quiet (V-9, H-9).
 
 ### W — Writes
 
@@ -105,9 +112,16 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **C-1 (No instantaneous cycle).** The input relation over equations, taken
   within one instant, must be acyclic. A program with a cycle `x → … → x` not
   broken by `pre` is rejected.
-- **C-2 (pre).** `pre x` denotes the value of `x` at the end of the previous
-  instant in which `x` was evaluated, and `undefined` before the first. `pre x`
-  contributes no input to the enclosing equation; it is how a cycle is broken.
+- **C-2 (pre).** `pre x` denotes the value `x` had in the frame of the
+  previous committed instant — not at its previous *evaluation*. If `x` was not
+  demanded in that instant (E-3), `pre x` is `undefined`. Before instant 0 it is
+  `undefined`. `pre x` contributes no input to the enclosing equation; it is
+  how a cycle is broken.
+- **C-2a (Initial value).** `pre x -> e` is `pre x` where that is defined and
+  `e` otherwise. `pre x` has type `T | undefined`; `pre x -> e` with `e : T`
+  has type `T`. This is the only way to discharge the `undefined`; there is no
+  implicit default. (Solid's `(prev = v) => …` default parameter is this form
+  attached to the operator instead of to the consumer's signature.)
 - **C-3 (Effects are not inputs).** An apply block writing a source that its own
   compute half reads is legal (its write opens the *next* instant, W-3) but is
   a static diagnostic (`D`: `EFFECT_WRITES_OWN_SOURCE`), since it is a cycle
@@ -157,8 +171,8 @@ An instant proceeds in three phases and no phase overlaps another:
    Every demanded equation in the cone (E-3: demanded by a reader or an
    effect's compute half) is re-evaluated against `σ' = σ[Δ ↦ v]`, in a
    topological order of the input relation (C-1 guarantees one exists). An
-   equation whose re-evaluation yields a value equal to its last value does not
-   propagate further (its dependents are not in the cone through it).
+   equation whose re-evaluation yields an equal value is cut (E-6): its
+   dependents are not in the cone through it.
 3. **Observe.** `σ := σ'`. The frame (V-17) is the value at every reader
    position. Then every effect whose compute half changed (EF-2) runs its apply
    block in declaration order; writes they make are recorded for the next
@@ -176,7 +190,11 @@ An instant proceeds in three phases and no phase overlaps another:
   instant equals what it would be if every equation were re-evaluated from
   `σ'` with no memoization. (Adapton's correctness criterion.)
 - **P-4 Minimality.** Only equations in the cone are evaluated; equations whose
-  value did not change cut propagation.
+  value did not change cut propagation (E-6).
+- **P-6 pre is frame-indexed.** For every equation `x` and instant `n > 0`,
+  `pre x` in instant `n` equals the value of `x` in frame `n-1` if `x` was
+  demanded there, else `undefined`. This differs from "last evaluation" when
+  `x` goes undemanded for an instant; see S-core-1 instant 4.
 - **P-5 Write isolation.** Within an imperative run, no read observes that run's
   own writes (W-4), and two runs never interleave within one instant (W-3).
 
@@ -200,18 +218,32 @@ An instant proceeds in three phases and no phase overlaps another:
 
 ```
 source count = 0
+source show  = true
 double = op*(count, 2)
-label  = op+("prev ", pre double)
+label  = op+("prev ", pre double -> 0)
 effect (double) { log(double) }
-view <p>{double} {label}</p>
+view <p>{if show then double else "-"} {label}</p>
 ```
 
-| instant | action           | frame `<p>`         | effect runs | notes                          |
-| ------- | ---------------- | ------------------- | ----------- | ------------------------------ |
-| 0       | mount            | `0 prev undefined`  | `log(0)`    | EF-4/EF-2 first run; C-2       |
-| 1       | handler `count := 1` | `2 prev 0`      | `log(2)`    | one instant; `pre` is prior 0  |
-| 2       | handler `count := 1` | `2 prev 0`      | —           | equal value cuts propagation (§4.2); effect does not run |
-| 3       | handler `count := 5; count := 7` | `14 prev 2` | `log(14)` | two writes, one instant (W-3) |
+| instant | action                           | frame `<p>`  | effect    | notes                                           |
+| ------- | -------------------------------- | ------------ | --------- | ----------------------------------------------- |
+| 0       | mount                            | `0 prev 0`   | `log(0)`  | EF-4; C-2a discharges `undefined`               |
+| 1       | handler `count := 1`             | `2 prev 0`   | `log(2)`  | one instant; `pre` is frame 0's `double`        |
+| 2       | handler `count := 1`             | `2 prev 0`   | —         | E-6: equal value cuts; effect does not run      |
+| 3       | handler `count := 5; count := 7` | `14 prev 2`  | `log(14)` | two writes, one instant (W-3)                   |
+| 4       | handler `show := false`          | `- prev 14`  | —         | `double` still demanded by the effect's compute half; `pre` is frame 3 |
+| 5       | handler `count := 8`             | `- prev 14`  | `log(16)` | `label` reads `pre double` = frame 4's 14       |
+
+Variant without the effect (so `double` is undemanded while `show` is false):
+
+| instant | action                  | frame `<p>`  | notes                                                          |
+| ------- | ----------------------- | ------------ | -------------------------------------------------------------- |
+| 4       | handler `show := false` | `- prev 14`  |                                                                |
+| 5       | handler `count := 8`    | `- prev 0`   | P-6: `double` not in frame 4 → `pre double` undefined → `-> 0` |
+
+Solid 2.0's lazy memo would give `prev 14` at instant 5 (last evaluation);
+this spec gives `prev 0` (previous frame). Recorded as a known divergence to
+confirm against the runtime in `ref/` phase 3.
 
 Rejected programs for the same scenario:
 
