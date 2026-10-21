@@ -1,0 +1,223 @@
+# 02 — Core: the synchronous calculus
+
+**Status: DRAFT.** The fragment with no async, no holds, no structured values,
+no regions beyond "a program is one region." It is the part that rests on
+proven ground (Lustre's equations and `pre`; Adapton's demand-driven
+consistency) and it must be closed — rules fixed, `ref/` passing
+`scenarios/S-core-*` — before `05-holds.md` opens.
+
+Everything later in the spec is an extension of this document. Nothing later
+may contradict a rule here; a case that seems to need that is a proposed change
+to this file, raised as a scenario.
+
+---
+
+## 1. Abstract syntax
+
+Concrete syntax is `07-surface.md`, decided last. All examples in `spec/` and
+`scenarios/` use this form.
+
+```
+Program   ::= Decl*
+
+Decl      ::= source x = Expr                 -- V-1; initializer is a snapshot (E-4)
+            | x = Expr                        -- V-2, equation
+            | effect (Expr*) Block            -- V-3; compute exprs ‖ apply block
+            | view Markup                     -- V-5; reader positions inside
+
+Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
+            | pre x                           -- previous committed value of x (C-2)
+            | peek Expr                       -- snapshot read (V-11)
+            | if Expr then Expr else Expr
+            | Expr . field | Expr [ Expr ]    -- projections (full treatment: 06-stores)
+            | fn (x*) => Expr                 -- pure function value
+            | { Decl* ; Expr }                -- reactive block: local declarations, then value
+
+Markup    ::= <tag attr={Expr}*> (Markup | {Expr})* </tag>
+            | if Expr { Markup } else { Markup }
+            | for x in Expr { Decl* ; Markup }   -- keyed form: 06-stores
+
+Block     ::= Stmt*                            -- imperative scope (SC-2)
+Stmt      ::= x := Expr                        -- write to a source
+            | let y = Expr | y := Expr         -- imperative locals
+            | Expr                             -- call for effect
+            | if Expr Block else Block | while Expr Block
+            | fn-decl, return, …               -- ordinary JS statements
+```
+
+Function application `f(e…)` covers both language functions and FFI imports;
+`04-rows.md` separates them. In core, every function is pure.
+
+## 2. Scopes (summary of 01-scopes)
+
+- **SC-1 Reactive scope.** Program top level, equation initializers, reactive
+  blocks, compute expressions of effects, and views. Contains declarations and
+  expressions only. Has no statement position.
+- **SC-2 Imperative scope.** Apply blocks and event handlers. Ordinary JS
+  statements. Writes are legal only here.
+- **SC-3 Lexical inheritance.** A closure created in a scope is in that scope.
+  A `fn` value created in reactive scope is a pure function; a closure created
+  in an apply block or handler is imperative and may write.
+
+---
+
+## 3. Static rules
+
+### E — Equations
+
+- **E-1 (Equation rule).** In reactive scope, `x = e` declares `x` as the
+  equation `e` over its free reactive variables. `x` has no statement position
+  and is never a write target.
+- **E-2 (Lifting).** Every expression in reactive scope denotes an equation. A
+  constant is an equation with no inputs. `op(e₁…eₙ)` and `f(e₁…eₙ)` for pure
+  `f` are equations whose inputs are the union of their arguments' inputs.
+- **E-3 (Demand).** An equation's body is evaluated only when a reader, an
+  effect's compute half, or another demanded equation reaches it in the current
+  instant. Unreached equations have no observable cost or effect.
+- **E-4 (Initializer snapshot).** The initializer of `source x = e` is a
+  snapshot: it is evaluated once, in the instant the declaration is reached,
+  and `e`'s inputs do not become inputs of `x`. This is the only implicit
+  snapshot in reactive scope; every other snapshot is `peek`.
+- **E-5 (peek).** `peek e` evaluates `e` against the committed state and
+  contributes no inputs to the enclosing equation.
+
+### W — Writes
+
+- **W-1 (Write position).** `x := e` is legal only in imperative scope (SC-2)
+  and only when `x` is a source (V-1). An equation, a `peek`, a function
+  parameter, or an imperative local written with `:=` is a plain local, not a
+  source.
+- **W-2 (No writes in reactive scope).** Reactive scope has no statement
+  position; a write there is a parse error, not a semantic one.
+- **W-3 (Instant).** All writes performed by one imperative run — one handler
+  invocation, one apply block, one resumed continuation — form one instant
+  (V-6). There is no API to split or merge instants from inside a run.
+- **W-4 (Visibility).** A write is not visible to any read, in any scope, until
+  its instant commits. Within the run that wrote it, `x` still reads the
+  committed value. (Restates Solid F-10 for the synchronous case.)
+- **W-5 (Writer scope).** A source may be written only by imperative code in
+  its declaring region or a region nested in it, or by a handler that was
+  handed the source explicitly. Exported sources export a reader; the writer is
+  exported only when declared so. (Full rule: 03-regions O-4.)
+
+### C — Causality
+
+- **C-1 (No instantaneous cycle).** The input relation over equations, taken
+  within one instant, must be acyclic. A program with a cycle `x → … → x` not
+  broken by `pre` is rejected.
+- **C-2 (pre).** `pre x` denotes the value of `x` at the end of the previous
+  instant in which `x` was evaluated, and `undefined` before the first. `pre x`
+  contributes no input to the enclosing equation; it is how a cycle is broken.
+- **C-3 (Effects are not inputs).** An apply block writing a source that its own
+  compute half reads is legal (its write opens the *next* instant, W-3) but is
+  a static diagnostic (`D`: `EFFECT_WRITES_OWN_SOURCE`), since it is a cycle
+  across instants.
+
+### EF — Effects
+
+- **EF-1 (Split).** `effect (e₁…eₙ) B`: each `eᵢ` is an equation (E-2); `B` is
+  imperative scope and receives the values of `e₁…eₙ` by position. `B` may not
+  read any reactive variable except through its parameters or `peek`.
+- **EF-2 (When).** `B` runs in an instant iff at least one `eᵢ` changed value in
+  that instant, or it is the instant in which the effect was declared. It runs
+  after every equation the instant reaches has settled (§4).
+- **EF-3 (Once, completely).** `B` runs at most once per instant and is never
+  interrupted by that instant's settling; its writes begin a new instant.
+- **EF-4 (No inputs).** `effect () B` runs once, in the instant the effect is
+  declared, after settle — the mount hook.
+- **EF-5 (Cleanup).** `B` may return a function; it runs before the next run of
+  `B` and when the effect's region ends.
+
+### V — Views
+
+- **V-1 (Readers).** Each `{e}` and `attr={e}` in a view is a reader (V-4 in
+  vocabulary) with equation `e`.
+- **V-2 (Conditional).** `if c { M₁ } else { M₂ }` in a view: `c` is an
+  equation; the branch markup is a region (03-regions) that exists only while
+  `c` selects it; switching ends one region and begins the other.
+- **V-3 (Repetition).** `for x in e { … }`: `e` is an equation over a
+  collection; each element gets its own region with `x` bound as an equation
+  projecting that element. Keying and identity: 06-stores.
+
+---
+
+## 4. Dynamic semantics: an instant
+
+State is a map `σ` from sources to committed values, plus for every equation
+and `pre` its last evaluated value. The program starts with `σ₀` from
+initializers (E-4), evaluated in declaration order, then settles and commits
+instant 0, running effects per EF-2/EF-4.
+
+An instant proceeds in three phases and no phase overlaps another:
+
+1. **Write.** An imperative run executes. Each `x := v` is recorded; `σ` is
+   unchanged (W-4). The run ends.
+2. **Settle.** Let `Δ` be the set of written sources. The instant's **cone** is
+   every equation and reader reachable from `Δ` through the input relation.
+   Every demanded equation in the cone (E-3: demanded by a reader or an
+   effect's compute half) is re-evaluated against `σ' = σ[Δ ↦ v]`, in a
+   topological order of the input relation (C-1 guarantees one exists). An
+   equation whose re-evaluation yields a value equal to its last value does not
+   propagate further (its dependents are not in the cone through it).
+3. **Observe.** `σ := σ'`. The frame (V-17) is the value at every reader
+   position. Then every effect whose compute half changed (EF-2) runs its apply
+   block in declaration order; writes they make are recorded for the next
+   instant, which begins when this phase ends.
+
+### Properties (to be checked by `ref/` against scenarios, then proved)
+
+- **P-1 Glitch-freedom.** No reader, apply block, or `peek` ever observes a
+  state in which an equation disagrees with its inputs. (Follows from phases
+  not overlapping and topological settle.)
+- **P-2 Determinism.** Given `σ` and the multiset of writes of an instant, the
+  resulting `σ'` and frame are unique, independent of evaluation order within
+  the topological constraints.
+- **P-3 Consistency with from-scratch.** The value of every equation after an
+  instant equals what it would be if every equation were re-evaluated from
+  `σ'` with no memoization. (Adapton's correctness criterion.)
+- **P-4 Minimality.** Only equations in the cone are evaluated; equations whose
+  value did not change cut propagation.
+- **P-5 Write isolation.** Within an imperative run, no read observes that run's
+  own writes (W-4), and two runs never interleave within one instant (W-3).
+
+---
+
+## 5. What core excludes (and where it goes)
+
+| Excluded                                | Document       | Why not here                                              |
+| --------------------------------------- | -------------- | --------------------------------------------------------- |
+| `await`, pending, `latest`, `pending?`  | 04-rows, 05-holds | Introduces the in-flight version of state (V-13)       |
+| Regions other than "the program"        | 03-regions     | Needs `if`/`for` branches as scopes with lifetimes        |
+| FFI, impure functions, `io` row         | 04-rows        | Needs function coloring                                   |
+| Structured values, paths, draft, key    | 06-stores      | Needs identity and path-granular propagation              |
+| Concrete syntax                         | 07-surface     | Decided after the semantics are closed                    |
+
+---
+
+## 6. Worked scenario (abstract syntax)
+
+`scenarios/S-core-1.md` — the counter.
+
+```
+source count = 0
+double = op*(count, 2)
+label  = op+("prev ", pre double)
+effect (double) { log(double) }
+view <p>{double} {label}</p>
+```
+
+| instant | action           | frame `<p>`         | effect runs | notes                          |
+| ------- | ---------------- | ------------------- | ----------- | ------------------------------ |
+| 0       | mount            | `0 prev undefined`  | `log(0)`    | EF-4/EF-2 first run; C-2       |
+| 1       | handler `count := 1` | `2 prev 0`      | `log(2)`    | one instant; `pre` is prior 0  |
+| 2       | handler `count := 1` | `2 prev 0`      | —           | equal value cuts propagation (§4.2); effect does not run |
+| 3       | handler `count := 5; count := 7` | `14 prev 2` | `log(14)` | two writes, one instant (W-3) |
+
+Rejected programs for the same scenario:
+
+| program fragment                  | rule | diagnostic bin (99) |
+| --------------------------------- | ---- | ------------------- |
+| `double := 4` in a handler        | W-1  | unwritable          |
+| `count := 1` at top level         | W-2  | unwritable          |
+| `a = op+(b, 1); b = op+(a, 1)`    | C-1  | static              |
+| `effect (count) { count := count + 1 }` | C-3 | static (info)    |
