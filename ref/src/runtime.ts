@@ -78,7 +78,7 @@ type Write = { node: Node; path: (string | number)[]; value: unknown };
 type ViewInst = { region: Region; items: VItem[] };
 type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
-type BoundaryItem = { k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean };
+type BoundaryItem = { k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
 type VItem =
   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst }
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
@@ -110,7 +110,10 @@ export class Runtime {
   private tracking: Node | null = null;
   private demandMode = true;
   private probing = 0;                                  // inside `latest`: reads σ′, never served
+  private committedView = false;                        // D-26: evaluate a lane reader against the committed world
+  private probeReads: Set<Node> | null = null;          // `pending?` over a composite: nodes read inside
   private heldLanes = new Set<Node>();                  // H-7: lanes with pending work this instant
+  private bornHeldOwn: { reader: Node; lb: BoundaryItem }[] = [];
   program: Program;
 
   constructor(program: Program) {
@@ -200,7 +203,7 @@ export class Runtime {
     if (this.instant === 0) for (const n of this.allNodes()) if (n.kind === "source") { n.changed = true; n.evaluated = true; }
 
     // Phase 2 — settle (E-3) against σ′: readers of the in-flight structure, effect computes, boundaries (H-5/H-6).
-    const settleAll = () => { const holding: Node[] = []; this.heldLanes.clear(); this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
+    const settleAll = () => { const holding: Node[] = []; this.heldLanes.clear(); this.bornHeldOwn = []; this.settle(this.view, holding, null); for (const e of this.effects) if (e.alive) for (const c of e.computes) { this.pull(c); if (c.changed) c.changedSinceCommit = true; } return holding; };
     let holding = settleAll();
 
     // Hold decision per change group (H-2, H-3, H-4; Solid D-1..D-5): a reader holds the group it joined; a group with no holder commits.
@@ -209,7 +212,7 @@ export class Runtime {
     for (let pass = 0; pass < 3; pass++) {
       const heldRoots = new Set<number>();
       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
-      for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal && b.heldBy !== null) heldRoots.add(this.find(b.heldBy));   // a flight a display still waits on keeps its change open (F-2)
+      for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
       let any = false;
       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))}`);
       for (const g of roots()) {
@@ -224,6 +227,8 @@ export class Runtime {
       for (const h of holding) if (!h.region.boundary) this.diagnostics.push(`ASYNC_OUTSIDE_LOADING_BOUNDARY: ${h.name} is pending at mount with no loading boundary; the mount is held`);
     }
     if (!this.committedOnce && !this.openChanges.has(this.find(0)) && committedSome) this.committedOnce = true;   // the view attaches when the mount's change commits
+    if (this.openChanges.has(this.find(this.instant))) for (const { reader, lb } of this.bornHeldOwn) { lb.caught.push(reader); lb.showingFallback = true; reader.heldOn = null; }   // D-27: born held under a fresh boundary → the boundary's
+    else for (const { lb } of this.bornHeldOwn) { lb.bornCandidates = 0; lb.showingFallback = lb.caught.length > 0; if (!lb.showingFallback) lb.armed = false; }
     // Verdicts are final only after the decision (H-9): lane readers re-settle against the decided world, then show ahead (H-7).
     for (const n of this.allNodes()) if (n.lane) { n.evaluated = false; n.state = "dirty"; }
     this.settle(this.view, [], null);
@@ -281,9 +286,20 @@ export class Runtime {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
         if (v instanceof ErrVal) { const eb = nearest(boundary, "errored"); if (eb) eb.caught.push(i.node); i.node.heldOn = null; return; }   // H-12
-        if (i.node.lane) {                                                                                                 // H-7: lanes never hold the instant; a pending lane reader holds its lane
+        const ownServed = [...i.node.served].some(b => b.heldBy === this.instant && b.value instanceof PendingVal);
+        const openPlain = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+        const plainHeld = ownServed || openPlain.length > 0 || i.node.taint.has(this.instant) || (v instanceof PendingVal && i.node.served.size > 0);
+        if (i.node.lane && !plainHeld && !(v instanceof PendingVal)) {                                                     // H-7: a pure lane reader never holds the instant
           i.node.heldOn = null;
-          if (v instanceof PendingVal) { const lb = nearest(boundary, "loading"); if (lb && lb.armed) lb.caught.push(i.node); else for (const l of i.node.lanes) this.heldLanes.add(l); }
+          if (i.shown === null && [...i.node.lanes].some(l => this.heldLanes.has(l))) {                                   // D-26: mounted mid-hold: shows the committed world
+            this.committedView = true; i.node.evaluated = false; i.node.state = "dirty";
+            try { i.shown = fmt(this.pull(i.node)); } finally { this.committedView = false; i.node.evaluated = false; i.node.state = "dirty"; }
+          }
+          return;
+        }
+        if (i.node.lane && v instanceof PendingVal && !plainHeld) {                                                        // pending only through the lane
+          i.node.heldOn = null;
+          const lb = nearest(boundary, "loading"); if (lb && lb.armed) lb.caught.push(i.node); else for (const l of i.node.lanes) this.heldLanes.add(l);
           return;
         }
         // changes this reader consumes that are already held (its own instant's fresh writes are not held yet)
@@ -305,7 +321,12 @@ export class Runtime {
           if (lb && lb.armed && !i.node.hasCommitted) { lb.caught.push(i.node); i.node.heldOn = null; return; }           // D-12: a fresh boundary catches a born-held read
           i.node.heldOn = join(); return;                                                                                  // derived from a held change: reveals with it, holds nothing (H-8, D-1)
         }
-        if (i.node.taint.has(this.instant)) { i.node.heldOn = this.find(this.instant); return; }                           // consumed this instant's writes: shows at its commit (F-2)
+        if (i.node.taint.has(this.instant)) {                                                                              // consumed this instant's writes: shows at its commit (F-2)
+          const lb = nearest(boundary, "loading");
+          if (lb && lb.armed && !i.node.hasCommitted) { this.bornHeldOwn.push({ reader: i.node, lb }); lb.bornCandidates++; }   // D-27: born held if this instant ends up held — decided after the hold decision
+          i.node.heldOn = this.find(this.instant); return;
+        }
+        if (ownServed) { i.node.heldOn = this.find(this.instant); holding.push(i.node); i.shown = fmt(v); return; }        // served this change's own flight: publishes committed-derived text, holds the change (S-solid-27)
         i.node.heldOn = null; i.shown = fmt(v); return;                                                                    // only committed / served values: shows now (Solid D-3)
       }
       case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
@@ -347,10 +368,10 @@ export class Runtime {
         return;
       }
       case "loading": {
-        if (i.onNode) { this.pull(i.onNode); if (i.onNode.changed && !i.armed) i.armed = true; }   // H-6: a change to what `on` reads re-arms
-        i.caught = [];
+        if (i.onNode) { this.pull(i.onNode); if (i.onNode.changed && !i.armed) { i.armed = true; i.armedBy = this.instant; } }   // H-6: a change to what `on` reads re-arms; the fallback belongs to this change's frame (H-5)
+        i.caught = []; i.bornCandidates = 0;
         this.settle(i.content, holding, i);
-        if (i.armed) { i.showingFallback = i.caught.length > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready
+        if (i.armed) { i.showingFallback = i.caught.length > 0 || i.bornCandidates > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready (born-held candidates keep it armed until the hold is decided)
         if (i.showingFallback) this.settle(i.fallback, holding, boundary);
         return;
       }
@@ -363,8 +384,8 @@ export class Runtime {
       }
     }
   }
-  private commit(v: ViewInst, g: number) { for (const i of v.items) this.commitItem(i, g); }
-  private commitItem(i: VItem, g: number) {
+  private commit(v: ViewInst, g: number | null) { for (const i of v.items) this.commitItem(i, g); }
+  private commitItem(i: VItem, g: number | null) {
     switch (i.k) {
       case "text": return;
       case "comp": return this.commit(i.inst, g);
@@ -377,14 +398,14 @@ export class Runtime {
       }
       case "el": { for (const c of i.children) this.commitItem(c, g); return; }
       case "mif": {
-        if (i.inflight !== i.committed && i.inflight && this.find(i.inflight.openedBy) === g) { i.committed?.inst.region.dispose(); i.committed = i.inflight; }
+        if (i.inflight !== i.committed && i.inflight && (g === null || this.find(i.inflight.openedBy) === g)) { i.committed?.inst.region.dispose(); i.committed = i.inflight; }
         if (i.committed) this.commit(i.committed.inst, g); return;
       }
       case "mfor": {
-        if (this.find(i.rowsOpenedBy) === g) { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; }
+        if (g === null || this.find(i.rowsOpenedBy) === g) { for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose(); i.committedRows = i.inflightRows; }
         for (const r of i.committedRows) this.commit(r.inst, g); return;
       }
-      case "loading": case "errored": { i.committedFallback = i.showingFallback; this.commit(i.content, g); this.commit(i.fallback, g); return; }
+      case "loading": case "errored": { i.committedFallback = i.showingFallback; if (g === null) i.laneAttached = true; this.commit(i.content, g); this.commit(i.fallback, g); return; }
     }
   }
   private renderCommitted(v: ViewInst): string { return v.items.map(i => this.renderItem(i)).join(""); }
@@ -403,12 +424,21 @@ export class Runtime {
   private patchLanes(v: ViewInst) { for (const i of v.items) this.patchItem(i); }
   private patchItem(i: VItem) {
     switch (i.k) {
-      case "read": { if (i.node.lane && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l))) i.shown = fmt(i.node.value); return; }
+      case "read": { if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l))) i.shown = fmt(i.node.value); return; }
       case "el": { for (const c of i.children) this.patchItem(c); return; }
       case "comp": return this.patchLanes(i.inst);
-      case "mif": { if (i.committed) this.patchLanes(i.committed.inst); return; }
+      case "mif": {
+        if (i.cond.lane && i.inflight !== i.committed && i.inflight && ![...i.cond.lanes].some(l => this.heldLanes.has(l))) {   // D-27: a verdict-opened branch is a mainline mount: attaches now
+          i.committed?.inst.region.dispose(); i.committed = i.inflight; this.commit(i.committed.inst, null);
+        }
+        if (i.committed) this.patchLanes(i.committed.inst); return;
+      }
       case "mfor": { for (const r of i.committedRows) this.patchLanes(r.inst); return; }
-      case "loading": case "errored": { if (i.k === "loading" && i.onNode?.lane) i.committedFallback = i.showingFallback; this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return; }   // D-17: `on` read a probe → the fallback shows now
+      case "loading": case "errored": {
+        // D-17: `on` read a probe → the fallback shows now; otherwise the display follows settle once nothing under it is held on an open change
+        if ((i.k === "loading" && i.onNode?.lane) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
+        this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return;
+      }
       case "text": return;
     }
   }
@@ -478,6 +508,7 @@ export class Runtime {
   private nodeOf(e: Expr, region: Region, env?: Map<string, unknown>): Node | null {
     if (e.k === "id") { if (env?.has(e.name)) return null; const b = region.lookup(e.name); return b instanceof Node ? b : null; }
     if (e.k === "member" || e.k === "index") return this.nodeOf(e.o, region, env);
+    if (e.k === "latest") return this.nodeOf(e.e, region, env);
     return null;
   }
   private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
@@ -494,14 +525,14 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, region, en); };
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        this.track(b, ""); const v = this.pull(b);
+        this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
         if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.tracking.lanes.add(l); }   // R-10: lane flows through equations
         if (this.tracking && this.demandMode) {
-          const held = b.heldBy !== null && b.heldBy !== this.instant && this.groupOpen(b.heldBy);
-          const future = b.kind === "source" || b.value instanceof PendingVal;                   // a landed answer is consumed, not served
+          const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
+          const future = (b.kind === "source" && b.heldBy !== this.instant) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
           const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
-          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
-          for (const t of b.taint) this.tracking.taint.add(t);
+          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
+          if (!b.lane && !this.probing) for (const t of b.taint) this.tracking.taint.add(t);   // lane work and probes are the lane's, not the instant's (F-6)
         }
         return v;
       }
@@ -524,19 +555,30 @@ export class Runtime {
         if (e.init && n && !n.answered) { n.firstPaint = true; return this.ev(e.init, region, env); }
         return PENDING;
       }
-      case "latest": {                                                 // R-9 probe: reads σ′
-        if (this.tracking) { this.tracking.lane = true; const ln = this.nodeOf(e.e, region, env); if (ln) this.tracking.lanes.add(ln); }
-        this.probing++; try { return this.ev(e.e, region, env); } finally { this.probing--; }
+      case "latest": {                                                 // R-9 probe: the value an update is moving toward, else the committed value
+        const ln = this.nodeOf(e.e, region, env);
+        if (this.tracking) { this.tracking.lane = true; if (ln) this.tracking.lanes.add(ln); }
+        if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
+        this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; }
+        if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
+        return v;
       }
       case "pending": {                                                // R-9 / H-9 verdict
         if (this.tracking) this.tracking.lane = true;
         const n = this.nodeOf(e.e, region, env);
-        if (!n) return false;
+        if (!n) {                                                      // composite: the verdict of the reads inside it (Solid S-29)
+          const prev = this.probeReads; const reads = new Set<Node>(); this.probeReads = reads;
+          this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; this.probeReads = prev; }
+          if (this.tracking) for (const r of reads) this.tracking.lanes.add(r);
+          if (v instanceof PendingVal) return true;
+          return [...reads].some(r => r.value instanceof PendingVal || (r.heldBy !== null && (r.heldBy === this.instant || this.groupOpen(r.heldBy))));
+        }
         if (this.tracking) this.tracking.lanes.add(n);
         this.track(n, ""); if (n.kind !== "source") this.pull(n);     // a probe is a (lane) dependency
+        if (e.e.k === "latest") return n.value instanceof PendingVal;  // the latest channel's own verdict: x's own async is up (S-solid-27)
         if (n.firstPaint) return false;                                // R-7
         if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
-        return n.value instanceof PendingVal || (n.heldBy !== null && this.groupOpen(n.heldBy));
+        return n.value instanceof PendingVal || (n.heldBy !== null && (n.heldBy === this.instant || this.groupOpen(n.heldBy)));
       }
       case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
       case "un": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; return e.op === "!" ? !v : -(v as number); }
@@ -622,7 +664,7 @@ export class Runtime {
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
       case "loading": case "errored": {
-        const item: BoundaryItem = { k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false };
+        const item: BoundaryItem = { k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
         const cr = new Region(region, this, item); this.declare(m.decls, cr);
         item.content = this.instantiate(m.body, cr);

@@ -19,7 +19,7 @@ Phase 1 is checked against `scenarios/` only; runtime diffing against
 recorded.
 
 Status: phase 3 (holds) running alongside phase 1. `node --experimental-strip-types ref/run.ts [filter]`
-runs `scenarios/S-*.md`; S-core-1, S-region-1..6 and S-hold-1..5 and eighteen ports of Solid's SCENARIOS (S-solid-*) pass
+runs `scenarios/S-*.md`; S-core-1, S-region-1..6 and S-hold-1..5 and twenty-five ports of Solid's SCENARIOS (S-solid-*) pass
 (per-change membership with served reads and joining, loading/errored
 boundaries, `on` re-arm, probes/lanes, lane holds, superseded flights).
 

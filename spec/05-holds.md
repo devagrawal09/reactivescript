@@ -46,11 +46,18 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   instant). Instant 0 (mount) can be held; the screen shows nothing until it
   commits. `action { … }` keeps one change open across its awaited work.
 
-- **H-3 (Served, or joined).** [F-2, Solid D-1, D-3, D-4] A reader in change
-  `d` that **directly** reads a value held by an open change `c ≠ d` — an
-  uncommitted write, or a flight still pending — is *served* `σ`'s value for
-  it and shows now; it holds nothing, but `c` stays open while a display is
-  still waiting on that flight. An **equation** never serves: it computes on
+- **H-3 (Served, or joined).** [F-2, Solid D-1, D-3, D-4, D-23] A reader
+  that **directly** reads a flight still pending — of its own change or of an
+  open one — is *served* `σ`'s value for it, and so is a reader of a source
+  written by another open change. A served pass publishes its text at once
+  (served values are committed; nothing tears): `[pending? x, x]` shows
+  `[true, x0]` in the instant that re-asked `x` (S-solid-27). What differs
+  is who holds: serving a flight of the reader's *own* change holds that
+  change; serving a foreign one holds nothing, but the foreign change — and
+  every change in the flight's question — stays open while a display is
+  waiting on it. A source written by the reader's own change is read, not
+  served: that reader shows at the change's commit (S-solid-4's `1:0`).
+  Lane values are never served: pending in a lane is the lane's (H-7). An **equation** never serves: it computes on
   `σ′`, and a reader that consumes a value derived from `c`'s held writes, or
   a landed answer of `c`, **joins** `c` — its reveal belongs to `c`'s commit
   and `d` merges into `c`'s group. A reader that consumed `d`'s own fresh
@@ -106,7 +113,13 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   (S-solid-24: the header keeps `0` while `details` is pending under a
   disarmed boundary), unless an armed boundary catches it (then the lane
   reveals at once). A boundary whose `on` reads a probe shows its fallback
-  now, beside the held frame (D-17, S-solid-21). But pending work *inside* the lane —
+  now, beside the held frame (D-17, S-solid-21). `latest x` while `x`'s
+  flight is pending is `x`'s committed value (the value an update is moving
+  toward does not exist yet). A lane reader mounted mid-hold shows the
+  committed world and reveals with the lane (D-26, S-solid-30). A branch a
+  lane condition opens is a mainline mount and attaches now; content under
+  it that read a write the instant holds is born held — a fresh boundary
+  there shows its fallback (D-27, S-solid-31). But pending work *inside* the lane —
   an `await` over `latest x`, a derivation of it that is pending — holds the
   lane: the lane's readers keep what they showed and reveal together when
   it lands. A lane hold and the instant's hold are independent on both sides.
@@ -116,7 +129,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   appears with the commit. Only probes (H-7) and the fallbacks they arm show
   ahead of it.
 
-- **H-9 (Verdicts).** [F-9] A verdict is final only at commit: lane readers
+- **H-9 (Verdicts).** [F-9] `pending? latest x` is the latest channel's
+  own verdict — `x`'s own async is up — not the hold's (S-solid-27 instant
+  4: `[false, x1]` beside the atomic pair's `[true, x0]`). `pending?` over
+  a composite expression is the verdict of the reads inside it (S-solid-29).
+  A verdict is final only at commit: lane readers
   are settled again after the hold decision, against the committed world, so
   a `pending?` that was `true` during settle reads `false` in the frame that
   commits the answer (found by `ref/`: S-hold-1 instant 3). `pending? x` is `true` iff `x`'s value in `σ` is
@@ -164,9 +181,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 Ports of Solid's `SCENARIOS.md` are `S-solid-n` (same `n`); `S-hold-n` are
 this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S-7, S-10,
-S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24. Not yet
-expressible: S-5 (two roots), S-8, S-9, S-15, S-20 (`action`), S-23
-(portals). Divergences found and fixed
+S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24, S-25,
+S-26 (rows 0–3), S-27, S-29, S-30, S-31, S-40. Not yet expressible: S-5
+(two roots), S-8, S-9, S-15, S-20 (`action`), S-23 (portals), S-28
+(imperative probes), S-39 (one reader, two orders), S-26 rows 4–7
+(`refresh`/`affects`/optimistic — 06). Divergences found and fixed
 by porting are recorded in the rule they changed.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current
