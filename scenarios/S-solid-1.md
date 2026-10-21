@@ -26,3 +26,7 @@ mount commits with the spinner; `pending? id` is `false` — a source always
 has a verdict (Solid S-1 row 0).
 Instant 3 holds on both; the shown boundary keeps `comments-A` (H-6).
 Instant 4: still held on `product`. Instant 5: whole.
+
+## Divergences
+
+- oracle "Frames" instant 0: `spinner false` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

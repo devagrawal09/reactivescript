@@ -32,3 +32,7 @@ nothing to show yet. Instant 3: the instant is held by `product`; the lane's
 own `await` is pending, so the lane keeps `pa`. Instant 4: the lane lands
 and reveals ahead of the still-held instant (H-7). Instant 5: the instant
 commits.
+
+## Divergences
+
+- oracle "Frames" instant 1: `` — in Solid the two first loads reveal together: `product`'s landing waits for `preview`, whose reader is pending at the mount; here a lane reader never holds (H-7) and the mount commits when `product` lands. Same open question as the partial mount (05 §Divergences).

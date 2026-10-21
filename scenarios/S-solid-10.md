@@ -22,3 +22,7 @@ details = await fetch("d:" + count)
 Instant 3 nets to the committed value: no proposal, `show` is not held.
 Instant 4: the hide publishes, and dropping `details`' last reader releases
 the hold in the same instant — `Count 1` with it.
+
+## Divergences
+
+- oracle "Frames" instant 0: `Count 0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

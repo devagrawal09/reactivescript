@@ -31,3 +31,7 @@ at its instant's settle (H-10) and the instant begins when the run ends.
 | 2       | reject "save" "boom"   | `0 latest 0 idle`     |
 
 AC-1: a rejection inside the body reverts its writes; nothing commits.
+
+## Divergences
+
+- oracle "Variant: the body rejects — the change ends without a commit" instant 2: `1 latest 1 idle` — in Solid 2.0.0-rc.16 a failed action commits the plain writes it held and reverts only its optimistic state (`06-actions-optimistic.md`: "let it revert the optimistic state with the failed action"); AC-1 reverts the writes too. Open question for 06 — see spec/05-holds.md §Divergences.

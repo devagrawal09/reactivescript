@@ -14,9 +14,9 @@ Phases:
 3. holds: the two-version store, probes, lanes, boundaries (05) — diff against
    Solid's own `SCENARIOS.md`
 
-Phase 1 is checked against `scenarios/` only; runtime diffing against
-`@solidjs/signals` begins in phase 3, where divergences are expected and
-recorded.
+Runtime diffing against the real Solid 2.0 is `ref/oracle/` (see its README):
+the same scenarios lowered onto `solid-js` + `@solidjs/universal`; divergences
+are recorded per scenario and listed in `spec/05-holds.md §Divergences`.
 
 Status: phase 3 (holds) plus 06 (`action`, inline `action { }`,
 `optimistic`, `refresh`, `affects`, `source x = e`, per-key pending,

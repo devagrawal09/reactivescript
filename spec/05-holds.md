@@ -201,6 +201,38 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 ---
 
+## Divergences from the oracle (solid-js 2.0.0-rc.16, `ref/oracle/`)
+
+Every scenario is also run through the real runtime (`ref/oracle/`: the
+abstract syntax lowered onto `solid-js` + `@solidjs/universal`). Where the
+runtime shows something other than the rule, the scenario records it in a
+`## Divergences` section and the question is listed here until ruled.
+
+- **DV-1 (The mount).** H-2 holds instant 0 as one frame: nothing shows
+  until every reader outside a boundary has an answer. Solid renders a
+  mount partially — readers that are not pending show at once, a pending
+  reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`),
+  first loads that *are* pending reveal together when they land
+  (S-hold-4), and verdict/lane readers show their landed value ahead
+  (S-solid-27 instant 1, S-solid-41 instant 1). Both agree on everything
+  after the first frame. Candidates: keep H-2 (the screen is whole from
+  the first frame; the partial mount is exactly the shape the diagnostic
+  names) or adopt Solid's (there is no committed frame to keep, so readers
+  with an answer show it). 21 recorded instants across S-solid-1/2/3/10/13/
+  14/16/18/21/25/27/31/40/41/42 and S-hold-4.
+- **DV-2 (A failed action).** AC-1: a rejection inside the body ends the
+  change without a commit — writes and guesses revert. Solid: the plain
+  writes the action held commit when the body fails; only its optimistic
+  state reverts (S-solid-8 variant). Candidates: transactional (AC-1 as
+  written) or Solid's (a write is intent; a guess is the only provisional
+  state).
+- **DV-3 (S-22 row 3′, suspected runtime bug).** Through `solid-js`'s
+  `<Loading>`, content that lands before a re-armed boundary's own pending
+  fallback does not reveal until the fallback's read lands (S-solid-22
+  variant instant 4 shows `c1`); Solid's S-22 row 3′ and its signals-level
+  pin say `content(2)`. Reported upstream; the scenario keeps the ruled
+  frame.
+
 ## What this document inherits without ruling
 
 - Solid Q-7 (`loadingValue` after a shown failure) and the U-table items in

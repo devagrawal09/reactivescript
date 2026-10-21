@@ -58,3 +58,10 @@ deferred fast = await fetch("f:" + period)
 
 `fast 2` beside `Period 1` would lead the hold (F-7); the re-ask that read
 the held `period` shows with its commit.
+
+## Divergences
+
+- oracle "Frames" instant 0: `Period 1` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty; H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.
+- oracle "Frames" instant 1: `Period 1 fast 1 false` — same: each deferred panel reveals on its own at the mount in Solid (`fast` shows while `slow` is still loading); H-1/H-2 hold the first loads together.
+- oracle "Variant: `period` is held by another reader — a re-ask lands into that hold" instant 0: `Period 1` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty; H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.
+- oracle "Variant: `period` is held by another reader — a re-ask lands into that hold" instant 1: `Period 1` — same.

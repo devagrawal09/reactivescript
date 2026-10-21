@@ -19,3 +19,7 @@ n0 = await fetch("n:" + s)
 
 Instant 2: the sibling holds; the boundary's read has a value, so it shows
 it — neither an empty slot nor the fallback.
+
+## Divergences
+
+- oracle "Frames" instant 0: `0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty; H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

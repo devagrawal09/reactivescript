@@ -46,3 +46,8 @@ details = await fetch("d:" + pageData + ":" + count)
 | 4       | handler `page := 1`         | `Details d(0,0) Outside d(0,0) Sum 0`        |
 | 5       | resolve pageData 1          | `Details d(0,0) Outside d(0,0) Sum 0`        |
 | 6       | resolve details "d(1,1)"    | `Details d(1,1) Outside d(1,1) Sum 2`        |
+
+## Divergences
+
+- oracle "Variant: an outside reader keeps the hold" instant 0: `Loading... Sum 0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.
+- oracle "Variant: an outside reader keeps the hold" instant 1: `Loading... Sum 0` — same: the outside reader is still pending, the rest shows.

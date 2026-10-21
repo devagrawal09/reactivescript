@@ -1,0 +1,382 @@
+// Lowering of the abstract syntax (spec/02-core §1, 03, 05, 06) onto the real runtime:
+// solid-js 2.0 flow components over @solidjs/universal with a string-tree renderer.
+// This is the compiler's back half, run as an interpreter: every form maps to the primitive
+// its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
+import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
+import { createRenderer } from "@solidjs/universal";
+import { Show, For, Loading, Errored } from "solid-js";
+import {
+  createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
+  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt
+} from "@solidjs/signals";
+
+export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
+
+// ---------------------------------------------------------------- string-tree renderer
+type N = { kind: "el"; tag: string; children: N[]; parent?: N; props: Record<string, unknown> } | { kind: "text"; text: string; parent?: N };
+const R = createRenderer<N>({
+  createElement: tag => ({ kind: "el", tag, children: [], props: {} }),
+  createTextNode: text => ({ kind: "text", text }),
+  replaceText: (n, v) => { (n as Extract<N, { kind: "text" }>).text = v; },
+  isTextNode: n => n.kind === "text",
+  setProperty: (n, k, v) => { if (n.kind === "el") n.props[k] = v; },
+  insertNode: (p, n, anchor) => { if (p.kind !== "el") return; if (n.parent) { const q = n.parent as Extract<N, { kind: "el" }>; const j = q.children.indexOf(n); if (j >= 0) q.children.splice(j, 1); } const i = anchor ? p.children.indexOf(anchor) : -1; if (i < 0) p.children.push(n); else p.children.splice(i, 0, n); n.parent = p; },   // a DOM insert moves
+  removeNode: (p, n) => { if (p.kind !== "el") return; const i = p.children.indexOf(n); if (i >= 0) p.children.splice(i, 1); n.parent = undefined; },
+  getParentNode: n => n.parent,
+  getFirstChild: n => (n.kind === "el" ? n.children[0] : undefined),
+  getNextSibling: n => { const p = n.parent; if (!p || p.kind !== "el") return undefined; return p.children[p.children.indexOf(n) + 1]; },
+});
+export const serialize = (n: N): string => n.kind === "text" ? n.text : n.children.map(serialize).join("");
+
+const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => isView(x))) || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
+export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
+export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
+
+// ---------------------------------------------------------------- scopes
+type Binding =
+  | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean }
+  | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean }
+  | { k: "memo"; get: () => unknown }
+  | { k: "const"; value: unknown }
+  | { k: "fn"; decl: Extract<Decl, { k: "fn" }> }
+  | { k: "comp"; decl: Extract<Decl, { k: "component" }> }
+  | { k: "action"; run: (...a: unknown[]) => unknown };
+class Scope {
+  static all: Scope[] = [];
+  vars = new Map<string, Binding>();
+  parent: Scope | null;
+  constructor(parent: Scope | null) { this.parent = parent; Scope.all.push(this); }
+  lookup(n: string): Binding | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
+}
+/** Scenario handlers reach any live binding by name (ref/'s virtualScope). */
+class VirtualScope extends Scope {
+  lookup(n: string): Binding | undefined {
+    let any: Binding | undefined;
+    for (let i = Scope.all.length - 1; i >= 0; i--) { const b = Scope.all[i].vars.get(n); if (b && (b.k === "sig" || b.k === "store")) return b; any ??= b; }   // the source, not a narrowed copy of it
+    return any;
+  }
+}
+
+/** A controllable flight: an async iterable (a stream — ST-6, each `resolve` is one landing) that is also awaited by actions through `first`. */
+class Flight {
+  key: string; first: Promise<unknown>; private settleFirst!: (v: unknown) => void; private rejectFirst!: (e: unknown) => void;
+  private queue: { v?: unknown; e?: unknown; done?: boolean }[] = []; private waiters: ((x: { v?: unknown; e?: unknown; done?: boolean }) => void)[] = []; private started = false;
+  constructor(key: string) { this.key = key; this.first = new Promise((r, j) => { this.settleFirst = r; this.rejectFirst = j; }); this.first.catch(() => {}); }
+  private push(x: { v?: unknown; e?: unknown; done?: boolean }) { const w = this.waiters.shift(); if (w) w(x); else this.queue.push(x); }
+  resolve(v: unknown) { if (!this.started) { this.started = true; this.settleFirst(v); } this.push({ v }); }
+  reject(e: unknown) { if (!this.started) { this.started = true; this.rejectFirst(e); } this.push({ e }); }
+  [Symbol.asyncIterator]() {
+    const next = (): Promise<IteratorResult<unknown>> => new Promise((res, rej) => { const take = (x: { v?: unknown; e?: unknown; done?: boolean }) => { if ("e" in x) rej(x.e); else res({ value: x.v, done: false }); }; const q = this.queue.shift(); if (q) take(q); else this.waiters.push(take); });
+    return { next, return: async () => ({ value: undefined, done: true as const }) };
+  }
+}
+
+export class Oracle {
+  flights = new Map<string, Flight>();
+  lastKey = new Map<string, string>();                // equation name → the fetch key its last pass asked (for `resolve x v`)
+  private currentEq: string | null = null;
+  log: string[] = [];
+  root!: N;
+  dispose!: () => void;
+  optimisticTargets = new Set<string>();
+  rootScope!: Scope;
+  program: Program;
+  scanHandlers: Stmt[][] | undefined;
+
+  constructor(program: Program, handlers?: Stmt[][]) {
+    this.program = program; this.scanHandlers = handlers;
+    const walkStmts = (ss: Stmt[]) => { for (const s of ss) { if (s.k === "optimistic") this.optimisticTargets.add(s.target.name); if ((s.k === "write" || s.k === "optimistic") && s.target.path.length) this.pathTargets.add(s.target.name); if (s.k === "action") walkStmts(s.body); } };
+    const walkExpr = (e: Expr): void => { if (e.k === "pending" && (e.e.k === "member" || e.e.k === "index")) { let x: Expr = e.e; while (x.k === "member" || x.k === "index") x = x.o; if (x.k === "id") this.pathTargets.add(x.name); } for (const v of Object.values(e as object)) { if (Array.isArray(v)) v.forEach(x => x && typeof x === "object" && "k" in x && walkExpr(x as Expr)); else if (v && typeof v === "object" && "k" in (v as object)) walkExpr(v as Expr); } };
+    const walkMarkup = (ms: Markup[]): void => { for (const m of ms) { if (m.k === "read") walkExpr(m.e); if (m.k === "el") { m.attrs.forEach(a => walkExpr(a.e)); walkMarkup(m.children); } if (m.k === "mif") { walkExpr(m.c); walkMarkup(m.t); walkMarkup(m.f); } if (m.k === "mfor") { walkExpr(m.xs); walkMarkup(m.body); } if (m.k === "loading" || m.k === "errored") { walkMarkup(m.fallback); walkMarkup(m.body); } } };
+    for (const d of program.decls) { if (d.k === "action") walkStmts(d.body); if (d.k === "effect") walkStmts(d.body); if (d.k === "eq") walkExpr(d.e); if (d.k === "source") walkExpr(d.init); }
+    walkMarkup(program.view);
+    this.scanHandlers?.forEach(walkStmts);
+    this.root = { kind: "el", tag: "root", children: [], props: {} };
+    this.dispose = createRoot(dispose => {
+      const scope = new Scope(null); this.rootScope = new VirtualScope(null); (this.rootScope as VirtualScope).parent = null;
+      this.declare(program.decls, scope);
+      R.insert(this.root, () => this.fragment(program.view, scope));
+      return dispose;
+    });
+  }
+
+  frame() { return serialize(this.root); }
+
+  // ---- flights ----
+  flight(key: string): Flight {
+    let f = this.flights.get(key);
+    if (!f) { f = new Flight(key); this.flights.set(key, f); }
+    if (this.currentEq) this.lastKey.set(this.currentEq, key);
+    return f;
+  }
+  /** `refresh x` must re-ask: the key's old promise is forgotten so the next fetch makes a new one. */
+  forget(key: string) { this.flights.delete(key); }
+
+  // ---- declarations ----
+  declare(decls: Decl[], scope: Scope) {
+    for (const d of decls) {
+      if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d });
+      if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d });
+      if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
+    }
+    for (const d of decls) {
+      switch (d.k) {
+        case "source": {
+          if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
+            const compute = this.computeOf(d.name, d.init, scope);
+            if (this.optimisticTargets.has(d.name)) { const [get, set] = createOptimistic(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: true }); }
+            else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)((draft: unknown) => compute(draft), {}); scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
+            else { const [get, set] = createSignal(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
+          } else {
+            const init = untrack(() => this.ev(d.init, scope));
+            if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
+              const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+              scope.vars.set(d.name, { k: "store", get, set: (v: unknown) => { if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore, question: false });   // ST-2a: a root write is reconciled per path
+            }
+            else { const [get, set] = createSignal(init); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: false, optimistic: false }); }
+          }
+          break;
+        }
+        case "eq": {
+          if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
+            const seedE = d.e.seed; if (seedE.k !== "pre" || seedE.name !== d.name || !seedE.init) throw new Unsupported("draft seed must be `pre self -> seed`");
+            const seed = untrack(() => this.ev(seedE.init!, scope));
+            const body = d.e.body;
+            const proj = createProjection((draft: any) => { const s2 = new Scope(scope); s2.vars.set("d", { k: "const", value: draft }); this.runDraft(body, s2); }, seed as any);
+            scope.vars.set(d.name, { k: "memo", get: () => proj });
+            break;
+          }
+          if (d.key) {                                                  // ST-4: a keyed projection
+            const compute = this.computeOf(d.name, d.e, scope);
+            const proj = createProjection(() => compute(undefined) as any, [] as any, { key: d.key } as any);
+            scope.vars.set(d.name, { k: "memo", get: () => proj });
+            break;
+          }
+          const fnDecl = this.fnOf(d.e, scope);
+          if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
+          const compute = this.computeOf(d.name, d.e, scope);
+          const opts = this.loadingValue(d.e, scope);
+          const get = d.deferred ? createDeferred(compute as any, opts as any) : createMemo(compute as any, opts as any);
+          scope.vars.set(d.name, { k: "memo", get });
+          break;
+        }
+        case "effect": {                                                // EF: createEffect(compute, apply)
+          const inputs = d.inputs;
+          const apply = (vals: unknown[]) => { const env = new Map<string, unknown>(); vals.forEach((v, i) => env.set(`$${i}`, v)); const r = this.runStmts(d.body, scope, env); return typeof r === "function" ? (r as () => void) : undefined; };
+          let last: unknown[] | null = null;
+          createEffect(() => inputs.map(e => this.ev(e, scope)), {
+            effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => Object.is(v, last![i]))) return; last = vals; return apply(vals); },   // EF-3: fires when an input changed (an error in between is a change)
+            error: () => { last = null; return apply(inputs.map(() => ERR)); },   // E-12: an error is an answer the apply receives
+          } as any);
+          break;
+        }
+      }
+    }
+  }
+  /** ST-1 by usage: a question source written or probed by path is structured → createStore(fn, seed). */
+  private isStructuredAwait(e: Expr, name?: string) { return name !== undefined && this.pathTargets.has(name); }
+  pathTargets = new Set<string>();
+  asyncError: unknown = null;
+  private imperative = 0;
+  /** A memo compute over an equation: `pre x` of itself is the previous value; `await e` as the whole body returns the promise. */
+  private computeOf(name: string, e: Expr, scope: Scope) {
+    return (prev: unknown) => {
+      const s2 = new Scope(scope); s2.vars.set(`pre:${name}`, { k: "const", value: prev });
+      const was = this.currentEq; this.currentEq = name;
+      try {
+        const body = e.k === "await" ? e.e : e;
+        const v = this.ev(body, s2);
+        return v;
+      } finally { this.currentEq = was; }
+    };
+  }
+  private loadingValue(e: Expr, scope: Scope) { return e.k === "await" && e.init ? { loadingValue: untrack(() => this.ev(e.init!, scope)) } : undefined; }
+  private fnOf(e: Expr, scope: Scope) { if (e.k !== "call" || e.f.k !== "id") return null; const b = scope.lookup(e.f.name); return b && b.k === "fn" ? b.decl : null; }
+  private instantiateFn(call: Extract<Expr, { k: "call" }>, f: Extract<Decl, { k: "fn" }>, scope: Scope) {
+    const s2 = new Scope(scope);
+    f.params.forEach((p, i) => {
+      const arg = call.args[i];
+      if (p.ref) { const b = arg?.k === "id" ? scope.lookup(arg.name) : undefined; if (b && (b.k === "sig" || b.k === "memo" || b.k === "store")) s2.vars.set(p.name, b); else s2.vars.set(p.name, { k: "memo", get: createMemo(() => arg ? this.ev(arg, scope) : undefined) }); }
+      else s2.vars.set(p.name, { k: "const", value: arg ? untrack(() => this.ev(arg, scope)) : undefined });
+    });
+    this.declare(f.decls, s2);
+    const tb = f.tail.k === "id" ? s2.lookup(f.tail.name) : undefined;
+    if (tb && (tb.k === "memo" || tb.k === "sig")) return tb.get;
+    return createMemo(() => this.ev(f.tail, s2));
+  }
+
+  // ---- expressions (reactive scope: tracked by whatever computation is running) ----
+  ev(e: Expr, scope: Scope, env?: Map<string, unknown>): unknown {
+    switch (e.k) {
+      case "lit": return e.v;
+      case "id": {
+        if (env?.has(e.name)) return env.get(e.name);
+        const b = scope.lookup(e.name);
+        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
+        switch (b.k) {
+          case "const": return b.value;
+          case "sig": case "memo": case "store": {
+            if (!this.imperative) return b.get();
+            try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; return ERR; }   // E-12 / H-10: an apply block or handler reads σ — an error value, never a throw
+          }
+          case "fn": { const f = b.decl; return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, scope, en); }; }
+          case "action": return b.run;
+          case "comp": throw new Error("component applied outside a view");
+        }
+      }
+      case "member": { const o = this.ev(e.o, scope, env) as any; return o == null ? undefined : o[e.p]; }
+      case "index": { const o = this.ev(e.o, scope, env) as any; const i = this.ev(e.i, scope, env) as any; return o == null ? undefined : o[i]; }
+      case "pre": { const b = scope.lookup(`pre:${e.name}`); if (!b || b.k !== "const") throw new Unsupported("`pre` of another node"); if (b.value === undefined && e.init) return this.ev(e.init, scope, env); return b.value; }
+      case "peek": return untrack(() => this.ev(e.e, scope, env));
+      case "await": throw new Unsupported("`await` nested in an expression");
+      case "latest": return latest(() => this.ev(e.e, scope, env));
+      case "pending": return isPending(() => this.ev(e.e, scope, env));
+      case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
+      case "un": { const v = this.ev(e.e, scope, env) as any; return e.op === "!" ? !v : -v; }
+      case "bin": {
+        const l = this.ev(e.l, scope, env) as any;
+        if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
+        if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
+        return BIN[e.op](l, this.ev(e.r, scope, env));
+      }
+      case "arr": return e.items.map(i => this.ev(i, scope, env));
+      case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) o[f.key] = this.ev(f.v, scope, env); return o; }
+      case "fn": return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.ev(e.body, scope, en); };
+      case "call": {
+        const f = this.ev(e.f, scope, env) as any;
+        const args = e.args.map(a => this.ev(a, scope, env));
+        if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
+        if (typeof f !== "function") throw new Error("call of non-function");
+        return f(...args);
+      }
+      case "draft": throw new Unsupported("draft outside an equation");
+    }
+  }
+
+  // ---- imperative scope ----
+  runStmts(stmts: Stmt[], scope: Scope, env: Map<string, unknown>): unknown {
+    env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });
+    this.imperative++; try { let r: unknown; for (const s of stmts) r = this.stmt(s, scope, env); return r; } finally { this.imperative--; }
+  }
+  private stmt(s: Stmt, scope: Scope, env: Map<string, unknown>): unknown {
+    switch (s.k) {
+      case "let": env.set(s.name, untrack(() => this.ev(s.e, scope, env))); return;
+      case "expr": return untrack(() => this.ev(s.e, scope, env));
+      case "action": this.lowerAction([], s.body, scope, env)(); return;
+      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
+      case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
+      case "optimistic": case "write": {
+        const b = scope.lookup(s.target.name);
+        const v = untrack(() => this.ev(s.e, scope, env));
+        if (!b) throw new Error(`unbound ${s.target.name}`);
+        if (b.k === "sig") { if (s.target.path.length) throw new Unsupported("path write to a signal"); b.set(v); return; }
+        if (b.k === "store") {
+          const path = s.target.path.map(p => typeof p === "string" ? p : String(untrack(() => this.ev(p, scope, env))));
+          if (path.length === 0) b.set(v);
+          else b.setPath((d: any) => { let o = d; for (const k of path.slice(0, -1)) o = o[k]; o[path[path.length - 1]] = v; });
+          return;
+        }
+        throw new Error(`W-1: write to non-source ${s.target.name}`);
+      }
+    }
+  }
+  private runDraft(stmts: Stmt[], scope: Scope) {
+    const env = new Map<string, unknown>();
+    for (const s of stmts) {
+      if (s.k === "let") env.set(s.name, this.ev(s.e, scope, env));
+      else if (s.k === "expr") this.ev(s.e, scope, env);
+      else if (s.k === "write") {
+        const d = (scope.lookup("d") as Extract<Binding, { k: "const" }>).value as any;
+        const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, scope, env)));
+        let o = d; for (const k of path.slice(0, -1)) { if (o[k] == null) o[k] = {}; o = o[k]; } o[path[path.length - 1]] = this.ev(s.e, scope, env);
+      } else throw new Unsupported(`${s.k} in draft`);
+    }
+  }
+  /** AC-1: an action body is a generator; a statement-level `await` is a hold-safe `yield` of the flight. */
+  private lowerAction(params: string[], body: Stmt[], scope: Scope, outer?: Map<string, unknown>) {
+    const self = this;
+    const run = action(function* (...args: unknown[]) {
+      const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
+      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
+      for (const s of body) {
+        const awaited = (s.k === "let" || s.k === "expr") && s.e.k === "await" ? s.e : null;
+        if (awaited) {
+          const v = untrack(() => self.ev(awaited.e, scope, env));
+          const r = v instanceof Flight ? yield v.first : v instanceof Promise ? yield v : v;
+          if (s.k === "let") env.set(s.name, r);
+          continue;
+        }
+        self.imperative++; try { self.stmt(s, scope, env); } finally { self.imperative--; }
+      }
+    });
+    return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
+  }
+
+  // ---- views ----
+  fragment(m: Markup[], scope: Scope): unknown[] { return m.map(x => this.node(x, scope)); }
+  private node(m: Markup, scope: Scope): unknown {
+    const self = this;
+    switch (m.k) {
+      case "text": return R.createTextNode(m.s);
+      case "read": return () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); };   // a view value (children) is inserted as structure
+      case "el": {
+        if (/^[A-Z]/.test(m.tag)) {
+          const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
+          const comp = b.decl;
+          const props: Record<string, unknown> = {};
+          for (const a of m.attrs) Object.defineProperty(props, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
+          Object.defineProperty(props, "children", { enumerable: true, get: () => this.fragment(m.children, scope) });
+          return R.createComponent((p: any) => { const s2 = new Scope(scope); s2.vars.set(comp.props, { k: "const", value: p }); this.declare(comp.decls, s2); return this.fragment(comp.view, s2); }, props);
+        }
+        const el = R.createElement(m.tag);
+        for (const a of m.attrs) R.effect(() => this.ev(a.e, scope), v => R.setProp(el, a.name, v));
+        R.insert(el, () => this.fragment(m.children, scope));
+        return el;
+      }
+      case "mif": {
+        const narrowed = m.c.k === "id" ? m.c.name : null;
+        return R.createComponent(Show as any, {
+          get when() { return self.ev(m.c, scope); },
+          get fallback() { const s2 = new Scope(scope); self.declare(m.fDecls, s2); return self.fragment(m.f, s2); },
+          children: (item: () => unknown) => { const s2 = new Scope(scope); if (narrowed) s2.vars.set(narrowed, { k: "memo", get: item }); self.declare(m.tDecls, s2); return self.fragment(m.t, s2); },
+        });
+      }
+      case "mfor": {
+        return R.createComponent(For as any, {
+          get each() { return self.ev(m.xs, scope); },
+          children: (item: unknown) => { const s2 = new Scope(scope); s2.vars.set(m.name, { k: "const", value: item }); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+        });
+      }
+      case "loading": {
+        const props: Record<string, unknown> = {
+          get fallback() { return self.fragment(m.fallback, scope); },
+          get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+        };
+        if (m.on) Object.defineProperty(props, "on", { enumerable: true, get: () => this.ev(m.on!, scope) });
+        return R.createComponent(Loading as any, props);
+      }
+      case "errored": {
+        return R.createComponent(Errored as any, {
+          fallback: (err: () => unknown) => { const s2 = new Scope(scope); s2.vars.set("error", { k: "memo", get: err }); return self.fragment(m.fallback, s2); },
+          get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+        });
+      }
+    }
+  }
+}
+
+const BIN: Record<string, (a: any, b: any) => unknown> = {
+  "+": (a, b) => a + b, "-": (a, b) => a - b, "*": (a, b) => a * b, "/": (a, b) => a / b, "%": (a, b) => a % b,
+  "==": (a, b) => a === b, "!=": (a, b) => a !== b, "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
+};
+const BUILTINS: Record<string, unknown> = {
+  len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
+  str: (x: unknown) => fmt(x),
+  map: (xs: unknown[], f: (x: unknown, i: number) => unknown) => xs.map(f),
+  filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
+  sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
+  fail: (msg: string) => { throw new Error(msg); },
+  fetch: (key: string) => key,
+};
+export { flush, NotReadyError, resetErrorHalt };
+export function resetScopes() { Scope.all = []; }

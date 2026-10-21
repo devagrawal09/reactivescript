@@ -31,3 +31,7 @@ Instant 3: `m` reads the held `x`, so `<p>{m}</p>` joins the hold and the
 branch is not attached (`p 10` beside `h1 0` would publish the future; `p 0`
 is a value `m` never had). Instant 4: an unrelated write shows at once —
 not swallowed into the hold (D-3).
+
+## Divergences
+
+- oracle "Frames" instant 0: `0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

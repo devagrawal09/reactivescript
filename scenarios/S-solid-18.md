@@ -52,3 +52,7 @@ comments = await fetch("c:" + id)
 | 1       | resolve comments "comments-A"   | `comments-A`   |
 | 2       | handler `id := 2`               | `spinner`      |
 | 3       | resolve comments "comments-B"   | `comments-B`   |
+
+## Divergences
+
+- oracle "Frames" instant 0: `spinner` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

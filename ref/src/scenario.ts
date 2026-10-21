@@ -5,7 +5,8 @@ import { Runtime, RuleError } from "./runtime.ts";
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
 type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean };
-export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[] };
+export type Divergence = { table: string; instant: number; frame: string };   // what the oracle (Solid 2.0) shows where the spec rules otherwise
+export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[] };
 
 const strip = (s: string) => s.replace(/`/g, "").trim();
 
@@ -25,11 +26,14 @@ export function parseScenario(name: string, md: string): Scenario {
     });
   };
   let program = "";
-  const tables: Table[] = []; const rejected: Rejected[] = [];
+  const tables: Table[] = []; const rejected: Rejected[] = []; const divergences: Divergence[] = [];
   for (const s of sections) {
     if (s.title === "Program") program = fence(s.body) ?? "";
     else if (s.title === "Frames") tables.push({ title: "Frames", program: null, rows: table(s.body) });
     else if (s.title.startsWith("Variant")) tables.push({ title: s.title, program: fence(s.body), rows: table(s.body) });
+    else if (s.title.startsWith("Divergences")) {
+      for (const m of s.body.matchAll(/^- oracle "([^"]*)" instant (\d+): `([^`]*)`/gm)) divergences.push({ table: m[1], instant: Number(m[2]), frame: m[3] });
+    }
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
@@ -39,7 +43,7 @@ export function parseScenario(name: string, md: string): Scenario {
       }
     }
   }
-  return { name, program, tables, rejected };
+  return { name, program, tables, rejected, divergences };
 }
 
 export type Result = { ok: boolean; lines: string[] };
