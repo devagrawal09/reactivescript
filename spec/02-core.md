@@ -112,6 +112,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   effect, or region, is an **instantiation** (03 RG-6): it happens once at the
   call site. In an instantiation, value arguments are snapshots (E-4) and ref
   arguments are passed as equations.
+- **E-11 (Lazy conditional).** In `if c then a else b` as an expression, only
+  the selected arm is demanded; the equation's inputs are `c`'s plus the
+  selected arm's, and change as `c` changes. The unselected arm is neither
+  evaluated nor an input.
+- **E-12 (Errors are values).** An equation whose evaluation throws has an
+  *error value* in the frame. An equation or reader reaching an errored input
+  is errored. There is no `try`/`catch` in reactive scope; the `errored`
+  boundary (03 RG-5, 05) is where an error becomes fallback content. (Solid
+  F-12.) An error in an apply block is imperative and ordinary.
 - **E-10 (Nodes need a region).** A function whose body declares a source,
   effect, or region and reads a value parameter from inside that declaration
   is rejected: the parameter must be `ref`. (This is the lost-reactivity bug

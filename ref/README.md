@@ -14,4 +14,8 @@ Phases:
 3. holds: the two-version store, probes, lanes, boundaries (05) — diff against
    Solid's own `SCENARIOS.md`
 
+Phase 1 is checked against `scenarios/` only; runtime diffing against
+`@solidjs/signals` begins in phase 3, where divergences are expected and
+recorded.
+
 Not started.
