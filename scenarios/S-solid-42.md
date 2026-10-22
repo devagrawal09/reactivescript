@@ -33,8 +33,3 @@ fallback, sibling — and the effect's arm runs then. Instants 6–7: the error
 stays the display through the retry (D-39); the recovery to `1` is settled,
 not shown. Instant 8: `1` equals the last good value and is still a new
 answer — the arm runs.
-
-## Divergences
-
-- oracle "Frames" instant 0: `1` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty; H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.
-- oracle "Frames" instant 1: `1` — same.

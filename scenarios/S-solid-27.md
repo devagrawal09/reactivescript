@@ -27,7 +27,3 @@ through `latest`, so it follows `x`'s own async.
 Instant 4: `x(1)` landed but `y(1)` is still up, so the frame is held: the
 atomic pair shows `[true, x0]` (a landed answer awaiting reveal); the
 `latest` form saw `x`'s own answer — `[false, x1]`. Never `[true, x1]`.
-
-## Divergences
-
-- oracle "Frames" instant 1: `false,x0 false,x0` — at the mount a verdict reader (`pending? x` beside `x`) shows its landed value ahead of the still-pending `y` reader in Solid; H-2 holds the mount as one frame, so nothing shows until `y` lands. Same open question as the partial mount.

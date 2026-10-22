@@ -25,7 +25,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   try {
     for (const chain of chains) {
       const r = chain[0]; const last = chain[chain.length - 1];
-      const logBefore = o.log.length;
+      const logBefore = r.action === "mount" ? 0 : o.log.length;   // effects' first runs happen inside render()
       try {
         if (r.action === "mount") { flush(); await settle(); }
         else if (r.action.startsWith("handler")) { const stmts = parseStmts(r.action.slice(7)); o.runStmts(stmts, rootScope(o), new Map()); flush(); await settle(); }

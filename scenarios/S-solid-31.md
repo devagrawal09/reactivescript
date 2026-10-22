@@ -21,7 +21,3 @@ hold = await fetch("g:" + gate + ":" + x)
 Instant 2: the branch opens ahead (display-ahead); the boundary is a
 mainline mount whose content read the held write — born held — so it shows
 its fallback. `0 | content 1` is the torn frame.
-
-## Divergences
-
-- oracle "Frames" instant 0: `0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

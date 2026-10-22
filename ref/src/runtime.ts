@@ -353,7 +353,7 @@ export class Runtime {
           }
           return;
         }
-        if (i.node.lane && v instanceof PendingVal && !plainHeld) {                                                        // pending only through the lane
+        if (i.node.lane && v instanceof PendingVal && !plainHeld && this.committedOnce) {                                   // pending only through the lane (at the mount there is no committed world to show: the reader is the mount's — H-7)
           i.node.heldOn = null;
           const lb = nearest(boundary, "loading"); if (lb && lb.armed) lb.caught.push(i.node); else for (const l of i.node.lanes) this.heldLanes.add(l);
           return;

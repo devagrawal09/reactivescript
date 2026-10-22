@@ -92,12 +92,10 @@ export class Oracle {
     walkMarkup(program.view);
     this.scanHandlers?.forEach(walkStmts);
     this.root = { kind: "el", tag: "root", children: [], props: {} };
-    this.dispose = createRoot(dispose => {
-      const scope = new Scope(null); this.rootScope = new VirtualScope(null); (this.rootScope as VirtualScope).parent = null;
-      this.declare(program.decls, scope);
-      R.insert(this.root, () => this.fragment(program.view, scope));
-      return dispose;
-    });
+    // The renderer's `render`: one scheduled insert for the whole tree, so uncaught async at the mount holds the
+    // first commit as one frame (the same as @solidjs/web's `render`; H-2 on instant 0).
+    this.rootScope = new VirtualScope(null);
+    this.dispose = R.render(() => { const scope = new Scope(null); this.declare(program.decls, scope); return this.fragment(program.view, scope) as any; }, this.root);
   }
 
   frame() { return serialize(this.root); }
@@ -125,7 +123,7 @@ export class Oracle {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
             const compute = this.computeOf(d.name, d.init, scope);
             if (this.optimisticTargets.has(d.name)) { const [get, set] = createOptimistic(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: true }); }
-            else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)((draft: unknown) => compute(draft), {}); scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
+            else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
             else { const [get, set] = createSignal(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
           } else {
             const init = untrack(() => this.ev(d.init, scope));

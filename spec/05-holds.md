@@ -118,7 +118,10 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 - **H-7 (Lanes).** [F-6] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
-  screen, and never holds the instant. A lane has identity — the probed
+  screen, and never holds the instant — except at the mount: a lane reader
+  with no committed value has no committed world to show, so it is the
+  mount's and holds instant 0 like any reader (S-hold-4; found by the
+  oracle). A lane has identity — the probed
   source — and a pending reader in lane `x` holds every reader of lane `x`
   (S-solid-24: the header keeps `0` while `details` is pending under a
   disarmed boundary), unless an armed boundary catches it (then the lane
@@ -208,24 +211,27 @@ abstract syntax lowered onto `solid-js` + `@solidjs/universal`). Where the
 runtime shows something other than the rule, the scenario records it in a
 `## Divergences` section and the question is listed here until ruled.
 
-- **DV-1 (The mount).** H-2 holds instant 0 as one frame: nothing shows
-  until every reader outside a boundary has an answer. Solid renders a
-  mount partially — readers that are not pending show at once, a pending
-  reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`),
-  first loads that *are* pending reveal together when they land
-  (S-hold-4), and verdict/lane readers show their landed value ahead
-  (S-solid-27 instant 1, S-solid-41 instant 1). Both agree on everything
-  after the first frame. Candidates: keep H-2 (the screen is whole from
-  the first frame; the partial mount is exactly the shape the diagnostic
-  names) or adopt Solid's (there is no committed frame to keep, so readers
-  with an answer show it). 21 recorded instants across S-solid-1/2/3/10/13/
-  14/16/18/21/25/27/31/40/41/42 and S-hold-4.
+- **DV-1 (The mount) — resolved 2026-10-22.** The first oracle run showed
+  Solid rendering the mount partially; that was the harness mounting through
+  `createRoot` + `insert` instead of the renderer's `render()`, which mounts
+  the whole tree through one scheduled insert so uncaught async holds the
+  first commit (Ryan: "I did something special in mount so that we render
+  blank if we hit async outside boundary"). Through `render()` Solid holds
+  the mount exactly as H-2 says. One rule changed on the way: a lane reader
+  with no committed value is part of the mount's hold — there is no
+  committed world for it to show (H-7; S-hold-4 instants 0–1 now ``).
 - **DV-2 (A failed action).** AC-1: a rejection inside the body ends the
   change without a commit — writes and guesses revert. Solid: the plain
   writes the action held commit when the body fails; only its optimistic
   state reverts (S-solid-8 variant). Candidates: transactional (AC-1 as
   written) or Solid's (a write is intent; a guess is the only provisional
   state).
+- **DV-4 (S-37 row 2 under a boundary, suspected runtime bug).** Under a
+  `<Loading>` that has shown content, a derived store's per-key verdicts
+  (`isPending(() => state.a)`) read `false` while the derive re-asks;
+  outside a boundary, or for an async memo under the same boundary
+  (S-solid-26), they read `true` as D-30 says. The scenario keeps the
+  ruled frame.
 - **DV-3 (S-22 row 3′, suspected runtime bug).** Through `solid-js`'s
   `<Loading>`, content that lands before a re-armed boundary's own pending
   fallback does not reveal until the fallback's read lands (S-solid-22

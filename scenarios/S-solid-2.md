@@ -23,7 +23,3 @@ panel   = if show then count else "hidden"
 Instant 3: `panel` is an equation; its pass reads the held `count` (1 in
 σ′) and so it joins the hold — `Panel 1` beside `Count 0` would reveal the
 future (the ✗ row). The `show` write waits with it.
-
-## Divergences
-
-- oracle "Frames" instant 0: `Count 0 Panel hidden` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

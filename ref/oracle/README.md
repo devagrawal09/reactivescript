@@ -33,6 +33,10 @@ records what the runtime shows where the spec rules otherwise; those rows
 print `≠` and count as recorded divergences, not failures. The open
 questions they raise are listed in `spec/05-holds.md §Divergences`.
 
-Status: 53 pass, 2 skip (`pre` of another node is not lowered), 0 fail,
-23 recorded divergences (DV-1 the mount ×21, DV-2 failed action ×1, DV-3
-S-22 row 3′ ×1).
+The mount goes through the renderer's `render()` (one scheduled insert for
+the whole tree), not `createRoot` + `insert`: that is what makes uncaught
+async at the mount hold the first commit, as `@solidjs/web`'s `render` does.
+
+Status: 52 pass, 2 skip (`pre` of another node is not lowered), 0 fail, 3
+recorded divergences (DV-2 failed action, DV-3 S-22 row 3′, DV-4 S-37 row 2
+under a boundary — the last two suspected runtime bugs).

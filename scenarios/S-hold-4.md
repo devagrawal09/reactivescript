@@ -20,19 +20,16 @@ holds the lane.
 | instant | action                        | frame   |
 | ------- | ----------------------------- | ------- |
 | 0       | mount                         | ``      |
-| 1       | resolve product { name: "A" } | `A `    |
+| 1       | resolve product { name: "A" } | ``      |
 | 2       | resolve preview "pa"          | `A pa`  |
 | 3       | handler `id := "b"`           | `A pa`  |
 | 4       | resolve preview "pb"          | `A pb`  |
 | 5       | resolve product { name: "B" } | `B pb`  |
 
-Instant 0: `product` holds the mount; `preview` is pending too but is a
-lane reader, so it does not. Instant 1: the mount commits; the lane has
-nothing to show yet. Instant 3: the instant is held by `product`; the lane's
+Instants 0–1: both first loads hold the mount — a lane reader with no
+committed value has no committed world to show, so at the mount it is the
+mount's (H-7; found by the oracle: Solid reveals the two together). Instant
+2: the mount commits as one frame. Instant 3: the instant is held by `product`; the lane's
 own `await` is pending, so the lane keeps `pa`. Instant 4: the lane lands
 and reveals ahead of the still-held instant (H-7). Instant 5: the instant
 commits.
-
-## Divergences
-
-- oracle "Frames" instant 1: `` — in Solid the two first loads reveal together: `product`'s landing waits for `preview`, whose reader is pending at the mount; here a lane reader never holds (H-7) and the mount commits when `product` lands. Same open question as the partial mount (05 §Divergences).

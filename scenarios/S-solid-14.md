@@ -47,7 +47,3 @@ slow = await fetch("slow:" + count)
 
 The span's read of `m` is not caught; it holds `open`'s frame, the branch
 appears at the commit, and the fallback is never seen.
-
-## Divergences
-
-- oracle "Frames" instant 0: `Count 0` — Solid 2.0.0-rc.16 renders a mount partially: readers that are not pending show at once and a pending reader outside any boundary is empty (`ASYNC_OUTSIDE_LOADING_BOUNDARY`); H-2 holds the mount as one frame. Open question for 05 — see spec/05-holds.md §Divergences.

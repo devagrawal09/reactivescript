@@ -34,3 +34,7 @@ Instant 4: a quiet re-ask.
 | 3       | resolve "w" 0                 | `5 1 - -`      |
 
 Per key: the sibling is final.
+
+## Divergences
+
+- oracle "Frames" instant 2: `1 1 - -` — Solid 2.0.0-rc.16: under a `<Loading>` that has shown content, a derived store's per-key verdicts (`isPending(() => state.a)`) read `false` while the derive re-asks; outside a boundary, or for an async memo under the same boundary (S-solid-26), they read `true`. Solid's D-30 and its S-37 row 2 say `true`. Suspected runtime bug (DV-4 in spec/05-holds.md).
