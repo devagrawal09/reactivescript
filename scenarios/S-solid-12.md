@@ -6,7 +6,7 @@
 source fixed := false
 source count := 0
 slow = await fetch("slow:" + fixed)
-selected = if fixed then 2 else count
+selected = fixed ? 2 : count
 <p>Fixed {fixed} / Count {count} / Selected {selected} / Slow {slow}</p>
 ```
 

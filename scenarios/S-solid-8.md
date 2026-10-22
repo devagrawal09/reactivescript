@@ -7,7 +7,7 @@ Rules: AC-1, H-2, H-7, H-9, H-10.
 ```
 source x := 0
 action save() { x := 1; await fetch("save") }
-<div><p>{x}</p> <p>latest {latest x}</p> <p>{if pending? x then "saving" else "idle"}</p></div>
+<div><p>{x}</p> <p>latest {latest x}</p> <p>{pending? x ? "saving" : "idle"}</p></div>
 ```
 
 ## Frames

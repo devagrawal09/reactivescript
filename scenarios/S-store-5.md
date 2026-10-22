@@ -10,7 +10,7 @@ again on the same flight is the equation body's `yield v`.
 ```
 source room := "a"
 msgs = await fetch("room:" + room)
-<p>{msgs} {if pending? msgs then "p" else "-"}</p>
+<p>{msgs} {pending? msgs ? "p" : "-"}</p>
 ```
 
 ## Frames

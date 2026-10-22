@@ -8,7 +8,7 @@ Rules: R-9, H-9, AC-4, AC-5, AC-3.
 source id := 1
 user = await fetch("u:" + id)
 action reload() { affects user; refresh user; await fetch("gate") }
-{loading fallback { <p>…</p> } { <div><p>{user.name}</p> <p>{if pending? user then "updating" else ""}</p></div> }}
+{loading fallback { <p>…</p> } { <div><p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p></div> }}
 ```
 
 ## Frames
@@ -38,7 +38,7 @@ source id := 1
 user = await fetch("u:" + id)
 source shown = user.name
 action nick(n) { optimistic shown := n; await fetch("gate") }
-{loading fallback { <p>…</p> } { <div><p>{shown}</p> <p>{if pending? shown then "updating" else ""}</p></div> }}
+{loading fallback { <p>…</p> } { <div><p>{shown}</p> <p>{pending? shown ? "updating" : ""}</p></div> }}
 ```
 
 | instant | action                         | frame            |

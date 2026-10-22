@@ -6,7 +6,7 @@
 source count := 0
 source show := true
 details = await fetch("d:" + count)
-<div><p>{if show then details else "hidden"}</p> <p>Count {count}</p></div>
+<div><p>{show ? details : "hidden"}</p> <p>Count {count}</p></div>
 ```
 
 ## Frames

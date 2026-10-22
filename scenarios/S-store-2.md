@@ -9,7 +9,7 @@ source id := 1
 selected = draft(pre selected -> {}) { d[str(pre id -> 0)] := false; d[str(id)] := true }
 effect (selected["1"]) { log("one", $0) }
 effect (selected["2"]) { log("two", $0) }
-<p>{if selected["1"] then "1" else "-"} {if selected["2"] then "2" else "-"}</p>
+<p>{selected["1"] ? "1" : "-"} {selected["2"] ? "2" : "-"}</p>
 ```
 
 ## Frames

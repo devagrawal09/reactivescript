@@ -9,7 +9,7 @@ source name := "Ann"
 source shown = name
 source saved := false
 action rename(n) { optimistic shown := n; saved := true; await fetch("save"); name := n }
-<p>{shown} / {if saved then "saved" else "unsaved"} / {if pending? shown then "p" else "-"} {if pending? saved then "p" else "-"}</p>
+<p>{shown} / {saved ? "saved" : "unsaved"} / {pending? shown ? "p" : "-"} {pending? saved ? "p" : "-"}</p>
 ```
 
 ## Frames

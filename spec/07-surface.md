@@ -5,8 +5,8 @@ gives a semantics to. Written last, so every form below names the rule it
 spells. The scenarios in `scenarios/` are already written in this syntax minus
 types, imports and handlers — this document is what makes that official and
 fills the gaps. Ruled so far: file = module; `source` / `=` / `:=`; imports
-`io` unless `pure`; handlers are JSX attributes. The rest of the list at the
-end is defaults open to veto.
+`io` unless `pure`; handlers are JSX attributes; `c ? a : b` only; streams
+are `await*`; `errored fallback(e)`; `.rx`. The list at the end records each.
 
 Design stance: the expression language is TypeScript's, verbatim, minus the
 forms the scopes forbid; the reactive forms are few and spelled with words
@@ -88,7 +88,7 @@ Added:
 | `peek(e)` | `e` read without subscribing | E-? (untrack) |
 | `latest x` | the value `x` is moving toward, else its committed value | R-9 |
 | `pending? e` | the verdict of the reads inside `e` | R-9, H-9 |
-| `if c then a else b` | lazy conditional (TS's `c ? a : b` is also accepted) | E-11 |
+| `c ? a : b` | lazy conditional (TS's `c ? a : b` is also accepted) | E-11 |
 | `draft(e) { … }` | a copy of `e` written along `d` | ST-3 |
 
 `await` may appear anywhere in an expression; the compiler lifts each one to
@@ -184,7 +184,7 @@ source x := 0
 action save() { x := 1; await api.save() }
 <div>
   <p>{x}</p> <p>latest {latest x}</p>
-  <p>{if pending? x then "saving" else "idle"}</p>
+  <p>{pending? x ? "saving" : "idle"}</p>
   <button onClick={() => { save() }}>save</button>
 </div>
 ```
@@ -196,7 +196,7 @@ source id := 1
 user = await fetchUser(id)
 action reload() { affects user; refresh user; await gate() }
 {loading fallback { <p>…</p> } {
-  <p>{user.name}</p> <p>{if pending? user then "updating" else ""}</p>
+  <p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p>
 }}
 ```
 
@@ -249,13 +249,15 @@ Expr      ::= TSExpr with §3's removals and additions
    of binding that can be written; `=` vs `:=` says whether it starts from
    a question or a value.
 3. **TS expression grammar verbatim**, with the removal list in §3. No
-   `yield`; streams are `await*`.
-4. **`if c then a else b`** kept beside `c ? a : b`; both are E-11.
+   `yield`; streams are `await*` (ruled 2026-10-22).
+4. **`c ? a : b`** kept beside `c ? a : b`; both are E-11.
 5. **Imports are `io` unless `import pure`** (ruled 2026-10-22; R-io-4).
    `pure` is the only taint keyword and points one way.
 6. **Event handlers are JSX attributes** (`onClick={() => { … }}`), the
    arrow being imperative scope (ruled 2026-10-22). No `on:click` form.
-7. **`errored fallback(e)`** binds the error; `loading on(e)`.
-8. **File extension `.rx`.**
+7. **`errored fallback(e)`** binds the error; `loading on(e)` (ruled
+   2026-10-22).
+8. **File extension `.rx`** (ruled 2026-10-22; `.rsx` is also free, `.rxs`
+   is ooRexx's).
 9. **DV-2** ruled 2026-10-22: a failed action's held writes commit; only
    its optimistic state reverts (AC-1).

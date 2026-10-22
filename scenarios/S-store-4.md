@@ -29,7 +29,7 @@ the question with unchanged inputs: the override is dropped, quietly.
 ```
 source id := 1
 source profile = await fetch("p:" + str(id))
-<p>{profile} {if pending? profile then "p" else "-"}</p>
+<p>{profile} {pending? profile ? "p" : "-"}</p>
 ```
 
 | instant | action                      | frame     |

@@ -35,7 +35,7 @@ Param     ::= x | ref x                       -- E-9: value or ref parameter
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | pre x | pre x -> Expr            -- previous frame's value of x; with initial (C-2, C-2a)
             | peek Expr                       -- snapshot read (V-11)
-            | if Expr then Expr else Expr
+            | Expr ? Expr : Expr
             | Expr . field | Expr [ Expr ]    -- projections (full treatment: 06-stores)
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
@@ -132,7 +132,7 @@ Function application `f(e…)` covers both language functions and FFI imports;
   effect, or region, is an **instantiation** (03 RG-6): it happens once at the
   call site. In an instantiation, value arguments are snapshots (E-4) and ref
   arguments are passed as equations.
-- **E-11 (Lazy conditional).** In `if c then a else b` as an expression, only
+- **E-11 (Lazy conditional).** In `c ? a : b` as an expression, only
   the selected arm is demanded; the equation's inputs are `c`'s plus the
   selected arm's, and change as `c` changes. The unselected arm is neither
   evaluated nor an input.
@@ -313,7 +313,7 @@ source show := true
 double = op*(count, 2)
 label  = op+("prev ", pre double -> 0)
 effect (double) { log(double) }
-<p>{if show then double else "-"} {label}</p>
+<p>{show ? double : "-"} {label}</p>
 ```
 
 | instant | action                           | frame `<p>`  | effect    | notes                                           |

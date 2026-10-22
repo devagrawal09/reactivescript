@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "then", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -159,12 +159,6 @@ function parseStmt(c: Cursor): Stmt {
 // ---- expressions ----
 export function parseExpr(c: Cursor): Expr {
   c.ws();
-  if (c.keyword("if")) {
-    c.ws(); const cond = parseExpr(c); c.ws();
-    if (!c.keyword("then")) c.fail("then"); c.ws(); const t = parseExpr(c); c.ws();
-    if (!c.keyword("else")) c.fail("else"); c.ws(); const f = parseExpr(c);
-    return { k: "if", c: cond, t, f };
-  }
   if (c.keyword("draft")) {                                           // ST-3: draft(e) { d.k := v }
     c.ws(); c.expect("("); c.ws(); const seed = parseExpr(c); c.ws(); c.expect(")"); c.ws();
     return { k: "draft", seed, body: parseBlock(c) };
@@ -175,7 +169,13 @@ export function parseExpr(c: Cursor): Expr {
     c.expect(")"); c.ws(); c.expect("=>"); c.ws();
     return { k: "fn", params, body: parseExpr(c) };
   }
-  return parseBin(c, 0);
+  const cond = parseBin(c, 0);
+  c.ws(false);
+  if (c.peek() === "?" && c.peek(1) !== ".") {                         // E-11: `c ? a : b`, TS verbatim (ruled 2026-10-22: the only spelling)
+    c.i++; c.ws(); const t = parseExpr(c); c.ws(); c.expect(":"); c.ws(); const f = parseExpr(c);
+    return { k: "if", c: cond, t, f };
+  }
+  return cond;
 }
 
 const LEVELS: string[][] = [["||"], ["&&"], ["==", "!="], ["<=", ">=", "<", ">"], ["+", "-"], ["*", "/", "%"]];

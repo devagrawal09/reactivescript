@@ -8,7 +8,7 @@ Rules: ST-2c, ST-5, AC-4, R-7.
 source id := 1
 source state = await fetch("s:" + str(id))
 action patch() { state.a := 5; await fetch("w") }
-{loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {if pending? state.a then "a!" else "-"} {if pending? state.b then "b!" else "-"}</p> }}
+{loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}</p> }}
 ```
 
 ## Frames

@@ -8,7 +8,7 @@ Rules: AC-1, AC-3, H-11.
 source truth := 1
 source guess = truth
 action try() { optimistic guess := 5; await fetch("unrelated") }
-<p>{guess} / {latest guess} {if pending? guess then "p" else "-"}</p>
+<p>{guess} / {latest guess} {pending? guess ? "p" : "-"}</p>
 ```
 
 ## Frames
@@ -32,7 +32,7 @@ source truth := 1
 source guess = truth
 derived = await fetch("x:" + str(guess))
 action try() { optimistic guess := 5; await fetch("unrelated") }
-<p>{guess} {derived} / {latest guess} {if pending? guess then "p" else "-"}</p>
+<p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
 ```
 
 | instant | action                   | frame           |
