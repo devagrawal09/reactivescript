@@ -1,7 +1,7 @@
 # 08 — Constraints and their enforcement
 
 **Status: OPEN (2026-10-22).** What the compiler refuses, how it decides, and
-what the escape looks like. The stance is Rust's: every static check is an
+what the escape looks like. CN-1, CN-3, CN-4 and CN-5 are ruled. The stance is Rust's: every static check is an
 error, the checks are sound (an over-approximation that rejects some fine
 programs and never admits a wrong one), modular (a module is checked against
 its imports' signatures, not their bodies), and the only way around a check
@@ -39,16 +39,21 @@ runtime check.
   the **static** input graph: the union of every branch's inputs, every
   prop read, every arm of a conditional. A program the static graph cannot
   prove acyclic or region-closed is rejected, even if no run would ever
-  close the cycle or leak the value. `pre` is the declared delay that
-  breaks a cycle (C-2); restructuring is the fix for an escape.
-- **CN-3b (No silent fallback).** The compiler never replaces a failed
-  static check with a runtime check on its own. Where the static graph
-  genuinely cannot see an edge — a prop of a component imported from JS, a
-  value whose row is unknown at the boundary — the edge is marked
-  explicitly by the author (CN-5) and only that edge is checked at runtime.
-  (The Rust stance: the borrow checker rejects; `RefCell` is a visible
-  type that opts one value into a runtime check; nothing is checked at
-  runtime because the compiler gave up quietly.)
+  close the cycle or leak the value (`a = m ? b : 1; b = m ? 2 : a` is an
+  error). `pre` is the declared delay that breaks a cycle (C-2);
+  restructuring is the fix for an escape. The static graph is only ever
+  used to *refuse* programs: scheduling is the runtime's dynamic tracking,
+  as in Solid, and the static graph is never the truth for when updates
+  happen. (Ruled 2026-10-22: "Solid can't loop like that easily today
+  anyway" — a memo cannot read itself through a branch without `prev` —
+  so the rejection costs no program people write.)
+- **CN-3b (The JS boundary is the runtime's, not an escape).** An edge the
+  static graph cannot see — a closure handed to a JS function, a cycle
+  through a JS-owned value, a prop of a JS component — is not marked and
+  not approximated: it is outside the graph, so no static rule fires, and
+  the runtime's existing checks (the disposed-read error, the cycle error)
+  are the backstop there. The compiler never replaces a failed static
+  check inside `.rx` with a runtime check; the two have disjoint domains.
 - **CN-3c (Pending is not a constraint).** A reader whose expression
   carries `pending` need not be under a `loading` region: with SSR the
   held mount is the correct behaviour and only an SPA would want to know.
@@ -70,24 +75,14 @@ runtime check.
   A JS import has no signature for rows: it is `io` (R-io-4) and its
   values are row-free unless the author writes rows at the import.
 
-## CN-5 — The escape (open)
+## CN-5 — The escape
 
-Rust has two escapes and they are both visible: `unsafe` (the author
-takes over a proof) and runtime-checked types (`RefCell`, `Rc`). The
-corresponding forms here, proposed:
-
-- **`pure`** — already ruled: the one row the author may assert at the JS
-  boundary. The `unsafe` of `io`.
-- **`dynamic`** — an edge the static graph cannot see, declared so: a
-  prop read, a conditional input, or a cycle through a JS-owned value,
-  marked `dynamic` is excluded from C-1 and the escape check and is
-  checked at runtime (the dev error Solid raises today for that shape).
-  Greppable, local to the one edge, never inferred.
-
-No other escape: there is no `allow`, no per-file lint level, no
-"unchecked" block. A program that cannot be written without `dynamic`
-is the program the runtime check exists for; every other program is
-proven.
+One word: **`pure`**, at the JS boundary (R-io-4) — the author asserts a
+row the compiler cannot check, and only in the direction that lowers
+taint. There is no `allow`, no per-file lint level, no `unchecked` block,
+and no `dynamic` marker: the static graph's checks are sound over `.rx`
+(CN-3a) and silent outside it (CN-3b), so nothing needs opting out.
+(Ruled 2026-10-22; the earlier `dynamic` proposal is withdrawn.)
 
 ---
 
