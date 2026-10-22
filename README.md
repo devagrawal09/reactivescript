@@ -21,6 +21,7 @@ spec/
   05-holds.md          the two-version store; Solid's F-1…F-12 restated over the calculus
   06-stores.md         structured types, paths, draft, key/reconcile, follows
   07-surface.md        concrete syntax — written LAST
+  08-constraints.md    what the compiler refuses, how, and the escape (Rust stance)
   99-diagnostics.md    Solid 2.0's diagnostic table, each code binned: unwritable / static / runtime
 scenarios/             one file per scenario: program, action, frames, compiles-or-rejects
 ref/                   reference interpreter (TypeScript) that runs scenarios/
