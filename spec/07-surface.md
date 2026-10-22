@@ -57,6 +57,9 @@ fn Counter(ref start: number) {        // RG-6: an instantiating fn — has decl
 }
 action save(name: string) { … }        // AC-1
 component Row(props: { item: Item }) { … }   // RG-4
+provide theme = settings.theme         // RG-7: to everything rendered beneath
+palette = (use theme).palette          // RG-7: the nearest provision above
+provide fields = fields                // RG-7c: a provided source is the source — `use fields := …` writes it
 ```
 
 - Types are TypeScript's, after the name. On a source they type the value;
@@ -150,8 +153,10 @@ action rename(n: string) {
 action { refresh user; affects user }   // inline, one run (AC-1)
 ```
 
-- A write is `target := e`; `target` is a source or a path into one (W-1).
-  There is no compound assignment.
+- A write is `target := e`; `target` is a source or a path into one (W-1),
+  or `use name …` for a provided source (RG-7c). There is no compound
+  assignment. (Open, W-6: `x := f` with `f` a function applies `f` to the
+  slot at the instant, so writes to one slot in one instant compose.)
 - `let` declares an imperative local; TS statements (`if`, `for`, `try`,
   `return`, calls) are allowed; reads of reactive names are snapshots of σ
   (H-10, SC-2).
@@ -218,6 +223,7 @@ Module    ::= (Import | Export | Decl)*
 Import    ::= "import" "pure"? ImportClause "from" String
 Export    ::= "export" Decl
 Decl      ::= "source" Name Type? (":=" | "=") Expr
+            | "provide" Name "=" Expr
             | "deferred"? Name Type? ("key" Name)? "=" Expr
             | "effect" "(" Expr ("," Expr)* ")" Block
             | "fn" Name "(" Params ")" Type? ("=>" Expr | "{" Decl* Expr "}")
@@ -230,7 +236,7 @@ Control   ::= "if" Expr "{" RBlock "}" ("else" "{" RBlock "}")?
             | "loading" ("on" "(" Expr ")")? "fallback" "{" RBlock "}" "{" RBlock "}"
             | "errored" "fallback" ("(" Name ")")? "{" RBlock "}" "{" RBlock "}"
 Block     ::= "{" Stmt* "}"
-Stmt      ::= Target ":=" Expr | "optimistic" Target ":=" Expr
+Stmt      ::= Target ":=" Expr | "optimistic" Target ":=" Expr      -- Target may be `use` Name Path (RG-7c)
             | "refresh" Name | "affects" Name | "action" Block
             | "let" Name Type? "=" Expr | TSStatement
 Expr      ::= TSExpr with §3's removals and additions

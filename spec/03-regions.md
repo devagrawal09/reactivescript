@@ -21,10 +21,16 @@ when the region ends. Regions nest; the program is the root region.
   of the instant that ended it, before any apply block of that instant, since
   cleanups are imperative. Nothing outside the region may
   hold a reference to any of them afterward (O-3 is the only way out).
-- **O-3 (Escape).** A value declared in region `R` may be stored into a source
-  or returned to a region that outlives `R` only through an explicit `escape`.
-  Without it the program is rejected. (Solid: `runWithOwner`; the
-  `RUN_WITH_DISPOSED_OWNER` warning is this rule's runtime shadow.)
+- **O-3 (Escape).** A closure that captures a name declared in region `R`
+  may not be stored into a source or a value of a region that outlives `R`;
+  the program is rejected (CN-2). Storing a row-local closure into a
+  module-level source is the shape this refuses — a stale read waiting to
+  happen (Solid: the disposed-read error is this rule's runtime shadow).
+  Storing a *value* is never an escape: a value is a value. The earlier
+  `escape` keyword is withdrawn, and so is a `lend` construct considered on
+  2026-10-22 — downstream registration (a child adding itself to a store
+  its provider owns) is an effect with a cleanup, through context (RG-7,
+  S-region-7); it needs no construct, only composable writes (W-6, open).
 - **O-4 (Writer scope).** A source may be written by imperative code in its own
   region or any nested region, or by a handler that received the source — not
   a snapshot of it — as an argument. An exported source exports its reader;
@@ -122,6 +128,25 @@ A call to a function with a `ref` parameter or a node-declaring body (E-9).
   300)` owns an effect). A function's kind is visible in its signature; the
   call site need not know which it is, only that the first re-evaluates and
   the second does not.
+
+### RG-7 Context
+
+- **RG-7a (Provide).** `provide name = e` in a region makes `name` available
+  to every region *instantiated beneath* it — the instantiation chain (the
+  tree of views), not the lexical one. A component body sees the caller's
+  provisions, never the caller's locals.
+- **RG-7b (Use).** `use name` reads the nearest provision above. It is an
+  equation: a provision is a value and reads of it track. A `use` with no
+  provision above is a compile error when the static tree can decide it
+  (a component always rendered under its provider) and otherwise the
+  runtime's (`ContextNotFound`).
+- **RG-7c (Writing through a provision).** A provision whose expression is
+  a source name *is* that source: `use fields := …` writes it from any
+  region beneath (O-4: the handler was handed the source). This is how a
+  rendered child registers with its provider — an effect that adds a row
+  and removes it in its cleanup (S-region-7).
+- **RG-7d.** Solid: `createContext` / `useContext`; a provision is the
+  Provider's value.
 
 ### RG-5 Boundaries
 

@@ -39,7 +39,7 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key", "provide", "use"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -79,6 +79,7 @@ function parseDecl(c: Cursor): Decl {
     c.expect(")"); c.ws();
     return { k: "action", name, params, body: parseBlock(c), line };
   }
+  if (c.keyword("provide")) { c.ws(); const name = c.ident() ?? c.fail("provide name"); c.ws(); c.expect("="); c.ws(); return { k: "provide", name, e: parseExpr(c), line }; }
   if (c.keyword("fn")) {
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
@@ -141,8 +142,10 @@ function parseStmt(c: Cursor): Stmt {
   if (c.keyword("let")) { c.ws(); const name = c.ident() ?? c.fail("let name"); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
   // write?  target := expr
   const save = c.i;
-  const name = c.ident();
-  if (name && !KEYWORDS.has(name)) {
+  let name = c.ident();
+  let ctx = false;
+  if (name === "use") { c.ws(); name = c.ident() ?? c.fail("provision name"); ctx = true; }   // `use p := e`: a write through a provision (O-4, RG-7)
+  if (name && (!KEYWORDS.has(name) || ctx)) {
     const path: Target["path"] = [];
     for (;;) {
       if (c.eat(".")) path.push(c.ident() ?? c.fail("member"));
@@ -150,7 +153,7 @@ function parseStmt(c: Cursor): Stmt {
       else break;
     }
     c.ws(false);
-    if (c.eat(":=")) { c.ws(); return { k: "write", target: { name, path }, e: parseExpr(c) }; }
+    if (c.eat(":=")) { c.ws(); return { k: "write", target: { name, path, ctx }, e: parseExpr(c) }; }
   }
   c.i = save;
   return { k: "expr", e: parseExpr(c) };
@@ -162,6 +165,17 @@ export function parseExpr(c: Cursor): Expr {
   if (c.keyword("draft")) {                                           // ST-3: draft(e) { d.k := v }
     c.ws(); c.expect("("); c.ws(); const seed = parseExpr(c); c.ws(); c.expect(")"); c.ws();
     return { k: "draft", seed, body: parseBlock(c) };
+  }
+  {                                                                   // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
+    const save = c.i; const params: string[] = []; let ok = false;
+    if (c.peek() === "(") { c.i++; c.ws(); ok = true; while (!c.startsWith(")")) { const id = c.ident(); if (!id) { ok = false; break; } params.push(id); c.ws(); if (!c.eat(",")) break; c.ws(); } if (ok && c.eat(")")) { c.ws(false); ok = c.startsWith("=>"); } else ok = false; }
+    else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
+    if (ok) {
+      c.expect("=>"); c.ws();
+      if (c.peek() === "{" && /^\{\s*(use\s|let\s|refresh\s|affects\s|optimistic\s|action\s|[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*|\[[^\]]*\])*\s*:=)/.test(c.src.slice(c.i))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts: parseBlock(c) };   // a statement body: imperative scope
+      return { k: "fn", params, body: parseExpr(c) };
+    }
+    c.i = save;
   }
   if (c.keyword("fn")) {
     c.ws(); c.expect("("); c.ws(); const params: string[] = [];
@@ -206,6 +220,7 @@ function parseUnary(c: Cursor): Expr {
     return { k: "await", e };
   }
   if (c.keyword("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
+  if (c.keyword("use")) { c.ws(); return { k: "use", name: c.ident() ?? c.fail("context name") }; }
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
 }
@@ -234,7 +249,7 @@ function parsePrimary(c: Cursor): Expr {
   if (c.eat("(")) { c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); return e; }
   if (c.eat("[")) {
     c.ws(); const items: Expr[] = [];
-    while (!c.startsWith("]")) { items.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith("]")) { if (c.eat("...")) { c.ws(); items.push({ k: "spread", e: parseExpr(c) }); } else items.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect("]"); return { k: "arr", items };
   }
   if (c.eat("{")) {
@@ -336,7 +351,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") ||
     (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && ((c.peek() === "=" && c.peek(1) !== "=") || c.startsWith("key ")); return ok; })();
   c.i = save; return r;
 }

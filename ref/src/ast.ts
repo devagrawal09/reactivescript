@@ -17,10 +17,12 @@ export type Expr =
   | { k: "call"; f: Expr; args: Expr[] }
   | { k: "arr"; items: Expr[] }
   | { k: "rec"; fields: { key: string; v: Expr }[] }
-  | { k: "fn"; params: string[]; body: Expr }
-  | { k: "draft"; seed: Expr; body: Stmt[] };                 // ST-3: the only writes in reactive scope, to `d`
+  | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
+  | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
+  | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
+  | { k: "spread"; e: Expr };                                  // only inside an array literal
 
-export type Target = { name: string; path: (string | Expr)[] };
+export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)
 
 export type Stmt =
   | { k: "write"; target: Target; e: Expr }
@@ -38,7 +40,8 @@ export type Decl =
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number }       // body: decls then a value
   | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number }  // body: decls then a view
-  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number };                  // AC-1
+  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number }                   // AC-1
+  | { k: "provide"; name: string; e: Expr; line: number };                                       // RG-7a
 
 export type Markup =
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }

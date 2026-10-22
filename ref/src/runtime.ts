@@ -68,10 +68,12 @@ type Run = { stmts: Stmt[]; i: number; region: Region; env: Map<string, unknown>
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
+  provided = new Map<string, Node>();                  // RG-7: provisions, found through the instantiation chain
   alive = true;
   parent: Region | null; rt: Runtime; boundary: BoundaryItem | null;
-  constructor(parent: Region | null, rt: Runtime, boundary: BoundaryItem | null = parent?.boundary ?? null) { this.parent = parent; this.rt = rt; this.boundary = boundary; parent?.children.add(this); }
-  lookup(name: string): Binding | undefined { return this.scope.get(name) ?? this.parent?.lookup(name); }
+  lexical: Region | null;                              // RG-4c: children keep the caller's names while owned where they are rendered
+  constructor(parent: Region | null, rt: Runtime, boundary: BoundaryItem | null = parent?.boundary ?? null, lexical: Region | null = parent) { this.parent = parent; this.rt = rt; this.boundary = boundary; this.lexical = lexical; parent?.children.add(this); }
+  lookup(name: string): Binding | undefined { return this.scope.get(name) ?? this.lexical?.lookup(name); }
   dispose() {
     if (!this.alive) return; this.alive = false;
     for (const c of [...this.children]) c.dispose();
@@ -144,6 +146,7 @@ export class Runtime {
     for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
+      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(d.name, b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
     }
@@ -581,6 +584,23 @@ export class Runtime {
 
   // ---- expressions ----
   evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown { return this.ev(e, region, env); }
+  /** A tracked read of a reactive node from reactive scope: guesses (H-11), lanes (R-10), serving (D-3), taint. */
+  private readNode(b: Node): unknown {
+      this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
+      if (b.hasGuess && this.demandMode && !this.committedView) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
+        if (this.tracking) { this.tracking.lane = true; this.tracking.lanes.add(b); }
+        return b.guess;
+      }
+      if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.tracking.lanes.add(l); }   // R-10: lane flows through equations
+      if (this.tracking && this.demandMode) {
+        const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
+        const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
+        const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
+        if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
+        if (!b.lane && !this.probing) for (const t of b.taint) this.tracking.taint.add(t);   // lane work and probes are the lane's, not the instant's (F-6)
+      }
+      return v;
+  }
   private nodeOf(e: Expr, region: Region, env?: Map<string, unknown>): Node | null {
     if (e.k === "id") { if (env?.has(e.name)) return null; const b = region.lookup(e.name); return b instanceof Node ? b : null; }
     if (e.k === "member" || e.k === "index") return this.nodeOf(e.o, region, env);
@@ -602,20 +622,7 @@ export class Runtime {
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
         if ("action" in b) { const a = b.action; return Object.assign((...args: unknown[]) => { const en = new Map(env); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, region, en, true); }, { io: true }); }   // AC-1: an action is io
-        this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
-        if (b.hasGuess && this.demandMode && !this.committedView) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
-          if (this.tracking) { this.tracking.lane = true; this.tracking.lanes.add(b); }
-          return b.guess;
-        }
-        if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.tracking.lanes.add(l); }   // R-10: lane flows through equations
-        if (this.tracking && this.demandMode) {
-          const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
-          const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
-          const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
-          if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
-          if (!b.lane && !this.probing) for (const t of b.taint) this.tracking.taint.add(t);   // lane work and probes are the lane's, not the instant's (F-6)
-        }
-        return v;
+        return this.readNode(b);
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, e.p); return v[e.p]; }
       case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, String(i)); return v[String(i)]; }
@@ -627,6 +634,10 @@ export class Runtime {
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
       case "peek": return this.untracked(() => this.ev(e.e, region, env));
+      case "use": {                                                    // RG-7b: the nearest provision through the instantiation chain
+        for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(e.name); if (n) return this.ev({ k: "id", name: `provide ${e.name}` }, r, new Map([[`provide ${e.name}`, undefined]])) === undefined && false ? undefined : this.readNode(n); }
+        throw new RuleError("RG-7b", `no provision for ${e.name}`);
+      }
       case "await": {                                                  // R-1, R-6, R-7
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
@@ -683,7 +694,8 @@ export class Runtime {
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
       }
-      case "arr": { const items = e.items.map(i => this.ev(i, region, env)); const bad = items.find(isAbsent); return bad ?? items; }
+      case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
+      case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
       case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
@@ -706,6 +718,7 @@ export class Runtime {
       }
       case "fn": {
         const imperative = !this.demandMode;                           // SC-3
+        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en); }; }
         return (...args: unknown[]) => {
           const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i]));
           if (!imperative) return this.ev(e.body, region, en);
@@ -770,7 +783,8 @@ export class Runtime {
             if (s.target.path.length) throw new RuleError("UNSUPPORTED", "optimistic path writes are not modelled yet");
             this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
           } else {
-            const b = region.lookup(s.target.name);
+            let b: Binding | undefined = region.lookup(s.target.name);
+            if (s.target.ctx) { b = undefined; for (let r: Region | null = region; r && !b; r = r.parent) b = r.provided.get(s.target.name); if (!b) throw new RuleError("RG-7b", `no provision for ${s.target.name}`); }
             if (!b || !(b instanceof Node) || !(b.kind === "source" || b.question)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
             const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
             this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });
@@ -828,8 +842,8 @@ export class Runtime {
           const comp = b.comp; const r = new Region(region, this);
           const props: Record<string, unknown> = {};
           for (const a of m.attrs) { const node = this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)); Object.defineProperty(props, a.name, { enumerable: true, get: () => { this.track(node, ""); return this.pull(node); } }); }
-          const children = new ViewValue(region, m.children.map(c => this.inst1(c, region)));
-          Object.defineProperty(props, "children", { enumerable: true, get: () => children });
+          let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's
+          Object.defineProperty(props, "children", { enumerable: true, get: () => { if (!children) { const owner = this.tracking?.region ?? region; const cr = new Region(owner, this, owner.boundary, region); children = new ViewValue(cr, m.children.map(c => this.inst1(c, cr))); } return children; } });
           r.scope.set(comp.props, { constant: props });
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
@@ -863,6 +877,7 @@ const BUILTINS: Record<string, unknown> = {
   filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
   sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
   fail: (msg: string) => { throw new Error(msg); },
+  every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
   fetch: (key: string) => key,   // intercepted in `call`: returns the Flight for `key`
 };
 
@@ -881,7 +896,9 @@ function freeVars(e: Expr, out: Set<string>) {
     case "call": freeVars(e.f, out); e.args.forEach(a => freeVars(a, out)); break;
     case "arr": e.items.forEach(a => freeVars(a, out)); break;
     case "rec": e.fields.forEach(f => freeVars(f.v, out)); break;
-    case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
+    case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const st of e.stmts ?? []) if ("e" in st) freeVars(st.e, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
+    case "spread": freeVars(e.e, out); break;
+    case "use": break;
     case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }
   }
 }
