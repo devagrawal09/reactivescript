@@ -7,7 +7,7 @@ import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
-  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt
+  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, $TARGET
 } from "@solidjs/signals";
 
 export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
@@ -44,8 +44,8 @@ type Binding =
 class Scope {
   static all: Scope[] = [];
   vars = new Map<string, Binding>();
-  parent: Scope | null;
-  constructor(parent: Scope | null) { this.parent = parent; Scope.all.push(this); }
+  parent: Scope | null; owner: ReturnType<typeof getOwner>;
+  constructor(parent: Scope | null) { this.parent = parent; this.owner = getOwner(); Scope.all.push(this); }   // the owner at declaration: provisions are read against it (RG-7)
   lookup(n: string): Binding | undefined { return this.vars.get(n) ?? this.parent?.lookup(n); }
 }
 /** Scenario handlers reach any live binding by name (ref/'s virtualScope). */
@@ -73,6 +73,9 @@ class Flight {
 
 export class Oracle {
   flights = new Map<string, Flight>();
+  contexts = new Map<string, ReturnType<typeof createContext<Binding | undefined>>>();
+  contextFor(name: string) { let c = this.contexts.get(name); if (!c) { c = createContext<Binding | undefined>(undefined, name); this.contexts.set(name, c); } return c; }
+  provision(name: string, scope: Scope): Binding { const b = getContext(this.contextFor(name), scope.owner ?? undefined); if (!b) throw new Error(`RG-7b: no provision for ${name}`); return b; }
   lastKey = new Map<string, string>();                // equation name → the fetch key its last pass asked (for `resolve x v`)
   private currentEq: string | null = null;
   log: string[] = [];
@@ -119,6 +122,13 @@ export class Oracle {
     }
     for (const d of decls) {
       switch (d.k) {
+        case "provide": {                                               // RG-7a: setContext on the current owner; a provided source is the source
+          const ctx = this.contextFor(d.name);
+          const b = d.e.k === "id" ? scope.lookup(d.e.name) : undefined;
+          if (b && (b.k === "sig" || b.k === "store")) setContext(ctx, b);
+          else { const get = createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }
+          break;
+        }
         case "source": {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
             const compute = this.computeOf(d.name, d.init, scope);
@@ -129,7 +139,7 @@ export class Oracle {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
               const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
-              scope.vars.set(d.name, { k: "store", get, set: (v: unknown) => { if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore, question: false });   // ST-2a: a root write is reconciled per path
+              scope.vars.set(d.name, { k: "store", get, set: (v: unknown) => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v); set(store); } else set(v); }, setPath: setStore, question: false });   // ST-2a: a root write is reconciled per path; W-6: a function is the updater
             }
             else { const [get, set] = createSignal(init); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: false, optimistic: false }); }
           }
@@ -237,9 +247,9 @@ export class Oracle {
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
         return BIN[e.op](l, this.ev(e.r, scope, env));
       }
-      case "arr": return e.items.map(i => this.ev(i, scope, env));
+      case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
       case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) o[f.key] = this.ev(f.v, scope, env); return o; }
-      case "fn": return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.ev(e.body, scope, en); };
+      case "fn": return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return e.stmts ? this.runStmts(e.stmts, scope, en) : this.ev(e.body, scope, en); };
       case "call": {
         const f = this.ev(e.f, scope, env) as any;
         const args = e.args.map(a => this.ev(a, scope, env));
@@ -248,6 +258,8 @@ export class Oracle {
         return f(...args);
       }
       case "draft": throw new Unsupported("draft outside an equation");
+      case "use": { const b = this.provision(e.name, scope); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
+      case "spread": throw new Error("spread outside an array literal");
     }
   }
 
@@ -264,8 +276,8 @@ export class Oracle {
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
       case "optimistic": case "write": {
-        const b = scope.lookup(s.target.name);
-        const v = untrack(() => this.ev(s.e, scope, env));
+        const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);
+        const v = untrack(() => this.ev(s.e, scope, env));          // W-6: a function value is Solid's updater form — the setters take it as is
         if (!b) throw new Error(`unbound ${s.target.name}`);
         if (b.k === "sig") { if (s.target.path.length) throw new Unsupported("path write to a signal"); b.set(v); return; }
         if (b.k === "store") {
@@ -363,9 +375,11 @@ export class Oracle {
   }
 }
 
+const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
 const BIN: Record<string, (a: any, b: any) => unknown> = {
   "+": (a, b) => a + b, "-": (a, b) => a - b, "*": (a, b) => a * b, "/": (a, b) => a / b, "%": (a, b) => a % b,
-  "==": (a, b) => a === b, "!=": (a, b) => a !== b, "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
+  "==": (a, b) => raw(a) === raw(b), "!=": (a, b) => raw(a) !== raw(b),   // identity through a store is the raw object's (ST-2 keeps identity; Solid wraps)
+  "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
 };
 const BUILTINS: Record<string, unknown> = {
   len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -374,6 +388,7 @@ const BUILTINS: Record<string, unknown> = {
   filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
   sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
   fail: (msg: string) => { throw new Error(msg); },
+  every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
   fetch: (key: string) => key,
 };
 export { flush, NotReadyError, resetErrorHalt };

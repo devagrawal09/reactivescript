@@ -1,16 +1,15 @@
 # S-region-7 — downstream registration is an effect with a cleanup; context carries the target
 
-**OPEN (2026-10-22):** the frames below assume functional writes (proposed
-W-6: `x := f` applies `f` to the slot at the instant, so writes to one slot
-in one instant compose). Without W-6 two fields mounting in the same
-instant lose a registration (last value write wins) and a cleanup's remove
-is lost to the re-run's add. Not run until ruled (`OPEN-` prefix).
+Rules: RG-7, W-6, O-2, O-3, EF.
 
-Rules: RG-7, O-2, O-3, EF.
-
-A form provides its field store; each rendered field registers itself from
-an effect and the effect's cleanup unregisters it when the region ends.
-Storing a value is not an escape (O-3 is about closures that capture
+The concrete shape: a form with two inputs, each telling the form "I am
+here and I am valid/invalid" so the form can say whether the whole thing
+is valid. Each input registers itself from an effect and the effect's
+cleanup unregisters it when the input goes away. Both inputs mount in the
+same instant, so both register in the same instant: the writes are
+functional (`fields := f => [...f, row]`, W-6) and compose — with plain
+value writes the second would overwrite the first and one input would be
+lost. Storing a value is not an escape (O-3 is about closures capturing
 region-local names); re-registration on change is the effect re-running.
 
 ## Program
@@ -53,7 +52,7 @@ component Field(props) {
 | 6       | handler `showEmail := false`  | `a 2 valid`       |
 | 7       | (effect)                      | `a 1 valid`       |
 | 8       | handler `showEmail := true`   | `a e 1 valid`     |
-| 9       | (effect)                      | `a e 2 invalid`   |
+| 9       | (effect)                      | `a e 2 valid`     |
 
 Registration lands one instant after the render that caused it (an
 effect's writes begin the next instant, EF-5); the cleanup unregisters when

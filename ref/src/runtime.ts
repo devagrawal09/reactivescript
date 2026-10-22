@@ -209,8 +209,12 @@ export class Runtime {
     for (const n of this.allNodes()) { n.changed = false; n.demanded = false; n.evaluated = false; }
     for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = [];                    // a continuation's instant is the action's change
     for (const r of this.started) r.change = this.instant; this.started = [];
-    for (const w of writes) {
+    for (let w of writes) {
       if (w.node.heldBy !== null && w.node.heldBy !== this.instant && this.groupOpen(w.node.heldBy)) this.union(this.instant, w.node.heldBy);   // D-8: a second proposal for a held slot joins its hold
+      if (typeof w.value === "function") {                                                                 // W-6: a functional write applies to the slot as it stands at the instant — writes compose in run order
+        let cur: unknown = w.node.value; for (const k of w.path) cur = isObj(cur) ? cur[String(k)] : undefined;
+        w = { ...w, value: (w.value as (v: unknown) => unknown)(cur) };
+      }
       if (w.path.length === 0) {
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
         if (d.size === 0) continue;

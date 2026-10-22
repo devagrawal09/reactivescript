@@ -155,8 +155,9 @@ action { refresh user; affects user }   // inline, one run (AC-1)
 
 - A write is `target := e`; `target` is a source or a path into one (W-1),
   or `use name …` for a provided source (RG-7c). There is no compound
-  assignment. (Open, W-6: `x := f` with `f` a function applies `f` to the
-  slot at the instant, so writes to one slot in one instant compose.)
+  assignment; `x := f` with `f` a function is a functional write — `f` is
+  applied to the slot at the instant, so writes to one slot in one instant
+  compose (W-6).
 - `let` declares an imperative local; TS statements (`if`, `for`, `try`,
   `return`, calls) are allowed; reads of reactive names are snapshots of σ
   (H-10, SC-2).

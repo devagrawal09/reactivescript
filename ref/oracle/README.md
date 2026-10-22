@@ -19,6 +19,9 @@ an interpreter (`lower.ts`):
 | `{if}` `{for}` `{loading}` `{errored}` | `Show`, `For`, `Loading`, `Errored` from `solid-js` |
 | `action`, inline `action { }` | `action(function* …)` — a statement-level `await` is a `yield` of the flight |
 | `optimistic`, `refresh`, `affects` | the setter of a `createOptimistic`, `refresh(x)`, `affects(x)` |
+| `provide` / `use` | `setContext` / `getContext` against the declaring owner; a provided source is the source binding (RG-7c) |
+| `x := f` | the setter's updater form (W-6) |
+| `==` / `!=` | compare raw objects: a store serves proxies, ST-2 keeps identity |
 | `fetch(key)` | a controllable flight: an async iterable (`resolve` again = another landing, ST-6) that actions `yield` as a promise |
 
 ```
@@ -37,6 +40,6 @@ The mount goes through the renderer's `render()` (one scheduled insert for
 the whole tree), not `createRoot` + `insert`: that is what makes uncaught
 async at the mount hold the first commit, as `@solidjs/web`'s `render` does.
 
-Status: 52 pass, 2 skip (`pre` of another node is not lowered), 0 fail, 3
+Status: 54 pass, 2 skip (`pre` of another node is not lowered), 0 fail, 3
 recorded divergences (DV-2 failed action, DV-3 S-22 row 3′, DV-4 S-37 row 2
 under a boundary — the last two suspected runtime bugs).

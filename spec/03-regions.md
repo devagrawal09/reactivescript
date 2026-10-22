@@ -30,7 +30,7 @@ when the region ends. Regions nest; the program is the root region.
   `escape` keyword is withdrawn, and so is a `lend` construct considered on
   2026-10-22 — downstream registration (a child adding itself to a store
   its provider owns) is an effect with a cleanup, through context (RG-7,
-  S-region-7); it needs no construct, only composable writes (W-6, open).
+  S-region-7); it needs no construct, only composable writes (W-6).
 - **O-4 (Writer scope).** A source may be written by imperative code in its own
   region or any nested region, or by a handler that received the source — not
   a snapshot of it — as an argument. An exported source exports its reader;

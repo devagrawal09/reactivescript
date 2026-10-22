@@ -170,6 +170,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   its declaring region or a region nested in it, or by a handler that was
   handed the source explicitly. Exported sources export a reader; the writer is
   exported only when declared so. (Full rule: 03-regions O-4.)
+- **W-6 (Functional writes).** [ruled 2026-10-22] `x := f`, with `f` a
+  function, writes the result of applying `f` to the slot *as it stands at
+  the instant* — after the writes before it in the same instant — rather
+  than to σ. Writes to one slot from several imperative runs in one
+  instant therefore compose in run order; value writes still replace. A
+  path target applies `f` to the path's value. Solid: the setter's updater
+  form, `setX(f)`. (Found by S-region-7: two fields registering with their
+  form in the same instant each read σ and the second value write erased
+  the first.)
 
 ### IO — Effectful functions
 
