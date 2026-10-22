@@ -173,16 +173,16 @@ Function application `f(e…)` covers both language functions and FFI imports;
 
 ### IO — Effectful functions
 
-- **IO-1 (Rows, reserved).** A `fn` is pure unless its row says `io`. A
-  function is `io` if its body writes a source, performs an external effect,
-  or calls an `io` function. The row is inferred; the annotation `! io` exists
-  for declarations and for display.
-- **IO-2 (Call position).** An `io` function may be called only in imperative
-  scope. Calling one in reactive scope is rejected (the write rule, W-1,
-  cannot be bypassed through a call).
-- **IO-3 (FFI).** An imported function has no row and is assumed pure
-  value→value. A declaration may mark an import `io`. This assumption is the
-  trust boundary; it is not checked.
+- **IO-1 (One-way taint).** `io` is a row the compiler infers: a function
+  is `io` iff its body writes a source, calls an `io` function, or calls a
+  value whose type carries `io`. Taint only rises. `fn` is pure by
+  definition (an `io` body in a `fn` is a compile error); `action` is `io`.
+- **IO-2 (Call position).** An `io` value may be called only in imperative
+  scope. Calling one in reactive scope is a compile error (the write rule,
+  W-1, cannot be bypassed through a call). Carrying it is not calling it.
+- **IO-3 (FFI).** Every JS import is `io`. `import pure { f }` is the one
+  assertion that lowers taint; it is the trust boundary and is unchecked
+  for JS. There is no `io` keyword. (Full rules: 04-rows R-io-1..4.)
 
 (The other rows — `pending`, `lane` — and inference: 04-rows.)
 

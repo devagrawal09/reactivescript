@@ -13,11 +13,26 @@ and where they may not go.
 
 ## R-io — effectful functions (restated from 02 IO-1..3)
 
-- **R-io-1.** A `fn` is `io` iff its body writes a source, performs an
-  external effect (FFI declared `io`), or calls an `io` function. Inferred.
-- **R-io-2.** An `io` function may be called only in imperative scope (SC-2).
-- **R-io-3.** Imports are assumed pure value→value unless declared `io`. This
-  is the trust boundary and is not checked.
+- **R-io-1 (One-way taint).** `io` is a row the compiler infers inside
+  `.rx`: a function is `io` iff its body writes a source, calls an `io`
+  function, or calls a value whose type carries `io`. Taint only rises:
+  nothing in `.rx` can declare a tainted body clean.
+- **R-io-2 (Declaration is the row).** `fn` is pure by definition — a `fn`
+  whose body is `io` is a compile error (`IO_IN_FN`, bin S). `action` is
+  `io` by definition (AC-1). An apply block, an action body and an arrow
+  written in imperative scope are `io` scopes; an equation, a `fn` body,
+  a draft block and an arrow written in reactive scope are not.
+- **R-io-3 (Call site).** An `io` value may be called only in an `io` scope
+  (SC-2). Calling one anywhere else is a compile error (`IO_IN_REACTIVE`,
+  bin S — Solid's runtime `ACTION_CALLED_IN_OWNED_SCOPE` has no runtime
+  form here). Carrying an `io` value (storing it, passing it) is not a
+  call; its type carries the row: `io (n: number) => Promise<void>`.
+- **R-io-4 (The boundary).** Every JS import is `io`. `import pure { f }
+  from …` is the one assertion that lowers taint, and it is unchecked for
+  JS (checked when the imported module is `.rx`, where it must agree with
+  the inferred row). There is no `io` keyword: dirty is the default and is
+  inferred; `pure` is the only word, and it points one way. (Ruled
+  2026-10-22.)
 
 ## R-pending — absence
 
@@ -93,7 +108,7 @@ and where they may not go.
   from `await` and pending inputs; `lane` from probes and lane inputs.
 - **R-14.** A declaration (`.d.ts`-equivalent) states rows for imports:
   `! io`, `! pending` (a function returning a promise that the language
-  should treat as awaitable in place). Absent a declaration, R-io-3 applies.
+  should treat as awaitable in place). Absent a declaration, R-io-4 applies.
 
 ---
 

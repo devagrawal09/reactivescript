@@ -220,12 +220,9 @@ runtime shows something other than the rule, the scenario records it in a
   the mount exactly as H-2 says. One rule changed on the way: a lane reader
   with no committed value is part of the mount's hold — there is no
   committed world for it to show (H-7; S-hold-4 instants 0–1 now ``).
-- **DV-2 (A failed action).** AC-1: a rejection inside the body ends the
-  change without a commit — writes and guesses revert. Solid: the plain
-  writes the action held commit when the body fails; only its optimistic
-  state reverts (S-solid-8 variant). Candidates: transactional (AC-1 as
-  written) or Solid's (a write is intent; a guess is the only provisional
-  state).
+- **DV-2 (A failed action) — ruled 2026-10-22.** Solid's: the plain
+  writes a failed action held commit; only its optimistic state reverts.
+  AC-1 now says so (S-solid-8 and S-solid-32 variants).
 - **DV-4 (S-37 row 2 under a boundary, suspected runtime bug).** Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
   (`isPending(() => state.a)`) read `false` while the derive re-asks;

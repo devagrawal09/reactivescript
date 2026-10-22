@@ -104,8 +104,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   escape: a write after an `await` is still the action's (the language has
   the scope, so none of 2.0's generator plumbing — S-9's "fresh write
   escapes" is unwritable; S-solid-9 is the inverted port). A rejection
-  inside the body ends the change without a commit: its writes and guesses
-  revert (S-solid-8 variant). An action body suspends only at a
+  inside the body ends it like a return: the writes it held commit, and
+  only its optimistic state reverts — a write is intent, a guess is the one
+  provisional state (ruled 2026-10-22 against the oracle, DV-2; S-solid-8
+  and S-solid-32 variants). Compensation is the catch's job. An action body suspends only at a
   statement-level `await` (`await e` or `let v = await e`); the instant
   begins when the run suspends or returns (H-10). An action called from a
   handler is launched, not awaited: the handler continues, and the

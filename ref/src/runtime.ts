@@ -127,7 +127,7 @@ export class Runtime {
   private suspended: Run[] = [];                        // runs waiting on a flight
   private started: Run[] = [];                          // runs started by the current imperative run, not yet assigned a change
   private currentRun: Run | null = null;
-  private pendingJoin: number[] = []; private pendingReverts: number[] = []; private pendingBodyEnds: number[] = [];
+  private pendingJoin: number[] = []; private pendingBodyEnds: number[] = [];
   private pendingGuesses: { node: Node; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
   program: Program;
 
@@ -206,7 +206,6 @@ export class Runtime {
     for (const n of this.allNodes()) { n.changed = false; n.demanded = false; n.evaluated = false; }
     for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = [];                    // a continuation's instant is the action's change
     for (const r of this.started) r.change = this.instant; this.started = [];
-    for (const g of this.pendingReverts) this.revertGroup(g); this.pendingReverts = [];
     for (const w of writes) {
       if (w.node.heldBy !== null && w.node.heldBy !== this.instant && this.groupOpen(w.node.heldBy)) this.union(this.instant, w.node.heldBy);   // D-8: a second proposal for a held slot joins its hold
       if (w.path.length === 0) {
@@ -311,21 +310,6 @@ export class Runtime {
     }
     this.commit(this.view, g);
   }
-  /** AC-1: an action body ended without a commit — its writes and guesses revert. */
-  private revertGroup(g: number) {
-    for (const n of this.allNodes()) {
-      if (n.heldBy !== null && this.find(n.heldBy) === g) {
-        n.heldBy = null; n.heldKeys.clear();
-        if (n.kind === "source" || (n.question && !n.compute)) { if (n.hasCommitted) { n.value = n.committed; n.hasValue = true; } n.changedSinceCommit = false; n.evaluated = true; n.changed = true; this.notify(n, ""); }
-        else this.markDirty(n);
-      }
-      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; this.notify(n, ""); }
-      if (n.affectedBy !== null && this.find(n.affectedBy) === g) n.affectedBy = null;
-      if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
-    }
-    this.openChanges.delete(g);
-  }
-
   // ---- settle / commit / render over the two structure versions ----
   private settle(v: ViewInst, holding: Node[], boundary: BoundaryItem | null) { for (const i of v.items) this.settleItem(i, holding, boundary); }
   private settleItem(i: VItem, holding: Node[], boundary: BoundaryItem | null) {
@@ -801,8 +785,9 @@ export class Runtime {
     if (!run.action) return;
     this.openActions.delete(run);
     if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct
-    if (rejected) { this.pendingReverts.push(this.find(run.change)); return; }
-    this.pendingBodyEnds.push(this.find(run.change));                       // D-35: corrected at the instant, against the settled truth
+    // AC-1 (ruled 2026-10-22, DV-2): a rejection ends the body like a return — the held writes commit, the guesses
+    // revert to the truth at hand (the body-end correction, D-35). Only optimistic state is provisional.
+    this.pendingBodyEnds.push(this.find(run.change));
   }
   /** D-35: the body's end corrects a guess nothing authoritative is answering — by the truth at hand. */
   private bodyEndCorrections(): boolean {

@@ -20,7 +20,8 @@ Bins:
 | Code                              | Bin | Rule / note                                                        |
 | --------------------------------- | --- | ------------------------------------------------------------------ |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U   | W-2: reactive scope has no statement position                      |
-| `ACTION_CALLED_IN_OWNED_SCOPE`    | U   | W-2 / R-io: `action` is imperative                                 |
+| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | R-io-3: an `io` call outside imperative scope (`IO_IN_REACTIVE`)   |
+| `IO_IN_FN` (new)                  | S   | R-io-2: a `fn` body that is `io`                                   |
 | `ASYNC_STORE_SETTER`              | U   | ST: a draft block is synchronous by grammar                        |
 | `STRICT_READ_UNTRACKED`           | U   | E-4/E-5: the only snapshots are initializers and `peek`            |
 | `UNTRACKED_READ_AFTER_AWAIT`      | U   | R-pending: inputs are static; no tracking window                   |

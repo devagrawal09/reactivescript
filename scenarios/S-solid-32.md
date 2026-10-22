@@ -27,6 +27,15 @@ silent confirm; the body returns; the guess ends and the held write commits
 in one frame. Never `Ann / unsaved` after 1 (guess held) nor `Bob / saved`
 (held write leaked).
 
+## Variant: the save rejects — the guess reverts, the held write commits
+
+| instant | action                   | frame                  |
+| ------- | ------------------------ | ---------------------- |
+| 2       | reject "save" "boom"     | `Ann / saved / - -`    |
+
+The guess `Bob` reverts to the truth (`name` is still `Ann`); `saved = true`
+was a plain write and commits (AC-1, DV-2).
+
 ## Rejected variants
 
 ```
