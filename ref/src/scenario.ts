@@ -1,6 +1,6 @@
 // Parses scenarios/*.md (the Markdown is the source) and runs them against the runtime.
 import { parseProgram, parseStmts, ParseError } from "./parse.ts";
-import { Runtime, RuleError } from "./runtime.ts";
+import { Runtime, RuleError, CheckError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
@@ -100,6 +100,12 @@ export function runScenario(sc: Scenario): Result {
       for (const m of rj.handlers) rt.handler(parseStmts(m));
       ok = false; lines.push(`  ✗ rejected(${rj.rule}): accepted`);
     } catch (e) {
+      if (e instanceof CheckError) {                                     // the checker: any diagnostic may carry the expected rule id or code
+        const hit = e.diagnostics.find(d => d.rule === rj.rule || d.code === rj.rule);
+        if (hit) lines.push(`  ✓ rejected(${rj.rule}): ${hit.code} (${hit.rule}) line ${hit.line}: ${hit.msg}`);
+        else { ok = false; lines.push(`  ✗ rejected(${rj.rule}): got ${e.diagnostics.map(d => `${d.code} (${d.rule})`).join(", ")}: ${e.message}`); }
+        continue;
+      }
       const rule = e instanceof RuleError ? e.rule : e instanceof ParseError ? (/([A-Z]+-\d+)/.exec(e.message)?.[1] ?? "parse") : "crash";
       if (rule === rj.rule) lines.push(`  ✓ rejected(${rj.rule}): ${(e as Error).message}`);
       else { ok = false; lines.push(`  ✗ rejected(${rj.rule}): got ${rule}: ${(e as Error).message}`); }

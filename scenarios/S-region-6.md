@@ -34,7 +34,7 @@ of `n` — the body did not re-run (instant 3 shows 3 + 5 + 10).
 ## Rejected variants
 
 ```
--- warn: SNAPSHOT_ARGUMENT
+-- reject: SNAPSHOT_ARGUMENT
 fn watch(v) {
   effect (v) { log(v) }
   v

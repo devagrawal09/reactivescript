@@ -8,6 +8,10 @@ Why TypeScript and not OCaml: it runs in the playground later, and it can
 import `@solidjs/signals` to diff the interpreter against the real runtime on
 the same scenario.
 
+Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
+program with any diagnostic does not run. `node --experimental-strip-types
+ref/check.ts file.rx…` prints diagnostics for files.
+
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)
 2. regions: if/for as scoped sub-programs with disposal (03)

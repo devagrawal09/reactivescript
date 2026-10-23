@@ -20,7 +20,7 @@ Bins:
 | Code                              | Bin | Rule / note                                                        |
 | --------------------------------- | --- | ------------------------------------------------------------------ |
 | `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U   | W-2: reactive scope has no statement position                      |
-| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | R-io-3: an `io` call outside imperative scope (`IO_IN_REACTIVE`)   |
+| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | R-io-3: an action called in reactive scope (an io import: `IO_IN_REACTIVE`) |
 | `IO_IN_FN` (new)                  | S   | R-io-2: a `fn` body that is `io`                                   |
 | `ASYNC_STORE_SETTER`              | U   | ST: a draft block is synchronous by grammar                        |
 | `STRICT_READ_UNTRACKED`           | U   | E-4/E-5: the only snapshots are initializers and `peek`            |
@@ -36,7 +36,7 @@ Bins:
 | `NO_OWNER_EFFECT`                 | U   | O: every declaration has a region                                  |
 | `NO_OWNER_CLEANUP`                | U   | same                                                               |
 | `NO_OWNER_BOUNDARY`               | U   | same                                                               |
-| `RUN_WITH_DISPOSED_OWNER`         | U   | O-3: `escape` is the only cross-region move                        |
+| `RUN_WITH_DISPOSED_OWNER`         | S   | O-3: its static form is `REGION_ESCAPE`; the runtime error stays the JS-boundary backstop (CN-3b) |
 | `SETTLED_CLEANUP_UNOWNED`         | U   | EF-4/EF-5 with O                                                   |
 | `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
@@ -71,6 +71,52 @@ Bins:
 | `UNRECOGNIZED_INSERT_VALUE`       | S   | a reader's type is not renderable                                  |
 | `UNSCOPED_HOLE_ALLOCATED_IDS`     | R   | hydration                                                          |
 | `LOWERCASE_EVENT_ATTRIBUTE`       | U   | X: handlers are a grammar form                                     |
+
+## Codes the checker adds
+
+`ref/src/check.ts` (08) reports these, each with the rule it enforces. Where
+Solid has no code for the shape (its runtime cannot see it), the code is new.
+Every row has a rejected variant in `scenarios/S-check-1.md` or the scenario
+named.
+
+| Code                              | Bin | Rule  | Scenario |
+| --------------------------------- | --- | ----- | -------- |
+| `DUPLICATE_DECLARATION`           | S   | E-7   | S-check-1 |
+| `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
+| `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
+| `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a) | S-check-1 |
+| `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a | S-check-1, S-region-5 |
+| `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
+| `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |
+| `SNAPSHOT_INITIALIZER`            | S   | E-4 / DV-6 | S-surface-1 |
+| `IO_IN_REACTIVE`                  | S   | IO-2 / R-io-3 | S-surface-1 |
+| `ACTION_CALLED_IN_OWNED_SCOPE`    | S   | IO-2 / R-io-3 | S-check-1 |
+| `IO_IN_FN`                        | S   | R-io-2 | S-check-1 |
+| `REACTIVE_WRITE_IN_OWNED_SCOPE`   | U/S | W-2 (a statement position) / SC-3 (a statement-bodied closure in reactive scope) | S-core-1, S-check-1 |
+| `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |
+| `DRAFT_WRITE_OUTSIDE_DRAFT`       | S   | ST-3a | S-store-2 |
+| `ASYNC_STORE_SETTER`              | S   | ST-3b | S-check-1 |
+| `OPTIMISTIC_OUTSIDE_HOLD`         | S   | AC-3  | S-check-1 |
+| `OPTIMISTIC_NO_QUESTION`          | S   | AC-3 / ST-5c | S-check-1, S-solid-32 |
+| `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
+| `REGION_ESCAPE`                   | S   | O-3   | S-check-1 (three shapes) |
+| `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
+| `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree) | S-check-1, S-region-7, S-ai-feed |
+| `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written) | S-check-1 |
+
+## Open: the advisory S rows
+
+Under CN-1a there is no warning tier, so an S row is a compile error or it
+is not a diagnostic. These rows were binned S when warnings existed and are
+not errors a correct program avoids — a waterfall or a wide scope is a
+performance shape, not a wrong program: `ASYNC_WATERFALL`, `SILENT_HOLD`
+(structural), `HUGE_FAN_IN`, `HUGE_FAN_OUT`, `WIDE_SCOPE_DEPS`,
+`EFFECT_WRITES_OWN_SOURCE` (C-3), `EFFECT_RELAY_TEAR`,
+`LOADING_ON_OUTSIDE_HOLD`, `UNTRACKED_ASYNC_HANDLER` (structural half).
+Proposal (not ruled): they leave the compiler for a separate advisory tool —
+the rustc/clippy split — that reads the same static graph and never fails a
+build. `UNRECOGNIZED_INSERT_VALUE`, `DYNAMIC_ASYNC_COMPONENT` and
+`SERVER_WRITE` are type questions and wait for the type oracle.
 
 ## Counting
 

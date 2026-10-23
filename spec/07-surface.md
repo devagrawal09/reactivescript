@@ -61,7 +61,7 @@ source messages = await* stream(room) -> []   // ST-6b + R-7: a stream with a fi
 rows key id = fetchedRows              // ST-4: a keyed collection; `source rows key id = …` is also allowed
 fn area(ref w: number, h: number): number => w * h       // E-9: `ref` is an instantiation parameter
 fn Counter(ref start: number) {        // RG-6: an instantiating fn — has declarations
-  source n := start
+  source n := peek(start)              // E-4: a ref parameter is reactive — the snapshot is written as one
   n
 }
 action save(name: string) { … }        // AC-1

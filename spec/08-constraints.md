@@ -92,3 +92,46 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | --- | --- | --- |
 | `ROW_NARROWER_THAN_INFERRED` (new) | S | CN-4a |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R | CN-3c: a runtime report, not a constraint |
+
+---
+
+## Implementation (`ref/src/check.ts`)
+
+The checker runs over the AST before the interpreter; a program with any
+diagnostic does not run (`CheckError`). `node --experimental-strip-types
+ref/check.ts file.rx…` prints them. Every code is listed in
+`99-diagnostics.md §Codes the checker adds` with the scenario that rejects
+it; `S-check-1`'s accepted program is built from near-misses so a checker
+that over-reaches fails a scenario too.
+
+How each enforcer is realised:
+
+- **Names** resolve lexically. A component body sees its declaration site,
+  never its caller (RG-7a); the interpreter's own lookup is laxer, so this
+  is the checker's job.
+- **Rows.** `io` is a symbol property: actions and non-`pure` imports carry
+  it, an equation bound to one inherits it; a call of an `io` value in
+  reactive scope is refused (in a `fn` body, as `IO_IN_FN`). A closure
+  written in reactive scope is reactive scope (SC-3). `pending` / `lane`
+  are inferred per equation through the equations it reads (R-13) and
+  compared only where a row is written (CN-4a).
+- **The static graph (C-1)** is per block: an equation's edges are every
+  name it reads in any branch; `pre x` inside `x` contributes no edge,
+  `pre y` of another node is an edge to `y` (C-2).
+- **Regions are lifetimes (O-3).** Each block is a region with a depth. A
+  write whose stored value contains a closure — directly, through a `let`,
+  or as the result of a functional write's function — capturing a reactive
+  name from a region deeper than the written source's is `REGION_ESCAPE`.
+  A write through a provision (`use p := …`) is taken to outlive the
+  writing component unless the provision is declared in it.
+- **Provisions (RG-7b)** are checked over the static application tree:
+  the names available in a region are its own provisions plus, for a
+  component, the intersection over every place it is applied; children
+  passed to a component are owned where it reads them, so they see its
+  provisions. A component never applied, or applied only recursively, is
+  undecidable and not checked (the runtime's `ContextNotFound` remains).
+
+Not yet: rows across modules (`.d.rx`, CN-4b) — the interpreter has one
+module; the type oracle (UNRECOGNIZED_INSERT_VALUE and friends); handler
+statements typed into a scenario's `handler` rows (the interpreter checks
+those at run time).

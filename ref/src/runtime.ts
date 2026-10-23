@@ -3,7 +3,9 @@
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>;
 
-export class RuleError extends Error { rule: string; constructor(rule: string, msg: string) { super(`${rule}: ${msg}`); this.rule = rule; } }
+import { RuleError, CheckError } from "./errors.ts";
+import { check } from "./check.ts";
+export { RuleError, CheckError };
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
 export const PENDING = new PendingVal();
@@ -137,7 +139,7 @@ export class Runtime {
   constructor(program: Program) {
     this.program = program;
     this.root = new Region(null, this, null);
-    staticChecks(program);
+    const diags = check(program); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
     this.declare(program.decls, this.root);
     this.view = this.instantiate(program.view, this.root);
   }
@@ -966,22 +968,4 @@ function freeVars(e: Expr, out: Set<string>) {
     case "use": break;
     case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }
   }
-}
-
-// ---------------------------------------------------------------- static checks (C-1, E-7, W-1 shape)
-function staticChecks(p: Program) {
-  const eqs = new Map<string, Expr>(); const names = new Set<string>();
-  for (const d of p.decls) {
-    if (d.k === "eq") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); eqs.set(d.name, d.e); names.add(d.name); }
-    if (d.k === "source") { if (names.has(d.name)) throw new RuleError("E-7", `duplicate ${d.name}`); names.add(d.name); if (d.question) eqs.set(d.name, d.init); }
-  }
-  const color = new Map<string, 1 | 2>();
-  const visit = (n: string, stack: string[]) => {
-    if (color.get(n) === 2) return; if (color.get(n) === 1) throw new RuleError("C-1", `instantaneous cycle: ${[...stack, n].join(" → ")}`);
-    color.set(n, 1); const f = new Set<string>(); freeVars(eqs.get(n)!, f);
-    for (const m0 of f) { const m = m0.startsWith("pre:") ? m0.slice(4) : m0; if (m0.startsWith("pre:") && m === n) continue; if (eqs.has(m)) visit(m, [...stack, n]); }   // C-1: only an equation's own `pre` breaks a cycle
-    color.set(n, 2);
-  };
-  for (const n of eqs.keys()) visit(n, []);
-  for (const d of p.decls) if (d.k === "effect") for (const s of d.body) if (s.k === "write" && !p.decls.some(x => x.k === "source" && x.name === s.target.name)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
 }
