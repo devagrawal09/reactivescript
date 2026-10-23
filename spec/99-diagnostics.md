@@ -104,19 +104,18 @@ named.
 | `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree) | S-check-1, S-region-7, S-ai-feed |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written) | S-check-1 |
 
-## Open: the advisory S rows
+## The advisory rows (ruled 2026-10-23, in part)
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
-is not a diagnostic. These rows were binned S when warnings existed and are
-not errors a correct program avoids — a waterfall or a wide scope is a
-performance shape, not a wrong program: `ASYNC_WATERFALL`, `SILENT_HOLD`
-(structural), `HUGE_FAN_IN`, `HUGE_FAN_OUT`, `WIDE_SCOPE_DEPS`,
-`EFFECT_WRITES_OWN_SOURCE` (C-3), `EFFECT_RELAY_TEAR`,
-`LOADING_ON_OUTSIDE_HOLD`, `UNTRACKED_ASYNC_HANDLER` (structural half).
-Proposal (not ruled): they leave the compiler for a separate advisory tool —
-the rustc/clippy split — that reads the same static graph and never fails a
-build. `UNRECOGNIZED_INSERT_VALUE`, `DYNAMIC_ASYNC_COMPONENT` and
-`SERVER_WRITE` are type questions and wait for the type oracle.
+is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,
+`WIDE_SCOPE_DEPS`, `SILENT_HOLD` (structural), `LOADING_ON_OUTSIDE_HOLD`
+and `UNTRACKED_ASYNC_HANDLER` (structural half) are **not errors** — they
+are performance and shape advice about correct programs — and move to a
+separate advisory tool that reads the same static graph and never fails a
+build (the rustc/clippy split). Open: `EFFECT_WRITES_OWN_SOURCE` (C-3) and
+`EFFECT_RELAY_TEAR`, which may be errors (see C-3). `UNRECOGNIZED_INSERT_VALUE`,
+`DYNAMIC_ASYNC_COMPONENT` and `SERVER_WRITE` are type questions and wait for
+the type oracle.
 
 ## Counting
 
