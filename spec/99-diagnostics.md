@@ -44,7 +44,7 @@ Bins:
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary                  |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path             |
-| `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3                                                                |
+| `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3: an error (ruled 2026-10-23); closures the apply creates are exempt |
 | `EFFECT_RELAY_TEAR`               | S   | C-3 generalised: an effect relaying a source to a source           |
 | `ASYNC_WATERFALL`                 | S   | R-pending: `await` whose inputs depend on another `await`          |
 | `SILENT_HOLD` (structural form)   | S/R | H-9: a write whose cone contains no probe; timing form stays R     |
@@ -103,6 +103,7 @@ named.
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
 | `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree) | S-check-1, S-region-7, S-ai-feed |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written) | S-check-1 |
+| `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
 
 ## The advisory rows (ruled 2026-10-23, in part)
 
@@ -112,8 +113,10 @@ is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,
 and `UNTRACKED_ASYNC_HANDLER` (structural half) are **not errors** — they
 are performance and shape advice about correct programs — and move to a
 separate advisory tool that reads the same static graph and never fails a
-build (the rustc/clippy split). Open: `EFFECT_WRITES_OWN_SOURCE` (C-3) and
-`EFFECT_RELAY_TEAR`, which may be errors (see C-3). `UNRECOGNIZED_INSERT_VALUE`,
+build (the rustc/clippy split). `EFFECT_WRITES_OWN_SOURCE` is an error
+(C-3); `EFFECT_RELAY_TEAR` (an effect copying one source into another — an
+equation written the long way, with a one-instant tear, but also how a
+source is synced into a JS-owned one) stays advisory. `UNRECOGNIZED_INSERT_VALUE`,
 `DYNAMIC_ASYNC_COMPONENT` and `SERVER_WRITE` are type questions and wait for
 the type oracle.
 

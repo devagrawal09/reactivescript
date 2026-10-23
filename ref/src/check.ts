@@ -29,6 +29,7 @@ type Sym = {
   mapsRecords?: boolean;               // an unkeyed equation that maps into fresh records (ST-4b)
   rows?: () => Set<string>;            // inferred rows of its value (R-13)
   comp?: Extract<Decl, { k: "component" }>;
+  expr?: Expr; env?: Env;              // an equation's (or a question source's) expression and the scope it reads in — C-3
   compRegion?: Region;
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
@@ -140,7 +141,7 @@ class Checker {
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
       env.vars.set(d.name, sym);
     }
-    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; env.vars.get(d.name)!.rows = this.rowsThunk(e, env); }
+    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; }
     // 2. C-1 over this block's equations (the static graph, CN-3a): only an equation's own `pre` breaks a cycle
     this.cycles(decls, env);
     // 3. each declaration
@@ -205,6 +206,7 @@ class Checker {
       case "effect": {
         for (const i of d.inputs) this.expr(i, env, reactive);                               // EF-1: the compute half is reactive scope
         this.stmts(d.body, new Env(env, env.region), { scope: "imperative" });
+        this.ownSourceWrites(d, env);
         return;
       }
       case "action": {
@@ -229,6 +231,35 @@ class Checker {
         return;
       }
     }
+  }
+
+  /** C-3 (ruled 2026-10-23): an apply block's own statements may not write a source its compute half reads, directly or
+   *  through the equations it reads — a loop across instants. Writes inside closures the apply creates (timers,
+   *  listeners, its cleanup) are later events and stay legal; writes through a provision are not visible here. */
+  private ownSourceWrites(d: Extract<Decl, { k: "effect" }>, env: Env) {
+    const read = new Map<Sym, string>();                                                   // source → the path that reaches it
+    const seen = new Set<Sym>();
+    const visit = (e: Expr, scope: Env, via: string) => {
+      const names = new Set<string>(); freeNames(e, new Set(), names);
+      for (const n0 of names) {
+        const s = scope.lookup(n0.startsWith("pre:") ? n0.slice(4) : n0); if (!s || seen.has(s)) continue; seen.add(s);
+        if (s.kind === "source" && !read.has(s)) read.set(s, via ? `${via} → ${s.name}` : s.name);
+        if (s.expr && s.env) visit(s.expr, s.env, via ? `${via} → ${s.name}` : s.name);
+      }
+    };
+    for (const i of d.inputs) visit(i, env, "");
+    const direct = (ss: Stmt[]): void => {
+      for (const st of ss) {
+        if ((st.k === "write" || st.k === "optimistic") && !st.target.ctx) {
+          const t = env.lookup(st.target.name);
+          if (t && read.has(t)) this.err("EFFECT_WRITES_OWN_SOURCE", "C-3", `the apply block writes ${t.name}, which its compute half reads (${read.get(t)}): a loop across instants — derive it as an equation, or as \`source ${t.name} = …\` (ST-5), or write it from the event that changes the inputs`);
+        }
+        if (st.k === "sif") { direct(st.t); direct(st.f); }
+        if (st.k === "try") { direct(st.body); if (st.handler) direct(st.handler); if (st.fin) direct(st.fin); }
+        if (st.k === "action") direct(st.body);
+      }
+    };
+    direct(d.body);
   }
 
   /** E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted. */

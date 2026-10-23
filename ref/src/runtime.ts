@@ -197,8 +197,14 @@ export class Runtime {
   step(writes: Write[]): { frame: string; effects: string[] }[] {
     const out: { frame: string; effects: string[] }[] = [];
     let w = writes;
-    do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length);
+    do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
     return out;
+  }
+  /** Whether a write would change its slot (E-6 per path; a functional write is applied to the current value, W-6). */
+  private effective(w: Write): boolean {
+    let cur: unknown = w.node.value; for (const k of w.path) cur = isObj(cur) ? cur[String(k)] : undefined;
+    const v = typeof w.value === "function" ? (w.value as (x: unknown) => unknown)(cur) : w.value;
+    const d = new Set<Path>(); diffPaths(cur, v, "", d); return d.size > 0;
   }
   /** Land an async answer (a change, V-6) and run the instant it opens. */
   land(target: string, value: unknown, reject = false) {

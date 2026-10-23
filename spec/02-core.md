@@ -167,7 +167,10 @@ Function application `f(e…)` covers both language functions and FFI imports;
   semantic one.
 - **W-3 (Instant).** All writes performed by one imperative run — one handler
   invocation, one apply block, one resumed continuation — form one instant
-  (V-6). There is no API to split or merge instants from inside a run.
+  (V-6). There is no API to split or merge instants from inside a run. A
+  run whose writes all equal their slots' values (E-6) changes nothing and
+  opens no instant (ruled with DV-5, 2026-10-23: the earlier "an equal
+  write still opens an instant" existed only for the frame-indexed `pre`).
 - **W-4 (Visibility).** A write is not visible to any read, in any scope, until
   its instant commits. Within the run that wrote it, `x` still reads the
   committed value. (Restates Solid F-10 for the synchronous case.)
@@ -226,10 +229,17 @@ Function application `f(e…)` covers both language functions and FFI imports;
   has type `T`. This is the only way to discharge the `undefined`; there is no
   implicit default. (Solid's `(prev = v) => …` default parameter is this form
   attached to the operator instead of to the consumer's signature.)
-- **C-3 (Effects are not inputs).** An apply block writing a source that its own
-  compute half reads is legal (its write opens the *next* instant, W-3) but is
-  a static diagnostic (`D`: `EFFECT_WRITES_OWN_SOURCE`), since it is a cycle
-  across instants.
+- **C-3 (An apply does not feed its own compute).** [ruled 2026-10-23] An
+  apply block whose own statements write a source that its compute half
+  reads — directly or through the equations it reads — is a compile error
+  (`EFFECT_WRITES_OWN_SOURCE`, bin S): it is a loop across instants that
+  either never settles or settles after showing a wrong frame, and every
+  converging form has a direct spelling — an equation (`clamped = …`), a
+  source with a question (`source selected = …`, ST-5), or the write moved
+  to the event that changed the inputs. Writes in closures the apply
+  creates — a timer, a listener, its cleanup — are later events and stay
+  legal (a clock, a poller); writes through a provision are not visible to
+  the checker and are the runtime's. (S-check-2.)
 
 ### EF — Effects
 
