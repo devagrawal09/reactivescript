@@ -357,8 +357,8 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
       let s = ""; while (!c.eof() && " \t\r\n".includes(c.peek())) { s += c.peek(); c.i++; }
       if (s && !c.startsWith(`</${closeTag}>`)) out.push({ k: "text", s: " " });
     } else c.ws();
-    if (c.eof()) { if (closeTag) c.fail(`expected </${closeTag}>`); return out; }
-    if (closeTag && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }
+    if (c.eof()) { if (closeTag !== null) c.fail(`expected </${closeTag}>`); return out; }
+    if (closeTag !== null && closeTag !== "}" && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }   // `""` is a fragment's close tag
     if (closeTag === "}" && c.startsWith("}")) { c.i++; return out; }
     if (c.startsWith("<")) { out.push(parseElement(c)); continue; }
     if (c.startsWith("{")) {

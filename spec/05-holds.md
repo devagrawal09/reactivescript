@@ -243,18 +243,22 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-5 (`pre`) — ruled 2026-10-23: Solid's.** `pre x` is `x`'s value
   before its most recent change (C-2, P-6 rewritten); the frame-indexed
   rule is withdrawn. S-core-1 now matches the oracle without divergences.
-- **DV-4 (S-37 row 2 under a boundary, suspected runtime bug).** Under a
+- **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
+  2026-10-23** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
   (`isPending(() => state.a)`) read `false` while the derive re-asks;
   outside a boundary, or for an async memo under the same boundary
   (S-solid-26), they read `true` as D-30 says. The scenario keeps the
   ruled frame.
-- **DV-3 (S-22 row 3′, suspected runtime bug).** Through `solid-js`'s
-  `<Loading>`, content that lands before a re-armed boundary's own pending
-  fallback does not reveal until the fallback's read lands (S-solid-22
-  variant instant 4 shows `c1`); Solid's S-22 row 3′ and its signals-level
-  pin say `content(2)`. Reported upstream; the scenario keeps the ruled
-  frame.
+- **DV-3 (S-22 row 3′) — a Solid bug, reproduced 2026-10-23.** A render
+  effect created inside a re-armed boundary's fallback, reading data the
+  same change made pending, holds the content's reveal: content that lands
+  first is withheld until the fallback's own data lands. Any compiled JSX
+  fallback has such an effect (`<p>Meta {meta()}</p>` is an element plus an
+  `insert`); Solid's pinned test reads the data directly in the fallback
+  function and misses it. Standalone repro, signals only:
+  `ref/oracle/repros/dv3-signals.mjs` (README there). The scenario keeps
+  the ruled frame.
 
 ## What this document inherits without ruling
 

@@ -44,4 +44,4 @@ content = await fetch("c:" + id)
 
 ## Divergences
 
-- oracle "Variant: content lands first — the fallback is never seen" instant 4: `c1` — Solid 2.0.0-rc.16 through `solid-js`'s `<Loading>`: the content's landing does not reveal while the re-armed fallback's own reader (`meta`) is pending — the old content stays until `meta` lands. Solid's own S-22 row 3′ and its signals-level pin (`loading-on-rearm-reveal-3540.test.ts`, "content lands before the fallback") say `content(2)`; suspected web-layer bug, reported upstream.
+- oracle "Variant: content lands first — the fallback is never seen" instant 4: `c1` — Solid 2.0.0-rc.16: the re-armed fallback's `<p>` has an insert effect reading the pending `meta`, and that effect holds the content's reveal until `meta` lands. Solid's S-22 row 3′ says `content(2)`; its pinned test reads the data directly in the fallback function and passes. A Solid bug, reproduced in `@solidjs/signals` alone: `ref/oracle/repros/dv3-signals.mjs` (DV-3).
