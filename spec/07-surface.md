@@ -95,12 +95,12 @@ Added:
 | `await* e` | the latest answer of an async iterable (a stream) | ST-6b |
 | `pre x`, `pre x -> init` | `x`'s value in the previous instant | C-2 |
 | `peek(e)` | `e` read without subscribing | E-? (untrack) |
-| `latest x` | the value `x` is moving toward, else its committed value | R-9 |
-| `pending? e` | the verdict of the reads inside `e` | R-9, H-9 |
+| `pending? e`, `latest e` | the verdict of the reads inside `e`; the value `e` is moving toward — both take a **unary** operand: `pending? a || b` is `(pending? a) || b`, `latest x * 2` is `(latest x) * 2` | R-9, H-9 |
 | `c ? a : b` | TS's conditional, lazy: only the selected arm is an input | E-11 |
 | `draft(e) { … }` | a copy of `e` written along `d` | ST-3 |
 | `x => e`, `(a, b) => e`, `() => { … }` | arrow functions; a statement body only in imperative scope | SC-3 |
-| `[...xs, y]`, `{ ...o, k: v }` | spread | — |
+| `[...xs, y]`, `{ ...o, k: v }`, `{ id }` | spread, shorthand properties (computed keys `{ [k]: v }`: not yet in `ref/`) | — |
+| `a ?? b` | nullish coalescing (absence propagates like `\|\|`) | R-5 |
 | `` `a ${e} b` `` | template literal | — |
 | `o?.k`, `xs.map(f)` | optional chaining, method calls | — |
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
@@ -177,6 +177,22 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   SC-2).
 - `await` in an action body suspends the run and keeps its change open; in
   a plain handler it ends the change (the continuation is a new one).
+- The optimistic-action idiom, with a spinner:
+
+  ```
+  action placeOrder() {
+    let items = cart              // a snapshot of what is being ordered
+    optimistic cart := []         // the guess shows now (AC-3)
+    affects cart                  // `pending? cart` is true until the body ends (AC-5) — the guess alone is verdict-inert
+    let receipt = await checkout(items)
+    cart := []                    // the truth; equal confirms silently
+  }
+  ```
+
+  A plain write placed *before* the `await` commits even when the body
+  rejects (AC-1, DV-2): only the guess reverts. Put the truth after the
+  `await`. An optimistic write over a *structured* question source is a
+  root write (functional or whole); path targets are not in `ref/` yet.
 - `refresh x`, `affects x`, `optimistic x := e` are statements (AC-3..5).
 
 ## 6. Components (RG-4)

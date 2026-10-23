@@ -258,6 +258,7 @@ export class Oracle {
         const l = this.ev(e.l, scope, env) as any; noFlight(l);
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
+        if (e.op === "??") return l != null ? l : this.ev(e.r, scope, env);
         const r = this.ev(e.r, scope, env); noFlight(r);
         return BIN[e.op](l, r);
       }

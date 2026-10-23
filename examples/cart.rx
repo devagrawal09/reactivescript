@@ -1,0 +1,63 @@
+// A shopping cart: the catalogue is a question with an empty first paint; the cart is
+// a source with a question whose truth is "empty", written functionally; totals are
+// equations; the coupon is a question on its code, shown display-ahead with `latest`;
+// checkout is an action that clears the cart optimistically and reverts when the order
+// is declined.
+import pure { fetchProducts, validateCoupon, checkout } from "./api"
+
+type Product = { id: number; name: string; price: number }
+type Line = { id: number; qty: number }
+
+source products: Product[] = await fetchProducts() -> []     // ST-5 + R-7: `[]` until the catalogue lands
+source cart: Line[] = []                                      // a question whose truth is `[]`: the target of the optimistic clear (ST-5c)
+source coupon: string := ""
+source lastOrder: number | null := null
+
+fn qtyOf(id: number): number => cart.find(l => l.id === id)?.qty || 0
+
+count = cart.reduce((n, l) => n + l.qty, 0)
+subtotal = products.reduce((s, p) => s + p.price * qtyOf(p.id), 0)
+discount = coupon === "" ? 0 : await validateCoupon(coupon) -> 0   // a question on the code; R-7: no discount until it answers
+total = subtotal - subtotal * (latest discount) / 100            // `latest`: the total keeps moving while the code is checked (H-7)
+
+action setQty(id: number, n: number) {
+  if (n < 0) return
+  cart := ls =>                                                  // W-6: a functional write composes with others in the instant
+    n === 0 ? ls.filter(l => l.id !== id) :
+    ls.some(l => l.id === id) ? ls.map(l => l.id === id ? { ...l, qty: n } : l) :
+    [...ls, { id, qty: n }]
+}
+
+action placeOrder() {
+  if (count === 0) return
+  let items = cart                                               // SC-2: a snapshot of the lines being ordered
+  optimistic cart := []                                          // AC-3: the cart empties now, display-ahead
+  affects cart                                                   // AC-5: `pending? cart` while the order is in flight
+  let receipt = await checkout(items, coupon)                    // AC-1: a rejection ends the body and reverts the guess
+  cart := []                                                     // the truth: equal to the guess, confirms silently
+  lastOrder := receipt.id
+}
+
+component Row(props: { product: Product }) {
+  qty = qtyOf(props.product.id)
+  <li>
+    <span>{props.product.name}</span>
+    <span>{props.product.price}</span>
+    <button onClick={() => { setQty(props.product.id, qty - 1) }} disabled={qty === 0}>-</button>
+    <span>{qty}</span>
+    <button onClick={() => { setQty(props.product.id, qty + 1) }}>+</button>
+  </li>
+}
+
+<section>
+  <h1>Cart ({count})</h1>
+  <ul>{for p in products { <Row product={p} /> }}</ul>
+  <label>
+    Coupon <input value={coupon} onInput={e => { coupon := e.target.value }} />
+    <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
+  </label>
+  <p>Subtotal {subtotal}</p>
+  <p>Total {total}</p>
+  <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
+  <p>{pending? cart ? "Placing order…" : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
+</section>

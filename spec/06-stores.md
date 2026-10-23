@@ -73,7 +73,13 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **ST-5a.** `source x = e` (not `:=`) declares a source whose value is the
   equation `e` **until written**: it re-derives when `e`'s inputs change, and
   a write `x := v` overrides it until the next re-derivation. `e` may
-  `await`. Solid: `createSignal(fn)`, `createStore(fn, seed)`.
+  `await`. `e` may also be a constant (`source editing = null`,
+  `source cart = []`): a question with no inputs, whose truth is that
+  constant — the shape for provisional UI state that a guess (AC-3) can
+  clear and that reverts to the truth when the hold ends (examples/users.rx,
+  examples/cart.rx). Solid: `createSignal(fn)`, `createStore(fn, seed)`;
+  written both plainly and optimistically, a `createSignal(fn)` truth under
+  a `createOptimistic(() => truth())` layer.
 - **ST-5b.** Its question (V-9) is `e`'s inputs. `refresh x` re-asks it
   quietly; `affects x` declares that in-flight work will change it (H-9).
 - **ST-5c.** It is the only legal target of `optimistic` (AC-3): a guess
@@ -126,7 +132,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   source (`source draft = name`, S-solid-32), or an `await`. Lowers to
   `createOptimistic`/`createOptimisticStore` by usage. Path targets
   (`optimistic x.a := v`) are per key like writes (ST-2c); not in `ref/`
-  yet.
+  yet, and a structured question source that is an optimistic target takes
+  root writes only in the oracle lowering. A guess is verdict-inert: an
+  action that wants `pending? x` true while its guess stands declares
+  `affects x` (AC-5; the idiom is in 07 §5).
 - **AC-4 (refresh).** `refresh x`, in imperative scope anywhere, re-asks
   `x`'s question (ST-5) or re-runs an `await` equation for the same inputs:
   quiet — `pending? x` stays `false`, `x` keeps showing its last answer

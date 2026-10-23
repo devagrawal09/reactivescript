@@ -718,6 +718,7 @@ export class Runtime {
         const l = this.ev(e.l, region, env);
         if (e.op === "&&") { if (isAbsent(l)) return l; return l ? this.ev(e.r, region, env) : l; }
         if (e.op === "||") { if (isAbsent(l)) return l; return l ? l : this.ev(e.r, region, env); }
+        if (e.op === "??") { if (isAbsent(l)) return l; return l != null ? l : this.ev(e.r, region, env); }
         const r = this.ev(e.r, region, env);
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
