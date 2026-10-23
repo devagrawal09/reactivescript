@@ -27,7 +27,7 @@ an interpreter (`lower.ts`):
 | `fetch(key)` | a controllable flight: an async iterable (`resolve` again = another landing, ST-6) that actions `yield` as a promise |
 
 ```
-cd ref/oracle && npm install
+cd ref && npm install
 node --experimental-strip-types --conditions=browser --conditions=development ref/oracle/run.ts [filter]
 ```
 

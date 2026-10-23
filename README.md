@@ -24,7 +24,7 @@ spec/
   08-constraints.md    what the compiler refuses, how, and the escape (Rust stance)
   99-diagnostics.md    Solid 2.0's diagnostic table, each code binned: unwritable / static / runtime
 scenarios/             one file per scenario: program, action, frames, compiles-or-rejects
-ref/                   reference interpreter (TypeScript) that runs scenarios/
+ref/                   interpreter, checker, Solid oracle and compiler (TypeScript) — all run scenarios/
 ```
 
 ## Discipline

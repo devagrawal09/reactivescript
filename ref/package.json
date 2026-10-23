@@ -2,5 +2,15 @@
   "name": "reactivescript-ref",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --experimental-strip-types run.ts" }
+  "description": "The executable spec: parser, checker, interpreter (src/), the Solid oracle (oracle/), the compiler (compile/).",
+  "scripts": {
+    "test": "node --experimental-strip-types run.ts",
+    "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
+    "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts"
+  },
+  "dependencies": {
+    "@solidjs/signals": "2.0.0-rc.16",
+    "@solidjs/universal": "2.0.0-rc.16",
+    "solid-js": "2.0.0-rc.16"
+  }
 }

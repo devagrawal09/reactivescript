@@ -8,6 +8,14 @@ Why TypeScript and not OCaml: it runs in the playground later, and it can
 import `@solidjs/signals` to diff the interpreter against the real runtime on
 the same scenario.
 
+Three runners over the same scenarios (`cd ref && npm install` once):
+
+| runner | what it runs | command |
+| --- | --- | --- |
+| interpreter | `src/runtime.ts`, the spec's own semantics | `node --experimental-strip-types ref/run.ts` |
+| oracle | `oracle/lower.ts`, the program lowered onto Solid by interpretation | `npm --prefix ref run oracle` |
+| compiled | `compile/emit.ts`, the program compiled to a JS module over Solid | `npm --prefix ref run compiled` |
+
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types
 ref/check.ts file.rx…` prints diagnostics for files.
