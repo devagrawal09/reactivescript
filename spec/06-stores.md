@@ -57,7 +57,8 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 
 ## ST-4 — Key
 
-- **ST-4a.** `x: T[] key k = e` (abstract syntax `x key k = e`) declares
+- **ST-4a.** `x: T[] key k = e` (abstract syntax `x key k = e`; also on a
+  source, `source x key k = e`) declares
   that elements of `x` have identity `k`. A new result is **reconciled** by
   `k`: rows with the same key keep their object identity and receive
   per-key path updates (their readers run only for changed keys); new keys
@@ -105,7 +106,11 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **AC-1 (action).** `action name(params) { … }` declares an `io` function
   whose body is **one change** across its awaited work: every write between
   entry and return belongs to that change and is held until the body returns
-  and everything it put in flight has landed (F-2's explicit form).
+  and everything it put in flight has landed (F-2's explicit form). The
+  handler that launches it is the same instant, so the handler's own plain
+  writes — before or after the call — are the action's and are held with it
+  (D-7's same-tick adoption); to land something now, make it a guess or a
+  separate event.
   `action { … }` inline in a handler is the same for one run. There is no
   escape: a write after an `await` is still the action's (the language has
   the scope, so none of 2.0's generator plumbing — S-9's "fresh write

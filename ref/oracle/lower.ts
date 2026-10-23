@@ -7,7 +7,7 @@ import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
-  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, $TARGET
+  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
@@ -205,6 +205,18 @@ export class Oracle {
       } finally { this.currentEq = was; }
     };
   }
+  /** C-2: `pre y` of another node lowers to a companion memo `createMemo(st => ({ cur: y, prev: st?.cur }))` read at `.prev`. One per (scope, name). */
+  private prevOf(name: string, scope: Scope): () => unknown {
+    const key = `prev:${name}`;
+    let b = scope.lookup(key);
+    if (!b) {
+      let def: Scope | null = scope; while (def && !def.vars.has(name)) def = def.parent;   // cache on the scope that declares `name`, not a per-compute scope
+      const home = def ?? scope;
+      const get = runWithOwner(home.owner ?? null, () => createMemo((st: any) => { const cur = this.ev({ k: "id", name }, home); return { cur, prev: st ? st.cur : undefined }; }))!;   // owned by the declaring scope, not by whichever computation first read it
+      b = { k: "memo", get: () => (get() as { prev: unknown }).prev }; home.vars.set(key, b);
+    }
+    return (b as { get: () => unknown }).get;
+  }
   private loadingValue(e: Expr, scope: Scope) {                     // R-7: the first paint of any `await … -> v` in the equation
     let init: Expr | undefined;
     const walk = (x: Expr): void => { if (init) return; if (x.k === "await" && x.init) { init = x.init; return; } for (const v of Object.values(x as object)) { if (Array.isArray(v)) v.forEach(y => y && typeof y === "object" && "k" in y && walk(y as Expr)); else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr); } };
@@ -247,7 +259,13 @@ export class Oracle {
       case "member": { const o = this.ev(e.o, scope, env) as any; noFlight(o); return o == null ? undefined : o[e.p]; }
       case "index": { const o = this.ev(e.o, scope, env) as any; const i = this.ev(e.i, scope, env) as any; return o == null ? undefined : o[i]; }
       case "tpl": return e.parts.map(p => typeof p === "string" ? p : fmt(this.ev(p, scope, env))).join("");
-      case "pre": { const b = scope.lookup(`pre:${e.name}`); if (!b || b.k !== "const") throw new Unsupported("`pre` of another node"); if (b.value === undefined && e.init) return this.ev(e.init, scope, env); return b.value; }
+      case "pre": {
+        const own = scope.lookup(`pre:${e.name}`);
+        if (own && own.k === "const") { if (own.value === undefined && e.init) return this.ev(e.init, scope, env); return own.value; }   // the equation's own previous value: the memo's `prev`
+        const v = this.prevOf(e.name, scope)();                        // C-2 for another node: a companion memo carrying (current, previous)
+        if (v === undefined && e.init) return this.ev(e.init, scope, env);
+        return v;
+      }
       case "peek": return untrack(() => this.ev(e.e, scope, env));
       case "await": { const v = this.ev(e.e, scope, env); return v; }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
       case "latest": return latest(() => this.ev(e.e, scope, env));

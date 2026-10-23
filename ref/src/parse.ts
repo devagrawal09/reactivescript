@@ -93,9 +93,11 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("source")) {
     c.ws(); const name = c.ident() ?? c.fail("source name"); const type = optType(c); c.ws();
-    if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line, type }; }
+    let key: string | undefined;
+    if (/^key\s+[A-Za-z_$][\w$]*\s*(=|:=)[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(); }   // ST-4a on a source
+    if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line, type, key }; }
     c.expect("="); c.ws();
-    return { k: "source", name, init: parseExpr(c), line, question: true, type };   // ST-5: a source with a standing question
+    return { k: "source", name, init: parseExpr(c), line, question: true, type, key };   // ST-5: a source with a standing question
   }
   if (c.keyword("effect")) {
     c.ws(); c.expect("("); c.ws();

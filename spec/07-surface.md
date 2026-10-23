@@ -55,7 +55,10 @@ label: string = `${user.name} (${count})`
 deferred preview = await render(doc)   // H-1: declared lag
 rows key id = map(items, …)            // ST-4: keyed collection
 selected = draft(pre selected -> {}) { d[id] := true }   // ST-3
-effect (count, user.name) { … }        // EF: compute half in parens, apply half in braces
+effect (count, user.name) { log($0, $1) }   // EF: compute half in parens, apply half in braces; `$0…$n` are the values
+effect () { … }                        // EF-4: the mount hook
+source messages = await* stream(room) -> []   // ST-6b + R-7: a stream with a first paint
+rows key id = fetchedRows              // ST-4: a keyed collection; `source rows key id = …` is also allowed
 fn area(ref w: number, h: number): number => w * h       // E-9: `ref` is an instantiation parameter
 fn Counter(ref start: number) {        // RG-6: an instantiating fn — has declarations
   source n := start
@@ -92,7 +95,7 @@ Added:
 | --- | --- | --- |
 | `await e` | the answer to `e`'s flight; absent until it lands | R-1 |
 | `await e -> v` | the same, with `v` as the first paint | R-7 |
-| `await* e` | the latest answer of an async iterable (a stream) | ST-6b |
+| `await* e`, `await* e -> v` | the latest answer of an async iterable (a stream), with a first paint | ST-6b, R-7 |
 | `pre x`, `pre x -> init` | `x`'s value in the previous instant | C-2 |
 | `peek(e)` | `e` read without subscribing | E-? (untrack) |
 | `pending? e`, `latest e` | the verdict of the reads inside `e`; the value `e` is moving toward — both take a **unary** operand: `pending? a || b` is `(pending? a) || b`, `latest x * 2` is `(latest x) * 2` | R-9, H-9 |
@@ -104,7 +107,7 @@ Added:
 | `` `a ${e} b` `` | template literal | — |
 | `o?.k`, `xs.map(f)` | optional chaining, method calls | — |
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
-| `use name` | the nearest provision above | RG-7 |
+| `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
 
 `await` may appear anywhere in an expression; the compiler lifts each one to
@@ -153,8 +156,8 @@ arrow function written in imperative scope or as an element's event handler.
 <button onClick={() => { count := count + 1 }}>+</button>
 
 effect (count) {
-  document.title = `${count}`        // io: a plain JS statement
-  return () => { … }                 // the cleanup (O-2)
+  document.title = `${$0}`           // io: a plain JS statement; `$0` is `count`'s value for this run
+  return () => { … }                 // the cleanup (O-2); a closure as the last expression is the same
 }
 
 action rename(n: string) {
@@ -179,6 +182,10 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   action's change (AC-7).
 - `await` in an action body suspends the run and keeps its change open; in
   a plain handler it ends the change (the continuation is a new one).
+- A handler that launches an action and also writes (`() => { draft := "";
+  send() }`) makes one change: the handler's plain writes are adopted by the
+  action and held with it (AC-1). Writes that should land now go in a
+  separate instant (a separate event), or are guesses.
 - The optimistic-action idiom, with a spinner:
 
   ```
@@ -261,11 +268,11 @@ view key id = map(rows, r => ({ id: r.id, name: r.name + "!" }))
 Module    ::= Import* Decl* Markup*                                  -- trailing markup: the mounted view (an app entry)
 Import    ::= "import" "pure"? ("{" (Name ("as" Name)?),* "}" | Name) "from" String
 Decl      ::= "export"? Decl'
-Decl'     ::= "source" Name Type? (":=" | "=") Expr
+Decl'     ::= "source" Name Type? ("key" Name)? (":=" | "=") Expr
             | ("type" | "interface") Name …                        -- kept as text
             | "provide" Name "=" Expr
             | "deferred"? Name Type? ("key" Name)? "=" Expr
-            | "effect" "(" Expr ("," Expr)* ")" Block
+            | "effect" "(" (Expr ("," Expr)*)? ")" Block           -- no inputs: EF-4
             | "fn" Name "(" Params ")" Type? ("=>" Expr | "{" Decl* Expr "}")
             | "action" Name "(" Params ")" Block
             | "component" Name "(" Name Type? ")" "{" RBlock "}"

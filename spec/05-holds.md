@@ -152,7 +152,9 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   commits the answer (found by `ref/`: S-hold-1 instant 3). `pending? x` is `true` iff `x`'s value in `σ` is
   not the final answer to a *new question*: an input changed and the answer
   is not committed, or a landed answer waits in a hold, or in-flight work
-  declared `affects x`. A re-ask (`refresh`, polling, a confirming refetch)
+  declared `affects x`. A plain write an action holds is the first case:
+  `pending? x` is `true` from the action's instant until its change
+  commits (S-solid-8, S-solid-32). A re-ask (`refresh`, polling, a confirming refetch)
   is quiet: `pending? x` stays `false` and the fresh value reveals silently.
   A node with no committed value has no verdict (R-9). Pending is per node —
   per object key for structured values — never store-wide.
@@ -183,7 +185,11 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   moves nothing (S-solid-34). When the body returns and nothing
   authoritative is in flight for `x`, the guess is corrected by the truth
   at hand, against the settled instant (S-solid-35; S-solid-26 variant).
-  Lowering and the full form: 06-stores.
+  For a streamed source (ST-6) the truth at hand is its latest landed
+  answer: a stream is never "in flight" in this sense, so a guess over it
+  is confirmed or corrected by the next landing, or by the body's end
+  against the current answer (S-ai-feed). Lowering and the full form:
+  06-stores.
 
 - **H-12 (Errors).** [F-12, D-41] An error value reaching a reader under
   `errored` sends that region to its fallback, which is then the display
@@ -223,6 +229,18 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-2 (A failed action) — ruled 2026-10-22.** Solid's: the plain
   writes a failed action held commit; only its optimistic state reverts.
   AC-1 now says so (S-solid-8 and S-solid-32 variants).
+- **DV-5 (`pre`: frame-indexed or evaluation-indexed) — open.** C-2/P-6 say
+  `pre x` is `x`'s value in the previous *frame*, so an unrelated write
+  (even an equal one, W-3) moves it: S-core-1 instant 2 (`count := 1`
+  again) turns `prev 0` into `prev 2`, and instant 4 (`show := false`)
+  turns it into `prev 14`. Solid's `pre` is the memo's previous
+  *evaluation*: `x`'s value before its last change, untouched by unrelated
+  writes, and kept while `x` is undemanded (E-8 clears it here). The
+  oracle lowers `pre y` of another node to a companion memo carrying
+  (current, previous), which is evaluation-indexed by construction; a
+  frame-indexed `pre` would need a frame clock. Recommendation: adopt
+  Solid's — it is the one a reader can predict from `x` alone, and the
+  surprising frames are ours. Recorded on S-core-1 until ruled.
 - **DV-4 (S-37 row 2 under a boundary, suspected runtime bug).** Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
   (`isPending(() => state.a)`) read `false` while the derive re-asks;

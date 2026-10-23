@@ -100,10 +100,15 @@ Function application `f(e…)` covers both language functions and FFI imports;
   time), `:=` is always "assign the current value now" — once in a
   declaration, on every execution in imperative scope. There is no implicit
   snapshot anywhere; the other explicit one is `peek`. `source x = e` is
-  reserved (a source with a standing question, 06-stores `follows`).
-  Diagnostic (warning): an initializer that reads a reactive value no
-  equation, reader, or effect in the region reads again — the author probably
-  meant an equation (`SNAPSHOT_INITIALIZER`, bin S).
+  a source with a standing question (06-stores ST-5).
+  **Open (DV-6, 2026-10-23):** an initializer that reads a reactive value
+  (`source email := form.email` — an edit buffer seeded from the form) is a
+  snapshot that the text does not show. This was a warning
+  (`SNAPSHOT_INITIALIZER`), but 08 CN-1a has no warning tier. Candidates:
+  make it an error unless the snapshot is written as one —
+  `source email := peek(form.email)` — which is the one-way-keyword stance
+  (the reader sees the snapshot); or accept it silently, as the runners do
+  today. S-ai-wizard uses the shape.
 - **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
   committed state and contributes no inputs to the enclosing equation. It has
   no meaning in imperative scope, where every read is already a snapshot
@@ -223,21 +228,32 @@ Function application `f(e…)` covers both language functions and FFI imports;
 ### EF — Effects
 
 - **EF-1 (Split).** `effect (e₁…eₙ) B`: each `eᵢ` is an equation (E-2); `B` is
-  imperative scope and receives the values of `e₁…eₙ` by position. `B` may not
-  read any reactive variable except through its parameters or `peek`.
-- **EF-2 (When).** `B` runs in an instant iff at least one `eᵢ` changed value in
-  that instant, or it is the instant in which the effect was declared. It runs
-  after every equation the instant reaches has settled (§4).
+  imperative scope and receives the values of `e₁…eₙ` by position as `$0…$n`
+  (07 §5). Reads of reactive names inside `B` are snapshots of the committed
+  state (SC-2), so the parameters are how `B` sees the values it fired for.
+- **EF-2 (When).** `B` runs in an instant iff at least one `eᵢ`'s value
+  differs from the value `B` last received for it, or it is the instant in
+  which the effect was declared. A value that was pending and lands equal to
+  the last received value is not a change (ruled 2026-10-23 with the oracle:
+  Solid's effect compares values; E-8's "absent counts as changed" governs
+  readers, not applies). It runs after every equation the instant reaches
+  has settled (§4). An `eᵢ` that derives from a guess or a lane value
+  (H-7, H-11) fires with the lane's reveal — now, not at the hold's commit —
+  and again when the guess reverts (S-ai-feed instant 4; both runners).
 - **EF-3 (Once, completely).** `B` runs at most once per instant and is never
   interrupted by that instant's settling; its writes begin a new instant.
 - **EF-4 (No inputs).** `effect () B` runs once, in the instant the effect is
   declared, after settle — the mount hook.
-- **EF-5 (Cleanup).** `B` may return a function; it runs before the next run of
-  `B` and when the effect's region ends.
+- **EF-5 (Cleanup).** `B` may return a function — `return () => { … }`, or a
+  closure as its last expression; both are the cleanup — and it runs before
+  the next run of `B` and when the effect's region ends.
 - **EF-6 (Order is unspecified).** The order in which apply blocks run within
   one instant's observe phase is not specified. A program whose behavior
   depends on it is incorrect. (`ref/` uses declaration order; scenarios must
-  not rely on it.)
+  not rely on it.) What *is* specified: every cleanup of a region ending in
+  the instant runs before any apply block of that instant (O-2), so
+  `log(leave, 1); log(enter, 2)` across a step change is a legal
+  expectation (S-ai-wizard).
 
 ### V — Views
 

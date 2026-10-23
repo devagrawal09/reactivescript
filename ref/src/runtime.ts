@@ -84,7 +84,7 @@ export class Region {
     this.parent?.children.delete(this);
   }
 }
-type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void };
+type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[] };
 type Write = { node: Node; path: (string | number)[]; value: unknown };
 
 // view instances: structure has a committed and an in-flight version (H-2, H-8)
@@ -155,8 +155,8 @@ export class Runtime {
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
       if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(d.name, b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
-      if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
-      else if (d.k === "source") region.scope.set(d.name, this.mkNode("source", d.name, region));
+      if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
+      else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
     }
     for (const d of decls) {
       if (d.k === "eq" && this.instantiates(d.e, region)) region.scope.set(d.name, this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, region));
@@ -165,7 +165,7 @@ export class Runtime {
         n.value = this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
         const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
-        const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true };
+        const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true, last: [] };
         region.effects.push(rec); this.effects.push(rec);
       }
     }
@@ -224,6 +224,7 @@ export class Runtime {
         w = { ...w, value: (w.value as (v: unknown) => unknown)(cur) };
       }
       if (w.path.length === 0) {
+        if (w.node.keyBy && Array.isArray(w.value) && Array.isArray(w.node.value)) w = { ...w, value: this.reconcile(w.node.value, w.value, w.node.keyBy) };   // ST-4a on a source: a root write reconciles by key
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
         if (d.size === 0) continue;
         w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; w.node.heldKeys.set("", this.instant); this.notify(w.node, "");
@@ -296,9 +297,11 @@ export class Runtime {
     for (const e of [...this.effects]) {
       if (!e.alive) continue;
       const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));   // E-12: an error is an answer
-      const fire = settled && (!e.ran || e.computes.some(c => c.changedSinceCommit));
+      const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
+      const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
       if (!fire) continue;
       for (const c of e.computes) c.changedSinceCommit = false;
+      e.last = e.computes.map(c => c.value);
       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
       const r = this.runStmts(e.body, e.region, new Map(), e.computes.map(c => c.value));
       if (typeof r === "function") e.cleanup = r as () => void;

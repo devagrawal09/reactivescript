@@ -64,3 +64,10 @@ a = b + 1
 b = a + 1
 <p>{a}</p>
 ```
+
+## Divergences
+
+- oracle "Frames" instant 2: `2 prev 0` — Solid: `pre x` is `x`'s value before its last change (the memo's previous evaluation); an equal write opens no frame there. C-2/P-6 here: the previous *frame*'s value, and W-3 says an equal write still opens an instant. DV-5 in spec/05-holds.md §Divergences.
+- oracle "Frames" instant 4: `- prev 2` — same: `show := false` advances the frame here, so `pre double` becomes 14; in Solid `double` did not change, so its previous value is still 2.
+- oracle "Variant: no effect (`double` undemanded while `show` is false)" instant 4: `- prev 2` — same.
+- oracle "Variant: no effect (`double` undemanded while `show` is false)" instant 5: `- prev 14` — same, plus E-8: here an undemanded `double` has no frame value so `pre double` is `undefined` (`-> 0`); Solid's memo keeps its last evaluation.
