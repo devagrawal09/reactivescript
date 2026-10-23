@@ -116,6 +116,7 @@ export class Oracle {
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
+      if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name]; if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
@@ -234,6 +235,7 @@ export class Oracle {
       }
       case "member": { const o = this.ev(e.o, scope, env) as any; return o == null ? undefined : o[e.p]; }
       case "index": { const o = this.ev(e.o, scope, env) as any; const i = this.ev(e.i, scope, env) as any; return o == null ? undefined : o[i]; }
+      case "tpl": return e.parts.map(p => typeof p === "string" ? p : fmt(this.ev(p, scope, env))).join("");
       case "pre": { const b = scope.lookup(`pre:${e.name}`); if (!b || b.k !== "const") throw new Unsupported("`pre` of another node"); if (b.value === undefined && e.init) return this.ev(e.init, scope, env); return b.value; }
       case "peek": return untrack(() => this.ev(e.e, scope, env));
       case "await": throw new Unsupported("`await` nested in an expression");
@@ -248,14 +250,15 @@ export class Oracle {
         return BIN[e.op](l, this.ev(e.r, scope, env));
       }
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
-      case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) o[f.key] = this.ev(f.v, scope, env); return o; }
+      case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else o[f.key] = this.ev(f.v, scope, env); } return o; }
       case "fn": return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return e.stmts ? this.runStmts(e.stmts, scope, en) : this.ev(e.body, scope, en); };
       case "call": {
-        const f = this.ev(e.f, scope, env) as any;
+        let f: any, self: any;
+        if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
         const args = e.args.map(a => this.ev(a, scope, env));
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
         if (typeof f !== "function") throw new Error("call of non-function");
-        return f(...args);
+        return f.apply(self, args);
       }
       case "draft": throw new Unsupported("draft outside an equation");
       case "use": { const b = this.provision(e.name, scope); return b.k === "const" ? b.value : (b as { get: () => unknown }).get(); }
@@ -272,6 +275,8 @@ export class Oracle {
     switch (s.k) {
       case "let": env.set(s.name, untrack(() => this.ev(s.e, scope, env))); return;
       case "expr": return untrack(() => this.ev(s.e, scope, env));
+      case "return": return s.e ? untrack(() => this.ev(s.e!, scope, env)) : undefined;
+      case "sif": { let r: unknown; for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { r = this.stmt(st, scope, env); if (st.k === "return") return r; } return r; }
       case "action": this.lowerAction([], s.body, scope, env)(); return;
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
@@ -330,6 +335,7 @@ export class Oracle {
       case "text": return R.createTextNode(m.s);
       case "read": return () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); };   // a view value (children) is inserted as structure
       case "el": {
+        if (m.tag === "") return this.fragment(m.children, scope);     // `<>…</>`
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
           const comp = b.decl;
@@ -339,7 +345,7 @@ export class Oracle {
           return R.createComponent((p: any) => { const s2 = new Scope(scope); s2.vars.set(comp.props, { k: "const", value: p }); this.declare(comp.decls, s2); return this.fragment(comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);
-        for (const a of m.attrs) R.effect(() => this.ev(a.e, scope), v => R.setProp(el, a.name, v));
+        for (const a of m.attrs) { if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
         R.insert(el, () => this.fragment(m.children, scope));
         return el;
       }

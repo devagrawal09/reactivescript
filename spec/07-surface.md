@@ -1,10 +1,10 @@
 # 07 — Surface
 
-**Status: OPEN (2026-10-22), first draft.** Concrete syntax for everything 02–06
-gives a semantics to. Written last, so every form below names the rule it
-spells. The scenarios in `scenarios/` are already written in this syntax minus
-types, imports and handlers — this document is what makes that official and
-fills the gaps. Ruled so far: file = module; `source` / `=` / `:=`; imports
+**Status: OPEN (2026-10-22).** Concrete syntax for everything 02–06 gives a
+semantics to. Written last, so every form below names the rule it spells.
+`ref/src/parse.ts` implements this grammar and every scenario parses under
+it; `S-surface-1` exercises the parts the semantic scenarios do not (types,
+imports, handlers, template literals, method calls, functional writes). Ruled so far: file = module; `source` / `=` / `:=`; imports
 `io` unless `pure`; handlers are JSX attributes; `c ? a : b` only; streams
 are `await*`; `errored fallback(e)`; `.rx`. The list at the end records each.
 
@@ -34,7 +34,13 @@ export component Profile(props: { id: number }) { … }
   one word in the language that lowers taint, and it is unchecked for JS;
   inside `.rx` the row is inferred and only rises: a `fn` that calls `io`
   is a compile error, an `io` call outside imperative scope is a compile
-  error (R-io-1..3). `fn` is pure by definition, `action` is `io`.
+  error (R-io-1..3). `fn` is pure by definition, `action` is `io`. `pure`
+  means *safe to call from reactive scope* — no writes to reactive state,
+  safe to re-ask — so a data loader (`fetchUser`) is imported `pure`: it
+  returns a promise the equation awaits (R-1), and re-asking it is what a
+  new question does.
+- A module whose top level ends in markup is an app entry: that markup is
+  the mounted view. The scenarios are written this way.
 - `export` works on `component`, `fn`, `action`, and module-level sources and
   equations (exported as accessors — a module boundary is a value boundary,
   never a write boundary: W-1 holds across modules).
@@ -91,8 +97,15 @@ Added:
 | `peek(e)` | `e` read without subscribing | E-? (untrack) |
 | `latest x` | the value `x` is moving toward, else its committed value | R-9 |
 | `pending? e` | the verdict of the reads inside `e` | R-9, H-9 |
-| `c ? a : b` | lazy conditional (TS's `c ? a : b` is also accepted) | E-11 |
+| `c ? a : b` | TS's conditional, lazy: only the selected arm is an input | E-11 |
 | `draft(e) { … }` | a copy of `e` written along `d` | ST-3 |
+| `x => e`, `(a, b) => e`, `() => { … }` | arrow functions; a statement body only in imperative scope | SC-3 |
+| `[...xs, y]`, `{ ...o, k: v }` | spread | — |
+| `` `a ${e} b` `` | template literal | — |
+| `o?.k`, `xs.map(f)` | optional chaining, method calls | — |
+| `===` / `!==` | accepted as `==` / `!=` | E-6 |
+| `use name` | the nearest provision above | RG-7 |
+| `type T = …` | a TS type declaration, kept as text | — |
 
 `await` may appear anywhere in an expression; the compiler lifts each one to
 its own flight (04 R-1). `yield` is not an expression; a stream is `await*`.
@@ -158,9 +171,10 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   assignment; `x := f` with `f` a function is a functional write — `f` is
   applied to the slot at the instant, so writes to one slot in one instant
   compose (W-6).
-- `let` declares an imperative local; TS statements (`if`, `for`, `try`,
-  `return`, calls) are allowed; reads of reactive names are snapshots of σ
-  (H-10, SC-2).
+- `let` (or `const`) declares an imperative local; `if (c) { … } else { … }`,
+  `return`, and expression statements are allowed (`for`, `try`, `throw`:
+  not yet in `ref/`); reads of reactive names are snapshots of σ (H-10,
+  SC-2).
 - `await` in an action body suspends the run and keeps its change open; in
   a plain handler it ends the change (the continuation is a new one).
 - `refresh x`, `affects x`, `optimistic x := e` are statements (AC-3..5).
@@ -220,10 +234,11 @@ view key id = map(rows, r => ({ id: r.id, name: r.name + "!" }))
 ## 8. Grammar sketch
 
 ```
-Module    ::= (Import | Export | Decl)*
-Import    ::= "import" "pure"? ImportClause "from" String
-Export    ::= "export" Decl
-Decl      ::= "source" Name Type? (":=" | "=") Expr
+Module    ::= Import* Decl* Markup*                                  -- trailing markup: the mounted view (an app entry)
+Import    ::= "import" "pure"? ("{" (Name ("as" Name)?),* "}" | Name) "from" String
+Decl      ::= "export"? Decl'
+Decl'     ::= "source" Name Type? (":=" | "=") Expr
+            | ("type" | "interface") Name …                        -- kept as text
             | "provide" Name "=" Expr
             | "deferred"? Name Type? ("key" Name)? "=" Expr
             | "effect" "(" Expr ("," Expr)* ")" Block
@@ -239,7 +254,9 @@ Control   ::= "if" Expr "{" RBlock "}" ("else" "{" RBlock "}")?
 Block     ::= "{" Stmt* "}"
 Stmt      ::= Target ":=" Expr | "optimistic" Target ":=" Expr      -- Target may be `use` Name Path (RG-7c)
             | "refresh" Name | "affects" Name | "action" Block
-            | "let" Name Type? "=" Expr | TSStatement
+            | ("let" | "const") Name Type? "=" Expr
+            | "if" "(" Expr ")" (Block | Stmt) ("else" (Block | Stmt))?
+            | "return" Expr? | Expr
 Expr      ::= TSExpr with §3's removals and additions
 ```
 

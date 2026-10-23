@@ -143,7 +143,13 @@ export class Runtime {
 
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
-    for (const d of decls) { if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
+    for (const d of decls) {
+      if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
+        const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name];
+        if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
+        region.scope.set(alias, { constant: d.pure || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
+      }
+      if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
       if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(d.name, b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
@@ -628,8 +634,9 @@ export class Runtime {
         if ("action" in b) { const a = b.action; return Object.assign((...args: unknown[]) => { const en = new Map(env); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, region, en, true); }, { io: true }); }   // AC-1: an action is io
         return this.readNode(b);
       }
-      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, e.p); return v[e.p]; }
-      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) return undefined; this.track(v, String(i)); return v[String(i)]; }
+      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
+      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
+      case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }
       case "pre": {
         const b = region.lookup(e.name);
         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
@@ -700,7 +707,7 @@ export class Runtime {
       }
       case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
       case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
-      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
+      case "rec": { const o: Record<string, unknown> = {}; let bad: unknown; for (const f of e.fields) { if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const v = this.ev(f.v, region, env); if (isAbsent(v)) bad ??= v; o[f.key] = v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;
         const copied = new Set<object>();
@@ -730,13 +737,15 @@ export class Runtime {
         };
       }
       case "call": {
-        const f = this.ev(e.f, region, env);
+        let f: unknown, self: unknown;
+        if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
+        else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
         if (f === BUILTINS.fetch) return this.flight(String(args[0]));
-        return (f as (...a: unknown[]) => unknown)(...args);
+        return (f as (...a: unknown[]) => unknown).apply(self, args);
       }
     }
   }
@@ -777,27 +786,44 @@ export class Runtime {
           }
           if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
           else if (s.k === "expr") result = this.ev(s.e, region, env);
-          else if (s.k === "action") this.startRun(s.body, region, new Map(env), true);     // AC-1 inline: one change for one run
-          else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); this.pendingRefresh.push(n); }
-          else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
-          else if (s.k === "optimistic") {
-            if (!run.action) throw new RuleError("OPTIMISTIC_OUTSIDE_HOLD", "optimistic outside an action body");
-            const n = this.nodeNamed(s.target.name, region);
-            if (!n || !n.question) throw new RuleError("OPTIMISTIC_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
-            if (s.target.path.length) throw new RuleError("UNSUPPORTED", "optimistic path writes are not modelled yet");
-            this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
-          } else {
-            let b: Binding | undefined = region.lookup(s.target.name);
-            if (s.target.ctx) { b = undefined; for (let r: Region | null = region; r && !b; r = r.parent) b = r.provided.get(s.target.name); if (!b) throw new RuleError("RG-7b", `no provision for ${s.target.name}`); }
-            if (!b || !(b instanceof Node) || !(b.kind === "source" || b.question)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
-            const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
-            this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });
-          }
+          else if (s.k === "return") { result = s.e ? this.ev(s.e, region, env) : undefined; run.i = run.stmts.length; break; }
+          else if (s.k === "sif") { const r = this.execBlock(this.ev(s.c, region, env) ? s.t : s.f, region, env); if (r.returned) { result = r.value; run.i = run.stmts.length; break; } }
+          else this.resumeStmtOnly(s, region, env);
         }
         this.endRun(run, false);
         return result;
       } finally { this.currentRun = prev; }
     });
+  }
+  /** Nested statement blocks (imperative `if`): no suspension inside — an `await` here is a plain value read. */
+  private execBlock(stmts: Stmt[], region: Region, env: Map<string, unknown>): { returned: boolean; value?: unknown } {
+    for (const s of stmts) {
+      if (s.k === "let") env.set(s.name, this.ev(s.e.k === "await" ? s.e.e : s.e, region, env));
+      else if (s.k === "expr") this.ev(s.e.k === "await" ? s.e.e : s.e, region, env);
+      else if (s.k === "return") return { returned: true, value: s.e ? this.ev(s.e, region, env) : undefined };
+      else if (s.k === "sif") { const r = this.execBlock(this.ev(s.c, region, env) ? s.t : s.f, region, env); if (r.returned) return r; }
+      else this.resumeStmtOnly(s, region, env);
+    }
+    return { returned: false };
+  }
+  /** One imperative statement that neither suspends nor branches. */
+  private resumeStmtOnly(s: Stmt, region: Region, env: Map<string, unknown>) {
+    const run = this.currentRun ?? { action: false };
+    if (s.k === "action") this.startRun(s.body, region, new Map(env), true);
+    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); this.pendingRefresh.push(n); }
+    else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
+    else if (s.k === "optimistic") {
+      if (!run.action) throw new RuleError("OPTIMISTIC_OUTSIDE_HOLD", "optimistic outside an action body");
+      const n = this.nodeNamed(s.target.name, region);
+      if (!n || !n.question) throw new RuleError("OPTIMISTIC_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
+      this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
+    } else if (s.k === "write") {
+      let b: Binding | undefined = region.lookup(s.target.name);
+      if (s.target.ctx) { b = undefined; for (let r: Region | null = region; r && !b; r = r.parent) b = r.provided.get(s.target.name); if (!b) throw new RuleError("RG-7b", `no provision for ${s.target.name}`); }
+      if (!b || !(b instanceof Node) || !(b.kind === "source" || b.question)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
+      const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
+      this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });
+    }
   }
   private endRun(run: Run, rejected: boolean) {
     if (!run.action) return;
@@ -852,7 +878,7 @@ export class Runtime {
           this.declare(comp.decls, r);
           return { k: "comp", inst: { region: r, items: comp.view.map(c => this.inst1(c, r)) } };
         }
-        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };
+        return { k: "el", tag: m.tag, attrs: m.attrs.map(a => ({ name: a.name, node: this.mkNode("reader", a.name, region, /^on[A-Z:]/.test(a.name) ? rt => rt.untracked(() => rt.evalExpr(a.e, region)) : rt => rt.evalExpr(a.e, region)) })), children: m.children.map(c => this.inst1(c, region)) };   // 07 §5: an event handler is an imperative closure
       }
       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
@@ -899,7 +925,8 @@ function freeVars(e: Expr, out: Set<string>) {
     case "index": freeVars(e.o, out); freeVars(e.i, out); break;
     case "call": freeVars(e.f, out); e.args.forEach(a => freeVars(a, out)); break;
     case "arr": e.items.forEach(a => freeVars(a, out)); break;
-    case "rec": e.fields.forEach(f => freeVars(f.v, out)); break;
+    case "rec": e.fields.forEach(f => freeVars("spread" in f ? f.spread : f.v, out)); break;
+    case "tpl": e.parts.forEach(p => { if (typeof p !== "string") freeVars(p, out); }); break;
     case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const st of e.stmts ?? []) if ("e" in st) freeVars(st.e, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
     case "spread": freeVars(e.e, out); break;
     case "use": break;

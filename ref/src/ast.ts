@@ -8,15 +8,16 @@ export type Expr =
   | { k: "un"; op: string; e: Expr }
   | { k: "pre"; name: string; init?: Expr }
   | { k: "peek"; e: Expr }
-  | { k: "await"; e: Expr; init?: Expr }                       // R-1, R-7
+  | { k: "await"; e: Expr; init?: Expr; stream?: boolean }     // R-1, R-7; stream: `await*` (ST-6b)
   | { k: "latest"; e: Expr }                                   // R-9 probe
   | { k: "pending"; e: Expr }                                  // R-9 probe (`pending? e`)
   | { k: "if"; c: Expr; t: Expr; f: Expr }
-  | { k: "member"; o: Expr; p: string }
-  | { k: "index"; o: Expr; i: Expr }
+  | { k: "tpl"; parts: (string | Expr)[] }                      // template literal
+  | { k: "member"; o: Expr; p: string; opt?: boolean }          // opt: `?.`
+  | { k: "index"; o: Expr; i: Expr; opt?: boolean }
   | { k: "call"; f: Expr; args: Expr[] }
   | { k: "arr"; items: Expr[] }
-  | { k: "rec"; fields: { key: string; v: Expr }[] }
+  | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
   | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
@@ -31,16 +32,20 @@ export type Stmt =
   | { k: "optimistic"; target: Target; e: Expr }                // AC-3
   | { k: "refresh"; name: string }                              // AC-4
   | { k: "affects"; name: string }                              // AC-5
-  | { k: "action"; body: Stmt[] };                              // AC-1 inline
+  | { k: "action"; body: Stmt[] }                               // AC-1 inline
+  | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
+  | { k: "return"; e?: Expr };
 
-export type Param = { name: string; ref: boolean };            // E-9
+export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
 export type Decl =
-  | { k: "source"; name: string; init: Expr; line: number; question?: boolean }   // question: `source x = e` (ST-5)
-  | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string }   // deferred: declared lag (V-16, D-40); key: ST-4
+  | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean }   // question: `source x = e` (ST-5)
+  | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4
+  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; line: number }   // R-io-4: io unless `pure`
+  | { k: "typedecl"; name: string; line: number }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
-  | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number }       // body: decls then a value
-  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number }  // body: decls then a view
-  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number }                   // AC-1
+  | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
+  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean }  // body: decls then a view
+  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
   | { k: "provide"; name: string; e: Expr; line: number };                                       // RG-7a
 
 export type Markup =

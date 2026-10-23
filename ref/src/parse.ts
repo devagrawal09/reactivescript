@@ -15,6 +15,7 @@ class Cursor {
       const c = this.peek();
       if (c === " " || c === "\t" || c === "\r" || (newlines && c === "\n")) this.i++;
       else if (c === "/" && this.peek(1) === "/") { while (!this.eof() && this.peek() !== "\n") this.i++; }
+      else if (c === "/" && this.peek(1) === "*") { const j = this.src.indexOf("*/", this.i + 2); this.i = j < 0 ? this.src.length : j + 2; }
       else break;
     }
   }
@@ -28,6 +29,10 @@ class Cursor {
     this.i += m[0].length;
     return m[0];
   }
+  tagName(): string | null {                                          // JSX names: `my-element`, `data-id`, `on:click`
+    const m = /^[A-Za-z_$][A-Za-z0-9_$:.-]*/.exec(this.src.slice(this.i));
+    if (!m) return null; this.i += m[0].length; return m[0];
+  }
   peekIdent(): string | null {
     const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(this.src.slice(this.i));
     return m ? m[0] : null;
@@ -39,7 +44,23 @@ class Cursor {
   }
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key", "provide", "use"]);
+/** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
+function parseType(c: Cursor, braceStops = false): string {
+  const start = c.i; let depth = 0;
+  while (!c.eof()) {
+    const ch = c.peek();
+    if (depth === 0) {
+      if (c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
+    }
+    if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
+    c.i++;
+  }
+  const t = c.src.slice(start, c.i).trim(); if (!t) c.fail("type"); return t;
+}
+function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
+
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -55,11 +76,26 @@ export function parseProgram(src: string): Program {
 function parseDecl(c: Cursor): Decl {
   c.ws();
   const line = c.line;
+  if (c.keyword("export")) { c.ws(); const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
+  if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
+    c.ws(); const pure = c.keyword("pure"); c.ws();
+    const names: { name: string; alias: string }[] = [];
+    if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
+    else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); }
+    c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
+    const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+    return { k: "import", names, from: from.v, pure, line };
+  }
+  if (c.keyword("type") || c.keyword("interface")) {                  // a TS type declaration: kept as text, not a binding
+    c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
+    if (c.eat("=")) { c.ws(); parseType(c); } else { c.expect("{"); let depth = 1; while (!c.eof() && depth) { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } }
+    return { k: "typedecl", name, line };
+  }
   if (c.keyword("source")) {
-    c.ws(); const name = c.ident() ?? c.fail("source name"); c.ws();
-    if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line }; }
+    c.ws(); const name = c.ident() ?? c.fail("source name"); const type = optType(c); c.ws();
+    if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line, type }; }
     c.expect("="); c.ws();
-    return { k: "source", name, init: parseExpr(c), line, question: true };   // ST-5: a source with a standing question
+    return { k: "source", name, init: parseExpr(c), line, question: true, type };   // ST-5: a source with a standing question
   }
   if (c.keyword("effect")) {
     c.ws(); c.expect("("); c.ws();
@@ -69,13 +105,13 @@ function parseDecl(c: Cursor): Decl {
     return { k: "effect", inputs, body: parseBlock(c), line };
   }
   if (c.keyword("deferred")) {
-    c.ws(); const name = c.ident() ?? c.fail("deferred name"); c.ws(); c.expect("="); c.ws();
-    return { k: "eq", name, e: parseExpr(c), line, deferred: true };
+    c.ws(); const name = c.ident() ?? c.fail("deferred name"); const type = optType(c); c.ws(); c.expect("="); c.ws();
+    return { k: "eq", name, e: parseExpr(c), line, deferred: true, type };
   }
   if (c.keyword("action")) {
     c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, body: parseBlock(c), line };
   }
@@ -83,29 +119,30 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("fn")) {
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
     const params: Param[] = [];
-    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); params.push({ name: c.ident() ?? c.fail("param"), ref }); c.ws(); if (!c.eat(",")) break; c.ws(); }
-    c.expect(")"); c.ws();
-    if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line }; }
+    while (!c.startsWith(")")) { const ref = c.keyword("ref"); c.ws(); const pname = c.ident() ?? c.fail("param"); const type = optType(c); params.push({ name: pname, ref, type }); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); const ret = optType(c, true); c.ws();
+    if (c.eat("=>")) { c.ws(); return { k: "fn", name, params, decls: [], tail: parseExpr(c), line, ret }; }
     c.expect("{");
     const decls: Decl[] = [];
     for (;;) { c.ws(); if (!looksLikeDecl(c)) break; decls.push(parseDecl(c)); c.ws(); c.eat(";"); }
     c.ws(); const tail = parseExpr(c); c.ws(); c.expect("}");
-    return { k: "fn", name, params, decls, tail, line };
+    return { k: "fn", name, params, decls, tail, line, ret };
   }
   if (c.keyword("component")) {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
-    const props = c.ident() ?? c.fail("props name"); c.ws(); c.expect(")"); c.ws(); c.expect("{");
+    const props = c.ident() ?? c.fail("props name"); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");
     const { decls, body } = parseBlockBody(c);
-    return { k: "component", name, props, decls, view: body, line };
+    return { k: "component", name, props, decls, view: body, line, propsType };
   }
   const save = c.i;
   const name = c.ident();
   c.ws(false);
-  let key: string | undefined;
+  let key: string | undefined; let type: string | undefined;
+  if (name && !KEYWORDS.has(name)) { type = optType(c); c.ws(false); }
   if (name && !KEYWORDS.has(name) && c.keyword("key")) { c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
   if (name && !KEYWORDS.has(name) && c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") {
     c.i++; c.ws();
-    return { k: "eq", name, e: parseExpr(c), line, key };
+    return { k: "eq", name, e: parseExpr(c), line, key, type };
   }
   c.i = save;
   if (c.peekIdent() && /^[A-Za-z_$][A-Za-z0-9_$.\[\]]*\s*:=/.test(c.src.slice(c.i)))
@@ -139,7 +176,15 @@ function parseStmt(c: Cursor): Stmt {
   if (c.keyword("refresh")) { c.ws(); return { k: "refresh", name: c.ident() ?? c.fail("name") }; }
   if (c.keyword("affects")) { c.ws(); return { k: "affects", name: c.ident() ?? c.fail("name") }; }
   if (c.keyword("action")) { c.ws(); return { k: "action", body: parseBlock(c) }; }
-  if (c.keyword("let")) { c.ws(); const name = c.ident() ?? c.fail("let name"); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
+  if (c.keyword("let") || c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("let name"); optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
+  if (c.keyword("return")) { c.ws(false); if (c.peek() === "}" || c.peek() === ";" || c.peek() === "\n" || c.eof()) return { k: "return" }; return { k: "return", e: parseExpr(c) }; }
+  if (c.keyword("if")) {                                               // imperative `if (c) { … } else { … }`
+    c.ws(); c.expect("("); c.ws(); const cond = parseExpr(c); c.ws(); c.expect(")"); c.ws();
+    const t = c.peek() === "{" ? parseBlock(c) : [parseStmt(c)]; c.ws();
+    let f: Stmt[] = [];
+    if (c.keyword("else")) { c.ws(); f = c.peek() === "{" ? parseBlock(c) : [parseStmt(c)]; }
+    return { k: "sif", c: cond, t, f };
+  }
   // write?  target := expr
   const save = c.i;
   let name = c.ident();
@@ -172,7 +217,11 @@ export function parseExpr(c: Cursor): Expr {
     else { const id = c.ident(); if (id && !KEYWORDS.has(id)) { params.push(id); c.ws(false); ok = c.startsWith("=>"); } }
     if (ok) {
       c.expect("=>"); c.ws();
-      if (c.peek() === "{" && /^\{\s*(use\s|let\s|refresh\s|affects\s|optimistic\s|action\s|[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*|\[[^\]]*\])*\s*:=)/.test(c.src.slice(c.i))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts: parseBlock(c) };   // a statement body: imperative scope
+      if (c.peek() === "{") {                                        // `=> { … }`: a statement body (imperative scope) unless it reads as a record literal
+        const at = c.i;
+        try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
+        c.i = at;
+      }
       return { k: "fn", params, body: parseExpr(c) };
     }
     c.i = save;
@@ -185,6 +234,7 @@ export function parseExpr(c: Cursor): Expr {
   }
   const cond = parseBin(c, 0);
   c.ws(false);
+  if (c.startsWith(":=")) c.fail("W-2: write in reactive scope (no statement position)");   // U: the grammar has no position for a write here
   if (c.peek() === "?" && c.peek(1) !== ".") {                         // E-11: `c ? a : b`, TS verbatim (ruled 2026-10-22: the only spelling)
     c.i++; c.ws(); const t = parseExpr(c); c.ws(); c.expect(":"); c.ws(); const f = parseExpr(c);
     return { k: "if", c: cond, t, f };
@@ -192,7 +242,8 @@ export function parseExpr(c: Cursor): Expr {
   return cond;
 }
 
-const LEVELS: string[][] = [["||"], ["&&"], ["==", "!="], ["<=", ">=", "<", ">"], ["+", "-"], ["*", "/", "%"]];
+const LEVELS: string[][] = [["??"], ["||"], ["&&"], ["===", "!==", "==", "!="], ["<=", ">=", "<", ">"], ["+", "-"], ["*", "/", "%"]];
+const OP_ALIAS: Record<string, string> = { "===": "==", "!==": "!=" };
 function parseBin(c: Cursor, lvl: number): Expr {
   if (lvl >= LEVELS.length) return parseUnary(c);
   let l = parseBin(c, lvl + 1);
@@ -201,7 +252,7 @@ function parseBin(c: Cursor, lvl: number): Expr {
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();
-    l = { k: "bin", op, l, r: parseBin(c, lvl + 1) };
+    l = { k: "bin", op: OP_ALIAS[op] ?? op, l, r: parseBin(c, lvl + 1) };
   }
 }
 function parseUnary(c: Cursor): Expr {
@@ -215,9 +266,9 @@ function parseUnary(c: Cursor): Expr {
   }
   if (c.keyword("peek")) { c.ws(); return { k: "peek", e: parseUnary(c) }; }
   if (c.keyword("await")) {
-    c.ws(); const e = parseUnary(c); c.ws(false);
-    if (c.eat("->")) { c.ws(); return { k: "await", e, init: parseUnary(c) }; }
-    return { k: "await", e };
+    const stream = c.eat("*"); c.ws(); const e = parseUnary(c); c.ws(false);   // `await*`: the latest answer of a stream (ST-6b)
+    if (c.eat("->")) { c.ws(); return { k: "await", e, init: parseUnary(c), stream }; }
+    return { k: "await", e, stream };
   }
   if (c.keyword("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
   if (c.keyword("use")) { c.ws(); return { k: "use", name: c.ident() ?? c.fail("context name") }; }
@@ -227,7 +278,8 @@ function parseUnary(c: Cursor): Expr {
 function parsePostfix(c: Cursor): Expr {
   let e = parsePrimary(c);
   for (;;) {
-    if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
+    if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
+    else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
     else if (c.peek() === "(") {
       c.i++; c.ws(); const args: Expr[] = [];
@@ -239,13 +291,22 @@ function parsePostfix(c: Cursor): Expr {
 function parsePrimary(c: Cursor): Expr {
   c.ws();
   const ch = c.peek();
+  if (ch === "`") {                                                   // template literal
+    c.i++; const parts: (string | Expr)[] = []; let s = "";
+    while (!c.eof() && c.peek() !== "`") {
+      if (c.startsWith("${")) { c.i += 2; if (s) parts.push(s); s = ""; c.ws(); parts.push(parseExpr(c)); c.ws(); c.expect("}"); continue; }
+      if (c.peek() === "\\") c.i++;
+      s += c.peek(); c.i++;
+    }
+    c.expect("`"); if (s || !parts.length) parts.push(s); return { k: "tpl", parts };
+  }
   if (ch === '"' || ch === "'") {
     c.i++; let s = "";
     while (!c.eof() && c.peek() !== ch) { if (c.peek() === "\\") { c.i++; } s += c.peek(); c.i++; }
     c.expect(ch); return { k: "lit", v: s };
   }
-  const num = /^\d+(\.\d+)?/.exec(c.src.slice(c.i));
-  if (num) { c.i += num[0].length; return { k: "lit", v: Number(num[0]) }; }
+  const num = /^\d[\d_]*(\.\d+)?/.exec(c.src.slice(c.i));
+  if (num) { c.i += num[0].length; return { k: "lit", v: Number(num[0].replace(/_/g, "")) }; }
   if (c.eat("(")) { c.ws(); const e = parseExpr(c); c.ws(); c.expect(")"); return e; }
   if (c.eat("[")) {
     c.ws(); const items: Expr[] = [];
@@ -253,9 +314,10 @@ function parsePrimary(c: Cursor): Expr {
     c.expect("]"); return { k: "arr", items };
   }
   if (c.eat("{")) {
-    c.ws(); const fields: { key: string; v: Expr }[] = [];
+    c.ws(); const fields: ({ key: string; v: Expr } | { spread: Expr })[] = [];
     while (!c.startsWith("}")) {
-      const key = c.ident() ?? c.fail("field"); c.ws();
+      if (c.eat("...")) { c.ws(); fields.push({ spread: parseExpr(c) }); c.ws(); if (!c.eat(",")) break; c.ws(); continue; }
+      const key = c.ident() ?? (c.peek() === '"' || c.peek() === "'" ? String((parsePrimary(c) as { v: unknown }).v) : c.fail("field")); c.ws();
       if (c.eat(":")) { c.ws(); fields.push({ key, v: parseExpr(c) }); } else fields.push({ key, v: { k: "id", name: key } });
       c.ws(); if (!c.eat(",")) break; c.ws();
     }
@@ -351,19 +413,22 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") ||
-    (() => { const id = c.ident(); c.ws(false); const ok = !!id && !KEYWORDS.has(id) && ((c.peek() === "=" && c.peek(1) !== "=") || c.startsWith("key ")); return ok; })();
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") ||
+    (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || c.startsWith("key "); return ok; })();
   c.i = save; return r;
 }
 function parseElement(c: Cursor): Markup {
   c.expect("<");
-  const tag = c.ident() ?? c.fail("tag");
+  if (c.eat(">")) return { k: "el", tag: "", attrs: [], children: parseMarkup(c, "") };   // fragment `<>…</>`
+  const tag = c.tagName() ?? c.fail("tag");
   const attrs: { name: string; e: Expr }[] = [];
   for (;;) {
     c.ws();
     if (c.eat("/>")) return { k: "el", tag, attrs, children: [] };
     if (c.eat(">")) break;
-    const name = c.ident() ?? c.fail("attr"); c.ws(); c.expect("="); c.ws();
+    const name = c.tagName() ?? c.fail("attr"); c.ws(false);
+    if (!c.eat("=")) { attrs.push({ name, e: { k: "lit", v: true } }); continue; }   // boolean attribute
+    c.ws();
     if (c.eat("{")) { c.ws(); attrs.push({ name, e: parseExpr(c) }); c.ws(); c.expect("}"); }
     else attrs.push({ name, e: parsePrimary(c) });
   }

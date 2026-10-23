@@ -34,8 +34,9 @@ ref/                   reference interpreter (TypeScript) that runs scenarios/
 2. **Rules and screens, not prose.** Every claim is a numbered rule or a scenario
    (program → action → frames → verdict). A section that cannot be written that
    way is not ready.
-3. **Abstract syntax until `07-surface.md`.** Examples use the abstract syntax in
-   `02-core.md §1`. Concrete syntax is decided after the semantics are closed.
+3. **One grammar.** `07-surface.md` is the concrete syntax; `ref/` parses it
+   and every scenario is written in it. `02-core.md §1` keeps the abstract
+   syntax the rules are stated over.
 4. **Solid's fundamentals are upstream.** `05-holds.md` inherits
    `packages/signals/docs/RULES-FUNDAMENTALS.md` from `solidjs/solid@next`. An
    open question there (Q-n) is open here; this spec does not rule on it.
