@@ -55,6 +55,6 @@ export type Markup =
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
-  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[] };               // H-12
+  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string };   // H-12; errName: `fallback(e)`
 
 export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view

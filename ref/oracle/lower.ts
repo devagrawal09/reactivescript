@@ -10,6 +10,8 @@ import {
   createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, $TARGET
 } from "@solidjs/signals";
 
+const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
+class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
 export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
 
 // ---------------------------------------------------------------- string-tree renderer
@@ -34,7 +36,7 @@ export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_
 
 // ---------------------------------------------------------------- scopes
 type Binding =
-  | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean }
+  | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean; setGuess?: (v: unknown) => void }
   | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean }
   | { k: "memo"; get: () => unknown }
   | { k: "const"; value: unknown }
@@ -116,7 +118,7 @@ export class Oracle {
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
-      if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name]; if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
+      if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
@@ -133,9 +135,13 @@ export class Oracle {
         case "source": {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
             const compute = this.computeOf(d.name, d.init, scope);
-            if (this.optimisticTargets.has(d.name)) { const [get, set] = createOptimistic(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: true }); }
+            if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
+              const [truth, setTruth] = createSignal(compute as any, this.loadingValue(d.init, scope) as any);
+              const [get, setGuess] = createOptimistic(() => truth());
+              scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true });
+            }
             else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
-            else { const [get, set] = createSignal(compute as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
+            else { const [get, set] = createSignal(compute as any, this.loadingValue(d.init, scope) as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
           } else {
             const init = untrack(() => this.ev(d.init, scope));
             if (typeof init === "object" && init !== null) {                // ST-1: structured → createStore; the root slot is a signal so the whole value can be replaced
@@ -199,7 +205,12 @@ export class Oracle {
       } finally { this.currentEq = was; }
     };
   }
-  private loadingValue(e: Expr, scope: Scope) { return e.k === "await" && e.init ? { loadingValue: untrack(() => this.ev(e.init!, scope)) } : undefined; }
+  private loadingValue(e: Expr, scope: Scope) {                     // R-7: the first paint of any `await … -> v` in the equation
+    let init: Expr | undefined;
+    const walk = (x: Expr): void => { if (init) return; if (x.k === "await" && x.init) { init = x.init; return; } for (const v of Object.values(x as object)) { if (Array.isArray(v)) v.forEach(y => y && typeof y === "object" && "k" in y && walk(y as Expr)); else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr); } };
+    walk(e);
+    return init ? { loadingValue: untrack(() => this.ev(init!, scope)) } : undefined;
+  }
   private fnOf(e: Expr, scope: Scope) { if (e.k !== "call" || e.f.k !== "id") return null; const b = scope.lookup(e.f.name); return b && b.k === "fn" ? b.decl : null; }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, f: Extract<Decl, { k: "fn" }>, scope: Scope) {
     const s2 = new Scope(scope);
@@ -233,21 +244,22 @@ export class Oracle {
           case "comp": throw new Error("component applied outside a view");
         }
       }
-      case "member": { const o = this.ev(e.o, scope, env) as any; return o == null ? undefined : o[e.p]; }
+      case "member": { const o = this.ev(e.o, scope, env) as any; noFlight(o); return o == null ? undefined : o[e.p]; }
       case "index": { const o = this.ev(e.o, scope, env) as any; const i = this.ev(e.i, scope, env) as any; return o == null ? undefined : o[i]; }
       case "tpl": return e.parts.map(p => typeof p === "string" ? p : fmt(this.ev(p, scope, env))).join("");
       case "pre": { const b = scope.lookup(`pre:${e.name}`); if (!b || b.k !== "const") throw new Unsupported("`pre` of another node"); if (b.value === undefined && e.init) return this.ev(e.init, scope, env); return b.value; }
       case "peek": return untrack(() => this.ev(e.e, scope, env));
-      case "await": throw new Unsupported("`await` nested in an expression");
+      case "await": { const v = this.ev(e.e, scope, env); return v; }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
       case "latest": return latest(() => this.ev(e.e, scope, env));
       case "pending": return isPending(() => this.ev(e.e, scope, env));
       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
-      case "un": { const v = this.ev(e.e, scope, env) as any; return e.op === "!" ? !v : -v; }
+      case "un": { const v = this.ev(e.e, scope, env) as any; noFlight(v); return e.op === "!" ? !v : -v; }
       case "bin": {
-        const l = this.ev(e.l, scope, env) as any;
+        const l = this.ev(e.l, scope, env) as any; noFlight(l);
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
-        return BIN[e.op](l, this.ev(e.r, scope, env));
+        const r = this.ev(e.r, scope, env); noFlight(r);
+        return BIN[e.op](l, r);
       }
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
       case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else o[f.key] = this.ev(f.v, scope, env); } return o; }
@@ -269,14 +281,14 @@ export class Oracle {
   // ---- imperative scope ----
   runStmts(stmts: Stmt[], scope: Scope, env: Map<string, unknown>): unknown {
     env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });
-    this.imperative++; try { let r: unknown; for (const s of stmts) r = this.stmt(s, scope, env); return r; } finally { this.imperative--; }
+    this.imperative++; try { let r: unknown; for (const s of stmts) { r = this.stmt(s, scope, env); if (r instanceof Returned) return r.value; } return r; } finally { this.imperative--; }
   }
   private stmt(s: Stmt, scope: Scope, env: Map<string, unknown>): unknown {
     switch (s.k) {
       case "let": env.set(s.name, untrack(() => this.ev(s.e, scope, env))); return;
       case "expr": return untrack(() => this.ev(s.e, scope, env));
-      case "return": return s.e ? untrack(() => this.ev(s.e!, scope, env)) : undefined;
-      case "sif": { let r: unknown; for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { r = this.stmt(st, scope, env); if (st.k === "return") return r; } return r; }
+      case "return": return new Returned(s.e ? untrack(() => this.ev(s.e!, scope, env)) : undefined);
+      case "sif": { for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; }
       case "action": this.lowerAction([], s.body, scope, env)(); return;
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
@@ -284,7 +296,7 @@ export class Oracle {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);
         const v = untrack(() => this.ev(s.e, scope, env));          // W-6: a function value is Solid's updater form — the setters take it as is
         if (!b) throw new Error(`unbound ${s.target.name}`);
-        if (b.k === "sig") { if (s.target.path.length) throw new Unsupported("path write to a signal"); b.set(v); return; }
+        if (b.k === "sig") { if (s.target.path.length) throw new Unsupported("path write to a signal"); (s.k === "optimistic" ? (b.setGuess ?? b.set) : b.set)(v); return; }
         if (b.k === "store") {
           const path = s.target.path.map(p => typeof p === "string" ? p : String(untrack(() => this.ev(p, scope, env))));
           if (path.length === 0) b.set(v);
@@ -321,7 +333,8 @@ export class Oracle {
           if (s.k === "let") env.set(s.name, r);
           continue;
         }
-        self.imperative++; try { self.stmt(s, scope, env); } finally { self.imperative--; }
+        let r: unknown; self.imperative++; try { r = self.stmt(s, scope, env); } finally { self.imperative--; }
+        if (r instanceof Returned) return r.value;
       }
     });
     return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
@@ -373,7 +386,7 @@ export class Oracle {
       }
       case "errored": {
         return R.createComponent(Errored as any, {
-          fallback: (err: () => unknown) => { const s2 = new Scope(scope); s2.vars.set("error", { k: "memo", get: err }); return self.fragment(m.fallback, s2); },
+          fallback: (err: () => unknown) => { const s2 = new Scope(scope); if (m.errName) s2.vars.set(m.errName, { k: "memo", get: err }); return self.fragment(m.fallback, s2); },
           get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
         });
       }

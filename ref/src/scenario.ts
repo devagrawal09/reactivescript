@@ -10,7 +10,9 @@ export type Scenario = { name: string; program: string; tables: Table[]; rejecte
 
 const strip = (s: string) => s.replace(/`/g, "").trim();
 
-export function parseScenario(name: string, md: string): Scenario {
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+export function parseScenario(name: string, md: string, baseDir = "."): Scenario {
   const sections = md.split(/^## /m).slice(1).map(s => { const nl = s.indexOf("\n"); return { title: s.slice(0, nl).trim(), body: s.slice(nl + 1) }; });
   const fence = (b: string) => { const m = /```[^\n]*\n([\s\S]*?)```/.exec(b); return m ? m[1] : null; };
   const table = (b: string): Row[] => {
@@ -28,7 +30,7 @@ export function parseScenario(name: string, md: string): Scenario {
   let program = "";
   const tables: Table[] = []; const rejected: Rejected[] = []; const divergences: Divergence[] = [];
   for (const s of sections) {
-    if (s.title === "Program") program = fence(s.body) ?? "";
+    if (s.title === "Program") { const f = /^file:\s*(\S+)/m.exec(s.body); program = f ? readFileSync(resolvePath(baseDir, f[1]), "utf8") : (fence(s.body) ?? ""); }   // `file: ../examples/x.rx`: a real program
     else if (s.title === "Frames") tables.push({ title: "Frames", program: null, rows: table(s.body) });
     else if (s.title.startsWith("Variant")) tables.push({ title: s.title, program: fence(s.body), rows: table(s.body) });
     else if (s.title.startsWith("Divergences")) {

@@ -1,6 +1,7 @@
 // Runs scenarios/*.md against the real Solid 2.0 runtime through the lowering in lower.ts.
 // node --experimental-strip-types --conditions=browser --conditions=development ref/oracle/run.ts [filter]
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseScenario, type Scenario } from "../src/scenario.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
 import { Oracle, flush, resetErrorHalt, Unsupported } from "./lower.ts";
@@ -59,7 +60,7 @@ const filter = process.argv[2];
 const dir = new URL("../../scenarios/", import.meta.url);
 let pass = 0, fail = 0, skip = 0, divergent = 0;
 for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md" && !f.startsWith("OPEN-") && (!filter || f.includes(filter))).sort()) {
-  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"));
+  const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(new URL(f, dir), "utf8"), fileURLToPath(dir));
   const lines: string[] = []; let ok = true;
   const base = sc.tables.find(t => t.title === "Frames");
   for (const t of sc.tables) ok = (await runTable(sc, t, base, lines)) && ok;

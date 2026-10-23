@@ -1,0 +1,51 @@
+// An async data table: a page of users is a question on `page`; editing a name is
+// an optimistic guess confirmed by the save; the table keeps its last page while
+// the next loads (declared lag), and the header shows the lag.
+import pure { fetchUsers, saveUser } from "./api"
+import pure { len } from "./prelude"
+
+type User = { id: number; name: string; email: string }
+
+source page: number := 1
+source query: string := ""
+source users: User[] = await fetchUsers(page, query) -> []    // ST-5: a source with a standing question; R-7: an empty first paint
+source editing: number | null = null                          // a question whose truth is `null`: a guess over it ends the edit now (AC-3)
+
+total = len(users)
+status = pending? users ? "loading…" : `${total} users`
+
+action rename(id: number, name: string) {
+  optimistic users := us => us.map(u => u.id === id ? { ...u, name } : u)   // AC-3: shown now, verdict-inert
+  optimistic editing := null                                                 // the editor closes now; the plain write below lands at the commit
+  editing := null
+  let saved = await saveUser(id, name)                                       // AC-1: the change stays open
+  users := us => us.map(u => u.id === id ? saved : u)                        // the truth: equal confirms silently
+}
+action nextPage() { page := page + 1 }
+action search(q: string) { query := q; page := 1 }
+
+component Row(props: { user: User }) {
+  isEditing = editing === props.user.id
+  <tr>
+    <td>{props.user.id}</td>
+    <td>
+      {if isEditing {
+        <input value={props.user.name} onChange={e => { rename(props.user.id, e.target.value) }} />
+      } else {
+        <span onClick={() => { editing := props.user.id }}>{props.user.name}</span>
+      }}
+    </td>
+    <td>{props.user.email}</td>
+  </tr>
+}
+
+<section>
+  <header>
+    <input placeholder="search" onInput={e => { search(e.target.value) }} />
+    <span class={pending? users ? "dim" : ""}>{status}</span>
+  </header>
+  {loading on(query) fallback { <p>Searching…</p> } {
+    <table>{for u in users { <Row user={u} /> }}</table>
+  }}
+  <button onClick={() => { nextPage() }} disabled={pending? users}>Next page ({latest page})</button>
+</section>

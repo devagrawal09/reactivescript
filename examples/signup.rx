@@ -1,0 +1,53 @@
+// A signup form: validation is equations over the fields; the username check is a
+// question on the username (debounced by being a question — a new value is a new
+// question and the old answer is superseded); submit is an action; errors are values.
+import pure { checkUsername, register } from "./api"
+
+source username: string := ""
+source email: string := ""
+source password: string := ""
+source submitted := false
+source result: { ok: boolean; message: string } | null := null
+
+usernameTaken = username.length < 3 ? false : await checkUsername(username) -> false   // a question on the username; R-7: first paint `false`
+checking = pending? usernameTaken
+usernameError =
+  username === "" ? "required" :
+  username.length < 3 ? "at least 3 characters" :
+  latest usernameTaken ? "already taken" : ""                   // `latest`: the form keeps updating while the check is in flight (H-7)
+emailError = email.includes("@") ? "" : "not an email"
+passwordError = password.length >= 8 ? "" : "at least 8 characters"
+valid = usernameError === "" && emailError === "" && passwordError === "" && !checking
+
+component Field(props: { label: string; error: string; children: View }) {
+  showError = submitted && props.error !== ""
+  <label>
+    <span>{props.label}</span>
+    {props.children}
+    {if showError { <em>{props.error}</em> }}
+  </label>
+}
+
+action submit() {
+  submitted := true
+  if (!valid) return
+  let r = await register(username, email, password)
+  result := r
+}
+
+<form onSubmit={e => { e.preventDefault(); submit() }}>
+  <Field label="Username" error={usernameError}>
+    <input value={username} onInput={e => { username := e.target.value }} />
+    {if checking { <small>checking…</small> }}
+  </Field>
+  <Field label="Email" error={emailError}>
+    <input value={email} onInput={e => { email := e.target.value }} />
+  </Field>
+  <Field label="Password" error={passwordError}>
+    <input type="password" value={password} onInput={e => { password := e.target.value }} />
+  </Field>
+  <button disabled={submitted && !valid}>Sign up</button>
+  {errored fallback(e) { <p class="error">{e.message}</p> } {
+    {if result { <p class={result.ok ? "ok" : "error"}>{result.message}</p> }}
+  }}
+</form>

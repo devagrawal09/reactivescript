@@ -19,6 +19,8 @@ an interpreter (`lower.ts`):
 | `{if}` `{for}` `{loading}` `{errored}` | `Show`, `For`, `Loading`, `Errored` from `solid-js` |
 | `action`, inline `action { }` | `action(function* …)` — a statement-level `await` is a `yield` of the flight |
 | `optimistic`, `refresh`, `affects` | the setter of a `createOptimistic`, `refresh(x)`, `affects(x)` |
+| `source x = e` written both plainly and optimistically | `createSignal(fn)` as the truth + `createOptimistic(() => truth())` as the guess layer; plain writes go to the truth, `optimistic` to the layer |
+| nested `await` | a tail-position `await` is the memo's result (the memo returns the flight); any other position is unsupported |
 | `provide` / `use` | `setContext` / `getContext` against the declaring owner; a provided source is the source binding (RG-7c) |
 | `x := f` | the setter's updater form (W-6) |
 | `==` / `!=` | compare raw objects: a store serves proxies, ST-2 keeps identity |
@@ -40,6 +42,6 @@ The mount goes through the renderer's `render()` (one scheduled insert for
 the whole tree), not `createRoot` + `insert`: that is what makes uncaught
 async at the mount hold the first commit, as `@solidjs/web`'s `render` does.
 
-Status: 54 pass, 2 skip (`pre` of another node is not lowered), 0 fail, 3
+Status: 58 pass, 2 skip (`pre` of another node is not lowered), 0 fail, 3
 recorded divergences (DV-2 failed action, DV-3 S-22 row 3′, DV-4 S-37 row 2
 under a boundary — the last two suspected runtime bugs).

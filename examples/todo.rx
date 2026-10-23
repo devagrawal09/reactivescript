@@ -1,0 +1,45 @@
+// A todo list: add, toggle, delete, filter. Everything is an equation except the
+// writes in the handlers; the list is a structured source written per path.
+import pure { len } from "./prelude"
+
+type Todo = { id: number; title: string; done: boolean }
+
+source todos: Todo[] := []
+source draft: string := ""
+source filter: "all" | "open" | "done" := "all"
+source nextId := 1
+
+shown = filter === "all" ? todos : todos.filter(t => filter === "done" ? t.done : !t.done)
+remaining = todos.filter(t => !t.done).length
+canAdd = draft.trim() !== ""
+
+action add() {
+  if (!canAdd) return
+  todos := ts => [...ts, { id: nextId, title: draft.trim(), done: false }]
+  nextId := nextId + 1
+  draft := ""
+}
+action remove(id: number) { todos := ts => ts.filter(t => t.id !== id) }
+action toggle(id: number) { todos := ts => ts.map(t => t.id === id ? { ...t, done: !t.done } : t) }
+
+component Item(props: { todo: Todo }) {
+  <li class={props.todo.done ? "done" : ""}>
+    <input type="checkbox" checked={props.todo.done} onChange={() => { toggle(props.todo.id) }} />
+    <span>{props.todo.title}</span>
+    <button onClick={() => { remove(props.todo.id) }}>×</button>
+  </li>
+}
+
+<main>
+  <form onSubmit={e => { e.preventDefault(); add() }}>
+    <input value={draft} onInput={e => { draft := e.target.value }} placeholder="What needs doing?" />
+    <button disabled={!canAdd}>Add</button>
+  </form>
+  <ul>{for t in shown { <Item todo={t} /> }}</ul>
+  <footer>
+    <span>{remaining} left</span>
+    {for f in ["all", "open", "done"] {
+      <button class={filter === f ? "selected" : ""} onClick={() => { filter := f }}>{f}</button>
+    }}
+  </footer>
+</main>

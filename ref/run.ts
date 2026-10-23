@@ -9,7 +9,7 @@ let failed = 0;
 for (const f of readdirSync(dir).filter(f => f.startsWith("S-") && f.endsWith(".md")).sort()) {
   const name = f.replace(/\.md$/, "");
   if (only.length && !only.some(o => name.includes(o))) continue;
-  const r = runScenario(parseScenario(name, readFileSync(join(dir, f), "utf8")));
+  const r = runScenario(parseScenario(name, readFileSync(join(dir, f), "utf8"), dir));
   console.log(`${r.ok ? "PASS" : "FAIL"} ${name}`);
   for (const l of r.lines) console.log(l);
   if (!r.ok) failed++;

@@ -60,7 +60,7 @@ function parseType(c: Cursor, braceStops = false): string {
 }
 function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "draft", "key", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -139,7 +139,7 @@ function parseDecl(c: Cursor): Decl {
   c.ws(false);
   let key: string | undefined; let type: string | undefined;
   if (name && !KEYWORDS.has(name)) { type = optType(c); c.ws(false); }
-  if (name && !KEYWORDS.has(name) && c.keyword("key")) { c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
+  if (name && !KEYWORDS.has(name) && /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
   if (name && !KEYWORDS.has(name) && c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") {
     c.i++; c.ws();
     return { k: "eq", name, e: parseExpr(c), line, key, type };
@@ -207,8 +207,11 @@ function parseStmt(c: Cursor): Stmt {
 // ---- expressions ----
 export function parseExpr(c: Cursor): Expr {
   c.ws();
-  if (c.keyword("draft")) {                                           // ST-3: draft(e) { d.k := v }
-    c.ws(); c.expect("("); c.ws(); const seed = parseExpr(c); c.ws(); c.expect(")"); c.ws();
+  if (c.startsWith("draft") && /^draft\s*\(/.test(c.src.slice(c.i)) && (() => {   // ST-3: `draft(e) { d.k := v }` — contextual: only with a block after the parens
+    let i = c.i + 5, depth = 0; while (i < c.src.length) { const ch = c.src[i]; if (ch === "(") depth++; else if (ch === ")") { depth--; if (depth === 0) break; } i++; }
+    return /^\s*\{/.test(c.src.slice(i + 1));
+  })()) {
+    c.keyword("draft"); c.ws(); c.expect("("); c.ws(); const seed = parseExpr(c); c.ws(); c.expect(")"); c.ws();
     return { k: "draft", seed, body: parseBlock(c) };
   }
   {                                                                   // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
@@ -388,10 +391,13 @@ function parseControl(c: Cursor): Markup | null {
       return { k: "loading", on, fallback, decls, body };
   }
   if (c.keyword("errored")) {
-      c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(); c.expect("{");
+      c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(false);
+      let errName: string | undefined;
+      if (c.eat("(")) { c.ws(); errName = c.ident() ?? c.fail("error name"); c.ws(); c.expect(")"); }   // `fallback(e)`: the error value
+      c.ws(); c.expect("{");
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
-      return { k: "errored", fallback, decls, body };
+      return { k: "errored", fallback, decls, body, errName };
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
@@ -414,7 +420,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
   const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") ||
-    (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || c.startsWith("key "); return ok; })();
+    (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i)); return ok; })();
   c.i = save; return r;
 }
 function parseElement(c: Cursor): Markup {
