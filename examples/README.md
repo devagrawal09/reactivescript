@@ -9,6 +9,7 @@ sequence of handler calls and landings.
 | `todo.rx` | sources and equations, functional writes (W-6), per-row components, filters, imperative `if`/`return` in an action |
 | `users.rx` | a derived source with a first paint (ST-5, R-7), optimistic rename over a structured value plus an optimistic UI flag, a held page change with `latest`, an `on(query)` boundary |
 | `cart.rx` | written cold by a fresh agent from the spec alone (the AI-readability test): an optimistic checkout with `affects` for the spinner, a coupon question shown ahead with `latest`, functional root writes over a structured question source |
+| `ai/feed.rx`, `ai/wizard.rx`, `ai/grid.rx` | written cold, spec-only (no examples shown), by fresh agents — streams/context/optimistic send; step regions with cleanups, `pre`, try/catch; keyed rows, `deferred`, `on(page)`. 34 of 35 frames predicted before running; the misses became rules (EF-2, H-1) |
 | `signup.rx` | validation as equations, an async question with `latest`/`pending?` display-ahead, context-free components with children, an action with an early return, `errored fallback(e)` |
 
 The prelude for the scenario runners: `import pure { len, str, … } from "./prelude"`,

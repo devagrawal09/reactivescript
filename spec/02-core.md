@@ -33,7 +33,7 @@ Decl      ::= source x := Expr                -- V-1; ':=' assigns now — a sna
 Param     ::= x | ref x                       -- E-9: value or ref parameter
 
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
-            | pre x | pre x -> Expr            -- previous frame's value of x; with initial (C-2, C-2a)
+            | pre x | pre x -> Expr            -- x's value before its last change; with initial (C-2, C-2a)
             | peek Expr                       -- snapshot read (V-11)
             | Expr ? Expr : Expr
             | Expr . field | Expr [ Expr ]    -- projections (full treatment: 06-stores)
@@ -101,14 +101,13 @@ Function application `f(e…)` covers both language functions and FFI imports;
   declaration, on every execution in imperative scope. There is no implicit
   snapshot anywhere; the other explicit one is `peek`. `source x = e` is
   a source with a standing question (06-stores ST-5).
-  **Open (DV-6, 2026-10-23):** an initializer that reads a reactive value
-  (`source email := form.email` — an edit buffer seeded from the form) is a
-  snapshot that the text does not show. This was a warning
-  (`SNAPSHOT_INITIALIZER`), but 08 CN-1a has no warning tier. Candidates:
-  make it an error unless the snapshot is written as one —
-  `source email := peek(form.email)` — which is the one-way-keyword stance
-  (the reader sees the snapshot); or accept it silently, as the runners do
-  today. S-ai-wizard uses the shape.
+  **Ruled 2026-10-23 (DV-6):** an initializer that reads a reactive value
+  is a compile error (`SNAPSHOT_INITIALIZER`, bin S) unless the snapshot is
+  written as one: `source email := peek(form.email)`. The text then shows
+  what happens — `peek` is the snapshot read (E-5) — and an edit buffer
+  seeded from the form is written exactly that way (examples/ai/wizard.rx).
+  A reactive argument to a value parameter is the same shape at a call
+  (E-10).
 - **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
   committed state and contributes no inputs to the enclosing equation. It has
   no meaning in imperative scope, where every read is already a snapshot
@@ -206,15 +205,22 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **C-1 (No instantaneous cycle).** The input relation over equations, taken
   within one instant, must be acyclic. A program with a cycle `x → … → x` not
   broken by `pre` is rejected.
-- **C-2 (pre).** `pre x` denotes the value `x` had in the frame of the
-  previous committed instant — not at its previous *evaluation*. If `x` was not
-  demanded in that instant (E-3), `pre x` is `undefined`. Before instant 0 it is
-  `undefined`. `pre x` is a **delayed input**: it contributes no instantaneous
-  dependency (so it is how a cycle is broken, C-1), but when `x`'s frame value
-  changes in instant `n`, an equation reading `pre x` is invalidated for
-  instant `n+1`. An equal write still opens an instant (W-3), so delayed
-  inputs surface on the next write of any kind, not only writes that reach
-  `x`. (Found by `ref/`: S-core-1 instant 2.)
+- **C-2 (pre).** [ruled 2026-10-23, DV-5: Solid's] `pre x` denotes the value
+  `x` had **before its most recent change** — not in the previous frame.
+  An unrelated write, equal or not, does not move it; it moves in the same
+  instant as the change it precedes (S-core-1 instant 1: `2 prev 0`). Before
+  `x`'s first change it is `undefined`. Two cases:
+  - inside `x`'s own equation, `pre x` is `x`'s current value — the one this
+    recompute replaces (Solid: the memo's `prev` argument). It contributes
+    no dependency, which is how a cycle is broken (C-1).
+  - of another node `y`, `pre y` is an **input of `y`**: it demands `y`
+    (so `y` stays evaluated while something reads `pre y`, S-core-1
+    variant instant 5: `prev 14`) and it is an instantaneous edge — `a =
+    pre b; b = a + 1` is a cycle (C-1). Lowering: a companion memo carrying
+    (current, previous).
+  (The first draft, frame-indexed `pre`, moved on unrelated instants —
+  S-core-1's old `prev 2` at an equal write — and could not be lowered
+  without a frame clock.)
 - **C-2a (Initial value).** `pre x -> e` is `pre x` where that is defined and
   `e` otherwise. `pre x` has type `T | undefined`; `pre x -> e` with `e : T`
   has type `T`. This is the only way to discharge the `undefined`; there is no
@@ -308,10 +314,10 @@ An instant proceeds in three phases and no phase overlaps another:
   `σ'` with no memoization. (Adapton's correctness criterion.)
 - **P-4 Minimality.** Only equations in the cone are evaluated; equations whose
   value did not change cut propagation (E-6).
-- **P-6 pre is frame-indexed.** For every equation `x` and instant `n > 0`,
-  `pre x` in instant `n` equals the value of `x` in frame `n-1` if `x` was
-  demanded there, else `undefined`. This differs from "last evaluation" when
-  `x` goes undemanded for an instant; see S-core-1 instant 4.
+- **P-6 pre is evaluation-indexed.** For every node `x`, `pre x` read from
+  outside `x` equals the value `x` held before its most recent change, and
+  reading it demands `x`; inside `x`, it is the value being replaced.
+  (Ruled 2026-10-23; the frame-indexed P-6 is withdrawn.)
 - **P-5 Write isolation.** Within an imperative run, no read observes that run's
   own writes (W-4), and two runs never interleave within one instant (W-3).
 

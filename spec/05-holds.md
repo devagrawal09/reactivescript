@@ -37,7 +37,16 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   like any; after that its re-asks hold nothing — readers keep the answer
   they show, `pending? x` is `true`, and each landing is its own change
   (S-solid-41). It may lag the screen, never lead it: a re-ask that read a
-  held input lands into that hold and shows with its commit (F-7).
+  held input lands into that hold and shows with its commit (F-7). After
+  its first landing a deferred node's readers — including readers created
+  later — are never pending: no boundary, armed or re-armed by `on`, shows
+  a fallback for them; `pending? x` is the only visible sign. Lag is a
+  property of the value: everything derived from a deferred node lags with
+  it, and a `deferred` over a pending plain equation parks and lags
+  (S-ai-grid, both runners). To get a fresh load *and* a lagging re-ask
+  from one fetch, put the `deferred` in a region recreated by the fresh
+  input (`for p in [page] { deferred data = await fetchRows(p, sortBy) … }`)
+  under `loading on(page)`.
 
 - **H-2 (A change is held by its pending readers).** [F-2] An instant is a
   change. Its writes and the flights it opens belong to it. After settle, the
@@ -113,8 +122,10 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   the instant's hold exactly as if the boundary were not there; the content
   stays on screen. `on` re-arms it: a change to anything `on` reads makes
   its readers leave the hold and the boundary show its fallback with that
-  change's frame. The value `on` yields is never compared; children are not
-  recreated.
+  change's frame — *if* a reader under it is pending in that change's
+  settle; with nothing pending the re-arm is a no-op and the content
+  updates in place (S-ai-grid). The value `on` yields is never compared;
+  children are not recreated.
 
 - **H-7 (Lanes).** [F-6] A reader whose equation carries `lane(x)` (R-10)
   renders from `σ′` for `x` and what is derived from it, beside the held
@@ -229,18 +240,9 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-2 (A failed action) — ruled 2026-10-22.** Solid's: the plain
   writes a failed action held commit; only its optimistic state reverts.
   AC-1 now says so (S-solid-8 and S-solid-32 variants).
-- **DV-5 (`pre`: frame-indexed or evaluation-indexed) — open.** C-2/P-6 say
-  `pre x` is `x`'s value in the previous *frame*, so an unrelated write
-  (even an equal one, W-3) moves it: S-core-1 instant 2 (`count := 1`
-  again) turns `prev 0` into `prev 2`, and instant 4 (`show := false`)
-  turns it into `prev 14`. Solid's `pre` is the memo's previous
-  *evaluation*: `x`'s value before its last change, untouched by unrelated
-  writes, and kept while `x` is undemanded (E-8 clears it here). The
-  oracle lowers `pre y` of another node to a companion memo carrying
-  (current, previous), which is evaluation-indexed by construction; a
-  frame-indexed `pre` would need a frame clock. Recommendation: adopt
-  Solid's — it is the one a reader can predict from `x` alone, and the
-  surprising frames are ours. Recorded on S-core-1 until ruled.
+- **DV-5 (`pre`) — ruled 2026-10-23: Solid's.** `pre x` is `x`'s value
+  before its most recent change (C-2, P-6 rewritten); the frame-indexed
+  rule is withdrawn. S-core-1 now matches the oracle without divergences.
 - **DV-4 (S-37 row 2 under a boundary, suspected runtime bug).** Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
   (`isPending(() => state.a)`) read `false` while the derive re-asks;

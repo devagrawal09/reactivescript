@@ -29,7 +29,7 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   while it is live), `resolve x v` / `reject x "msg"` (equation `x`'s current
   flight), `resolve "key" v` (a flight by key — `name:` + arguments formatted
   as values, strings and numbers bare, objects/arrays as JSON; resolving a
-  key again is another landing of a stream), `(effect)` (the instant an
+  key again is another landing of a stream; a program must not issue two flights with the same key), `(effect)` (the instant an
   apply block's writes opened).
 - `| effect |` column: the instant's `log(...)` calls, `;`-separated.
 - `## Variant: …` tables replay the base table up to the first listed

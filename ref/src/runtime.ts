@@ -37,11 +37,10 @@ export class Node {
   value: unknown = undefined; hasValue = false;        // in-flight (σ′)
   committed: unknown = undefined; hasCommitted = false; // committed (σ)
   changedSinceCommit = false;
-  prev: unknown = undefined; hasPrev = false;           // frame-indexed (P-6), set at commit
+  prev: unknown = undefined; hasPrev = false;           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
   state: "clean" | "check" | "dirty" = "dirty";
   changed = false; demanded = false; evaluated = false; // this instant
   deps = new Map<Target, Set<string>>();
-  preDeps = new Set<Node>(); preSubs = new Set<Node>();
   lane = false;                                        // R-10: read a probe during last compute
   lanes = new Set<Node>();                             // R-10 / H-7: which probed sources' lanes this value lives in
   flight: Flight | null = null; answered = false; firstPaint = false;   // R-1, R-7
@@ -80,7 +79,7 @@ export class Region {
     if (!this.alive) return; this.alive = false;
     for (const c of [...this.children]) c.dispose();
     for (const e of this.effects) { if (e.cleanup) this.rt.pendingCleanups.push(e.cleanup); e.cleanup = undefined; e.alive = false; }
-    for (const n of this.nodes) { this.rt.unsubscribe(n); for (const d of n.preDeps) d.preSubs.delete(n); }
+    for (const n of this.nodes) this.rt.unsubscribe(n);
     this.parent?.children.delete(this);
   }
 }
@@ -162,6 +161,7 @@ export class Runtime {
       if (d.k === "eq" && this.instantiates(d.e, region)) region.scope.set(d.name, this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, region));
       else if (d.k === "source" && !d.question) {
         const n = region.scope.get(d.name) as Node;
+        if (isReactive(d.init, region)) throw new RuleError("SNAPSHOT_INITIALIZER", `source ${d.name} := … reads a reactive value: write the snapshot as peek(…) (E-4, DV-6)`);
         n.value = this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
         const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
@@ -227,6 +227,7 @@ export class Runtime {
         if (w.node.keyBy && Array.isArray(w.value) && Array.isArray(w.node.value)) w = { ...w, value: this.reconcile(w.node.value, w.value, w.node.keyBy) };   // ST-4a on a source: a root write reconciles by key
         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
         if (d.size === 0) continue;
+        w.node.prev = w.node.value; w.node.hasPrev = true;
         w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; w.node.heldKeys.set("", this.instant); this.notify(w.node, "");
       } else {
         let o = w.node.value as Record<string, unknown>;
@@ -282,16 +283,11 @@ export class Runtime {
     this.patchLanes(this.view);
     const frame = this.committedOnce ? this.renderCommitted(this.view) : "";
 
-    // Phase 3 — observe: pre bookkeeping (P-6, E-8); effects (EF-2..EF-6) whose computes are committed.
-    const preChanged: Node[] = [];
+    // Phase 3 — observe: E-8; effects (EF-2..EF-6) whose computes are committed.
     for (const n of this.allNodes()) {
       const inFrame = n.kind === "source" || n.demanded;
-      const newPrev = inFrame ? n.value : undefined;
-      if (n.hasPrev !== inFrame || !Object.is(n.prev, newPrev)) preChanged.push(n);
-      n.prev = newPrev; n.hasPrev = inFrame;
       if (!inFrame) { n.hasValue = false; n.value = undefined; n.hasCommitted = false; }   // E-8
     }
-    for (const x of preChanged) for (const s of x.preSubs) this.markDirty(s);   // C-2 delayed input
     const logBefore = this.log.length;
     for (const c of this.pendingCleanups) c(); this.pendingCleanups = [];
     for (const e of [...this.effects]) {
@@ -557,7 +553,7 @@ export class Runtime {
     if (process.env.RS_TRACE_PULL) console.log(`  pull ${n.name}#${n.id} state=${n.state} recompute=${recompute} evaluated=${n.evaluated} value=${fmt(n.value)}`);
     if (recompute) {
       const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
-      this.unsubscribe(n); for (const d of n.preDeps) d.preSubs.delete(n); n.preDeps.clear();
+      this.unsubscribe(n);
       const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.served = new Set();
       n.triggered = notified;
       let v: unknown;
@@ -571,7 +567,7 @@ export class Runtime {
       if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
       const ch = new Set<Path>();
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
-      if (ch.size > 0) { n.value = v; n.changed = true; n.changedSinceCommit = true; }
+      if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
       n.hasValue = true;
       if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
       if (!isAbsent(v)) n.answered = true;
@@ -659,10 +655,11 @@ export class Runtime {
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
       case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
       case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }
-      case "pre": {
+      case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
         const b = region.lookup(e.name);
         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
-        if (this.tracking && this.demandMode) { this.tracking.preDeps.add(b); b.preSubs.add(this.tracking); }
+        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.hasValue && !(b.value instanceof PendingVal)) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
+        if (this.tracking && this.demandMode) { this.track(b, ""); this.pull(b); }                                    // another node: an input of it
         if (b.hasPrev) return b.prev;
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
@@ -951,7 +948,8 @@ function isReactive(e: Expr, region: Region): boolean { const names = new Set<st
 function freeVars(e: Expr, out: Set<string>) {
   switch (e.k) {
     case "id": out.add(e.name); break;
-    case "pre": case "peek": case "lit": break;
+    case "pre": out.add(`pre:${e.name}`); break;
+    case "peek": case "lit": break;
     case "await": freeVars(e.e, out); if (e.init) freeVars(e.init, out); break;
     case "latest": case "pending": freeVars(e.e, out); break;
     case "bin": freeVars(e.l, out); freeVars(e.r, out); break;
@@ -981,7 +979,7 @@ function staticChecks(p: Program) {
   const visit = (n: string, stack: string[]) => {
     if (color.get(n) === 2) return; if (color.get(n) === 1) throw new RuleError("C-1", `instantaneous cycle: ${[...stack, n].join(" → ")}`);
     color.set(n, 1); const f = new Set<string>(); freeVars(eqs.get(n)!, f);
-    for (const m of f) if (eqs.has(m)) visit(m, [...stack, n]);
+    for (const m0 of f) { const m = m0.startsWith("pre:") ? m0.slice(4) : m0; if (m0.startsWith("pre:") && m === n) continue; if (eqs.has(m)) visit(m, [...stack, n]); }   // C-1: only an equation's own `pre` breaks a cycle
     color.set(n, 2);
   };
   for (const n of eqs.keys()) visit(n, []);

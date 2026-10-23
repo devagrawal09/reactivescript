@@ -62,3 +62,12 @@ source n := 1
 m = (n := 2)
 <p>{m}</p>
 ```
+
+```
+-- reject: SNAPSHOT_INITIALIZER
+source form := { email: "a@x" }
+source email := form.email
+<p>{email}</p>
+```
+
+E-4 / DV-6: a snapshot must be written as one — `source email := peek(form.email)`.

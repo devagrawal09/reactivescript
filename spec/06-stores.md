@@ -65,8 +65,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   create, missing keys remove; a reorder moves rows (S-store-3). `pending?`
   and `latest` on an element follow the key.
 - **ST-4b.** `for u in x` over a keyed collection uses the key for row
-  identity (RG-2a). An unkeyed `for` over records whose values change is a
-  diagnostic (`UNSTABLE_LIST_IDENTITY`, bin S).
+  identity (RG-2a). A collection derived from a keyed one by selection
+  (`filter(rows, …)`) keeps the rows' identity and needs no key of its own;
+  an unkeyed `for` over records that are rebuilt on every change (`map`
+  into fresh objects) is a diagnostic (`UNSTABLE_LIST_IDENTITY`, bin S).
 - **ST-4c.** Solid: `createProjection(fn, seed, { key })`, `<For keyed>`.
 
 ## ST-5 — A source with a standing question

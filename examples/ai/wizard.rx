@@ -47,7 +47,7 @@ action submit() {
   }}
 
   {if step === 2 {
-    source email := form.email           // step-local edit buffer, seeded from the form (E-4)
+    source email := peek(form.email)          // E-4: a snapshot, written as one (DV-6)           // step-local edit buffer, seeded from the form (E-4)
     emailOk = email.includes("@")
     effect () { log("enter", 2); return () => { log("leave", 2) } }
     <section>
