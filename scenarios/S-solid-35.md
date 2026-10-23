@@ -7,7 +7,7 @@ Rules: AC-1, AC-3, H-11.
 ```
 source truth := 1
 source guess = truth
-action try() { optimistic guess := 5; await fetch("unrelated") }
+action attempt() { optimistic guess := 5; await fetch("unrelated") }
 <p>{guess} / {latest guess} {pending? guess ? "p" : "-"}</p>
 ```
 
@@ -16,7 +16,7 @@ action try() { optimistic guess := 5; await fetch("unrelated") }
 | instant | action                   | frame       |
 | ------- | ------------------------ | ----------- |
 | 0       | mount                    | `1 / 1 -`   |
-| 1       | handler `try()`          | `5 / 5 -`   |
+| 1       | handler `attempt()`          | `5 / 5 -`   |
 | 2       | resolve "unrelated" 0    | `1 / 1 -`   |
 
 Instant 1: the guess's own source is not re-asked: `pending? guess` is
@@ -31,7 +31,7 @@ commit) are one instant here.
 source truth := 1
 source guess = truth
 derived = await fetch("x:" + str(guess))
-action try() { optimistic guess := 5; await fetch("unrelated") }
+action attempt() { optimistic guess := 5; await fetch("unrelated") }
 <p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
 ```
 
@@ -39,7 +39,7 @@ action try() { optimistic guess := 5; await fetch("unrelated") }
 | ------- | ------------------------ | --------------- |
 | 0       | mount                    | ``              |
 | 1       | resolve derived "x1"     | `1 x1 / 1 -`    |
-| 2       | handler `try()`          | `1 x1 / 1 -`    |
+| 2       | handler `attempt()`          | `1 x1 / 1 -`    |
 | 3       | resolve "unrelated" 0    | `1 x1 / 1 -`    |
 | 4       | resolve "x:5" "x5"       | `1 x1 / 1 -`    |
 | 5       | resolve derived "x1"     | `1 x1 / 1 -`    |

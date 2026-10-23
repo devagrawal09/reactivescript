@@ -55,6 +55,7 @@ Stmt      ::= x := Expr                        -- write to a source
             | let y = Expr | y := Expr         -- imperative locals
             | Expr                             -- call for effect
             | if Expr Block else Block | while Expr Block
+            | try Block catch (x) Block finally Block | throw Expr   -- AC-7: imperative failure
             | fn-decl, return, …               -- ordinary JS statements
 ```
 

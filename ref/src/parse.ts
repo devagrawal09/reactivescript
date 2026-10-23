@@ -60,7 +60,7 @@ function parseType(c: Cursor, braceStops = false): string {
 }
 function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -177,6 +177,15 @@ function parseStmt(c: Cursor): Stmt {
   if (c.keyword("affects")) { c.ws(); return { k: "affects", name: c.ident() ?? c.fail("name") }; }
   if (c.keyword("action")) { c.ws(); return { k: "action", body: parseBlock(c) }; }
   if (c.keyword("let") || c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("let name"); optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
+  if (c.keyword("try")) {                                              // AC-7
+    c.ws(); const body = parseBlock(c); c.ws();
+    let catchName: string | undefined, handler: Stmt[] | undefined, fin: Stmt[] | undefined;
+    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); optType(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
+    if (c.keyword("finally")) { c.ws(); fin = parseBlock(c); }
+    if (!handler && !fin) c.fail("catch or finally");
+    return { k: "try", body, catchName, handler, fin };
+  }
+  if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseExpr(c) }; }
   if (c.keyword("return")) { c.ws(false); if (c.peek() === "}" || c.peek() === ";" || c.peek() === "\n" || c.eof()) return { k: "return" }; return { k: "return", e: parseExpr(c) }; }
   if (c.keyword("if")) {                                               // imperative `if (c) { … } else { … }`
     c.ws(); c.expect("("); c.ws(); const cond = parseExpr(c); c.ws(); c.expect(")"); c.ws();

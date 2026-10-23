@@ -28,14 +28,21 @@ action setQty(id: number, n: number) {
     [...ls, { id, qty: n }]
 }
 
+source orderError: string := ""
+
 action placeOrder() {
   if (count === 0) return
   let items = cart                                               // SC-2: a snapshot of the lines being ordered
   optimistic cart := []                                          // AC-3: the cart empties now, display-ahead
   affects cart                                                   // AC-5: `pending? cart` while the order is in flight
-  let receipt = await checkout(items, coupon)                    // AC-1: a rejection ends the body and reverts the guess
-  cart := []                                                     // the truth: equal to the guess, confirms silently
-  lastOrder := receipt.id
+  orderError := ""
+  try {
+    let receipt = await checkout(items, coupon)                  // AC-7: a declined order is thrown here
+    cart := []                                                   // the truth: equal to the guess, confirms silently
+    lastOrder := receipt.id
+  } catch (e) {
+    orderError := e.message                                      // still the action's change: lands with the reverted guess, one frame
+  }
 }
 
 component Row(props: { product: Product }) {
@@ -59,5 +66,5 @@ component Row(props: { product: Product }) {
   <p>Subtotal {subtotal}</p>
   <p>Total {total}</p>
   <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
-  <p>{pending? cart ? "Placing order…" : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
+  <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
 </section>

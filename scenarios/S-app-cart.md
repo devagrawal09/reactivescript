@@ -21,7 +21,7 @@ file: ../examples/cart.rx
 | 4       | handler `coupon := "SAVE10"` |`Cart (3) Tea 4 - 2 + Mug 10 - 1 + Coupon checking… Subtotal 18 Total 18 Checkout` |
 | 5       | resolve "validateCoupon:SAVE10" 10 |`Cart (3) Tea 4 - 2 + Mug 10 - 1 + Coupon -10% Subtotal 18 Total 16.2 Checkout` |
 | 6       | handler `placeOrder()` |`Cart (0) Tea 4 - 0 + Mug 10 - 0 + Coupon -10% Subtotal 0 Total 0 Checkout Placing order…` |
-| 7       | reject "checkout:[{"id":1,"qty":2},{"id":2,"qty":1}],SAVE10" "declined" |`Cart (3) Tea 4 - 2 + Mug 10 - 1 + Coupon -10% Subtotal 18 Total 16.2 Checkout` |
-| 8       | handler `setQty(2, 0)` |`Cart (2) Tea 4 - 2 + Mug 10 - 0 + Coupon -10% Subtotal 8 Total 7.2 Checkout` |
+| 7       | reject "checkout:[{"id":1,"qty":2},{"id":2,"qty":1}],SAVE10" "declined" |`Cart (3) Tea 4 - 2 + Mug 10 - 1 + Coupon -10% Subtotal 18 Total 16.2 Checkout Failed: declined` |
+| 8       | handler `setQty(2, 0)` |`Cart (2) Tea 4 - 2 + Mug 10 - 0 + Coupon -10% Subtotal 8 Total 7.2 Checkout Failed: declined` |
 | 9       | handler `placeOrder()` |`Cart (0) Tea 4 - 0 + Mug 10 - 0 + Coupon -10% Subtotal 0 Total 0 Checkout Placing order…` |
 | 10      | resolve "checkout:[{"id":1,"qty":2}],SAVE10" { id: 77 } |`Cart (0) Tea 4 - 0 + Mug 10 - 0 + Coupon -10% Subtotal 0 Total 0 Checkout Order #77 placed` |

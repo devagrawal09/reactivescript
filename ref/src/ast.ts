@@ -34,7 +34,9 @@ export type Stmt =
   | { k: "affects"; name: string }                              // AC-5
   | { k: "action"; body: Stmt[] }                               // AC-1 inline
   | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
-  | { k: "return"; e?: Expr };
+  | { k: "return"; e?: Expr }
+  | { k: "try"; body: Stmt[]; catchName?: string; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
+  | { k: "throw"; e: Expr };
 
 export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
 export type Decl =

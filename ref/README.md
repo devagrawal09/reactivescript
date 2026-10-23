@@ -30,6 +30,10 @@ action holds with revert, guesses with correction and provenance, quiet
 re-asks, declared pending). Not modelled yet: `until`, a `yield` body form,
 optimistic path writes, revert of held path writes.
 
+Runs (handlers, apply blocks, action bodies) are frame stacks: a
+statement-level `await` suspends the run; `try`/`catch`/`finally`/`throw`
+unwind the stack (AC-7), and a rejected flight is thrown at its `await`.
+
 Scenario actions: `handler \`stmts\`` (an imperative run; may call an action,
 which suspends at a statement-level `await`), `resolve x v` / `reject x e`
 (land equation `x`'s flight), `resolve "key" v` (land the flight for a fetch

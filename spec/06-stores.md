@@ -5,7 +5,7 @@ question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
 AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Not yet: AC-6
-`until`, optimistic path writes.
+`until`, optimistic path writes. AC-7 try/catch: S-action-1.
 
 ---
 
@@ -148,6 +148,17 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **AC-5 (affects).** `affects x`, in imperative scope anywhere, declares
   that work now in flight will change `x`: `pending? x` is `true` until
   the change it was declared in commits (S-solid-26 instants 6–8).
+- **AC-7 (try/catch).** [ruled 2026-10-23] Actions are imperative code,
+  so they fail the way imperative code does: `try { … } catch (e) { … }
+  finally { … }` and `throw e` are statements of imperative scope. A
+  rejected `await` throws at the `await`; a `catch` inside the body runs
+  **inside the action** — the same change, still open — so its writes land
+  with the body's end in one frame (S-action-1: the reverted guess and
+  `status := "failed: …"` commit together). `finally` runs on the way out
+  either way. An uncaught throw or rejection is the action's rejection
+  (AC-1, DV-2). In a plain handler the same statements work with no hold
+  involved. Solid: a generator action's `try` around `yield` — the
+  rejection is thrown back at the yield point.
 - **AC-6 (until).** `await until(cond)` in an action holds the change until
   the reactive predicate `cond` settles truthy, reading the authoritative
   view with the action's own guesses carved out (so optimism cannot confirm

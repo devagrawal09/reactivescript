@@ -172,9 +172,11 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   applied to the slot at the instant, so writes to one slot in one instant
   compose (W-6).
 - `let` (or `const`) declares an imperative local; `if (c) { … } else { … }`,
-  `return`, and expression statements are allowed (`for`, `try`, `throw`:
-  not yet in `ref/`); reads of reactive names are snapshots of σ (H-10,
-  SC-2).
+  `return`, `try { … } catch (e) { … } finally { … }`, `throw e` and
+  expression statements are allowed (`for`/`while`: not yet in `ref/`);
+  reads of reactive names are snapshots of σ (H-10, SC-2). A rejected
+  `await` throws at the `await`; a catch inside an action is still the
+  action's change (AC-7).
 - `await` in an action body suspends the run and keeps its change open; in
   a plain handler it ends the change (the continuation is a new one).
 - The optimistic-action idiom, with a spinner:
@@ -191,7 +193,13 @@ action { refresh user; affects user }   // inline, one run (AC-1)
 
   A plain write placed *before* the `await` commits even when the body
   rejects (AC-1, DV-2): only the guess reverts. Put the truth after the
-  `await`. An optimistic write over a *structured* question source is a
+  `await`, and report failure from a `catch` (AC-7) — its writes land with
+  the reverted guess in one frame:
+
+  ```
+    try { let receipt = await checkout(items); cart := [] }
+    catch (e) { orderError := e.message }
+  ``` An optimistic write over a *structured* question source is a
   root write (functional or whole); path targets are not in `ref/` yet.
 - `refresh x`, `affects x`, `optimistic x := e` are statements (AC-3..5).
 
@@ -272,7 +280,8 @@ Stmt      ::= Target ":=" Expr | "optimistic" Target ":=" Expr      -- Target ma
             | "refresh" Name | "affects" Name | "action" Block
             | ("let" | "const") Name Type? "=" Expr
             | "if" "(" Expr ")" (Block | Stmt) ("else" (Block | Stmt))?
-            | "return" Expr? | Expr
+            | "try" Block ("catch" ("(" Name Type? ")")? Block)? ("finally" Block)?
+            | "throw" Expr | "return" Expr? | Expr
 Expr      ::= TSExpr with §3's removals and additions
 ```
 

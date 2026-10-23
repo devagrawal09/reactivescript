@@ -290,6 +290,12 @@ export class Oracle {
       case "expr": return untrack(() => this.ev(s.e, scope, env));
       case "return": return new Returned(s.e ? untrack(() => this.ev(s.e!, scope, env)) : undefined);
       case "sif": { for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; }
+      case "try": {
+        const runBlock = (ss: Stmt[]) => { for (const st of ss) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; };
+        try { const r = runBlock(s.body); if (r) return r; } catch (e) { if (!s.handler) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(s.handler); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
+        return undefined;
+      }
+      case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
       case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
@@ -323,10 +329,9 @@ export class Oracle {
   /** AC-1: an action body is a generator; a statement-level `await` is a hold-safe `yield` of the flight. */
   private lowerAction(params: string[], body: Stmt[], scope: Scope, outer?: Map<string, unknown>) {
     const self = this;
-    const run = action(function* (...args: unknown[]) {
-      const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
-      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
-      for (const s of body) {
+    /** AC-1/AC-7: a statement-level `await` is a hold-safe `yield`; `try`/`catch`/`finally`/`throw` are JavaScript's, around the yields. */
+    function* block(stmts: Stmt[], env: Map<string, unknown>): Generator<unknown, Returned | undefined, unknown> {
+      for (const s of stmts) {
         const awaited = (s.k === "let" || s.k === "expr") && s.e.k === "await" ? s.e : null;
         if (awaited) {
           const v = untrack(() => self.ev(awaited.e, scope, env));
@@ -334,9 +339,23 @@ export class Oracle {
           if (s.k === "let") env.set(s.name, r);
           continue;
         }
+        if (s.k === "sif") { const r = yield* block(untrack(() => self.ev(s.c, scope, env)) ? s.t : s.f, env); if (r) return r; continue; }
+        if (s.k === "try") {
+          try { const r = yield* block(s.body, env); if (r) return r; }
+          catch (e) { if (!s.handler) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(s.handler, env); if (r) return r; }
+          finally { if (s.fin) { const r = yield* block(s.fin, env); if (r) return r; } }
+          continue;
+        }
+        if (s.k === "throw") throw untrack(() => self.ev(s.e, scope, env));
         let r: unknown; self.imperative++; try { r = self.stmt(s, scope, env); } finally { self.imperative--; }
-        if (r instanceof Returned) return r.value;
+        if (r instanceof Returned) return r;
       }
+      return undefined;
+    }
+    const run = action(function* (...args: unknown[]) {
+      const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
+      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
+      const r = yield* block(body, env); return r ? r.value : undefined;
     });
     return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
   }

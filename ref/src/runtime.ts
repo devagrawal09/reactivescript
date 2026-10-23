@@ -64,7 +64,9 @@ export class Node {
 
 type Binding = Node | { constant: unknown } | { fn: FnDecl } | { comp: CompDecl } | { action: ActionDecl };
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
-type Run = { stmts: Stmt[]; i: number; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null };
+/** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
+type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; handler?: Stmt[]; fin?: Stmt[] };
+type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown };
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
@@ -777,52 +779,63 @@ export class Runtime {
   }
   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
   private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean): unknown {
-    const run: Run = { stmts, i: 0, region, env, change: null, flight: null, action, bind: null };
+    const run: Run = { frames: [{ stmts, i: 0, kind: "block" }], region, env, change: null, flight: null, action, bind: null };
     if (action) { this.openActions.add(run); this.started.push(run); }
     return this.resume(run);
   }
   private resume(run: Run): unknown {
     return this.untracked(() => {
-      const { region, env } = run; let result: unknown;
+      const { region, env } = run;
       const prev = this.currentRun; this.currentRun = run;
+      /** AC-7: unwind to the nearest `try` with a catch; none → the run ends rejected (an uncaught throw is the action's rejection, DV-2). */
+      const raise = (err: unknown): boolean => {
+        while (run.frames.length) {
+          const f = run.frames.pop()!;
+          if (f.kind === "try" && f.handler) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }
+          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
+        }
+        this.endRun(run, true); return false;
+      };
       try {
         if (run.flight) {                                                  // resuming after `await`
           const f = run.flight; run.flight = null;
-          if (f.state === "rejected") { this.endRun(run, true); return undefined; }
-          if (run.bind) env.set(run.bind, f.value); run.bind = null;
+          if (f.state === "rejected") { if (!raise(f.value)) return undefined; }
+          else { if (run.bind) env.set(run.bind, f.value); run.bind = null; }
         }
-        for (; run.i < run.stmts.length; run.i++) {
-          const s = run.stmts[run.i];
-          const awaited = s.k === "let" && s.e.k === "await" ? s.e : s.k === "expr" && s.e.k === "await" ? s.e : null;
-          if (awaited) {                                                   // statement-level await: suspend the run on a pending flight
-            const v = this.ev(awaited.e, region, env);
-            if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = s.k === "let" ? s.name : null; run.i++; this.suspended.push(run); return undefined; }
-            const val = v instanceof Flight ? (v.state === "rejected" ? (this.endRun(run, true), undefined) : v.value) : v;
-            if (v instanceof Flight && v.state === "rejected") return undefined;
-            if (s.k === "let") env.set(s.name, val); else result = val;
+        while (run.frames.length) {
+          const f = run.frames[run.frames.length - 1];
+          if (f.i >= f.stmts.length) {                                     // a block ended
+            run.frames.pop();
+            if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally" });
             continue;
           }
-          if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
-          else if (s.k === "expr") result = this.ev(s.e, region, env);
-          else if (s.k === "return") { result = s.e ? this.ev(s.e, region, env) : undefined; run.i = run.stmts.length; break; }
-          else if (s.k === "sif") { const r = this.execBlock(this.ev(s.c, region, env) ? s.t : s.f, region, env); if (r.returned) { result = r.value; run.i = run.stmts.length; break; } }
-          else this.resumeStmtOnly(s, region, env);
+          const s = f.stmts[f.i++];
+          try {
+            const awaited = s.k === "let" && s.e.k === "await" ? s.e : s.k === "expr" && s.e.k === "await" ? s.e : null;
+            if (awaited) {                                                 // statement-level await: suspend the run on a pending flight
+              const v = this.ev(awaited.e, region, env);
+              if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = s.k === "let" ? s.name : null; this.suspended.push(run); return undefined; }
+              if (v instanceof Flight && v.state === "rejected") { if (!raise(v.value)) return undefined; continue; }
+              const val = v instanceof Flight ? v.value : v;
+              if (s.k === "let") env.set(s.name, val); else run.result = val;
+              continue;
+            }
+            if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
+            else if (s.k === "expr") run.result = this.ev(s.e, region, env);
+            else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.frames.length = 0; break; }
+            else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
+            else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, handler: s.handler, fin: s.fin });
+            else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
+            else this.resumeStmtOnly(s, region, env);
+          } catch (e) {
+            if (e instanceof RuleError) throw e;
+            if (!raise(e)) return undefined;                               // a thrown error in imperative code is caught by an enclosing try, else rejects the run
+          }
         }
         this.endRun(run, false);
-        return result;
+        return run.result;
       } finally { this.currentRun = prev; }
     });
-  }
-  /** Nested statement blocks (imperative `if`): no suspension inside — an `await` here is a plain value read. */
-  private execBlock(stmts: Stmt[], region: Region, env: Map<string, unknown>): { returned: boolean; value?: unknown } {
-    for (const s of stmts) {
-      if (s.k === "let") env.set(s.name, this.ev(s.e.k === "await" ? s.e.e : s.e, region, env));
-      else if (s.k === "expr") this.ev(s.e.k === "await" ? s.e.e : s.e, region, env);
-      else if (s.k === "return") return { returned: true, value: s.e ? this.ev(s.e, region, env) : undefined };
-      else if (s.k === "sif") { const r = this.execBlock(this.ev(s.c, region, env) ? s.t : s.f, region, env); if (r.returned) return r; }
-      else this.resumeStmtOnly(s, region, env);
-    }
-    return { returned: false };
   }
   /** One imperative statement that neither suspends nor branches. */
   private resumeStmtOnly(s: Stmt, region: Region, env: Map<string, unknown>) {
