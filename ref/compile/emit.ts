@@ -314,7 +314,7 @@ class Gen {
     return b.js;
   }
   /** R-f-4: error class names → a JS array of their values; `undefined`: every failure. */
-  private classes(names: string[] | undefined, env: Env): string { return names ? `[${names.map(n => n === "Error" ? "Error" : this.ref(n, env, { imp: false })).join(", ")}]` : "undefined"; }
+  private classes(names: string[] | undefined, env: Env): string { return names ? `[${names.map(n => n === "Error" ? "Error" : n === "Panic" ? "__rt.PANIC" : this.ref(n, env, { imp: false })).join(", ")}]` : "undefined"; }
   private hasAwait(ss: unknown): boolean { const s = JSON.stringify(ss); return s.includes('"k":"await"'); }
 
   // ---- imperative scope ----

@@ -11,7 +11,7 @@ import {
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
-import { makeErrorClass, isA } from "../src/failure.ts";
+import { makeErrorClass, isA, PANIC } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits } from "../src/awaits.ts";
 const hoistedOf = new WeakMap<object, Map<Expr, () => unknown>>();
@@ -167,7 +167,7 @@ export class Oracle {
   /** R-f-4: error class names → their values; undefined: every failure. */
   classValues(names: string[] | undefined, scope: Scope): unknown[] | undefined {
     if (!names) return undefined;
-    return names.map(n => { if (n === "Error") return Error; const b = scope.lookup(n); if (!b || b.k !== "const") throw new Error(`${n} is not an error class`); return b.value; });
+    return names.map(n => { if (n === "Error") return Error; if (n === "Panic") return PANIC; const b = scope.lookup(n); if (!b || b.k !== "const") throw new Error(`${n} is not an error class`); return b.value; });
   }
   /** `refresh x` must re-ask: the key's old promise is forgotten so the next fetch makes a new one. */
   forget(key: string) { this.flights.delete(key); }

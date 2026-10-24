@@ -460,7 +460,7 @@ class Checker {
   }
   /** R-f-1: a name in a catch, a boundary or an import's `fails` must be an error class (declared, or a JS class imported). */
   private errClass(n: string, env: Env) {
-    if (n === "Error") return;
+    if (n === "Error" || n === "Panic") return;                                           // the top class; R-f-10's panics-only
     const s = env.lookup(n);
     if (!s || (s.kind !== "errclass" && s.kind !== "import")) this.err("NOT_AN_ERROR_CLASS", "R-f-1", `${n} is not an error class (declare it: \`error ${n}(…)\`)`);
   }

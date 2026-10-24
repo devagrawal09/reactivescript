@@ -6,7 +6,7 @@ type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "co
 import { RuleError, CheckError } from "./errors.ts";
 import { checkModules } from "./check.ts";
 export { RuleError, CheckError };
-import { makeErrorClass, isA } from "./failure.ts";
+import { makeErrorClass, isA, PANIC } from "./failure.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
@@ -828,7 +828,7 @@ export class Runtime {
   /** R-f-4: error class names → their values (a declared class, or a JS class imported); undefined: every failure. */
   classValues(names: string[] | undefined, region: Region): unknown[] | undefined {
     if (!names) return undefined;
-    return names.map(n => { if (n === "Error") return Error; const b = region.lookup(n); if (!b || !("constant" in b)) throw new RuleError("R-f-1", `${n} is not an error class`); return b.constant; });
+    return names.map(n => { if (n === "Error") return Error; if (n === "Panic") return PANIC; const b = region.lookup(n); if (!b || !("constant" in b)) throw new RuleError("R-f-1", `${n} is not an error class`); return b.constant; });
   }
   flight(key: string) { let f = this.flights.get(key); if (!f) this.flights.set(key, (f = new Flight(key))); return f; }
 

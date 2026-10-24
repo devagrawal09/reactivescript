@@ -20,9 +20,14 @@ export function makeErrorClass(name: string, params: string[], message: (args: u
   return f;
 }
 
+/** R-f-10: `Panic` in a catch or boundary list. Statically it discharges no failure; at run time it takes whatever reaches it,
+ *  which — every failure being discharged below it — can only be a panic. */
+export const PANIC = { panic: true } as const;
+
 /** Does a catch or boundary over `classes` take `err`? `undefined` classes: every failure. A class is an ErrorClass or a JS class. */
 export function isA(err: unknown, classes: unknown[] | undefined): boolean {
   if (!classes) return true;
+  if (classes.includes(PANIC)) return true;
   return classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
 }
 

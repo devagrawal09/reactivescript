@@ -89,7 +89,8 @@ runtime check.
 - **CN-6b (Panics are not failures).** A synchronous throw from JS is not
   in the row (R-f-3) — as a Rust panic is not in a function's type. The
   same boundaries take it at run time. The check is sound for failures and
-  silent on panics; the two do not mix, so neither weakens the other.
+  silent on panics; the two do not mix, so neither weakens the other. A
+  boundary may name `Panic` to take only what the check leaves (R-f-10).
 - **CN-6c (The boundary assertion).** `fails A | B` on an import narrows
   what its promises reject with (R-f-8). It is an unchecked assertion in the
   direction that lowers the row, the same kind of statement as `pure`

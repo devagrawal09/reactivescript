@@ -45,13 +45,15 @@ Open, for a ruling:
    `loading on(selected)`. Solid lets the re-armed `loading` take over; the
    spec and the interpreter now do too (H-12, S-hold-6). The workaround is
    left in the agent's program as written.
-2. **A failure as a message.** settings writes
-   `(valid && "") catch (e: NameRequired | NameTooLong) => e.message` to
-   show a validation failure next to its field.
-3. **A root catch-all hides a pane's leak.** With `errored fallback(e)` at
-   the root, a pane that lets `Error` out still checks (R-f-5 asks only that
-   *some* boundary above discharges it); search removed its root boundary to
-   keep "a failing detail never affects the list" a compile-time fact, and
-   gave up catching panics at the root.
+2. ~~**A failure as a message.**~~ Dropped: the brief asked the settings
+   agent for validation *as declared error classes*, which forced
+   `(valid && "") catch (e: …) => e.message`. Validation is values
+   (`nameError = name == "" ? "required" : …`); failures are for what goes
+   wrong, and `x catch (e) => e.message` already shows one inline.
+3. **A root catch-all hides a pane's leak** — ruled 2026-10-24: a boundary
+   may list `Panic` (R-f-10). `errored fallback(e: Panic)` at the root takes
+   crashes and discharges no failure, so every pane must still handle its
+   own (S-fail-3).
 4. Two agents wrote the optimistic value again after the `await` (the truth
-   after the guess). That is the model (AC-3); it read as repetition to both.
+   after the guess). That is the model (AC-3); left as is (ruled
+   2026-10-24).

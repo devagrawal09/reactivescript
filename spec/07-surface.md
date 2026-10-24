@@ -157,7 +157,9 @@ attributes are equations, children are readers, components are applied as
 - `for x in e` keys rows by identity, or by the collection's `key` (ST-4b).
 - `errored fallback(e)` binds the error value; `fallback` without a
   parameter ignores it. `fallback(e: A | B)` takes only those classes;
-  others pass to the boundary above (R-f-4).
+  others pass to the boundary above (R-f-4). `fallback(e: Panic)` takes
+  only panics (R-f-10) — the root boundary that leaves every failure to the
+  panes.
 
 ## 5. Imperative scope (02 SC-2, 06 AC)
 

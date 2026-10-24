@@ -181,7 +181,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   checked. (Ruled 2026-10-23: an error that escapes every boundary halts the
   reactive system, which is never the right behaviour — unlike a pending
   mount, CN-3c, there is no SSR case for it. An app typically has one
-  `errored` at its root.)
+  `errored` at its root — `fallback(e: Panic)` when its panes are meant to
+  keep their failures, R-f-10.)
 - **R-f-6 (Actions catch).** An action's body may not let a failure out: a
   class it can fail with that no enclosing `catch` in the body discharges
   is `UNCAUGHT_ACTION_FAILURE` (bin S). The handler that launched the action
@@ -208,6 +209,17 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   prefix (CN-4a): `name: pending fails(NotFound) string = …`. A written
   failure row narrower than the inferred one is `ROW_NARROWER_THAN_INFERRED`,
   and so is a written prefix that leaves `fails(…)` out of a value that fails.
+
+- **R-f-10 (A boundary for panics).** `Panic` may be listed in a catch or
+  a boundary: `errored fallback(e: Panic) { … } { … }`. Statically it
+  discharges no failure class, so every failure under it must be discharged
+  below it; at run time it takes whatever reaches it — which, failures being
+  discharged below, can only be a panic. This is the root boundary for an
+  app whose panes handle their own failures: a catch-all `fallback(e)` at
+  the root would also be accepted, but then a pane that lets `Error` out
+  still checks and a failing pane takes the page down; with `Panic` the
+  checker keeps each failure in its pane (ruled 2026-10-24, from the second
+  AI test; S-fail-3).
 
 ## R-inference
 
