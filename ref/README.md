@@ -18,7 +18,9 @@ Three runners over the same scenarios (`cd ref && npm install` once):
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types
-ref/check.ts file.rx…` prints diagnostics for files.
+ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
+`.rx` modules they import (spec/09), and with `--signature` each module's
+signature.
 
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)

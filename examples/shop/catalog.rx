@@ -1,0 +1,11 @@
+// The catalogue and the coupon: what the shop sells, and what a code is worth. Other modules read these; they write the
+// coupon only through `setCoupon` (09 MO-2: a module boundary is a value boundary).
+import pure { fetchProducts, validateCoupon } from "./api"
+
+export type Product = { id: number; name: string; price: number }
+
+export source products: Product[] = await fetchProducts() -> []   // ST-5 + R-7: `[]` until the catalogue lands
+export source coupon: string := ""
+export discount = coupon === "" ? 0 : await validateCoupon(coupon) -> 0   // a question on the code
+
+export action setCoupon(code: string) { coupon := code }

@@ -4,9 +4,10 @@ import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
-import { check } from "./check.ts";
+import { checkModules } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA } from "./failure.ts";
+import { singleModule, type ModuleSet } from "./modules.ts";
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
 export const PENDING = new PendingVal();
@@ -64,7 +65,7 @@ export class Node {
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
 
-type Binding = Node | { constant: unknown } | { fn: FnDecl } | { comp: CompDecl } | { action: ActionDecl };
+type Binding = Node | { constant: unknown } | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
 type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
@@ -141,10 +142,15 @@ export class Runtime {
   private pendingGuesses: { node: Node; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
   program: Program;
 
-  constructor(program: Program) {
+  /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
+  modules = new Map<string, Region>();
+  constructor(input: Program | ModuleSet) {
+    const set = "programs" in input ? input : singleModule(input);
+    const program = set.programs.get(set.entry)!;
     this.program = program;
     this.root = new Region(null, this, null);
-    const diags = check(program); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
+    const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);   // 08: the checker runs first; every static diagnostic is an error
+    for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
     this.declare(program.decls, this.root);
     this.view = this.instantiate(program.view, this.root);
   }
@@ -152,13 +158,14 @@ export class Runtime {
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
     for (const d of decls) {
+      if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) region.scope.set(alias, m.scope.get(name)!); continue; }   // MO-1: the module's own bindings
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
         const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
         region.scope.set(alias, { constant: d.pure || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
       if (d.k === "error") { const msg = d.msg; region.scope.set(d.name, { constant: makeErrorClass(d.name, d.params, args => msg ? String(this.untracked(() => this.ev(msg, region, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
-      if (d.k === "fn") region.scope.set(d.name, { fn: d }); if (d.k === "component") region.scope.set(d.name, { comp: d }); if (d.k === "action") region.scope.set(d.name, { action: d }); }
+      if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
       if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(d.name, b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
@@ -178,12 +185,13 @@ export class Runtime {
       }
     }
   }
-  private fnOf(e: Expr, region: Region): FnDecl | null { if (e.k !== "call" || e.f.k !== "id") return null; const b = region.lookup(e.f.name); return b && "fn" in b ? b.fn : null; }
+  private fnBind(e: Expr, region: Region): { fn: FnDecl; home: Region } | null { if (e.k !== "call" || e.f.k !== "id") return null; const b = region.lookup(e.f.name); return b && "fn" in b ? b : null; }
+  private fnOf(e: Expr, region: Region): FnDecl | null { return this.fnBind(e, region)?.fn ?? null; }
   private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.length > 0; }
   private instantiates(e: Expr, region: Region) { const f = this.fnOf(e, region); return !!f && this.isInstantiating(f); }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, region: Region): Node {   // E-9 / RG-6
-    const f = this.fnOf(call, region)!;
-    const r = new Region(region, this);
+    const fb = this.fnBind(call, region)!; const f = fb.fn;
+    const r = new Region(region, this, region.boundary, fb.home);           // owned at the call, names from the declaration
     f.params.forEach((p, i) => {
       const arg = call.args[i];
       if (p.ref) { const b = arg?.k === "id" ? region.lookup(arg.name) : undefined; r.scope.set(p.name, b instanceof Node ? b : this.mkNode("eq", `${f.name}.${p.name}`, region, rt => arg ? rt.evalExpr(arg, region) : undefined)); }
@@ -508,14 +516,15 @@ export class Runtime {
   }
   private contentReaders(v: ViewInst): Node[] {
     const out: Node[] = [];
-    const walk = (i: VItem) => { switch (i.k) { case "read": out.push(i.node); break; case "el": i.children.forEach(walk); break; case "comp": v2(i.inst); break; case "mif": if (i.inflight) v2(i.inflight.inst); break; case "mfor": i.inflightRows.forEach(r => v2(r.inst)); break; case "loading": case "errored": v2(i.content); break; } };
+    const walk = (i: VItem) => { switch (i.k) { case "read": out.push(i.node); if (i.node.value instanceof ViewValue) v2(i.node.value); break; case "el": i.children.forEach(walk); break; case "comp": v2(i.inst); break; case "mif": if (i.inflight) v2(i.inflight.inst); break; case "mfor": i.inflightRows.forEach(r => v2(r.inst)); break; case "loading": case "errored": v2(i.content); break; } };
     const v2 = (x: ViewInst) => x.items.forEach(walk); v2(v); return out;
   }
   /** H-7: during a hold, lane readers in the committed structure show σ′ unless their own lane is pending. */
   private patchLanes(v: ViewInst) { for (const i of v.items) this.patchItem(i); }
   private patchItem(i: VItem) {
     switch (i.k) {
-      case "read": { if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) i.shown = fmt(i.node.value); return; }
+      case "read": { if (i.node.value instanceof ViewValue) return this.patchLanes(i.node.value);   // children rendered by a component (found by S-app-shop)
+        if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) i.shown = fmt(i.node.value); return; }
       case "el": { for (const c of i.children) this.patchItem(c); return; }
       case "comp": return this.patchLanes(i.inst);
       case "mif": {
@@ -660,10 +669,11 @@ export class Runtime {
         if ("fn" in b) {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
           const f = b.fn;
-          return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, region, en); };
+          const home = b.home;
+          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action; return Object.assign((...args: unknown[]) => { const en = new Map(env); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, region, en, true); }, { io: true }); }   // AC-1: an action is io
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
@@ -927,7 +937,7 @@ export class Runtime {
         if (/^[A-Z]/.test(m.tag)) {
           const b = region.lookup(m.tag);
           if (!b || !("comp" in b)) throw new RuleError("SCOPE", `unknown component ${m.tag}`);
-          const comp = b.comp; const r = new Region(region, this);
+          const comp = b.comp; const r = new Region(region, this, region.boundary, b.home);   // owned at the application, names from the declaration (RG-7a, MO-6)
           const props: Record<string, unknown> = {};
           for (const a of m.attrs) { const node = this.mkNode("eq", `${m.tag}.${a.name}`, region, rt => rt.evalExpr(a.e, region)); Object.defineProperty(props, a.name, { enumerable: true, get: () => this.readNode(node) }); }   // a prop read is a read of the argument's node: taint, lanes, serving (found by S-fail-2)
           let children: ViewValue | null = null;                   // RG-4c: instantiated where first read — owned by the reader's region, named by the caller's

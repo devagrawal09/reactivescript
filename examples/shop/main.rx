@@ -1,0 +1,23 @@
+// examples/cart.rx split into modules (09): catalog.rx owns the catalogue and the coupon, cart.rx the cart and checkout,
+// ui.rx the pieces of view. This file is the entry: it applies them and is checked against their signatures only (MO-3) —
+// `ref/check.ts --signature examples/shop/main.rx` prints what it sees.
+import { products, coupon, discount, setCoupon } from "./catalog.rx"
+import { cart, count, subtotal, lastOrder, orderError, placeOrder } from "./cart.rx"
+import { Row, Panel } from "./ui.rx"
+
+total = subtotal - subtotal * (latest discount) / 100   // `latest`: the total keeps moving while the code is checked (H-7)
+
+<Panel title="The shop">
+  <section>
+    <h1>Cart ({count})</h1>
+    <ul>{for p in products { <Row product={p} /> }}</ul>
+    <label>
+      Coupon <input value={coupon} onInput={e => { setCoupon(e.target.value) }} />
+      <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
+    </label>
+    <p>Subtotal {subtotal}</p>
+    <p>Total {total}</p>
+    <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
+    <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
+  </section>
+</Panel>

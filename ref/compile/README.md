@@ -16,9 +16,14 @@ time instead of run time.
 node --experimental-strip-types --conditions=browser --conditions=development ref/compile/run.ts [filter]
 ```
 
-Status: 69/69 scenarios pass as compiled modules (3 recorded divergences, the
+Status: 71/71 scenarios pass as compiled modules (3 recorded divergences, the
 same as the oracle's: Solid bugs DV-3 and DV-4). All seven example apps build
 and run in Chromium against `examples/api.mjs`, a fake backend with delays.
+
+A program of several `.rx` modules (spec/09) compiles to one ES module per
+`.rx` module: a dependency's `mN.mjs` is a factory over the app that
+`__rt.module` runs once per app, the entry's `main.mjs` instantiates its
+dependencies at the start of its view (`examples/shop/`).
 
 Failures (04 R-f) lower to Solid error boundaries: a typed `errored` hands
 a failure of another class out of its fallback and a memo around it throws

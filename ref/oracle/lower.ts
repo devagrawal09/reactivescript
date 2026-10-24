@@ -12,6 +12,7 @@ import {
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA } from "../src/failure.ts";
+import { singleModule, type ModuleSet } from "../src/modules.ts";
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
 /** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
 class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
@@ -52,8 +53,8 @@ type Binding =
   | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean }
   | { k: "memo"; get: () => unknown }
   | { k: "const"; value: unknown }
-  | { k: "fn"; decl: Extract<Decl, { k: "fn" }> }
-  | { k: "comp"; decl: Extract<Decl, { k: "component" }> }
+  | { k: "fn"; decl: Extract<Decl, { k: "fn" }>; home: Scope }        // home: the declaring scope — bodies are lexical (RG-7a, MO-6)
+  | { k: "comp"; decl: Extract<Decl, { k: "component" }>; home: Scope }
   | { k: "action"; run: (...a: unknown[]) => unknown };
 class Scope {
   static all: Scope[] = [];
@@ -100,19 +101,33 @@ export class Oracle {
   program: Program;
   scanHandlers: Stmt[][] | undefined;
 
-  constructor(program: Program, handlers?: Stmt[][]) {
+  /** 09 MO-1: each imported module's scope, declared once, dependencies first. */
+  moduleScopes = new Map<string, Scope>();
+  constructor(input: Program | ModuleSet, handlers?: Stmt[][]) {
+    const set = "programs" in input ? input : singleModule(input);
+    const program = set.programs.get(set.entry)!;
     this.program = program; this.scanHandlers = handlers;
-    const walkStmts = (ss: Stmt[]) => { for (const s of ss) { if (s.k === "optimistic") this.optimisticTargets.add(s.target.name); if ((s.k === "write" || s.k === "optimistic") && s.target.path.length) this.pathTargets.add(s.target.name); if (s.k === "action") walkStmts(s.body); if (s.k === "sif") { walkStmts(s.t); walkStmts(s.f); } if (s.k === "try") { walkStmts(s.body); if (s.handler) walkStmts(s.handler); if (s.fin) walkStmts(s.fin); } } };
-    const walkExpr = (e: Expr): void => { if (e.k === "pending" && (e.e.k === "member" || e.e.k === "index")) { let x: Expr = e.e; while (x.k === "member" || x.k === "index") x = x.o; if (x.k === "id") this.pathTargets.add(x.name); } for (const v of Object.values(e as object)) { if (Array.isArray(v)) v.forEach(x => x && typeof x === "object" && "k" in x && walkExpr(x as Expr)); else if (v && typeof v === "object" && "k" in (v as object)) walkExpr(v as Expr); } };
-    const walkMarkup = (ms: Markup[]): void => { for (const m of ms) { if (m.k === "read") walkExpr(m.e); if (m.k === "el") { m.attrs.forEach(a => walkExpr(a.e)); walkMarkup(m.children); } if (m.k === "mif") { walkExpr(m.c); walkMarkup(m.t); walkMarkup(m.f); } if (m.k === "mfor") { walkExpr(m.xs); walkMarkup(m.body); } if (m.k === "loading" || m.k === "errored") { walkMarkup(m.fallback); walkMarkup(m.body); } } };
-    for (const d of program.decls) { if (d.k === "action") walkStmts(d.body); if (d.k === "effect") walkStmts(d.body); if (d.k === "eq") walkExpr(d.e); if (d.k === "source") walkExpr(d.init); }
-    walkMarkup(program.view);
-    this.scanHandlers?.forEach(walkStmts);
+    // usage over every module, deep (the compiler's usage(), ref/compile/emit.ts): guessed targets, path-written or path-probed sources
+    const seen = new WeakSet<object>();
+    const walk = (x: unknown): void => {
+      if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      const o = x as Record<string, any>;
+      if (o.k === "optimistic") this.optimisticTargets.add(o.target.name);
+      if ((o.k === "write" || o.k === "optimistic") && o.target.path.length) this.pathTargets.add(o.target.name);
+      if (o.k === "pending" && (o.e.k === "member" || o.e.k === "index")) { let y = o.e; while (y.k === "member" || y.k === "index") y = y.o; if (y.k === "id") this.pathTargets.add(y.name); }
+      for (const v of Object.values(o)) walk(v);
+    };
+    for (const p of set.programs.values()) walk(p);
+    this.scanHandlers?.forEach(walk);
     this.root = { kind: "el", tag: "root", children: [], props: {} };
     // The renderer's `render`: one scheduled insert for the whole tree, so uncaught async at the mount holds the
     // first commit as one frame (the same as @solidjs/web's `render`; H-2 on instant 0).
     this.rootScope = new VirtualScope(null);
-    this.dispose = R.render(() => { const scope = new Scope(null); this.declare(program.decls, scope); return this.fragment(program.view, scope) as any; }, this.root);
+    this.dispose = R.render(() => {
+      for (const path of set.order) { if (path === set.entry) continue; const ms = new Scope(null); this.moduleScopes.set(path, ms); this.declare(set.programs.get(path)!.decls, ms); }
+      const scope = new Scope(null); this.declare(program.decls, scope); return this.fragment(program.view, scope) as any;
+    }, this.root);
   }
 
   frame() { return serialize(this.root); }
@@ -135,10 +150,11 @@ export class Oracle {
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
+      if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) scope.vars.set(alias, ms.vars.get(name)!); continue; }   // MO-1: the module's own bindings
       if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
-      if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d });
-      if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d });
+      if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d, home: scope });
+      if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d, home: scope });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
     }
     for (const d of decls) {
@@ -249,8 +265,9 @@ export class Oracle {
     return init ? { loadingValue: untrack(() => this.ev(init!, scope)) } : undefined;
   }
   private fnOf(e: Expr, scope: Scope) { if (e.k !== "call" || e.f.k !== "id") return null; const b = scope.lookup(e.f.name); return b && b.k === "fn" ? b.decl : null; }
+  private fnHome(e: Expr, scope: Scope): Scope { const b = e.k === "call" && e.f.k === "id" ? scope.lookup(e.f.name) : undefined; return b && b.k === "fn" ? b.home : scope; }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, f: Extract<Decl, { k: "fn" }>, scope: Scope) {
-    const s2 = new Scope(scope);
+    const s2 = new Scope(this.fnHome(call, scope));                   // names from the declaration; arguments from the call
     f.params.forEach((p, i) => {
       const arg = call.args[i];
       if (p.ref) { const b = arg?.k === "id" ? scope.lookup(arg.name) : undefined; if (b && (b.k === "sig" || b.k === "memo" || b.k === "store")) s2.vars.set(p.name, b); else s2.vars.set(p.name, { k: "memo", get: createMemo(() => arg ? this.ev(arg, scope) : undefined) }); }
@@ -276,7 +293,7 @@ export class Oracle {
             if (!this.imperative) return b.get();
             try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; }   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
           }
-          case "fn": { const f = b.decl; return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, scope, en); }; }
+          case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, home, en); }; }
           case "action": return b.run;
           case "comp": throw new Error("component applied outside a view");
         }
@@ -422,11 +439,11 @@ export class Oracle {
         if (m.tag === "") return this.fragment(m.children, scope);     // `<>…</>`
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
-          const comp = b.decl;
+          const comp = b.decl, home = b.home;
           const props: Record<string, unknown> = {};
           for (const a of m.attrs) Object.defineProperty(props, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
           Object.defineProperty(props, "children", { enumerable: true, get: () => this.fragment(m.children, scope) });
-          return R.createComponent((p: any) => { const s2 = new Scope(scope); s2.vars.set(comp.props, { k: "const", value: p }); this.declare(comp.decls, s2); return this.fragment(comp.view, s2); }, props);
+          return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); this.declare(comp.decls, s2); return this.fragment(comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);
         for (const a of m.attrs) { if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure

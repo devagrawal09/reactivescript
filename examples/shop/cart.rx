@@ -1,0 +1,38 @@
+// The cart: lines, totals, and checkout. It reads the catalogue (an import is a read), and is the only module that writes
+// the cart.
+import pure { checkout } from "./api"
+import { products, coupon } from "./catalog.rx"
+
+export type Line = { id: number; qty: number }
+
+export source cart: Line[] = []                    // a question whose truth is `[]`: the target of the optimistic clear (ST-5c)
+export source lastOrder: number | null := null
+export source orderError: string := ""
+
+export fn qtyOf(id: number): number => cart.find(l => l.id === id)?.qty || 0
+
+export count = cart.reduce((n, l) => n + l.qty, 0)
+export subtotal = products.reduce((s, p) => s + p.price * qtyOf(p.id), 0)
+
+export action setQty(id: number, n: number) {
+  if (n < 0) return
+  cart := ls =>                                    // W-6: a functional write composes with others in the instant
+    n === 0 ? ls.filter(l => l.id !== id) :
+    ls.some(l => l.id === id) ? ls.map(l => l.id === id ? { ...l, qty: n } : l) :
+    [...ls, { id, qty: n }]
+}
+
+export action placeOrder() {
+  if (count === 0) return
+  let items = cart                                 // SC-2: a snapshot of the lines being ordered
+  optimistic cart := []                            // AC-3: the cart empties now, display-ahead
+  affects cart                                     // AC-5: `pending? cart` while the order is in flight
+  orderError := ""
+  try {
+    let receipt = await checkout(items, coupon)    // AC-7: a declined order is thrown here
+    cart := []                                     // the truth: equal to the guess, confirms silently
+    lastOrder := receipt.id
+  } catch (e) {
+    orderError := e.message                        // R-f-6: an action catches what it can fail with
+  }
+}

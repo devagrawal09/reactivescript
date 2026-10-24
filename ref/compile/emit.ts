@@ -3,6 +3,7 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
+import { singleModule, type ModuleSet } from "../src/modules.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
@@ -25,7 +26,7 @@ const mg = (n: string) => `v$${n}`;
 
 // ---------------------------------------------------------------- usage analysis (the oracle's walkers, at compile time)
 type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string> };
-function usage(p: Program, extra: Stmt[][] = []): Usage {
+function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
   const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set() };
   const seen = new WeakSet<object>();
   const walk = (x: unknown, selfName?: string): void => {
@@ -55,18 +56,25 @@ function deps(e: unknown, self: string, out = new Set<string>()): Set<string> {
 }
 
 // ---------------------------------------------------------------- the module
-export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): string {
-  const g = new Gen(usage(p, opts.extraStmts));
-  const root = new Env(null);
-  const body = g.block(p.decls, p.view, root, 2);
-  return `// compiled by ReactiveScript ref/compile — do not edit
-export default function main(__rt) {
-  const __B = __rt.B;
-  return () => {
-${body}
-  };
-}
-`;
+export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): string { return compileModules(singleModule(p), opts).files.get("main.mjs")!; }
+
+/** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
+ *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string } {
+  const out = (path: string) => path === set.entry ? "main.mjs" : `m${set.order.indexOf(path)}.mjs`;
+  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
+  const files = new Map<string, string>();
+  for (const path of set.order) {
+    const p = set.programs.get(path)!;
+    const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    if (path === set.entry) files.set(out(path), `${head}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${g.block(p.decls, p.view, new Env(null), 2)}\n  };\n}\n`);
+    else {
+      const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
+      files.set(out(path), `${head}export default function module(__rt) {\n  const __B = __rt.B;\n${g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${mg(n)}`).join(", ")} }`)}\n}\n`);
+    }
+  }
+  return { files, entry: out(set.entry) };
 }
 /** Handler rows and resolve values in scenarios: statements over names looked up at run time (rt.lookup). */
 export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return g.stmts(stmts, env, { imp: true, dyn: true }, 0); }
@@ -74,14 +82,36 @@ export function compileDynamicExpr(e: Expr): string { const g = new Gen(usage({ 
 
 class Gen {
   u: Usage;
-  constructor(u: Usage) { this.u = u; }
+  mods?: { set: ModuleSet; out: (path: string) => string };
+  constructor(u: Usage, mods?: { set: ModuleSet; out: (path: string) => string }) { this.u = u; this.mods = mods; }
+  depVar(path: string) { return `__m${this.mods!.set.order.indexOf(path)}`; }
+  /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
+  private importBind(path: string, name: string, alias: string): Bind {
+    const d = this.mods!.set.programs.get(path)!.decls.find(x => "name" in x && (x as { name: string }).name === name) as Decl | undefined;
+    const js = mg(alias);
+    if (!d) return { kind: "val", js };
+    switch (d.k) {
+      case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
+      case "component": return { kind: "comp", js };
+      case "action": return { kind: "act", js };
+      case "source": case "eq": return { kind: "acc", js };
+      default: return { kind: "val", js };
+    }
+  }
 
   // ---- blocks: a region's declarations, then its view ----
-  block(decls: Decl[], view: Markup[], env: Env, ind: number): string {
+  block(decls: Decl[], view: Markup[], env: Env, ind: number, exportsTail?: string): string {
     const pad = " ".repeat(ind * 2);
     const out: string[] = [`${pad}const __o = __rt.owner();`];
+    // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
+    for (const d of decls) if (d.k === "import" && d.resolved) {
+      const iv = `__i${this.mods!.set.order.indexOf(d.resolved)}`;
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      for (const { name, alias } of d.names) { env.vars.set(alias, this.importBind(d.resolved, name, alias)); out.push(`${pad}const ${mg(alias)} = ${iv}[${J(name)}];`); }
+    }
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
+      if (d.k === "import" && d.resolved) continue;
       if (d.k === "import") for (const { name, alias } of d.names) env.vars.set(alias, { kind: "val", js: mg(alias) });
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: mg(d.name) });
@@ -90,7 +120,7 @@ class Gen {
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
     }
-    for (const d of decls) if (d.k === "import") for (const { name, alias } of d.names) {
+    for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
       const v = name === "log" ? "__B.log" : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : null;
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       out.push(`${pad}const ${mg(alias)} = ${v};`);
@@ -116,7 +146,7 @@ class Gen {
       const inner = new Env(env);
       out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
     }
-    out.push(`${pad}return ${this.markup(view, env, ind)};`);
+    out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
     return out.join("\n");
   }
   private params(env: Env, ps: string[]) { const e = new Env(env); for (const p of ps) e.vars.set(p, { kind: "val", js: mg(p) }); return e; }

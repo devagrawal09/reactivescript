@@ -21,6 +21,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
 ## Mechanics (for writing scenarios)
 
 - `## Program` holds a fenced program, or a line `file: ../examples/x.rx`.
+- `## Modules` (09): fences beginning `-- module: ./x.rx` are modules every
+  program in the scenario may import; a `file:` program finds its modules
+  beside it on disk.
 - The frame is the view's text: reader values and text nodes concatenated in
   order, whitespace collapsed to single spaces and trimmed; adjacent elements
   add no separator (write `{" "}` or a text node where one is wanted).

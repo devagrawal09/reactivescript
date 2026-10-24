@@ -4,6 +4,7 @@
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
+import type { ModuleSet } from "./modules.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
@@ -19,6 +20,7 @@ type Region = {
   provides: Set<string>;
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
   kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
+  sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
 };
 // ---------------------------------------------------------------- failures (R-f)
 /** What a catch or a boundary discharges: named classes, or every failure. `Error` is the top: only "all" discharges it. */
@@ -26,10 +28,16 @@ type Catch = Set<string> | "all";
 /** A read of a component's prop: its failures are the argument's, known only at each application (R-f-5). `pre`: catches already applied. */
 type PropRef = { comp: Region; field: string; pre: Catch[] };
 type Fails = { cls: Set<string>; props: PropRef[] };
-/** Where a prop's failures go once they leave the reads' catches: up to the component's root (`term` null) or out of an action (an error). */
-type PFEntry = { chain: Catch[]; term: null | { line: number; name: string } };
+/** One step on the way up from a read: what it discharges — failures (`f`: a boundary or a catch) and provisions (`p`). */
+type Step = { f?: Catch; p?: Catch };
+/** Where a prop goes once read: up to the component's root (`term` null) or out of an action (an error). */
+type PFEntry = { chain: Step[]; term: null | { line: number; name: string } };
 const caught = (c: Catch, cls: string) => c === "all" || (cls !== "Error" && c.has(cls));
-const escapes = (chain: Catch[], cls: string) => !chain.some(c => caught(c, cls));
+const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f, cls));
+const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
+/** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
+ *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
+export type CompSig = { own: { cls: string; what: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }> };
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
@@ -59,6 +67,7 @@ type Sym = {
   failsT?: () => Fails;                // R-f-2: the failures of its value (an equation, a question source) or of a call (a fn)
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
+  imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
 
@@ -135,10 +144,31 @@ const mapsIntoRecords = (e: Expr): boolean => {                         // `map(
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 
 // ---------------------------------------------------------------- the checker
-export function check(p: Program): Diagnostic[] { const c = new Checker(); c.run(p); return c.diags; }
+/** MO-3: what an importer sees of each export — rows, parameters, and for a component its summary. Never its body. */
+export type ExportSig =
+  | { kind: "source"; question: boolean; rows: string[]; fails: string[] }
+  | { kind: "eq"; rows: string[]; fails: string[]; io: boolean }
+  | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[] }
+  | { kind: "action" }
+  | { kind: "errclass"; params: string[] }
+  | { kind: "comp"; sig: CompSig };
+export type ModSig = { file: string; exports: Map<string, ExportSig> };
+type Opts = { sigs?: Map<string, ModSig>; file?: string };
+
+export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
+export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p) }; }
+/** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
+export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig> } {
+  const sigs = new Map<string, ModSig>(); const diags: Diagnostic[] = [...set.diags];
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path }); diags.push(...r.diags); sigs.set(path, r.sig); }
+  return { diags, sigs };
+}
 
 class Checker {
   diags: Diagnostic[] = [];
+  private opts: Opts;
+  private rootEnv: Env | null = null;
+  constructor(opts: Opts = {}) { this.opts = opts; }
   private line = 1;
   private seq = 0;
   private uses: { region: Region; name: string; line: number }[] = [];
@@ -148,7 +178,7 @@ class Checker {
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private provisions: { name: string; e: Expr; env: Env }[] = [];
   private later: (() => void)[] = [];
-  private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg }); }
+  private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, opts: { component?: boolean; provParent?: Region | null } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
     r.component = opts.component ? r : parent?.component ?? null;
@@ -156,11 +186,10 @@ class Checker {
   }
 
   run(p: Program) {
-    const root = new Env(null, this.region(null));
+    const root = new Env(null, this.region(null)); this.rootEnv = root;
     this.block(p.decls, p.view, root, { scope: "reactive" });
-    this.checkUses();
     for (const f of this.later) f();
-    this.checkFailures();
+    this.resolveTree();
   }
 
   // ---- blocks: declarations, then a view (02 §1, 03) ----
@@ -168,6 +197,7 @@ class Checker {
     // 1. names (E-7: one declaration per name in a block)
     for (const d of decls) {
       this.line = d.line;
+      if (d.k === "import" && d.resolved) { this.importRx(d, env); continue; }                                  // MO-1/MO-3: an .rx module's signature
       if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]) }); continue; }   // R-io-4, R-f-8
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
       if (env.vars.has(d.name) && env.vars.get(d.name)!.kind !== "import") this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
@@ -186,6 +216,50 @@ class Checker {
     for (const d of decls) { this.line = d.line; this.decl(d, env, ctx); }
     // 4. the view
     this.markup(view, env);
+  }
+
+  /** MO-3/MO-4: bind an `.rx` import's names from its module's signature. Its rows are the signature's: `pure` must agree and
+   *  `fails` is refused. An imported source is read-only here (MO-2). */
+  private importRx(d: Extract<Decl, { k: "import" }>, env: Env) {
+    const sig = this.opts.sigs?.get(d.resolved!);
+    if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-4", `\`fails\` asserts rows at the JS boundary; ${d.from} is .rx and its rows are its signature's`);
+    for (const { name, alias } of d.names) {
+      const base: Sym = { kind: "import", name: alias, region: env.region, line: d.line };
+      const x = sig?.exports.get(name);
+      if (!sig) { env.vars.set(alias, base); continue; }                                      // the module was not found or not checked (reported there)
+      if (!x) { this.err("NOT_EXPORTED", "MO-6", `${d.from} does not export ${name === "default" ? "a default" : name}`); env.vars.set(alias, base); continue; }
+      const rowsOf = (r: string[]) => () => new Set(r);
+      const failsOf = (f: string[]) => () => ({ cls: new Set(f), props: [] as PropRef[] });
+      let sym: Sym;
+      switch (x.kind) {
+        case "source": sym = { kind: "source", name: alias, region: env.region, line: d.line, question: x.question, imported: d.from, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "eq": sym = { kind: "eq", name: alias, region: env.region, line: d.line, io: x.io, rows: rowsOf(x.rows), failsT: failsOf(x.fails) }; break;
+        case "fn": sym = { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params, instantiating: x.instantiating, rows: rowsOf(x.rows), failsT: failsOf(x.fails), rejects: new Set(x.rejects) }; break;
+        case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
+        case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
+        case "comp": { const r = this.region(null, { component: true }); r.sig = x.sig; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }
+      }
+      if (d.pure && sym.io) this.err("IMPORT_ROW_MISMATCH", "MO-4", `${name} is io in ${d.from}'s signature; \`pure\` cannot lower an .rx row`);
+      env.vars.set(alias, sym);
+    }
+  }
+  /** MO-3: this module's signature — every export as an importer sees it. */
+  signature(p: Program): ModSig {
+    const exports = new Map<string, ExportSig>(); const env = this.rootEnv!;
+    const arr = (x?: Set<string>) => [...(x ?? [])];
+    for (const d of p.decls) {
+      if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
+      const s = env.vars.get(d.name); if (!s) continue;
+      switch (s.kind) {
+        case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
+        case "eq": exports.set(d.name, { kind: "eq", rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), io: !!s.io }); break;
+        case "fn": exports.set(d.name, { kind: "fn", params: s.params ?? [], instantiating: !!s.instantiating, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls), rejects: arr(s.fnTail && s.fnEnv ? this.rejects(s.fnTail, s.fnEnv, new Set()) : s.rejects) }); break;
+        case "action": exports.set(d.name, { kind: "action" }); break;
+        case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
+        case "comp": exports.set(d.name, { kind: "comp", sig: this.compSig!(s.compRegion!) }); break;
+      }
+    }
+    return { file: this.opts.file ?? "", exports };
   }
 
   private cycles(decls: Decl[], env: Env) {
@@ -262,7 +336,7 @@ class Checker {
         for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line });
         this.block(d.decls, [], inner, { scope: "reactive", inFn: true });
         this.expr(d.tail, inner, { scope: "reactive", inFn: true });
-        { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); }
+        { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); sym.rows = this.rowsThunk(d.tail, inner); }
         return;
       }
       case "component": {
@@ -421,6 +495,7 @@ class Checker {
           else {
             target = this.resolve(s.target.name, env, ctx);
             if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written (W-1)`);
+            else if (target?.imported) this.err("WRITE_TO_NON_SOURCE", "MO-2", `${s.target.name} is a source of ${target.imported}: a module boundary is a value boundary — write it through an action ${target.imported} exports`);
           }
           if (s.k === "optimistic") {
             if (!ctx.inAction) this.err("OPTIMISTIC_OUTSIDE_HOLD", "AC-3", "optimistic outside an action body: a guess needs a hold to live in");
@@ -534,27 +609,6 @@ class Checker {
     }
   }
 
-  // ---- RG-7b over the static application tree ----
-  private checkUses() {
-    const memo = new Map<Region, Set<string> | null>(); const busy = new Set<Region>();
-    const avail = (r: Region): Set<string> | null => {                                      // null: undecidable statically (never applied, or recursive)
-      if (memo.has(r)) return memo.get(r)!;
-      if (busy.has(r)) return null;
-      busy.add(r);
-      let out: Set<string> | null;
-      if (r.isComponentRoot) {
-        if (!r.appSites.length) out = null;
-        else { out = null; for (const site of r.appSites) { const a = avail(site); if (!a) { out = null; break; } out = out ? new Set([...out].filter(x => a.has(x))) : new Set(a); } if (out) for (const p of r.provides) out.add(p); }
-      } else if (r.provParent) { const a = avail(r.provParent); out = a ? new Set([...a, ...r.provides]) : null; }
-      else out = new Set(r.provides);
-      busy.delete(r); memo.set(r, out); return out;
-    };
-    for (const u of this.uses) {
-      const a = avail(u.region);
-      if (a && !a.has(u.name)) { this.line = u.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `use ${u.name}: no provision for ${u.name} above this region on any path that renders it`); }
-    }
-  }
-
   // ---- R-f: failures ----
   private failsThunk(e: Expr, env: Env): () => Fails {
     let cache: Fails | null = null; let busy = false;
@@ -624,6 +678,7 @@ class Checker {
           const s = env.lookup(r.name);
           if (s?.kind === "import") return new Set(s.rejects ?? ["Error"]);
           if (s?.kind === "fn" && s.fnTail && s.fnEnv && e.f.k === "id" && !seen.has(s)) { seen.add(s); return this.rejects(s.fnTail, s.fnEnv, seen); }
+          if (s?.kind === "fn" && s.rejects) return new Set(s.rejects);                     // an imported fn: its signature (MO-3)
           if (s?.kind === "action") return new Set();                                        // an action never fails (R-f-6)
         }
         return new Set(["Error"]);
@@ -674,55 +729,89 @@ class Checker {
     return out;
   }
 
-  /** R-f-5/6 over the static application tree: every reader's failures are discharged by a catch or a boundary above it, through
-   *  each place its component is applied; every action catches what its body can fail with. */
-  private checkFailures() {
+  /** R-f-5/6 and RG-7b over the static application tree. Every reader's failures are discharged by a catch or a boundary
+   *  above it, and every `use` finds a provision above it, through each place its component is applied (and, for an imported
+   *  component, through its signature, MO-3); every action catches what its body can fail with. */
+  private resolveTree() {
     type Item = { cls: string; line: number; what: string };
+    type Req = { name: string; line: number; what: string };
     const readerF = this.readers.map(r => ({ ...r, f: this.failsOf(r.e, r.env, false, new Map()) }));
     const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
-    const key = (c: Catch[]) => c.map(x => x === "all" ? "*" : [...x].sort().join("|")).join("/");
-    const dedupe = <T extends { chain: Catch[] } | Catch[]>(xs: T[]): T[] => { const seen = new Set<string>(); return xs.filter(x => { const k = key(Array.isArray(x) ? x : x.chain) + (Array.isArray(x) ? "" : JSON.stringify((x as PFEntry).term)); if (seen.has(k)) return false; seen.add(k); return true; }); };
-    // routes: the chains of catches from a region up to its component's root (or the program's), through children's reads
-    const rMemo = new Map<Region, Catch[][]>(); const rBusy = new Set<Region>();
-    const routes = (R: Region): Catch[][] => {
+    const ck = (c?: Catch) => c === undefined ? "-" : c === "all" ? "*" : [...c].sort().join("|");
+    const key = (c: Step[]) => c.map(x => `${ck(x.f)}~${ck(x.p)}`).join("/");
+    const dedupe = <T extends PFEntry | Step[]>(xs: T[]): T[] => { const seen = new Set<string>(); return xs.filter(x => { const k = Array.isArray(x) ? key(x) : key(x.chain) + JSON.stringify(x.term); if (seen.has(k)) return false; seen.add(k); return true; }); };
+    const pre = (cs: Catch[]): Step[] => cs.map(f => ({ f }));
+    // routes: the steps from a region up to its component's root (or the program's), through children's reads
+    const rMemo = new Map<Region, Step[][]>(); const rBusy = new Set<Region>();
+    const routes = (R: Region): Step[][] => {
       if (rMemo.has(R)) return rMemo.get(R)!; if (rBusy.has(R)) return []; rBusy.add(R);
-      const local: Catch[] = []; let out: Catch[][] = [];
+      const local: Step[] = []; let out: Step[][] = [];
       for (let r: Region | null = R; r; r = r.parent) {
-        if (r.catches) local.push(r.catches);
+        if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined });
         if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
         if (r.isComponentRoot || !r.parent) { out = [local]; break; }
       }
       out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
     };
-    // PF: where a component's prop field's failures go
-    const occ: { comp: Region; field: string; pre: Catch[]; via: () => PFEntry[] }[] = [];
-    for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
-    for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
-    for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
+    // PF: where a component's prop field goes once read — up to its root, or out of an action
+    const occ: { comp: Region; field: string; pre: Step[]; via: () => PFEntry[] }[] = [];
+    for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
+    for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
+    for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pre(pr.pre), via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
     const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
     const PF = (G: Region, field: string): PFEntry[] => {
+      if (G.sig) {                                                                           // MO-3: an imported component's summary
+        const s = G.sig.props[field] ?? G.sig.props["*"]; if (!s) return [];
+        const out: PFEntry[] = [{ chain: [{ f: s.f, p: s.p }], term: null }];
+        if (s.action) out.push({ chain: [{ f: s.action.f }], term: { line: -1, name: s.action.name } });
+        return out;
+      }
       const k = `${G.id}:${field}`; if (pfMemo.has(k)) return pfMemo.get(k)!; if (pfBusy.has(k)) return []; pfBusy.add(k);
       const out: PFEntry[] = [];
       for (const o of occ) if (o.comp === G && (o.field === field || o.field === "*")) for (const v of o.via()) out.push({ chain: [...o.pre, ...v.chain], term: v.term });
       const res = dedupe(out); pfBusy.delete(k); pfMemo.set(k, res); return res;
     };
-    // what escapes each component's root (and the program's)
-    const escMemo = new Map<Region | null, Item[]>(); const escBusy = new Set<Region | null>();
+    // what escapes each component's root (and the program's): failures and provisions
+    const escMemo = new Map<Region | null, { fails: Item[]; reqs: Req[] }>(); const escBusy = new Set<Region | null>();
     const compOf = (r: Region) => r.component;
-    const esc = (C: Region | null): Item[] => {
-      if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return []; escBusy.add(C);
-      const out: Item[] = []; const seen = new Set<string>();
-      const push = (it: Item) => { const k = `${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); out.push(it); } };
-      for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escapes(q, cls))) push({ cls, line: r.line, what: show(r.e) });
-      for (const a of this.apps) if (compOf(a.site) === C) for (const it of esc(a.comp)) if (routes(a.site).some(q => escapes(q, it.cls))) push({ ...it, what: `${it.what} (in <${a.tag}>)` });
-      for (const a of argF) if (compOf(a.app.site) === C) for (const cls of a.f.cls) for (const p of PF(a.app.comp, a.field)) {
-        if (p.term) { if (escapes(p.chain, cls)) { this.line = a.app.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${p.term.name} in <${a.app.tag}> reads props.${a.field}, which can fail with ${cls} here (line ${a.app.line}), and does not catch it`); } continue; }
-        if (routes(a.app.site).some(q => escapes([...p.chain, ...q], cls))) { push({ cls, line: a.app.line, what: `<${a.app.tag} ${a.field}={…}>` }); break; }
+    const esc = (C: Region | null): { fails: Item[]; reqs: Req[] } => {
+      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${n}` })) };
+      if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return { fails: [], reqs: [] }; escBusy.add(C);
+      const fails: Item[] = []; const reqs: Req[] = []; const seen = new Set<string>();
+      const pushF = (it: Item) => { const k = `F${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); fails.push(it); } };
+      const pushR = (it: Req) => { const k = `R${it.name}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); reqs.push(it); } };
+      for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escF(q, cls))) pushF({ cls, line: r.line, what: show(r.e) });
+      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: `use ${u.name}` });
+      for (const a of this.apps) if (compOf(a.site) === C) {
+        const e = esc(a.comp);
+        for (const it of e.fails) if (routes(a.site).some(q => escF(q, it.cls))) pushF({ ...it, line: it.line < 0 ? a.line : it.line, what: `${it.what} (in <${a.tag}>)` });
+        for (const it of e.reqs) if (routes(a.site).some(q => escP(q, it.name))) pushR({ ...it, line: it.line < 0 ? a.line : it.line, what: `${it.what} (in <${a.tag}>)` });
       }
-      escBusy.delete(C); escMemo.set(C, out); return out;
+      for (const a of argF) if (compOf(a.app.site) === C) for (const cls of a.f.cls) for (const p of PF(a.app.comp, a.field)) {
+        if (p.term) { if (escF(p.chain, cls)) { this.line = a.app.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${p.term.name} in <${a.app.tag}> reads props.${a.field}, which can fail with ${cls} here (line ${a.app.line}), and does not catch it`); } continue; }
+        if (routes(a.app.site).some(q => escF([...p.chain, ...q], cls))) { pushF({ cls, line: a.app.line, what: `<${a.app.tag} ${a.field}={…}>` }); break; }
+      }
+      const res = { fails, reqs }; escBusy.delete(C); escMemo.set(C, res); return res;
     };
-    for (const it of esc(null)) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
+    const top = esc(null);
+    for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
+    for (const it of top.reqs) { this.line = it.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision for ${it.name} above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
+    // MO-3: the summaries an importing module checks against
+    const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));
+    const along = (chain: Step[], which: "f" | "p"): Catch => { const out = new Set<string>(); for (const st of chain) { const c = st[which]; if (c === "all") return "all"; if (c) for (const x of c) out.add(x); } return out; };
+    this.compSig = (G: Region): CompSig => {
+      const fields = new Set(occ.filter(o => o.comp === G).map(o => o.field));
+      const props: CompSig["props"] = {};
+      for (const f of fields) {
+        const es = PF(G, f); let df: Catch = "all", dp: Catch = "all", da: Catch | null = null; let an = ""; let rendered = false;
+        for (const e of es) { if (e.term) { da = da === null ? along(e.chain, "f") : meet(da, along(e.chain, "f")); an = e.term.name; } else { rendered = true; df = meet(df, along(e.chain, "f")); dp = meet(dp, along(e.chain, "p")); } }
+        props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}) };
+      }
+      const e = esc(G);
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what })), requires: [...new Set(e.reqs.map(r => r.name))], props };
+    };
   }
+  compSig: ((G: Region) => CompSig) | null = null;
 }

@@ -31,7 +31,7 @@ and where they may not go.
 - **R-io-4 (The boundary).** Every JS import is `io`. `import pure { f }
   from …` is the one assertion that lowers taint, and it is unchecked for
   JS (checked when the imported module is `.rx`, where it must agree with
-  the inferred row). `pure` means safe to call from reactive scope: no
+  the inferred row: `IMPORT_ROW_MISMATCH`, 09 MO-4). `pure` means safe to call from reactive scope: no
   writes to reactive state, and safe to re-ask — a data loader returning a
   promise is `pure` in this sense, and is the normal input of an `await`
   equation (R-1). There is no `io` keyword: dirty is the default and is

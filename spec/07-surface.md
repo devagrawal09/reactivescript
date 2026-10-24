@@ -26,7 +26,7 @@ declarations. A declaration at the top level lives for the module's lifetime
 ```
 import { fetchUser } from "./api"          // an io value: callable only in imperative scope (IO-2)
 import pure { formatName } from "./format" // a lifted value function: callable anywhere (E-9)
-import { Avatar } from "./Avatar.rx"       // a component
+import { Avatar } from "./Avatar.rx"       // a component; its rows come from Avatar.rx's signature (09 MO-3)
 
 export component Profile(props: { id: number }) { … }
 ```
@@ -44,9 +44,11 @@ export component Profile(props: { id: number }) { … }
   what the import's promises reject with (R-f-8); without `fails`, `Error`.
 - A module whose top level ends in markup is an app entry: that markup is
   the mounted view. The scenarios are written this way.
-- `export` works on `component`, `fn`, `action`, and module-level sources and
-  equations (exported as accessors — a module boundary is a value boundary,
-  never a write boundary: W-1 holds across modules).
+- `export` works on `component`, `fn`, `action`, `error`, `type`, and
+  module-level sources and equations (exported as accessors — a module
+  boundary is a value boundary, never a write boundary: W-1 holds across
+  modules). What an import binds and what is checked across the boundary
+  is 09-modules.
 
 ## 2. Declarations (02 §1)
 

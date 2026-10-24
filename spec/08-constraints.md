@@ -72,7 +72,8 @@ runtime check.
   than the inferred one is an error (`ROW_NARROWER_THAN_INFERRED`, bin
   S); a wider one is accepted (the author promises less). (Ruled
   2026-10-22.)
-- **CN-4b (Modular).** An import is checked against the signature only.
+- **CN-4b (Modular).** An import is checked against the signature only
+  (09 MO-3: what a signature holds, and a component's summary).
   A JS import has no signature for rows: it is `io` (R-io-4) and its
   values are row-free unless the author writes rows at the import.
 
@@ -173,7 +174,11 @@ How each enforcer is realised:
   Recursion and cycles cut to the empty set, which is sound because a
   path through a recursive application only adds catches.
 
-Not yet: rows across modules (`.d.rx`, CN-4b) — the interpreter has one
-module; the type oracle (UNRECOGNIZED_INSERT_VALUE and friends); handler
+- **Modules (CN-4b)** are 09: each module is checked dependencies first,
+  against the signatures computed so far (MO-3), and produces its own. The
+  failure and provision checks run as one pass whose steps record what
+  each region discharges; an imported component's summary is one step.
+
+Not yet: reading a written `.d.rx` in place of its module; the type oracle (UNRECOGNIZED_INSERT_VALUE and friends); handler
 statements typed into a scenario's `handler` rows (the interpreter checks
 those at run time).

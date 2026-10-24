@@ -4,10 +4,10 @@
 // node --experimental-strip-types --conditions=browser --conditions=development ref/compile/run.ts [filter]
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { parseScenario, type Scenario } from "../src/scenario.ts";
+import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
-import { check } from "../src/check.ts";
-import { compile, compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
+import { checkModules } from "../src/check.ts";
+import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
 import { createApp, flush } from "./rt.ts";
 import { resetErrorHalt } from "@solidjs/signals";
 
@@ -25,10 +25,12 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   const chains: typeof rows[] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
   const handlerStmts = rows.filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
   resetErrorHalt();
-  let js: string;
-  try { const prog = parseProgram(src); if (check(prog).length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; } js = compile(prog, { extraStmts: handlerStmts }); }
+  let out: ReturnType<typeof compileModules>;
+  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; } out = compileModules(set, { extraStmts: handlerStmts }); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
-  const file = `${outDir}${sc.name}.${++seq}.mjs`; writeFileSync(file, js);
+  const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
+  for (const [name, js] of out.files) writeFileSync(dir + name, js);
+  const file = dir + out.entry;
   const app = createApp();
   let dispose: () => void = () => {};
   try {

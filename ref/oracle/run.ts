@@ -2,7 +2,7 @@
 // node --experimental-strip-types --conditions=browser --conditions=development ref/oracle/run.ts [filter]
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { parseScenario, type Scenario } from "../src/scenario.ts";
+import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
 import { Oracle, flush, resetErrorHalt, Unsupported } from "./lower.ts";
 const isUnsupported = (e: unknown) => (e as Error)?.name === "Unsupported" || (Unsupported.last !== "" && String((e as Error)?.message ?? e).includes(Unsupported.last));
@@ -21,7 +21,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   let o: Oracle;
   resetErrorHalt(); (await import("./lower.ts")).resetScopes(); Unsupported.last = "";
   const handlerStmts = rows.filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
-  try { o = new Oracle(parseProgram(src), handlerStmts); } catch (e) { if (isUnsupported(e)) { lines.push(`  ~ ${t.title}: unsupported — ${(e as Error).message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
+  try { o = new Oracle(moduleSet(sc, src), handlerStmts); } catch (e) { if (isUnsupported(e)) { lines.push(`  ~ ${t.title}: unsupported — ${(e as Error).message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const scope = (o as any);
   try {
     for (const chain of chains) {

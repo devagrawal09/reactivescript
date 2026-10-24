@@ -107,6 +107,10 @@ named.
 | `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
 | `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
+| `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
+| `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
+| `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a | S-module-1 |
 
 ## The advisory rows (ruled 2026-10-23, in part)
 

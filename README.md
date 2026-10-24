@@ -17,11 +17,12 @@ spec/
   01-scopes.md         reactive vs imperative scope; lexical inheritance
   02-core.md           the synchronous calculus: syntax, static rules, instants, pre, causality
   03-regions.md        ownership, disposal, escape
-  04-rows.md           effect rows: pending, lane, io; inference
+  04-rows.md           effect rows: pending, lane, io, fails; inference
   05-holds.md          the two-version store; Solid's F-1…F-12 restated over the calculus
   06-stores.md         structured types, paths, draft, key/reconcile, follows
   07-surface.md        concrete syntax — written LAST
   08-constraints.md    what the compiler refuses, how, and the escape (Rust stance)
+  09-modules.md        .rx modules: what an import binds, the value boundary, signatures
   99-diagnostics.md    Solid 2.0's diagnostic table, each code binned: unwritable / static / runtime
 scenarios/             one file per scenario: program, action, frames, compiles-or-rejects
 ref/                   interpreter, checker, Solid oracle and compiler (TypeScript) — all run scenarios/

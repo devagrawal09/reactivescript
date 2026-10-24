@@ -10,6 +10,7 @@ sequence of handler calls and landings.
 | `users.rx` | a derived source with a first paint (ST-5, R-7), optimistic rename over a structured value plus an optimistic UI flag, a held page change with `latest`, an `on(query)` boundary |
 | `cart.rx` | written cold by a fresh agent from the spec alone (the AI-readability test): an optimistic checkout with `affects` for the spinner, a coupon question shown ahead with `latest`, functional root writes over a structured question source |
 | `ai/feed.rx`, `ai/wizard.rx`, `ai/grid.rx` | written cold, spec-only (no examples shown), by fresh agents — streams/context/optimistic send; step regions with cleanups, `pre`, try/catch; keyed rows, `deferred`, `on(page)`. 34 of 35 frames predicted before running; the misses became rules (EF-2, H-1) |
+| `shop/` | `cart.rx` in four modules (09): `catalog.rx` and `cart.rx` own their state and export actions to write it, `ui.rx` a row and a panel that keeps its children's failures inside it, `main.rx` the entry — checked against their signatures only (`ref/check.ts --signature examples/shop/main.rx`). S-app-shop runs it with S-app-cart's frames |
 | `signup.rx` | validation as equations, an async question with `latest`/`pending?` display-ahead, context-free components with children, an action with an early return, `errored fallback(e)` |
 
 The prelude for the scenario runners: `import pure { len, str, … } from "./prelude"`,

@@ -100,6 +100,7 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
+  const modules = new Map<string, Record<string, unknown>>();
   const log: string[] = [];
   let currentEq: string | null = null;
   const ctxFor = (name: string) => { let c = contexts.get(name); if (!c) { c = createContext<Entry | undefined>(undefined, name); contexts.set(name, c); } return c; };
@@ -191,6 +192,8 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     affects: (get: Acc) => affects(get as any),
     orInit: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
+    // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
+    module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7) ----
     owner: () => getOwner(),
     provide(name: string, e: Entry) { setContext(ctxFor(name), e); },

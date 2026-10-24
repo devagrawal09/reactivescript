@@ -1,0 +1,21 @@
+// The shop's pieces of view. `Row` names `qtyOf` and `setQty` from the cart; whoever applies it does not need to import them
+// (a component's body sees its own module — 09 MO-6).
+import { qtyOf, setQty } from "./cart.rx"
+
+export component Row(props: { product: Product }) {
+  qty = qtyOf(props.product.id)
+  <li>
+    <span>{props.product.name}</span>
+    <span>{props.product.price}</span>
+    <button onClick={() => { setQty(props.product.id, qty - 1) }} disabled={qty === 0}>-</button>
+    <span>{qty}</span>
+    <button onClick={() => { setQty(props.product.id, qty + 1) }}>+</button>
+  </li>
+}
+
+// A section that cannot take its page down: whatever its children fail with stays inside it (R-f-4).
+export component Panel(props: { title: string; children: View }) {
+  errored fallback(e) { <p class="error">{props.title} is unavailable: {e.message}</p> } {
+    {props.children}
+  }
+}
