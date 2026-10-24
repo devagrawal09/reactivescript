@@ -1,0 +1,25 @@
+// detail.rx — owns the selection and the selected item.
+// Write interface: select, retry.
+
+import pure { fetchItem } from "./api"
+
+export type Item = { id: number; name: string; blurb: string }
+
+// fetchItem answers `null` for an id it does not know: a declared failure.
+export error NotFound(id: number) => `item ${id} not found`
+
+export source selected: number | null := null
+
+export action select(id: number) {
+  selected := id
+}
+
+// Re-asks the current item's question (AC-4): the shown answer — or the
+// shown failure — stays until the fresh one lands.
+export action retry() {
+  refresh item
+}
+
+fn found(it: Item | null, id: number): Item => it == null ? throw NotFound(id) : it
+
+export item = selected == null ? null : found(await fetchItem(selected), selected)

@@ -4,6 +4,7 @@
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
+import { nonTailAwaits } from "../src/awaits.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
@@ -107,7 +108,10 @@ class Gen {
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const iv = `__i${this.mods!.set.order.indexOf(d.resolved)}`;
       if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
-      for (const { name, alias } of d.names) { env.vars.set(alias, this.importBind(d.resolved, name, alias)); out.push(`${pad}const ${mg(alias)} = ${iv}[${J(name)}];`); }
+      for (const { name, alias } of d.names) {
+        if (this.mods!.set.programs.get(d.resolved)!.decls.some(x => x.k === "typedecl" && x.name === name)) continue;   // a type binds nothing
+        env.vars.set(alias, this.importBind(d.resolved, name, alias)); out.push(`${pad}const ${mg(alias)} = ${iv}[${J(name)}];`);
+      }
     }
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
@@ -160,6 +164,24 @@ class Gen {
       return `${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
+    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? this.hoist(d.name, d.e, env, pad) : "";
+    if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
+    return this.value1(d, env, ind, b);
+  }
+  /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
+   *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
+  private hoisted = new Map<Expr, string>(); private hoistSeq = 0;
+  private hoist(name: string, e: Expr, env: Env, pad: string): string {
+    return nonTailAwaits(e).map(h => {
+      const v = `a$${name}$${this.hoistSeq++}`;
+      const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
+      const body = this.expr(h.node.e, env, { imp: false, tail: true });
+      this.hoisted.set(h.node, v);
+      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${h.node.init ? `__rt.lv(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined"});\n${pad}__rt.hoisted(${J(name)}, ${v});`;
+    }).join("\n");
+  }
+  private value1(d: Decl, env: Env, ind: number, b: Bind): string {
+    const pad = " ".repeat(ind * 2);
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.prevOf(${b.js});` : "";
     if (d.k === "source") {
       if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
@@ -239,6 +261,7 @@ class Gen {
       }
       case "peek": return `__rt.untrack(() => ${go(e.e)})`;
       case "await": {
+        if (this.hoisted.has(e)) return `${this.hoisted.get(e)}()`;
         if (ctx.imp) return ctx.gen ? `(yield __rt.aw(${go(e.e)}))` : ctx.async ? `(await __rt.aw(${go(e.e)}))` : go(e.e);
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
         return go(e.e);                                                                         // the memo returns the flight (R-1)

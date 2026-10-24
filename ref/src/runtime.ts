@@ -159,7 +159,7 @@ export class Runtime {
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
     for (const d of decls) {
-      if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) region.scope.set(alias, m.scope.get(name)!); continue; }   // MO-1: the module's own bindings
+      if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
         const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
@@ -179,7 +179,7 @@ export class Runtime {
       else if (d.k === "source" && !d.question) {
         const n = region.scope.get(d.name) as Node;
         if (isReactive(d.init, region)) throw new RuleError("SNAPSHOT_INITIALIZER", `source ${d.name} := … reads a reactive value: write the snapshot as peek(…) (E-4, DV-6)`);
-        n.value = this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
+        n.value = this.demandMode && !this.currentRun ? this.unsubscribed(() => this.evalExpr(d.init, region)) : this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
       } else if (d.k === "effect") {
         const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
         const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true, last: [] };
@@ -409,7 +409,9 @@ export class Runtime {
       }
       case "el": { for (const a of i.attrs) this.pull(a.node); for (const c of i.children) this.settleItem(c, holding, boundary); return; }
       case "mif": {
-        const c = this.pull(i.cond); const want = c instanceof PendingVal ? (i.inflight?.branch ?? null) : (isErr(c) ? "f" : c ? "t" : "f");
+        const c = this.pull(i.cond);
+        if (isErr(c)) { this.erroredControl(i.cond, c, boundary); if (i.inflight) this.settle(i.inflight.inst, holding, boundary); return; }   // H-12: an errored condition is a failed reader — its boundary takes it; the branch stays (found by S-ai2-settings)
+        const want = c instanceof PendingVal ? (i.inflight?.branch ?? null) : (c ? "t" : "f");
         if (want === null) { this.holdPending(i.cond, holding, boundary); return; }
         if (i.inflight?.branch !== want) {
           if (i.inflight && i.inflight !== i.committed) i.inflight.inst.region.dispose();   // an uncommitted branch is replaced
@@ -428,6 +430,7 @@ export class Runtime {
       case "mfor": {
         const xs = this.pull(i.xs);
         if (xs instanceof PendingVal) { this.holdPending(i.xs, holding, boundary); return; }
+        if (isErr(xs)) { this.erroredControl(i.xs, xs, boundary); for (const r of i.inflightRows) this.settle(r.inst, holding, boundary); return; }   // H-12, as for `if` (found by S-ai2-tracker)
         const arr = Array.isArray(xs) ? xs : [];
         const pool = new Map<unknown, Row[]>();
         for (const r of new Set([...i.committedRows, ...i.inflightRows])) { const l = pool.get(r.elem) ?? []; l.push(r); pool.set(r.elem, l); }
@@ -466,6 +469,12 @@ export class Runtime {
         return;
       }
     }
+  }
+  /** An errored control reader (`if`/`for`) is caught exactly as an errored read is (H-12, D-41). */
+  private erroredControl(node: Node, v: ErrVal, boundary: BoundaryItem | null) {
+    const eb = catching(boundary, v.err); if (eb) eb.caught.push(node);
+    const openE = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+    node.heldOn = openE.length || node.taint.has(this.instant) ? this.find(openE[0] ?? this.instant) : null;
   }
   /** A pending control reader (`if`/`for`) holds or is caught exactly as a pending read is (H-4, H-5). */
   private holdPending(node: Node, holding: Node[], boundary: BoundaryItem | null) {
@@ -595,7 +604,7 @@ export class Runtime {
       if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
       n.hasValue = true;
       if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
-      if (!isAbsent(v)) n.answered = true;
+      if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
       if (n.heldBy !== null) n.taint.add(n.heldBy);
       // D-10: while this value is held by an open change, the committed pass's inputs stay subscribed.
@@ -632,6 +641,9 @@ export class Runtime {
     this.tracking = prevTracking; return v;
   }
   private track(t: Target, key: string) { if (!this.tracking || !this.demandMode) return; let s = this.tracking.deps.get(t); if (!s) this.tracking.deps.set(t, (s = new Set())); s.add(key); }
+  /** E-5 (refined by S-ai2-settings): read the values of the pass being computed — a region instantiated in a change sees that
+   *  change's answers — without making them inputs of the reading equation. */
+  private unsubscribed<T>(f: () => T): T { const tr = this.tracking; this.tracking = null; try { return f(); } finally { this.tracking = tr; } }
   private snapshot(e: Expr, region: Region) { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return this.evalExpr(e, region); } finally { this.demandMode = dm; this.tracking = tr; } }
   private untracked<T>(f: () => T): T { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return f(); } finally { this.demandMode = dm; this.tracking = tr; } }
 
@@ -689,7 +701,7 @@ export class Runtime {
         if (b.hasPrev) return b.prev;
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
-      case "peek": return this.untracked(() => this.ev(e.e, region, env));
+      case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)
       case "use": return this.readNode(this.provisionOf(e.name, region));   // RG-7b: the nearest provision of the context through the instantiation chain
       case "await": {                                                  // R-1, R-6, R-7
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;

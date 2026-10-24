@@ -108,7 +108,13 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 - **AC-1 (action).** `action name(params) { … }` declares an `io` function
   whose body is **one change** across its awaited work: every write between
   entry and return belongs to that change and is held until the body returns
-  and everything it put in flight has landed (F-2's explicit form). The
+  (F-2's explicit form) — that is, until every `await` in it has landed. The
+  questions its writes cause (a fetch re-asked because a source changed) are
+  not the action's: they hold the change only as any change's pending
+  readers do (H-2…H-6), so an action with no `await`, `select(id) { selected
+  := id }`, is an ordinary instant and a `loading on(selected)` shows its
+  fallback at once (clarified 2026-10-24: all three agents of the second AI
+  test asked). The
   handler that launches it is the same instant, so the handler's own plain
   writes — before or after the call — are the action's and are held with it
   (D-7's same-tick adoption); to land something now, make it a guess or a

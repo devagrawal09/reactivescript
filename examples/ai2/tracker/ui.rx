@@ -1,0 +1,39 @@
+// ui.rx — the two panels. Each panel owns its own `errored` boundary, so a
+// failure in one never reaches the other.
+
+import { currentUser } from "./people.rx"
+import { filter, issues, selected, detail, assignError, setFilter, select, assignToMe } from "./issues.rx"
+
+export component IssueList(props: {}) {
+  <section>
+    <button onClick={() => { setFilter("open") }}>open</button>{" "}
+    <button onClick={() => { setFilter("closed") }}>closed</button>{" "}
+    {errored fallback(e) { <p>list error: {e.message}</p> } {
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        <ul>
+          {for issue in issues {
+            <li onClick={() => { select(issue.id) }}>#{issue.id} {issue.title} ({issue.assignee ?? "unassigned"}){" "}</li>
+          }}
+        </ul>
+      }}
+    }}
+  </section>
+}
+
+export component DetailPanel(props: {}) {
+  me = use currentUser
+  <section>
+    {if selected {
+      {loading on(selected) fallback { <p>loading #{selected}</p> } {
+        {errored fallback(e) { <p>detail error: {e.message}</p> } {
+          <h3>#{detail.id} {detail.title}</h3>{" "}<p>{detail.body}</p>
+        }}
+      }}
+      {" "}<button onClick={() => { refresh detail }}>retry</button>{" "}
+      <button onClick={() => { assignToMe(selected, me) }}>assign to {me}</button>{" "}
+      {assignError}
+    } else {
+      <p>select an issue</p>
+    }}
+  </section>
+}

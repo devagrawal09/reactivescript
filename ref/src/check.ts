@@ -37,7 +37,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { own: { cls: string; what: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }> };
+export type CompSig = { own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }> };
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -155,7 +155,8 @@ export type ExportSig =
   | { kind: "action" }
   | { kind: "errclass"; params: string[] }
   | { kind: "comp"; sig: CompSig }
-  | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string };   // an exported context: its written type is the contract (RG-7e)
+  | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
+  | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string };
 
@@ -222,6 +223,7 @@ class Checker {
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
       env.vars.set(d.name, sym);
     }
+    for (const d of decls) if (d.k === "source" && !d.question) env.vars.get(d.name)!.failsT = this.failsThunk(d.init, env);   // R-f-2: a source holds what its initializer gave it — an error, if that failed (found by S-ai2-settings)
     for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; sym.failsT = this.failsThunk(e, env); }
     // 2. C-1 over this block's equations (the static graph, CN-3a): only an equation's own `pre` breaks a cycle
     this.cycles(decls, env);
@@ -241,6 +243,7 @@ class Checker {
       const x = sig?.exports.get(name);
       if (!sig) { env.vars.set(alias, base); continue; }                                      // the module was not found or not checked (reported there)
       if (!x) { this.err("NOT_EXPORTED", "MO-6", `${d.from} does not export ${name === "default" ? "a default" : name}`); env.vars.set(alias, base); continue; }
+      if (x.kind === "type") continue;                                                      // a type name: text to the checker (07 §2), nothing to bind
       const rowsOf = (r: string[]) => () => new Set(r);
       const failsOf = (f: string[]) => () => ({ cls: new Set(f), props: [] as PropRef[] });
       let sym: Sym;
@@ -276,6 +279,7 @@ class Checker {
     const arr = (x?: Set<string>) => [...(x ?? [])];
     for (const d of p.decls) {
       if (!(d as { exported?: boolean }).exported || !("name" in d)) continue;
+      if (d.k === "typedecl") { exports.set(d.name, { kind: "type" }); continue; }
       const s = env.vars.get(d.name); if (!s) continue;
       switch (s.kind) {
         case "source": exports.set(d.name, { kind: "source", question: !!s.question, rows: arr(s.rows?.()), fails: arr(s.failsT?.().cls) }); break;
@@ -608,6 +612,7 @@ class Checker {
   // ---- views ----
   private markup(ms: Markup[], env: Env) {
     for (const m of ms) {
+      if (m.line) this.line = m.line;
       switch (m.k) {
         case "text": break;
         case "read": this.expr(m.e, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
@@ -833,7 +838,7 @@ class Checker {
     const escMemo = new Map<Region | null, { fails: Item[]; reqs: Req[] }>(); const escBusy = new Set<Region | null>();
     const compOf = (r: Region) => r.component;
     const esc = (C: Region | null): { fails: Item[]; reqs: Req[] } => {
-      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${keyName(n)}` })) };
+      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.at ? `${o.what} at ${o.at}` : o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${keyName(n)}` })) };
       if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return { fails: [], reqs: [] }; escBusy.add(C);
       const fails: Item[] = []; const reqs: Req[] = []; const seen = new Set<string>();
       const pushF = (it: Item) => { const k = `F${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); fails.push(it); } };
@@ -867,7 +872,8 @@ class Checker {
         props[f] = { f: df, p: dp, rendered, ...(da !== null ? { action: { f: da, name: an } } : {}) };
       }
       const e = esc(G);
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what })), requires: [...new Set(e.reqs.map(r => r.name))], props };
+      const file = (this.opts.file ?? "main.rx").split("/").pop();
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;

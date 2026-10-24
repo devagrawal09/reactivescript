@@ -1,0 +1,18 @@
+// main.rx — the entry: composes the panes. Owns nothing.
+
+import { SearchBox, ResultsPane, DetailPane } from "./ui.rx"
+
+// No catch-all `errored` at the root, on purpose. Each pane discharges its
+// own failures; with a root `fallback(e)` above them the checker would accept
+// a pane that lets `Error` out (R-f-5 only asks that *some* boundary above
+// discharges it), and a failed detail would then replace the whole app —
+// results list included. Without the root boundary, "a failing detail never
+// affects the results list" is a compile-time fact. The cost: a panic
+// (R-f-3, untracked) halts the app instead of showing a root fallback.
+<main>
+  <SearchBox />
+  {" "}
+  <ResultsPane />
+  {" "}
+  <DetailPane />
+</main>

@@ -1,0 +1,24 @@
+// main.rx — the settings page.
+
+import { settings, saveError, retryLoad } from "./settings.rx"
+import { SettingsForm } from "./form.rx"
+import { Panel } from "./ui.rx"
+
+errored fallback(e) {
+  <Panel title="Settings">
+    <p>Could not load settings: {e.message}</p>{" "}
+    <button onClick={() => { retryLoad() }}>Retry</button>
+  </Panel>
+} {
+  loading fallback {
+    <Panel title="Settings"><p>Loading settings…</p></Panel>
+  } {
+    if settings {
+      <p>Saved: {settings.name} · {settings.theme} · {settings.density}{pending? settings ? " (saving…)" : ""}</p>{" "}
+      if saveError {
+        <p class="error">Save failed: {saveError}</p>{" "}
+      }
+      <SettingsForm initial={settings} />
+    }
+  }
+}

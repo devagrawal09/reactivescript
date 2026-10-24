@@ -13,6 +13,8 @@ import {
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
+import { nonTailAwaits } from "../src/awaits.ts";
+const hoistedOf = new WeakMap<object, Map<Expr, () => unknown>>();
 const NO_PROVISION = { k: "const", value: undefined } as const;
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
 /** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
@@ -147,6 +149,21 @@ export class Oracle {
     if (this.currentEq) this.lastKey.set(this.currentEq, key);
     return f;
   }
+  /** 07 §3 / R-1: each `await` that is not the equation's result becomes its own async memo, asked only while the conditions
+   *  that reach it hold (E-11); the equation reads it where the `await` was (ref/src/awaits.ts). */
+  hoistedByName = new Map<string, (() => unknown)[]>();
+  private hoistAwaits(name: string, e: Expr, scope: Scope) {
+    for (const h of nonTailAwaits(e)) {
+      const lv = h.node.init ? { loadingValue: untrack(() => this.ev(h.node.init!, scope)) } : undefined;
+      const m = createMemo(() => {
+        for (const g of h.guards) { const v = this.ev(g.e, scope); if (!(g.nullish ? v == null : g.neg ? !v : !!v)) return undefined; }
+        const was = this.currentEq; this.currentEq = name;
+        try { return this.ev(h.node.e, scope); } finally { this.currentEq = was; }
+      }, lv as any);
+      let map = hoistedOf.get(scope); if (!map) hoistedOf.set(scope, (map = new Map())); map.set(h.node, m);
+      let byName = this.hoistedByName.get(name); if (!byName) this.hoistedByName.set(name, (byName = [])); byName.push(m);
+    }
+  }
   /** R-f-4: error class names → their values; undefined: every failure. */
   classValues(names: string[] | undefined, scope: Scope): unknown[] | undefined {
     if (!names) return undefined;
@@ -158,7 +175,7 @@ export class Oracle {
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
-      if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) scope.vars.set(alias, ms.vars.get(name)!); continue; }   // MO-1: the module's own bindings
+      if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
       if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
@@ -177,6 +194,7 @@ export class Oracle {
         }
         case "source": {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
+            this.hoistAwaits(d.name, d.init, scope);
             const compute = this.computeOf(d.name, d.init, scope);
             if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
               const [truth, setTruth] = createSignal(compute as any, this.loadingValue(d.init, scope) as any);
@@ -196,6 +214,7 @@ export class Oracle {
           break;
         }
         case "eq": {
+          if (d.e.k !== "draft") this.hoistAwaits(d.name, d.e, scope);
           if (d.e.k === "draft") {                                      // ST-3: createProjection((draft) => …, seed)
             const seedE = d.e.seed; if (seedE.k !== "pre" || seedE.name !== d.name || !seedE.init) throw new Unsupported("draft seed must be `pre self -> seed`");
             const seed = untrack(() => this.ev(seedE.init!, scope));
@@ -206,7 +225,8 @@ export class Oracle {
           }
           if (d.key) {                                                  // ST-4: a keyed projection
             const compute = this.computeOf(d.name, d.e, scope);
-            const proj = createProjection(() => compute(undefined) as any, [] as any, { key: d.key } as any);
+            const src = createMemo(() => compute(undefined) as any, this.loadingValue(d.e, scope) as any);   // the answer (sync, or the tail await's) is a memo; the projection reconciles it by key (found by S-ai2-search)
+            const proj = createProjection(() => src() as any, [] as any, { key: d.key } as any);
             scope.vars.set(d.name, { k: "memo", get: () => proj });
             break;
           }
@@ -318,7 +338,10 @@ export class Oracle {
         return v;
       }
       case "peek": return untrack(() => this.ev(e.e, scope, env));
-      case "await": { const v = this.ev(e.e, scope, env); return v; }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
+      case "await": {
+        for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
+        const v = this.ev(e.e, scope, env); return v;                   // in tail position the memo returns the flight (R-1)
+      }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
       case "latest": return latest(() => this.ev(e.e, scope, env));
       case "pending": return isPending(() => this.ev(e.e, scope, env));
       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
@@ -374,7 +397,7 @@ export class Oracle {
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
-      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
+      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); for (const h of this.hoistedByName.get(s.name) ?? []) refresh(h as any); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);

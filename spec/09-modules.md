@@ -111,7 +111,9 @@ export component Save(props: { v: action catches(nothing) })
   carries its declaring region, and a component's region is owned at the
   application but resolves names from the declaration.
 - **MO-6c.** An export is a declaration at the top level of a module.
-  `export type` declares a type name and binds nothing.
+  `export type T` is importable (`import { T } from "./x.rx"`) and binds no
+  value: types are text to the checker (07 §2). (The first text refused the
+  import, found by S-ai2-settings.)
 
 ## MO-7 — Contexts across modules
 

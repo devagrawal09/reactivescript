@@ -102,6 +102,7 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
   const modules = new Map<string, Record<string, unknown>>();
+  const hoistedBy = new Map<string, Acc[]>();   // an equation's hoisted awaits, re-asked with it by `refresh`
   const log: string[] = [];
   let currentEq: string | null = null;
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
@@ -171,7 +172,7 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown): Acc => { const p = createProjection(named(name, () => fn()) as any, [] as any, { key } as any); return () => p; },
+    keyed: (name: string, key: string, fn: () => unknown): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, [] as any, { key } as any); return () => p; },   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
@@ -189,7 +190,8 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
-    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); refresh((storeAccs.has(get) ? get() : get) as any); },
+    hoisted(name: string, get: Acc) { let l = hoistedBy.get(name); if (!l) hoistedBy.set(name, (l = [])); l.push(get); },
+    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
     affects: (get: Acc) => affects(get as any),
     orInit: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 

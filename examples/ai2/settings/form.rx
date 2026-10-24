@@ -1,0 +1,36 @@
+// form.rx — the edit form. Owns the draft; hands it to `save` from settings.rx.
+
+import { save, validate, NameRequired, NameTooLong } from "./settings.rx"
+import { theme, density } from "./theme.rx"
+import { Panel, Appearance } from "./ui.rx"
+
+// Mounted once the settings have loaded; the draft is seeded from them once
+// (E-4) and then belongs to the form: a save that fails does not throw the
+// user's edits away.
+export component SettingsForm(props: { initial: Settings }) {
+  source draftName: string := peek(props.initial.name)
+  source draftTheme: Theme := peek(props.initial.theme)
+  source draftDensity: Density := peek(props.initial.density)
+
+  draft: Settings = { name: draftName, theme: draftTheme, density: draftDensity }
+  valid = validate(draft)
+  // The failure as a value next to the field: "" when the draft is valid.
+  nameError: string = (valid && "") catch (e: NameRequired | NameTooLong) => e.message
+
+  provide theme = draftTheme
+  provide density = draftDensity
+
+  <div>
+    <Panel title="Profile">
+      <label>Display name{" "}<input value={draftName} onInput={(ev) => { draftName := ev.target.value }} /></label>{" "}
+      <small>{draftName.length}/20</small>{" "}
+      {if nameError { <p class="error">{nameError}</p> }}
+    </Panel>{" "}
+    <Panel title="Appearance">
+      <Appearance>
+        <button onClick={() => { draftDensity := draftDensity == "compact" ? "comfortable" : "compact" }}>Toggle density</button>
+      </Appearance>
+    </Panel>{" "}
+    <button onClick={() => { if (nameError == "") { save(draft) } }}>Save</button>
+  </div>
+}

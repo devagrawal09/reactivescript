@@ -164,7 +164,7 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("component")) {
     c.ws(); const name = c.ident() ?? c.fail("component name"); c.ws(); c.expect("("); c.ws();
-    const props = c.ident() ?? c.fail("props name"); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");
+    const props = c.peek() === ")" ? "props" : (c.ident() ?? c.fail("props name")); const propsType = optType(c); c.ws(); c.expect(")"); c.ws(); c.expect("{");   // `component C()`: no props (found by S-ai2-tracker)
     const { decls, body } = parseBlockBody(c);
     return { k: "component", name, props, decls, view: body, line, propsType };
   }
@@ -406,14 +406,15 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     if (c.eof()) { if (closeTag !== null) c.fail(`expected </${closeTag}>`); return out; }
     if (closeTag !== null && closeTag !== "}" && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }   // `""` is a fragment's close tag
     if (closeTag === "}" && c.startsWith("}")) { c.i++; return out; }
-    if (c.startsWith("<")) { out.push(parseElement(c)); continue; }
+    const line = c.line;                                             // for diagnostics: the line a reader or an application is on
+    if (c.startsWith("<")) { out.push({ ...parseElement(c), line }); continue; }
     if (c.startsWith("{")) {
       c.i++; c.ws();
       const ctl = parseControl(c);                                   // `{if …}` / `{for …}` / `{loading …}` inside an element
-      if (ctl) { c.ws(); c.expect("}"); out.push(ctl); continue; }
-      const e = parseExpr(c); c.ws(); c.expect("}"); out.push({ k: "read", e }); continue;
+      if (ctl) { c.ws(); c.expect("}"); out.push({ ...ctl, line }); continue; }
+      const e = parseExpr(c); c.ws(); c.expect("}"); out.push({ k: "read", e, line }); continue;
     }
-    if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push(ctl); continue; } }
+    if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push({ ...ctl, line }); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
     // text up to < { } or newline
     let s = "";

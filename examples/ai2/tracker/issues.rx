@@ -1,0 +1,51 @@
+// issues.rx — issue state and the actions that change it.
+//
+// Every source here is exported read-only (MO-2a); the actions below are the
+// only way to write them.
+
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+import pure { map } from "./prelude"
+
+export type Issue = { id: number; title: string; assignee: string | null }
+export type IssueDetail = { id: number; title: string; body: string }
+
+// `fetchIssue` answering `null` is a failure, not an empty detail.
+export error NotFound(id: number) => `issue #${id} not found`
+
+export source filter: string := "open"
+
+// A question source: re-asked whenever `filter` changes, and the target of the
+// optimistic assignment below (ST-5c). Rows keep identity by id (ST-4).
+export source issues: Issue[] key id = await fetchIssues(filter)
+
+export source selected: number | null := null
+
+// The server's message from the last declined assignment ("" when none).
+export source assignError: string := ""
+
+// Only asked while something is selected (E-11: the null arm opens no flight).
+export detail = selected == null ? null : found(await fetchIssue(selected), selected)
+
+fn found(d: IssueDetail | null, id: number): IssueDetail => d == null ? throw NotFound(id) : d
+
+fn withAssignee(list: Issue[], id: number, user: string): Issue[] =>
+  map(list, i => i.id == id ? { ...i, assignee: user } : i)
+
+export action setFilter(f: string) { filter := f }
+
+export action select(id: number) {
+  selected := id
+  assignError := ""
+}
+
+export action assignToMe(id: number, user: string) {
+  assignError := ""
+  optimistic issues := list => withAssignee(list, id, user)
+  try {
+    await assign(id, user)
+    issues := list => withAssignee(list, id, user)
+  } catch (e) {
+    assignError := e.message
+  }
+}

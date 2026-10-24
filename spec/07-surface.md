@@ -71,6 +71,7 @@ fn Counter(ref start: number) {        // RG-6: an instantiating fn — has decl
 }
 action save(name: string) { … }        // AC-1
 component Row(props: { item: Item }) { … }   // RG-4
+component Header() { … }               // no props
 context theme: Theme = defaultTheme    // RG-7a: a declared context (module level); `= …` is its default
 provide theme = settings.theme         // RG-7b: to everything rendered beneath
 palette = (use theme).palette          // RG-7b: the nearest provision above

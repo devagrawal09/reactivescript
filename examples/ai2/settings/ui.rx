@@ -1,0 +1,33 @@
+// ui.rx — presentational components. Knows the contexts, not the settings module.
+
+import { theme, density } from "./theme.rx"
+
+// A titled section. Reads `density`, which is provided only under the form;
+// in the loading and error screens it is the default.
+export component Panel(props: { title: string; children: View }) {
+  <section class={use density}>
+    <h2>{props.title} [{use density}]</h2>{" "}
+    {props.children}
+  </section>
+}
+
+// Changes the theme by writing through the context (RG-7c): it does not know,
+// or import, who owns the theme.
+export component ThemePicker(props: {}) {
+  current = use theme
+  <div>
+    <span>Theme: {current}</span>{" "}
+    <button onClick={() => { use theme := "light" }}>light</button>{" "}
+    <button onClick={() => { use theme := "dark" }}>dark</button>
+  </div>
+}
+
+// The appearance controls: the picker, whatever extra controls the caller
+// passes, and a preview of both contexts.
+export component Appearance(props: { children: View }) {
+  <div class={use theme}>
+    <ThemePicker />{" "}
+    {props.children}{" "}
+    <p>Preview: {use theme} / {use density}</p>
+  </div>
+}

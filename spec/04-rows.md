@@ -90,7 +90,9 @@ and where they may not go.
   reads the in-flight value of `x` if there is one, else the committed value.
   `pending? x` is `true` iff `x`'s value is not the final answer to a new
   question (F-9); on a first load, both probes do what a read of `x` does —
-  there is no verdict until there is a value.
+  there is no verdict until there is an answer. A failure is an answer
+  (H-12): a first load that fails ends the first load, and `pending? x` is
+  then `false` (found by S-ai2-search).
 - **R-10 (Lane row).** A probe is itself a dependency on `x` (a lane one):
   the probing reader re-evaluates when `x` changes. The result of a probe of `x` carries row `lane(x)`. The
   row flows through equations like `pending`: `y = latest x * 2` has
@@ -143,6 +145,10 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   prelude, or any bug — is a **panic** and is in no row. A boundary takes it
   at run time like anything else; if nothing does, the runtime halts
   (H-12). The static guarantee is about failures, not bugs.
+
+  A source holds what its initializer gave it, so a `source x := e` whose
+  `e` can fail has `e`'s failures until it is written (found by
+  S-ai2-settings: `source draft := peek(props.initial.name)`).
 - **R-f-4 (Discharge).** A failure leaves the row at:
   - `errored fallback(e: A | B) { … } { … }`, for every reader in its
     content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges

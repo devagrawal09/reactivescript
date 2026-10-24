@@ -100,3 +100,28 @@ gone.
 the error instead of throwing; a memo around the inner boundary reads it
 and throws. That memo is an ordinary dependent of the boundary, so it
 re-runs and recovers when the content does (S-fail-1 instants 6–8).
+
+---
+
+## DV-8 — a keyed projection over a memo stops following it after its first value
+
+Found by an agent-written app (S-ai2-search): `results key id = q.length < 2
+? throw TooShort(q) : await search(q)`, lowered as
+`createProjection(() => src(), [], { key: "id" })` over the equation's memo.
+
+**Observed** (`dv8-projection.mjs`):
+
+```
+q            a (throws)        c (value)   b (pending)   b lands   a (throws again)
+screen       error:too short   1 -         1 -  ✗        2 -       2 -  ✗
+```
+
+The first failure reaches the boundary. Once the projection has held a
+value, the memo's later pending state is not reported through it
+(`isPending(() => proj.length)` stays false; compare DV-4, the same symptom
+for a derived store), and a later failure is swallowed — the projection keeps
+its last value and the boundary never sees the error. Expected: `1 pending`
+and `error:too short`.
+
+The same app without `key` (a plain memo) matches the spec frame for frame
+in Solid; with `key`, the interpreter does too.

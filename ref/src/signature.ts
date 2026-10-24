@@ -12,6 +12,7 @@ function line(name: string, x: ExportSig): string {
     case "fn": { const r = rows(x.rows, x.fails); const rj = x.rejects.length && !(x.rejects.length === 1 && x.rejects[0] === "Error") ? ` rejects(${x.rejects.join(" | ")})` : ""; return `export fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name).join(", ")})${r ? `: ${r}` : ""}${rj}${x.instantiating ? "   // instantiating (RG-6)" : ""}`; }
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
+    case "type": return `export type ${name}`;
     case "context": { const r = rows(x.rows, x.fails); const t = [x.source ? "source" : "", r, x.type ?? ""].filter(Boolean).join(" "); return `export context ${name}${t ? `: ${t}` : ""}${x.dflt ? " = …" : ""}`; }
     case "comp": {
       const s = x.sig;

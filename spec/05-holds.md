@@ -247,6 +247,13 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-5 (`pre`) — ruled 2026-10-23: Solid's.** `pre x` is `x`'s value
   before its most recent change (C-2, P-6 rewritten); the frame-indexed
   rule is withdrawn. S-core-1 now matches the oracle without divergences.
+- **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
+  (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A
+  keyed equation lowers to `createProjection` over its memo; once the
+  projection has held a value, a later failure of the memo is swallowed
+  (the projection keeps its last value) and the memo's re-ask reports no
+  `pending?`. The spec frames stand (the interpreter matches the agent's
+  predictions, and the same app without `key` matches in Solid).
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

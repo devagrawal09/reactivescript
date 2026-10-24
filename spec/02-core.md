@@ -112,7 +112,14 @@ Function application `f(e…)` covers both language functions and FFI imports;
   A reactive argument to a value parameter is the same shape at a call
   (E-10).
 - **E-5 (peek).** `peek e`, in reactive scope only, evaluates `e` against the
-  committed state and contributes no inputs to the enclosing equation. It has
+  values of the pass it runs in and contributes no inputs to the enclosing
+  equation. A region instantiated by a change sees that change's answers:
+  a component mounted by the frame in which its data lands seeds from that
+  data (`source draft := peek(props.initial.name)`). (Refined 2026-10-24,
+  found by S-ai2-settings: the first text said "the committed state", which
+  seeded the draft from the failure the change was replacing; Solid's
+  `untrack` reads the current values, and so does `ref/` now. Imperative
+  reads still see σ, H-10.) It has
   no meaning in imperative scope, where every read is already a snapshot
   (SC-2). `peek e` of an equation nothing demands evaluates it from scratch
   (P-3) without making it part of the frame: it stays undemanded for E-8/P-6.

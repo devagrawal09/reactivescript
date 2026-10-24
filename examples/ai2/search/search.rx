@@ -1,0 +1,24 @@
+// search.rx — owns the query and its results.
+// Write interface: setQuery. Everything else is read-only to importers (MO-2a).
+
+import pure { search } from "./api"
+import pure { len } from "./prelude"
+
+export type Hit = { id: number; name: string }
+
+// A query of one character is a declared failure, not an empty list:
+// the results area shows it as a hint (R-f-1, R-f-3).
+export error TooShort(q: string) => `too short: ${q}`
+
+export source query: string := ""
+
+export action setQuery(q: string) {
+  query := q
+}
+
+// Empty query: nothing. One character: TooShort, no fetch (E-11 — the
+// `await` arm is not demanded). Otherwise the search. Keyed by id so rows
+// keep identity across searches (ST-4).
+export results key id = query == "" ? [] : len(query) < 2 ? throw TooShort(query) : await search(query)
+
+export count = len(results)
