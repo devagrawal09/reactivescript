@@ -426,11 +426,12 @@ function parsePrimary(c: Cursor): Expr {
 function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
   const out: Markup[] = [];
   const inElement = closeTag !== null && closeTag !== "}";
+  let broke = false;   // JSX whitespace (07: elements are JSX): whitespace that holds a line break is not text — except between two text runs, which it joins with one space
   for (;;) {
     if (inElement) {
-      // inside an element, whitespace between nodes is text (collapsed to one space)
       let s = ""; while (!c.eof() && " \t\r\n".includes(c.peek())) { s += c.peek(); c.i++; }
-      if (s && !c.startsWith(`</${closeTag}>`)) out.push({ k: "text", s: " " });
+      broke = s.includes("\n");
+      if (s && !broke && !c.startsWith(`</${closeTag}>`) && out.length) out.push({ k: "text", s: " " });   // same-line whitespace between nodes is a space
     } else c.ws();
     if (c.eof()) { if (closeTag !== null) c.fail(`expected </${closeTag}>`); return out; }
     if (closeTag !== null && closeTag !== "}" && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }   // `""` is a fragment's close tag
@@ -445,16 +446,18 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     }
     if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push({ ...ctl, line }); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
-    // text up to < { } or newline
+    // text up to < { } or newline; a line's trailing whitespace is not text (JSX)
     let s = "";
     while (!c.eof() && !"<{}\n".includes(c.peek())) { s += c.peek(); c.i++; }
+    if (c.peek() === "\n" || c.eof()) s = s.replace(/[ \t\r]+$/, "");
     if (!inElement) {
       // outside an element, bare text is not markup: a block is declarations, then markup
       if (s.trim() === "") { if (c.peek() === "\n") c.i++; continue; }
       if (s.includes(":=")) c.fail("W-2: write in reactive scope (no statement position)");
       c.fail("declaration or markup");
     }
-    out.push({ k: "text", s });
+    if (broke && out.length && out[out.length - 1].k === "text") out.push({ k: "text", s: " " });   // text on two lines: one space between
+    if (s) out.push({ k: "text", s });
   }
 }
 /** Control forms of a view: `if c { … } else { … }`, `for x in e { … }`, `loading … { … }`. Bare at block level, braced inside elements. */

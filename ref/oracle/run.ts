@@ -1,5 +1,6 @@
 // Runs scenarios/*.md against the real Solid 2.0 runtime through the lowering in lower.ts.
 // node --experimental-strip-types --conditions=browser --conditions=development ref/oracle/run.ts [filter]
+import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
@@ -68,5 +69,5 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   console.log(`${ok ? (unsupported ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (unsupported) skip++; else pass++;
 }
-console.log(`\n${pass} pass, ${fail} fail, ${skip} skip; ${divergent} recorded divergence(s) (oracle: solid-js 2.0.0-rc.16)`);
+console.log(`\n${pass} pass, ${fail} fail, ${skip} skip; ${divergent} recorded divergence(s) (oracle: ${SOLID})`);
 process.exit(fail ? 1 : 0);

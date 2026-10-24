@@ -24,14 +24,14 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 
 | instant | action                   | frame           |
 | ------- | ------------------------ | --------------- |
-| 0       | mount                    | `q1 skel`       |
-| 1       | resolve summary 1        | `q1 skel`       |
-| 2       | resolve trend 2          | `q1 skel`       |
-| 3       | resolve audit 3          | `q1 1 2 3`      |
-| 4       | handler `period := "q2"` | `q2 1 2 3`      |
-| 5       | resolve summary 10       | `q2 1 2 3`      |
-| 6       | resolve audit 30         | `q2 1 2 3`      |
-| 7       | resolve trend 20         | `q2 10 20 30`   |
+| 0       | mount                    | `q1skel`       |
+| 1       | resolve summary 1        | `q1skel`       |
+| 2       | resolve trend 2          | `q1skel`       |
+| 3       | resolve audit 3          | `q11 2 3`      |
+| 4       | handler `period := "q2"` | `q21 2 3`      |
+| 5       | resolve summary 10       | `q21 2 3`      |
+| 6       | resolve audit 30         | `q21 2 3`      |
+| 7       | resolve trend 20         | `q210 20 30`   |
 
 The write to `period` is held until the slowest panel answers; the three
 change together (H-2). `latest period` moves at once (H-7).
@@ -56,14 +56,14 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 
 | instant | action                   | frame               |
 | ------- | ------------------------ | ------------------- |
-| 0       | mount                    | `q1 skel askel`      |
-| 1       | resolve summary 1        | `q1 skel askel`      |
-| 2       | resolve trend 2          | `q1 1 2 askel`       |
-| 3       | resolve audit 3          | `q1 1 2 3`           |
-| 4       | handler `period := "q2"` | `q2 1 2 3`           |
-| 5       | resolve summary 10       | `q2 1 2 3`           |
-| 6       | resolve trend 20         | `q2 10 20 askel`     |
-| 7       | resolve audit 30         | `q2 10 20 30`        |
+| 0       | mount                    | `q1skelaskel`      |
+| 1       | resolve summary 1        | `q1skelaskel`      |
+| 2       | resolve trend 2          | `q11 2askel`       |
+| 3       | resolve audit 3          | `q11 23`           |
+| 4       | handler `period := "q2"` | `q21 23`           |
+| 5       | resolve summary 10       | `q21 23`           |
+| 6       | resolve trend 20         | `q210 20askel`     |
+| 7       | resolve audit 30         | `q210 2030`        |
 
 Instant 4: the `on` boundary re-arms and takes its panel out of the hold
 (H-6), but the other two panels still hold the write, so the page waits.
@@ -91,11 +91,11 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 
 | instant | action                   | frame               |
 | ------- | ------------------------ | ------------------- |
-| 0       | mount                    | `q1 skel askel`     |
-| 1       | resolve summary 1        | `q1 skel askel`     |
-| 2       | resolve trend 2          | `q1 1 2 askel`      |
-| 3       | resolve audit 3          | `q1 1 2 3`           |
-| 4       | handler `period := "q2"` | `q2 1 2 3`           |
-| 5       | resolve audit 30         | `q2 1 2 3`           |
-| 6       | resolve summary 10       | `q2 1 2 3`           |
-| 7       | resolve trend 20         | `q2 10 20 30`        |
+| 0       | mount                    | `q1skelaskel`     |
+| 1       | resolve summary 1        | `q1skelaskel`     |
+| 2       | resolve trend 2          | `q11 2askel`      |
+| 3       | resolve audit 3          | `q11 23`           |
+| 4       | handler `period := "q2"` | `q21 23`           |
+| 5       | resolve audit 30         | `q21 23`           |
+| 6       | resolve summary 10       | `q21 23`           |
+| 7       | resolve trend 20         | `q210 2030`        |

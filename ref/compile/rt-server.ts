@@ -6,7 +6,7 @@
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
-import { ssr, escape, renderToStream, markSafeError, generateHydrationScript, ssrHydrationKey, memo, scope as ssrScope } from "@solidjs/web";
+import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
 
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown) => void };
@@ -16,7 +16,9 @@ export { generateHydrationScript };
 // ---------------------------------------------------------------- values (as rt.ts)
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
-const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => x == null || isView(x))) || (typeof v === "object" && v !== null && "t" in (v as object));   // ssr() results, text constants, readers
+/** A view: an ssr() result, a function (a hole), or an array of views mixed with compiled JSX's static strings. */
+const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "t" in (v as object));
+const isView = (v: unknown): boolean => isNode(v) || (Array.isArray(v) && (v.length === 0 || (v.every(x => x == null || typeof x === "string" || isView(x)) && v.some(x => x != null && typeof x !== "string"))));
 /** Take the ids a client-side owner the server has no counterpart for would take (rt-web.ts creates it; the server need not). */
 const reserve = (n = 1) => { const o = getOwner() as any; if (o?.id != null) for (let i = 0; i < n; i++) getNextChildId(o); };
 const onServer = (what: string) => () => { throw new Error(`SV-2: ${what} does not run on the server`); };
@@ -56,7 +58,6 @@ export class Flight {
 }
 
 // ---------------------------------------------------------------- one request (SV-4: module state is per request)
-const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 type Owner = ReturnType<typeof getOwner>;
 type Ctx = { name: string; id: symbol; dflt: (() => unknown) | null; owner: Owner; dv: Entry | null };
 
@@ -155,42 +156,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,
 
-    // ---- views, as HTML (as Solid's compiled SSR output; each call mirrors rt-web.ts's) ----
-    text: (s: string) => { const t = escape(s); const f = () => t; (f as any).$text = true; return f; },
-    read: (f: () => unknown) => { const g = () => { const v = f(); return isView(v) ? v : escape(fmt(v)); }; (g as { $read?: boolean }).$read = true; return g; },
-    frag: (items: unknown[]): unknown[] => items.map(x => (x as { $read?: boolean })?.$read ? memo(x as Acc) : x),
-    /** An element: its hydration key, then its children (built now, as the client builds them), each in a marker region. */
-    el(tag: string, attrs: [string, () => unknown, boolean][], kids: () => unknown) {
-      const hk = ssrHydrationKey();
-      const items = (VOID.has(tag) ? [] : (untrack(kids) as unknown[]).flat(Infinity)).map(x => (x as { $read?: boolean })?.$read ? ssrScope(x as Acc) : x);
-      const a = () => {
-        let s = "";
-        for (const [name, f, handler] of attrs) {
-          if (handler) continue;                                  // a handler is attached at hydration
-          const v = f(); if (v === false || v == null) continue;
-          s += v === true ? ` ${name}` : ` ${name}="${escape(String(v), true)}"`;
-        }
-        return { t: s };
-      };
-      if (VOID.has(tag)) return ssr([`<${tag}`, "", ">"], hk, a);
-      const t = [`<${tag}`, "", ">"]; for (let i = 0; i < items.length; i++) { t[t.length - 1] += "<!--$-->"; t.push("<!--/-->"); } t[t.length - 1] += `</${tag}>`;
-      return ssr(t, hk, a, ...items);
-    },
-    comp: (C: (p: any) => unknown, props: Record<string, unknown>) => createComponent(C as any, props),
-    when: (cond: () => unknown, t: (item: Acc) => unknown, f: () => unknown) => createComponent(Show as any, { get when() { return cond(); }, get fallback() { return f(); }, children: t }),
-    each: (xs: () => unknown, body: (item: unknown) => unknown) => createComponent(For as any, { get each() { return xs(); }, children: body }),
-    loading(on: (() => unknown) | null, fallback: () => unknown, body: () => unknown) {
-      const props: Record<string, unknown> = { get fallback() { return fallback(); }, get children() { return body(); } };
-      if (on) Object.defineProperty(props, "on", { enumerable: true, get: on });
-      return createComponent(Loading as any, props);
-    },
-    /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. */
-    errored(fallback: (err: Acc) => unknown, body: () => unknown, classes?: unknown[]) {
+    // ---- views: compiled JSX (compile/jsx.ts, generate "ssr", hydratable) does the rest ----
+    show: (v: unknown) => isView(v) ? v : escape(fmt(v)),
+    /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
+     *  client's unwrapping memo has no counterpart here: its id is reserved. */
+    TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const out = createComponent(Errored as any, {
-        fallback: (err: Acc) => { if (!classes) return fallback(err); const ok = createMemo(() => isA(err(), classes)); if (!ok()) throw err(); return fallback(err); },
-        get children() { return body(); },
+        fallback: (err: Acc) => { const ok = createMemo(() => isA(err(), props.classes)); if (!ok()) throw err(); return props.fallback(err); },
+        get children() { return props.children; },
       });
-      if (classes) reserve();   // the client's unwrapping memo
+      reserve();
       return out;
     },
   };

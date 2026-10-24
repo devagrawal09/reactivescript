@@ -1,16 +1,14 @@
-// The browser runtime (10-server SV-3): the `__rt` API of ref/compile/rt.ts over @solidjs/web's DOM renderer, so a
-// compiled program can mount on a page — or hydrate one the server runtime (rt-server.ts) streamed. The two runtimes call
-// the same solid-js primitives in the same order, which is what hydration needs: each owner, element and scoped hole
-// takes the same id on both sides, so the client finds the server's elements and the server's answers by id. Views follow
-// Solid's own compiled output: an element is a hydration-keyed node whose children are marker-delimited regions, a text
-// node is a constant, a reader is a scoped hole in an element and a `memo` in a fragment.
+// The browser runtime (10-server SV-3): the `__rt` API of ref/compile/rt.ts over solid-js's DOM build, so a compiled
+// program can mount on a page — or hydrate one the server runtime (rt-server.ts) streamed. Views are JSX that Solid's
+// compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
+// create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
   flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, getOwner, runWithOwner, sharedConfig,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
-import { hydrate, render, getNextElement, getNextMarker, insert, effect, setAttribute, delegateEvents, memo, scope } from "@solidjs/web";
+import { hydrate, render } from "@solidjs/web";
 
 export { flush };
 export type Acc = () => unknown;
@@ -21,7 +19,10 @@ export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
 const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
-const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => x == null || isView(x))) || (typeof v === "object" && v !== null && "nodeType" in (v as object));   // DOM nodes, text constants, readers
+/** A view: a DOM node, a function (a hole, a control-flow accessor), or an array of views — which compiled JSX mixes with
+ *  its static strings. An array of strings alone is a value. */
+const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "nodeType" in (v as object));
+const isView = (v: unknown): boolean => isNode(v) || (Array.isArray(v) && (v.length === 0 || (v.every(x => x == null || typeof x === "string" || isView(x)) && v.some(x => x != null && typeof x !== "string"))));
 
 // ---------------------------------------------------------------- failures (R-f; a copy of ref/src/failure.ts — this file is served alone)
 type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
@@ -70,13 +71,6 @@ export class Flight {
   }
 }
 
-const hydrating = () => !!(sharedConfig as { hydrating?: boolean }).hydrating;
-const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-function setProp(n: any, k: string, v: unknown) {
-  if (k === "value" || k === "checked") { if (!n.isConnected || n[k] !== v) n[k] = k === "value" ? (v ?? "") : !!v; return; }
-  setAttribute(n, k, v === true ? "" : v as never);
-}
-
 // ---------------------------------------------------------------- one app instance
 export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
   const flights = new Map<string, Flight>();
@@ -97,7 +91,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
 
   const app = {
     root: opts.root,
-    log, flights, lastKey, asyncError: null as unknown, mismatches: [] as string[],
+    log, flights, lastKey, asyncError: null as unknown,
     /** Mount `view` on the root: build it, or (SV-3) adopt the page the server streamed into it. */
     mount(view: () => unknown, hydrating = false) { return hydrating ? hydrate(view as never, app.root) : render(view as never, app.root); },
 
@@ -211,53 +205,19 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,
 
-    // ---- views (as Solid's compiled DOM output; rt-server.ts mirrors each call) ----
-    /** A text node: a constant, so a view is told from a value (`read`) and hydration reuses the server's text. */
-    text: (s: string) => { const f = () => s; (f as any).$text = true; return f; },
-    /** `{e}`: a hole. In an element, `el` inserts it in a scope of its own (Solid's `scope`); in a fragment `frag` makes it a
-     *  memo (Solid's `memo`). Either takes an id, on both sides. */
-    read: (f: () => unknown) => { const g = () => { const v = f(); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; },
-    frag: (items: unknown[]): unknown[] => items.map(x => (x as { $read?: boolean })?.$read ? memo(x as Acc) : x),
-    /** An element: a hydration-keyed node; each child is a region between `<!--$-->` and `<!--/-->` markers. */
-    el(tag: string, attrs: [string, () => unknown, boolean][], kids: () => unknown) {
-      let fresh = false;
-      const node = getNextElement((() => { fresh = true; return document.createElement(tag); }) as never) as HTMLElement;
-      if (!fresh && node.localName !== tag) app.mismatches.push(`<${tag}> claimed <${node.localName}>`);   // SV-3: an id that names another element
-      else if (fresh && hydrating()) app.mismatches.push(`<${tag}> found no server element`);             // SV-3: an id the server did not give
-      const items = (VOID.has(tag) ? [] : (untrack(kids) as unknown[]).flat(Infinity)) as unknown[];
-      if (fresh) for (let i = 0; i < items.length; i++) node.append(document.createComment("$"), document.createComment("/"));
-      for (const [name, f, handler] of attrs) {
-        if (handler) { const ev = name.slice(2).toLowerCase(); delegateEvents([ev]); (node as any)[`$$${ev}`] = untrack(f); }
-        else effect(f as never, ((v: unknown) => setProp(node, name, v)) as never);
-      }
-      let open = node.firstChild;
-      for (const item of items) {
-        const [end, current] = getNextMarker(open!.nextSibling as never) as [Node, Node[]];
-        insert(node, ((item as { $read?: boolean })?.$read ? scope(item as Acc) : item) as never, end as never, current as never);
-        open = end.nextSibling;
-      }
-      return node;
-    },
-    comp: (C: (p: any) => unknown, props: Record<string, unknown>) => createComponent(C as any, props),
-    when: (cond: () => unknown, t: (item: Acc) => unknown, f: () => unknown) => createComponent(Show as any, { get when() { return cond(); }, get fallback() { return f(); }, children: t }),
-    each: (xs: () => unknown, body: (item: unknown) => unknown) => createComponent(For as any, { get each() { return xs(); }, children: body }),
-    loading(on: (() => unknown) | null, fallback: () => unknown, body: () => unknown) {
-      const props: Record<string, unknown> = { get fallback() { return fallback(); }, get children() { return body(); } };
-      if (on) Object.defineProperty(props, "on", { enumerable: true, get: on });
-      return createComponent(Loading as any, props);
-    },
+    // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
+    show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
-     *  and a wrapper throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
-    errored(fallback: (err: Acc) => unknown, body: () => unknown, classes?: unknown[]) {
+     *  and a memo throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
+    TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
+      const classes = props.classes;
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => {
-          if (!classes) return fallback(err);
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => fallback(err))) : new Forward(err()));
+          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
         },
-        get children() { return body(); },
+        get children() { return props.children; },
       });
-      if (!classes) return out;
       return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
     },
   };

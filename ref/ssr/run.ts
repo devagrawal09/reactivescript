@@ -8,6 +8,7 @@
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
 // env: CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
+import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
@@ -17,6 +18,7 @@ import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
 import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
 import { buildSync } from "esbuild";
+import { lowerViews } from "../compile/jsx.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 
 process.on("unhandledRejection", () => {});
@@ -34,7 +36,7 @@ await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
 const browser = await chromium.launch();
 const page = await browser.newPage();
-const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error") pageErrors.push(m.text()); });
+const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
@@ -54,7 +56,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return undefined; } out = compileModules(set, {}); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return undefined; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of out.files) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   const app = createApp();
   const got: string[] = []; let ended = false; let chunks = 0; let renderError: unknown = null;
@@ -94,9 +96,12 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
 
 const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 /** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
-function bundle(dir: string, entry: string) {
-  writeFileSync(dir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
-  const r = buildSync({ entryPoints: [dir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser"], logLevel: "silent" });
+function bundle(dir: string, files: Map<string, string>, entry: string) {
+  const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
+  for (const [name, js] of lowerViews(files, "dom")) writeFileSync(cdir + name, js);
+  writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
+  // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
+  const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
   return r.outputFiles[0].text;
 }
 
@@ -112,9 +117,9 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = compileModules(set, { extraStmts: handlerStmts }); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of out.files) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.entry);
+  clientJs = bundle(dir, out.files, out.entry);
   const app = createApp(); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
@@ -180,12 +185,12 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
         const fresh = [...root.querySelectorAll("*")].filter(n => !(n as any).__srv && !n.closest("template") && n.tagName !== "SCRIPT" && n.tagName !== "TEMPLATE").map(n => n.tagName.toLowerCase());
         if ((window as any).__dbg) console.log("HY.r keys", JSON.stringify(Object.keys((window as any)._$HY.r)));
         const dropped = ((window as any).__srvEls as Element[]).filter(n => !n.isConnected).map(n => n.tagName.toLowerCase());
-        return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0, mismatches: c.app.mismatches };
+        return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0 };
       });
       // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
       // where the client draws a later frame at once (a landing the stream could not carry, DV-9), it builds what changed
       const same = before === norm(await textOf());
-      const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", d.mismatches.length ? `ids misaligned: ${d.mismatches.join(", ")}` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
+      const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
       if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
       shown.push(norm(await textOf()));
       const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
@@ -203,7 +208,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       else { lines.push(`  ~ ${t.title} [${label}] instant ${r.instant}: ${r.action} not driven in the browser`); break; }
     } catch (e) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: ${(e as Error).message.split("\n")[0]}`); break; }
     await wait(Number(process.env.WAIT ?? 60));
-    await page.evaluate(() => (window as any).__client.flush());
+    await page.evaluate(() => { (window as any).__client.flush(); });
     if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
     const got = norm(await textOf()); const last = c[c.length - 1];
     const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ≠ ${t.title} [${label}] instant ${last.instant}: ${got}  — recorded (hydrated)`); break; }
@@ -294,6 +299,6 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (skipped) skip++; else pass++;
 }
-console.log(`\n${pass} pass, ${fail} fail, ${skip} skip (server render → solid-js 2.0.0-rc.16, streamed to Chromium)`);
+console.log(`\n${pass} pass, ${fail} fail, ${skip} skip (server render → ${SOLID}, streamed to Chromium)`);
 await browser.close(); http.close();
 process.exit(fail ? 1 : 0);

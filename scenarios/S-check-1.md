@@ -50,9 +50,9 @@ not one either (O-3).
 
 | instant | action                 | frame              |
 | ------- | ---------------------- | ------------------ |
-| 0       | mount                    | `P4 1:02:0 1 2 0` |
-| 1       | handler `mode := false`  | `P4 1:02:0 1 2 0` |
-| 2       | handler `note(7)`        | `P4 1:02:0 1 2 1` |
+| 0       | mount                    | `P41:02:01 2 0` |
+| 1       | handler `mode := false`  | `P41:02:01 2 0` |
+| 2       | handler `note(7)`        | `P41:02:01 2 1` |
 
 Instant 1: `a`'s own `pre` is the value it is replacing, `1` (C-2).
 

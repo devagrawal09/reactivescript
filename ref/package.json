@@ -2,18 +2,19 @@
   "name": "reactivescript-ref",
   "private": true,
   "type": "module",
-  "description": "The executable spec: parser, checker, interpreter (src/), the Solid oracle (oracle/), the compiler (compile/).",
+  "description": "The executable spec: parser, checker, interpreter (src/), the Solid oracle (oracle/), the compiler (compile/), the server and hydration runner (ssr/). Solid comes from its next branch at SOLID_NEXT (scripts/solid-next.sh).",
   "scripts": {
     "test": "node --experimental-strip-types run.ts",
     "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
     "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts",
-    "ssr": "node --experimental-strip-types ssr/run.ts"
+    "ssr": "node --experimental-strip-types --conditions=development ssr/run.ts"
   },
   "dependencies": {
-    "@solidjs/signals": "2.0.0-rc.16",
-    "@solidjs/universal": "2.0.0-rc.16",
-    "@solidjs/web": "^2.0.0-rc.16",
-    "solid-js": "2.0.0-rc.16"
+    "@solidjs/signals": "file:../../solid-next/packages/signals",
+    "@solidjs/universal": "file:../../solid-next/packages/universal",
+    "@solidjs/web": "file:../../solid-next/packages/web",
+    "solid-js": "file:../../solid-next/packages/solid",
+    "@solidjs/compiler": "file:../../solid-next/packages/compiler"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

@@ -11,17 +11,17 @@ file: ../examples/ai/grid.rx
 
 | instant | action | frame | effect |
 | ------- | ------ | ----- | ------ |
-| 0 | mount | `0 selected name* age Loading page 1… prev next` | log(sel, 0) |
-| 1 | resolve "fetchRows:1,name" { rows: [{ id: 1, name: "ann", age: 30 }, { id: 2, name: "bob", age: 25 }], total: 5 } | `0 selected name* age ready [ ] ann (30)[ ] bob (25)Page 1 of 3 (5 rows) prev next` | — |
-| 2 | handler `query := "b"` | `0 selected name* age ready [ ] bob (25)Page 1 of 3 (5 rows) prev next` | — |
-| 3 | handler `toggle(2)` | `1 selected name* age ready [x] bob (25)Page 1 of 3 (5 rows) prev next` | log(sel, 1) |
-| 4 | handler `query := ""` | `1 selected name* age ready [ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows) prev next` | — |
-| 5 | handler `sortBy := "age"` | `1 selected name age* updating [ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows) prev next` | — |
-| 6 | resolve "fetchRows:1,age" { rows: [{ id: 2, name: "bob", age: 25 }, { id: 1, name: "ann", age: 30 }], total: 5 } | `1 selected name age* ready [x] bob (25)[ ] ann (30)Page 1 of 3 (5 rows) prev next` | — |
-| 7 | handler `page := 2` | `1 selected name age* Loading page 2… prev next` | — |
-| 8 | resolve "fetchRows:2,age" { rows: [{ id: 3, name: "cat", age: 40 }, { id: 4, name: "dan", age: 35 }], total: 5 } | `1 selected name age* ready [ ] cat (40)[ ] dan (35)Page 2 of 3 (5 rows) prev next` | — |
-| 9 | handler `toggle(3)` | `2 selected name age* ready [x] cat (40)[ ] dan (35)Page 2 of 3 (5 rows) prev next` | log(sel, 2) |
-| 10 | handler `pageSize := 3` | `2 selected name age* ready [x] cat (40)[ ] dan (35)Page 2 of 2 (5 rows) prev next` | — |
+| 0 | mount | `0 selectedname*ageLoading page 1…prevnext` | log(sel, 0) |
+| 1 | resolve "fetchRows:1,name" { rows: [{ id: 1, name: "ann", age: 30 }, { id: 2, name: "bob", age: 25 }], total: 5 } | `0 selectedname*ageready[ ] ann (30)[ ] bob (25)Page 1 of 3 (5 rows)prevnext` | — |
+| 2 | handler `query := "b"` | `0 selectedname*ageready[ ] bob (25)Page 1 of 3 (5 rows)prevnext` | — |
+| 3 | handler `toggle(2)` | `1 selectedname*ageready[x] bob (25)Page 1 of 3 (5 rows)prevnext` | log(sel, 1) |
+| 4 | handler `query := ""` | `1 selectedname*ageready[ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows)prevnext` | — |
+| 5 | handler `sortBy := "age"` | `1 selectednameage*updating[ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows)prevnext` | — |
+| 6 | resolve "fetchRows:1,age" { rows: [{ id: 2, name: "bob", age: 25 }, { id: 1, name: "ann", age: 30 }], total: 5 } | `1 selectednameage*ready[x] bob (25)[ ] ann (30)Page 1 of 3 (5 rows)prevnext` | — |
+| 7 | handler `page := 2` | `1 selectednameage*Loading page 2…prevnext` | — |
+| 8 | resolve "fetchRows:2,age" { rows: [{ id: 3, name: "cat", age: 40 }, { id: 4, name: "dan", age: 35 }], total: 5 } | `1 selectednameage*ready[ ] cat (40)[ ] dan (35)Page 2 of 3 (5 rows)prevnext` | — |
+| 9 | handler `toggle(3)` | `2 selectednameage*ready[x] cat (40)[ ] dan (35)Page 2 of 3 (5 rows)prevnext` | log(sel, 2) |
+| 10 | handler `pageSize := 3` | `2 selectednameage*ready[x] cat (40)[ ] dan (35)Page 2 of 2 (5 rows)prevnext` | — |
 
 Each page is its own region (`for p in [page]`), and the `deferred` fetch is declared in it.
 Instant 0: the first load holds like any; the armed boundary catches the readers under it

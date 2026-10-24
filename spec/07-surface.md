@@ -157,6 +157,14 @@ attributes are equations, children are readers, components are applied as
   bare at block level. Each block is a region: declarations, then markup
   (RG-1, RG-2, RG-5). `if x { … }` narrows `x` inside (RG-1c).
 - `for x in e` keys rows by identity, or by the collection's `key` (ST-4b).
+- Text follows JSX: whitespace that contains a line break is not text, a
+  line's leading and trailing whitespace is not text, and text that runs
+  over two lines is joined by one space. Write `{" "}` where a space is
+  wanted between elements. (The first parser made every run of whitespace
+  between nodes a space; Solid's compiler — which lowers the views, 10 —
+  rejected the text it put inside a `<tr>`, which HTML forbids, and
+  S-app-users found it. 140 frames in 15 scenarios lost spaces that were
+  only formatting.)
 - `errored fallback(e)` binds the error value; `fallback` without a
   parameter ignores it. `fallback(e: A | B)` takes only those classes;
   others pass to the boundary above (R-f-4). `fallback(e: Panic)` takes

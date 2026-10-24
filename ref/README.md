@@ -8,13 +8,23 @@ Why TypeScript and not OCaml: it runs in the playground later, and it can
 import `@solidjs/signals` to diff the interpreter against the real runtime on
 the same scenario.
 
+Solid comes from its `next` branch, built from source at the commit in
+`ref/SOLID_NEXT`: `sh ref/scripts/solid-next.sh` checks it out beside this
+repository (`../solid-next`), builds `@solidjs/signals`, `solid-js`,
+`@solidjs/web`, `@solidjs/universal` and the native `@solidjs/compiler`
+(pnpm and a Rust toolchain), and `ref/package.json` links them
+(`--latest` moves the pin to `next`'s HEAD). Views are JSX that
+`@solidjs/compiler` lowers (`compile/jsx.ts`): `universal` over a string-tree
+renderer for the compiled runner, `ssr` and `dom` (hydratable) for the server
+runner.
+
 Four runners over the same scenarios (`cd ref && npm install` once):
 
 | runner | what it runs | command |
 | --- | --- | --- |
 | interpreter | `src/runtime.ts`, the spec's own semantics | `node --experimental-strip-types ref/run.ts` |
 | oracle | `oracle/lower.ts`, the program lowered onto Solid by interpretation | `npm --prefix ref run oracle` |
-| compiled | `compile/emit.ts`, the program compiled to a JS module over Solid | `npm --prefix ref run compiled` |
+| compiled | `compile/emit.ts`, the program compiled to a JS module whose views Solid's compiler lowers onto a string tree | `npm --prefix ref run compiled` |
 | server | the same compiled modules over `compile/rt-server.ts` (Solid's server build), streamed to Chromium and hydrated there over `compile/rt-web.ts` (spec/10) | `npm --prefix ref run ssr` |
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a

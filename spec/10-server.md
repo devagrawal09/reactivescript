@@ -4,9 +4,11 @@
 streamed to a browser, which then takes it over. This document says what
 the server computes, what the browser shows while the stream arrives, what
 crosses from server to client, how the client takes over, and what state a
-request owns. The same compiled modules run on both sides:
-`ref/compile/rt-server.ts` over solid-js 2.0's server build, and
-`ref/compile/rt-web.ts` over its DOM build. `ref/ssr/run.ts` serves every
+request owns. The same modules run on both sides — views lowered by Solid's
+own compiler (`@solidjs/compiler`, `generate: "ssr"` and `"dom"`,
+hydratable), the reactive lowering over `ref/compile/rt-server.ts` and
+`ref/compile/rt-web.ts` — on Solid's `next` branch built from source
+(`ref/SOLID_NEXT`). `ref/ssr/run.ts` serves every
 scenario to Chromium, hydrates it, and drives the rest of its rows in the
 browser. `S-server-1` covers what no other scenario does.
 
@@ -145,8 +147,9 @@ by default — see the list at the end.
 
 ## Divergences from Solid's server render and hydration (`ref/ssr/`)
 
-Each has a standalone repro with nothing of ReactiveScript in it — Solid's
-compiled-JSX shapes over the published packages — in `ref/oracle/repros/`.
+Each has a standalone repro with nothing of ReactiveScript in it — one
+`app.jsx` compiled by `@solidjs/compiler` for both sides — in
+`ref/oracle/repros/`, re-run on `next` @ `2a0da2f`.
 
 - **DV-9 (a failed boundary on the server) — reproduced 2026-10-24**
   (`dv9-ssr-after-shell.mjs`, `dv9-hydrate/`). Outside a server component,
@@ -198,22 +201,22 @@ did not run.
 
 ## Implementation
 
-- **Two runtimes, one call sequence.** Hydration finds the server's
-  elements and answers by owner id: each owner, element and scoped hole
-  takes the next id of its parent on both sides. So `rt-server.ts` and
-  `rt-web.ts` implement the same `__rt` API with the same solid-js
-  primitives in the same order, and where the client creates an owner the
-  server has no counterpart for (a value-level error boundary for `e catch
-  …` takes two ids, a typed boundary's unwrapping memo one), the server
-  reserves its ids. A context's default is created at its declaration, on
-  both sides, rather than at its first use (which happens at different
-  times on the two).
-- **Views as Solid's compiled JSX.** An element is a hydration-keyed node
-  (`_hk`), built with its children; each child is a region between
-  `<!--$-->` and `<!--/-->` markers, inserted on its own, and a `{…}` there
-  is a scoped hole (`scope`); a `{…}` in a fragment is a `memo`; text is a
-  constant. The oracle and the compiler lower the same way (05, "Lowering
-  at JSX granularity").
+- **Views are Solid's compiler's.** The emitter writes each view as JSX
+  (text as string children, `{e}` as `{__rt.show(e)}`, control flow as
+  `Show` / `For` / `Loading` / `Errored`), and `@solidjs/compiler` lowers it:
+  hydration keys, marker regions, which holes are scoped and which fragment
+  entries are memos, all as `documentation/hole-owner-id-matrix.md` on
+  `next` specifies. (Before 2026-10-24 the runtimes built views by hand,
+  copying the compiler's output; that copy is gone.)
+- **The reactive lowering, one call sequence.** Hydration finds the
+  server's answers by owner id, so `rt-server.ts` and `rt-web.ts` implement
+  the same `__rt` API with the same solid-js primitives in the same order,
+  and where the client creates an owner the server has no counterpart for
+  (a value-level error boundary for `e catch …` takes two ids, a typed
+  boundary's unwrapping memo one), the server reserves its ids. A context's
+  default is created at its declaration, on both sides, rather than at its
+  first use (which happens at different times on the two). A value-level
+  catch that Solid provided on both sides would retire the reservations.
 - **Failures.** A declared class's instances are marked with Solid's
   `markSafeError` (which is how `ssrSanitizeError` decides what to send) and
   carry their declaration's identity in a `$class` field, assigned in
@@ -226,10 +229,11 @@ did not run.
   the shell, then drives every remaining row in the browser — handlers, and
   landings of flights on whichever side asked them — checking the client's
   frames (SV-3d); at each hydration, that no element was rebuilt where the
-  frame did not change, that every element the client looked for was the
-  server's and of its tag, and that no question was asked again (SV-3a,
+  frame did not change and that no question was asked again (SV-3a,
   SV-3b; Solid traces a hydrated computation under a mocked `fetch` and
-  `Promise`, which the harness recognises and does not count); (4) with
+  `Promise`, which the harness recognises and does not count), with the
+  client on Solid's dev build, whose key-miss, tag-mismatch and
+  unclaimed-node reports fail the table; (4) with
   `CSR=1`, also mounts the same bundle on an empty page — the baseline that
   separates a hydration difference from a renderer one. A `## Server frames`
   table is checked row by row, with a concurrent second request (SV-4).

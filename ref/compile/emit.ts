@@ -1,4 +1,5 @@
-// The code generator: a checked Program → an ES module over solid-js 2.0 (and ./rt.ts for the lowering helpers).
+// The code generator: a checked Program → an ES module per .rx module: the reactive lowering as __rt calls, the views as
+// JSX, which Solid's own compiler then lowers for the target (compile/jsx.ts).
 // Lexical scopes become JS scopes: every region is a JS function, every declaration a `const`. Names are mangled
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
@@ -24,6 +25,8 @@ const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch",
 const isHandler = (a: string) => /^on[A-Z:]/.test(a);
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;
+const cm = (n: string) => `V$${n}`;   // a component: an uppercase JSX tag
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 
 // ---------------------------------------------------------------- usage analysis (the oracle's walkers, at compile time)
 type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string> };
@@ -72,7 +75,8 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
     if (path === set.entry) files.set(out(path), `${head}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${g.block(p.decls, p.view, new Env(null), 2)}\n  };\n}\n`);
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
-      files.set(out(path), `${head}export default function module(__rt) {\n  const __B = __rt.B;\n${g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${mg(n)}`).join(", ")} }`)}\n}\n`);
+      const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
+      files.set(out(path), `${head}export default function module(__rt) {\n  const __B = __rt.B;\n${g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`)}\n}\n`);
     }
   }
   return { files, entry: out(set.entry) };
@@ -93,7 +97,7 @@ class Gen {
     if (!d) return { kind: "val", js };
     switch (d.k) {
       case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
-      case "component": return { kind: "comp", js };
+      case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
       case "source": case "eq": return { kind: "acc", js };
       default: return { kind: "val", js };
@@ -110,7 +114,7 @@ class Gen {
       if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)!.decls.some(x => x.k === "typedecl" && x.name === name)) continue;   // a type binds nothing
-        env.vars.set(alias, this.importBind(d.resolved, name, alias)); out.push(`${pad}const ${mg(alias)} = ${iv}[${J(name)}];`);
+        const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
       }
     }
     // names first: hoisted functions and components; every other declaration is a const
@@ -118,7 +122,7 @@ class Gen {
       if (d.k === "import" && d.resolved) continue;
       if (d.k === "import") for (const { name, alias } of d.names) env.vars.set(alias, { kind: "val", js: mg(alias) });
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
-      if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: mg(d.name) });
+      if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
@@ -226,7 +230,7 @@ class Gen {
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
     if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
-    const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return (__rt\.frag\()?\[\]\)?;$/.test(l)).join("\n");
+    const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
     return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
@@ -243,7 +247,7 @@ class Gen {
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props) });
-    return `${pad}function ${mg(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1)}\n${pad}}`;
+    return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1)}\n${pad}}`;
   }
 
   // ---- expressions ----
@@ -353,49 +357,52 @@ class Gen {
     return out.join("\n");
   }
 
-  // ---- views ----
-  /** A view's items. An element's children are its holes (`el` inserts each); anywhere else they are a fragment, whose
-   *  readers `__rt.frag` makes memos — Solid's compiled JSX makes the same split. */
-  markup(ms: Markup[], env: Env, ind: number, inEl = false): string { const a = `[${ms.map(m => this.node(m, env, ind, inEl)).join(", ")}]`; return inEl ? a : `__rt.frag(${a})`; }
+  // ---- views: JSX, which Solid's compiler (@solidjs/compiler) lowers for the DOM, the server and the test renderer ----
+  /** A view: a fragment of children. Text is a string child; `{e}` is `{__rt.show(e)}` (a value is formatted, a view is
+   *  inserted); control flow is Solid's components. What is a hole, a scope or a memo is the compiler's to decide. */
+  markup(ms: Markup[], env: Env, ind: number): string { return ms.length ? `<>${ms.map(m => this.child(m, env, ind)).join("")}</>` : "null"; }   // an empty view is null, not `<></>` (an empty array loses its slot in the universal renderer: DV-13)
+  /** A region's body as a child: its declarations, then its view (a function body, so it is owned where it is called). */
   private regionFn(decls: Decl[], view: Markup[], env: Env, ind: number, param = "", bind?: (e: Env) => string): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env); const pre = bind ? bind(inner) : "";
     return `(${param}) => {\n${pre}${this.block(decls, view, inner, ind + 1)}\n${pad}}`;
   }
-  private node(m: Markup, env: Env, ind: number, inEl = false): string {
+  private region(decls: Decl[], view: Markup[], env: Env, ind: number): string { return `{(${this.regionFn(decls, view, env, ind)})()}`; }
+  private attr(name: string, e: Expr, env: Env): string { return `${name}={${this.expr(e, env, { imp: isHandler(name) })}}`; }
+  private child(m: Markup, env: Env, ind: number): string {
     const re: Ctx = { imp: false };
     const pad = " ".repeat((ind + 1) * 2);
     switch (m.k) {
-      case "text": return `__rt.text(${J(m.s)})`;
-      case "read": return `__rt.read(() => ${this.expr(m.e, env, re)})`;
+      case "text": return `{${J(m.s)}}`;
+      case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
       case "el": {
-        if (m.tag === "") return this.markup(m.children, env, ind, inEl);
+        if (m.tag === "") return this.markup(m.children, env, ind);
         if (/^[A-Z]/.test(m.tag)) {
           const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
-          const props = m.attrs.map(a => `get ${J(a.name)}() { return ${this.expr(a.e, env, { imp: isHandler(a.name) })}; }`);
-          props.push(`get children() { return ${this.markup(m.children, env, ind + 1)}; }`);
-          return `__rt.comp(${b.js}, { ${props.join(", ")} })`;
+          const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
+          return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${attrs} children={[]} />`;
         }
-        const attrs = m.attrs.map(a => `[${J(a.name)}, () => ${this.expr(a.e, env, { imp: isHandler(a.name) })}, ${isHandler(a.name)}]`);
-        return `__rt.el(${J(m.tag)}, [${attrs.join(", ")}], () => ${this.markup(m.children, env, ind + 1, true)})`;
+        const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
+        return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${m.tag}>`;
       }
       case "mif": {
         const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;
         const t = this.regionFn(m.tDecls, m.t, env, ind + 1, "__item", e => { if (m.c.k === "id" && narrowed && (narrowed.kind === "acc" || narrowed.kind === "src")) { e.vars.set(m.c.name, { kind: "acc", js: `n$${m.c.name}`, w: narrowed.w }); return `${pad}  const n$${m.c.name} = __item;\n`; } return ""; });
-        const f = this.regionFn(m.fDecls, m.f, env, ind + 1);
-        return `__rt.when(() => ${this.expr(m.c, env, re)},\n${pad}${t},\n${pad}${f})`;
+        return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
       }
       case "mfor": {
         const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "val", js: mg(m.name) }); return ""; });
-        return `__rt.each(() => ${this.expr(m.xs, env, re)},\n${pad}${body})`;
+        return `<For each={${this.expr(m.xs, env, re)}}>{${body}}</For>`;
       }
       case "loading": {
-        const on = m.on ? `() => ${this.expr(m.on, env, re)}` : "null";
-        return `__rt.loading(${on}, () => ${this.markup(m.fallback, env, ind + 1)},\n${pad}${this.regionFn(m.decls, m.body, env, ind + 1)})`;
+        const on = m.on ? ` on={${this.expr(m.on, env, re)}}` : "";
+        return `<Loading${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</Loading>`;
       }
       case "errored": {
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
-        return `__rt.errored((${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)},\n${pad}${this.regionFn(m.decls, m.body, env, ind + 1)}, ${this.classes(m.classes, env)})`;
+        const fallback = `fallback={(${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)}}`;
+        const body = this.region(m.decls, m.body, env, ind + 1);
+        return m.classes ? `<__rt.TypedErrored classes={${this.classes(m.classes, env)}} ${fallback}>${body}</__rt.TypedErrored>` : `<Errored ${fallback}>${body}</Errored>`;   // R-f-4: a typed boundary passes other classes up
       }
     }
   }

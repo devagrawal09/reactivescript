@@ -228,12 +228,17 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 
 ---
 
-## Divergences from the oracle (solid-js 2.0.0-rc.16, `ref/oracle/`)
+## Divergences from the oracle (Solid's `next`, `ref/oracle/`)
 
-Every scenario is also run through the real runtime (`ref/oracle/`: the
-abstract syntax lowered onto `solid-js` + `@solidjs/universal`). Where the
-runtime shows something other than the rule, the scenario records it in a
-`## Divergences` section and the question is listed here until ruled.
+Every scenario is also run through the real runtime — Solid's `next` branch
+built from source at the commit in `ref/SOLID_NEXT` (`2a0da2f`, 2026-10-24;
+the records before that date were found on the published rc.16 and all
+re-run there): the oracle lowers the abstract syntax onto `solid-js` +
+`@solidjs/universal` by interpretation, and the compiled runner's views go
+through Solid's own compiler (`@solidjs/compiler`). Where the runtime shows
+something other than the rule, the scenario records it in a
+`## Divergences` section and the question is listed here until ruled. Every
+repro in `ref/oracle/repros/` still reproduces on that commit.
 
 - **DV-1 (The mount) — resolved 2026-10-22.** The first oracle run showed
   Solid rendering the mount partially; that was the harness mounting through
@@ -254,9 +259,10 @@ runtime shows something other than the rule, the scenario records it in a
   used to insert an element's whole content through one render effect.
   Solid's compiled JSX gives each `{…}` child of an element its own insert,
   and makes a `{…}` outside an element (a fragment, a component's or a
-  branch's view) a `memo`; both runners now lower that way, as the browser
-  runtime (10) must for hydration. Two records moved: DV-4 no longer shows in
-  any scenario, and DV-10 appeared.
+  branch's view) a `memo`. The compiler now emits JSX that Solid's compiler
+  lowers, so it has that shape by construction; the oracle lowers the same
+  way by hand. Two records moved: DV-4 no longer shows in any scenario, and
+  DV-10 appeared.
 - **DV-10 (a held lane, per render effect) — a Solid behaviour, reproduced
   2026-10-24** (`ref/oracle/repros/dv10-lane-effects.mjs`, found by
   S-solid-35's variant once the lowering matched JSX). H-7: a pending
@@ -265,6 +271,15 @@ runtime shows something other than the rule, the scenario records it in a
   (`{latest guess}`) shows the guess beside a held `{guess} {derived}` —
   `1 x1 / 5` where the rule says `1 x1 / 1`. With both in one effect, Solid
   agrees with the rule. The scenario keeps the ruled frame.
+- **DV-13 (an empty fragment in the universal renderer) — a Solid bug,
+  reproduced 2026-10-24** (`ref/oracle/repros/dv13-universal-empty.mjs`,
+  found by S-ai2-search once its views went through Solid's compiler). In
+  `@solidjs/universal`, an element whose children are all dynamic gets
+  `null` markers, and each region keeps its place with a sentinel; a region
+  whose value becomes an empty array (`<></>` compiles to `[]`) removes its
+  sentinel, and what replaces it later is appended after its siblings. The
+  DOM build uses comment markers and is not affected. The emitter writes an
+  empty view as `null`, which keeps its slot.
 - **DV-9, DV-11, DV-12 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
 - **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**

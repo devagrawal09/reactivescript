@@ -36,10 +36,10 @@ export component Row(props: { todo: Todo }) {
 
 | instant | action                                                              | frame                      |
 | ------- | ------------------------------------------------------------------- | -------------------------- |
-| 0       | mount                                                               | `1 of 1 spec all`          |
-| 1       | handler `toggle(1)`                                                 | `1 of 1 spec all`          |
-| 2       | handler `filter := "open"`                                          | `0 of 1 open`              |
-| 3       | handler `todos := ts => [...ts, { id: 2, title: "lex", done: false }]` | `1 of 2 lex open`       |
+| 0       | mount                                                               | `1 of 1specall`          |
+| 1       | handler `toggle(1)`                                                 | `1 of 1specall`          |
+| 2       | handler `filter := "open"`                                          | `0 of 1open`              |
+| 3       | handler `todos := ts => [...ts, { id: 2, title: "lex", done: false }]` | `1 of 2lexopen`       |
 
 Instant 1: the functional write (W-6) toggles `done`; the row's `class`
 changes, the text does not. Instant 3: a functional write appends.

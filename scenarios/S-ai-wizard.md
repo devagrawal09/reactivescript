@@ -18,18 +18,18 @@ file: ../examples/ai/wizard.rx
 
 | instant | action | frame | effect |
 | ------- | ------ | ----- | ------ |
-| 0 | mount | `Step 1 of 3 (reached 1) next` | `log(enter, 1)` |
-| 1 | handler `if (nameOk) { step := 2 } else { tries := tries + 1 }` | `Step 1 of 3 (reached 1) name required next` | — |
-| 2 | handler `form.name := "Ann"` | `Step 1 of 3 (reached 1) next` | — |
-| 3 | handler `if (nameOk) { step := 2 } else { tries := tries + 1 }` | `Step 2 of 3 (reached 2) email: (invalid) back next` | `log(leave, 1); log(enter, 2)` |
-| 4 | handler `email := "ann@x.io"` | `Step 2 of 3 (reached 2) email: ann@x.io back next` | — |
-| 5 | handler `if (emailOk) { form.email := email; step := 3 }` | `Step 3 of 3 (reached 3) Ann / ann@x.io / no plan pro agree back submit` | `log(leave, 2); log(enter, 3)` |
-| 6 | handler `form.plan := "pro"; agreed := !agreed` | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agreed back submit` | — |
-| 7 | handler `step := 2` | `Step 2 of 3 (reached 3) email: ann@x.io back next` | `log(leave, 3); log(enter, 2)` |
-| 8 | handler `if (emailOk) { form.email := email; step := 3 }` | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agree back submit` | `log(leave, 2); log(enter, 3)` |
-| 9 | handler `agreed := !agreed` | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agreed back submit` | — |
-| 10 | handler `if (ready) { submit() }` | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agreed back submit submitting` | — |
-| 11 | reject "submitSignup:{"name":"Ann","email":"ann@x.io","plan":"pro"}" "boom" | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agreed back submit failed: boom` | — |
+| 0 | mount | `Step 1 of 3 (reached 1)next` | `log(enter, 1)` |
+| 1 | handler `if (nameOk) { step := 2 } else { tries := tries + 1 }` | `Step 1 of 3 (reached 1)name requirednext` | — |
+| 2 | handler `form.name := "Ann"` | `Step 1 of 3 (reached 1)next` | — |
+| 3 | handler `if (nameOk) { step := 2 } else { tries := tries + 1 }` | `Step 2 of 3 (reached 2)email: (invalid)backnext` | `log(leave, 1); log(enter, 2)` |
+| 4 | handler `email := "ann@x.io"` | `Step 2 of 3 (reached 2)email: ann@x.io backnext` | — |
+| 5 | handler `if (emailOk) { form.email := email; step := 3 }` | `Step 3 of 3 (reached 3)Ann / ann@x.io / no planproagreebacksubmit` | `log(leave, 2); log(enter, 3)` |
+| 6 | handler `form.plan := "pro"; agreed := !agreed` | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit` | — |
+| 7 | handler `step := 2` | `Step 2 of 3 (reached 3)email: ann@x.io backnext` | `log(leave, 3); log(enter, 2)` |
+| 8 | handler `if (emailOk) { form.email := email; step := 3 }` | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreebacksubmit` | `log(leave, 2); log(enter, 3)` |
+| 9 | handler `agreed := !agreed` | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit` | — |
+| 10 | handler `if (ready) { submit() }` | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitsubmitting` | — |
+| 11 | reject "submitSignup:{"name":"Ann","email":"ann@x.io","plan":"pro"}" "boom" | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitfailed: boom` | — |
 
 Instant 1: `next` refused — the step-local `tries` shows the hint. Instant 3:
 the step-1 region ends (cleanup runs first, O-2) and step 2 is created fresh
@@ -47,4 +47,4 @@ body — the catch's write lands with the body's end in one frame (AC-7).
 
 | instant | action | frame | effect |
 | ------- | ------ | ----- | ------ |
-| 11 | resolve "submitSignup:{"name":"Ann","email":"ann@x.io","plan":"pro"}" 42 | `Step 3 of 3 (reached 3) Ann / ann@x.io / pro pro agreed back submit done #42` | — |
+| 11 | resolve "submitSignup:{"name":"Ann","email":"ann@x.io","plan":"pro"}" 42 | `Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitdone #42` | — |

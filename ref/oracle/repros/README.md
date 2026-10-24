@@ -1,7 +1,8 @@
-# Repros for Solid 2.0 (rc.16)
+# Repros for Solid 2.0 (`next`)
 
-Standalone scripts against the published packages — no ReactiveScript code
-involved. Run from `ref/oracle/` after `npm install`:
+Standalone scripts against Solid's `next` branch built from source at the
+commit in `ref/SOLID_NEXT` (every one re-run there, `2a0da2f`, 2026-10-24) —
+no ReactiveScript code involved. Run from `ref/oracle/` after `npm install`:
 
 ```
 node --conditions=browser --conditions=development repros/dv3-signals.mjs [effect-in-fallback|read-in-fallback]
@@ -12,11 +13,14 @@ node repros/dv9-ssr-after-shell.mjs [client|server-component] [ms]      # the se
 node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, esbuild)
 node repros/dv11-hydrate/run.mjs
 node repros/dv12-hydrate/run.mjs
+node --conditions=browser repros/dv13-universal-empty.mjs
 ```
 
-The hydration repros render a compiled-JSX-shaped app with the server build,
-stream it to Chromium, and hydrate it there with the DOM build bundled by
-esbuild — beside a control that renders the same app on an empty page.
+The hydration repros are each one `app.jsx`, compiled by Solid's own
+compiler (`@solidjs/compiler`, `generate: "ssr"` and `"dom"`, hydratable),
+streamed by the server build to Chromium and hydrated there by the DOM build
+— beside a control that renders the same app on an empty page
+(`_hydrate.mjs`).
 
 ---
 
@@ -221,4 +225,26 @@ fallback. The client hydrates; `setSel(3)`; `i:3` is asked and lands
 page: `"pear"`. `hydratedCreateErrorBoundary` throws the serialized error
 on its first run instead of running the content, so the boundary tracks
 nothing.
+
+---
+
+## DV-13 — an empty fragment loses its slot in the universal renderer
+
+**Shape.** `<main><A />{String(" ")}<B /></main>` compiled by
+`@solidjs/compiler` with `generate: "universal"`; A is a `<Show>` that starts
+on its fallback and then shows `<section><p>results</p></section>`.
+
+**Observed.**
+
+```
+no fallback        " pick" → "results pick"
+fallback={<></>}   " pick" → " pickresults"     ✗
+fallback={<i />}   " pick" → "results pick"
+```
+
+Every child of `<main>` is dynamic, so each `insert` gets a `null` marker
+and keeps its place with a sentinel. An empty array value
+(`insertExpression` → `cleanChildren`) removes the sentinel and leaves the
+region `[]`; the next non-empty value is appended (`appendNodes(parent,
+value, null)`), after B.
 

@@ -48,12 +48,12 @@ component Field(props) {
 | 1       | (effect)                      | `2 invalid`       |
 | 2       | handler `name := "a"`         | `a 2 invalid`     |
 | 3       | (effect)                      | `a 2 invalid`     |
-| 4       | handler `email := "e"`        | `a e 2 invalid`   |
-| 5       | (effect)                      | `a e 2 valid`     |
+| 4       | handler `email := "e"`        | `ae 2 invalid`   |
+| 5       | (effect)                      | `ae 2 valid`     |
 | 6       | handler `showEmail := false`  | `a 2 valid`       |
 | 7       | (effect)                      | `a 1 valid`       |
-| 8       | handler `showEmail := true`   | `a e 1 valid`     |
-| 9       | (effect)                      | `a e 2 valid`     |
+| 8       | handler `showEmail := true`   | `ae 1 valid`     |
+| 9       | (effect)                      | `ae 2 valid`     |
 
 Registration lands one instant after the render that caused it (an
 effect's writes begin the next instant, EF-5); the cleanup unregisters when

@@ -2,8 +2,8 @@
 // decisions the oracle established (ref/oracle/lower.ts): structured sources behind a signal slot (ST-1, ST-2a),
 // question sources (ST-5) with an optimistic layer (AC-3), effects with an error arm (E-12) and last-received
 // comparison (EF-2), actions as generators (AC-1, AC-7), provisions as context (RG-7), and a string-tree renderer
-// for tests. A browser build swaps the renderer's node operations for the DOM's; nothing else changes.
-import { createRenderer } from "@solidjs/universal";
+// for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
+// runtimes are rt-web.ts and rt-server.ts.
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
@@ -19,7 +19,10 @@ export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
 const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
-const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(isView)) || (typeof v === "object" && v !== null && (("kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object))) || "nodeType" in (v as object)));   // string-tree nodes, or DOM nodes
+/** A view: a node, a function (a hole, a control-flow accessor), or an array of views — which compiled JSX mixes with its
+ *  static strings. An array of strings alone is a value. */
+const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
+const isView = (v: unknown): boolean => isNode(v) || (Array.isArray(v) && (v.length === 0 || (v.every(x => x == null || typeof x === "string" || isView(x)) && v.some(x => x != null && typeof x !== "string"))));
 
 // ---------------------------------------------------------------- failures (R-f; a copy of ref/src/failure.ts — this file is served alone)
 type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
@@ -60,43 +63,11 @@ export class Flight {
   }
 }
 
-// ---------------------------------------------------------------- string-tree renderer
-type N = { kind: "el"; tag: string; children: N[]; parent?: N; props: Record<string, unknown> } | { kind: "text"; text: string; parent?: N };
-const stringNodes = {
-  createElement: tag => ({ kind: "el", tag, children: [], props: {} }),
-  createTextNode: text => ({ kind: "text", text }),
-  replaceText: (n, v) => { (n as Extract<N, { kind: "text" }>).text = v; },
-  isTextNode: n => n.kind === "text",
-  setProperty: (n, k, v) => { if (n.kind === "el") n.props[k] = v; },
-  insertNode: (p, n, anchor) => { if (p.kind !== "el") return; if (n.parent) { const q = n.parent as Extract<N, { kind: "el" }>; const j = q.children.indexOf(n); if (j >= 0) q.children.splice(j, 1); } const i = anchor ? p.children.indexOf(anchor) : -1; if (i < 0) p.children.push(n); else p.children.splice(i, 0, n); n.parent = p; },
-  removeNode: (p, n) => { if (p.kind !== "el") return; const i = p.children.indexOf(n); if (i >= 0) p.children.splice(i, 1); n.parent = undefined; },
-  getParentNode: n => n.parent,
-  getFirstChild: n => (n.kind === "el" ? n.children[0] : undefined),
-  getNextSibling: (n: N) => { const p = n.parent; if (!p || p.kind !== "el") return undefined; return p.children[p.children.indexOf(n) + 1]; },
-};
-/** The DOM's node operations, for a browser build. Event attributes (`onClick`) become listeners; `value`/`checked`/`disabled` are properties. */
-export const domNodes = (document: any) => ({
-  createElement: (tag: string) => document.createElement(tag),
-  createTextNode: (t: string) => document.createTextNode(t),
-  replaceText: (n: any, v: string) => { n.data = v; },
-  isTextNode: (n: any) => n.nodeType === 3,
-  setProperty(n: any, k: string, v: unknown, prev?: unknown) {
-    if (/^on[A-Z]/.test(k)) { const ev = k.slice(2).toLowerCase(); if (prev) n.removeEventListener(ev, prev); if (v) n.addEventListener(ev, v); return; }
-    if (k === "class") n.className = v ?? "";
-    else if (k === "value" || k === "checked" || k === "disabled") n[k] = k === "value" ? (v ?? "") : !!v;
-    else if (v === false || v == null) n.removeAttribute(k); else n.setAttribute(k, v === true ? "" : String(v));
-  },
-  insertNode: (p: any, n: any, a?: any) => p.insertBefore(n, a ?? null),
-  removeNode: (p: any, n: any) => p.removeChild(n),
-  getParentNode: (n: any) => n.parentNode ?? undefined,
-  getFirstChild: (n: any) => n.firstChild ?? undefined,
-  getNextSibling: (n: any) => n.nextSibling ?? undefined,
-});
-const serialize = (n: N): string => n.kind === "text" ? n.text : n.children.map(serialize).join("");
+// ---------------------------------------------------------------- the test renderer (compile/string-renderer.ts)
+import { R, serialize } from "./string-renderer.ts";
 
 // ---------------------------------------------------------------- one app instance
-export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?: Record<string, (...a: any[]) => unknown> } = {}) {
-  const R = createRenderer<any>((opts.nodes ?? stringNodes) as any);
+export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -111,9 +82,9 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
   const app = {
-    root: (opts.root ?? { kind: "el", tag: "root", children: [], props: {} }) as any,
+    root: { kind: "el", tag: "root", children: [], props: {} } as any,
     log, flights, lastKey, asyncError: null as unknown,
-    frame: () => opts.root ? String(opts.root.textContent) : serialize(app.root),
+    frame: () => serialize(app.root),
     mount(view: () => unknown) { return R.render(view as never, app.root); },
 
     // the prelude: what `import pure { … } from "./prelude"` and the built-in names refer to
@@ -225,39 +196,20 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,
 
-    // ---- views ----
-    text: (s: string) => R.createTextNode(s),
-    /** `{e}`: a hole. Inside an element `el` inserts it at its own marker; in a fragment `frag` makes it a memo. */
-    read: (f: () => unknown) => { const g = () => { const v = f(); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; },
-    frag: (items: unknown[]): unknown[] => items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as Acc) : x),
-    /** An element, as Solid's compiled JSX: its children are built with it, and each is inserted at its own marker — a
-     *  reader is its own render effect (not one effect for the element's whole content). */
-    el(tag: string, attrs: [string, () => unknown, boolean][], kids: () => unknown) {
-      const el = R.createElement(tag);
-      for (const [name, f, handler] of attrs) { if (handler) R.setProp(el, name, untrack(f)); else R.effect(f, v => { R.setProp(el, name, v); }); }
-      for (const item of (untrack(kids) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
-      return el;
-    },
-    comp: (C: (p: any) => unknown, props: Record<string, unknown>) => R.createComponent(C as any, props),
-    when: (cond: () => unknown, t: (item: Acc) => unknown, f: () => unknown) => R.createComponent(Show as any, { get when() { return cond(); }, get fallback() { return f(); }, children: t }),
-    each: (xs: () => unknown, body: (item: unknown) => unknown) => R.createComponent(For as any, { get each() { return xs(); }, children: body }),
-    loading(on: (() => unknown) | null, fallback: () => unknown, body: () => unknown) {
-      const props: Record<string, unknown> = { get fallback() { return fallback(); }, get children() { return body(); } };
-      if (on) Object.defineProperty(props, "on", { enumerable: true, get: on });
-      return R.createComponent(Loading as any, props);
-    },
+    // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----
+    /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
+    show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
-     *  and a wrapper throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
-    errored(fallback: (err: Acc) => unknown, body: () => unknown, classes?: unknown[]) {
+     *  and a memo throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
+    TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
+      const classes = props.classes;
       const out = R.createComponent(Errored as any, {
         fallback: (err: Acc) => {
-          if (!classes) return fallback(err);
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => fallback(err))) : new Forward(err()));
+          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
         },
-        get children() { return body(); },
+        get children() { return props.children; },
       });
-      if (!classes) return out;
       return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
     },
   };

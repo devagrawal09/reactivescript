@@ -2,6 +2,7 @@
 // scenario's rows against solid-js 2.0. The compiled program is Solid code, so it must show what the oracle shows —
 // the spec's frames, or a recorded divergence.
 // node --experimental-strip-types --conditions=browser --conditions=development ref/compile/run.ts [filter]
+import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
@@ -9,6 +10,7 @@ import { parseProgram, parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
 import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
 import { createApp, flush } from "./rt.ts";
+import { lowerViews } from "./jsx.ts";
 import { resetErrorHalt } from "@solidjs/signals";
 
 process.on("unhandledRejection", () => {});
@@ -29,7 +31,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; } out = compileModules(set, { extraStmts: handlerStmts }); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of out.files) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "universal")) writeFileSync(dir + name, js);
   const file = dir + out.entry;
   const app = createApp();
   let dispose: () => void = () => {};
@@ -80,5 +82,5 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (skipped) skip++; else pass++;
 }
-console.log(`\n${pass} pass, ${fail} fail, ${skip} skip; ${divergent} recorded divergence(s) (compiled → solid-js 2.0.0-rc.16)`);
+console.log(`\n${pass} pass, ${fail} fail, ${skip} skip; ${divergent} recorded divergence(s) (compiled → ${SOLID})`);
 process.exit(fail ? 1 : 0);

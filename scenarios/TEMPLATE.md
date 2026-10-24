@@ -26,7 +26,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   beside it on disk.
 - The frame is the view's text: reader values and text nodes concatenated in
   order, whitespace collapsed to single spaces and trimmed; adjacent elements
-  add no separator (write `{" "}` or a text node where one is wanted).
+  add no separator (write `{" "}` or a text node where one is wanted). Text
+  is JSX's (07 §4): indentation and line breaks between elements are not
+  text.
 - Rows: `mount`, `handler \`stmts\`` (imperative statements; may call actions
   and read or write any live binding by name, including a region's locals
   while it is live), `resolve x v` / `reject x "msg"` (equation `x`'s current

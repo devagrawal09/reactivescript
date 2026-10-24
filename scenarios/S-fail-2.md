@@ -40,12 +40,12 @@ every failure of its own flight into a value.
 | ------- | ------------------------- | ------------------------------ |
 | 0       | mount                     | ``                             |
 | 1       | resolve value "x"         | ``                             |
-| 2       | resolve other "y"         | `x x x y`                      |
-| 3       | handler `key := ""`       | `x x x y`                      |
-| 4       | reject other "down"       | `unavailable - missing none`   |
-| 5       | handler `key := "b"`      | `unavailable - missing none`   |
-| 6       | resolve value "z"         | `unavailable - missing none`   |
-| 7       | resolve other "q"         | `z z z q`                      |
+| 2       | resolve other "y"         | `xxxy`                      |
+| 3       | handler `key := ""`       | `xxxy`                      |
+| 4       | reject other "down"       | `unavailable-missing none`   |
+| 5       | handler `key := "b"`      | `unavailable-missing none`   |
+| 6       | resolve value "z"         | `unavailable-missing none`   |
+| 7       | resolve other "q"         | `zzzq`                      |
 
 Instant 3: `Missing` is thrown with no await, but `other` re-asks and its
 reader holds the change; the three error fallbacks are staged with it (an

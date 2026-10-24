@@ -19,14 +19,14 @@ file: ../examples/ai/feed.rx
 
 | instant | action | frame | effect |
 | ------- | ------ | ----- | ------ |
-| 0 | mount | `rooms… send` | log(count, 0) |
+| 0 | mount | `rooms…send` | log(count, 0) |
 | 1 | resolve "fetchRooms:" [{ id: 1, name: "general" }, { id: 2, name: "random" }] | `general * random - send` | — |
 | 2 | resolve "streamMessages:1" [{ id: 1, from: "ann", text: "hello" }, { id: 2, from: "bob", text: "hey" }] | `general * random - ann: hello bob: hey send` | log(count, 2) |
-| 3 | handler `draftText := "hi"` | `general * random - ann: hello bob: hey hi typing… send` | — |
+| 3 | handler `draftText := "hi"` | `general * random - ann: hello bob: hey hityping…send` | — |
 | 4 | handler `send()` | `general * random - ann: hello bob: hey me: hi sending…` | log(count, 3) |
 | 5 | resolve "streamMessages:1" [{ id: 1, from: "ann", text: "hello" }, { id: 2, from: "bob", text: "hey" }, { id: 3, from: "me", text: "hi" }] | `general * random - ann: hello bob: hey me: hi sending…` | — |
 | 6 | resolve "sendMessage:1,hi" { ok: true } | `general * random - ann: hello bob: hey me: hi send` | — |
-| 7 | handler `selected := 2` | `general - random * loading… send` | — |
+| 7 | handler `selected := 2` | `general - random * loading…send` | — |
 | 8 | resolve "streamMessages:2" [{ id: 10, from: "cat", text: "yo" }] | `general - random * cat: yo send` | log(count, 1) |
 | 9 | resolve "streamMessages:1" [{ id: 1, from: "ann", text: "hello" }] | `general - random * cat: yo send` | — |
 
@@ -51,7 +51,7 @@ flight — its late answer is inert (R-4).
 
 | instant | action | frame | effect |
 | ------- | ------ | ----- | ------ |
-| 5 | reject "sendMessage:1,hi" "boom" | `general * random - ann: hello bob: hey hi typing… send boom` | log(count, 2) |
+| 5 | reject "sendMessage:1,hi" "boom" | `general * random - ann: hello bob: hey hityping…sendboom` | log(count, 2) |
 
 The appended message, the cleared draft and the `sending` flag were guesses
 and revert (AC-1, DV-2); the draft's plain write `"hi"` still overrides its

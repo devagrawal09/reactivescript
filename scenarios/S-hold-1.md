@@ -26,10 +26,10 @@ readers (V-1): the plain read holds; the probe shows ahead (R-11).
 
 | instant | action                              | frame               |
 | ------- | ----------------------------------- | ------------------- |
-| 0       | mount                               | `sel:a loading`     |
-| 1       | resolve product { name: "A" }       | `sel:a A false`     |
-| 2       | handler `id := "b"`                 | `sel:b A true`      |
-| 3       | resolve product { name: "B" }       | `sel:b B false`     |
+| 0       | mount                               | `sel:aloading`     |
+| 1       | resolve product { name: "A" }       | `sel:aA false`     |
+| 2       | handler `id := "b"`                 | `sel:bA true`      |
+| 3       | resolve product { name: "B" }       | `sel:bB false`     |
 
 Instant 0: the first load is caught by the armed boundary (H-5); the mount
 commits with the fallback. Instant 1: the answer lands; the boundary disarms
