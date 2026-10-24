@@ -215,7 +215,10 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   catch it — and it is not an answer either: an `errored` region on its
   fallback stays there while the content under it is pending, and leaves
   only when a value replaces the error (Solid D-39; found by `ref/`:
-  S-hold-5 instant 2). A typed boundary (`fallback(e: A | B)`) takes only
+  S-hold-5 instant 2) — unless a `loading` above it is armed (re-armed by
+  its `on`): that boundary takes the pending content behind the error
+  fallback and shows its own fallback over both (S-hold-6; found by
+  S-ai2-search, Solid's behaviour). A typed boundary (`fallback(e: A | B)`) takes only
   its classes; another class passes it to the boundary above as if it were
   not there, and a boundary showing a failure re-decides when the failure
   changes class (04 R-f-4; S-fail-1). An error that escapes every boundary

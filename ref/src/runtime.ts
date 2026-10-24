@@ -106,6 +106,8 @@ type VItem =
 function nearest(b: BoundaryItem | null, kind: "loading" | "errored"): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === kind) return x; return null; }
 /** R-f-4: the nearest `errored` whose classes take `err`; a boundary of other classes lets it pass. */
 function catching(b: BoundaryItem | null, err: unknown): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && isA(err, x.classes)) return x; return null; }
+/** H-12: a `loading` above an error fallback that is armed (re-armed by its `on`): the pending content under the fallback is its. */
+function armedAbove(eb: BoundaryItem): BoundaryItem | null { for (let x = eb.parent; x; x = x.parent) if (x.k === "loading") return x.armed ? x : null; return null; }
 /** An `errored` above that is showing its fallback: everything under it is behind it (H-4). */
 function erroredShowing(b: BoundaryItem | null): BoundaryItem | null { for (let x = b; x; x = x.parent) if (x.k === "errored" && x.showingFallback) return x; return null; }
 
@@ -357,7 +359,8 @@ export class Runtime {
       case "read": {
         const v = this.pull(i.node);
         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
-        { const eb = erroredShowing(boundary); if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-39)
+        { const eb = erroredShowing(boundary); const above = eb && v instanceof PendingVal ? armedAbove(eb) : null; if (above) { above.caught.push(i.node); i.node.heldOn = null; return; }   // H-12: an armed `loading` above the error fallback takes the pending content (found by S-ai2-search)
+          if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-39)
         if (v instanceof ErrVal) {                                                                                         // H-12 / D-41: an error is an answer; it reveals with its frame
           const eb = catching(boundary, v.err); if (eb) eb.caught.push(i.node);
           const openE = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
@@ -478,7 +481,8 @@ export class Runtime {
   }
   /** A pending control reader (`if`/`for`) holds or is caught exactly as a pending read is (H-4, H-5). */
   private holdPending(node: Node, holding: Node[], boundary: BoundaryItem | null) {
-    const eb = erroredShowing(boundary); if (eb) { eb.stillWaiting = true; node.heldOn = null; return; }
+    const eb = erroredShowing(boundary); const above = eb ? armedAbove(eb) : null; if (above) { above.caught.push(node); node.heldOn = null; return; }
+    if (eb) { eb.stillWaiting = true; node.heldOn = null; return; }
     const lb = nearest(boundary, "loading"); if (lb && lb.armed) { lb.caught.push(node); node.heldOn = null; return; }
     const open = [...node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
     for (const c of open) this.union(open[0], c);

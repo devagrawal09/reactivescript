@@ -39,9 +39,12 @@ AC-1 says plainly that an action with no `await` is an ordinary instant
 
 Open, for a ruling:
 
-1. **`errored` has no `on(…)`.** A boundary showing a failure stays on it
-   until a value replaces it (D-39), so search wraps its pane in
-   `for id in [selected] { … }` to get a fresh boundary per selection.
+1. ~~**`errored` has no `on(…)`.**~~ Not needed: search wrapped its pane in
+   `for id in [selected] { … }` because the spec said an error fallback
+   stays up while the content under it is pending, even under a re-armed
+   `loading on(selected)`. Solid lets the re-armed `loading` take over; the
+   spec and the interpreter now do too (H-12, S-hold-6). The workaround is
+   left in the agent's program as written.
 2. **A failure as a message.** settings writes
    `(valid && "") catch (e: NameRequired | NameTooLong) => e.message` to
    show a validation failure next to its field.
