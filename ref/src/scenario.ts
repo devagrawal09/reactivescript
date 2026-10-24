@@ -8,7 +8,8 @@ type Rejected = { rule: string; program: string; handlers: string[]; warn: boole
 export type Divergence = { table: string; instant: number; frame: string; runner: "oracle" | "server" | "hydrated" };   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
   entry: string; modules: Map<string, string>;
-  server: Row[] };   // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)   // 09: the entry's module key, and the `## Modules` fences (`-- module: ./lib.rx`) by key
+  server: Row[];     // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)
+  before: Row[] };   // 10 SV-3e: `## Before hydration` — user events on the served page, then `hydrate` (ref/ssr/run.ts only)   // 09: the entry's module key, and the `## Modules` fences (`-- module: ./lib.rx`) by key
 
 const strip = (s: string) => s.replace(/`/g, "").trim();
 
@@ -36,13 +37,14 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     });
   };
   let program = ""; let entry = "main.rx"; const modules = new Map<string, string>();
-  const tables: Table[] = []; const rejected: Rejected[] = []; const divergences: Divergence[] = []; let server: Row[] = [];
+  const tables: Table[] = []; const rejected: Rejected[] = []; const divergences: Divergence[] = []; let server: Row[] = []; let before: Row[] = [];
   for (const s of sections) {
     if (s.title === "Program") { const f = /^file:\s*(\S+)/m.exec(s.body); if (f) entry = resolvePath(baseDir, f[1]); program = f ? readFileSync(entry, "utf8") : (fence(s.body) ?? ""); }   // `file: ../examples/x.rx`: a real program
     else if (s.title === "Modules") {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) { const [first, ...rest] = m[1].split("\n"); const k = /--\s*module:\s*(\S+)/.exec(first); if (k) modules.set(joinPath("main.rx", k[1]), rest.join("\n")); }
     }
     else if (s.title === "Server frames") server = table(s.body);
+    else if (s.title === "Before hydration") before = table(s.body);
     else if (s.title === "Frames") tables.push({ title: "Frames", program: null, rows: table(s.body) });
     else if (s.title.startsWith("Variant")) tables.push({ title: s.title, program: fence(s.body), rows: table(s.body) });
     else if (s.title.startsWith("Divergences")) {
@@ -57,7 +59,7 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
       }
     }
   }
-  return { name, program, tables, rejected, divergences, entry, modules, server };
+  return { name, program, tables, rejected, divergences, entry, modules, server, before };
 }
 
 export type Result = { ok: boolean; lines: string[] };

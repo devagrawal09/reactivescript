@@ -49,7 +49,10 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   taken a served page over (the hydrated run stops there).
 - `## Server frames` (10): rows `mount`, `resolve …`, `reject …` and the
   frame a browser shows from the server's stream after each — checked by
-  `npm run -s ssr` only. Every other table's mount and landings are also
+  `npm run -s ssr` only.
+- `## Before hydration` (10 SV-3e): `mount`, then user events on the served
+  page — `click "<selector>"`, `input "<selector>" "<text>"` — then
+  `hydrate`, then ordinary rows; `npm run -s ssr` only. Every other table's mount and landings are also
   served and checked against the client's frames (SV-1).
 - Failures (04 R-f): the prelude's `fetch` and every `./api` import return
   JS promises, which fail with `Error`, so a program that reads one has an

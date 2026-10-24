@@ -280,7 +280,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   sentinel, and what replaces it later is appended after its siblings. The
   DOM build uses comment markers and is not affected. The emitter writes an
   empty view as `null`, which keeps its slot.
-- **DV-9, DV-11, DV-12 (the server and hydration)** — Solid's server render
+- **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
 - **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
   (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A

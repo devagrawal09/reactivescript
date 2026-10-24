@@ -93,9 +93,13 @@ by default — see the list at the end.
   instant is the client's. A client may take over at any point of the
   stream — right after the shell, or after the last landing — and the
   frames from then on are the client's frames.
-- **SV-3e (Input before hydration — taken by default).** An event the
-  user causes before the client has taken over is replayed after it, in
-  order (Solid's delegated-event replay). Not exercised by a scenario yet.
+- **SV-3e (Input before hydration).** An event the user causes before the
+  client has taken over is recorded and replayed after it, in order,
+  through the handlers the client has just attached (Solid's hydration
+  bootstrap and delegated-event replay). Each replayed event is **its own
+  instant**, as it would have been live: a program cannot tell a replayed
+  click from a user's, so two clicks on a counter are two bumps
+  (S-server-2). DV-14 is Solid's exception.
 
 ## SV-4 — State is per request (ruled)
 
@@ -177,6 +181,14 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   new question is never asked, and the old stream's landings show
   (S-store-5: `a3 -` where the rule says `a2 p`; S-ai-feed). Recorded as
   `hydrated` divergences.
+- **DV-14 (replay is one instant) — reproduced 2026-10-24**
+  (`dv14-replay-instant/`). `runHydrationEvents` runs the recorded queue in
+  one microtask with no flush between events, so handlers replayed together
+  share an instant: two clicks whose actions each write `n := n + 1` both
+  read `n` = 0 (H-10) and the counter reads 1 where a live user would have
+  read 2. A flush between replayed events would make each its own instant.
+  Recorded as a `hydrated` divergence in S-server-2's `## Before
+  hydration` table.
 - **DV-12 (a boundary hydrated in its error state) — reproduced
   2026-10-24** (`dv12-hydrate/`). The client hydrates an error boundary the
   server drew by throwing the server's error in place of running its
@@ -237,8 +249,11 @@ did not run.
   `CSR=1`, also mounts the same bundle on an empty page — the baseline that
   separates a hydration difference from a renderer one. A `## Server frames`
   table is checked row by row, with a concurrent second request (SV-4).
-- **Not exercised yet:** input before hydration (SV-3e); `HYDRATION_MISMATCH`
-  (no scenario imports a nondeterministic `pure` function).
+  A `## Before hydration` table drives the served page as a user would —
+  `click "<selector>"`, `input "<selector>" "<text>"` — before a `hydrate`
+  row takes it over, then checks each frame (SV-3e).
+- **Not exercised yet:** `HYDRATION_MISMATCH` (no scenario imports a
+  nondeterministic `pure` function).
 
 ## Decisions taken by default (veto here)
 
@@ -249,6 +264,7 @@ did not run.
    Declaring the class (MO-8) is how to send it.
 2. **No effect's apply half runs on the server** (SV-2), and the served
    frame is the pre-effect mount.
-3. **Input before hydration is replayed** (SV-3e).
+3. **A replayed event is its own instant** (SV-3e). Solid's replay is one
+   instant (DV-14); the rule is what a live user would have caused.
 4. **A stream question keeps the response open** (SV-1e) and sends its
    later landings as data.

@@ -14,6 +14,7 @@ node repros/dv9-hydrate/run.mjs                                           # serv
 node repros/dv11-hydrate/run.mjs
 node repros/dv12-hydrate/run.mjs
 node --conditions=browser repros/dv13-universal-empty.mjs
+node repros/dv14-replay-instant/run.mjs
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -247,4 +248,25 @@ and keeps its place with a sentinel. An empty array value
 (`insertExpression` → `cleanChildren`) removes the sentinel and leaves the
 region `[]`; the next non-empty value is appended (`appendNodes(parent,
 value, null)`), after B.
+
+---
+
+## DV-14 — events replayed after hydration share one instant
+
+**Rule.** 10 SV-3e: a replayed event is its own instant, as it would have
+been live.
+
+**Shape.** A served counter: `<p>{n()}</p><button onClick={() => bump()}>`,
+`bump` an action writing `setN(n() + 1)`. Two clicks before the client
+loads, then hydration; the control renders the page and clicks twice.
+
+**Observed.**
+
+```
+clicked twice, then hydrated   before "0" · after "1"   ✗ (expected 2)
+rendered, then clicked twice   before "2" · after "2"
+```
+
+`runHydrationEvents` drains `_$HY.events` in one microtask; no flush runs
+between two replayed handlers, so both actions read the committed `n`.
 

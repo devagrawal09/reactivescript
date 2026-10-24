@@ -278,6 +278,54 @@ async function runServerTable(sc: Scenario, lines: string[]): Promise<boolean> {
   });
   return ok;
 }
+/** `## Before hydration` (SV-3e): the user acts on the served page — `click "<selector>"`, `input "<selector>" "<text>"` —
+ *  before the client has taken over; `hydrate` takes it over, and the recorded events replay through the handlers in order.
+ *  Rows after `hydrate` are ordinary client instants. */
+async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolean> {
+  const title = "Before hydration"; const rows = sc.before;
+  if (!rows.length || rows[0].action !== "mount") { lines.push(`  ✗ ${title}: the first row is the mount`); return false; }
+  let out: ReturnType<typeof compileModules>;
+  try { const set = moduleSet(sc, sc.program); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return true; } out = compileModules(set, {}); }
+  catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return true; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
+  const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
+  const main = (await import(pathToFileURL(dir + out.entry).href)).default;
+  clientJs = bundle(dir, out.files, out.entry);
+  const app = createApp(); let chunks = 0;
+  const served$ = new Promise<void>(resolve => {
+    pending = res => {
+      res.on("error", () => {});
+      res.write(`<!doctype html><html><head>${generateHydrationScript()}</head><body><div id="app">`);
+      app.stream(main(app), { write: (c: string) => { chunks++; if (!res.writableEnded) res.write(c); }, end: () => { if (!res.writableEnded) res.end("</div></body></html>"); } });
+      resolve();
+    };
+  });
+  pageErrors.length = 0;
+  const nav = page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "commit" }).catch(() => {});
+  await served$; await nav;
+  for (let i = 0; i < 40 && chunks === 0; i++) await wait(10);
+  await wait(40);
+  let ok = true; let hydrated = false;
+  for (const r of rows) {
+    const m = /^(click|input)\s+"([^"]*)"(?:\s+"([^"]*)")?$/.exec(r.action);
+    try {
+      if (r.action === "mount") { /* the request */ }
+      else if (m && m[1] === "click") await page.click(m[2]);
+      else if (m && m[1] === "input") await page.fill(m[2], m[3] ?? "");   // fill dispatches `input`, which the bootstrap records
+      else if (r.action === "hydrate") {
+        await page.addScriptTag({ url: "/client.js", type: "module" });
+        await page.evaluate(async () => { const c = (window as any).__client; c.app.mount(c.main(c.app), true); c.flush(); await new Promise(r => setTimeout(r, 30)); c.flush(); });
+        hydrated = true;
+      }
+      else { lines.push(`  ✗ ${title} instant ${r.instant}: a before-hydration table has mount, click, input and hydrate rows`); return false; }
+    } catch (e) { lines.push(`  ✗ ${title} instant ${r.instant}: ${(e as Error).message.split("\n")[0]}`); return false; }
+    await wait(60); if (hydrated) await page.evaluate(() => { (window as any).__client.flush(); });
+    const got = norm(await textOf()); const div = sc.divergences.find(d => d.runner === "hydrated" && d.table === title && d.instant === r.instant); const want = norm(div ? div.frame : r.frame);
+    if (got === want) lines.push(`  ${div ? "≠" : "✓"} ${title} instant ${r.instant}: ${got}${div ? "  — recorded (hydrated)" : ""}`);
+    else { ok = false; lines.push(`  ✗ ${title} instant ${r.instant}: expected '${want}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); }
+  }
+  return ok;
+}
 const scope = !!process.env.SV_SCOPE;   // probe: render inside Solid's server-component scope, where a failure after the shell streams its fallback (DV-9)
 /** A client frame that shows a panic's message, shown by the server as Solid's generic message. */
 function redactedMatch(client: string, server: string): boolean {
@@ -295,6 +343,7 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   const base = sc.tables.find(t => t.title === "Frames");
   for (const t of sc.tables) { try { ok = (await runTable(sc, t, base, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ ${t.title}: ${(e as Error).stack}`); } }
   if (sc.server.length) { try { ok = (await runServerTable(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Server frames: ${(e as Error).stack}`); } }
+  if (sc.before.length) { try { ok = (await runBeforeHydration(sc, lines)) && ok; } catch (e) { ok = false; lines.push(`  ✗ Before hydration: ${(e as Error).stack}`); } }
   const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
   console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (skipped) skip++; else pass++;
