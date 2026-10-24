@@ -18,11 +18,12 @@ region-local names); re-registration on change is the effect re-running.
 source showEmail := true
 source name := ""
 source email := ""
+context fields: source { ok: boolean }[]   // RG-7: declared; it carries a source (RG-7c)
 component Form(props) {
-  source fields := []
-  provide fields = fields
-  valid = every(fields, f => f.ok)
-  <div>{props.children} <p>{len(fields)} {valid ? "valid" : "invalid"}</p></div>
+  source rows := []
+  provide fields = rows
+  valid = every(rows, f => f.ok)
+  <div>{props.children} <p>{len(rows)} {valid ? "valid" : "invalid"}</p></div>
 }
 component Field(props) {
   ok = props.value != ""
@@ -63,6 +64,7 @@ pair to keep in step.
 
 ```
 -- reject: RG-7b
+context fields: source unknown[]
 component Field(props) {
   ok = props.value != ""
   <i>{props.value} {len(use fields)}</i>

@@ -41,6 +41,7 @@ function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
 }
 class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
 function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw (v as Forward).err; return v; }
+const NO_PROVISION: Entry = {};
 class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 
 // ---------------------------------------------------------------- flights (the scenario harness's async)
@@ -103,7 +104,7 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
   const modules = new Map<string, Record<string, unknown>>();
   const log: string[] = [];
   let currentEq: string | null = null;
-  const ctxFor = (name: string) => { let c = contexts.get(name); if (!c) { c = createContext<Entry | undefined>(undefined, name); contexts.set(name, c); } return c; };
+  type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
@@ -196,9 +197,15 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7) ----
     owner: () => getOwner(),
-    provide(name: string, e: Entry) { setContext(ctxFor(name), e); },
-    use(name: string, owner: ReturnType<typeof getOwner>): Entry { const e = getContext(ctxFor(name), owner ?? undefined); if (!e) throw new Error(`RG-7b: no provision for ${name}`); return e; },
-    useGet(name: string, owner: ReturnType<typeof getOwner>) { const e = app.use(name, owner); return e.get ? e.get() : e.value; },
+    /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: null }; },   // a sentinel default: absence is ours to decide
+    provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
+    use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
+      const e = getContext(c.ctx, owner ?? undefined); if (e && e !== NO_PROVISION) return e;
+      if (c.dflt) { const d = c.dflt; return c.dv ??= { get: runWithOwner(c.owner, () => createMemo(d as any)) as Acc }; }
+      throw new Error(`RG-7b: no provision for ${c.name}`);
+    },
+    useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
 
     // ---- reads ----

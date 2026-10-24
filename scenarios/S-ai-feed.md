@@ -8,7 +8,8 @@ stream with a first paint of `[]`, a compose box whose `send` is an action
 with an optimistic append (and an optimistic clear of the draft and a
 `sending` flag — three guesses over constant-question sources), a typing
 indicator (`if draftText != ""`), and a room list that reads the selected
-room through `use selected` and writes it through `use selected := …`.
+room through `use room` and writes it through `use room := …` (the
+context `room` carries the source `selected`).
 
 ## Program
 
@@ -42,7 +43,7 @@ nothing changes. Instant 6: the body returns, the hold commits as one frame:
 `draftText := ""` lands, `sending` reverts to its truth; the count was
 already 3, so the effect is quiet. In the variant, the revert runs it again
 (`log(count, 2)`). Instant 7: `on(selected)` re-arms the boundary (H-6) and the new
-question is caught by it (H-5); the room list's `use selected` readers show
+question is caught by it (H-5); the room list's `use room` readers show
 the move in the same frame. Instant 9: the old room's stream is an abandoned
 flight — its late answer is inert (R-4).
 
@@ -84,10 +85,11 @@ action pick() { optimistic selected := 2; await fetch("x") }
 
 ```
 -- reject: RG-7b
+context room: number
 component Room(props: { id: number }) {
-  <p>{(use selected) == props.id ? "*" : "-"}</p>
+  <p>{(use room) == props.id ? "*" : "-"}</p>
 }
 <Room id={1} />
 ```
 
-No provision for `selected` above the room.
+No provision of `room` above the room.

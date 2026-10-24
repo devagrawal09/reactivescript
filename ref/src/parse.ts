@@ -53,7 +53,7 @@ function parseType(c: Cursor, braceStops = false): string {
   while (!c.eof()) {
     const ch = c.peek();
     if (depth === 0) {
-      if (c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
+      if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
     }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
@@ -70,7 +70,7 @@ function parseClasses(c: Cursor): string[] | undefined {
   return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -139,6 +139,15 @@ function parseDecl(c: Cursor): Decl {
     while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, body: parseBlock(c), line };
+  }
+  if (c.keyword("context")) {                                         // RG-7: `context name: [source] Type [= default]`
+    c.ws(); const name = c.ident() ?? c.fail("context name"); c.ws(false);
+    let type: string | undefined; let source = false;
+    if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); source = c.keyword("source"); c.ws(); type = parseType(c); }
+    const save = c.i; c.ws(false);
+    if (c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") { c.i++; c.ws(); return { k: "context", name, type, source, dflt: parseExpr(c), line }; }
+    c.i = save;
+    return { k: "context", name, type, source, line };
   }
   if (c.keyword("provide")) { c.ws(); const name = c.ident() ?? c.fail("provide name"); c.ws(); c.expect("="); c.ws(); return { k: "provide", name, e: parseExpr(c), line }; }
   if (c.keyword("fn")) {
@@ -468,7 +477,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") || /^error\s+[A-Z]/.test(c.src.slice(c.i)) ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("context ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") || /^error\s+[A-Z]/.test(c.src.slice(c.i)) ||
     (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i)); return ok; })();
   c.i = save; return r;
 }

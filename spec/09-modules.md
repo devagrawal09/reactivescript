@@ -78,7 +78,8 @@ export discount: pending fails(Error)
 export fn qtyOf(id)
 export action setCoupon
 export component Panel(props: { title; children: catches(Error) })
-export component Badge(props: {}) uses(who)
+export context who: string
+export component Badge(props: {}) uses(ui.rx#who)
 export component Save(props: { v: action catches(nothing) })
 ```
 
@@ -112,14 +113,18 @@ export component Save(props: { v: action catches(nothing) })
 - **MO-6c.** An export is a declaration at the top level of a module.
   `export type` declares a type name and binds nothing.
 
-## MO-7 — Provisions across modules
+## MO-7 — Contexts across modules
 
-- **MO-7.** Provisions are matched by name across modules: `use who` in an
-  imported component is satisfied by a `provide who` above each place it is
-  applied, checked through the component's summary (RG-7b; S-module-1's
-  `Badge`). Open: whether a provision should instead be a declared,
-  importable name (Solid's `createContext`), so that two modules cannot
-  collide on a name.
+- **MO-7 (ruled 2026-10-23).** A context is a declaration (RG-7a), so it
+  crosses modules like any export: `export context who: string` in
+  `ui.rx`, `import { who } from "./ui.rx"` and `provide who = …` in the
+  module that renders `Badge` (S-module-1). Two modules that each declare
+  `accent` declare two contexts, and a provision of one is not a provision
+  of the other (S-context-1). An imported component's summary names the
+  contexts it needs by declaration (`uses(ui.rx#who)`), checked above each
+  place it is applied. An exported context's type is its contract on both
+  sides (RG-7e): a provider in one module and a reader in another agree
+  through the declaration, not through each other.
 
 ---
 
@@ -131,6 +136,7 @@ export component Save(props: { v: action catches(nothing) })
 | `IMPORT_ROW_MISMATCH` | S | MO-4a |
 | `MODULE_CYCLE` | S | MO-5 |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a |
+| `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 
 ## Implementation
 
@@ -158,8 +164,10 @@ export component Save(props: { v: action catches(nothing) })
 2. **No import cycles** (MO-5).
 3. **`.rx` rows are the signature's**: `pure` must agree and `fails` is
    refused on an `.rx` import (MO-4a).
-4. **Provisions are matched by name** across modules (MO-7) — the open
-   question above.
+4. **Contexts are declared** (MO-7, ruled 2026-10-23). Taken by default
+   inside that ruling: the keyword `context`; defaults allowed, except on a
+   `source` context; an exported context's type is its contract, a
+   module's own context infers its rows unless it writes them.
 5. **The `.d.rx` notation**: `catches(…)` on a prop is what the component
    discharges for it; `action catches(…)` is what an action reading it
    catches; `fails(…)` after a component is what escapes its root;

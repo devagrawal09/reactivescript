@@ -16,6 +16,7 @@ export fn initials(name) => name.slice(0, 1)
 ```
 -- module: ./ui.rx
 import { NotFound, initials } from "./store.rx"
+export context who: string
 export component Card(props) {
   errored fallback(e) { <p>?</p> } { <div>{props.children}</div> }
 }
@@ -51,7 +52,8 @@ checked against both signatures and never sees a body (MO-3). Its view of
 ```text
 export component Card(props: { children: catches(Error) })
 export component Name(props: { user: catches(NotFound) })
-export component Badge(props: {}) uses(who)
+export context who: string
+export component Badge(props: {}) uses(ui.rx#who)
 export component Save(props: { v: action catches(nothing) })
 ```
 
@@ -59,7 +61,7 @@ export component Save(props: { v: action catches(nothing) })
 
 ```
 import { selected, user, select } from "./store.rx"
-import { Card, Name, Badge } from "./ui.rx"
+import { Card, Name, Badge, who } from "./ui.rx"
 provide who = "Zed"
 <div><p>#{selected}</p> <Card><Name user={user} /></Card> <Badge /></div>
 ```
@@ -67,8 +69,8 @@ provide who = "Zed"
 `user` fails with `Error` (the fetch) and `NotFound` (the throw). `Name`
 discharges `NotFound`; the `Error` left over leaves `Name` at its
 application, which is a child of `Card`, whose boundary takes every class.
-`Badge` needs a provision of `who`; `main` provides it above the place it
-is applied. `initials` is found in `ui.rx`, where `Badge` is declared, not
+`Badge` needs a provision of `who`, the context `ui.rx` declares and
+exports; `main` imports it and provides it above the place it is applied. `initials` is found in `ui.rx`, where `Badge` is declared, not
 in `main`, which does not import it (MO-6).
 
 ## Frames

@@ -131,22 +131,50 @@ A call to a function with a `ref` parameter or a node-declaring body (E-9).
 
 ### RG-7 Context
 
-- **RG-7a (Provide).** `provide name = e` in a region makes `name` available
-  to every region *instantiated beneath* it — the instantiation chain (the
-  tree of views), not the lexical one. A component body sees the caller's
-  provisions, never the caller's locals.
-- **RG-7b (Use).** `use name` reads the nearest provision above. It is an
-  equation: a provision is a value and reads of it track. A `use` with no
-  provision above is a compile error when the static tree can decide it
-  (a component always rendered under its provider) and otherwise the
-  runtime's (`ContextNotFound`).
-- **RG-7c (Writing through a provision).** A provision whose expression is
-  a source name *is* that source: `use fields := …` writes it from any
-  region beneath (O-4: the handler was handed the source). This is how a
-  rendered child registers with its provider — an effect that adds a row
-  and removes it in its cleanup (S-region-7).
-- **RG-7d.** Solid: `createContext` / `useContext`; a provision is the
-  Provider's value.
+Three things, in three places (ruled 2026-10-23: a context is declared):
+
+```
+context theme: Theme = defaultTheme     // declared: once, at module level — what the context is (Solid: createContext)
+provide theme = settings.theme          // provided: in a component's block — its value for the tree beneath (the Provider)
+palette = (use theme).palette           // used: in any region beneath — the nearest provision above (useContext)
+```
+
+- **RG-7a (Declare).** `context name: T` declares a context. The
+  declaration is its identity: `provide` and `use` name it lexically, like
+  any name, so it is imported and aliased like a value, and two modules
+  that each declare `context theme` declare two contexts (09 MO-7). A
+  `provide` or `use` of a name that is not a context is `NOT_A_CONTEXT`; of
+  an undeclared name, `UNBOUND`. A context is not a value: `{theme}` is
+  `CONTEXT_AS_VALUE`.
+- **RG-7b (Provide, use).** `provide name = e` in a region makes `e` the
+  context's value for every region *instantiated beneath* it — the
+  instantiation chain (the tree of views), not the lexical one. `use name`
+  reads the nearest provision above; it is an equation, and reads of it
+  track. A `use` with no provision above on some path of the static
+  application tree is `CONTEXT_NOT_FOUND` — unless the context has a
+  default, `context density: number = 1`, which is the value where nothing
+  above provides it. A component body sees the caller's provisions, never
+  the caller's locals.
+- **RG-7c (Writing through a provision).** `context fields: source T`
+  declares a context that carries a source: every `provide fields = x`
+  must name one of the module's sources (`PROVIDE_NOT_A_SOURCE`), and that
+  provision *is* the source — `use fields := …` writes it from any region
+  beneath (O-4: the handler was handed the source). This is how a rendered
+  child registers with its provider — an effect that adds a row and removes
+  it in its cleanup (S-region-7). A context not declared `source` is
+  read-only: `use x := …` is `WRITE_TO_NON_SOURCE`. A `source` context has
+  no default (`INVALID_CONTEXT_DEFAULT`: a default would be one source
+  every user writes — declare that source instead).
+- **RG-7e (Rows).** A context's rows are the reader's rows at a `use`. When
+  the context's type writes row words (`context user: pending
+  fails(Error) User`), or the context is exported, its type is the
+  contract: every provision (and the default) is checked against it
+  (`ROW_NARROWER_THAN_INFERRED`), and every `use` has exactly those rows.
+  An exported context with no row words promises none. Otherwise — a
+  module's own context — the rows are inferred from its provisions in that
+  module (CN-4a: checked where written).
+- **RG-7d.** Solid: `createContext` (the declaration; a default is its
+  default value) / `useContext`; a provision is the Provider's value.
 
 ### RG-5 Boundaries
 

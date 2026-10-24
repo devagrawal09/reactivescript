@@ -39,6 +39,8 @@ const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
 export type CompSig = { own: { cls: string; what: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }> };
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
+/** A context key (`file#name`, `@n` for one declared in a block) → its name. */
+export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
 /** A short rendering of an expression, for messages. */
@@ -51,7 +53,7 @@ function show(e: Expr): string {
     default: return "…";
   }
 }
-type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import" | "errclass";
+type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import" | "errclass" | "context";
 type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
@@ -68,6 +70,7 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
+  ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null };   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
 
@@ -151,7 +154,8 @@ export type ExportSig =
   | { kind: "fn"; params: { name: string; ref: boolean }[]; instantiating: boolean; rows: string[]; fails: string[]; rejects: string[] }
   | { kind: "action" }
   | { kind: "errclass"; params: string[] }
-  | { kind: "comp"; sig: CompSig };
+  | { kind: "comp"; sig: CompSig }
+  | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string };   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string };
 
@@ -171,13 +175,14 @@ class Checker {
   constructor(opts: Opts = {}) { this.opts = opts; }
   private line = 1;
   private seq = 0;
-  private uses: { region: Region; name: string; line: number }[] = [];
+  private uses: { region: Region; name: string; line: number; display: string }[] = [];   // name: the context's key
   // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
   private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
   private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[] }[] = [];
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
-  private provisions: { name: string; e: Expr; env: Env }[] = [];
+  private provisions: { key: string; e: Expr; env: Env }[] = [];
   private later: (() => void)[] = [];
+  private rowsBusy = new Set<string>();
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, opts: { component?: boolean; provParent?: Region | null } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
@@ -200,6 +205,14 @@ class Checker {
       if (d.k === "import" && d.resolved) { this.importRx(d, env); continue; }                                  // MO-1/MO-3: an .rx module's signature
       if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]) }); continue; }   // R-io-4, R-f-8
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
+      if (d.k === "context") {                                                             // RG-7: a declared context — its identity is the declaration, not its spelling
+        if (env.vars.has(d.name)) this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
+        const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
+        if (d.source && d.dflt) this.err("INVALID_CONTEXT_DEFAULT", "RG-7c", `context ${d.name}: source … has no default — a provided source is its provider's; a default would be one source every user writes (declare that source instead)`);
+        env.vars.set(d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract } });
+        if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env });
+        continue;
+      }
       if (env.vars.has(d.name) && env.vars.get(d.name)!.kind !== "import") this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
       const sym: Sym = { kind: d.k === "fn" ? "fn" : d.k === "component" ? "comp" : d.k === "action" ? "action" : d.k === "source" ? "source" : d.k === "error" ? "errclass" : "eq", name: d.name, region: env.region, line: d.line };
       if (d.k === "source") sym.question = !!d.question;
@@ -238,10 +251,24 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
         case "comp": { const r = this.region(null, { component: true }); r.sig = x.sig; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }
+        case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
       }
       if (d.pure && sym.io) this.err("IMPORT_ROW_MISMATCH", "MO-4", `${name} is io in ${d.from}'s signature; \`pure\` cannot lower an .rx row`);
       env.vars.set(alias, sym);
     }
+  }
+  /** RG-7: the context a `provide`/`use` names — lexically, like any name. */
+  private ctxOf(name: string, env: Env): Sym | undefined {
+    const s = env.lookup(name);
+    if (!s) { this.err("UNBOUND", "RG-7", `${name} is not declared here: declare the context (\`context ${name}: T\`) or import it`); return undefined; }
+    if (s.kind !== "context") { this.err("NOT_A_CONTEXT", "RG-7", `${name} is ${s.kind === "source" ? "a source" : s.kind === "eq" ? "an equation" : `a ${s.kind}`}, not a context: \`provide\` and \`use\` name a \`context\` declaration`); return undefined; }
+    return s;
+  }
+  /** RG-7e: a context's written rows — the row words before its type (`context user: pending fails(Error) User`). */
+  private contractOf(type?: string): { rows: Set<string>; fails: Set<string> } {
+    const m = type ? ROW_WORDS.exec(type) : null; const rows = new Set<string>(); const fails = new Set<string>();
+    if (m) for (const w of m[0].trim().split(/\s+(?![^(]*\))/)) { if (w.startsWith("fails(")) w.slice(6, -1).split("|").map(x => x.trim()).filter(Boolean).forEach(x => fails.add(x)); else rows.add(w); }
+    return { rows, fails };
   }
   /** MO-3: this module's signature — every export as an importer sees it. */
   signature(p: Program): ModSig {
@@ -257,6 +284,7 @@ class Checker {
         case "action": exports.set(d.name, { kind: "action" }); break;
         case "errclass": exports.set(d.name, { kind: "errclass", params: d.k === "error" ? d.params : [] }); break;
         case "comp": exports.set(d.name, { kind: "comp", sig: this.compSig!(s.compRegion!) }); break;
+        case "context": { const c = s.ctx!; exports.set(d.name, { kind: "context", key: c.key, source: c.source, dflt: c.dflt, rows: arr(c.contract?.rows), fails: arr(c.contract?.fails), type: d.k === "context" ? d.type?.replace(ROW_WORDS, "") : undefined }); break; }
       }
     }
     return { file: this.opts.file ?? "", exports };
@@ -278,6 +306,7 @@ class Checker {
   }
 
   private rowsThunk(e: Expr, env: Env): () => Set<string> {
+    const busyKeys = this.rowsBusy;
     let cache: Set<string> | null = null; let busy = false;
     return () => {
       if (cache) return cache; if (busy) return new Set(); busy = true;
@@ -287,6 +316,12 @@ class Checker {
           case "await": rows.add("pending"); break;
           case "latest": case "pending": rows.add("lane"); break;
           case "fn": return;                                                                // a closure's body is not this value's
+          case "use": {                                                                     // RG-7e
+            const c = env.lookup(x.name)?.ctx; if (!c) return;
+            if (c.contract) { for (const r of c.contract.rows) rows.add(r); return; }
+            for (const p of this.provisions) if (p.key === c.key && !busyKeys.has(c.key)) { busyKeys.add(c.key); for (const r of this.rowsThunk(p.e, p.env)()) rows.add(r); busyKeys.delete(c.key); }
+            return;
+          }
           case "id": { const s = env.lookup(x.name); if (s?.rows) for (const r of s.rows()) rows.add(r); return; }
         }
         for (const v of Object.values(x as object)) {
@@ -316,7 +351,21 @@ class Checker {
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { this.snapshotArgs(d.e, f, env); d.e.args.forEach(a => this.expr(a, env, reactive)); this.rowCheck(d.name, d.type, env); return; } }
         this.expr(d.e, env, reactive); this.rowCheck(d.name, d.type, env); return;
       }
-      case "provide": env.region.provides.add(d.name); this.expr(d.e, env, reactive); this.provisions.push({ name: d.name, e: d.e, env }); return;
+      case "provide": {
+        this.expr(d.e, env, reactive);
+        const c = this.ctxOf(d.name, env); if (!c) return;
+        env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
+        if (c.ctx!.source) { const t = d.e.k === "id" ? env.lookup(d.e.name) : undefined; if (!t || t.kind !== "source" || t.imported) this.err("PROVIDE_NOT_A_SOURCE", "RG-7c", `context ${d.name} carries a source: provide one of this module's sources by name (\`provide ${d.name} = x\`)`); }
+        const contract = c.ctx!.contract; const line = this.line;
+        if (contract) this.later.push(() => {                                              // RG-7e: a provision is checked against the declared rows
+          const rows = this.rowsThunk(d.e, env)(); const f = this.failsOf(d.e, env, false, new Map());
+          this.line = line;
+          for (const r of rows) if (!contract.rows.has(r)) this.err("ROW_NARROWER_THAN_INFERRED", "RG-7e", `context ${d.name} is declared without \`${r}\`, but this provision is ${r}`);
+          for (const x of f.cls) if (!contract.fails.has("Error") && !contract.fails.has(x)) this.err("ROW_NARROWER_THAN_INFERRED", "RG-7e", `context ${d.name} is declared without fails(${x}), but this provision can fail with ${x}`);
+        });
+        return;
+      }
+      case "context": if (d.dflt) this.expr(d.dflt, env, reactive); return;
       case "effect": {
         for (const i of d.inputs) this.expr(i, env, reactive);                               // EF-1: the compute half is reactive scope
         this.stmts(d.body, new Env(env, env.region), { scope: "imperative" });
@@ -424,9 +473,9 @@ class Checker {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { const s = this.resolve(e.name, env, ctx); if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view`); return; }
+      case "id": { const s = this.resolve(e.name, env, ctx); if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view`); if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
-      case "use": this.uses.push({ region: env.region, name: e.name, line: this.line }); return;
+      case "use": { const c = this.ctxOf(e.name, env); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
       case "await": go(e.e); if (e.init) go(e.init); return;
       case "throw": go(e.e); return;
@@ -491,7 +540,10 @@ class Checker {
         case "return": if (s.e) this.expr(s.e, env, ctx); break;
         case "write": case "optimistic": {
           let target: Sym | undefined;
-          if (s.target.ctx) this.uses.push({ region: env.region, name: s.target.name, line: this.line });
+          if (s.target.ctx) {
+            const c = this.ctxOf(s.target.name, env);
+            if (c) { this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "RG-7c", `context ${s.target.name} is not declared \`source\`: what is provided is read-only (\`context ${s.target.name}: source T\` to write through it)`); }
+          }
           else {
             target = this.resolve(s.target.name, env, ctx);
             if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written (W-1)`);
@@ -545,7 +597,8 @@ class Checker {
     if (target) tDepth = target.region.depth;
     else {                                                                                   // `use p := …`: the provision is in this component, or above it
       let r: Region | null = env.region; let found: Region | null = null;
-      while (r) { if (r.provides.has(s.target.name)) { found = r; break; } if (r.isComponentRoot) break; r = r.parent; }
+      const key = env.lookup(s.target.name)?.ctx?.key ?? s.target.name;
+      while (r) { if (r.provides.has(key)) { found = r; break; } if (r.isComponentRoot) break; r = r.parent; }
       tDepth = found ? found.depth : env.region.component ? env.region.component.depth - 1 : 0;
     }
     const leak = captured.find(c => c.region.depth > tDepth);
@@ -631,7 +684,11 @@ class Checker {
         if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: e.p, pre: [] }); return out; } }
         go(e.o); return out;
       }
-      case "use": { for (const p of this.provisions) if (p.name === e.name) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out; }
+      case "use": {                                                                        // RG-7e: the declared rows, else what this module's provisions of it can fail with
+        const c = env.lookup(e.name)?.ctx; if (!c) return out;
+        if (c.contract) { for (const x of c.contract.fails) out.cls.add(x); return out; }
+        for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out;
+      }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
       case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
       case "catch": {
@@ -776,13 +833,13 @@ class Checker {
     const escMemo = new Map<Region | null, { fails: Item[]; reqs: Req[] }>(); const escBusy = new Set<Region | null>();
     const compOf = (r: Region) => r.component;
     const esc = (C: Region | null): { fails: Item[]; reqs: Req[] } => {
-      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${n}` })) };
+      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${keyName(n)}` })) };
       if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return { fails: [], reqs: [] }; escBusy.add(C);
       const fails: Item[] = []; const reqs: Req[] = []; const seen = new Set<string>();
       const pushF = (it: Item) => { const k = `F${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); fails.push(it); } };
       const pushR = (it: Req) => { const k = `R${it.name}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); reqs.push(it); } };
       for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escF(q, cls))) pushF({ cls, line: r.line, what: show(r.e) });
-      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: `use ${u.name}` });
+      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: `use ${u.display}` });
       for (const a of this.apps) if (compOf(a.site) === C) {
         const e = esc(a.comp);
         for (const it of e.fails) if (routes(a.site).some(q => escF(q, it.cls))) pushF({ ...it, line: it.line < 0 ? a.line : it.line, what: `${it.what} (in <${a.tag}>)` });
@@ -796,7 +853,7 @@ class Checker {
     };
     const top = esc(null);
     for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
-    for (const it of top.reqs) { this.line = it.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision for ${it.name} above this region on any path that renders it`); }
+    for (const it of top.reqs) { this.line = it.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
     // MO-3: the summaries an importing module checks against
     const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));

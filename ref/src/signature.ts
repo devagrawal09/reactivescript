@@ -12,6 +12,7 @@ function line(name: string, x: ExportSig): string {
     case "fn": { const r = rows(x.rows, x.fails); const rj = x.rejects.length && !(x.rejects.length === 1 && x.rejects[0] === "Error") ? ` rejects(${x.rejects.join(" | ")})` : ""; return `export fn ${name}(${x.params.map(p => (p.ref ? "ref " : "") + p.name).join(", ")})${r ? `: ${r}` : ""}${rj}${x.instantiating ? "   // instantiating (RG-6)" : ""}`; }
     case "action": return `export action ${name}`;
     case "errclass": return `export error ${name}(${x.params.join(", ")})`;
+    case "context": { const r = rows(x.rows, x.fails); const t = [x.source ? "source" : "", r, x.type ?? ""].filter(Boolean).join(" "); return `export context ${name}${t ? `: ${t}` : ""}${x.dflt ? " = …" : ""}`; }
     case "comp": {
       const s = x.sig;
       const props = Object.entries(s.props).map(([f, v]) => {
@@ -22,7 +23,7 @@ function line(name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.join(", ")})` : ""}`;
+      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => `${k.split("#")[0].split("/").pop()}#${k.split("#").pop()!.replace(/@\d+$/, "")}`).join(", ")})` : ""}`;
     }
   }
 }

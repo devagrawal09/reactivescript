@@ -22,6 +22,7 @@ fn twice(x) => x * 2 + total             // a fn may read module state; it stays
 cb = () => total                         // a closure created in reactive scope: pure (SC-3)
 action note(n) { notes := xs => [...xs, n] }
 
+context panel: string                   // RG-7: a declared context
 component Panel(props) {
   provide panel = props.label
   <section>{props.children}</section>
@@ -214,9 +215,10 @@ functional write is given is applied, but what it returns is stored (W-6).
 
 ```
 -- reject: REGION_ESCAPE
+context fields: source unknown[]
 component Form(props) {
-  source fields := []
-  provide fields = fields
+  source rows := []
+  provide fields = rows
   <form>{props.children}</form>
 }
 component Field(props) {
@@ -230,6 +232,7 @@ A provision always outlives the component that writes through it.
 
 ```
 -- reject: CONTEXT_NOT_FOUND
+context panel: string
 component Panel(props) {
   provide panel = "P"
   <section>{props.children}</section>

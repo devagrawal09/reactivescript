@@ -65,7 +65,8 @@ export class Node {
   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
 }
 
-type Binding = Node | { constant: unknown } | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
+type CtxBinding = { context: Extract<Decl, { k: "context" }>; home: Region; dflt: Node | null };   // RG-7: a declared context; its identity is this object
+type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
 type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
@@ -73,7 +74,7 @@ type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change:
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
-  provided = new Map<string, Node>();                  // RG-7: provisions, found through the instantiation chain
+  provided = new Map<CtxBinding, Node>();              // RG-7: provisions by context, found through the instantiation chain
   alive = true;
   parent: Region | null; rt: Runtime; boundary: BoundaryItem | null;
   lexical: Region | null;                              // RG-4c: children keep the caller's names while owned where they are rendered
@@ -165,10 +166,11 @@ export class Runtime {
         region.scope.set(alias, { constant: d.pure || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
       if (d.k === "error") { const msg = d.msg; region.scope.set(d.name, { constant: makeErrorClass(d.name, d.params, args => msg ? String(this.untracked(() => this.ev(msg, region, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
+      if (d.k === "context") region.scope.set(d.name, { context: d, home: region, dflt: null });
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
-      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(d.name, b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
+      if (d.k === "provide") { const b = d.e.k === "id" ? region.lookup(d.e.name) : undefined; region.provided.set(this.ctxNamed(d.name, region), b instanceof Node ? b : this.mkNode("eq", `provide ${d.name}`, region, rt => rt.evalExpr(d.e, region))); }   // a provided source is the source (O-4)
       if (d.k === "source" && d.question) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.init, region)); n.question = true; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }   // ST-5: a source with a standing question
       else if (d.k === "source") { const n = this.mkNode("source", d.name, region); n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
     }
@@ -688,10 +690,7 @@ export class Runtime {
         return e.init ? this.ev(e.init, region, env) : undefined;
       }
       case "peek": return this.untracked(() => this.ev(e.e, region, env));
-      case "use": {                                                    // RG-7b: the nearest provision through the instantiation chain
-        for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(e.name); if (n) return this.ev({ k: "id", name: `provide ${e.name}` }, r, new Map([[`provide ${e.name}`, undefined]])) === undefined && false ? undefined : this.readNode(n); }
-        throw new RuleError("RG-7b", `no provision for ${e.name}`);
-      }
+      case "use": return this.readNode(this.provisionOf(e.name, region));   // RG-7b: the nearest provision of the context through the instantiation chain
       case "await": {                                                  // R-1, R-6, R-7
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
@@ -801,6 +800,15 @@ export class Runtime {
       }
     }
   }
+  /** RG-7: a context by its name in scope (lexical) — its identity is the declaration. */
+  private ctxNamed(name: string, region: Region): CtxBinding { const b = region.lookup(name); if (!b || !("context" in b)) throw new RuleError("RG-7", `${name} is not a context`); return b; }
+  /** RG-7b: the nearest provision of a context above `region`, else its default. */
+  private provisionOf(name: string, region: Region): Node {
+    const c = this.ctxNamed(name, region);
+    for (let r: Region | null = region; r; r = r.parent) { const n = r.provided.get(c); if (n) return n; }
+    if (c.context.dflt) { const de = c.context.dflt; return c.dflt ??= this.mkNode("eq", `${name} (default)`, c.home, rt => rt.evalExpr(de, c.home)); }
+    throw new RuleError("RG-7b", `no provision for ${name}`);
+  }
   /** R-f-4: error class names → their values (a declared class, or a JS class imported); undefined: every failure. */
   classValues(names: string[] | undefined, region: Region): unknown[] | undefined {
     if (!names) return undefined;
@@ -887,7 +895,7 @@ export class Runtime {
       this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
     } else if (s.k === "write") {
       let b: Binding | undefined = region.lookup(s.target.name);
-      if (s.target.ctx) { b = undefined; for (let r: Region | null = region; r && !b; r = r.parent) b = r.provided.get(s.target.name); if (!b) throw new RuleError("RG-7b", `no provision for ${s.target.name}`); }
+      if (s.target.ctx) b = this.provisionOf(s.target.name, region);
       if (!b || !(b instanceof Node) || !(b.kind === "source" || b.question)) throw new RuleError("W-1", `write to non-source ${s.target.name}`);
       const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
       this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });

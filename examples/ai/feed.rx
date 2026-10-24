@@ -12,7 +12,8 @@ type Message = { id: number; from: string; text: string }
 
 // --- app state (module level: lives for the module's lifetime, 07 §1) ---
 source selected: number := 1                       // E-4: a plain source
-provide selected = selected                        // RG-7c: the provision *is* the source — `use selected := …` writes it
+context room: source number                        // RG-7: a declared context that carries a source (RG-7c)
+provide room = selected                            // the provision *is* the source — `use room := …` writes it
 
 rooms: Room[] = await fetchRooms()                 // R-1: fetched once; pending until it lands (no inputs → never re-asked)
 source messages: Message[] = await* streamMessages(selected) -> []   // ST-5 + ST-6b: a stream, first paint `[]` (R-7)
@@ -48,8 +49,8 @@ component RoomList(props: { rooms: Room[] }) {
 }
 
 component RoomItem(props: { room: Room }) {
-  active = (use selected) == props.room.id          // RG-7b: `use` is an equation over the provision
-  <li onClick={() => { use selected := props.room.id }}>{props.room.name} {active ? "*" : "-"}{" "}</li>
+  active = (use room) == props.room.id              // RG-7b: `use` is an equation over the provision
+  <li onClick={() => { use room := props.room.id }}>{props.room.name} {active ? "*" : "-"}{" "}</li>
 }
 
 component Compose(props: {}) {

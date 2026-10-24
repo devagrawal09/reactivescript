@@ -116,7 +116,7 @@ class Gen {
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: mg(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
-      if (d.k === "error") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
+      if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
     }
@@ -126,6 +126,7 @@ class Gen {
       out.push(`${pad}const ${mg(alias)} = ${v};`);
     }
     for (const d of decls) if (d.k === "error") { const inner = this.params(env, d.params); out.push(`${pad}const ${mg(d.name)} = __rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)});   // R-f-1`); }
+    for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
@@ -156,7 +157,7 @@ class Gen {
     if (d.k === "provide") {
       const b = d.e.k === "id" ? env.lookup(d.e.name) : undefined;
       const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
-      return `${pad}__rt.provide(${J(d.name)}, ${entry});`;
+      return `${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.prevOf(${b.js});` : "";
@@ -265,7 +266,7 @@ class Gen {
         if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
         return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
       }
-      case "use": return `__rt.useGet(${J(e.name)}, __o)`;
+      case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
@@ -309,7 +310,7 @@ class Gen {
           const v = e(s.e);
           if (ctx.dyn && !s.target.ctx && !env.lookup(s.target.name)) { out.push(`${pad}__rt.dset(${J(s.target.name)}, ${keys}, ${v}, ${s.k === "optimistic"});`); break; }
           let w: string;
-          if (s.target.ctx) w = `__rt.use(${J(s.target.name)}, __o).w`;
+          if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }
           out.push(`${pad}${s.k === "optimistic" ? `${w}.guess(${v})` : s.target.path.length ? `${w}.path(${keys}, ${v})` : `${w}.set(${v})`};`);
           break;

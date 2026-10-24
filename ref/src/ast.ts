@@ -51,7 +51,8 @@ export type Decl =
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
   | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean }  // body: decls then a view
   | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
-  | { k: "provide"; name: string; e: Expr; line: number };                                       // RG-7a
+  | { k: "provide"; name: string; e: Expr; line: number }                                        // RG-7a: `name` resolves to a context declaration
+  | { k: "context"; name: string; type?: string; source: boolean; dflt?: Expr; line: number; exported?: boolean };   // RG-7: `context theme: Theme = e`; source: `context f: source T` (RG-7c)
 
 export type Markup =
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }

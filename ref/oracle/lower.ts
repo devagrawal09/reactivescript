@@ -13,6 +13,7 @@ import {
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
+const NO_PROVISION = { k: "const", value: undefined } as const;
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
 /** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
 class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
@@ -55,7 +56,8 @@ type Binding =
   | { k: "const"; value: unknown }
   | { k: "fn"; decl: Extract<Decl, { k: "fn" }>; home: Scope }        // home: the declaring scope — bodies are lexical (RG-7a, MO-6)
   | { k: "comp"; decl: Extract<Decl, { k: "component" }>; home: Scope }
-  | { k: "action"; run: (...a: unknown[]) => unknown };
+  | { k: "action"; run: (...a: unknown[]) => unknown }
+  | { k: "ctx"; ctx: ReturnType<typeof createContext<Binding | undefined>>; dflt: Expr | null; home: Scope; dv: Binding | null };   // RG-7: a declared context; its createContext is its identity
 class Scope {
   static all: Scope[] = [];
   vars = new Map<string, Binding>();
@@ -89,8 +91,14 @@ class Flight {
 export class Oracle {
   flights = new Map<string, Flight>();
   contexts = new Map<string, ReturnType<typeof createContext<Binding | undefined>>>();
-  contextFor(name: string) { let c = this.contexts.get(name); if (!c) { c = createContext<Binding | undefined>(undefined, name); this.contexts.set(name, c); } return c; }
-  provision(name: string, scope: Scope): Binding { const b = getContext(this.contextFor(name), scope.owner ?? undefined); if (!b) throw new Error(`RG-7b: no provision for ${name}`); return b; }
+  private ctxNamed(name: string, scope: Scope) { const c = scope.lookup(name); if (!c || c.k !== "ctx") throw new Error(`RG-7: ${name} is not a context`); return c; }
+  /** RG-7b: the nearest provision of the context named `name` (lexically) above the scope's owner, else its default. */
+  provision(name: string, scope: Scope): Binding {
+    const c = this.ctxNamed(name, scope);
+    const b = getContext(c.ctx, scope.owner ?? undefined); if (b && b !== NO_PROVISION) return b;
+    if (c.dflt) { const de = c.dflt; return c.dv ??= { k: "memo", get: runWithOwner(c.home.owner ?? null, () => createMemo(() => this.ev(de, c.home)))! }; }
+    throw new Error(`RG-7b: no provision for ${name}`);
+  }
   lastKey = new Map<string, string>();                // equation name → the fetch key its last pass asked (for `resolve x v`)
   private currentEq: string | null = null;
   log: string[] = [];
@@ -153,6 +161,7 @@ export class Oracle {
       if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) scope.vars.set(alias, ms.vars.get(name)!); continue; }   // MO-1: the module's own bindings
       if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
+      if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d, home: scope });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d, home: scope });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
@@ -160,7 +169,7 @@ export class Oracle {
     for (const d of decls) {
       switch (d.k) {
         case "provide": {                                               // RG-7a: setContext on the current owner; a provided source is the source
-          const ctx = this.contextFor(d.name);
+          const ctx = this.ctxNamed(d.name, scope).ctx;
           const b = d.e.k === "id" ? scope.lookup(d.e.name) : undefined;
           if (b && (b.k === "sig" || b.k === "store")) setContext(ctx, b);
           else { const get = createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }

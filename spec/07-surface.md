@@ -71,9 +71,11 @@ fn Counter(ref start: number) {        // RG-6: an instantiating fn — has decl
 }
 action save(name: string) { … }        // AC-1
 component Row(props: { item: Item }) { … }   // RG-4
-provide theme = settings.theme         // RG-7: to everything rendered beneath
-palette = (use theme).palette          // RG-7: the nearest provision above
-provide fields = fields                // RG-7c: a provided source is the source — `use fields := …` writes it
+context theme: Theme = defaultTheme    // RG-7a: a declared context (module level); `= …` is its default
+provide theme = settings.theme         // RG-7b: to everything rendered beneath
+palette = (use theme).palette          // RG-7b: the nearest provision above
+context fields: source Field[]         // RG-7c: a context that carries a source
+provide fields = rows                  // the provision is the source — `use fields := …` writes it
 error NotFound(id: number) => `no user ${id}`   // R-f-1: an error class; `NotFound(3)` constructs one
 ```
 
@@ -312,7 +314,8 @@ Classes   ::= Name ("|" Name)*                                       -- error cl
 Decl      ::= "export"? Decl'
 Decl'     ::= "source" Name Type? ("key" Name)? (":=" | "=") Expr
             | ("type" | "interface") Name …                        -- kept as text
-            | "provide" Name "=" Expr
+            | "context" Name (":" "source"? Type)? ("=" Expr)?            -- RG-7a, RG-7c
+            | "provide" Name "=" Expr                                  -- Name: a context
             | "deferred"? Name Type? ("key" Name)? "=" Expr
             | "effect" "(" (Expr ("," Expr)*)? ")" Block           -- no inputs: EF-4
             | "fn" Name "(" Params ")" Type? ("=>" Expr | "{" Decl* Expr "}")
@@ -370,3 +373,6 @@ Expr      ::= TSExpr with §3's removals and additions
 12. **`e catch (x: A | B) => alt`** (taken by default; no preference
     given): a failure becomes a value without a region. Looser than every
     operator, so `c ? a : b catch …` catches the conditional.
+13. **Contexts are declared** (ruled 2026-10-23): `context x: T [= d]`;
+    `provide`/`use` name the declaration (RG-7). Keyword `context`, and
+    defaults, taken by default.
