@@ -8,7 +8,9 @@ Rules: H-7, R-9, R-10, R-4.
 source id := "a"
 product = await fetch("p:" + id)
 preview = await fetch("v:" + latest id)
-<div><p>{product.name}</p> <p>{preview}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{product.name}</p> <p>{preview}</p></div>
+}
 ```
 
 `preview` is derived from a probe, so it and its reader are in `id`'s lane

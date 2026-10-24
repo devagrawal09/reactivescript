@@ -17,8 +17,33 @@ type Region = {
   provParent: Region | null;           // where provisions come from when not a component root (children: the component's root)
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
+  catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
+  kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
 };
-type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import";
+// ---------------------------------------------------------------- failures (R-f)
+/** What a catch or a boundary discharges: named classes, or every failure. `Error` is the top: only "all" discharges it. */
+type Catch = Set<string> | "all";
+/** A read of a component's prop: its failures are the argument's, known only at each application (R-f-5). `pre`: catches already applied. */
+type PropRef = { comp: Region; field: string; pre: Catch[] };
+type Fails = { cls: Set<string>; props: PropRef[] };
+/** Where a prop's failures go once they leave the reads' catches: up to the component's root (`term` null) or out of an action (an error). */
+type PFEntry = { chain: Catch[]; term: null | { line: number; name: string } };
+const caught = (c: Catch, cls: string) => c === "all" || (cls !== "Error" && c.has(cls));
+const escapes = (chain: Catch[], cls: string) => !chain.some(c => caught(c, cls));
+const noFails = (): Fails => ({ cls: new Set(), props: [] });
+const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
+const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
+/** A short rendering of an expression, for messages. */
+function show(e: Expr): string {
+  switch (e.k) {
+    case "lit": return JSON.stringify(e.v); case "id": return e.name; case "member": return `${show(e.o)}.${e.p}`;
+    case "call": return `${show(e.f)}(…)`; case "await": return `await ${show(e.e)}`; case "latest": return `latest ${show(e.e)}`;
+    case "peek": return `peek ${show(e.e)}`; case "throw": return `throw ${show(e.e)}`; case "index": return `${show(e.o)}[…]`;
+    case "use": return `use ${e.name}`; case "catch": return `${show(e.e)} catch …`; case "tpl": return "`…`"; case "bin": return `${show(e.l)} ${e.op} ${show(e.r)}`; case "if": return `${show(e.c)} ? … : …`;
+    default: return "…";
+  }
+}
+type SymKind = "source" | "eq" | "props" | "value" | "fn" | "action" | "comp" | "import" | "errclass";
 type Sym = {
   kind: SymKind; name: string; region: Region; line: number;
   question?: boolean;                  // source x = e
@@ -31,6 +56,9 @@ type Sym = {
   comp?: Extract<Decl, { k: "component" }>;
   expr?: Expr; env?: Env;              // an equation's (or a question source's) expression and the scope it reads in — C-3
   compRegion?: Region;
+  failsT?: () => Fails;                // R-f-2: the failures of its value (an equation, a question source) or of a call (a fn)
+  fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
+  rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
 };
 const reactiveKinds = new Set<SymKind>(["source", "eq", "props"]);
 
@@ -62,6 +90,8 @@ function freeNames(e: Expr, bound: Set<string>, out: Set<string>): void {
     case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
     case "fn": { const b = new Set([...bound, ...e.params]); freeNames(e.body, b, out); if (e.stmts) freeNamesStmts(e.stmts, b, out); return; }
     case "draft": { go(e.seed); freeNamesStmts(e.body, new Set([...bound, "d"]), out); return; }
+    case "throw": go(e.e); return;
+    case "catch": go(e.e); freeNames(e.alt, e.name ? new Set([...bound, e.name]) : bound, out); return;
   }
 }
 function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void {
@@ -102,7 +132,7 @@ const mapsIntoRecords = (e: Expr): boolean => {                         // `map(
   const fnArg = e.f.k === "id" && e.f.name === "map" ? e.args[1] : e.f.k === "member" && e.f.p === "map" ? e.args[0] : undefined;
   return !!fnArg && fnArg.k === "fn" && !fnArg.stmts && fnArg.body.k === "rec";
 };
-const ROW_WORDS = /^((?:io|pending|lane)\s+)+/;
+const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 
 // ---------------------------------------------------------------- the checker
 export function check(p: Program): Diagnostic[] { const c = new Checker(); c.run(p); return c.diags; }
@@ -112,6 +142,12 @@ class Checker {
   private line = 1;
   private seq = 0;
   private uses: { region: Region; name: string; line: number }[] = [];
+  // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
+  private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
+  private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[] }[] = [];
+  private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
+  private provisions: { name: string; e: Expr; env: Env }[] = [];
+  private later: (() => void)[] = [];
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg }); }
   private region(parent: Region | null, opts: { component?: boolean; provParent?: Region | null } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
@@ -123,6 +159,8 @@ class Checker {
     const root = new Env(null, this.region(null));
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.checkUses();
+    for (const f of this.later) f();
+    this.checkFailures();
   }
 
   // ---- blocks: declarations, then a view (02 §1, 03) ----
@@ -130,10 +168,10 @@ class Checker {
     // 1. names (E-7: one declaration per name in a block)
     for (const d of decls) {
       this.line = d.line;
-      if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure }); continue; }   // R-io-4
+      if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]) }); continue; }   // R-io-4, R-f-8
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
       if (env.vars.has(d.name) && env.vars.get(d.name)!.kind !== "import") this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
-      const sym: Sym = { kind: d.k === "fn" ? "fn" : d.k === "component" ? "comp" : d.k === "action" ? "action" : d.k === "source" ? "source" : "eq", name: d.name, region: env.region, line: d.line };
+      const sym: Sym = { kind: d.k === "fn" ? "fn" : d.k === "component" ? "comp" : d.k === "action" ? "action" : d.k === "source" ? "source" : d.k === "error" ? "errclass" : "eq", name: d.name, region: env.region, line: d.line };
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") sym.io = true;                                                 // R-io-2: an action is io
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; }
@@ -141,7 +179,7 @@ class Checker {
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
       env.vars.set(d.name, sym);
     }
-    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; }
+    for (const d of decls) if ((d.k === "eq" || (d.k === "source" && d.question))) { const e = d.k === "eq" ? d.e : d.init; const sym = env.vars.get(d.name)!; sym.rows = this.rowsThunk(e, env); sym.expr = e; sym.env = env; sym.failsT = this.failsThunk(e, env); }
     // 2. C-1 over this block's equations (the static graph, CN-3a): only an equation's own `pre` breaks a cycle
     this.cycles(decls, env);
     // 3. each declaration
@@ -189,7 +227,9 @@ class Checker {
   private decl(d: Decl, env: Env, ctx: Ctx) {
     const reactive: Ctx = { scope: "reactive", inFn: ctx.inFn };
     switch (d.k) {
-      case "import": case "typedecl": return;
+      case "import": if (d.fails) for (const n of d.fails) this.errClass(n, env); return;
+      case "typedecl": return;
+      case "error": if (d.msg) { const inner = new Env(env, env.region); for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line }); this.expr(d.msg, inner, { scope: "reactive", inFn: true }); } return;
       case "source": {
         if (d.question) { this.expr(d.init, env, reactive); this.rowCheck(d.name, d.type, env); return; }
         const reads = new Set<string>(); readsOutsidePeek(d.init, reads);
@@ -202,7 +242,7 @@ class Checker {
         if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { this.snapshotArgs(d.e, f, env); d.e.args.forEach(a => this.expr(a, env, reactive)); this.rowCheck(d.name, d.type, env); return; } }
         this.expr(d.e, env, reactive); this.rowCheck(d.name, d.type, env); return;
       }
-      case "provide": env.region.provides.add(d.name); this.expr(d.e, env, reactive); return;
+      case "provide": env.region.provides.add(d.name); this.expr(d.e, env, reactive); this.provisions.push({ name: d.name, e: d.e, env }); return;
       case "effect": {
         for (const i of d.inputs) this.expr(i, env, reactive);                               // EF-1: the compute half is reactive scope
         this.stmts(d.body, new Env(env, env.region), { scope: "imperative" });
@@ -213,6 +253,7 @@ class Checker {
         const inner = new Env(env, env.region);
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
         this.stmts(d.body, inner, { scope: "imperative", inAction: true });
+        this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
         return;
       }
       case "fn": {
@@ -221,6 +262,7 @@ class Checker {
         for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line });
         this.block(d.decls, [], inner, { scope: "reactive", inFn: true });
         this.expr(d.tail, inner, { scope: "reactive", inFn: true });
+        { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); }
         return;
       }
       case "component": {
@@ -275,9 +317,25 @@ class Checker {
   /** CN-4a: a written row narrower than the inferred one. Rows are checked only when written (`x: pending T`). */
   private rowCheck(name: string, type: string | undefined, env: Env) {
     if (!type) return; const m = ROW_WORDS.exec(type); if (!m) return;
-    const written = new Set(m[0].trim().split(/\s+/));
+    const words = m[0].trim().split(/\s+(?![^(]*\))/);
+    const written = new Set(words.map(w => w.replace(/\(.*$/, "")));
     const inferred = env.vars.get(name)?.rows?.() ?? new Set();
     for (const r of inferred) if (!written.has(r)) this.err("ROW_NARROWER_THAN_INFERRED", "CN-4a", `${name} is declared \`${m[0].trim()}\` but its value is also \`${r}\``);
+    const fw = words.find(w => w.startsWith("fails("));                                    // R-f-9: a written failure row bounds the inferred one
+    const line = this.line;
+    this.later.push(() => {
+      const f = env.vars.get(name)?.failsT?.(); if (!f) return;
+      const allowed = fw ? fw.slice(6, -1).split("|").map(x => x.trim()).filter(Boolean) : null;
+      const all = !allowed || allowed.includes("Error");
+      if (fw === undefined) { if (!f.cls.size) return; }
+      for (const c of f.cls) if (fw === undefined || (!all && !allowed!.includes(c))) { this.line = line; this.err("ROW_NARROWER_THAN_INFERRED", "CN-4a", `${name} is declared \`${m[0].trim()}\` but its value also fails with ${c}`); }
+    });
+  }
+  /** R-f-1: a name in a catch, a boundary or an import's `fails` must be an error class (declared, or a JS class imported). */
+  private errClass(n: string, env: Env) {
+    if (n === "Error") return;
+    const s = env.lookup(n);
+    if (!s || (s.kind !== "errclass" && s.kind !== "import")) this.err("NOT_AN_ERROR_CLASS", "R-f-1", `${n} is not an error class (declare it: \`error ${n}(…)\`)`);
   }
 
   // ---- expressions ----
@@ -297,6 +355,12 @@ class Checker {
       case "use": this.uses.push({ region: env.region, name: e.name, line: this.line }); return;
       case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
       case "await": go(e.e); if (e.init) go(e.init); return;
+      case "throw": go(e.e); return;
+      case "catch": {
+        go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
+        const inner = new Env(env, env.region); if (e.name) inner.vars.set(e.name, { kind: "value", name: e.name, region: env.region, line: this.line });
+        this.expr(e.alt, inner, ctx); return;
+      }
       case "bin": go(e.l); go(e.r); return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
@@ -369,10 +433,11 @@ class Checker {
         }
         case "refresh": { const t = this.resolve(s.name, env, ctx); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "affects": { const t = this.resolve(s.name, env, ctx); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
-        case "action": this.stmts(s.body, env, { scope: "imperative", inAction: true }); break;
+        case "action": this.stmts(s.body, env, { scope: "imperative", inAction: true }); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); break;
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
         case "try": {
           this.stmts(s.body, env, ctx);
+          if (s.catchClasses) for (const n of s.catchClasses) this.errClass(n, env);
           if (s.handler) { const h = new Env(env, env.region); if (s.catchName) h.vars.set(s.catchName, { kind: "value", name: s.catchName, region: env.region, line: this.line }); this.stmts(s.handler, h, ctx); }
           if (s.fin) this.stmts(s.fin, env, ctx);
           break;
@@ -417,7 +482,7 @@ class Checker {
     for (const m of ms) {
       switch (m.k) {
         case "text": break;
-        case "read": this.expr(m.e, env, { scope: "reactive" }); break;
+        case "read": this.expr(m.e, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
@@ -425,23 +490,25 @@ class Checker {
             for (const a of m.attrs) this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" });
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
+              this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name, e: a.e, env })) });   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, { provParent: s.compRegion! });              // RG-4c: children are named by the caller, owned where the component reads them
+              kids.kids = { comp: s.compRegion!, site: env.region };
               this.markup(m.children, new Env(env, kids));
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" });
+          for (const a of m.attrs) { this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); }
           this.markup(m.children, env);
           break;
         }
         case "mif": {
-          this.expr(m.c, env, { scope: "reactive" });
+          this.expr(m.c, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
           this.block(m.tDecls, m.t, new Env(env, this.region(env.region)), { scope: "reactive" });
           this.block(m.fDecls, m.f, new Env(env, this.region(env.region)), { scope: "reactive" });
           break;
         }
         case "mfor": {
-          this.expr(m.xs, env, { scope: "reactive" });
+          this.expr(m.xs, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region); const inner = new Env(env, r);
@@ -450,7 +517,7 @@ class Checker {
           break;
         }
         case "loading": {
-          if (m.on) this.expr(m.on, env, { scope: "reactive" });
+          if (m.on) { this.expr(m.on, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           this.block(m.decls, m.body, new Env(env, this.region(env.region)), { scope: "reactive" });
           break;
@@ -458,7 +525,9 @@ class Checker {
         case "errored": {
           const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line });
           this.markup(m.fallback, f);
-          this.block(m.decls, m.body, new Env(env, this.region(env.region)), { scope: "reactive" });
+          if (m.classes) for (const n of m.classes) this.errClass(n, env);
+          const body = this.region(env.region); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
+          this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
       }
@@ -484,5 +553,176 @@ class Checker {
       const a = avail(u.region);
       if (a && !a.has(u.name)) { this.line = u.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `use ${u.name}: no provision for ${u.name} above this region on any path that renders it`); }
     }
+  }
+
+  // ---- R-f: failures ----
+  private failsThunk(e: Expr, env: Env): () => Fails {
+    let cache: Fails | null = null; let busy = false;
+    return () => { if (cache) return cache; if (busy) return noFails(); busy = true; const f = this.failsOf(e, env, false, new Map()); busy = false; cache = f; return f; };
+  }
+  /** R-f-2/3/4: the failures an expression's evaluation can produce. `imp`: imperative scope, where closures are not run now.
+   *  `bound`: catch bindings in scope and what they caught (for a rethrow). */
+  private failsOf(e: Expr, env: Env, imp: boolean, bound: Map<string, Set<string>>): Fails {
+    const out = noFails(); const go = (x: Expr) => addF(out, this.failsOf(x, env, imp, bound));
+    switch (e.k) {
+      case "lit": case "pending": case "pre": return out;                                 // `pending? e` is a verdict, never e's error (R-f-4); `pre` is a value seen
+      case "id": {
+        if (bound.has(e.name)) return out;
+        const s = env.lookup(e.name); if (!s) return out;
+        if (s.kind === "props") { out.props.push({ comp: s.region, field: "*", pre: [] }); return out; }
+        if (s.failsT && (s.kind === "eq" || s.kind === "source")) return addF(out, s.failsT());
+        return out;
+      }
+      case "member": {
+        if (e.o.k === "id" && !bound.has(e.o.name)) { const s = env.lookup(e.o.name); if (s?.kind === "props") { out.props.push({ comp: s.region, field: e.p, pre: [] }); return out; } }
+        go(e.o); return out;
+      }
+      case "use": { for (const p of this.provisions) if (p.name === e.name) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out; }
+      case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
+      case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
+      case "catch": {
+        const inner = this.failsOf(e.e, env, imp, bound); const c = catchOf(e.classes);
+        const got = new Set([...inner.cls].filter(x => caught(c, x)));
+        for (const x of inner.cls) if (!caught(c, x)) out.cls.add(x);
+        for (const pr of inner.props) out.props.push({ ...pr, pre: [...pr.pre, c] });
+        const b2 = new Map(bound); if (e.name) b2.set(e.name, c === "all" ? new Set([...inner.cls]) : got);
+        return addF(out, this.failsOf(e.alt, env, imp, b2));
+      }
+      case "fn": {
+        if (imp || e.stmts) return out;                                                    // an imperative closure runs later, not now
+        const b2 = new Map(bound); for (const p of e.params) b2.set(p, new Set());         // a parameter shadows: not a catch binding, not a symbol
+        const inner = new Env(env, env.region); for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: 0 });
+        return addF(out, this.failsOf(e.body, inner, imp, b2));                             // a pure closure may be called during this evaluation (map, filter)
+      }
+      case "call": {
+        if (e.f.k === "id" && !bound.has(e.f.name)) {
+          const s = env.lookup(e.f.name);
+          if (s?.kind === "fn" && s.failsT) addF(out, s.failsT());
+          else if (s && s.kind !== "errclass" && s.kind !== "import" && s.kind !== "action") go(e.f);
+        } else go(e.f);
+        e.args.forEach(go); return out;
+      }
+      case "draft": { go(e.seed); for (const st of e.body) { if (st.k === "let" || st.k === "expr" || st.k === "write") go(st.e); } return out; }
+      default: {
+        for (const v of Object.values(e as object)) {
+          if (Array.isArray(v)) v.forEach(y => { if (typeof y === "string") return; if (y && typeof y === "object") { if ("k" in y) go(y as Expr); else if ("v" in y) go((y as { v: Expr }).v); else if ("spread" in y) go((y as { spread: Expr }).spread); } });
+          else if (v && typeof v === "object" && "k" in (v as object)) go(v as Expr);
+        }
+        return out;
+      }
+    }
+  }
+  /** R-f-8: what an awaited value's promise may reject with. A call into a JS import: its declared failure (Error unless narrowed). */
+  private rejects(e: Expr, env: Env, seen: Set<Sym>): Set<string> {
+    const root = (x: Expr): Expr => x.k === "member" || x.k === "index" ? root(x.o) : x;
+    switch (e.k) {
+      case "lit": case "tpl": case "arr": case "rec": case "bin": case "un": return new Set();   // values: `await` is the value (R-1)
+      case "if": return new Set([...this.rejects(e.t, env, seen), ...this.rejects(e.f, env, seen)]);
+      case "call": {
+        const r = root(e.f);
+        if (r.k === "id") {
+          const s = env.lookup(r.name);
+          if (s?.kind === "import") return new Set(s.rejects ?? ["Error"]);
+          if (s?.kind === "fn" && s.fnTail && s.fnEnv && e.f.k === "id" && !seen.has(s)) { seen.add(s); return this.rejects(s.fnTail, s.fnEnv, seen); }
+          if (s?.kind === "action") return new Set();                                        // an action never fails (R-f-6)
+        }
+        return new Set(["Error"]);
+      }
+      case "id": {
+        const s = env.lookup(e.name);
+        if (s?.expr && s.env && !seen.has(s)) { seen.add(s); return this.rejects(s.expr, s.env, seen); }
+        if (s && (s.kind === "source" || s.kind === "value")) return new Set(["Error"]);
+        return new Set(["Error"]);
+      }
+      default: return new Set(["Error"]);
+    }
+  }
+  /** R-f-3: the class a `throw` fails with — a declared class's construction, a rethrown catch binding, else Error. */
+  private classOf(e: Expr, env: Env, bound: Map<string, Set<string>>): string {
+    if (e.k === "call" && e.f.k === "id") { const s = env.lookup(e.f.name); if (s?.kind === "errclass" || s?.kind === "import") return e.f.name; }
+    if (e.k === "id" && bound.has(e.name)) { const b = bound.get(e.name)!; return b.size === 1 ? [...b][0] : b.size ? `${[...b].join("|")}` : "Error"; }
+    return "Error";
+  }
+  /** R-f-6: the failures an action body lets out. */
+  private stmtsFails(ss: Stmt[], env0: Env, bound: Map<string, Set<string>>): Fails {
+    const out = noFails(); const env = new Env(env0, env0.region);
+    const ex = (x: Expr) => addF(out, this.failsOf(x, env, true, bound));
+    for (const s of ss) {
+      switch (s.k) {
+        case "let": ex(s.e); env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: 0 }); break;
+        case "expr": ex(s.e); break;
+        case "return": if (s.e) ex(s.e); break;
+        case "write": case "optimistic": s.target.path.forEach(p => typeof p !== "string" && ex(p)); ex(s.e); break;
+        case "throw": ex(s.e); for (const c of this.classOf(s.e, env, bound).split("|")) out.cls.add(c); break;
+        case "sif": ex(s.c); addF(out, this.stmtsFails(s.t, env, bound)); addF(out, this.stmtsFails(s.f, env, bound)); break;
+        case "try": {
+          const b = this.stmtsFails(s.body, env, bound);
+          if (s.handler) {
+            const c = catchOf(s.catchClasses);
+            for (const x of b.cls) if (!caught(c, x)) out.cls.add(x);
+            for (const pr of b.props) out.props.push({ ...pr, pre: [...pr.pre, c] });
+            const b2 = new Map(bound); if (s.catchName) b2.set(s.catchName, new Set([...b.cls].filter(x => caught(c, x))));
+            const h = new Env(env, env.region); if (s.catchName) h.vars.set(s.catchName, { kind: "value", name: s.catchName, region: env.region, line: 0 });
+            addF(out, this.stmtsFails(s.handler, h, b2));
+          } else addF(out, b);
+          if (s.fin) addF(out, this.stmtsFails(s.fin, env, bound));
+          break;
+        }
+        case "action": case "refresh": case "affects": break;                               // a nested action is its own (R-f-6)
+      }
+    }
+    return out;
+  }
+
+  /** R-f-5/6 over the static application tree: every reader's failures are discharged by a catch or a boundary above it, through
+   *  each place its component is applied; every action catches what its body can fail with. */
+  private checkFailures() {
+    type Item = { cls: string; line: number; what: string };
+    const readerF = this.readers.map(r => ({ ...r, f: this.failsOf(r.e, r.env, false, new Map()) }));
+    const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
+    const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
+    const key = (c: Catch[]) => c.map(x => x === "all" ? "*" : [...x].sort().join("|")).join("/");
+    const dedupe = <T extends { chain: Catch[] } | Catch[]>(xs: T[]): T[] => { const seen = new Set<string>(); return xs.filter(x => { const k = key(Array.isArray(x) ? x : x.chain) + (Array.isArray(x) ? "" : JSON.stringify((x as PFEntry).term)); if (seen.has(k)) return false; seen.add(k); return true; }); };
+    // routes: the chains of catches from a region up to its component's root (or the program's), through children's reads
+    const rMemo = new Map<Region, Catch[][]>(); const rBusy = new Set<Region>();
+    const routes = (R: Region): Catch[][] => {
+      if (rMemo.has(R)) return rMemo.get(R)!; if (rBusy.has(R)) return []; rBusy.add(R);
+      const local: Catch[] = []; let out: Catch[][] = [];
+      for (let r: Region | null = R; r; r = r.parent) {
+        if (r.catches) local.push(r.catches);
+        if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
+        if (r.isComponentRoot || !r.parent) { out = [local]; break; }
+      }
+      out = dedupe(out); rBusy.delete(R); rMemo.set(R, out); return out;
+    };
+    // PF: where a component's prop field's failures go
+    const occ: { comp: Region; field: string; pre: Catch[]; via: () => PFEntry[] }[] = [];
+    for (const r of readerF) for (const pr of r.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => routes(r.region).map(q => ({ chain: q, term: null })) });
+    for (const a of argF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => PF(a.app.comp, a.field).flatMap(p => p.term ? [p] : routes(a.app.site).map(q => ({ chain: [...p.chain, ...q], term: null }))) });
+    for (const a of actF) for (const pr of a.f.props) occ.push({ comp: pr.comp, field: pr.field, pre: pr.pre, via: () => [{ chain: [], term: { line: a.line, name: a.name } }] });
+    const pfMemo = new Map<string, PFEntry[]>(); const pfBusy = new Set<string>();
+    const PF = (G: Region, field: string): PFEntry[] => {
+      const k = `${G.id}:${field}`; if (pfMemo.has(k)) return pfMemo.get(k)!; if (pfBusy.has(k)) return []; pfBusy.add(k);
+      const out: PFEntry[] = [];
+      for (const o of occ) if (o.comp === G && (o.field === field || o.field === "*")) for (const v of o.via()) out.push({ chain: [...o.pre, ...v.chain], term: v.term });
+      const res = dedupe(out); pfBusy.delete(k); pfMemo.set(k, res); return res;
+    };
+    // what escapes each component's root (and the program's)
+    const escMemo = new Map<Region | null, Item[]>(); const escBusy = new Set<Region | null>();
+    const compOf = (r: Region) => r.component;
+    const esc = (C: Region | null): Item[] => {
+      if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return []; escBusy.add(C);
+      const out: Item[] = []; const seen = new Set<string>();
+      const push = (it: Item) => { const k = `${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); out.push(it); } };
+      for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escapes(q, cls))) push({ cls, line: r.line, what: show(r.e) });
+      for (const a of this.apps) if (compOf(a.site) === C) for (const it of esc(a.comp)) if (routes(a.site).some(q => escapes(q, it.cls))) push({ ...it, what: `${it.what} (in <${a.tag}>)` });
+      for (const a of argF) if (compOf(a.app.site) === C) for (const cls of a.f.cls) for (const p of PF(a.app.comp, a.field)) {
+        if (p.term) { if (escapes(p.chain, cls)) { this.line = a.app.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${p.term.name} in <${a.app.tag}> reads props.${a.field}, which can fail with ${cls} here (line ${a.app.line}), and does not catch it`); } continue; }
+        if (routes(a.app.site).some(q => escapes([...p.chain, ...q], cls))) { push({ cls, line: a.app.line, what: `<${a.app.tag} ${a.field}={…}>` }); break; }
+      }
+      escBusy.delete(C); escMemo.set(C, out); return out;
+    };
+    for (const it of esc(null)) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
+    for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
   }
 }

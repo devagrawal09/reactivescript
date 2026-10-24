@@ -10,7 +10,9 @@ S-core-1's multi-write instant; this scenario covers the held case.
 source count := 20
 doubled = count * 2
 slow = await fetch("s:" + count)
-<div><p>{count}</p> <p>{latest count}</p> <p>{latest doubled}</p> <p>{pending? count}</p> <i>{slow}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{count}</p> <p>{latest count}</p> <p>{latest doubled}</p> <p>{pending? count}</p> <i>{slow}</i></div>
+}
 ```
 
 ## Frames

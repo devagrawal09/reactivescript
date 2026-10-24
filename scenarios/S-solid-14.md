@@ -6,10 +6,12 @@
 source count := 0
 source open := false
 slow = await fetch("slow:" + count)
-<div><p>Count {count}</p> <p>Slow {slow}</p> {if open {
-  m = count
-  {loading fallback { <p>fallback</p> } { <p>count {m}</p> }}
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>Count {count}</p> <p>Slow {slow}</p> {if open {
+    m = count
+    {loading fallback { <p>fallback</p> } { <p>count {m}</p> }}
+  }}</div>
+}
 ```
 
 ## Frames
@@ -33,11 +35,13 @@ Instant 4: the content arrives with the hold's commit.
 source count := 0
 source open := false
 slow = await fetch("slow:" + count)
-<div><p>Count {count}</p> <p>Slow {slow}</p> {if open {
-  m = count
-  <span>{m}</span>
-  {loading fallback { <p>fallback</p> } { <p>count {m}</p> }}
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>Count {count}</p> <p>Slow {slow}</p> {if open {
+    m = count
+    <span>{m}</span>
+    {loading fallback { <p>fallback</p> } { <p>count {m}</p> }}
+  }}</div>
+}
 ```
 
 | instant | action                 | frame                        |

@@ -2,6 +2,9 @@
 import type { Decl, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
 
 export class ParseError extends Error {}
+let viewAt = 0;
+/** The offset where a program's view begins (after its last declaration) — for tools that edit programs. */
+export function viewStart(src: string): number { parseProgram(src); return viewAt; }
 
 class Cursor {
   i = 0;
@@ -60,6 +63,13 @@ function parseType(c: Cursor, braceStops = false): string {
 }
 function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
 
+/** R-f: `A | B` — error class names. `Error` (or TS's `unknown`/`any`) is every failure: undefined. */
+function parseClasses(c: Cursor): string[] | undefined {
+  const out: string[] = [];
+  for (;;) { c.ws(); out.push(c.ident() ?? c.fail("error class")); c.ws(false); if (c.peek() === "|" && c.peek(1) !== "|") { c.i++; continue; } break; }
+  return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
+}
+
 const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw"]);
 
 export function parseProgram(src: string): Program {
@@ -67,6 +77,7 @@ export function parseProgram(src: string): Program {
   const decls: Decl[] = [];
   c.ws();
   while (!c.eof() && looksLikeDecl(c)) { decls.push(parseDecl(c)); c.ws(); c.eat(";"); c.ws(); }
+  viewAt = c.i;
   const view = parseMarkup(c, null);
   c.ws();
   if (!c.eof()) c.fail("declaration or markup");
@@ -84,7 +95,19 @@ function parseDecl(c: Cursor): Decl {
     else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+    const save = c.i; c.ws(false);
+    if (c.keyword("fails")) { c.ws(); const fails = parseClasses(c) ?? ["Error"]; return { k: "import", names, from: from.v, pure, line, fails }; }   // R-f-8
+    c.i = save;
     return { k: "import", names, from: from.v, pure, line };
+  }
+  if (/^error\s+[A-Z]/.test(c.src.slice(c.i))) {                     // R-f-1: `error NotFound(id: number) => \`no user ${id}\``
+    c.keyword("error"); c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
+    const params: string[] = [];
+    if (c.eat("(")) { c.ws(); while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("field")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); } c.expect(")"); }
+    const save = c.i; c.ws(false);
+    if (c.eat("=>")) { c.ws(); return { k: "error", name, params, msg: parseExpr(c), line }; }
+    c.i = save;
+    return { k: "error", name, params, line };
   }
   if (c.keyword("type") || c.keyword("interface")) {                  // a TS type declaration: kept as text, not a binding
     c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
@@ -182,10 +205,11 @@ function parseStmt(c: Cursor): Stmt {
   if (c.keyword("try")) {                                              // AC-7
     c.ws(); const body = parseBlock(c); c.ws();
     let catchName: string | undefined, handler: Stmt[] | undefined, fin: Stmt[] | undefined;
-    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); optType(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
+    let catchClasses: string[] | undefined;
+    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) catchClasses = parseClasses(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
     if (c.keyword("finally")) { c.ws(); fin = parseBlock(c); }
     if (!handler && !fin) c.fail("catch or finally");
-    return { k: "try", body, catchName, handler, fin };
+    return { k: "try", body, catchName, catchClasses, handler, fin };
   }
   if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseExpr(c) }; }
   if (c.keyword("return")) { c.ws(false); if (c.peek() === "}" || c.peek() === ";" || c.peek() === "\n" || c.eof()) return { k: "return" }; return { k: "return", e: parseExpr(c) }; }
@@ -216,7 +240,19 @@ function parseStmt(c: Cursor): Stmt {
 }
 
 // ---- expressions ----
+/** An expression, with any trailing `catch (x: A | B) => alt` (R-f-4): looser than every operator, so the conditional's arms stop before it. */
 export function parseExpr(c: Cursor): Expr {
+  let e = parseExprNoCatch(c);
+  for (;;) {
+    const save = c.i; c.ws();
+    if (!c.keyword("catch")) { c.i = save; return e; }
+    c.ws(); let name: string | undefined, classes: string[] | undefined;
+    if (c.eat("(")) { c.ws(); name = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); c.ws(); }
+    c.expect("=>"); c.ws();
+    e = { k: "catch", e, name, classes, alt: parseExprNoCatch(c) };
+  }
+}
+function parseExprNoCatch(c: Cursor): Expr {
   c.ws();
   if (c.startsWith("draft") && /^draft\s*\(/.test(c.src.slice(c.i)) && (() => {   // ST-3: `draft(e) { d.k := v }` — contextual: only with a block after the parens
     let i = c.i + 5, depth = 0; while (i < c.src.length) { const ch = c.src[i]; if (ch === "(") depth++; else if (ch === ")") { depth--; if (depth === 0) break; } i++; }
@@ -250,7 +286,7 @@ export function parseExpr(c: Cursor): Expr {
   c.ws(false);
   if (c.startsWith(":=")) c.fail("W-2: write in reactive scope (no statement position)");   // U: the grammar has no position for a write here
   if (c.peek() === "?" && c.peek(1) !== ".") {                         // E-11: `c ? a : b`, TS verbatim (ruled 2026-10-22: the only spelling)
-    c.i++; c.ws(); const t = parseExpr(c); c.ws(); c.expect(":"); c.ws(); const f = parseExpr(c);
+    c.i++; c.ws(); const t = parseExprNoCatch(c); c.ws(); c.expect(":"); c.ws(); const f = parseExprNoCatch(c);
     return { k: "if", c: cond, t, f };
   }
   return cond;
@@ -285,6 +321,7 @@ function parseUnary(c: Cursor): Expr {
     return { k: "await", e, stream };
   }
   if (c.keyword("latest")) { c.ws(); return { k: "latest", e: parseUnary(c) }; }
+  if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseUnary(c) }; }   // R-f-3: a throw expression (TC39's shape)
   if (c.keyword("use")) { c.ws(); return { k: "use", name: c.ident() ?? c.fail("context name") }; }
   if (c.startsWith("pending?")) { c.i += 8; c.ws(); return { k: "pending", e: parseUnary(c) }; }
   return parsePostfix(c);
@@ -404,11 +441,12 @@ function parseControl(c: Cursor): Markup | null {
   if (c.keyword("errored")) {
       c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(false);
       let errName: string | undefined;
-      if (c.eat("(")) { c.ws(); errName = c.ident() ?? c.fail("error name"); c.ws(); c.expect(")"); }   // `fallback(e)`: the error value
+      let classes: string[] | undefined;
+      if (c.eat("(")) { c.ws(); errName = c.ident() ?? c.fail("error name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); }   // `fallback(e)` / `fallback(e: A | B)` (R-f-4)
       c.ws(); c.expect("{");
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
-      return { k: "errored", fallback, decls, body, errName };
+      return { k: "errored", fallback, decls, body, errName, classes };
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();
@@ -430,7 +468,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") || /^error\s+[A-Z]/.test(c.src.slice(c.i)) ||
     (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i)); return ok; })();
   c.i = save; return r;
 }

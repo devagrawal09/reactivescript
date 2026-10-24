@@ -6,9 +6,11 @@
 source id := 1
 meta = await fetch("m:" + id)
 content = await fetch("c:" + id)
-<div>{loading fallback { <p>outer</p> } {
-  {loading on(id) fallback { <p>Meta {meta}</p> } { <p>{content}</p> }}
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading fallback { <p>outer</p> } {
+    {loading on(id) fallback { <p>Meta {meta}</p> } { <p>{content}</p> }}
+  }}</div>
+}
 ```
 
 ## Frames
@@ -32,9 +34,11 @@ content stays until the fallback can show; the parent never drops to
 source id := 1
 meta = await fetch("m:" + id)
 content = await fetch("c:" + id)
-<div>{loading fallback { <p>outer</p> } {
-  {loading on(id) fallback { <p>Meta {meta}</p> } { <p>{content}</p> }}
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading fallback { <p>outer</p> } {
+    {loading on(id) fallback { <p>Meta {meta}</p> } { <p>{content}</p> }}
+  }}</div>
+}
 ```
 
 | instant | action                 | frame      |

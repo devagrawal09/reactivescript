@@ -7,7 +7,9 @@ source fixed := false
 source count := 0
 slow = await fetch("slow:" + fixed)
 selected = fixed ? 2 : count
-<p>Fixed {fixed} / Count {count} / Selected {selected} / Slow {slow}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>Fixed {fixed} / Count {count} / Selected {selected} / Slow {slow}</p>
+}
 ```
 
 ## Frames

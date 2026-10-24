@@ -30,24 +30,30 @@ component Field(props: { label: string; error: string; children: View }) {
 
 action submit() {
   submitted := true
-  if (!valid) return
-  let r = await register(username, email, password)
-  result := r
+  try {
+    if (!valid) return                             // reading `valid` can fail (the username check is a fetch): R-f-7
+    let r = await register(username, email, password)
+    result := r
+  } catch (e) {
+    result := { ok: false, message: e.message }    // R-f-6: an action catches what it can fail with
+  }
 }
 
-<form onSubmit={e => { e.preventDefault(); submit() }}>
-  <Field label="Username" error={usernameError}>
-    <input value={username} onInput={e => { username := e.target.value }} />
-    {if checking { <small>checking…</small> }}
-  </Field>
-  <Field label="Email" error={emailError}>
-    <input value={email} onInput={e => { email := e.target.value }} />
-  </Field>
-  <Field label="Password" error={passwordError}>
-    <input type="password" value={password} onInput={e => { password := e.target.value }} />
-  </Field>
-  <button disabled={submitted && !valid}>Sign up</button>
-  {errored fallback(e) { <p class="error">{e.message}</p> } {
-    {if result { <p class={result.ok ? "ok" : "error"}>{result.message}</p> }}
-  }}
-</form>
+errored fallback(e) { <p class="error">{e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+  <form onSubmit={e => { e.preventDefault(); submit() }}>
+    <Field label="Username" error={usernameError}>
+      <input value={username} onInput={e => { username := e.target.value }} />
+      {if checking { <small>checking…</small> }}
+    </Field>
+    <Field label="Email" error={emailError}>
+      <input value={email} onInput={e => { email := e.target.value }} />
+    </Field>
+    <Field label="Password" error={passwordError}>
+      <input type="password" value={password} onInput={e => { password := e.target.value }} />
+    </Field>
+    <button disabled={submitted && !valid}>Sign up</button>
+    {errored fallback(e) { <p class="error">{e.message}</p> } {
+      {if result { <p class={result.ok ? "ok" : "error"}>{result.message}</p> }}
+    }}
+  </form>
+}

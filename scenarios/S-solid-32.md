@@ -8,7 +8,7 @@ Rules: AC-1, AC-3, ST-5, H-11.
 source name := "Ann"
 source shown = name
 source saved := false
-action rename(n) { optimistic shown := n; saved := true; await fetch("save"); name := n }
+action rename(n) { try { optimistic shown := n; saved := true; await fetch("save"); name := n } catch {} }
 <p>{shown} / {saved ? "saved" : "unsaved"} / {pending? shown ? "p" : "-"} {pending? saved ? "p" : "-"}</p>
 ```
 
@@ -52,6 +52,6 @@ A guess outside a hold does not exist (D-32); here it is unwritable.
 -- reject: OPTIMISTIC_NO_QUESTION
 -- handler: fix()
 source shown := "Ann"
-action fix() { optimistic shown := "Zed"; await fetch("x") }
+action fix() { try { optimistic shown := "Zed"; await fetch("x") } catch {} }
 <p>{shown}</p>
 ```

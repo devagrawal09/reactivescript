@@ -7,11 +7,23 @@ import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
-  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET
+  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
+import { makeErrorClass, isA } from "../src/failure.ts";
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
+/** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
+class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
+/** R-f-4: `e catch (x: C) => alt` as Solid code. A read of an errored node reaches the nearest boundary even inside a JS `try`
+ *  (the status flows through the graph), so the catch is an error boundary around the read whose fallback is the value. */
+function boundaryRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
+  const acc = untrack(() => createErrorBoundary(f, (err: () => unknown) => new Fallback(() => { const e0 = err(); return match(e0) ? alt(e0) : new Forward(e0); })));
+  return () => unwrapFallback(acc());
+}
+/** A boundary's fallback that is decided when read, so a failure that changes class while the fallback shows is re-decided. */
+class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
+function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw v.err; return v; }
 export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
 
 // ---------------------------------------------------------------- string-tree renderer
@@ -90,7 +102,7 @@ export class Oracle {
 
   constructor(program: Program, handlers?: Stmt[][]) {
     this.program = program; this.scanHandlers = handlers;
-    const walkStmts = (ss: Stmt[]) => { for (const s of ss) { if (s.k === "optimistic") this.optimisticTargets.add(s.target.name); if ((s.k === "write" || s.k === "optimistic") && s.target.path.length) this.pathTargets.add(s.target.name); if (s.k === "action") walkStmts(s.body); } };
+    const walkStmts = (ss: Stmt[]) => { for (const s of ss) { if (s.k === "optimistic") this.optimisticTargets.add(s.target.name); if ((s.k === "write" || s.k === "optimistic") && s.target.path.length) this.pathTargets.add(s.target.name); if (s.k === "action") walkStmts(s.body); if (s.k === "sif") { walkStmts(s.t); walkStmts(s.f); } if (s.k === "try") { walkStmts(s.body); if (s.handler) walkStmts(s.handler); if (s.fin) walkStmts(s.fin); } } };
     const walkExpr = (e: Expr): void => { if (e.k === "pending" && (e.e.k === "member" || e.e.k === "index")) { let x: Expr = e.e; while (x.k === "member" || x.k === "index") x = x.o; if (x.k === "id") this.pathTargets.add(x.name); } for (const v of Object.values(e as object)) { if (Array.isArray(v)) v.forEach(x => x && typeof x === "object" && "k" in x && walkExpr(x as Expr)); else if (v && typeof v === "object" && "k" in (v as object)) walkExpr(v as Expr); } };
     const walkMarkup = (ms: Markup[]): void => { for (const m of ms) { if (m.k === "read") walkExpr(m.e); if (m.k === "el") { m.attrs.forEach(a => walkExpr(a.e)); walkMarkup(m.children); } if (m.k === "mif") { walkExpr(m.c); walkMarkup(m.t); walkMarkup(m.f); } if (m.k === "mfor") { walkExpr(m.xs); walkMarkup(m.body); } if (m.k === "loading" || m.k === "errored") { walkMarkup(m.fallback); walkMarkup(m.body); } } };
     for (const d of program.decls) { if (d.k === "action") walkStmts(d.body); if (d.k === "effect") walkStmts(d.body); if (d.k === "eq") walkExpr(d.e); if (d.k === "source") walkExpr(d.init); }
@@ -112,6 +124,11 @@ export class Oracle {
     if (this.currentEq) this.lastKey.set(this.currentEq, key);
     return f;
   }
+  /** R-f-4: error class names → their values; undefined: every failure. */
+  classValues(names: string[] | undefined, scope: Scope): unknown[] | undefined {
+    if (!names) return undefined;
+    return names.map(n => { if (n === "Error") return Error; const b = scope.lookup(n); if (!b || b.k !== "const") throw new Error(`${n} is not an error class`); return b.value; });
+  }
   /** `refresh x` must re-ask: the key's old promise is forgotten so the next fetch makes a new one. */
   forget(key: string) { this.flights.delete(key); }
 
@@ -119,6 +136,7 @@ export class Oracle {
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
       if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
+      if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d });
       if (d.k === "component") scope.vars.set(d.name, { k: "comp", decl: d });
       if (d.k === "action") scope.vars.set(d.name, { k: "action", run: this.lowerAction(d.params, d.body, scope) });
@@ -169,6 +187,13 @@ export class Oracle {
           }
           const fnDecl = this.fnOf(d.e, scope);
           if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
+          if (d.e.k === "catch" && !d.deferred) {                      // R-f-4 over a tail await: the equation's flight is an inner memo, read through a boundary
+            const c = d.e; const classes = this.classValues(c.classes, scope);
+            const inner = createMemo(this.computeOf(d.name, c.e, scope) as any, this.loadingValue(c.e, scope) as any);
+            const get = boundaryRead(() => inner(), err => isA(err, classes), err => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return this.ev(c.alt, scope, en); });
+            scope.vars.set(d.name, { k: "memo", get });
+            break;
+          }
           const compute = this.computeOf(d.name, d.e, scope);
           const opts = this.loadingValue(d.e, scope);
           const get = d.deferred ? createDeferred(compute as any, opts as any) : createMemo(compute as any, opts as any);
@@ -249,7 +274,7 @@ export class Oracle {
           case "const": return b.value;
           case "sig": case "memo": case "store": {
             if (!this.imperative) return b.get();
-            try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; return ERR; }   // E-12 / H-10: an apply block or handler reads σ — an error value, never a throw
+            try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; }   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
           }
           case "fn": { const f = b.decl; return (...args: unknown[]) => { const en = new Map(env); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, scope, en); }; }
           case "action": return b.run;
@@ -271,6 +296,14 @@ export class Oracle {
       case "latest": return latest(() => this.ev(e.e, scope, env));
       case "pending": return isPending(() => this.ev(e.e, scope, env));
       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
+      case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
+      case "catch": {                                                  // R-f-4: a matching failure becomes a value
+        const classes = this.classValues(e.classes, scope);
+        const match = (err: unknown) => isA(err, classes);
+        const alt = (err: unknown) => { const en = new Map(env); if (e.name) en.set(e.name, err); return this.ev(e.alt, scope, en); };
+        if (this.imperative) { try { return this.ev(e.e, scope, env); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); } }
+        return boundaryRead(() => { const v = this.ev(e.e, scope, env); noFlight(v); return v; }, match, alt)();   // Solid: an error read inside try still reaches the boundary — a catch is a boundary around the read
+      }
       case "un": { const v = this.ev(e.e, scope, env) as any; noFlight(v); return e.op === "!" ? !v : -v; }
       case "bin": {
         const l = this.ev(e.l, scope, env) as any; noFlight(l);
@@ -310,7 +343,7 @@ export class Oracle {
       case "sif": { for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; }
       case "try": {
         const runBlock = (ss: Stmt[]) => { for (const st of ss) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; };
-        try { const r = runBlock(s.body); if (r) return r; } catch (e) { if (!s.handler) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(s.handler); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
+        try { const r = runBlock(s.body); if (r) return r; } catch (e) { if (!s.handler || !isA(e, this.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(s.handler); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
         return undefined;
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
@@ -360,7 +393,7 @@ export class Oracle {
         if (s.k === "sif") { const r = yield* block(untrack(() => self.ev(s.c, scope, env)) ? s.t : s.f, env); if (r) return r; continue; }
         if (s.k === "try") {
           try { const r = yield* block(s.body, env); if (r) return r; }
-          catch (e) { if (!s.handler) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(s.handler, env); if (r) return r; }
+          catch (e) { if (!s.handler || !isA(e, self.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(s.handler, env); if (r) return r; }   // R-f-6: a typed catch rethrows other classes
           finally { if (s.fin) { const r = yield* block(s.fin, env); if (r) return r; } }
           continue;
         }
@@ -423,10 +456,18 @@ export class Oracle {
         return R.createComponent(Loading as any, props);
       }
       case "errored": {
-        return R.createComponent(Errored as any, {
-          fallback: (err: () => unknown) => { const s2 = new Scope(scope); if (m.errName) s2.vars.set(m.errName, { k: "memo", get: err }); return self.fragment(m.fallback, s2); },
+        const classes = this.classValues(m.classes, scope);
+        const view = (err: () => unknown) => { const s2 = new Scope(scope); if (m.errName) s2.vars.set(m.errName, { k: "memo", get: err }); return self.fragment(m.fallback, s2); };
+        const out = R.createComponent(Errored as any, {
+          fallback: (err: () => unknown) => {
+            if (!classes) return view(err);
+            const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
+            return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => view(err))) : new Forward(err()));
+          },
           get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
         });
+        if (!classes) return out;
+        return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // R-f-4: another class passes to the boundary above (a rethrow from the fallback itself does not recover — ref/oracle/repros/dv7-rethrow.mjs)
       }
     }
   }
@@ -444,7 +485,7 @@ const BUILTINS: Record<string, unknown> = {
   map: (xs: unknown[], f: (x: unknown, i: number) => unknown) => xs.map(f),
   filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
   sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
-  fail: (msg: string) => { throw new Error(msg); },
+  fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
   every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
   fetch: (key: string) => key,
 };

@@ -8,7 +8,9 @@ Rules: H-2, H-3, H-4, H-10, R-4. (H-3 rewritten after Solid S-4.)
 source id := "a"
 source n := 0
 product = await fetch("p:" + id)
-<p>{product.name} {n}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{product.name} {n}</p>
+}
 ```
 
 ## Frames
@@ -32,7 +34,9 @@ caught). Instant 4: `product` lands.
 ```
 source id := "a"
 product = await fetch("p:" + id)
-<p>{product.name}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{product.name}</p>
+}
 ```
 
 | instant | action                              | frame   |

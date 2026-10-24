@@ -68,3 +68,35 @@ setId(2)              "1 -"   ✗         "1 pending"  ✓   "1 pending"  ✓
 The async memo under the same boundary reports pending; the same store
 outside a boundary reports pending. Only the store-under-boundary
 combination reads `false`.
+
+---
+
+## DV-7 — an outer error boundary that caught a rethrow from an inner fallback does not recover
+
+Found while lowering typed `errored` boundaries (R-f-4); it is not one of
+our divergences, because the lowering avoids the shape.
+
+**Shape.** `createErrorBoundary(inner, …)` inside `createErrorBoundary(…)`;
+the inner fallback rethrows an error it does not handle
+(`err => { if (!(err() instanceof NotFound)) throw err(); … }`).
+
+**Observed** (`dv7-rethrow.mjs`):
+
+```
+which   1 (NotFound)   0      2 (Other)      0               1            0
+screen  inner:nf       ok0    outer:other    outer:other ✗   inner:nf     ok0
+```
+
+After the outer boundary takes the rethrown `Other`, the content recovering
+(`which = 0`) does not clear it; only a later error in the inner boundary
+re-renders through it. Expected `ok0` at the ✗.
+
+**Likely cause.** The outer boundary's error belongs to the inner
+fallback's computation; when the inner switches back to its content that
+computation is disposed, and the outer is not told the error's source is
+gone.
+
+**How we lower around it.** The inner fallback returns a marker carrying
+the error instead of throwing; a memo around the inner boundary reads it
+and throws. That memo is an ordinary dependent of the boundary, so it
+re-runs and recovers when the content does (S-fail-1 instants 6–8).

@@ -1,9 +1,10 @@
 # 04 — Rows
 
-**Status: OPEN (2026-10-21).** Three properties of an expression that the
-compiler tracks and the grammar restricts: `io` (may write or side-effect),
-`pending` (may have no answer yet), `lane(x)` (derived from a probe of `x`).
-All three are inferred; annotations exist for declarations and display.
+**Status: OPEN (2026-10-21; R-fails ruled 2026-10-23).** Four properties of
+an expression that the compiler tracks and the grammar restricts: `io` (may
+write or side-effect), `pending` (may have no answer yet), `lane(x)`
+(derived from a probe of `x`), `fails(C)` (may fail with an error of class
+`C`). All four are inferred; annotations exist for declarations and display.
 
 This document is the static side. What the screen does with a pending reader
 is `05-holds.md`; this file only says where rows come from, how they flow,
@@ -70,8 +71,9 @@ and where they may not go.
   evaluator that short-circuits on absence drops `count` and lets its hold
   commit).
 - **R-6 (Errors).** A rejected `await` is an error value (E-12): it ends the
-  wait, flows like a value, is caught by `errored`, and is retried by a new
-  question or `refresh`. There is no separate errored state.
+  wait, flows like a value, is caught by `errored` or `catch`, and is
+  retried by a new question or `refresh`. There is no separate errored
+  state. Its class is `Error`, or what its import declares (R-f-8).
 - **R-7 (First paint).** `await e -> v` declares `v` as the value until the
   first answer lands: the equation is never pending on its first flight and
   `pending?` of it is `false` until then. Later questions follow R-4 and the
@@ -104,6 +106,103 @@ and where they may not go.
   readable in imperative scope as snapshots of the verdict / in-flight value
   at that moment.
 
+## R-fails — failure (ruled 2026-10-23)
+
+Rust's split, in this language's terms: a **failure** is part of a value's
+type and must be handled before it reaches the screen or leaves an action;
+a **panic** is a bug — caught at run time by the same boundaries, not
+tracked. Inspired by solid-yield's typed failure color; the checks are
+`ref/src/check.ts` (08 CN-6).
+
+- **R-f-1 (Error classes).** `error Name(f₁, …, fₙ) => message` declares an
+  error class. `Name(…)` constructs one (no `new`); at run time it is a JS
+  class extending `Error`, with `name`, the fields, and `message` — the
+  expression after `=>` over the fields, or the name when there is none.
+  Classes are flat. `Error` is the top class: every failure is an `Error`,
+  and a list that names `Error` names every class. A JS class imported is a
+  class too. A name used as a class (in a `catch`, a boundary, an import's
+  `fails`) that is neither is `NOT_AN_ERROR_CLASS` (bin S).
+- **R-f-2 (The row).** `fails(A | B)` is the set of classes an expression's
+  evaluation may fail with. It is inferred like `pending` (R-13): it flows
+  through equations, lifted calls, and the pure closures an expression
+  creates (a closure may be called during the evaluation, by `map` or
+  `filter`), and composes by union.
+- **R-f-3 (Entry).** A failure enters in three places:
+  1. `throw e` — an expression in reactive scope (TC39's throw-expression
+     shape: `x > 0 ? x : throw BadInput(x)`; the equation's value is the
+     error, E-12) and a statement in imperative scope. Its class: `C(…)` of
+     a class `C` is `C`; a `catch` binding rethrown is what that catch
+     caught; anything else is `Error`.
+  2. `await e` of a JS promise — `e` a call into a JS import, directly or
+     through an equation or a `fn` that returns one: the import's declared
+     failure, `Error` unless narrowed (R-f-8). An `await` whose promise
+     cannot be traced to its origin is `Error`.
+  3. A snapshot read in imperative scope of a value whose row fails (R-f-7).
+
+  A synchronous throw from a JS function — `fail(msg)` in the scenario
+  prelude, or any bug — is a **panic** and is in no row. A boundary takes it
+  at run time like anything else; if nothing does, the runtime halts
+  (H-12). The static guarantee is about failures, not bugs.
+- **R-f-4 (Discharge).** A failure leaves the row at:
+  - `errored fallback(e: A | B) { … } { … }`, for every reader in its
+    content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges
+    every class. At run time a failure of another class passes the boundary
+    to the next one up — the boundary does not show its fallback for it, and
+    re-decides when the failure it shows changes class (S-fail-1 instant 6).
+  - `e catch (x: A | B) => alt`, an expression: when `e` fails with `A` or
+    `B` its value is `alt`, with `x` the error; other failures and pending
+    pass through untouched. `catch (x) => alt` discharges every class. It
+    binds looser than every operator, `?:` included — `c ? a : b catch …`
+    catches the conditional; parenthesise to catch one arm. Over an
+    equation's `await`, a matching rejection is an answer:
+    `user = await fetchUser(id) catch (e: NotFound) => null` lands `null`.
+  - An effect: its apply receives the failure as a value (`$0…`, H-12), so
+    its inputs are discharged.
+  - `pending? e` is a verdict and never reads `e`'s failure; `latest e` and
+    `peek e` carry it.
+- **R-f-5 (Readers discharge).** A reader whose row has a class that no catch
+  and no boundary above it discharges is `UNHANDLED_FAILURE` (bin S). A
+  reader is `{e}`, a non-handler attribute, an `if` condition, a `for`
+  collection, `loading on(e)`. "Above" follows the static application tree
+  (CN-3a, the tree RG-7b uses). Passing a value is not reading it (R-2): a
+  prop's failures are checked where the component reads `props.x` — against
+  the catches and boundaries inside the component, then those above each
+  place it is applied, with that place's argument. Children are read where
+  the component reads `props.children` (RG-4c): a component that wraps its
+  children in `errored` discharges for them, and children it never reads are
+  never checked (S-fail-2). A component never applied is not checked (its
+  failures are its signature's, CN-4b); an equation no reader reaches is not
+  checked. (Ruled 2026-10-23: an error that escapes every boundary halts the
+  reactive system, which is never the right behaviour — unlike a pending
+  mount, CN-3c, there is no SSR case for it. An app typically has one
+  `errored` at its root.)
+- **R-f-6 (Actions catch).** An action's body may not let a failure out: a
+  class it can fail with that no enclosing `catch` in the body discharges
+  is `UNCAUGHT_ACTION_FAILURE` (bin S). The handler that launched the action
+  does not await it, so nothing after the body could (ruled 2026-10-23).
+  `catch (e: A | B)` discharges `A` and `B` — at run time other classes are
+  rethrown; `catch (e)` or a bare `catch` discharges every class; `finally`
+  discharges nothing; a nested `action` is its own. Awaiting an action fails
+  with nothing: it cannot fail. An action reading `props.x` is checked at
+  each application against that argument, with no boundary to help.
+  DV-2 (a body ended by an exception commits its held writes, reverts its
+  guesses) now applies to panics only (S-action-1). Plain handlers and
+  apply blocks are not checked: a throw there is ordinary JS (H-12).
+- **R-f-7 (Snapshots of failures throw).** In imperative scope, a snapshot
+  read (SC-2) of a value that is an error throws its error — the imperative
+  form of the same failure, which the action's `catch` handles. (Before
+  this rule the runtimes returned an error value, which `.name` then read
+  silently as `undefined`.) An apply's parameters are values: a failure
+  arrives as `$0`, not thrown (S-solid-42).
+- **R-f-8 (The JS boundary).** A JS promise may reject with anything.
+  `import pure { f } from "./api" fails A | B` declares what that import's
+  promises reject with — an unchecked assertion, like `pure` (CN-5).
+  Without it, `Error`.
+- **R-f-9 (Written rows).** `fails(A | B)` may be written in a type's row
+  prefix (CN-4a): `name: pending fails(NotFound) string = …`. A written
+  failure row narrower than the inferred one is `ROW_NARROWER_THAN_INFERRED`,
+  and so is a written prefix that leaves `fails(…)` out of a value that fails.
+
 ## R-inference
 
 - **R-13.** Rows are inferred locally per function and per equation from the
@@ -125,6 +224,9 @@ and where they may not go.
 | `SYNC_NODE_RECEIVED_ASYNC`       | U   | R-1   |
 | `ASYNC_WATERFALL`                | S   | an `await` whose inputs depend on another `await` (R-2) |
 | `UNTRACKED_ASYNC_HANDLER` (structural half) | S | a handler that awaits with no write before and no `action` |
+| `UNHANDLED_FAILURE` (new)        | S   | R-f-5 |
+| `UNCAUGHT_ACTION_FAILURE` (new)  | S   | R-f-6 |
+| `NOT_AN_ERROR_CLASS` (new)       | S   | R-f-1 |
 
 ## Scenarios (executable once 05 gives pending readers a screen semantics)
 
@@ -135,3 +237,10 @@ and where they may not go.
   (R-7).
 - `S-row-4`: rejected await is an error value; new question retries (R-6).
 - `S-row-5`: `fn load(id) => await fetch(id)`; `x = load(id)` pending (R-3).
+- `S-fail-1` ✓: typed classes — a class caught into a value, a typed
+  boundary taking its class, another class passing it to the root, recovery
+  through both (R-f-1..5, R-f-9); four rejected variants.
+- `S-fail-2` ✓: failures through components — children under the
+  component's boundary, a prop checked where it is read, a tail `await …
+  catch` (R-f-4, R-f-5); five rejected variants incl. R-f-6.
+- `S-action-1` ✓: a panic ends a body (DV-2); two R-f-6 rejections.

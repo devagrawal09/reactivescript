@@ -7,7 +7,9 @@ source page := 0
 source count := 0
 pageData = await fetch("pg:" + page)
 details = await fetch("d:" + pageData + ":" + count)
-<div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Sum {page + count}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Sum {page + count}</p></div>
+}
 ```
 
 ## Frames
@@ -34,7 +36,9 @@ source page := 0
 source count := 0
 pageData = await fetch("pg:" + page)
 details = await fetch("d:" + pageData + ":" + count)
-<div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Outside {details}</p> <p>Sum {page + count}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Outside {details}</p> <p>Sum {page + count}</p></div>
+}
 ```
 
 | instant | action                      | frame                                        |

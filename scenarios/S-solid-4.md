@@ -6,7 +6,9 @@
 source a := 0
 source b := 0
 detailsA = await fetch("d:" + a)
-<p>{b}:{detailsA}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{b}:{detailsA}</p>
+}
 ```
 
 `{b}` and `{detailsA}` are two readers here; Solid's compiled hole is one.
@@ -35,7 +37,9 @@ source a := 0
 source b := 0
 detailsA = await fetch("d:" + a)
 sum = b + detailsA
-<p>{b}:{detailsA} sum {sum}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{b}:{detailsA} sum {sum}</p>
+}
 ```
 
 | instant | action               | frame            |

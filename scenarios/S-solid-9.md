@@ -13,7 +13,7 @@ its return belongs to its change.
 source a := 0
 source b := 0
 source c := 0
-action run() { a := 1; await fetch("x"); b := 1; c := 1 }
+action run() { try { a := 1; await fetch("x"); b := 1; c := 1 } catch {} }
 <p>{a} {b} {c}</p>
 ```
 

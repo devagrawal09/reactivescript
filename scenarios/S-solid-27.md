@@ -6,7 +6,9 @@
 source n := 0
 x = await fetch("x:" + n)
 y = await fetch("y:" + x)
-<div><p>{str(pending? x) + "," + str(x)}</p> <p>{str(pending? latest x) + "," + str(latest x)}</p> <i>{y}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{str(pending? x) + "," + str(x)}</p> <p>{str(pending? latest x) + "," + str(latest x)}</p> <i>{y}</i></div>
+}
 ```
 
 The first `<p>` is one reader with a plain read beside the probe: it holds

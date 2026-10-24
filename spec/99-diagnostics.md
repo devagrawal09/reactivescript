@@ -102,8 +102,11 @@ named.
 | `REGION_ESCAPE`                   | S   | O-3   | S-check-1 (three shapes) |
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
 | `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree) | S-check-1, S-region-7, S-ai-feed |
-| `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written) | S-check-1 |
+| `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
+| `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
+| `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
+| `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
 
 ## The advisory rows (ruled 2026-10-23, in part)
 

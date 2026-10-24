@@ -7,7 +7,7 @@ Rules: AC-1, AC-3, H-11.
 ```
 source truth := 1
 source guess = truth
-action attempt() { optimistic guess := 5; await fetch("unrelated") }
+action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
 <p>{guess} / {latest guess} {pending? guess ? "p" : "-"}</p>
 ```
 
@@ -31,8 +31,10 @@ commit) are one instant here.
 source truth := 1
 source guess = truth
 derived = await fetch("x:" + str(guess))
-action attempt() { optimistic guess := 5; await fetch("unrelated") }
-<p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
+action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
+}
 ```
 
 | instant | action                   | frame           |

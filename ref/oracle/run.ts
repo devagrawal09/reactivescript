@@ -41,7 +41,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
           await settle();
         } else throw new Error(`unknown action '${r.action}'`);
       } catch (e) { if (isUnsupported(e)) { lines.push(`  ~ ${t.title} instant ${r.instant}: unsupported — ${(e as Error).message}`); return ok; } ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: ${(e as Error).message}`); return ok; }
-      if (o.asyncError) { const e = o.asyncError; o.asyncError = null; if (isUnsupported(e)) { lines.push(`  ~ ${t.title} instant ${r.instant}: unsupported — ${(e as Error).message}`); return ok; } if (!r.action.startsWith("reject")) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: action: ${(e as Error).message}`); return ok; } }
+      if (o.asyncError) { const e = o.asyncError; o.asyncError = null; if (isUnsupported(e)) { lines.push(`  ~ ${t.title} instant ${r.instant}: unsupported — ${(e as Error).message}`); return ok; } if (!r.action.startsWith("reject") && !(e as { panic?: boolean }).panic) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: action: ${(e as Error).message}`); return ok; } }
       const got = norm(o.frame()); const effects = o.log.slice(logBefore);
       const prefixed = rows.indexOf(r) < own;
       if (prefixed && t.program) continue;

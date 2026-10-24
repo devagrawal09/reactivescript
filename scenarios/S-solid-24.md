@@ -5,7 +5,9 @@
 ```
 source id := 0
 details = await fetch("d:" + latest id)
-<div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+}
 ```
 
 ## Frames
@@ -24,7 +26,9 @@ header reveals now.
 ```
 source id := 0
 details = await fetch("d:" + latest id)
-<div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+}
 ```
 
 | instant | action              | frame          |

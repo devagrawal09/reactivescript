@@ -7,7 +7,9 @@ source count := 0
 source show  := false
 details = await fetch("d:" + count)
 panel   = show ? count : "hidden"
-<div><p>Count {count}</p> <p>Details {details}</p> <p>Panel {panel}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>Count {count}</p> <p>Details {details}</p> <p>Panel {panel}</p></div>
+}
 ```
 
 ## Frames

@@ -10,10 +10,12 @@ source x := 0
 source show := false
 source title := ""
 slow = await fetch("slow:" + x)
-<div><h1>{x}</h1> <i>{slow}</i> <b>{title}</b> {if show {
-  m = x * 10
-  <p>{m} {x}</p>
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>{x}</h1> <i>{slow}</i> <b>{title}</b> {if show {
+    m = x * 10
+    <p>{m} {x}</p>
+  }}</div>
+}
 ```
 
 ## Frames

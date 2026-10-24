@@ -10,7 +10,9 @@ again on the same flight is the equation body's `yield v`.
 ```
 source room := "a"
 msgs = await fetch("room:" + room)
-<p>{msgs} {pending? msgs ? "p" : "-"}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{msgs} {pending? msgs ? "p" : "-"}</p>
+}
 ```
 
 ## Frames

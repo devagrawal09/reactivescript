@@ -26,13 +26,13 @@ effect (len(msgs)) { log("count", $0) }            // EF: runs when the committe
 
 // --- the send action: one change across the awaited work (AC-1) ---
 action send() {
-  let text = draftText                             // snapshots (SC-2)
-  let room = selected
-  let msg = { id: len(messages) + 1, from: "me", text }
-  optimistic draftText := ""                       // AC-3: the guesses show now, display-ahead
-  optimistic sending := true
-  optimistic messages := m => [...m, msg]          // W-6: a functional guess appends
-  try {
+  try {                                            // R-f-6: reading `messages` (a fetch) and the send can both fail
+    let text = draftText                           // snapshots (SC-2)
+    let room = selected
+    let msg = { id: len(messages) + 1, from: "me", text }
+    optimistic draftText := ""                     // AC-3: the guesses show now, display-ahead
+    optimistic sending := true
+    optimistic messages := m => [...m, msg]        // W-6: a functional guess appends
     await sendMessage(room, text)                  // AC-1: a hold-safe suspension
     draftText := ""                                // the truth, after the await (07 §5)
   } catch (e) {
@@ -63,14 +63,16 @@ component Compose(props: {}) {
 }
 
 // --- the mounted view (07 §1: trailing markup is the app entry) ---
-<main>
-  {loading fallback { <p>rooms…</p> } {
-    <RoomList rooms={rooms} />
-  }}
-  {loading on(selected) fallback { <p>loading…</p> } {
-    <ol>
-      {for m in msgs { <li>{m.from}: {m.text}{" "}</li> }}
-    </ol>
-  }}
-  <Compose />
-</main>
+errored fallback(e) { <p class="error">The feed is unavailable: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+  <main>
+    {loading fallback { <p>rooms…</p> } {
+      <RoomList rooms={rooms} />
+    }}
+    {loading on(selected) fallback { <p>loading…</p> } {
+      <ol>
+        {for m in msgs { <li>{m.from}: {m.text}{" "}</li> }}
+      </ol>
+    }}
+    <Compose />
+  </main>
+}

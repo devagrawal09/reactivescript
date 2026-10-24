@@ -16,9 +16,17 @@ time instead of run time.
 node --experimental-strip-types --conditions=browser --conditions=development ref/compile/run.ts [filter]
 ```
 
-Status: 67/67 scenarios pass as compiled modules (3 recorded divergences, the
+Status: 69/69 scenarios pass as compiled modules (3 recorded divergences, the
 same as the oracle's: Solid bugs DV-3 and DV-4). All seven example apps build
 and run in Chromium against `examples/api.mjs`, a fake backend with delays.
+
+Failures (04 R-f) lower to Solid error boundaries: a typed `errored` hands
+a failure of another class out of its fallback and a memo around it throws
+it to the boundary above; `e catch (x: C) => alt` is an error boundary
+around the read whose fallback is `alt` — in Solid an errored read reaches
+the nearest boundary even inside a JS `try`, so a plain `try` would not
+catch it. A catch over an equation's `await` reads an inner memo (the
+flight) through such a boundary.
 
 A compiled module (S-core-1):
 

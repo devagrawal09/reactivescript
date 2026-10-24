@@ -51,7 +51,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
           await settle();
         } else throw new Error(`unknown action '${r.action}'`);
       } catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title} instant ${r.instant}: not compiled — ${e.message}`); return ok; } ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: ${(e as Error).message}`); return ok; }
-      if (app.asyncError) { const e = app.asyncError; app.asyncError = null; if (!r.action.startsWith("reject")) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: action: ${(e as Error).message}`); return ok; } }
+      if (app.asyncError) { const e = app.asyncError; app.asyncError = null; if (!r.action.startsWith("reject") && !(e as { panic?: boolean }).panic) { ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: action: ${(e as Error).message}`); return ok; } }
       const got = norm(app.frame()); const effects = app.log.slice(logBefore);
       const prefixed = rows.indexOf(r) < own;
       if (prefixed && t.program) continue;

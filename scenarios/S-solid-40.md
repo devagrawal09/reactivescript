@@ -5,7 +5,9 @@
 ```
 source s := 0
 n0 = await fetch("n:" + s)
-<div><p>{n0}</p> {loading fallback { <p>loading</p> } { <p>{latest s}</p> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{n0}</p> {loading fallback { <p>loading</p> } { <p>{latest s}</p> }}</div>
+}
 ```
 
 ## Frames

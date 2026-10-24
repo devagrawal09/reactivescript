@@ -1,6 +1,6 @@
 # S-action-1 — try/catch in an action: the catch is still the action's change
 
-Rules: AC-7, AC-1, AC-3, W-6.
+Rules: AC-7, AC-1, AC-3, W-6, R-f-6.
 
 ## Program
 
@@ -40,9 +40,49 @@ ends normally (the finally ran too) and one frame commits: the guess
 reverts to the truth, `status` and `orders` land. Nothing is reported as
 a failed action: the action handled it.
 
-## Variant: uncaught — the body rejects
+## Variant: a panic ends the body — the held writes still commit
 
 ```
+source cart = [1, 2]
+source status := ""
+action placeOrder() {
+  optimistic cart := []
+  status := "placing"
+  try { let receipt = await fetch("checkout") } catch (e) { status := "declined" }
+  fail("lost the receipt")
+  cart := []
+  status := "ok"
+}
+<p>{cart.length} items / {status}</p>
+```
+
+| instant | action                      | frame                  |
+| ------- | --------------------------- | ---------------------- |
+| 0       | mount                       | `2 items / `           |
+| 1       | handler `placeOrder()`      | `0 items / `           |
+| 2       | resolve "checkout" "r1"     | `2 items / placing`    |
+
+AC-1 / DV-2: a body that ends by an exception ends like a return — the
+held plain write `status := "placing"` commits, the guess reverts. Since
+R-f-6 only a *panic* gets here: `fail(…)` is the prelude's JS function
+that throws, and a JS throw is not in the failure row (R-f-3). A
+rejection or a `throw` the body does not catch is a compile error (below).
+
+## Variant: throw caught in a plain handler
+
+```
+source status := ""
+<p>{status}</p>
+```
+
+| instant | action | frame |
+| ------- | ------ | ----- |
+| 1       | handler `try { throw fail("boom") } catch (e) { status := e.message }` | `boom` |
+
+## Rejected variants
+
+```
+-- reject: UNCAUGHT_ACTION_FAILURE
 source cart = [1, 2]
 source status := ""
 action placeOrder() {
@@ -55,23 +95,21 @@ action placeOrder() {
 <p>{cart.length} items / {status}</p>
 ```
 
-| instant | action                      | frame                  |
-| ------- | --------------------------- | ---------------------- |
-| 0       | mount                       | `2 items / `           |
-| 1       | handler `placeOrder()`      | `0 items / `           |
-| 2       | reject "checkout" "declined" | `2 items / placing`   |
-
-AC-1 / DV-2: an uncaught rejection ends the body like a return — the held
-plain write `status := "placing"` commits, the guess reverts. `throw`
-inside the body is the same rejection.
-
-## Variant: throw caught in a plain handler
+R-f-6: the rejection of `fetch("checkout")` (a JS promise: `fails(Error)`)
+leaves the body uncaught, and nothing can catch it after — the handler
+that launched the action does not await it.
 
 ```
+-- reject: UNCAUGHT_ACTION_FAILURE
+error Declined(reason)
 source status := ""
+action placeOrder() {
+  try { let r = await fetch("checkout") } catch (e) { throw Declined(e.message) }
+  status := "ok"
+}
 <p>{status}</p>
 ```
 
-| instant | action | frame |
-| ------- | ------ | ----- |
-| 1       | handler `try { throw fail("boom") } catch (e) { status := e.message }` | `boom` |
+A rethrow is a failure of the body like any other: the catch discharges
+`Error` and its `throw` raises `Declined`, which nothing catches.
+

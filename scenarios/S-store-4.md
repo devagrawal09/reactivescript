@@ -29,7 +29,9 @@ the question with unchanged inputs: the override is dropped, quietly.
 ```
 source id := 1
 source profile = await fetch("p:" + str(id))
-<p>{profile} {pending? profile ? "p" : "-"}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{profile} {pending? profile ? "p" : "-"}</p>
+}
 ```
 
 | instant | action                      | frame     |

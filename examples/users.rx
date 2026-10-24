@@ -10,6 +10,7 @@ source page: number := 1
 source query: string := ""
 source users: User[] = await fetchUsers(page, query) -> []    // ST-5: a source with a standing question; R-7: an empty first paint
 source editing: number | null = null                          // a question whose truth is `null`: a guess over it ends the edit now (AC-3)
+source saveError: string := ""
 
 total = len(users)
 status = pending? users ? "loading…" : `${total} users`
@@ -18,8 +19,13 @@ action rename(id: number, name: string) {
   optimistic users := us => us.map(u => u.id === id ? { ...u, name } : u)   // AC-3: shown now, verdict-inert
   optimistic editing := null                                                 // the editor closes now; the plain write below lands at the commit
   editing := null
-  let saved = await saveUser(id, name)                                       // AC-1: the change stays open
-  users := us => us.map(u => u.id === id ? saved : u)                        // the truth: equal confirms silently
+  saveError := ""
+  try {
+    let saved = await saveUser(id, name)                                     // AC-1: the change stays open
+    users := us => us.map(u => u.id === id ? saved : u)                      // the truth: equal confirms silently
+  } catch (e) {
+    saveError := `could not save ${name}: ${e.message}`                      // R-f-6; the guess reverts at the body's end
+  }
 }
 action nextPage() { page := page + 1 }
 action search(q: string) { query := q; page := 1 }
@@ -39,13 +45,15 @@ component Row(props: { user: User }) {
   </tr>
 }
 
-<section>
-  <header>
-    <input placeholder="search" onInput={e => { search(e.target.value) }} />
-    <span class={pending? users ? "dim" : ""}>{status}</span>
-  </header>
-  {loading on(query) fallback { <p>Searching…</p> } {
-    <table>{for u in users { <Row user={u} /> }}</table>
-  }}
-  <button onClick={() => { nextPage() }} disabled={pending? users}>Next page ({latest page})</button>
-</section>
+errored fallback(e) { <p class="error">Could not load users: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+  <section>
+    <header>
+      <input placeholder="search" onInput={e => { search(e.target.value) }} />
+      <span class={pending? users ? "dim" : ""}>{status}</span>{saveError}
+    </header>
+    {loading on(query) fallback { <p>Searching…</p> } {
+      <table>{for u in users { <Row user={u} /> }}</table>
+    }}
+    <button onClick={() => { nextPage() }} disabled={pending? users}>Next page ({latest page})</button>
+  </section>
+}

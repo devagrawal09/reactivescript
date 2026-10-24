@@ -8,12 +8,14 @@ H-5, H-6, H-7, H-9, R-1, R-4, R-9, R-10, R-11, V-1.
 ```
 source id := "a"
 product = await fetch("p:" + id)
-<div>
-  <p>sel:{latest id}</p>
-  {loading fallback { <p>loading</p> } {
-    <div><p>{product.name}</p> <p>{pending? product}</p></div>
-  }}
-</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>
+    <p>sel:{latest id}</p>
+    {loading fallback { <p>loading</p> } {
+      <div><p>{product.name}</p> <p>{pending? product}</p></div>
+    }}
+  </div>
+}
 ```
 
 `fetch(key)` is the oracle's FFI: it returns a flight the scenario lands
@@ -42,5 +44,7 @@ the screen keeps `A`; `latest id` shows `b` and `pending? product` shows
 -- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
 source id := "a"
 product = await fetch("p:" + id)
-<p>{product.name}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{product.name}</p>
+}
 ```

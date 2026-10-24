@@ -7,7 +7,7 @@ import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET,
+  flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
 } from "@solidjs/signals";
 
 export { flush };
@@ -19,7 +19,29 @@ export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
 const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
-const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(isView)) || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
+const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(isView)) || (typeof v === "object" && v !== null && (("kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object))) || "nodeType" in (v as object)));   // string-tree nodes, or DOM nodes
+
+// ---------------------------------------------------------------- failures (R-f; a copy of ref/src/failure.ts — this file is served alone)
+type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
+function errorClass(name: string, params: string[], message: (...args: unknown[]) => unknown): ErrorClass {
+  const C = class extends Error { constructor(...args: unknown[]) { super(""); this.name = name; params.forEach((p, i) => { (this as unknown as Record<string, unknown>)[p] = args[i]; }); this.message = String(untrack(() => message(...args))); } };
+  Object.defineProperty(C, "name", { value: name });
+  const f = ((...args: unknown[]) => new C(...args)) as ErrorClass; f.cls = C; f.errorClass = name; return f;
+}
+const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
+/** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
+ *  reaches the nearest boundary even inside a JS `try`). The fallback is decided when read, so a change of class re-decides it. */
+function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
+  const acc = untrack(() => createErrorBoundary(f, (err: () => unknown) => new Fallback(() => { const e0 = err(); return match(e0) ? alt(e0) : new Forward(e0); })));
+  return () => unwrapFallback(acc());
+}
+/** Imperative scope: an ordinary try. */
+function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
+  try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
+}
+class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
+function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw (v as Forward).err; return v; }
+class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 
 // ---------------------------------------------------------------- flights (the scenario harness's async)
 /** A controllable flight: an async iterable (a stream — each resolve is a landing) that actions await through `first`. */
@@ -98,7 +120,7 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
       filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
       sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
       every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
-      fail: (msg: string) => { throw new Error(msg); },
+      fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
@@ -177,8 +199,11 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     runWithOwner,
 
     // ---- reads ----
-    /** An imperative read sees σ: an error or a pending value is a value, never a throw (E-12, H-10). */
-    snap(get: Acc) { try { return untrack(get); } catch (e) { return e instanceof NotReadyError ? PENDING_MARK : ERR; } },
+    /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
+    snap(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    // ---- failures (R-f) ----
+    errorClass, isA, catchAcc, tryCatch, caughtRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    raise: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,
@@ -200,7 +225,20 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
       if (on) Object.defineProperty(props, "on", { enumerable: true, get: on });
       return R.createComponent(Loading as any, props);
     },
-    errored: (fallback: (err: Acc) => unknown, body: () => unknown) => R.createComponent(Errored as any, { fallback, get children() { return body(); } }),
+    /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
+     *  and a wrapper throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
+    errored(fallback: (err: Acc) => unknown, body: () => unknown, classes?: unknown[]) {
+      const out = R.createComponent(Errored as any, {
+        fallback: (err: Acc) => {
+          if (!classes) return fallback(err);
+          const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
+          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => fallback(err))) : new Forward(err()));
+        },
+        get children() { return body(); },
+      });
+      if (!classes) return out;
+      return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
+    },
   };
   return app;
 }

@@ -21,7 +21,9 @@ export type Expr =
   | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
-  | { k: "spread"; e: Expr };                                  // only inside an array literal
+  | { k: "spread"; e: Expr }                                   // only inside an array literal
+  | { k: "throw"; e: Expr }                                    // R-f-3: a failure; an expression in reactive scope too
+  | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr };   // R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
 
 export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)
 
@@ -35,14 +37,15 @@ export type Stmt =
   | { k: "action"; body: Stmt[] }                               // AC-1 inline
   | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
   | { k: "return"; e?: Expr }
-  | { k: "try"; body: Stmt[]; catchName?: string; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
+  | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
   | { k: "throw"; e: Expr };
 
 export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean; key?: string }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4
-  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; line: number }   // R-io-4: io unless `pure`
+  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; line: number; fails?: string[] }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections
+  | { k: "error"; name: string; params: string[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
   | { k: "typedecl"; name: string; line: number }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
@@ -57,6 +60,6 @@ export type Markup =
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
-  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string };   // H-12; errName: `fallback(e)`
+  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[] };   // H-12; errName: `fallback(e)`; classes: `fallback(e: A | B)` (R-f-4), absent: every failure
 
 export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view

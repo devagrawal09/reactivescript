@@ -6,7 +6,9 @@
 source id := 1
 product = await fetch("p:" + id)
 comments = await fetch("c:" + id)
-<div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+}
 ```
 
 ## Frames
@@ -29,7 +31,9 @@ entered but not shown. Instant 4: it lands with `B`, not beside `A`.
 source id := 1
 product = await fetch("p:" + id)
 comments = await fetch("c:" + id)
-<div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+}
 ```
 
 | instant | action                          | frame            |
@@ -43,7 +47,9 @@ comments = await fetch("c:" + id)
 ```
 source id := 1
 comments = await fetch("c:" + id)
-<div>{loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+}
 ```
 
 | instant | action                          | frame          |

@@ -16,40 +16,42 @@ action toggle(id: number) {
   selected := len(filter(selected, s => s == id)) > 0 ? filter(selected, s => s != id) : [...selected, id]
 }
 
-<div>
-  <input value={query} onInput={e => { query := e.target.value }} />
-  <p>{count} selected</p>
-  <p>
-    <button onClick={() => { sortBy := "name" }}>name{sortBy == "name" ? "*" : ""}</button>
-    <button onClick={() => { sortBy := "age" }}>age{sortBy == "age" ? "*" : ""}</button>
-  </p>
-  {loading on(page) fallback { <p>Loading page {page}…</p> } {
-    {for p in [page] {
-      // Each page is its own region (RG-2): its fetch is a first load, held like any and caught
-      // by the boundary `on(page)` re-armed (H-5/H-6). Within the page, a sort change is a re-ask
-      // of a `deferred` (H-1): the shown rows stay while the next result loads, `pending?` dims.
-      deferred data = await fetchRows(p, sortBy)
+errored fallback(e) { <p class="error">Could not load rows: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+  <div>
+    <input value={query} onInput={e => { query := e.target.value }} />
+    <p>{count} selected</p>
+    <p>
+      <button onClick={() => { sortBy := "name" }}>name{sortBy == "name" ? "*" : ""}</button>
+      <button onClick={() => { sortBy := "age" }}>age{sortBy == "age" ? "*" : ""}</button>
+    </p>
+    {loading on(page) fallback { <p>Loading page {page}…</p> } {
+      {for p in [page] {
+        // Each page is its own region (RG-2): its fetch is a first load, held like any and caught
+        // by the boundary `on(page)` re-armed (H-5/H-6). Within the page, a sort change is a re-ask
+        // of a `deferred` (H-1): the shown rows stay while the next result loads, `pending?` dims.
+        deferred data = await fetchRows(p, sortBy)
 
-      // ST-4: keyed, so rows keep identity across refetches (a reorder moves rows, nothing is recreated).
-      rows key id = data.rows
-      total = data.total
-      pages = (total - total % pageSize) / pageSize + (total % pageSize == 0 ? 0 : 1)
+        // ST-4: keyed, so rows keep identity across refetches (a reorder moves rows, nothing is recreated).
+        rows key id = data.rows
+        total = data.total
+        pages = (total - total % pageSize) / pageSize + (total % pageSize == 0 ? 0 : 1)
 
-      // the search box's filtered view, over the keyed rows
-      visible key id = filter(rows, r => r.name.includes(query))
+        // the search box's filtered view, over the keyed rows
+        visible key id = filter(rows, r => r.name.includes(query))
 
-      <p>{pending? data ? "updating" : "ready"}</p>
-      <ul class={pending? data ? "dim" : ""}>
-        {for r in visible {
-          isSelected = len(filter(selected, s => s == r.id)) > 0
-          <li onClick={() => { toggle(r.id) }}>{isSelected ? "[x]" : "[ ]"} {r.name} ({r.age})</li>
-        }}
-      </ul>
-      <p>Page {p} of {pages} ({total} rows)</p>
+        <p>{pending? data ? "updating" : "ready"}</p>
+        <ul class={pending? data ? "dim" : ""}>
+          {for r in visible {
+            isSelected = len(filter(selected, s => s == r.id)) > 0
+            <li onClick={() => { toggle(r.id) }}>{isSelected ? "[x]" : "[ ]"} {r.name} ({r.age})</li>
+          }}
+        </ul>
+        <p>Page {p} of {pages} ({total} rows)</p>
+      }}
     }}
-  }}
-  <p>
-    <button onClick={() => { page := page - 1 }}>prev</button>
-    <button onClick={() => { page := page + 1 }}>next</button>
-  </p>
-</div>
+    <p>
+      <button onClick={() => { page := page - 1 }}>prev</button>
+      <button onClick={() => { page := page + 1 }}>next</button>
+    </p>
+  </div>
+}

@@ -6,7 +6,9 @@
 source period := 1
 deferred fast = await fetch("f:" + period)
 deferred slow = await fetch("s:" + period)
-<div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+}
 ```
 
 ## Frames
@@ -29,7 +31,9 @@ now; nothing holds on the panels. Each landing is its own change.
 source period := 1
 fast = await fetch("f:" + period)
 slow = await fetch("s:" + period)
-<div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+}
 ```
 
 | instant | action                  | frame                                        |
@@ -44,7 +48,9 @@ slow = await fetch("s:" + period)
 source period := 1
 gate = await fetch("g:" + period)
 deferred fast = await fetch("f:" + period)
-<div><h1>Period {period}</h1> <p>fast {fast}</p> <i>{gate}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>Period {period}</h1> <p>fast {fast}</p> <i>{gate}</i></div>
+}
 ```
 
 | instant | action                  | frame                 |

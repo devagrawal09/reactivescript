@@ -7,7 +7,9 @@ source n := 0
 fast = await fetch("f:" + n)
 slow = await fetch("s:" + n)
 copy = slow
-<p>Fast {fast} / Slow {copy} / Pending {str(pending? [fast, copy])}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>Fast {fast} / Slow {copy} / Pending {str(pending? [fast, copy])}</p>
+}
 ```
 
 `pending? e` over a composite: the verdict of the reads inside it.

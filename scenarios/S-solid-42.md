@@ -6,12 +6,15 @@
 source count := 1
 data = await fetch("d:" + count)
 slow = await fetch("s:" + count)
-effect (data) { log(data) }
-<div><p>{count}</p> {errored fallback { <p>Error</p> } { <p>{data}</p> }} <p>{slow}</p></div>
+effect (data) { log($0) }
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{count}</p> {errored fallback { <p>Error</p> } { <p>{data}</p> }} <p>{slow}</p></div>
+}
 ```
 
 The effect's apply receives an error value like any answer (E-12): Solid's
-`error` arm.
+`error` arm. It arrives as `$0`; reading `data` by name in the apply would
+be a snapshot, and a snapshot of an error throws it (R-f-7).
 
 ## Frames
 

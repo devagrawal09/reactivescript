@@ -6,7 +6,9 @@
 source id := 1
 product  = await fetch("p:" + id)
 comments = await fetch("c:" + id)
-<div><h1>{product.name}</h1> {loading fallback { <p>spinner</p> } { <ul>{comments}</ul> }} <i>{pending? id}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><h1>{product.name}</h1> {loading fallback { <p>spinner</p> } { <ul>{comments}</ul> }} <i>{pending? id}</i></div>
+}
 ```
 
 ## Frames

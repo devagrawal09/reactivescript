@@ -215,9 +215,13 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   catch it — and it is not an answer either: an `errored` region on its
   fallback stays there while the content under it is pending, and leaves
   only when a value replaces the error (Solid D-39; found by `ref/`:
-  S-hold-5 instant 2). An error that escapes every boundary halts the instant and the
-  reactive system. Apply-block errors are imperative and ordinary; compute-
-  half errors are values (E-12).
+  S-hold-5 instant 2). A typed boundary (`fallback(e: A | B)`) takes only
+  its classes; another class passes it to the boundary above as if it were
+  not there, and a boundary showing a failure re-decides when the failure
+  changes class (04 R-f-4; S-fail-1). An error that escapes every boundary
+  halts the instant and the reactive system: for a failure that is a
+  compile error (R-f-5), so only a panic can (R-f-3). Apply-block errors
+  are imperative and ordinary; compute-half errors are values (E-12).
 
 ---
 

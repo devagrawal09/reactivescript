@@ -6,7 +6,9 @@
 source x := 0
 source gate := 0
 hold = await fetch("g:" + gate + ":" + x)
-<div><p>{x}</p> {if latest x > 0 { {loading fallback { <p>fallback</p> } { <p>content {x}</p> }} }} <i>{hold}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{x}</p> {if latest x > 0 { {loading fallback { <p>fallback</p> } { <p>content {x}</p> }} }} <i>{hold}</i></div>
+}
 ```
 
 ## Frames

@@ -8,7 +8,9 @@ source y := 0
 a = await fetch("a:" + x)
 b = await fetch("b:" + y)
 sum = a + b
-<div><p>A {a}</p> <p>B {b}</p> <p>Sum {sum}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>A {a}</p> <p>B {b}</p> <p>Sum {sum}</p></div>
+}
 ```
 
 ## Frames
@@ -32,7 +34,9 @@ source x := 0
 source y := 0
 a = await fetch("a:" + x)
 b = await fetch("b:" + y)
-<div><p>A {a}</p> <p>B {b}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>A {a}</p> <p>B {b}</p></div>
+}
 ```
 
 | instant | action            | frame        |

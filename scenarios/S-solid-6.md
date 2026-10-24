@@ -6,10 +6,12 @@
 source count := 1
 source child := false
 slow = await fetch("slow:" + count)
-<div><p>parent {count} {slow}</p> {if child {
-  fast = await fetch("fast:" + count)
-  <p>child {fast}</p>
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>parent {count} {slow}</p> {if child {
+    fast = await fetch("fast:" + count)
+    <p>child {fast}</p>
+  }}</div>
+}
 ```
 
 ## Frames
@@ -33,10 +35,12 @@ hold is live — the answer does not show beside the parent on the old value.
 source count := 1
 source child := false
 slow = await fetch("slow:" + count)
-<div><p>parent {count} {slow}</p> {if child {
-  fast = await fetch("fast:" + count)
-  <p>child {fast}</p>
-}}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>parent {count} {slow}</p> {if child {
+    fast = await fetch("fast:" + count)
+    <p>child {fast}</p>
+  }}</div>
+}
 ```
 
 | instant | action                   | frame                  |

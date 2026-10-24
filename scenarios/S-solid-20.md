@@ -7,8 +7,10 @@ Rules: AC-1, H-5, H-6.
 ```
 source id := 1
 comments = await fetch("c:" + id)
-action go() { id := 2; await fetch("longer") }
-<div><p>{id == 1 ? "A" : "B"}</p> {loading on(id) fallback { <p>spinner</p> } { <p>comments-{comments}</p> }}</div>
+action go() { try { id := 2; await fetch("longer") } catch {} }
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{id == 1 ? "A" : "B"}</p> {loading on(id) fallback { <p>spinner</p> } { <p>comments-{comments}</p> }}</div>
+}
 ```
 
 ## Frames

@@ -8,7 +8,9 @@ source late := false
 source gate := 0
 details = await fetch("d:" + latest v)
 hold = await fetch("g:" + gate + ":" + v)
-<div><p>Details {details} / Value {v}</p> {if late { <p>Late {latest v}</p> }} <i>{hold}</i></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>Details {details} / Value {v}</p> {if late { <p>Late {latest v}</p> }} <i>{hold}</i></div>
+}
 ```
 
 `hold` stands in for Solid's action: a reader of it holds every write to `v`.

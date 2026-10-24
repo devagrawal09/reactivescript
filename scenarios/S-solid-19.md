@@ -5,7 +5,9 @@
 ```
 source id := 1
 data = await fetch("d:" + id)
-<div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+}
 ```
 
 ## Frames
@@ -26,7 +28,9 @@ is never painted (`LOADING_ON_OUTSIDE_HOLD` in dev).
 ```
 source id := 1
 data = await fetch("d:" + id)
-<div><b>{latest id}</b> {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><b>{latest id}</b> {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+}
 ```
 
 | instant | action              | frame                |

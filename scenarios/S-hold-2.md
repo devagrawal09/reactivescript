@@ -10,12 +10,14 @@ source period := "q1"
 summary = await fetch("s:" + period)
 trend   = await fetch("t:" + period)
 audit   = await fetch("a:" + period)
-<div>
-  <p>{latest period}</p>
-  {loading fallback { <p>skel</p> } {
-    <div><p>{summary}</p> <p>{trend}</p> <p>{audit}</p></div>
-  }}
-</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>
+    <p>{latest period}</p>
+    {loading fallback { <p>skel</p> } {
+      <div><p>{summary}</p> <p>{trend}</p> <p>{audit}</p></div>
+    }}
+  </div>
+}
 ```
 
 ## Frames
@@ -41,13 +43,15 @@ source period := "q1"
 summary = await fetch("s:" + period)
 trend   = await fetch("t:" + period)
 audit   = await fetch("a:" + period)
-<div>
-  <p>{latest period}</p>
-  {loading fallback { <p>skel</p> } {
-    <div><p>{summary}</p> <p>{trend}</p></div>
-  }}
-  {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
-</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>
+    <p>{latest period}</p>
+    {loading fallback { <p>skel</p> } {
+      <div><p>{summary}</p> <p>{trend}</p></div>
+    }}
+    {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+  </div>
+}
 ```
 
 | instant | action                   | frame               |
@@ -74,13 +78,15 @@ source period := "q1"
 summary = await fetch("s:" + period)
 trend   = await fetch("t:" + period)
 audit   = await fetch("a:" + period)
-<div>
-  <p>{latest period}</p>
-  {loading fallback { <p>skel</p> } {
-    <div><p>{summary}</p> <p>{trend}</p></div>
-  }}
-  {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
-</div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div>
+    <p>{latest period}</p>
+    {loading fallback { <p>skel</p> } {
+      <div><p>{summary}</p> <p>{trend}</p></div>
+    }}
+    {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+  </div>
+}
 ```
 
 | instant | action                   | frame               |

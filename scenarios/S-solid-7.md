@@ -4,7 +4,9 @@
 
 ```
 user = await fetch("user")
-<p>{user}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{user}</p>
+}
 ```
 
 ## Frames
@@ -18,7 +20,9 @@ user = await fetch("user")
 
 ```
 user = await fetch("user")
-{loading fallback { <p>Spinner</p> } { <p>{user}</p> }}
+errored fallback(e) { <p>error: {e.message}</p> } {
+  {loading fallback { <p>Spinner</p> } { <p>{user}</p> }}
+}
 ```
 
 | instant | action                   | frame      |
@@ -31,5 +35,7 @@ user = await fetch("user")
 ```
 -- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
 user = await fetch("user")
-<p>{user}</p>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <p>{user}</p>
+}
 ```

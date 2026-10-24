@@ -39,3 +39,11 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   CODE`), optional `-- handler: stmts` lines.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records
   what Solid 2.0 shows where the spec rules otherwise.
+- Failures (04 R-f): the prelude's `fetch` and every `./api` import return
+  JS promises, which fail with `Error`, so a program that reads one has an
+  `errored` above the reader — the ports put one at the root
+  (`errored fallback(e) { <p>error: {e.message}</p> } { … }`), which shows
+  nothing unless a reader fails. A ported action that awaits wraps its body
+  in `try { … } catch {}` (R-f-6): the frames are DV-2's either way. The
+  prelude's `fail(msg)` throws synchronously — a panic, not a failure
+  (R-f-3).

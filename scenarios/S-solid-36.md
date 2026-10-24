@@ -5,7 +5,9 @@
 ```
 source id := 1
 feed = await fetch("feed:" + id) -> "placeholder"
-{loading fallback { <p>never shown</p> } { <div><p>{feed}</p> <p>{pending? feed}</p></div> }}
+errored fallback(e) { <p>error: {e.message}</p> } {
+  {loading fallback { <p>never shown</p> } { <div><p>{feed}</p> <p>{pending? feed}</p></div> }}
+}
 ```
 
 ## Frames

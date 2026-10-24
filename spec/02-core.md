@@ -30,6 +30,7 @@ Decl      ::= source x := Expr                -- V-1; ':=' assigns now — a sna
             | fn f (Param*) => Expr           -- pure function (E-9)
             | fn f (Param*) { Decl* ; Expr }  -- function with a body: decls then a value
             | component C (props) RBlock      -- RG-4: a function from props to a region with a view
+            | error C (x*) [=> Expr]          -- R-f-1: an error class; the expression is its message
 Param     ::= x | ref x                       -- E-9: value or ref parameter
 
 Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
@@ -39,6 +40,8 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | Expr . field | Expr [ Expr ]    -- projections (full treatment: 06-stores)
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
+            | throw Expr                      -- R-f-3: the value is the error (E-12)
+            | Expr catch (x [: C|…]) => Expr  -- R-f-4: a failure of those classes becomes a value
 
 Markup    ::= Element | Control                  -- at block level, control forms are bare
 Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
@@ -46,7 +49,7 @@ Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
 Control   ::= if Expr RBlock else RBlock         -- each branch is a reactive block (region)
             | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
             | loading [on(Expr)] fallback { Markup* } RBlock    -- 05 H-5/H-6
-            | errored fallback { Markup* } RBlock              -- 05 H-12
+            | errored fallback [(x [: C|…])] { Markup* } RBlock   -- 05 H-12; typed: R-f-4
                                               -- inside an element, text is literal: control forms are braced,
                                               -- `{if c { … }}`, the way JSX braces `{cond && …}` (found by ref/: S-hold-1)
 
@@ -55,7 +58,7 @@ Stmt      ::= x := Expr                        -- write to a source
             | let y = Expr | y := Expr         -- imperative locals
             | Expr                             -- call for effect
             | if Expr Block else Block | while Expr Block
-            | try Block catch (x) Block finally Block | throw Expr   -- AC-7: imperative failure
+            | try Block catch (x [: C|…]) Block finally Block | throw Expr   -- AC-7, R-f-6: imperative failure
             | fn-decl, return, …               -- ordinary JS statements
 ```
 
@@ -143,9 +146,11 @@ Function application `f(e…)` covers both language functions and FFI imports;
   evaluated nor an input.
 - **E-12 (Errors are values).** An equation whose evaluation throws has an
   *error value* in the frame. An equation or reader reaching an errored input
-  is errored. There is no `try`/`catch` in reactive scope; the `errored`
-  boundary (03 RG-5, 05) is where an error becomes fallback content. (Solid
-  F-12.) An error in an apply block is imperative and ordinary.
+  is errored. There is no `try` statement in reactive scope: an error becomes
+  a value through `e catch (x: C) => alt`, or fallback content at an
+  `errored` boundary (03 RG-5, 05); which classes may reach a reader is its
+  `fails` row, and every one must be discharged (04 R-f). (Solid F-12.) An
+  error in an apply block is imperative and ordinary.
 - **E-10 (Snapshot arguments).** At an instantiation, a value parameter
   receives a snapshot. Passing a *reactive* expression to a value parameter
   is therefore a silent loss of reactivity and is a diagnostic at the call

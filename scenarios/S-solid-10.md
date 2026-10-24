@@ -6,7 +6,9 @@
 source count := 0
 source show := true
 details = await fetch("d:" + count)
-<div><p>{show ? details : "hidden"}</p> <p>Count {count}</p></div>
+errored fallback(e) { <p>error: {e.message}</p> } {
+  <div><p>{show ? details : "hidden"}</p> <p>Count {count}</p></div>
+}
 ```
 
 ## Frames

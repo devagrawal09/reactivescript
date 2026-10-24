@@ -1,7 +1,7 @@
 # 08 — Constraints and their enforcement
 
 **Status: OPEN (2026-10-22).** What the compiler refuses, how it decides, and
-what the escape looks like. CN-1, CN-3, CN-4 and CN-5 are ruled. The stance is Rust's: every static check is an
+what the escape looks like. CN-1, CN-3, CN-4, CN-5 and CN-6 are ruled. The stance is Rust's: every static check is an
 error, the checks are sound (an over-approximation that rejects some fine
 programs and never admits a wrong one), modular (a module is checked against
 its imports' signatures, not their bodies), and the only way around a check
@@ -32,6 +32,7 @@ runtime check.
 | a value parameter given a reactive argument | E-10 | static |
 | an unkeyed `for` over records whose values change | ST-4b | static shape check |
 | exported rows: a component's props and an exported equation carry their rows in their types | RG-4, R-14 | emitted in `.d.rx`; checked at the import (CN-4) |
+| every failure a reader can see is discharged above it; an action catches what its body can fail with | R-f-5, R-f-6 | the `fails` row over the static application tree (CN-6) |
 
 ## CN-3 — Soundness and the static graph
 
@@ -75,11 +76,34 @@ runtime check.
   A JS import has no signature for rows: it is `io` (R-io-4) and its
   values are row-free unless the author writes rows at the import.
 
+## CN-6 — Failures (ruled 2026-10-23)
+
+- **CN-6a (Compile errors).** A reader with an undischarged failure is
+  `UNHANDLED_FAILURE`; an action whose body lets one out is
+  `UNCAUGHT_ACTION_FAILURE` (04 R-f-5, R-f-6). The stance is Rust's
+  `Result`: an error that escapes every boundary halts the reactive system,
+  which no program wants, so — unlike a pending mount (CN-3c) — the check is
+  a constraint. Every JS promise can reject, so every async app has an
+  `errored` above its async readers, usually one at the root.
+- **CN-6b (Panics are not failures).** A synchronous throw from JS is not
+  in the row (R-f-3) — as a Rust panic is not in a function's type. The
+  same boundaries take it at run time. The check is sound for failures and
+  silent on panics; the two do not mix, so neither weakens the other.
+- **CN-6c (The boundary assertion).** `fails A | B` on an import narrows
+  what its promises reject with (R-f-8). It is an unchecked assertion in the
+  direction that lowers the row, the same kind of statement as `pure`
+  (CN-5): written at the JS boundary, greppable, nowhere else.
+- **CN-6d (Over-approximate).** The row is computed over the static graph
+  (CN-3a): every branch's failures, a pure closure's body as if it ran, a
+  provision's failures at every `use`. An `await` whose promise cannot be
+  traced to an import fails with `Error`.
+
 ## CN-5 — The escape
 
 One word: **`pure`**, at the JS boundary (R-io-4) — the author asserts a
 row the compiler cannot check, and only in the direction that lowers
-taint. There is no `allow`, no per-file lint level, no `unchecked` block,
+taint. Its sibling at the same boundary is `fails A | B` (CN-6c), which
+narrows a failure row the same way. There is no `allow`, no per-file lint level, no `unchecked` block,
 and no `dynamic` marker: the static graph's checks are sound over `.rx`
 (CN-3a) and silent outside it (CN-3b), so nothing needs opting out.
 (Ruled 2026-10-22; the earlier `dynamic` proposal is withdrawn.)
@@ -90,7 +114,10 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 
 | code | bin | rule |
 | --- | --- | --- |
-| `ROW_NARROWER_THAN_INFERRED` (new) | S | CN-4a |
+| `ROW_NARROWER_THAN_INFERRED` (new) | S | CN-4a; R-f-9 for `fails(…)` |
+| `UNHANDLED_FAILURE` (new) | S | CN-6a, R-f-5 |
+| `UNCAUGHT_ACTION_FAILURE` (new) | S | CN-6a, R-f-6 |
+| `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R | CN-3c: a runtime report, not a constraint |
 
 ---
@@ -130,6 +157,21 @@ How each enforcer is realised:
   passed to a component are owned where it reads them, so they see its
   provisions. A component never applied, or applied only recursively, is
   undecidable and not checked (the runtime's `ContextNotFound` remains).
+
+- **Failures (CN-6)** are recorded during the walk and resolved after it,
+  when every symbol's thunk exists. Each reader, each argument at an
+  application, and each action body gets a row: classes, plus *prop
+  references* (`props.x` of some component, with the catches already
+  applied on the way out of the expression). Resolution builds, per
+  region, the chains of catches up to its component's root — through
+  children, which continue at the chains of the component's own
+  `props.children` reads and then the application site's. A prop's chains
+  are its reads' chains; a component's escaping classes are its readers'
+  classes that some chain lets through, and they continue at each
+  application site; the program root's are errors. An action's prop
+  references are checked at each application against the argument.
+  Recursion and cycles cut to the empty set, which is sound because a
+  path through a recursive application only adds catches.
 
 Not yet: rows across modules (`.d.rx`, CN-4b) — the interpreter has one
 module; the type oracle (UNRECOGNIZED_INSERT_VALUE and friends); handler

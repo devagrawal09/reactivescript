@@ -163,9 +163,13 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   with the body's end in one frame (S-action-1: the reverted guess and
   `status := "failed: …"` commit together). `finally` runs on the way out
   either way. An uncaught throw or rejection is the action's rejection
-  (AC-1, DV-2). In a plain handler the same statements work with no hold
-  involved. Solid: a generator action's `try` around `yield` — the
-  rejection is thrown back at the yield point.
+  (AC-1, DV-2) — and since R-f-6 (ruled 2026-10-23) a compile error for any
+  failure the body can produce: an action catches what it can fail with,
+  and only a panic reaches DV-2. `catch (e: A | B)` takes those classes and
+  rethrows the rest; a snapshot of a failing value throws at the read
+  (R-f-7). In a plain handler the same statements work with no hold
+  involved and no check. Solid: a generator action's `try` around `yield` —
+  the rejection is thrown back at the yield point.
 - **AC-6 (until).** `await until(cond)` in an action holds the change until
   the reactive predicate `cond` settles truthy, reading the authoritative
   view with the action's own guesses carved out (so optimism cannot confirm

@@ -86,6 +86,7 @@ class Gen {
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: mg(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
+      if (d.k === "error") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
     }
@@ -94,6 +95,7 @@ class Gen {
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       out.push(`${pad}const ${mg(alias)} = ${v};`);
     }
+    for (const d of decls) if (d.k === "error") { const inner = this.params(env, d.params); out.push(`${pad}const ${mg(d.name)} = __rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)});   // R-f-1`); }
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
@@ -143,6 +145,10 @@ class Gen {
     }
     if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn") return `${pad}const ${b.js} = ${this.instantiate(d.e, env)};${reg}`;   // RG-6
     if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })});${reg}`;
+    if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
+      const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${this.expr(c.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchAcc(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+    }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
   }
@@ -209,6 +215,12 @@ class Gen {
       case "latest": return `__rt.latest(() => ${go(e.e)})`;
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
       case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+      case "throw": return `__rt.raise(${go(e.e)})`;                                          // R-f-3
+      case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
+        if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` in imperative scope is not lowered yet: use try/catch");
+        const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
+        return `__rt.${ctx.imp ? "tryCatch" : "caughtRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
+      }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
@@ -247,6 +259,8 @@ class Gen {
     if (b.kind === "comp") throw new CompileError(`component ${name} used as a value`);
     return b.js;
   }
+  /** R-f-4: error class names → a JS array of their values; `undefined`: every failure. */
+  private classes(names: string[] | undefined, env: Env): string { return names ? `[${names.map(n => n === "Error" ? "Error" : this.ref(n, env, { imp: false })).join(", ")}]` : "undefined"; }
   private hasAwait(ss: unknown): boolean { const s = JSON.stringify(ss); return s.includes('"k":"await"'); }
 
   // ---- imperative scope ----
@@ -276,7 +290,7 @@ class Gen {
         case "sif": out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;
-          if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: mg(s.catchName) }); t += ` catch (${s.catchName ? mg(s.catchName) : "__e"}) {\n${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
+          if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: mg(s.catchName) }); const v = s.catchName ? mg(s.catchName) : "__e"; t += ` catch (${v}) {\n${s.catchClasses ? `${pad}  if (!__rt.isA(${v}, ${this.classes(s.catchClasses, env)})) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
           if (s.fin) t += ` finally {\n${this.stmts(s.fin, env, ctx, ind + 1)}\n${pad}}`;
           out.push(t); break;
         }
@@ -325,7 +339,7 @@ class Gen {
       }
       case "errored": {
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
-        return `__rt.errored((${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)},\n${pad}${this.regionFn(m.decls, m.body, env, ind + 1)})`;
+        return `__rt.errored((${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)},\n${pad}${this.regionFn(m.decls, m.body, env, ind + 1)}, ${this.classes(m.classes, env)})`;
       }
     }
   }
