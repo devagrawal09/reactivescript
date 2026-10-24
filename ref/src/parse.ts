@@ -84,6 +84,35 @@ export function parseProgram(src: string): Program {
   return { decls, view };
 }
 
+/** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
+ *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
+export type JsDecl =
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number }
+  | { kind: "error"; name: string; line: number }
+  | { kind: "type"; name: string; line: number };
+export function parseDeclarations(src: string): JsDecl[] {
+  const c = new Cursor(src); const out: JsDecl[] = [];
+  for (;;) {
+    c.ws(); if (c.eof()) return out;
+    const line = c.line;
+    if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
+    c.ws();
+    if (c.keyword("type") || c.keyword("interface")) { c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line }); continue; }
+    if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    const pure = c.keyword("pure"); c.ws();
+    if (!c.keyword("fn")) c.fail("fn");
+    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
+    const params: string[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")");
+    const save = c.i; c.ws(false);
+    if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(/.exec(t); c.i += r ? r.index : t.length; } else c.i = save;
+    c.ws(false); let rejects: string[] | undefined;
+    if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
+    out.push({ kind: "fn", name, pure, params, rejects, line });
+  }
+}
+
 function parseDecl(c: Cursor): Decl {
   c.ws();
   const line = c.line;

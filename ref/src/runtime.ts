@@ -163,9 +163,9 @@ export class Runtime {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
-        const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
+        const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
-        region.scope.set(alias, { constant: d.pure || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
+        region.scope.set(alias, { constant: d.pure || d.declaredPure?.includes(name) || d.declaredErrors?.includes(name) || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
       if (d.k === "error") { const msg = d.msg; region.scope.set(d.name, { constant: makeErrorClass(d.name, d.params, args => msg ? String(this.untracked(() => this.ev(msg, region, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") region.scope.set(d.name, { context: d, home: region, dflt: null });
@@ -230,7 +230,7 @@ export class Runtime {
     if (/^".*"$/.test(target)) f = this.flights.get(target.slice(1, -1));
     else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
     if (!f) throw new Error(`no flight ${target}`);
-    f.state = reject ? "rejected" : "resolved"; f.value = reject ? new Error(String(value)) : value;
+    f.state = reject ? "rejected" : "resolved"; f.value = reject ? (value instanceof Error ? value : new Error(String(value))) : value;   // `reject x NotFound("…")`: a declared class (MO-8)
     for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
     const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
     for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's

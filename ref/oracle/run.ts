@@ -37,7 +37,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
           const key = /^".*"$/.test(m[2]) ? m[2].slice(1, -1) : o.lastKey.get(m[2]);
           if (key === undefined) throw new Error(`${m[2]} has no flight`);
           const f = o.flights.get(key); if (!f) throw new Error(`no flight ${key}`);
-          if (m[1] === "reject") f.reject(new Error(String(value))); else f.resolve(value);
+          if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
           await settle();
         } else throw new Error(`unknown action '${r.action}'`);
       } catch (e) { if (isUnsupported(e)) { lines.push(`  ~ ${t.title} instant ${r.instant}: unsupported — ${(e as Error).message}`); return ok; } ok = false; lines.push(`  ✗ ${t.title} instant ${r.instant}: ${(e as Error).message}`); return ok; }

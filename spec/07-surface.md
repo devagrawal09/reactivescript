@@ -42,6 +42,8 @@ export component Profile(props: { id: number }) { … }
   new question does.
 - `import pure { getUser, NotFound } from "./api" fails NotFound` declares
   what the import's promises reject with (R-f-8); without `fails`, `Error`.
+  A declaration file `api.d.rx` beside the JS module says it once instead,
+  and the import then states nothing (09 MO-8).
 - A module whose top level ends in markup is an app entry: that markup is
   the mounted view. The scenarios are written this way.
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and

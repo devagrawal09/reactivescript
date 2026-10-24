@@ -75,7 +75,7 @@ text (display only — reading a `.d.rx` in place of its module is not in
 ```
 export source products: pending fails(Error)   // a question
 export discount: pending fails(Error)
-export fn qtyOf(id)
+export pure fn qtyOf(id)
 export action setCoupon
 export component Panel(props: { title; children: catches(Error) })
 export context who: string
@@ -128,6 +128,33 @@ export component Save(props: { v: action catches(nothing) })
   sides (RG-7e): a provider in one module and a reader in another agree
   through the declaration, not through each other.
 
+## MO-8 — Declaration files for JS modules
+
+- **MO-8a.** A JS module may have a declaration file beside it: for
+  `import … from "./api"`, the file `./api.d.rx` (an extension `.js`,
+  `.mjs` or `.ts` on the import is dropped). It declares each export in
+  rows, once, in the same notation as an `.rx` signature (MO-3):
+
+  ```
+  export pure fn fetchUser(id: number) rejects(NotFound | Offline)   // safe to call from reactive scope (R-io-4); its promise rejects with these (R-f-8)
+  export fn saveUser(id: number, name: string) rejects(Offline)     // io: dirty is the default
+  export error NotFound                                             // a JS class that is an error class (R-f-1)
+  export type User = { id: number; name: string }
+  ```
+
+  `pure` is still the only row word that lowers taint and points one way;
+  `rejects(…)` defaults to `Error`. In every `.d.rx` — written for a JS
+  module or printed for an `.rx` one — `pure fn` is pure, `fn` is io, and
+  `action` is an action.
+- **MO-8b.** With a declaration file, the file is the row, as a signature is
+  for an `.rx` import (MO-4a): an import that names an undeclared export is
+  `NOT_EXPORTED`; `pure` on the import must agree (`IMPORT_ROW_MISMATCH`
+  for an io export); `fails` on the import is refused. Without one, a JS
+  import is what R-io-4 and R-f-8 say: io unless `pure`, `fails(Error)`
+  unless narrowed at the import. The declaration is unchecked against the
+  JS, as `pure` is (CN-5): it is the boundary's one statement, written once
+  instead of at every import (S-module-2).
+
 ---
 
 ## Diagnostics this document adds
@@ -137,7 +164,7 @@ export component Save(props: { v: action catches(nothing) })
 | `WRITE_TO_NON_SOURCE` (rule MO-2) | S | MO-2a |
 | `IMPORT_ROW_MISMATCH` | S | MO-4a |
 | `MODULE_CYCLE` | S | MO-5 |
-| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 
 ## Implementation

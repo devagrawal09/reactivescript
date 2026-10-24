@@ -44,7 +44,7 @@ export type Param = { name: string; ref: boolean; type?: string };   // E-9; typ
 export type Decl =
   | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean; key?: string }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4
-  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; line: number; fails?: string[]; resolved?: string }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections; resolved: an `.rx` import's module key (MO-1, set by the loader)
+  | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; line: number; fails?: string[]; resolved?: string; declared?: string; declaredErrors?: string[]; declaredPure?: string[] }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections; resolved: an `.rx` import's module key (MO-1, set by the loader); declared: a JS import's declaration file (MO-8)
   | { k: "error"; name: string; params: string[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
   | { k: "typedecl"; name: string; line: number }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }

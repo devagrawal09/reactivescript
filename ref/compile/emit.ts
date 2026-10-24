@@ -125,9 +125,9 @@ class Gen {
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
-      const v = name === "log" ? "__B.log" : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : null;
+      const v = name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : null;
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
-      out.push(`${pad}const ${mg(alias)} = ${v};`);
+      out.push(`${pad}const ${mg(alias)} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${mg(alias)} });`);
     }
     for (const d of decls) if (d.k === "error") { const inner = this.params(env, d.params); out.push(`${pad}const ${mg(d.name)} = __rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)});   // R-f-1`); }
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);

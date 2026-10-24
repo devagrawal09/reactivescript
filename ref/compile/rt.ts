@@ -129,6 +129,8 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** `import pure { f } from "./api"`: every function is a flight keyed by its name and formatted arguments. */
+    /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
+    jsError: (name: string) => (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name),
     api: (name: string) => opts.api ? (opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); })) : (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`),
 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----

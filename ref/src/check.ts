@@ -5,6 +5,7 @@
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
+import type { JsDecl } from "./parse.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
@@ -158,14 +159,14 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string };
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]> };
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
 export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig> } {
   const sigs = new Map<string, ModSig>(); const diags: Diagnostic[] = [...set.diags];
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path }); diags.push(...r.diags); sigs.set(path, r.sig); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); }
   return { diags, sigs };
 }
 
@@ -204,6 +205,7 @@ class Checker {
     for (const d of decls) {
       this.line = d.line;
       if (d.k === "import" && d.resolved) { this.importRx(d, env); continue; }                                  // MO-1/MO-3: an .rx module's signature
+      if (d.k === "import" && d.declared) { this.importDeclared(d, env); continue; }                            // MO-8: a JS module's declaration file
       if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]) }); continue; }   // R-io-4, R-f-8
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
       if (d.k === "context") {                                                             // RG-7: a declared context — its identity is the declaration, not its spelling
@@ -272,6 +274,20 @@ class Checker {
     const m = type ? ROW_WORDS.exec(type) : null; const rows = new Set<string>(); const fails = new Set<string>();
     if (m) for (const w of m[0].trim().split(/\s+(?![^(]*\))/)) { if (w.startsWith("fails(")) w.slice(6, -1).split("|").map(x => x.trim()).filter(Boolean).forEach(x => fails.add(x)); else rows.add(w); }
     return { rows, fails };
+  }
+  /** MO-8: bind a JS import's names from its declaration file. The file is the row: `pure` on the import must agree with it,
+   *  `fails` is refused, and a name it does not declare is not exported. */
+  private importDeclared(d: Extract<Decl, { k: "import" }>, env: Env) {
+    const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
+    if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+    for (const { name, alias } of d.names) {
+      const x = decls.find(y => y.name === name);
+      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
+      if (x.kind === "type") continue;
+      if (x.kind === "error") { env.vars.set(alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
+      if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
+      env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]) });
+    }
   }
   /** MO-3: this module's signature — every export as an importer sees it. */
   signature(p: Program): ModSig {

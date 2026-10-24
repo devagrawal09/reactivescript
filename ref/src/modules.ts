@@ -1,10 +1,10 @@
 // 09-modules: a program is a set of `.rx` modules. The loader resolves each `.rx` import to a path, parses every module once,
 // and orders them dependencies first (MO-1). A cycle is refused (MO-5): signatures are computed in that order.
-import { parseProgram, ParseError } from "./parse.ts";
+import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
 import type { Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[] };
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]> };   // declarations: MO-8, by `.d.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
 
@@ -18,7 +18,7 @@ export function joinPath(fromFile: string, rel: string): string {
 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = [];
+  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -28,6 +28,13 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     try { p = parseProgram(src); } catch (e) { if (e instanceof ParseError) throw new ParseError(`${path}: ${e.message}`); throw e; }
     programs.set(path, p); state.set(path, "busy");
     for (const d of p.decls) {
+      if (d.k === "import" && !isRx(d.from) && d.from.startsWith(".")) {             // MO-8: a JS module with a declaration file beside it
+        const dts = joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
+        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); } catch (e) { if (e instanceof ParseError) throw new ParseError(`${dts}: ${e.message}`); throw e; } } }
+        const ds = declarations.get(dts);
+        if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); }
+        continue;
+      }
       if (d.k !== "import" || !isRx(d.from)) continue;
       const to = joinPath(path, d.from); d.resolved = to;
       if (state.get(to) === "busy") { diags.push({ code: "MODULE_CYCLE", rule: "MO-5", line: d.line, file: path, msg: `${[...stack, path].slice(stack.indexOf(to) >= 0 ? stack.indexOf(to) : 0).concat(to).join(" → ")}: modules may not import each other in a cycle (signatures are computed dependencies first)` }); continue; }
@@ -37,7 +44,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags };
+  return { entry, programs, order, diags, declarations };
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */

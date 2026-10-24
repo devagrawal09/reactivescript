@@ -204,7 +204,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
 - **R-f-8 (The JS boundary).** A JS promise may reject with anything.
   `import pure { f } from "./api" fails A | B` declares what that import's
   promises reject with — an unchecked assertion, like `pure` (CN-5).
-  Without it, `Error`.
+  Without it, `Error`. A declaration file beside the JS module (`api.d.rx`)
+  states purity and rejections once for every import (09 MO-8).
 - **R-f-9 (Written rows).** `fails(A | B)` may be written in a type's row
   prefix (CN-4a): `name: pending fails(NotFound) string = …`. A written
   failure row narrower than the inferred one is `ROW_NARROWER_THAN_INFERRED`,
