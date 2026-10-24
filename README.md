@@ -5,9 +5,11 @@ semantics: equations by default, writes confined to imperative scope, ownership
 and async (pending, holds, lanes) as things the compiler checks rather than the
 runtime warns about.
 
-This repository is the **spec** and its **reference interpreter**. The compiler
-(Oxc fork, semantic pass, lowering to `solid-js` / `@solidjs/web`) comes after
-the spec reproduces Solid's scenario oracle.
+This repository is the **spec** and its **reference implementation**. The
+production compiler is a separate Rust crate over Solid's own
+`solidjs-compiler` (`spec/11-compiler.md`): ReactiveScript parses, checks
+and lowers to an Oxc AST; Solid's compiler lowers the JSX. `ref/` is its
+conformance suite, run on Solid's `next` branch built from source.
 
 ## Layout
 
@@ -23,9 +25,11 @@ spec/
   07-surface.md        concrete syntax — written LAST
   08-constraints.md    what the compiler refuses, how, and the escape (Rust stance)
   09-modules.md        .rx modules: what an import binds, the value boundary, signatures
+  10-server.md         SSR as the streamed mount; what runs where; hydration; what crosses
+  11-compiler.md       the production compiler: a crate on solidjs-compiler; the one seam it needs
   99-diagnostics.md    Solid 2.0's diagnostic table, each code binned: unwritable / static / runtime
 scenarios/             one file per scenario: program, action, frames, compiles-or-rejects
-ref/                   interpreter, checker, Solid oracle and compiler (TypeScript) — all run scenarios/
+ref/                   interpreter, checker, Solid oracle, compiler and server runner (TypeScript) — all run scenarios/
 ```
 
 ## Discipline
