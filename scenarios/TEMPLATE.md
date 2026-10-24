@@ -41,7 +41,12 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
 - `## Rejected variants`: fences starting `-- reject: RULE` (or `-- warn:
   CODE`), optional `-- handler: stmts` lines.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records
-  what Solid 2.0 shows where the spec rules otherwise.
+  what Solid 2.0 shows where the spec rules otherwise; `- server "<table>"
+  instant N: …` what Solid's server render shows (10, `ref/ssr/`).
+- `## Server frames` (10): rows `mount`, `resolve …`, `reject …` and the
+  frame a browser shows from the server's stream after each — checked by
+  `npm run -s ssr` only. Every other table's mount and landings are also
+  served and checked against the client's frames (SV-1).
 - Failures (04 R-f): the prelude's `fetch` and every `./api` import return
   JS promises, which fail with `Error`, so a program that reads one has an
   `errored` above the reader — the ports put one at the root

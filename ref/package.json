@@ -6,11 +6,13 @@
   "scripts": {
     "test": "node --experimental-strip-types run.ts",
     "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
-    "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts"
+    "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts",
+    "ssr": "node --experimental-strip-types ssr/run.ts"
   },
   "dependencies": {
     "@solidjs/signals": "2.0.0-rc.16",
     "@solidjs/universal": "2.0.0-rc.16",
+    "@solidjs/web": "^2.0.0-rc.16",
     "solid-js": "2.0.0-rc.16"
   }
 }

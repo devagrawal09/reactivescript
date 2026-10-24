@@ -250,6 +250,8 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-5 (`pre`) — ruled 2026-10-23: Solid's.** `pre x` is `x`'s value
   before its most recent change (C-2, P-6 rewritten); the frame-indexed
   rule is withdrawn. S-core-1 now matches the oracle without divergences.
+- **DV-9 (a failed boundary on the server)** — Solid's server render;
+  recorded in 10-server.md.
 - **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
   (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A
   keyed equation lowers to `createProjection` over its memo; once the

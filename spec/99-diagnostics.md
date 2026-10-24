@@ -70,6 +70,7 @@ Bins:
 | `SSR_*`, `HEAD_*`, `LATE_HEADER_WRITE`, `FRAME_MARKER_CORRUPTED`, `LAZY_ASSET_UNMAPPED`, `PRELOAD_DESCRIPTOR_INVALID` | R | server/transport; out of scope for the language |
 | `UNRECOGNIZED_INSERT_VALUE`       | S   | a reader's type is not renderable                                  |
 | `UNSCOPED_HOLE_ALLOCATED_IDS`     | R   | hydration                                                          |
+| `HYDRATION_MISMATCH`              | R   | 10 SV-3c: a `pure` JS function computed differently on server and client |
 | `LOWERCASE_EVENT_ATTRIBUTE`       | U   | X: handlers are a grammar form                                     |
 
 ## Codes the checker adds

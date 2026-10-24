@@ -57,7 +57,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
       const got = norm(app.frame()); const effects = app.log.slice(logBefore);
       const prefixed = rows.indexOf(r) < own;
       if (prefixed && t.program) continue;
-      const div = sc.divergences.find(d => d.table === t.title && d.instant === last.instant);
+      const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === last.instant);
       const want = norm(div ? div.frame : last.frame); const wantEff = chain.flatMap(c => c.effects);
       const effOk = prefixed || effects.join("; ") === wantEff.join("; ");
       if (got === want && effOk) { if (div) divergent++; lines.push(`  ${div ? "≠" : "✓"} ${t.title} instant ${last.instant}: ${got}${effects.length ? "  [" + effects.join("; ") + "]" : ""}`); }

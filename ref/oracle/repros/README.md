@@ -7,6 +7,7 @@ involved. Run from `ref/oracle/` after `npm install`:
 node --conditions=browser --conditions=development repros/dv3-signals.mjs [effect-in-fallback|read-in-fallback]
 node --conditions=browser --conditions=development repros/dv3-web.mjs [element-fallback|array-fallback|static-fallback]
 node --conditions=browser --conditions=development repros/dv4-signals.mjs [store|memo] [boundary|none]
+node repros/dv9-ssr-after-shell.mjs [client|server-component] [ms]      # the server build: no --conditions
 ```
 
 ---
@@ -125,3 +126,32 @@ and `error:too short`.
 
 The same app without `key` (a plain memo) matches the spec frame for frame
 in Solid; with `key`, the interpreter does too.
+
+---
+
+## DV-9 — a failed boundary renders no fallback on the server
+
+**Rule.** 10-server SV-6: a boundary that takes a failure during the server
+render is streamed with its fallback drawn, so the browser shows the
+client's frame.
+
+**Shape.** `<Errored fallback={e => <p>failed: {e().message}</p>}>` around a
+`<Loading>` whose content reads an async memo; the memo rejects with an
+error marked safe (`markSafeError`), either before the shell flushes
+(`ms` = 1) or after (`ms` = 200, the default).
+
+**Observed.**
+
+```
+                     client component                     runInServerComponentScope
+fails after shell    <template id="100"> </template>      <template id="100"><p>failed: no user 7</p></template>
+fails before shell   <main></main>                        <main><p>failed: no user 7</p></main>
+```
+
+Outside server-component scope the boundary's HTML is empty and the error
+is serialized for the client, which draws the fallback when it hydrates;
+until then the browser shows neither the loading fallback nor the error
+fallback. `errorOutcome` in `ssrLoadingBoundary` and `renderOutcome` in the
+server `createErrorBoundary` both return early unless
+`inServerComponentScope`.
+
