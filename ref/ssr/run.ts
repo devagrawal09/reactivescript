@@ -1,10 +1,13 @@
-// 10-server: renders every scenario's mount on the server and streams it to a real browser. For each table, the rows
-// up to the first handler are the mount and its landings (the instants a server can stream); the server renders the
-// compiled program with solid-js 2.0's server build (ref/compile/rt-server.ts), the runner lands each flight as the rows
-// say, and the browser's visible text after each chunk is a server frame. SV-1: the server frames, deduplicated, are the
-// client's frames in order — the first is the mount's, and a landing may be coalesced with the next — with a panic's
-// message redacted (SV-5).
+// 10-server: renders every scenario's mount on the server, streams it to a real browser, and hydrates it. For each table,
+// the rows up to the first handler are the mount and its landings (the instants a server can stream); the server renders
+// the compiled program with solid-js 2.0's server build (ref/compile/rt-server.ts), the runner lands each flight as the
+// rows say, and the browser's visible text after each chunk is a server frame. SV-1: the server frames, deduplicated, are
+// the client's frames in order — the first is the mount's, and a landing may be coalesced with the next — with a panic's
+// message redacted (SV-5). SV-3: the same modules bundled over ref/compile/rt-web.ts then take the page over — after the
+// last landing, and right after the shell — and every remaining row runs in the browser.
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
+// env: CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
+// Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createServer } from "node:http";
@@ -12,23 +15,26 @@ import { createRequire } from "node:module";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
-import { compileModules, compileDynamicExpr, CompileError } from "../compile/emit.ts";
+import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
+import { buildSync } from "esbuild";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 
 process.on("unhandledRejection", () => {});
 const { chromium } = createRequire(import.meta.url)("playwright");
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const wait = (ms: number) => new Promise(r => setTimeout(r, ms));
-const outDir = fileURLToPath(new URL("./.out/", import.meta.url)); mkdirSync(outDir, { recursive: true });
+const outDir = fileURLToPath(new URL(`./.out/${process.pid}/`, import.meta.url)); mkdirSync(outDir, { recursive: true });
 export const REDACTED = "Internal Server Error";   // what Solid sends for an error not marked safe
 
 // One live response at a time: the runner holds it open and writes what the server render streams.
 let pending: ((res: import("node:http").ServerResponse) => void) | null = null;
-const http = createServer((req, res) => { if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
+let clientJs = "";   // the current table's client bundle (SV-3)
+const http = createServer((req, res) => { if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
 await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
 const browser = await chromium.launch();
 const page = await browser.newPage();
+const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error") pageErrors.push(m.text()); });
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
@@ -86,6 +92,132 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   return { got, ended, file: dir + "stream.html" };
 }
 
+const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
+/** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
+function bundle(dir: string, entry: string) {
+  writeFileSync(dir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
+  const r = buildSync({ entryPoints: [dir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser"], logLevel: "silent" });
+  return r.outputFiles[0].text;
+}
+
+type Chain = Row[];
+const c0last = (chains: Chain[]) => chains[0][chains[0].length - 1];
+/** SV-3: serve, hydrate at `at` (after that many served chains — 1 is right after the shell), then run every chain on the
+ *  client. The frames after hydration are the client's own (a recorded oracle divergence where there is one; a panic's
+ *  message may be redacted, SV-5b). After hydrating: every element the server sent was adopted, and no question the server
+ *  answered was asked again. */
+async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[]): Promise<boolean> {
+  let out: ReturnType<typeof compileModules>;
+  const handlerStmts = chains.flat().filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
+  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = compileModules(set, { extraStmts: handlerStmts }); }
+  catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
+  const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
+  for (const [name, js] of out.files) writeFileSync(dir + name, js);
+  const main = (await import(pathToFileURL(dir + out.entry).href)).default;
+  clientJs = bundle(dir, out.entry);
+  const app = createApp(); let ended = false; let chunks = 0;
+  const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
+  const served$ = new Promise<void>(resolve => {
+    pending = res => {
+      res.on("error", () => {});
+      if (csr) { res.end(`<!doctype html><html><head></head><body><div id="app"></div></body></html>`); chunks = 1; ended = true; resolve(); return; }
+      res.write(`<!doctype html><html><head>${generateHydrationScript()}</head><body><div id="app">`);
+      app.stream(main(app), { write: (c: string) => { chunks++; if (!res.writableEnded) res.write(c); }, end: () => { ended = true; if (!res.writableEnded) res.end("</div></body></html>"); } });
+      resolve();
+    };
+  });
+  pageErrors.length = 0;
+  const nav = page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "commit" }).catch(() => {});
+  await served$; await nav;
+  for (let i = 0; i < 40 && chunks === 0 && !ended; i++) await wait(10);
+  await wait(40);
+  // after hydration the client is Solid's client: the spec's frame, or Solid's where an oracle divergence is recorded
+  const framesOf = (r: Row) => { const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return div ? [norm(r.frame), norm(div.frame)] : [norm(r.frame)]; };
+  const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got));
+  // a `hydrated` divergence: what Solid's client shows there once it has taken over a served page (DV-11, DV-12) — from
+  // there the rows cannot be followed (a question the scenario lands was never asked), so the run stops with it
+  const known = (r: Row) => !scope && sc.divergences.find(d => d.runner === "hydrated" && d.table === t.title && d.instant === r.instant);
+  const land = async (r: Row, server: boolean) => {
+    const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action)!;
+    const v = parseStmts(m[3])[0]; const js = v.k === "expr" ? compileDynamicExpr(v.e) : "undefined";
+    const named = /^".*"$/.test(m[2]) ? m[2].slice(1, -1) : null;
+    if (!server) {   // a flight the client asked (after hydration, a new question is the client's)
+      const done = await page.evaluate(([kind, name, key, js]: string[]) => {
+        const c = (window as any).__client; const k = key || c.app.lastKey.get(name); const f = k && c.app.flights.get(k); if (!f) return false;
+        const value = new Function("__rt", "__B", `return ${js};`)(c.app, c.app.B);
+        if (kind === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
+        return true;
+      }, [m[1], m[2], named ?? "", js]);
+      if (done) return true;
+      if (process.env.DEBUG) console.log("land on server:", r.action, await page.evaluate(() => JSON.stringify([...(window as any).__client.app.flights.keys()])));
+    }
+    const key = named ?? app.lastKey.get(m[2]); const f = key === undefined ? undefined : app.flights.get(key);
+    if (!f) return false;
+    const value = new Function("__rt", "__B", `return ${js};`)(app, app.B);
+    if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
+    return true;
+  };
+  let ok = true; const shown: string[] = []; const mark = lines.length;
+  for (let i = 0; i <= chains.length; i++) {   // (i === chains.length: hydrating after the last row)
+    const c = chains[i] ?? []; const r = c[0];
+    if (i === at && chunks === 0 && at < served) at++;   // nothing has arrived to take over yet (a held shell, SV-1c): the client loads with the shell
+    if (csr && i === 0) {
+      await page.addScriptTag({ url: "/client.js", type: "module" });
+      await page.evaluate(async () => { const c = (window as any).__client; c.app.mount(c.main(c.app), false); c.flush(); await new Promise(r => setTimeout(r, 30)); c.flush(); });
+      const got = norm(await textOf()); shown.push(got); const last = c0last(chains);
+      if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'`); }
+      continue;
+    }
+    if (i === at) {   // take the page over
+      const before = norm(await textOf());
+      await page.evaluate(() => { const root = document.getElementById("app")!; const els = [...root.querySelectorAll("*")].filter(n => n.tagName !== "SCRIPT" && n.tagName !== "TEMPLATE" && !n.closest("template")); for (const n of els) (n as any).__srv = 1; (window as any).__srvEls = els; });
+      await page.addScriptTag({ url: "/client.js", type: "module" });
+      if (process.env.DEBUG) { page.on("console", (m: any) => console.log("  page:", m.text())); await page.evaluate(() => { (window as any).__dbg = 1; }); }
+      const d = await page.evaluate(async () => {
+        const c = (window as any).__client; c.app.mount(c.main(c.app), true); c.flush();
+        await new Promise(r => setTimeout(r, 30)); c.flush();
+        const root = document.getElementById("app")!;
+        const fresh = [...root.querySelectorAll("*")].filter(n => !(n as any).__srv && !n.closest("template") && n.tagName !== "SCRIPT" && n.tagName !== "TEMPLATE").map(n => n.tagName.toLowerCase());
+        if ((window as any).__dbg) console.log("HY.r keys", JSON.stringify(Object.keys((window as any)._$HY.r)));
+        const dropped = ((window as any).__srvEls as Element[]).filter(n => !n.isConnected).map(n => n.tagName.toLowerCase());
+        return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0, mismatches: c.app.mismatches };
+      });
+      // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
+      // where the client draws a later frame at once (a landing the stream could not carry, DV-9), it builds what changed
+      const same = before === norm(await textOf());
+      const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", d.mismatches.length ? `ids misaligned: ${d.mismatches.join(", ")}` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
+      if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
+      shown.push(norm(await textOf()));
+      const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
+      if (!matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
+    }
+    if (i === chains.length) break;
+    if (i === 0) continue;   // the mount is the request
+    if (i < at && !csr) {   // still the server's: a landing streams
+      if (!(await land(r, true))) { if (!ended) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: the server has no flight for ${r.action}`); } break; }
+      await wait(60); continue;
+    }
+    try {
+      if (r.action.startsWith("handler")) { const body = compileDynamic(parseStmts(r.action.slice(7))); await page.evaluate((b: string) => { const c = (window as any).__client; new Function("__rt", "__B", b)(c.app, c.app.B); c.flush(); }, body); }
+      else if (/^(resolve|reject)\s/.test(r.action)) { if (!(await land(r, false))) { const k = known(r); if (k) { lines.push(`  ≠ ${t.title} [${label}] instant ${r.instant}: the question was never asked on the client  — recorded (hydrated)`); break; } ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: no flight on either side for ${r.action}`); break; } }
+      else { lines.push(`  ~ ${t.title} [${label}] instant ${r.instant}: ${r.action} not driven in the browser`); break; }
+    } catch (e) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: ${(e as Error).message.split("\n")[0]}`); break; }
+    await wait(Number(process.env.WAIT ?? 60));
+    await page.evaluate(() => (window as any).__client.flush());
+    if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
+    const got = norm(await textOf()); const last = c[c.length - 1];
+    const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ≠ ${t.title} [${label}] instant ${last.instant}: ${got}  — recorded (hydrated)`); break; }
+    if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
+    shown.push(got);
+  }
+  if (ok) lines.push(`  ✓ ${t.title} [${label}]: ${dedupe(shown).map(x => `'${x}'`).join(" → ")}`);
+  // DV-9: a boundary that failed on the server before the client took over is the client's to render, and Solid's client
+  // re-renders it from scratch — asking its questions again — instead of drawing the failure it was sent
+  const dv9 = !scope && at > 0 && chains.slice(0, at).flat().some(r => sc.divergences.some(d => d.runner === "server" && d.table === t.title && d.instant === r.instant));
+  if (!ok && dv9) { for (let i = mark; i < lines.length; i++) lines[i] = lines[i].replace("  ✗ ", "  ≠ ") + (i === mark ? "  — DV-9" : ""); return true; }
+  return ok;
+}
+
 /** SV-1 over a client table: its mount and landings, served; the server's frames, deduplicated, must be the client's in order. */
 async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scenario["tables"][number] | undefined, lines: string[]): Promise<boolean> {
   const src = t.program ?? sc.program;
@@ -113,8 +245,15 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
     j = k + 1;
   }
   lines.push(`  ✓ ${t.title}: ${g.map(x => `'${x}'`).join(" → ")}${res.ended ? "" : "  (stream open)"}`);
-  return true;
+  if (from !== 0 || !hydrating) return true;
+  // SV-3: hydrate after the last landing the server streamed, and (when there are landings) right after the shell
+  let ok = await hydrated(sc, t, src, chains, served.length, served.length, "hydrated late", lines);
+  if (served.length > 1) ok = (await hydrated(sc, t, src, chains, served.length, 1, "hydrated early", lines)) && ok;
+  if (baseline) ok = (await hydrated(sc, t, src, chains, served.length, 0, "browser, no server", lines)) && ok;
+  return ok;
 }
+const hydrating = !process.env.NO_HYDRATE;
+const baseline = !!process.env.CSR;   // also mount each table client-side in the browser, no server (rt-web.ts alone)
 
 /** `## Server frames`: exactly what the browser shows from the stream, row by row (a `server` divergence where Solid differs). */
 async function runServerTable(sc: Scenario, lines: string[]): Promise<boolean> {

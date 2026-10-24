@@ -250,8 +250,23 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-5 (`pre`) — ruled 2026-10-23: Solid's.** `pre x` is `x`'s value
   before its most recent change (C-2, P-6 rewritten); the frame-indexed
   rule is withdrawn. S-core-1 now matches the oracle without divergences.
-- **DV-9 (a failed boundary on the server)** — Solid's server render;
-  recorded in 10-server.md.
+- **Lowering at JSX granularity (2026-10-24).** The oracle and the compiler
+  used to insert an element's whole content through one render effect.
+  Solid's compiled JSX gives each `{…}` child of an element its own insert,
+  and makes a `{…}` outside an element (a fragment, a component's or a
+  branch's view) a `memo`; both runners now lower that way, as the browser
+  runtime (10) must for hydration. Two records moved: DV-4 no longer shows in
+  any scenario, and DV-10 appeared.
+- **DV-10 (a held lane, per render effect) — a Solid behaviour, reproduced
+  2026-10-24** (`ref/oracle/repros/dv10-lane-effects.mjs`, found by
+  S-solid-35's variant once the lowering matched JSX). H-7: a pending
+  reader in lane `x` holds every reader of lane `x`. Solid holds the render
+  effects that read the pending work: a probe in its own `{…}` hole
+  (`{latest guess}`) shows the guess beside a held `{guess} {derived}` —
+  `1 x1 / 5` where the rule says `1 x1 / 1`. With both in one effect, Solid
+  agrees with the rule. The scenario keeps the ruled frame.
+- **DV-9, DV-11, DV-12 (the server and hydration)** — Solid's server render
+  and its hydrating client; recorded in 10-server.md.
 - **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
   (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A
   keyed equation lowers to `createProjection` over its memo; once the
@@ -262,10 +277,12 @@ runtime shows something other than the rule, the scenario records it in a
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
-  (`isPending(() => state.a)`) read `false` while the derive re-asks;
-  outside a boundary, or for an async memo under the same boundary
-  (S-solid-26), they read `true` as D-30 says. The scenario keeps the
-  ruled frame.
+  (`isPending(() => state.a)`) read `false` while the derive re-asks —
+  when the verdict is read in the same computation as the value. Outside a
+  boundary, for an async memo under the same boundary (S-solid-26), or with
+  the verdict in its own `{…}` hole — which is how compiled JSX reads it —
+  they read `true` as D-30 says. Since the lowering matches JSX
+  (2026-10-24) S-solid-37 shows the ruled frame on every runner.
 - **DV-3 (S-22 row 3′) — a Solid bug, reproduced 2026-10-23.** A render
   effect created inside a re-armed boundary's fallback, reading data the
   same change made pending, holds the content's reveal: content that lands

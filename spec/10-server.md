@@ -3,10 +3,12 @@
 **Status: OPEN (2026-10-24).** A program can be rendered on a server and
 streamed to a browser, which then takes it over. This document says what
 the server computes, what the browser shows while the stream arrives, what
-crosses from server to client, and what state a request owns.
-`ref/compile/rt-server.ts` is the server runtime the compiled modules run
-against (solid-js 2.0's server build); `ref/ssr/run.ts` serves every
-scenario's mount to Chromium and checks the frames. `S-server-1` covers it.
+crosses from server to client, how the client takes over, and what state a
+request owns. The same compiled modules run on both sides:
+`ref/compile/rt-server.ts` over solid-js 2.0's server build, and
+`ref/compile/rt-web.ts` over its DOM build. `ref/ssr/run.ts` serves every
+scenario to Chromium, hydrates it, and drives the rest of its rows in the
+browser. `S-server-1` covers what no other scenario does.
 
 Rulings (2026-10-24): SSR is the client's mount, streamed; module state is
 per request on the server; full hydration first (partial hydration later);
@@ -19,33 +21,44 @@ by default — see the list at the end.
 
 - **SV-1a.** A request renders the entry module's mount (MO-1c) and
   streams it. The first chunk — the shell — is the **mount frame**: what
-  the client would show at instant 0. Each later chunk is a **landing**: a
-  `loading` region whose readers' flights have answered. The page the
-  browser shows from the stream goes through the client's frames for the
-  mount and its landings, in order.
+  the client would show at instant 0. A later chunk is a **landing** of a
+  `loading` region: its readers' flights have answered and the region's
+  content replaces its fallback. The page the browser shows from the stream
+  goes through the client's frames for the mount and its landings, in
+  order.
 - **SV-1b (Coalescing).** A frame may be skipped, never invented: two
   landings that reach the server within one flush arrive as one chunk, and
   an answer that arrives before the shell is sent is in the shell (the
   client would have shown the fallback first; the browser never does). The
   browser never shows a frame the client would not show at some instant of
-  the same mount. (The one exception is DV-9, below.)
-- **SV-1c (Held mount).** A reader whose `pending` no `loading` region
+  the same mount — DV-9 is Solid's exception.
+- **SV-1c (What streams).** Only a `loading` region's landing streams as
+  HTML: the stream fills a hole the shell left. An answer the shell already
+  painted around — a first paint (`-> v`, R-7), a lane reader (H-7) — has no
+  hole: it travels as data, and the client draws it when it takes over
+  (S-app-cart: the catalogue lands on the server, the browser keeps the
+  empty first paint, and the client draws the rows at hydration). That is
+  SV-1b's skipped frame, not an exception.
+- **SV-1d (Held mount).** A reader whose `pending` no `loading` region
   catches holds the mount (H-2, CN-3c): the shell waits for it. On the
   server that is the right behaviour — the page arrives complete, with no
   skeleton — which is why CN-3c does not make it an error.
-- **SV-1d (Streams).** A question over a stream (`await*`, R-1) is served
+- **SV-1e (Streams).** A question over a stream (`await*`, ST-6b) is served
   with its first landing; the response stays open, and its later landings
   travel to the client as data, which applies them as landings once it has
-  taken over (SV-3).
+  taken over (SV-3). A plain `await` takes one answer, so its question
+  closes when it lands.
 
 ## SV-2 — What runs on the server
 
 - **SV-2a.** The server computes what the mount frame needs: source
   initializers, equations (their awaits included), contexts and provisions,
   and the view. It runs nothing that belongs to an instant after the
-  mount: no effect (neither half), no action, no handler, no cleanup. No
+  mount: no effect's apply half, no action, no handler, no cleanup. No
   source is written on the server, so every source holds its initializer
-  (or its question's answer) for the whole request.
+  (or its question's answer) for the whole request. An effect's compute
+  half is reactive scope — whether the server computes it is unobservable
+  (Solid's server does; an input's failure is an answer there too, E-12).
 - **SV-2b.** So the served frame is the mount **before** any effect's
   writes. A program whose effects write at the mount (an effect chain,
   EF-5) shows the pre-effect frame from the server and the effect's frame
@@ -55,15 +68,17 @@ by default — see the list at the end.
 
 ## SV-3 — Hydration (ruled: full hydration first)
 
-- **SV-3a.** The client takes over the served page by running the same
-  mount against the HTML instead of building it: every element and text the
-  view would create is adopted from the page. The whole tree hydrates
+- **SV-3a (Adoption).** The client takes over the served page by running
+  the same mount against the HTML instead of building it: every element and
+  text the view would create is adopted from the page, and where the client
+  draws what the server drew, it builds nothing. The whole tree hydrates
   (partial hydration — leaving static parts unhydrated — is later).
 - **SV-3b (Answers cross).** Every question the server answered is answered
   on the client with the server's answer, sent in the stream; it is not
   asked again. A question still pending when the client takes over
-  continues: its landing streams to the client. A failure crosses as SV-5
-  says.
+  continues: its answer streams to the client. A question whose input
+  changes on the client is a new question, and the client asks it — DV-11
+  is Solid's exception. A failure crosses as SV-5 says.
 - **SV-3c (Determinism).** Everything else is recomputed on the client
   from those answers and the initializers, and must come out the same.
   Inside `.rx` it does: there is no io in reactive scope (R-io-3), so an
@@ -73,10 +88,12 @@ by default — see the list at the end.
   frame on each side: `HYDRATION_MISMATCH`, a runtime diagnostic (bin R).
 - **SV-3d.** After hydration the client is an ordinary client: effects run
   their first instant (SV-2b), handlers are attached, and every later
-  instant is the client's.
+  instant is the client's. A client may take over at any point of the
+  stream — right after the shell, or after the last landing — and the
+  frames from then on are the client's frames.
 - **SV-3e (Input before hydration — taken by default).** An event the
   user causes before the client has taken over is replayed after it, in
-  order (Solid's delegated-event replay).
+  order (Solid's delegated-event replay). Not exercised by a scenario yet.
 
 ## SV-4 — State is per request (ruled)
 
@@ -94,8 +111,11 @@ by default — see the list at the end.
 - **SV-5a.** A failure whose class is declared — `error C(…)` in a `.rx`
   module (R-f-1) or `export error C` in a `.d.rx` (MO-8) — that reaches a
   boundary or a catch on the server is sent to the client as it is: its
-  class, its message and its fields. The client reconstitutes it as that
-  class, so a typed boundary or catch decides the same on both sides.
+  class, its message and its fields. The client gives it back its class,
+  so a typed boundary or catch decides the same on both sides (S-server-1:
+  the `NotFound` boundary takes the `NotFound` the server sent). A class is
+  identified by its declaration, not its name: two modules that each
+  declare `NotFound` declare two classes (as two contexts, MO-7).
 - **SV-5b.** Anything else that reaches a boundary is sent as the generic
   error: an `Error` whose message is Solid's `Internal Server Error`. That
   is every panic (R-f-3), and a rejection of an undeclared class — a JS
@@ -108,35 +128,67 @@ by default — see the list at the end.
   send a JS module's failure, declare its class in the module's `.d.rx`
   (MO-8); to redact one of the program's own, throw a panic or a JS
   `Error` instead of a declared class.
+- **SV-5d.** A panic is redacted where it happens. If the client takes over
+  first and computes the same panic itself, its own boundary shows its own
+  message — nothing came from the server (S-server-1 hydrated after the
+  shell: `error: db password is hunter2`, computed in the browser).
 
 ## SV-6 — A failed boundary is served drawn
 
 - **SV-6.** A boundary that takes a failure during the server render — in
   the shell or in a later chunk — is streamed with its fallback rendered:
-  the browser shows the client's frame (`no user 7`, S-server-1 instant 1).
-  **DV-9:** Solid 2.0 (rc.16) does not; see below.
+  the browser shows the client's frame (`no user 7`, S-server-1 instant 1),
+  and the client adopts it and keeps tracking the failed content, so it
+  recovers like any boundary (D-39). DV-9 and DV-12 are Solid's.
 
 ---
 
-## Divergences from Solid's server render (`ref/ssr/`)
+## Divergences from Solid's server render and hydration (`ref/ssr/`)
 
-- **DV-9 (a failed boundary on the server) — open, reproduced
-  2026-10-24** (`ref/oracle/repros/dv9-ssr-after-shell.mjs`). Outside a
-  server component, Solid renders no error fallback on the server. A
-  boundary that fails before the shell is empty in the HTML; one that fails
-  after it is streamed as an empty fragment, which replaces the loading
-  fallback with nothing. In both cases the error is serialized for the
-  client, which draws the fallback when it hydrates — so the browser shows
-  a frame no client instant shows (`Profile` where the client shows
-  `Profile no user 7 error: …`), until hydration. Inside
+Each has a standalone repro with nothing of ReactiveScript in it — Solid's
+compiled-JSX shapes over the published packages — in `ref/oracle/repros/`.
+
+- **DV-9 (a failed boundary on the server) — reproduced 2026-10-24**
+  (`dv9-ssr-after-shell.mjs`, `dv9-hydrate/`). Outside a server component,
+  Solid renders no error fallback for a failure that reaches a `<Loading>`
+  through an async read. A boundary that fails before the shell is empty in
+  the HTML; one that fails after it is streamed as an empty fragment, which
+  replaces the loading fallback with nothing — so the browser shows a frame
+  no client instant shows (`Profile` where the client shows `Profile no
+  user 7 error: …`). The error is serialized, but when the client hydrates
+  it renders that boundary from scratch: it asks the question again and
+  shows the loading fallback, never the failure it was sent. Inside
   `runInServerComponentScope` the fallback is rendered on the server and
-  every frame is the client's: `SV_SCOPE=1 npm run -s ssr` shows all
-  scenarios passing without the `server` divergences. Recorded as `server`
-  divergences in S-server-1, S-hold-5, S-solid-38 and S-ai2-settings.
-  Question for Solid: is the client-only fallback intended for client
-  components (it keeps a fallback that needs the client — a reset handler —
-  correct), and could the server render the fallback and let hydration
-  adopt it?
+  every served frame is the client's (`SV_SCOPE=1 npm run -s ssr`).
+  Recorded as `server` divergences in S-server-1, S-hold-5, S-solid-38 and
+  S-ai2-settings; their hydrations after the failure are reported `≠ DV-9`.
+  (A failure thrown synchronously in content the server renders is drawn —
+  S-hold-6 serves `item 4 not found`.)
+- **DV-11 (the hydration window) — reproduced 2026-10-24**
+  (`dv11-hydrate/`). Until the server has finished a node's answer, Solid's
+  client keeps the node on the server's answer even when its inputs change
+  on the client: a `<Loading>` whose content the server is still streaming
+  stays on its fallback after the client's own new answer lands (S-solid-24
+  hydrated after the mount: `1 loading` where the rule says `1 1`), and a
+  stream (an async iterable) is read from the server until it ends — the
+  new question is never asked, and the old stream's landings show
+  (S-store-5: `a3 -` where the rule says `a2 p`; S-ai-feed). Recorded as
+  `hydrated` divergences.
+- **DV-12 (a boundary hydrated in its error state) — reproduced
+  2026-10-24** (`dv12-hydrate/`). The client hydrates an error boundary the
+  server drew by throwing the server's error in place of running its
+  content, so the boundary reads nothing: when the failed content's inputs
+  change and a good answer lands, the boundary keeps the failure (the
+  question is asked and answered; nothing is listening). The same page
+  rendered by the client recovers. S-hold-6 hydrated: `item 4 not found`
+  where the rule says `loading…`, then `pear`. Recorded as a `hydrated`
+  divergence.
+
+Questions for Solid: is the client-only fallback (DV-9) intended for client
+components, and could the server draw the fallback and the client adopt it?
+DV-11 and DV-12 look like bugs: a hydrated node should follow its inputs
+once they change, and a hydrated error boundary should track the content it
+did not run.
 
 ## Diagnostics this document adds
 
@@ -146,30 +198,43 @@ by default — see the list at the end.
 
 ## Implementation
 
-- `ref/compile/rt-server.ts` implements the `__rt` API the compiled
-  modules call, over the server build of `solid-js` and `@solidjs/web`
-  (`ssr`, `escape`, `renderToStream`). The same compiled modules run on
-  both sides; only the runtime differs. Effects, actions, `refresh` and
-  `affects` are inert or refused there (SV-2); a declared class's instances
-  are marked with Solid's `markSafeError`, which is how Solid decides what
-  `ssrSanitizeError` lets through (SV-5); module factories are cached per
-  app (SV-4).
-- `ref/ssr/run.ts` (`npm run -s ssr`) serves each scenario's program over
-  HTTP to Chromium (Playwright) and lands its flights as the rows say,
-  reading the browser's visible text after the shell and after each
-  landing. For every table it serves the rows up to the first handler and
-  checks SV-1 against the client's frames (every row of an effect chain is
-  a candidate, SV-2b; a panic's message may be redacted, SV-5b). A
-  `## Server frames` table is checked row by row, and alongside it a second
-  request for the same page is rendered concurrently and must keep its
-  shell (SV-4).
-- **Not executable yet:** hydration (SV-3) — the client runtime renders
-  through `@solidjs/universal`, which builds and does not adopt; and the
-  client side of SV-5a, reconstituting a sent failure as its class. Solid
-  serializes an error subclass as `Object.assign(new Error(msg), { name })`
-  plus its own fields, which loses the class; and two modules may declare
-  classes of the same name, so the identity sent must be the declaration's
-  (module and name), not `name`.
+- **Two runtimes, one call sequence.** Hydration finds the server's
+  elements and answers by owner id: each owner, element and scoped hole
+  takes the next id of its parent on both sides. So `rt-server.ts` and
+  `rt-web.ts` implement the same `__rt` API with the same solid-js
+  primitives in the same order, and where the client creates an owner the
+  server has no counterpart for (a value-level error boundary for `e catch
+  …` takes two ids, a typed boundary's unwrapping memo one), the server
+  reserves its ids. A context's default is created at its declaration, on
+  both sides, rather than at its first use (which happens at different
+  times on the two).
+- **Views as Solid's compiled JSX.** An element is a hydration-keyed node
+  (`_hk`), built with its children; each child is a region between
+  `<!--$-->` and `<!--/-->` markers, inserted on its own, and a `{…}` there
+  is a scoped hole (`scope`); a `{…}` in a fragment is a `memo`; text is a
+  constant. The oracle and the compiler lower the same way (05, "Lowering
+  at JSX granularity").
+- **Failures.** A declared class's instances are marked with Solid's
+  `markSafeError` (which is how `ssrSanitizeError` decides what to send) and
+  carry their declaration's identity in a `$class` field, assigned in
+  declaration order — the same on both sides. Solid serializes an error as
+  `Object.assign(new Error(msg), { name, …fields })`, which loses the
+  class; the client's class test gives it back by `$class`.
+- **The runner** (`npm run -s ssr`): for every table, (1) serves the rows up
+  to the first handler and checks the browser's frames against the
+  client's (SV-1); (2) hydrates after the last landing and (3) right after
+  the shell, then drives every remaining row in the browser — handlers, and
+  landings of flights on whichever side asked them — checking the client's
+  frames (SV-3d); at each hydration, that no element was rebuilt where the
+  frame did not change, that every element the client looked for was the
+  server's and of its tag, and that no question was asked again (SV-3a,
+  SV-3b; Solid traces a hydrated computation under a mocked `fetch` and
+  `Promise`, which the harness recognises and does not count); (4) with
+  `CSR=1`, also mounts the same bundle on an empty page — the baseline that
+  separates a hydration difference from a renderer one. A `## Server frames`
+  table is checked row by row, with a concurrent second request (SV-4).
+- **Not exercised yet:** input before hydration (SV-3e); `HYDRATION_MISMATCH`
+  (no scenario imports a nondeterministic `pure` function).
 
 ## Decisions taken by default (veto here)
 
@@ -178,8 +243,8 @@ by default — see the list at the end.
    for the checker (R-f-8), but its message is whatever the JS library put
    there (a database error, a path), so it is sent as the generic error.
    Declaring the class (MO-8) is how to send it.
-2. **No effect runs on the server** (SV-2), not even the compute half, and
-   the served frame is the pre-effect mount.
+2. **No effect's apply half runs on the server** (SV-2), and the served
+   frame is the pre-effect mount.
 3. **Input before hydration is replayed** (SV-3e).
-4. **A stream question keeps the response open** (SV-1d) and sends its
+4. **A stream question keeps the response open** (SV-1e) and sends its
    later landings as data.

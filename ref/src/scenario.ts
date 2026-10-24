@@ -5,7 +5,7 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
 type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean };
-export type Divergence = { table: string; instant: number; frame: string; runner: "oracle" | "server" };   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
+export type Divergence = { table: string; instant: number; frame: string; runner: "oracle" | "server" | "hydrated" };   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
   entry: string; modules: Map<string, string>;
   server: Row[] };   // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)   // 09: the entry's module key, and the `## Modules` fences (`-- module: ./lib.rx`) by key
@@ -46,7 +46,7 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     else if (s.title === "Frames") tables.push({ title: "Frames", program: null, rows: table(s.body) });
     else if (s.title.startsWith("Variant")) tables.push({ title: s.title, program: fence(s.body), rows: table(s.body) });
     else if (s.title.startsWith("Divergences")) {
-      for (const m of s.body.matchAll(/^- (oracle|server) "([^"]*)" instant (\d+): `([^`]*)`/gm)) divergences.push({ runner: m[1] as Divergence["runner"], table: m[2], instant: Number(m[3]), frame: m[4] });
+      for (const m of s.body.matchAll(/^- (oracle|server|hydrated) "([^"]*)" instant (\d+): `([^`]*)`/gm)) divergences.push({ runner: m[1] as Divergence["runner"], table: m[2], instant: Number(m[3]), frame: m[4] });
     }
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {

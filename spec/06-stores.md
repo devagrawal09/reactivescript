@@ -97,8 +97,12 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   runs its `finally`. `yield` has no meaning in imperative scope. In `ref/`
   a stream is a flight that lands more than once (S-store-5); the body form
   waits on 07's concrete syntax.
-- **ST-6b.** `await` of an async iterable is its latest answer; the loop is
-  implied. A keyed structured stream reconciles each answer (ST-4).
+- **ST-6b.** `await* e` of an async iterable is its latest answer; the loop
+  is implied (07: streams are `await*`). A plain `await` takes one answer —
+  of an async iterable, its first; later landings are not its answers (the
+  three runners in `ref/` follow this since 2026-10-24; S-store-5 reads its
+  stream with `await*`). A keyed structured stream reconciles each answer
+  (ST-4).
 - **ST-6c.** Solid: an async-generator memo/projection; `live(fn)`.
 
 ---

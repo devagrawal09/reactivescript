@@ -52,3 +52,8 @@ the body's end corrects the guess — `derived` re-asks from the truth
 (`x:1`), so instant 5's `resolve derived` lands that flight while the
 obsolete `x:5` (instant 4) is inert; untracked, `latest guess` is the
 truth and `pending? guess` is `true` until the commit.
+
+## Divergences
+
+- oracle "Variant: a derived flight keeps the hold open" instant 2: `1 x1 / 5 -` — DV-10: Solid holds a lane per render effect; `latest guess`, its own `{…}` hole, shows the guess beside the held `{guess}` (`ref/oracle/repros/dv10-lane-effects.mjs`)
+

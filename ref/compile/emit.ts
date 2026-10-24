@@ -175,7 +175,7 @@ class Gen {
     return nonTailAwaits(e).map(h => {
       const v = `a$${name}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
-      const body = this.expr(h.node.e, env, { imp: false, tail: true });
+      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.aw(${body0})`;
       this.hoisted.set(h.node, v);
       return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${h.node.init ? `__rt.lv(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined"});\n${pad}__rt.hoisted(${J(name)}, ${v});`;
     }).join("\n");
@@ -226,7 +226,7 @@ class Gen {
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
     if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
-    const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return \[\];$/.test(l)).join("\n");
+    const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return (__rt\.frag\()?\[\]\)?;$/.test(l)).join("\n");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
     const tail = tb && (tb.kind === "acc" || tb.kind === "src") ? tb.js : `__rt.memo(null, () => ${this.expr(d.tail, inner, { imp: false })})`;
     return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
@@ -264,7 +264,7 @@ class Gen {
         if (this.hoisted.has(e)) return `${this.hoisted.get(e)}()`;
         if (ctx.imp) return ctx.gen ? `(yield __rt.aw(${go(e.e)}))` : ctx.async ? `(await __rt.aw(${go(e.e)}))` : go(e.e);
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
-        return go(e.e);                                                                         // the memo returns the flight (R-1)
+        return e.stream ? go(e.e) : `__rt.aw(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }
       case "latest": return `__rt.latest(() => ${go(e.e)})`;
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
@@ -354,20 +354,22 @@ class Gen {
   }
 
   // ---- views ----
-  markup(ms: Markup[], env: Env, ind: number): string { return `[${ms.map(m => this.node(m, env, ind)).join(", ")}]`; }
+  /** A view's items. An element's children are its holes (`el` inserts each); anywhere else they are a fragment, whose
+   *  readers `__rt.frag` makes memos — Solid's compiled JSX makes the same split. */
+  markup(ms: Markup[], env: Env, ind: number, inEl = false): string { const a = `[${ms.map(m => this.node(m, env, ind, inEl)).join(", ")}]`; return inEl ? a : `__rt.frag(${a})`; }
   private regionFn(decls: Decl[], view: Markup[], env: Env, ind: number, param = "", bind?: (e: Env) => string): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env); const pre = bind ? bind(inner) : "";
     return `(${param}) => {\n${pre}${this.block(decls, view, inner, ind + 1)}\n${pad}}`;
   }
-  private node(m: Markup, env: Env, ind: number): string {
+  private node(m: Markup, env: Env, ind: number, inEl = false): string {
     const re: Ctx = { imp: false };
     const pad = " ".repeat((ind + 1) * 2);
     switch (m.k) {
       case "text": return `__rt.text(${J(m.s)})`;
       case "read": return `__rt.read(() => ${this.expr(m.e, env, re)})`;
       case "el": {
-        if (m.tag === "") return this.markup(m.children, env, ind);
+        if (m.tag === "") return this.markup(m.children, env, ind, inEl);
         if (/^[A-Z]/.test(m.tag)) {
           const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
           const props = m.attrs.map(a => `get ${J(a.name)}() { return ${this.expr(a.e, env, { imp: isHandler(a.name) })}; }`);
@@ -375,7 +377,7 @@ class Gen {
           return `__rt.comp(${b.js}, { ${props.join(", ")} })`;
         }
         const attrs = m.attrs.map(a => `[${J(a.name)}, () => ${this.expr(a.e, env, { imp: isHandler(a.name) })}, ${isHandler(a.name)}]`);
-        return `__rt.el(${J(m.tag)}, [${attrs.join(", ")}], () => ${this.markup(m.children, env, ind + 1)})`;
+        return `__rt.el(${J(m.tag)}, [${attrs.join(", ")}], () => ${this.markup(m.children, env, ind + 1, true)})`;
       }
       case "mif": {
         const narrowed = m.c.k === "id" ? env.lookup(m.c.name) : undefined;

@@ -1,12 +1,12 @@
 // The server runtime (10-server): the same `__rt` API the compiled modules call (ref/compile/rt.ts), over solid-js 2.0's
 // server build. What runs on the server is what the mount needs — equations, source initializers, awaits, the view —
 // and nothing an instant after it would (SV-2): effects, actions and handlers do not run. The view renders to HTML
-// that `renderToStream` streams, a boundary at a time. A failure of a declared class (R-f-1, MO-8) is marked safe and goes
+// that `renderToStream` streams, a boundary at a time. Every call mirrors rt-web.ts's (the browser runtime): the same
+// solid-js primitives in the same order, so each owner, element and hole takes the id the client will look for (SV-3). A failure of a declared class (R-f-1, MO-8) is marked safe and goes
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
-import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner } from "solid-js";
-import { ssr, escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
-import { runInServerComponentScope } from "solid-js";
+import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
+import { ssr, escape, renderToStream, markSafeError, generateHydrationScript, ssrHydrationKey, memo, scope as ssrScope } from "@solidjs/web";
 
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown) => void };
@@ -16,23 +16,29 @@ export { generateHydrationScript };
 // ---------------------------------------------------------------- values (as rt.ts)
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
 export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
-const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => x == null || isView(x))) || (typeof v === "object" && v !== null && "t" in (v as object));   // ssr() results (text included)
+const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => x == null || isView(x))) || (typeof v === "object" && v !== null && "t" in (v as object));   // ssr() results, text constants, readers
+/** Take the ids a client-side owner the server has no counterpart for would take (rt-web.ts creates it; the server need not). */
+const reserve = (n = 1) => { const o = getOwner() as any; if (o?.id != null) for (let i = 0; i < n; i++) getNextChildId(o); };
 const onServer = (what: string) => () => { throw new Error(`SV-2: ${what} does not run on the server`); };
 
 // ---------------------------------------------------------------- failures (R-f; SV-5: a failure is safe to send)
 type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
-function errorClass(name: string, params: string[], message: (...args: unknown[]) => unknown): ErrorClass {
-  const C = class extends Error { constructor(...args: unknown[]) { super(""); this.name = name; params.forEach((p, i) => { (this as unknown as Record<string, unknown>)[p] = args[i]; }); this.message = String(untrack(() => message(...args))); markSafeError(this); } };
+function errorClass(name: string, params: string[], message: (...args: unknown[]) => unknown, id?: string): ErrorClass {
+  const C = class extends Error { constructor(...args: unknown[]) { super(""); this.name = name; params.forEach((p, i) => { (this as unknown as Record<string, unknown>)[p] = args[i]; }); this.message = String(untrack(() => message(...args))); if (id) (this as unknown as { $class: string }).$class = id; markSafeError(this); } };
   Object.defineProperty(C, "name", { value: name });
-  const f = ((...args: unknown[]) => new C(...args)) as ErrorClass; f.cls = C; f.errorClass = name; return f;
+  const f = ((...args: unknown[]) => new C(...args)) as ErrorClass; f.cls = C; f.errorClass = name; (f as { $class?: string }).$class = id; return f;
 }
 const PANIC = { panic: true } as const;
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
-/** The server renders once: an errored read throws where it is read, so a catch is an ordinary try around the read. */
+/** The server renders once: an errored read throws where it is read, so a catch is an ordinary try around the read. (The
+ *  client's is an error boundary: its ids are reserved.) */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
+  reserve(2);   // a client error boundary takes two ids
   return () => { try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); } };
 }
-function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown { return catchAcc(f, match, alt)(); }
+function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
+  try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
+}
 
 // ---------------------------------------------------------------- flights (the harness's async)
 /** As rt.ts's Flight. A rejection is sent as it is only when its class is declared (SV-5): `errorClass` marks those. */
@@ -61,7 +67,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const modules = new Map<string, Record<string, unknown>>();
   const log: string[] = [];
   const declared: unknown[] = [];
-  let currentEq: string | null = null;
+  let currentEq: string | null = null; let classSeq = 0;
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -83,7 +89,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** MO-8: a class a `.d.rx` declares — a failure the server sends as it is (SV-5). */
-    jsError(name: string) { const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name); declared.push(C); return C; },
+    jsError(name: string) { const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); return C; },
     /** A JS function's promise: a rejection with a declared class is marked safe to send; any other is redacted (SV-5). */
     api: (name: string) => {
       if (!opts.api) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
@@ -98,7 +104,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
     source(name: string, init: unknown): [Acc, Writer] {
       void name;
-      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); return ro(() => store); }
+      if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); return ro(get as Acc); }
       const [get] = createSignal(init); return ro(get as Acc);
     },
     qsource(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }): [Acc, Writer] {
@@ -116,7 +122,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     prevOf: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     lv: (f: () => unknown) => ({ loadingValue: untrack(f) }),
-    effect(_n: number, _inputs: () => unknown[], _apply: (p: unknown[]) => unknown) { /* SV-2: effects run on the client, after hydration */ },
+    /** SV-2: the apply half runs on the client, after hydration. The compute half is reactive scope — Solid's server runs it;
+     *  an input's failure is an answer (E-12), not a server error. */
+    effect(_n: number, inputs: () => unknown[], _apply: (p: unknown[]) => unknown) {
+      createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
+    },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
     hoisted(_name: string, _get: Acc) {},
@@ -127,27 +137,32 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
     owner: () => getOwner(),
-    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: null }; },
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
     provide(c: Ctx, e: Entry) { const o = getOwner() as any; o._context = { ...o._context, [c.id]: e }; },
     use(c: Ctx, owner: Owner): Entry {
       const e = ((owner ?? getOwner()) as any)?._context?.[c.id]; if (e) return e;
-      if (c.dflt) { const d = c.dflt; return c.dv ??= { get: runWithOwner(c.owner, () => createMemo(d as any)) as Acc }; }
+      if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
 
     snap(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
-    errorClass, isA, PANIC, catchAcc, tryCatch, caughtRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => tryCatch(f, match, alt),
+    errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
+    isA, PANIC, catchAcc, tryCatch, caughtRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
     raise: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,
 
-    // ---- views, as HTML ----
-    text: (s: string) => ({ t: escape(s) }),   // an ssr() result, so a view is told from a value
-    read: (f: () => unknown) => () => { const v = f(); return isView(v) ? v : escape(fmt(v)); },
+    // ---- views, as HTML (as Solid's compiled SSR output; each call mirrors rt-web.ts's) ----
+    text: (s: string) => { const t = escape(s); const f = () => t; (f as any).$text = true; return f; },
+    read: (f: () => unknown) => { const g = () => { const v = f(); return isView(v) ? v : escape(fmt(v)); }; (g as { $read?: boolean }).$read = true; return g; },
+    frag: (items: unknown[]): unknown[] => items.map(x => (x as { $read?: boolean })?.$read ? memo(x as Acc) : x),
+    /** An element: its hydration key, then its children (built now, as the client builds them), each in a marker region. */
     el(tag: string, attrs: [string, () => unknown, boolean][], kids: () => unknown) {
+      const hk = ssrHydrationKey();
+      const items = (VOID.has(tag) ? [] : (untrack(kids) as unknown[]).flat(Infinity)).map(x => (x as { $read?: boolean })?.$read ? ssrScope(x as Acc) : x);
       const a = () => {
         let s = "";
         for (const [name, f, handler] of attrs) {
@@ -157,7 +172,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         }
         return { t: s };
       };
-      return VOID.has(tag) ? ssr([`<${tag}`, ">"], a) : ssr([`<${tag}`, ">", `</${tag}>`], a, kids);
+      if (VOID.has(tag)) return ssr([`<${tag}`, "", ">"], hk, a);
+      const t = [`<${tag}`, "", ">"]; for (let i = 0; i < items.length; i++) { t[t.length - 1] += "<!--$-->"; t.push("<!--/-->"); } t[t.length - 1] += `</${tag}>`;
+      return ssr(t, hk, a, ...items);
     },
     comp: (C: (p: any) => unknown, props: Record<string, unknown>) => createComponent(C as any, props),
     when: (cond: () => unknown, t: (item: Acc) => unknown, f: () => unknown) => createComponent(Show as any, { get when() { return cond(); }, get fallback() { return f(); }, children: t }),
@@ -169,10 +186,12 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. */
     errored(fallback: (err: Acc) => unknown, body: () => unknown, classes?: unknown[]) {
-      return createComponent(Errored as any, {
-        fallback: (err: Acc) => { if (classes && !isA(err(), classes)) throw err(); return fallback(err); },
+      const out = createComponent(Errored as any, {
+        fallback: (err: Acc) => { if (!classes) return fallback(err); const ok = createMemo(() => isA(err(), classes)); if (!ok()) throw err(); return fallback(err); },
         get children() { return body(); },
       });
+      if (classes) reserve();   // the client's unwrapping memo
+      return out;
     },
   };
   return app;

@@ -203,11 +203,13 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
     // ---- context (RG-7) ----
     owner: () => getOwner(),
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
-    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: null }; },   // a sentinel default: absence is ours to decide
+    /** `context x: T = d` (RG-7): the declaration is the identity (a sentinel default: absence is ours to decide); `d` is
+     *  evaluated once, owned where it is declared — created now, so it takes its id there on both sides (SV-3). */
+    context(name: string, dflt: (() => unknown) | null): Ctx { return { name, ctx: createContext<Entry | undefined>(NO_PROVISION, name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },
     provide(c: Ctx, e: Entry) { setContext(c.ctx, e); },
     use(c: Ctx, owner: ReturnType<typeof getOwner>): Entry {
       const e = getContext(c.ctx, owner ?? undefined); if (e && e !== NO_PROVISION) return e;
-      if (c.dflt) { const d = c.dflt; return c.dv ??= { get: runWithOwner(c.owner, () => createMemo(d as any)) as Acc }; }
+      if (c.dv) return c.dv;
       throw new Error(`RG-7b: no provision for ${c.name}`);
     },
     useGet(c: Ctx, owner: ReturnType<typeof getOwner>) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
@@ -225,11 +227,15 @@ export function createApp(opts: { nodes?: Record<string, any>; root?: any; api?:
 
     // ---- views ----
     text: (s: string) => R.createTextNode(s),
-    read: (f: () => unknown) => () => { const v = f(); return isView(v) ? v : fmt(v); },
+    /** `{e}`: a hole. Inside an element `el` inserts it at its own marker; in a fragment `frag` makes it a memo. */
+    read: (f: () => unknown) => { const g = () => { const v = f(); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; },
+    frag: (items: unknown[]): unknown[] => items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as Acc) : x),
+    /** An element, as Solid's compiled JSX: its children are built with it, and each is inserted at its own marker — a
+     *  reader is its own render effect (not one effect for the element's whole content). */
     el(tag: string, attrs: [string, () => unknown, boolean][], kids: () => unknown) {
       const el = R.createElement(tag);
       for (const [name, f, handler] of attrs) { if (handler) R.setProp(el, name, untrack(f)); else R.effect(f, v => { R.setProp(el, name, v); }); }
-      R.insert(el, kids);
+      for (const item of (untrack(kids) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
       return el;
     },
     comp: (C: (p: any) => unknown, props: Record<string, unknown>) => R.createComponent(C as any, props),

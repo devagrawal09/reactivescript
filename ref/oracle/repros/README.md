@@ -7,8 +7,16 @@ involved. Run from `ref/oracle/` after `npm install`:
 node --conditions=browser --conditions=development repros/dv3-signals.mjs [effect-in-fallback|read-in-fallback]
 node --conditions=browser --conditions=development repros/dv3-web.mjs [element-fallback|array-fallback|static-fallback]
 node --conditions=browser --conditions=development repros/dv4-signals.mjs [store|memo] [boundary|none]
+node --conditions=browser --conditions=development repros/dv10-lane-effects.mjs [one|two]
 node repros/dv9-ssr-after-shell.mjs [client|server-component] [ms]      # the server build: no --conditions
+node repros/dv9-hydrate/run.mjs                                           # server + Chromium (playwright, esbuild)
+node repros/dv11-hydrate/run.mjs
+node repros/dv12-hydrate/run.mjs
 ```
+
+The hydration repros render a compiled-JSX-shaped app with the server build,
+stream it to Chromium, and hydrate it there with the DOM build bundled by
+esbuild — beside a control that renders the same app on an empty page.
 
 ---
 
@@ -154,4 +162,63 @@ until then the browser shows neither the loading fallback nor the error
 fallback. `errorOutcome` in `ssrLoadingBoundary` and `renderOutcome` in the
 server `createErrorBoundary` both return early unless
 `inServerComponentScope`.
+
+**After hydration** (`dv9-hydrate/`). The client renders the failed
+boundary from scratch: it asks the question again and shows the loading
+fallback, never the failure the server sent.
+
+```
+shell                      "loading"
+the read fails (streamed)  ""
+hydrated                   "loading"
+```
+
+---
+
+## DV-10 — a held lane holds per render effect
+
+**Rule.** 05 H-7: a pending reader in lane `x` holds every reader of lane
+`x`; Solid's D-25: an on-screen probe in a held lane keeps what it showed.
+
+**Shape.** `guess` is a question source with an optimistic layer;
+`derived` awaits on `guess`. An action guesses `5` and awaits something
+unrelated; `derived(5)` is pending, so the guess's lane is held.
+
+**Observed.** One render effect reading `guess`, `derived` and
+`latest(guess)` keeps `"1 x1 / 1"`. With `latest(guess)` in its own effect —
+which is what compiled JSX gives `<p>{guess()} {derived()} / {latest(guess)}</p>`
+— the probe shows the guess: `"1 x1 / 5"`.
+
+---
+
+## DV-11 — the hydration window
+
+**Rule.** 10 SV-3b: after the client takes over, a question whose input
+changes is a new question; its answer is the client's.
+
+**Shape.** `<Loading><p>{details()}</p></Loading>`, `details` over
+`id`. The server's answer for `id = 0` has not arrived when the client
+hydrates. Then `setId(1)`; the client asks `d:1`, and it lands.
+
+**Observed.** Hydrated, the boundary stays on `"loading"`; rendered on an
+empty page, it shows `"1"`. A stream is the same: the hydrated node reads
+the server's async iterable until it ends, and the new question is not
+asked (`hydrateSignalFromAsyncIterable`).
+
+---
+
+## DV-12 — a boundary hydrated in its error state never recovers
+
+**Rule.** 05 D-39, 10 SV-6: a boundary recovers when the failed content's
+inputs change and a good answer lands.
+
+**Shape.** `<Errored><p>{shown()}</p></Errored>`; `shown` throws when
+`item` is `null`; the server's answer is `null`, so the server draws the
+fallback. The client hydrates; `setSel(3)`; `i:3` is asked and lands
+`"pear"`.
+
+**Observed.** Hydrated: `"item 4 not found"` stays. Rendered on an empty
+page: `"pear"`. `hydratedCreateErrorBoundary` throws the serialized error
+on its first run instead of running the content, so the boundary tracks
+nothing.
 

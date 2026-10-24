@@ -60,6 +60,7 @@ change and lands with the body's end (AC-7).
 
 ## Divergences
 
+- hydrated "Frames" instant 8: `` — DV-11: after hydration Solid reads the server's stream until it ends; the new room's stream is never asked (`ref/oracle/repros/dv11-hydrate/`)
 - oracle "Frames" instant 7: `general - random * ann: hello bob: hey me: hi send`
 
 Through `solid-js`, the keyed equation `msgs key id = messages` (a keyed

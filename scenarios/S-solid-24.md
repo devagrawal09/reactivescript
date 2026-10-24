@@ -41,3 +41,8 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 The disarmed boundary forwards, so `details`' pending holds the lane
 exactly as with no boundary there: header `1` beside details `0` is the
 rejected screen.
+
+## Divergences
+
+- hydrated "Frames" instant 2: `1 loading` — DV-11: hydrated while the server's answer was out, the boundary waits for the server's fragment for the old question (`ref/oracle/repros/dv11-hydrate/`)
+

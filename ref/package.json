@@ -14,5 +14,8 @@
     "@solidjs/universal": "2.0.0-rc.16",
     "@solidjs/web": "^2.0.0-rc.16",
     "solid-js": "2.0.0-rc.16"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

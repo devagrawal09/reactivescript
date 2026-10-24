@@ -32,7 +32,7 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   while it is live), `resolve x v` / `reject x "msg"` (equation `x`'s current
   flight), `resolve "key" v` (a flight by key — `name:` + arguments formatted
   as values, strings and numbers bare, objects/arrays as JSON; resolving a
-  key again is another landing of a stream; a program must not issue two flights with the same key), `(effect)` (the instant an
+  key again is another landing of a stream, which `await*` reads and a plain `await` ignores; a program must not issue two flights with the same key), `(effect)` (the instant an
   apply block's writes opened).
 - `| effect |` column: the instant's `log(...)` calls, `;`-separated.
 - `## Variant: …` tables replay the base table up to the first listed
@@ -42,7 +42,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   CODE`), optional `-- handler: stmts` lines.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records
   what Solid 2.0 shows where the spec rules otherwise; `- server "<table>"
-  instant N: …` what Solid's server render shows (10, `ref/ssr/`).
+  instant N: …` what Solid's server render shows (10, `ref/ssr/`);
+  `- hydrated "<table>" instant N: …` what Solid's client shows once it has
+  taken a served page over (the hydrated run stops there).
 - `## Server frames` (10): rows `mount`, `resolve …`, `reject …` and the
   frame a browser shows from the server's stream after each — checked by
   `npm run -s ssr` only. Every other table's mount and landings are also

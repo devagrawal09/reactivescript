@@ -15,7 +15,7 @@ Four runners over the same scenarios (`cd ref && npm install` once):
 | interpreter | `src/runtime.ts`, the spec's own semantics | `node --experimental-strip-types ref/run.ts` |
 | oracle | `oracle/lower.ts`, the program lowered onto Solid by interpretation | `npm --prefix ref run oracle` |
 | compiled | `compile/emit.ts`, the program compiled to a JS module over Solid | `npm --prefix ref run compiled` |
-| server | the same compiled modules over `compile/rt-server.ts` (Solid's server build), streamed to Chromium (spec/10) | `npm --prefix ref run ssr` |
+| server | the same compiled modules over `compile/rt-server.ts` (Solid's server build), streamed to Chromium and hydrated there over `compile/rt-web.ts` (spec/10) | `npm --prefix ref run ssr` |
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types

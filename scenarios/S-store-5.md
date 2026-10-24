@@ -3,13 +3,14 @@
 Rules: ST-6, R-4, H-9.
 
 In `ref/` a stream is a flight that lands more than once: `resolve x v`
-again on the same flight is the equation body's `yield v`.
+again on the same flight is the equation body's `yield v`. A stream is read
+with `await*` (07); a plain `await` takes the flight's first answer only.
 
 ## Program
 
 ```
 source room := "a"
-msgs = await fetch("room:" + room)
+msgs = await* fetch("room:" + room)
 errored fallback(e) { <p>error: {e.message}</p> } {
   <p>{msgs} {pending? msgs ? "p" : "-"}</p>
 }
@@ -30,3 +31,8 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 Instant 2: a later answer to the same question — quiet. Instant 3: a new
 question; the old stream is superseded (R-4) and its later answer (instant
 4) is inert.
+
+## Divergences
+
+- hydrated "Frames" instant 4: `a3 -` — DV-11: after hydration Solid reads the server's stream until it ends; the new question (`room:b`) is not asked and the old stream's landing shows (`ref/oracle/repros/dv11-hydrate/`)
+

@@ -158,7 +158,7 @@ export class Oracle {
       const m = createMemo(() => {
         for (const g of h.guards) { const v = this.ev(g.e, scope); if (!(g.nullish ? v == null : g.neg ? !v : !!v)) return undefined; }
         const was = this.currentEq; this.currentEq = name;
-        try { return this.ev(h.node.e, scope); } finally { this.currentEq = was; }
+        try { const v = this.ev(h.node.e, scope); return !h.node.stream && v instanceof Flight ? v.first : v; } finally { this.currentEq = was; }   // a plain await: one answer
       }, lv as any);
       let map = hoistedOf.get(scope); if (!map) hoistedOf.set(scope, (map = new Map())); map.set(h.node, m);
       let byName = this.hoistedByName.get(name); if (!byName) this.hoistedByName.set(name, (byName = [])); byName.push(m);
@@ -340,7 +340,7 @@ export class Oracle {
       case "peek": return untrack(() => this.ev(e.e, scope, env));
       case "await": {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
-        const v = this.ev(e.e, scope, env); return v;                   // in tail position the memo returns the flight (R-1)
+        const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
       case "latest": return latest(() => this.ev(e.e, scope, env));
       case "pending": return isPending(() => this.ev(e.e, scope, env));
@@ -461,14 +461,16 @@ export class Oracle {
   }
 
   // ---- views ----
-  fragment(m: Markup[], scope: Scope): unknown[] { return m.map(x => this.node(x, scope)); }
-  private node(m: Markup, scope: Scope): unknown {
+  /** A view's items, as Solid's compiled JSX shapes them: in a fragment a reader is a memo; an element's children are its
+   *  holes, each inserted at its own marker (`inEl`), so each reader is its own render effect. */
+  fragment(m: Markup[], scope: Scope, inEl = false): unknown[] { const items = m.map(x => this.node(x, scope, inEl)); return inEl ? items : items.map(x => (x as { $read?: boolean })?.$read ? R.memo(x as () => unknown) : x); }
+  private node(m: Markup, scope: Scope, inEl = false): unknown {
     const self = this;
     switch (m.k) {
       case "text": return R.createTextNode(m.s);
-      case "read": return () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); };   // a view value (children) is inserted as structure
+      case "read": { const g = () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // a view value (children) is inserted as structure
       case "el": {
-        if (m.tag === "") return this.fragment(m.children, scope);     // `<>…</>`
+        if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`
         if (/^[A-Z]/.test(m.tag)) {
           const b = scope.lookup(m.tag); if (!b || b.k !== "comp") throw new Error(`unknown component ${m.tag}`);
           const comp = b.decl, home = b.home;
@@ -479,7 +481,7 @@ export class Oracle {
         }
         const el = R.createElement(m.tag);
         for (const a of m.attrs) { if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
-        R.insert(el, () => this.fragment(m.children, scope));
+        for (const item of (untrack(() => this.fragment(m.children, scope, true)) as unknown[]).flat(Infinity)) { const marker = R.createTextNode(""); R.insertNode(el, marker); R.insert(el, item as never, marker); }
         return el;
       }
       case "mif": {

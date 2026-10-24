@@ -11,7 +11,8 @@ import { singleModule, type ModuleSet } from "./modules.ts";
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
 export const PENDING = new PendingVal();
-export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; constructor(key: string) { this.key = key; } }
+/** A flight lands any number of times: `await*` reads its latest landing (a stream, ST-6b); a plain `await` its first (R-1). */
+export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; first: { state: "resolved" | "rejected"; value: unknown } | null = null; constructor(key: string) { this.key = key; } }
 export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
 
 type Path = string;
@@ -231,6 +232,7 @@ export class Runtime {
     else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
     if (!f) throw new Error(`no flight ${target}`);
     f.state = reject ? "rejected" : "resolved"; f.value = reject ? (value instanceof Error ? value : new Error(String(value))) : value;   // `reject x NotFound("…")`: a declared class (MO-8)
+    f.first ??= { state: f.state, value: f.value };
     for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
     const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
     for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
@@ -711,8 +713,9 @@ export class Runtime {
         const v = this.ev(e.e, region, env); if (isAbsent(v)) return v;
         if (!(v instanceof Flight)) return v;                          // a value: same instant, no tick
         const n = this.tracking; if (n) n.flight = v;
-        if (v.state === "resolved") { if (n) n.firstPaint = false; return v.value; }
-        if (v.state === "rejected") { if (n) n.firstPaint = false; return new ErrVal(v.value); }
+        const got = e.stream ? (v.state === "pending" ? null : { state: v.state, value: v.value }) : v.first;   // a plain await: the first landing only
+        if (got?.state === "resolved") { if (n) n.firstPaint = false; return got.value; }
+        if (got?.state === "rejected") { if (n) n.firstPaint = false; return new ErrVal(got.value); }
         if (e.init && n && !n.answered) { n.firstPaint = true; return this.ev(e.init, region, env); }
         return PENDING;
       }
