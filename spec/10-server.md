@@ -238,15 +238,22 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   CN-3c's "pending need not be under a boundary" does not hold. A prop
   carries it: an argument computed from a client question is checked where
   the component reads it. Executable: S-server-3 (DV-15 aside).
-- **SV-7c (Synchronous JS during the mount).** A `pure` JS call in reactive
-  scope is recomputed in the browser, and `pure` asserts no side effects,
-  not sameness across machines — `toLocaleString` with the server's locale
-  and time zone is the classic mismatch. During the mount, the result of
-  each such call is an answer: the server records it and the browser
-  adopts it (SV-3b); after the mount it is computed as usual. A `.d.rx`
-  that declares a function `stable` (`export stable pure fn slug(s)`)
-  asserts it computes the same everywhere, and its calls are not recorded.
-  **Not in `ref/` yet.**
+- **SV-7c (Synchronous JS during the mount) — ruled 2026-10-24: Solid's
+  default.** A `pure` JS call in reactive scope is computed again in the
+  browser, as Solid computes every synchronous value again (it serializes
+  async answers only). `pure` asserts no side effects; that the function
+  also gives the same result on both machines is the author's assertion
+  too (CN-5), and when it does not — `toLocaleString` with the server's
+  locale and time zone is the classic case — Solid's runtime reports
+  `HYDRATION_MISMATCH` (bin R). The language's remedies are the ones it
+  already has: what depends on the browser is `client` JS (a client
+  question, SV-7b), and a locale or a time zone can be an argument the
+  server receives.
+  *Where more could be done (not adopted):* the server could record each
+  such call's result during the mount and the browser adopt it — one
+  serialized value per call, so a long list of formatted cells doubles
+  its payload — with a `stable` declaration to opt hot functions out. The
+  first version does nothing beyond Solid.
 - **SV-7d (Structure).** The browser re-parses the server's HTML, and
   nesting HTML forbids changes the tree it builds (text in a `<tr>`, a
   `<div>` in a `<p>`). Solid's compiler refuses it within a template; the
@@ -266,8 +273,8 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   serializer cannot carry is `WIRE_VALUE` (12 SF-6a), at run time while
   types are text, statically once they are not.
 
-What remains possible is an assertion that lies — `pure`, `stable`, a
-`.d.rx` — and `HYDRATION_MISMATCH` then names which one.
+What remains possible is an assertion that lies — `pure`, a `.d.rx` —
+and `HYDRATION_MISMATCH` then names which one.
 
 ## Out of scope: the page changed by something else
 
@@ -342,3 +349,8 @@ What remains possible is an assertion that lies — `pure`, `stable`, a
    instant (DV-14); the rule is what a live user would have caused.
 4. **A stream question keeps the response open** (SV-1e) and sends its
    later landings as data.
+
+Ruled 2026-10-24 for SV-7: **the first version follows Solid's defaults and
+adds nothing at run time**; where more could be done it is written down as
+not adopted (SV-7c's recording). The static checks (SV-7b's hold, SV-7d's
+content model) cost nothing at run time and stay.
