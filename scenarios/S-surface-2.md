@@ -88,11 +88,3 @@ export default component App() {
 ```
 
 One stylesheet per view (TSRX: "fragments can only have one style tag").
-
-```
--- reject: CSS-1
-<style ref={styles}>.a { color: red }</style>
-<p class="a">x</p>
-```
-
-Class maps (TSRX's `<style ref>`) are not lowered yet.

@@ -6,6 +6,7 @@
 //   Solid's JSX types, so a component's props and what a reader may insert are checked where they are written.
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
+import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
 import type { JsDecl } from "../src/parse.ts";
 
@@ -240,6 +241,7 @@ class Proj {
       case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{/g, m => "\\" + m) : "${" + go(p) + "}").join("") + "`";
       case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
       case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
+      case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
       case "call": return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       case "arr": return `[${e.items.map(go).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;

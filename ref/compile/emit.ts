@@ -174,6 +174,15 @@ class Gen {
    *  elements with their static attributes, components with the children passed to them, and every region (a branch, a
    *  loop body, a boundary) as an expression TSRX matches conservatively, as it does its own control flow. Its scoped
    *  stylesheet joins the module's; its hash is the view's scope class. */
+  /** 07 CSS-5: a style expression through TSRX's engine — its class map literal; its stylesheet joins the module's. */
+  private classMap(css: string, line?: number): string {
+    let r: { code: string; css?: string };
+    try { r = transform(`export const __s = <style>${css}</style>;`, { filename: this.file.replace(/\.rx$/, "") + `.${line ?? 0}.tsrx`, generate: "dom" }) as typeof r; }
+    catch (e) { throw new CompileError(`<style> (line ${line ?? "?"}): ${(e as Error).message}`); }
+    const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); if (!m) throw new CompileError(`<style> (line ${line ?? "?"}): no class map`);
+    if (r.css) this.css.push(r.css);
+    return `Object.freeze(${m[1]})`;
+  }
   private style(view: Markup[]): string | null {
     const st = view.find(m => m.k === "style") as Extract<Markup, { k: "style" }> | undefined; if (!st) return null;
     const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
@@ -397,6 +406,7 @@ class Gen {
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
+      case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
       case "call": {
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
         if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;

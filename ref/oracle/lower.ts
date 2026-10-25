@@ -2,6 +2,7 @@
 // solid-js 2.0 flow components over @solidjs/universal with a string-tree renderer.
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
+import { classMap } from "../src/style.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
@@ -404,6 +405,7 @@ export class Oracle {
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
       case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else o[f.key] = this.ev(f.v, scope, env); } return o; }
       case "fn": return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return e.stmts ? this.runStmts(e.stmts, scope, en) : this.ev(e.body, scope, en); };
+      case "stylemap": return classMap(e.css);                      // 07 CSS-5
       case "call": {
         let f: any, self: any;
         if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !scope.lookup("until")) { const p = e.args[0]; if (p?.k !== "fn") throw new Error("UNTIL_PREDICATE"); return until(() => this.ev(p.body, scope, env)); }   // AC-6: Solid's until

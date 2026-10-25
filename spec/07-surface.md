@@ -303,10 +303,24 @@ component Card(props) {
   stylesheet is returned beside its JavaScript, for the bundler to emit.
   Nothing is inserted at run time on either side, so the served page and
   the hydrated page use one stylesheet and the same classes (SV-7).
-- *Not yet (TSRX has them):* class maps — `<style ref={styles}>` and style
-  expressions, which hand a stylesheet's classes to code as values.
+- **CSS-5 (A class map is a value).** [2026-10-25] `styles = <style>…</style>`
+  — a `<style>` in expression position — is TSRX's style expression: a
+  constant record from each standalone class of the stylesheet (a
+  top-level rule whose selectors are each one class, `.a` or `.a, .b`) to
+  that class with the stylesheet's own scope class, `"tsrx-… a"`. Its
+  rules are scoped to that class; any other rule is pruned, as TSRX does.
+  It is how a view styles an element it does not own: scoping stops at a
+  component, so the parent passes `class={styles.a}` to the child, which
+  puts it on its element. It is a constant, so it may be declared at a
+  module's top level, and its type is its classes (`{ readonly a: string }`:
+  a misspelt class is a type error, TY). TSRX's other form,
+  `<style ref={styles}>`, assigns the view's class map into a variable;
+  a name here is bound once, by its declaration, so it is not adopted
+  (a parse error naming CSS-5). A view that wants both writes its own
+  `<style>` and a class map beside it.
 
-Executable: S-surface-2 (the compiled runner checks the stylesheet).
+Executable: S-surface-2, S-surface-3 (the compiled runner checks the
+stylesheet).
 
 ## 7. Worked ports
 

@@ -398,6 +398,11 @@ function parsePostfix(c: Cursor): Expr {
 }
 function parsePrimary(c: Cursor): Expr {
   c.ws();
+  if (/^<style\b/.test(c.src.slice(c.i))) {                           // 07 CSS-5: a stylesheet as a value — its class map
+    const line = c.line; c.i += "<style".length; c.ws(); if (!c.eat(">")) c.fail("CSS-5: a class map is `<style>…</style>`, with no attributes");
+    const end = c.src.indexOf("</style>", c.i); if (end < 0) c.fail("expected </style>");
+    const css = c.src.slice(c.i, end); c.i = end + "</style>".length; return { k: "stylemap", css, line };
+  }
   if (/^server\s+fn\s*\(/.test(c.src.slice(c.i))) {                   // 12 SF-1d: an anonymous server fn, for whatever wraps it
     c.keyword("server"); c.ws(); c.keyword("fn"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
@@ -551,7 +556,7 @@ function parseElement(c: Cursor): Markup {
   if (c.eat(">")) return { k: "el", tag: "", attrs: [], children: parseMarkup(c, "") };   // fragment `<>…</>`
   const tag = c.tagName() ?? c.fail("tag");
   if (tag === "style") {                                               // 07 §6b CSS-1: a stylesheet is raw text — no `{…}` holes exist
-    c.ws(); if (!c.eat(">")) c.fail("CSS-1: a <style> takes no attributes (class maps, TSRX's `<style ref>`, are not lowered yet): `<style>…</style>`");
+    c.ws(); if (!c.eat(">")) c.fail(c.src.slice(c.i).startsWith("ref") ? "CSS-5: a class map is a declaration, `styles = <style>…</style>` — TSRX's `<style ref={styles}>` assigns into a variable, and a name here is bound once, by its declaration" : "CSS-1: a <style> takes no attributes: `<style>…</style>`");
     const end = c.src.indexOf("</style>", c.i); if (end < 0) c.fail("expected </style>");
     const css = c.src.slice(c.i, end); c.i = end + "</style>".length;
     return { k: "style", css };

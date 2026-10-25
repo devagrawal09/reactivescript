@@ -1,5 +1,6 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
+import { classMap } from "./style.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
@@ -838,6 +839,7 @@ export class Runtime {
           return this.untracked(() => this.ev(e.body, region, en));
         };
       }
+      case "stylemap": return classMap(e.css);                      // 07 CSS-5: a constant
       case "call": {
         let f: unknown, self: unknown;
         if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !region.lookup("until")) return this.until(e.args[0], region, env);   // AC-6
