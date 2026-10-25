@@ -1,0 +1,49 @@
+// data.rx — the notes as the server has them, the route, and the only ways to change them.
+import { dbNotes, dbNote, dbSave, Conflict } from "./api"
+
+export type Note = { id: number; title: string; body: string; updated: string }
+export type Route = { page: "list" } | { page: "note"; id: number }
+
+export error NotFound(id: number) => `note ${id} not found`
+
+// The server's half: what leaves it is a Note — the owner column stays there (SF-6).
+fn note(r: { id: number; title: string; body: string; updated: string }): Note => ({ id: r.id, title: r.title, body: r.body, updated: r.updated })
+server fn listNotes(q: string) {
+  let rows = await dbNotes(q)
+  return rows.map(r => note(r))
+}
+server fn getNote(id: number) {
+  let r = await dbNote(id)
+  if (r == null) { throw NotFound(id) }
+  return note(r)
+}
+server fn saveNote(id: number, title: string, body: string) {
+  let r = await dbSave(id, title, body)
+  return note(r)
+}
+
+// The client's half.
+export source query: string := ""
+export source route: Route := { page: "list" }
+export source notes: Note[] key id = await listNotes(query)
+export current = route.page == "note" ? await getNote(route.id) : null
+export source saveError: string := ""
+
+export action search(q: string) { query := q }
+export action open(id: number) { route := { page: "note", id: id }; saveError := "" }
+export action back() { route := { page: "list" } }
+export action save(id: number, title: string, body: string) {
+  saveError := ""
+  optimistic notes := ns => ns.map(n => n.id == id ? { ...n, title: title, body: body } : n)
+  try {
+    try {
+      let saved = await saveNote(id, title, body)
+      notes := ns => ns.map(n => n.id == id ? saved : n)
+      refresh current
+    } catch (e: Conflict) {
+      saveError := `someone else saved first: ${e.message}`
+    }
+  } catch (e) {
+    saveError := e.message
+  }
+}

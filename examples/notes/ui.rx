@@ -1,0 +1,46 @@
+// ui.rx — the pieces of view. Each component's stylesheet scopes only its own view (07 §6b).
+import { Note } from "./data.rx"
+import { open, save, saveError } from "./data.rx"
+
+export error TitleRequired() => "a note needs a title"
+
+component Row(props: { note: Note }) {
+  <tr>
+    <td><a onClick={() => { open(props.note.id) }}>{props.note.title}</a></td>
+    <td class="when">{props.note.updated}</td>
+  </tr>
+}
+
+export component NoteList(props: { notes: Note[] }) {
+  <style>
+    table { border-collapse: collapse; width: 100% }
+    td { padding: 4px 8px }
+    .when { color: gray; text-align: right }
+    .empty { font-style: italic }
+  </style>
+  if len(props.notes) == 0 {
+    <p class="empty">no notes</p>
+  } else {
+    <table><tbody>{for n in props.notes { <Row note={n} /> }}</tbody></table>
+  }
+}
+
+// The editor's drafts are its own: snapshots of the note it was opened with (E-4).
+export component NoteEditor(props: { note: Note }) {
+  source title := peek(props.note.title)
+  source body := peek(props.note.body)
+  problem = title.trim() == "" ? "a note needs a title" : ""
+  dirty = title != props.note.title || body != props.note.body
+  <style>
+    form { display: grid; gap: 8px }
+    .problem, .error { color: crimson }
+    button[disabled] { opacity: 0.5 }
+  </style>
+  <form>
+    <input value={title} onInput={e => { title := e.currentTarget.value }} />
+    <textarea value={body} onInput={e => { body := e.currentTarget.value }} />
+    {if problem != "" { <p class="problem">{problem}</p> }}
+    {if saveError != "" { <p class="error">{saveError}</p> }}
+    <button disabled={!dirty || problem != ""} onClick={() => { save(props.note.id, title, body) }}>save</button>
+  </form>
+}

@@ -114,7 +114,9 @@ class Gen {
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
       if (x.k === "server") env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
+      if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
+    for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
     this.top.push(`async function ${f}(...__a) {\n  "use server";\n  const __rt = globalThis.__rx_app; const __B = __rt.B;\n  ${pre.join("\n  ")}\n  return __rt.serverCall(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {\n${body}\n  }, __a);\n}`);
     return f;

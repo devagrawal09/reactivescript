@@ -1,0 +1,7 @@
+// The notes database (server-only JS) and the one thing only the browser knows.
+export type NoteRow = { id: number; title: string; body: string; updated: string; owner: string }
+export error Conflict
+export server pure fn dbNotes(q: string): Promise<NoteRow[]>
+export server pure fn dbNote(id: number): Promise<NoteRow | null>
+export server fn dbSave(id: number, title: string, body: string): Promise<NoteRow> rejects(Conflict)
+export client pure fn viewport(): Promise<number>

@@ -264,7 +264,7 @@ export class Runtime {
         if (Array.isArray(o)) this.notify(o, "length");
       }
     }
-    for (const { node, value: v0 } of this.pendingGuesses) { const value = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(node.hasGuess ? node.guess : node.value) : v0; node.guess = value; node.hasGuess = true; /* W-6 applies to guesses too */ node.guessBy = this.instant; node.corrected = false; this.notify(node, ""); }   // AC-3: a guess shows from this instant's settle
+    for (const { node, value: v0 } of this.pendingGuesses) { const value = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(node.hasGuess ? node.guess : node.demanded ? node.value : this.pull(node)) : v0;   /* a guess over a source nothing on screen reads (found by S-app-notes: the list was unmounted) */ node.guess = value; node.hasGuess = true; /* W-6 applies to guesses too */ node.guessBy = this.instant; node.corrected = false; this.notify(node, ""); }   // AC-3: a guess shows from this instant's settle
     this.pendingGuesses = [];
     for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
     this.pendingRefresh = [];
