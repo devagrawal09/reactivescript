@@ -987,6 +987,7 @@ export class Runtime {
   private inst1(m: Markup, region: Region): VItem {
     switch (m.k) {
       case "text": return { k: "text", s: m.s };
+      case "style": return { k: "text", s: "" };                                          // CSS-4: removed from the view
       case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
       case "el": {
         if (/^[A-Z]/.test(m.tag)) {

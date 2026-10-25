@@ -140,6 +140,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** CSS-2: a dynamic class with the view's scope class after it. */
+    cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-7: \`server fn\` — every call a flight; the body (a generator, as an action's) is driven by promises,

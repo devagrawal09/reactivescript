@@ -59,6 +59,7 @@ export type Markup = (
   | { k: "el"; tag: string; attrs: { name: string; e: Expr }[]; children: Markup[] }
   | { k: "read"; e: Expr }
   | { k: "text"; s: string }
+  | { k: "style"; css: string }                                                   // 07 §6b CSS-1: a scoped stylesheet, raw text
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6

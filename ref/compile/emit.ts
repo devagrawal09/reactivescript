@@ -6,6 +6,7 @@
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits } from "../src/awaits.ts";
+import { transform } from "@solidjs/compiler";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
@@ -64,22 +65,22 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
 
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string; css: string } {
   const out = (path: string) => path === set.entry ? "main.mjs" : `m${set.order.indexOf(path)}.mjs`;
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
   const files = new Map<string, string>();
   for (const path of set.order) {
-    const p = set.programs.get(path)!;
+    const p = set.programs.get(path)!; g.file = path;
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
     const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
-    if (path === set.entry) files.set(out(path), `${head}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${g.block(p.decls, p.view, new Env(null), 2)}\n  };\n}\n`);
+    if (path === set.entry) files.set(out(path), `${head}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${g.block(p.decls, p.view, new Env(null), 2, undefined, true)}\n  };\n}\n`);
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
       const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
       files.set(out(path), `${head}export default function module(__rt) {\n  const __B = __rt.B;\n${g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`)}\n}\n`);
     }
   }
-  return { files, entry: out(set.entry) };
+  return { files, entry: out(set.entry), css: g.css.join("\n") };   // CSS-4: the modules' stylesheets, beside their JavaScript
 }
 /** Handler rows and resolve values in scenarios: statements over names looked up at run time (rt.lookup). */
 export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return g.stmts(stmts, env, { imp: true, dyn: true }, 0); }
@@ -87,6 +88,8 @@ export function compileDynamicExpr(e: Expr): string { const g = new Gen(usage({ 
 
 class Gen {
   u: Usage;
+  file = "main.rx"; css: string[] = [];
+  private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
   mods?: { set: ModuleSet; out: (path: string) => string };
   constructor(u: Usage, mods?: { set: ModuleSet; out: (path: string) => string }) { this.u = u; this.mods = mods; }
   depVar(path: string) { return `__m${this.mods!.set.order.indexOf(path)}`; }
@@ -105,7 +108,41 @@ class Gen {
   }
 
   // ---- blocks: a region's declarations, then its view ----
-  block(decls: Decl[], view: Markup[], env: Env, ind: number, exportsTail?: string): string {
+  block(decls: Decl[], view: Markup[], env: Env, ind: number, exportsTail?: string, styleRoot = false): string {
+    const pad = " ".repeat(ind * 2);
+    const prevHash = this.styleHash;
+    if (styleRoot) this.styleHash = this.style(view);   // a component's view (or the program's) has its own scope; a branch keeps its view's
+    try { return this.block0(decls, view, env, ind, exportsTail); } finally { this.styleHash = prevHash; }
+  }
+  /** 07 §6b: a view's <style> through TSRX's engine (Solid's compiler): the view's elements as a TSRX fragment — HTML
+   *  elements with their static attributes, components with the children passed to them, and every region (a branch, a
+   *  loop body, a boundary) as an expression TSRX matches conservatively, as it does its own control flow. Its scoped
+   *  stylesheet joins the module's; its hash is the view's scope class. */
+  private style(view: Markup[]): string | null {
+    const st = view.find(m => m.k === "style") as Extract<Markup, { k: "style" }> | undefined; if (!st) return null;
+    const esc = (v: string) => v.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    const tree = (ms: Markup[]): string => ms.map(m => {
+      switch (m.k) {
+        case "text": case "style": return "";
+        case "read": return "{0}";
+        case "el": {
+          if (m.tag === "") return `<>${tree(m.children)}</>`;
+          const attrs = m.attrs.filter(a => !isHandler(a.name)).map(a => a.e.k === "lit" && typeof a.e.v === "string" ? ` ${a.name}="${esc(a.e.v)}"` : a.e.k === "lit" && a.e.v === true ? ` ${a.name}` : ` ${a.name}={0}`).join("");
+          return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${tree(m.children)}</${m.tag}>`;
+        }
+        case "mif": return `{(<>${tree(m.t)}</>)}{(<>${tree(m.f)}</>)}`;
+        case "mfor": return `{(<>${tree(m.body)}</>)}`;
+        case "loading": case "errored": return `{(<>${tree(m.fallback)}</>)}{(<>${tree(m.body)}</>)}`;
+      }
+    }).join("");
+    const src = `export const __view = () => <><style>${st.css}</style>${tree(view)}</>;`;
+    let r: { css?: string; cssHash?: string | null };
+    try { r = transform(src, { filename: this.file.replace(/\.rx$/, "") + ".tsrx", generate: "dom" }) as typeof r; }
+    catch (e) { throw new CompileError(`<style> (line ${st.line ?? "?"}): ${(e as Error).message}`); }
+    if (!r.cssHash) return null;
+    this.css.push(r.css ?? ""); return r.cssHash;
+  }
+  private block0(decls: Decl[], view: Markup[], env: Env, ind: number, exportsTail?: string): string {
     const pad = " ".repeat(ind * 2);
     const out: string[] = [`${pad}const __o = __rt.owner();`];
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
@@ -262,7 +299,7 @@ ${pad}});`);
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env); inner.vars.set(d.props, { kind: "val", js: mg(d.props) });
-    return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1)}\n${pad}}`;
+    return `${pad}function ${cm(d.name)}(${mg(d.props)}) {\n${this.block(d.decls, d.view, inner, ind + 1, undefined, true)}\n${pad}}`;
   }
 
   // ---- expressions ----
@@ -389,6 +426,7 @@ ${pad}});`);
     const pad = " ".repeat((ind + 1) * 2);
     switch (m.k) {
       case "text": return `{${J(m.s)}}`;
+      case "style": return "";                                                                 // CSS-4: removed; the stylesheet is the module's
       case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
@@ -397,7 +435,8 @@ ${pad}});`);
           const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
           return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${attrs} children={[]} />`;
         }
-        const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
+        let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.cls(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
+        if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
         return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${m.tag}>`;
       }
       case "mif": {

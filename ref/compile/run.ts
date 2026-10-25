@@ -78,6 +78,12 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   const lines: string[] = []; let ok = true;
   const base = sc.tables.find(t => t.title === "Frames");
   for (const t of sc.tables) ok = (await runTable(sc, t, base, lines)) && ok;
+  if (sc.css !== null) {   // 07 §6b: the program's stylesheet, as TSRX's engine scoped it — hashes renamed h1, h2… in order of appearance
+    try {
+      const hashes: string[] = []; const css = compileModules(moduleSet(sc, sc.program)).css.replace(/tsrx-[0-9a-f]{8}/g, h => `h${(hashes.includes(h) ? hashes.indexOf(h) : hashes.push(h) - 1) + 1}`);
+      if (norm(css) === norm(sc.css)) lines.push(`  ✓ Scoped CSS: ${norm(css)}`); else { ok = false; lines.push(`  ✗ Scoped CSS: expected '${norm(sc.css)}', got '${norm(css)}'`); }
+    } catch (e) { ok = false; lines.push(`  ✗ Scoped CSS: ${(e as Error).message}`); }
+  }
   const skipped = lines.some(l => l.includes("~ ")) && !lines.some(l => l.includes("✗"));
   console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (skipped) skip++; else pass++;

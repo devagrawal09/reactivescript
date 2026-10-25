@@ -252,6 +252,53 @@ component Card(props: { title: string; children: View }) {
   equation for `x`. `props.children` is a `View`, shown by reading it.
 - A component is applied only in markup. It returns nothing.
 
+## 6b. Scoped styles (ruled 2026-10-24: per component, as TSRX)
+
+```
+component Card(props) {
+  source open := false
+  <style>
+    .card { border: 1px solid }
+    h2 { margin: 0 }
+    .card :global(.icon) { opacity: 1 }
+  </style>
+  <div class="card">
+    <h2>{props.title}</h2>
+    {if open { <p class="body">{props.children}</p> }}
+  </div>
+}
+```
+
+- **CSS-1 (Where).** A `<style>` is written at the top level of a
+  component's view, or of the program's: one per view. Its content is CSS,
+  read as raw text — a stylesheet is static, and the grammar has no place
+  for an expression in it (bin U). A `<style>` anywhere else (inside an
+  element, a branch, a `for` body, a `loading` or `errored` region), or a
+  second one, is `STYLE_PLACEMENT` (bin S). TSRX takes a stylesheet
+  anywhere in its owner, refuses a second, and silently drops one in an
+  `@for` body or an `@pending` branch; here, where it is written is what
+  it scopes. A `<style>` takes no attributes.
+- **CSS-2 (What it scopes).** Every HTML element of the view — through
+  `if`, `for`, `loading` and `errored`, bodies and fallbacks alike, and the
+  children the view passes to a component — carries the view's scope class.
+  A component's body is its own view, with its own stylesheet or none.
+  Children belong to the view that wrote them, wherever the component
+  places them.
+- **CSS-3 (The stylesheet).** TSRX's engine, unchanged (`tsrx::style` in
+  Solid's compiler; 11 CP-1d): selectors are scoped to the class
+  (`tsrx-` and eight hex digits of the module, the style's position and its
+  text), `:global(…)` leaves a selector or part of one unscoped, a selector
+  no element of the view can match is pruned, `@keyframes` names are local.
+  A region is matched conservatively, as TSRX matches its control flow.
+- **CSS-4 (Output).** The `<style>` is removed from the view; the module's
+  stylesheet is returned beside its JavaScript, for the bundler to emit.
+  Nothing is inserted at run time on either side, so the served page and
+  the hydrated page use one stylesheet and the same classes (SV-7).
+- *Not yet (TSRX has them):* class maps — `<style ref={styles}>` and style
+  expressions, which hand a stylesheet's classes to code as values.
+
+Executable: S-surface-2 (the compiled runner checks the stylesheet).
+
 ## 7. Worked ports
 
 S-solid-8:

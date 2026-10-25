@@ -496,6 +496,7 @@ export class Oracle {
     const self = this;
     switch (m.k) {
       case "text": return R.createTextNode(m.s);
+      case "style": return "";                                                            // CSS-4: removed from the view
       case "read": { const g = () => { const v = this.ev(m.e, scope); return isView(v) ? v : fmt(v); }; (g as { $read?: boolean }).$read = true; return g; }   // a view value (children) is inserted as structure
       case "el": {
         if (m.tag === "") return this.fragment(m.children, scope, inEl);     // `<>…</>`

@@ -529,6 +529,12 @@ function parseElement(c: Cursor): Markup {
   c.expect("<");
   if (c.eat(">")) return { k: "el", tag: "", attrs: [], children: parseMarkup(c, "") };   // fragment `<>…</>`
   const tag = c.tagName() ?? c.fail("tag");
+  if (tag === "style") {                                               // 07 §6b CSS-1: a stylesheet is raw text — no `{…}` holes exist
+    c.ws(); if (!c.eat(">")) c.fail("CSS-1: a <style> takes no attributes (class maps, TSRX's `<style ref>`, are not lowered yet): `<style>…</style>`");
+    const end = c.src.indexOf("</style>", c.i); if (end < 0) c.fail("expected </style>");
+    const css = c.src.slice(c.i, end); c.i = end + "</style>".length;
+    return { k: "style", css };
+  }
   const attrs: { name: string; e: Expr }[] = [];
   for (;;) {
     c.ws();

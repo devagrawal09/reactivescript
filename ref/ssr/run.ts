@@ -64,7 +64,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   const served$ = new Promise<void>(resolve => {
     pending = res => {
       res.on("error", () => {});
-      res.write(`<!doctype html><html><head>${generateHydrationScript()}</head><body><div id="app">`);
+      res.write(`<!doctype html><html><head>${generateHydrationScript()}<style>${out.css}</style></head><body><div id="app">`);   // CSS-4: the stylesheet is linked, not injected by the runtime
       try { app.stream(main(app), { write: (c: string) => { chunks++; doc.push(c); if (!res.writableEnded) res.write(c); }, end: () => { ended = true; if (!res.writableEnded) res.end("</div></body></html>"); } }); }
       catch (e) { renderError = e; res.end(); }
       resolve();
@@ -132,8 +132,8 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   const served$ = new Promise<void>(resolve => {
     pending = res => {
       res.on("error", () => {});
-      if (csr) { res.end(`<!doctype html><html><head></head><body><div id="app"></div></body></html>`); chunks = 1; ended = true; resolve(); return; }
-      res.write(`<!doctype html><html><head>${generateHydrationScript()}</head><body><div id="app">`);
+      if (csr) { res.end(`<!doctype html><html><head><style>${out.css}</style></head><body><div id="app"></div></body></html>`); chunks = 1; ended = true; resolve(); return; }
+      res.write(`<!doctype html><html><head>${generateHydrationScript()}<style>${out.css}</style></head><body><div id="app">`);   // CSS-4: the stylesheet is linked, not injected by the runtime
       app.stream(main(app), { write: (c: string) => { chunks++; if (!res.writableEnded) res.write(c); }, end: () => { ended = true; if (!res.writableEnded) res.end("</div></body></html>"); } });
       resolve();
     };
@@ -307,7 +307,7 @@ async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolea
   const served$ = new Promise<void>(resolve => {
     pending = res => {
       res.on("error", () => {});
-      res.write(`<!doctype html><html><head>${generateHydrationScript()}</head><body><div id="app">`);
+      res.write(`<!doctype html><html><head>${generateHydrationScript()}<style>${out.css}</style></head><body><div id="app">`);   // CSS-4: the stylesheet is linked, not injected by the runtime
       app.stream(main(app), { write: (c: string) => { chunks++; if (!res.writableEnded) res.write(c); }, end: () => { if (!res.writableEnded) res.end("</div></body></html>"); } });
       resolve();
     };

@@ -244,7 +244,7 @@ class Checker {
     // 3. each declaration
     for (const d of decls) { this.line = d.line; this.decl(d, env, ctx); }
     // 4. the view
-    this.markup(view, env);
+    this.markup(view, env, env.region.isComponentRoot || !env.region.parent);   // CSS-1: a component's view, or the program's, may hold its <style>
   }
 
   /** 12 SF-1: a server fn is io when its body calls io — JS declared io, `log`, or another server fn that is (to a fixpoint).
@@ -702,11 +702,16 @@ class Checker {
   }
 
   // ---- views ----
-  private markup(ms: Markup[], env: Env) {
+  private markup(ms: Markup[], env: Env, viewRoot = false) {
+    let styles = 0;
     for (const m of ms) {
       if (m.line) this.line = m.line;
       switch (m.k) {
         case "text": break;
+        case "style":                                                                         // 07 §6b CSS-1
+          if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
+          else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
+          break;
         case "read": this.expr(m.e, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {

@@ -46,6 +46,17 @@ record argued each way; this is the decision.
   on `.rx` positions. This is the only change the ruling asks of Solid; it
   is additive and shared with any other front end that produces an AST.
 
+- **CP-1d (Styles: a second seam).** Scoped styles (07 §6b) are TSRX's
+  engine, `compile_style` in `packages/compiler/src/tsrx/style/`, which
+  "deliberately has no dependency on the TSRX/Oxc frontend; the frontend
+  only needs to translate its template into `Element` values". It is a
+  private module today. The second additive change asked of Solid is to
+  export it (`compile_style`, `StyleInput`, `Element`, `StyleOutput`), so
+  ReactiveScript's crate hands it a `.rx` view's elements and gets back the
+  stylesheet, its hash and the elements to annotate — the same bytes a
+  `.tsrx` file gets. (`ref/` reaches the engine by compiling a synthetic
+  `.tsrx` fragment of the view.)
+
 ## CP-2 — Why not inside `@solidjs/compiler`
 
 - `transform()` is Solid's public contract: one source module in, one
