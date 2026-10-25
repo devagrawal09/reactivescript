@@ -1,0 +1,64 @@
+<title>ReactiveScript Syntax</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Fragment+Mono&display=swap">
+<style>
+/* Layout: a file index on the left, the source on the right — a code reader, not a document. */
+:root {
+  --bg: #fbfbfa; --panel: #f2f2ef; --fg: #1f2328; --muted: #6a6f76; --rule: #e1e1dc; --link: #2557a8;
+  --source: #a14a00; --equation: #0b766e; --reactive: #6b35d9; --boundary: #b8174f; --row: #2557a8; --context: #7a5d00;
+  --ui: "Instrument Sans", system-ui, sans-serif; --mono: "Fragment Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #16181c; --panel: #1d2026; --fg: #e3e6ea; --muted: #959ba4; --rule: #2c3038; --link: #8fb5ff;
+  --source: #ffb86b; --equation: #5fd3c6; --reactive: #c9b0ff; --boundary: #ff8fb8; --row: #8fb5ff; --context: #e3c46a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #16181c; --panel: #1d2026; --fg: #e3e6ea; --muted: #959ba4; --rule: #2c3038; --link: #8fb5ff;
+  --source: #ffb86b; --equation: #5fd3c6; --reactive: #c9b0ff; --boundary: #ff8fb8; --row: #8fb5ff; --context: #e3c46a; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--ui); }
+.wrap { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; max-width: 1200px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+.intro { grid-column: 1 / -1; display: grid; gap: 12px; }
+h1 { font-size: 28px; font-weight: 600; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h1 code { font-family: var(--mono); font-size: 0.85em; font-weight: 400; color: var(--muted); }
+.intro p { margin: 0; max-width: 68ch; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 0; padding: 0; list-style: none; font-size: 13px; }
+.legend li { display: flex; align-items: baseline; gap: 8px; }
+.legend code { font-family: var(--mono); font-size: 13px; }
+.k-source { color: var(--source); font-weight: 700; } .k-equation { color: var(--equation); } .k-reactive { color: var(--reactive); }
+.k-boundary { color: var(--boundary); font-weight: 700; } .k-row { color: var(--row); font-style: italic; } .k-context { color: var(--context); }
+nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; max-height: calc(100vh - 32px); overflow: auto; font-size: 14px; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav .grp { margin-bottom: 14px; }
+nav .grp > span { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+nav a { display: block; padding: 2px 8px; margin-left: -8px; border-radius: 4px; color: var(--fg); text-decoration: none; font-family: var(--mono); font-size: 13px; }
+nav a:hover, nav a:focus-visible { background: var(--panel); outline: none; color: var(--link); }
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; min-width: 0; }
+section header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin-bottom: 10px; }
+section h2 { font-family: var(--mono); font-size: 14px; font-weight: 400; margin: 0; }
+.meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.code { overflow-x: auto; background: var(--panel); border-radius: 6px; }
+.shiki { margin: 0; padding: 14px 16px; background: transparent !important; font: 13px/1.6 var(--mono); tab-size: 2; }
+.shiki span { color: var(--shiki-light); font-style: var(--shiki-light-font-style); font-weight: var(--shiki-light-font-weight); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .shiki span { color: var(--shiki-dark); font-style: var(--shiki-dark-font-style); font-weight: var(--shiki-dark-font-weight); } }
+:root[data-theme="dark"] .shiki span { color: var(--shiki-dark); font-style: var(--shiki-dark-font-style); font-weight: var(--shiki-dark-font-weight); }
+section { scroll-margin-top: 16px; }
+@media (max-width: 760px) { .wrap { grid-template-columns: minmax(0, 1fr); } nav { position: static; max-height: none; }
+  nav > ul { display: flex; flex-wrap: wrap; gap: 4px 20px; } }
+</style>
+<div class="wrap">
+  <div class="intro">
+    <h1>ReactiveScript <code>.rx</code></h1>
+    <p>Every example in the repository, through the TextMate grammar in <code>tooling/vscode-rx</code>. TypeScript's grammar colours expressions and JSX as usual; the language's own forms get colours of their own. <!--COUNT-->.</p>
+    <ul class="legend">
+      <li><code class="k-source">source x :=</code> writable state and its writes</li>
+      <li><code class="k-equation">x =</code> an equation</li>
+      <li><code class="k-reactive">pre peek latest use pending? await* -&gt; key</code> reactive operators</li>
+      <li><code class="k-boundary">loading errored fallback</code> boundaries</li>
+      <li><code class="k-row">pure server client rejects</code> rows at the JS boundary</li>
+      <li><code class="k-context">context provide</code> contexts</li>
+    </ul>
+  </div>
+  <nav aria-label="Files"><ul><!--NAV--></ul></nav>
+  <main><!--SECTIONS--></main>
+</div>

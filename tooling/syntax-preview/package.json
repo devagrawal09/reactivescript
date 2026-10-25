@@ -1,0 +1,4 @@
+{ "name": "rx-syntax-preview", "private": true, "type": "module",
+  "description": "Renders every example through tooling/vscode-rx's grammar (Shiki) into one page.",
+  "scripts": { "render": "node render.mjs ../vscode-rx/syntaxes/rx.tmLanguage.json ../../examples rx-syntax.html" },
+  "dependencies": { "shiki": "1.24.0" } }

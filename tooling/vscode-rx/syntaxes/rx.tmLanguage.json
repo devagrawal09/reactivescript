@@ -1,0 +1,275 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ReactiveScript",
+  "scopeName": "source.rx",
+  "fileTypes": [
+    "rx"
+  ],
+  "patterns": [
+    {
+      "include": "#style"
+    },
+    {
+      "include": "source.tsx"
+    }
+  ],
+  "repository": {
+    "style": {
+      "begin": "(<)(style)(>)",
+      "end": "(</)(style)(>)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.tsx"
+        },
+        "2": {
+          "name": "entity.name.tag.tsx"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.end.tsx"
+        }
+      },
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.definition.tag.begin.tsx"
+        },
+        "2": {
+          "name": "entity.name.tag.tsx"
+        },
+        "3": {
+          "name": "punctuation.definition.tag.end.tsx"
+        }
+      },
+      "contentName": "meta.embedded.block.css",
+      "patterns": [
+        {
+          "include": "source.css"
+        }
+      ]
+    }
+  },
+  "injections": {
+    "L:source.rx -comment -string -meta.embedded.block.css": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.rx",
+          "match": "//.*$"
+        },
+        {
+          "match": "\\b(source)\\s+([A-Za-z_$][\\w$]*)(?:\\s*(:)\\s*(.+?))?(?:\\s+(key)\\s+([A-Za-z_$][\\w$]*))?\\s*(:=|=)(?![=>])",
+          "captures": {
+            "1": {
+              "name": "storage.type.source.rx"
+            },
+            "2": {
+              "name": "variable.other.readwrite.source.rx"
+            },
+            "3": {
+              "name": "keyword.operator.type.annotation.tsx"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "source.tsx#type"
+                }
+              ]
+            },
+            "5": {
+              "name": "storage.modifier.key.rx"
+            },
+            "6": {
+              "name": "variable.other.property.rx"
+            },
+            "7": {
+              "name": "keyword.operator.assignment.write.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(deferred)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.rx"
+            },
+            "2": {
+              "name": "variable.other.constant.equation.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(server)\\s+(fn)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.server.rx"
+            },
+            "2": {
+              "name": "storage.type.function.rx"
+            },
+            "3": {
+              "name": "entity.name.function.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(fn|action|component)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.rx"
+            },
+            "2": {
+              "name": "entity.name.function.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(error)\\s+([A-Z][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.class.rx"
+            },
+            "2": {
+              "name": "entity.name.type.class.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(context)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.rx"
+            },
+            "2": {
+              "name": "variable.other.constant.context.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(provide)\\s+([A-Za-z_$][\\w$]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.other.provide.rx"
+            },
+            "2": {
+              "name": "variable.other.constant.context.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(effect)\\b",
+          "name": "storage.type.effect.rx"
+        },
+        {
+          "match": "^\\s*(?:(export)\\s+)?([A-Za-z_$][\\w$]*)(?=\\s*(?::(?!=)[^=\\n]*)?(?:\\s+key\\s+[A-Za-z_$][\\w$]*)?\\s*=(?![=>]))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.export.rx"
+            },
+            "2": {
+              "name": "variable.other.constant.equation.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(key)\\s+([A-Za-z_$][\\w$]*)(?=\\s*(?:=|:=))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.key.rx"
+            },
+            "2": {
+              "name": "variable.other.property.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(import|export)\\s+((?:(?:pure|server|client)\\s+)+)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.import.rx"
+            },
+            "2": {
+              "name": "storage.modifier.row.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(rejects|fails)\\b",
+          "name": "storage.modifier.row.rx"
+        },
+        {
+          "match": "\\b(loading)\\b(?:\\s+(on)\\b)?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.loading.rx"
+            },
+            "2": {
+              "name": "keyword.control.on.rx"
+            }
+          }
+        },
+        {
+          "match": "\\b(errored|fallback|portal)\\b",
+          "name": "keyword.control.boundary.rx"
+        },
+        {
+          "match": "\\b(for)\\s+([A-Za-z_$][\\w$]*)\\s+(in)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.loop.rx"
+            },
+            "2": {
+              "name": "variable.parameter.rx"
+            },
+            "3": {
+              "name": "keyword.control.loop.rx"
+            }
+          }
+        },
+        {
+          "match": "\\bawait\\*",
+          "name": "keyword.control.flow.stream.rx"
+        },
+        {
+          "match": "\\bpending\\?",
+          "name": "keyword.operator.probe.rx"
+        },
+        {
+          "match": "\\b(pre|peek|latest|use)\\b",
+          "name": "keyword.operator.reactive.rx"
+        },
+        {
+          "match": "\\b(optimistic|refresh|affects)\\b",
+          "name": "keyword.other.action.rx"
+        },
+        {
+          "match": "(?<![\\w$.:])(?<!:\\s)((?:use\\s+)?[A-Za-z_$][\\w$]*(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\n]*\\])*)\\s*(:=)",
+          "captures": {
+            "1": {
+              "name": "variable.other.readwrite.write.rx"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.write.rx"
+            }
+          }
+        },
+        {
+          "match": ":=",
+          "name": "keyword.operator.assignment.write.rx"
+        },
+        {
+          "match": "->",
+          "name": "keyword.operator.first-paint.rx"
+        },
+        {
+          "match": "(?<=\\{)\\s*(if)\\b|\\b(else)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.control.conditional.rx"
+            },
+            "2": {
+              "name": "keyword.control.conditional.rx"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
