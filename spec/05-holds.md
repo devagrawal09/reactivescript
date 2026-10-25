@@ -282,6 +282,24 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   empty view as `null`, which keeps its slot.
 - **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
+- **DV-17 (a shared boundary merges mounts) — open, reproduced
+  2026-10-25** (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`,
+  found by S-solid-5). Two branches mounted in separate instants, each
+  reading a value one of two independent holds keeps (born held, D-1),
+  stay independent — until both sit under one error boundary: then Solid
+  merges the holds, and the first landing reveals nothing. Solid's rules
+  do not say a boundary is a shared reader (D-4 "membership is the
+  tick's"; D-3 "a render effect's mere existence entangles nothing"), so
+  the spec keeps them independent; unruled by Solid.
+- **DV-16 (S-39, `latest` first) — a Solid bug, reproduced 2026-10-25**
+  (`ref/oracle/repros/dv16-latest-first.mjs`, found by S-solid-39). A
+  newly mounted reader that reads `latest s` before `n0` — a lane
+  derivation that has never shown a value — publishes its branch with the
+  slot empty instead of holding the mount; the `n0`-first order holds.
+  Solid's own ruling (D-28) names the empty slot the violation. The spec
+  frames stand; the interpreter holds in both orders (a reader that has
+  never shown anything has no lane display to keep, so a read that throws
+  holds the pass).
 - **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
   (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A
   keyed equation lowers to `createProjection` over its memo; once the
@@ -321,9 +339,10 @@ this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S
 S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24, S-25,
 S-26, S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
 S-42+S-43, and with 06: S-8, S-9 (inverted — no escape), S-15, S-20,
-S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37, and with 03 RG-8: S-23. Not yet expressible: S-5
-(two roots), S-28 (imperative probes), S-39 (one reader,
-two orders). Divergences found and fixed
+S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37, and with 03 RG-8: S-23;
+S-28 (imperative probes, R-12), S-39 (one reader, two orders; DV-16) and
+S-5 (two roots as two branches of one app — MO-1c; DV-17). Every scenario
+of Solid's `SCENARIOS.md` is now ported. Divergences found and fixed
 by porting are recorded in the rule they changed. Solid's probe columns
 (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
 on-screen probe in a held lane keeps what it showed (D-25, S-solid-24), so

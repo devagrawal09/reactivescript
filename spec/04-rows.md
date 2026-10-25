@@ -106,7 +106,10 @@ and where they may not go.
   because they are one reader (V-1).
 - **R-12 (Probes in imperative scope).** `latest x` and `pending? x` are
   readable in imperative scope as snapshots of the verdict / in-flight value
-  at that moment.
+  at that moment. On a first load there is no owner to hold, so `pending?
+  x` is `false` — no new question yet, only no answer — and `latest x`
+  throws, as it does anywhere: a value that has never had one is not read
+  (Solid S-28, A7; S-solid-28). A `try` in the handler catches it.
 
 ## R-fails — failure (ruled 2026-10-23)
 

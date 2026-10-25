@@ -15,6 +15,8 @@ node repros/dv11-hydrate/run.mjs
 node repros/dv12-hydrate/run.mjs
 node --conditions=browser repros/dv13-universal-empty.mjs
 node repros/dv14-replay-instant/run.mjs
+node --conditions=browser --conditions=development repros/dv16-latest-first.mjs [latest-first|n0-first]
+node --conditions=browser --conditions=development repros/dv17-boundary-merges-mounts.mjs [boundary|none]
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -315,3 +317,32 @@ into the `<table>`. Hydration claims by key and does not notice; the page is
 two trees at once. This is HTML, not Solid: the checker refuses the
 application (`CONTENT_MODEL`, S-server-4), and `examples/users.rx` now
 writes its `<tbody>`.
+
+---
+
+## DV-16 — a reader whose first read is `latest(s)` publishes an empty slot
+
+**Rule.** SCENARIOS.md S-39 (D-28, ruled 2026-10-09): *"a later unread value
+still throws"* — a reader that reads `latest(s)` and then `n0()`, a lane
+derivation that has never shown a value, holds the mount like the
+`n0()`-first order does. Publishing the branch with the slot empty is the ✗
+row.
+
+**Observed.** `dv16-latest-first.mjs latest-first`: after `setMounted(true)`
+the control shows `on` and the slot is empty; `n0-first` holds (`off`) as
+ruled. Both reveal `on [1, 1]` when `n0(1)` lands. Found by S-solid-39; the
+spec (05, and the interpreter) holds in both orders.
+
+---
+
+## DV-17 — two mounts under one error boundary merge their holds (open)
+
+**Rule.** SCENARIOS.md S-5 rows 1′–3′ (D-4, *membership is the tick's*):
+two mounts made in separate flushes, each over its own hold, settle
+independently.
+
+**Observed.** `dv17-boundary-merges-mounts.mjs boundary`: with both
+`<Show>`s under one `<Errored>`, `slowA`'s landing reveals nothing until
+`slowB` lands; `none` reveals `pA` alone, as ruled. The rules do not say a
+boundary is a shared reader — unruled. Found by S-solid-5.
+

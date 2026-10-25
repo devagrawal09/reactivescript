@@ -61,6 +61,7 @@ export class Node {
   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
   heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
+  taintFrom = new Set<Node>();                         // the inputs whose holds this node's last pass took (plain reads, not probes)
   served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
@@ -410,7 +411,7 @@ export class Runtime {
           }
           return;
         }
-        if (i.node.lane && v instanceof PendingVal && !plainHeld && this.committedOnce) {                                   // pending only through the lane (at the mount there is no committed world to show: the reader is the mount's — H-7)
+        if (i.node.lane && v instanceof PendingVal && !plainHeld && this.committedOnce && i.shown !== null) {              // pending only through the lane (at the mount there is no committed world to show: the reader is the mount's — H-7). A reader that has never shown anything has no display to keep: its read throws and holds the pass like a plain one (Solid D-28, S-solid-39)
           i.node.heldOn = null;
           const lb = nearest(boundary, "loading"); if (lb && lb.armed) lb.caught.push(i.node); else for (const l of i.node.lanes) this.heldLanes.add(l);
           return;
@@ -618,14 +619,14 @@ export class Runtime {
     if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal || n.served.size > 0)) recompute = true;   // a held or served display re-runs its pass each instant
     if (!recompute) {
       n.taint = new Set();
-      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); for (const t of d.taint) n.taint.add(t); if (n.state === "check" && d.changed) { recompute = true; break; } }
+      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); if (n.taintFrom.has(d)) for (const t of d.taint) n.taint.add(t);   /* only what the last pass took taint from: a probe's target is the lane's, not the instant's (F-6; found by S-solid-28) */ if (n.state === "check" && d.changed) { recompute = true; break; } }
       if (!recompute && n.state === "check") recompute = true;
     }
     if (process.env.RS_TRACE_PULL) console.log(`  pull ${n.name}#${n.id} state=${n.state} recompute=${recompute} evaluated=${n.evaluated} value=${fmt(n.value)}`);
     if (recompute) {
       const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
       this.unsubscribe(n);
-      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.served = new Set();
+      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.taintFrom = new Set(); n.served = new Set();
       n.triggered = notified;
       let v: unknown;
       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
@@ -700,7 +701,7 @@ export class Runtime {
         const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
         const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
         if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
-        if (!b.lane && !this.probing) for (const t of b.taint) this.tracking.taint.add(t);   // lane work and probes are the lane's, not the instant's (F-6)
+        if (!b.lane && !this.probing) { this.tracking.taintFrom.add(b); for (const t of b.taint) this.tracking.taint.add(t); }   // lane work and probes are the lane's, not the instant's (F-6)
       }
       return v;
   }
@@ -757,6 +758,7 @@ export class Runtime {
         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
         this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; }
         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
+        if (v instanceof PendingVal && !this.demandMode) throw new Error("NotReadyError: latest of a value that has never had one");   // R-12: in imperative scope as anywhere, `latest` of a first load throws (Solid S-28, A7)
         return v;
       }
       case "pending": {                                                // R-9 / H-9 verdict

@@ -381,7 +381,7 @@ export class Oracle {
         for (let s: Scope | null = scope; s; s = s.parent) { const h = hoistedOf.get(s)?.get(e); if (h) return h(); }   // a hoisted `await`: its own node, read here
         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
-      case "latest": return latest(() => this.ev(e.e, scope, env));
+      case "latest": { const was = this.imperative; this.imperative = 0; try { return latest(() => this.ev(e.e, scope, env)); } finally { this.imperative = was; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
       case "pending": return isPending(() => this.ev(e.e, scope, env));
       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3

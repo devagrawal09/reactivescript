@@ -394,7 +394,7 @@ class Gen {
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
         return e.stream ? go(e.e) : `__rt.aw(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }
-      case "latest": return `__rt.latest(() => ${go(e.e)})`;
+      case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
       case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.raise(${go(e.e)})`;                                          // R-f-3
@@ -435,7 +435,7 @@ class Gen {
     const b = env.lookup(name);
     if (!b) {
       if (BUILTINS.has(name)) return `__B.${name}`;
-      if (ctx.dyn) return name === "log" ? "__B.log" : `__rt.dget(${J(name)})`;
+      if (ctx.dyn) return name === "log" ? "__B.log" : ctx.imp ? `__rt.dget(${J(name)})` : `__rt.dget(${J(name)}, true)`;
       if (name === "log" && ctx.imp) return "__B.log";
       throw new CompileError(`unbound ${name}`);
     }
