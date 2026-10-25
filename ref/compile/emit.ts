@@ -398,6 +398,7 @@ class Gen {
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
       case "call": {
+        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
         if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }

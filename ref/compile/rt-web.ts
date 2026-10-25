@@ -7,7 +7,7 @@ import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, getOwner, runWithOwner, sharedConfig,
+  flush, untrack, latest, isPending, action, refresh, affects, until, NotReadyError, getOwner, runWithOwner, sharedConfig,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -229,6 +229,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       });
     },
     hoisted(name: string, get: Acc) { let l = hoistedBy.get(name); if (!l) hoistedBy.set(name, (l = [])); l.push(get); },
+    until: (p: () => unknown) => until(p),                                   // AC-6
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
     affects: (get: Acc) => affects(get as any),
     orInit: (v: unknown, init: () => unknown) => v === undefined ? init() : v,

@@ -13,6 +13,7 @@ const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: 
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
 export const PENDING = new PendingVal();
+const NOT_YET = Symbol("until: not yet");                 // AC-6: thrown out of an authoritative read that has no value yet
 /** A flight lands any number of times: `await*` reads its latest landing (a stream, ST-6b); a plain `await` its first (R-1). */
 export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; first: { state: "resolved" | "rejected"; value: unknown } | null = null; constructor(key: string) { this.key = key; } }
 export class ViewValue { region: Region; items: VItem[]; constructor(region: Region, items: VItem[]) { this.region = region; this.items = items; } }
@@ -250,7 +251,14 @@ export class Runtime {
     for (const n of this.allNodes()) { n.changed = false; n.demanded = false; n.evaluated = false; }
     for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = [];                    // a continuation's instant is the action's change
     for (const r of this.started) r.change = this.instant; this.started = [];
-    for (let w of writes) {
+    const queue = [...writes];
+    for (let qi = 0; ; qi++) {
+      if (qi >= queue.length) {                                         // AC-6: a write (or landing) that flips an until joins its action's change; the action resumes in this instant
+        if (!this.untilsFlip()) break;
+        queue.push(...this.pendingWrites); this.pendingWrites = [];
+        if (qi >= queue.length) break;
+      }
+      let w = queue[qi];
       if (w.node.heldBy !== null && w.node.heldBy !== this.instant && this.groupOpen(w.node.heldBy)) this.union(this.instant, w.node.heldBy);   // D-8: a second proposal for a held slot joins its hold
       if (typeof w.value === "function") {                                                                 // W-6: a functional write applies to the slot as it stands at the instant — writes compose in run order
         let cur: unknown = w.node.value; for (const k of w.path) cur = isObj(cur) ? cur[String(k)] : undefined;
@@ -680,7 +688,8 @@ export class Runtime {
   /** A tracked read of a reactive node from reactive scope: guesses (H-11), lanes (R-10), serving (D-3), taint. */
   private readNode(b: Node): unknown {
       this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
-      if (b.hasGuess && this.demandMode && !this.committedView) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
+      if (this.authoritative && [...b.lanes].some(l => l.hasGuess)) throw NOT_YET;                   // AC-6: a derivation of a guess has no authoritative value until the guess is confirmed (D-31)
+      if (b.hasGuess && this.demandMode && !this.committedView && !this.authoritative) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
         if (this.tracking) { this.tracking.lane = true; this.tracking.lanes.add(b); }
         return b.guess;
       }
@@ -831,6 +840,7 @@ export class Runtime {
       }
       case "call": {
         let f: unknown, self: unknown;
+        if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !region.lookup("until")) return this.until(e.args[0], region, env);   // AC-6
         if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
@@ -877,6 +887,43 @@ export class Runtime {
     };
   }
   /** A flight's answer: the nodes that asked it recompute, the runs waiting on it resume. */
+  // ---- until (AC-6; Solid D-31) ----
+  private untils: { flight: Flight; pred: Expr; region: Region; env?: Map<string, unknown> }[] = [];
+  private authoritative = false;
+  private untilSeq = 0;
+  /** `until(() => p)`: a flight that resolves the first time `p`, read in the authoritative view, settles truthy. */
+  private until(pred: Expr | undefined, region: Region, env?: Map<string, unknown>): Flight {
+    if (!pred || pred.k !== "fn" || pred.stmts) throw new RuleError("UNTIL_PREDICATE", "until takes a predicate, `until(() => e)`");
+    const w = { flight: new Flight(`until#${this.untilSeq++}`), pred: pred.body, region, env };
+    const r = this.untilEval(w);
+    if (r) { w.flight.state = r.state; w.flight.value = r.value; w.flight.first = r; } else this.untils.push(w);
+    return w.flight;
+  }
+  /** The predicate in the authoritative view: guesses, and what is derived from them, are invisible (a guess never confirms itself);
+   *  pending is "not yet"; a failure rejects. */
+  private untilEval(w: { pred: Expr; region: Region; env?: Map<string, unknown> }): { state: "resolved" | "rejected"; value: unknown } | null {
+    const was = this.authoritative, dm = this.demandMode, tr = this.tracking; this.authoritative = true; this.demandMode = true; this.tracking = null;   // a live read of σ′ (staged truth reads normally), not a snapshot of σ
+    try {
+      const v = this.ev(w.pred, w.region, w.env);
+      if (v instanceof PendingVal) return null;
+      if (v instanceof ErrVal) return { state: "rejected", value: v.err };
+      return v ? { state: "resolved", value: v } : null;
+    } catch (e) {
+      if (e === NOT_YET) return null;
+      if (e instanceof RuleError) throw e;
+      return { state: "rejected", value: e };
+    } finally { this.authoritative = was; this.demandMode = dm; this.tracking = tr; }
+  }
+  private untilsFlip(): boolean {
+    let any = false;
+    for (const w of [...this.untils]) {
+      const r = this.untilEval(w); if (!r) continue;
+      this.untils = this.untils.filter(x => x !== w); any = true;
+      this.answer(w.flight, r.state, r.value);
+    }
+    if (any) { for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = []; for (const r of this.started) r.change = this.instant; this.started = []; }
+    return any;
+  }
   private answer(f: Flight, state: "resolved" | "rejected", value: unknown) {
     f.state = state; f.value = value; f.first ??= { state, value };
     for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);

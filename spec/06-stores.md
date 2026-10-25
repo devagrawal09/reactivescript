@@ -4,8 +4,7 @@
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
-AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. Not yet:
-AC-6 `until`. AC-7 try/catch: S-action-1.
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1.
 
 ---
 
@@ -185,10 +184,21 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   (R-f-7). In a plain handler the same statements work with no hold
   involved and no check. Solid: a generator action's `try` around `yield` —
   the rejection is thrown back at the yield point.
-- **AC-6 (until).** `await until(cond)` in an action holds the change until
-  the reactive predicate `cond` settles truthy, reading the authoritative
-  view with the action's own guesses carved out (so optimism cannot confirm
-  itself). It is a function, not syntax.
+- **AC-6 (until).** [executable 2026-10-25] `await until(() => p)` in
+  imperative scope waits until the predicate `p` settles truthy and gives
+  that value. It is a function of the language, not syntax — Solid's
+  `until` — and is called from imperative scope (in reactive scope,
+  `IO_IN_REACTIVE`); its argument is a predicate, `() => e`
+  (`UNTIL_PREDICATE`), whose body is reactive scope: it reads, tracked, and
+  does not write. `p` reads the **authoritative view**: guesses (AC-3), and
+  whatever is derived from them, are invisible, so a guess never satisfies
+  the wait for its own confirmation; staged truth reads normally. Pending
+  is "not yet". When `p` fails, `until` rejects with that failure, so
+  `await until(…)` fails with what its predicate can fail with (R-f-6 —
+  a predicate that cannot fail needs no `try`). The write or landing that
+  flips `p` joins the awaiting action's change and reveals with it (Solid
+  D-31): the action resumes in that instant (S-action-2). Not yet: Solid's
+  `{ timeout, signal }` options.
 
 ---
 

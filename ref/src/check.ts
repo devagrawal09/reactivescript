@@ -599,6 +599,13 @@ class Checker {
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
       case "call": {
+        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
+          if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");
+          const p = e.args[0];
+          if (e.args.length !== 1 || !p || p.k !== "fn" || p.params.length) { this.err("UNTIL_PREDICATE", "AC-6", "until takes a predicate, `until(() => e)`: a value would be read once and never change"); e.args.forEach(go); return; }
+          this.expr(p, env, { scope: "reactive", server: ctx.server });                         // the predicate is reactive scope: it reads, tracked; it does not write
+          return;
+        }
         if (e.f.k === "id") {
           const s = env.lookup(e.f.name);
           if (ctx.scope === "reactive" && (s?.io || (!s && e.f.name === "log"))) {
@@ -920,6 +927,7 @@ class Checker {
       case "if": return new Set([...this.rejects(e.t, env, seen), ...this.rejects(e.f, env, seen)]);
       case "call": {
         const r = root(e.f);
+        if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) { const p = e.args[0]; return p?.k === "fn" && !p.stmts ? new Set(this.failsOf(p.body, env, false, new Map()).cls) : new Set(); }   // AC-6: until rejects with what its predicate fails with
         if (r.k === "id") {
           const s = env.lookup(r.name);
           if (s?.kind === "import") return new Set(s.rejects ?? ["Error"]);
