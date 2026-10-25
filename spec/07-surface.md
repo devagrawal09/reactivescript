@@ -436,3 +436,7 @@ Expr      ::= TSExpr with §3's removals and additions
 13. **Contexts are declared** (ruled 2026-10-23): `context x: T [= d]`;
     `provide`/`use` name the declaration (RG-7). Keyword `context`, and
     defaults, taken by default.
+
+14. **One `catch` per `try`** (ruled 2026-10-25): TypeScript's statement
+    form; a typed `catch (e: A)` rethrows other classes (AC-7), and two
+    kinds of failure handled differently nest two `try`s (examples/notes).
