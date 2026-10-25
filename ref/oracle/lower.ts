@@ -5,6 +5,7 @@
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
+import { getObserver } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
   createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary
@@ -439,13 +440,14 @@ export class Oracle {
   }
   /** 12 SF-7b: a server function as the client sees it — a call is a flight. The body runs in place (its generator driven by
    *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and
-   *  lets only declared failures through (SF-6b). A `server fn` is a loader, one flight per arguments; an action's call is new. */
+   *  lets only declared failures through (SF-6b). Asked in reactive scope, one flight per arguments; in imperative scope, a new request each call. */
   private serverSeq = 0;
   private serverFn(d: Extract<Decl, { k: "server" }>, scope: Scope) {
     return (...args: unknown[]) => {
       const key = `${d.name}:${args.map(fmt).join(",")}`; const out = (fl: Flight) => process.env.ORACLE_PROMISES ? fl.first : fl;
-      if (d.kind === "fn" && this.flights.has(key)) return out(this.flights.get(key)!);
-      const fl = d.kind === "fn" ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
+      const question = !!getObserver();                                       // SF-2: asked in reactive scope — a question, one flight per arguments
+      if (question && this.flights.has(key)) return out(this.flights.get(key)!);
+      const fl = question ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
       const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${d.name}: ${msg}`); };
       const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
       env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });

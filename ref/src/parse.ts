@@ -172,13 +172,13 @@ function parseDecl(c: Cursor): Decl {
     c.expect(")"); c.ws();
     return { k: "action", name, params, body: parseBlock(c), line };
   }
-  if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }` / `server action f(a) { … }`
-    c.keyword("server"); c.ws(); const kind = c.keyword("fn") ? "fn" as const : (c.keyword("action"), "action" as const);
+  if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }`
+    c.keyword("server"); c.ws(); if (c.keyword("action")) c.fail("`server fn` (SF-1: one form — it is io when its body is; there is no `server action`)"); c.keyword("fn");
     c.ws(); const name = c.ident() ?? c.fail("server function name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = [];
     while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); optType(c, true); c.ws();
-    return { k: "server", kind, name, params, body: parseBlock(c), line };
+    return { k: "server", name, params, body: parseBlock(c), line };
   }
   if (c.keyword("context")) {                                         // RG-7: `context name: [source] Type [= default]`
     c.ws(); const name = c.ident() ?? c.fail("context name"); c.ws(false);

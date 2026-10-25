@@ -139,7 +139,7 @@ class Gen {
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
-    for (const d of decls) if (d.k === "server") out.push(`${pad}const ${mg(d.name)} = __rt.serverFn(${J(d.name)}, ${J(d.kind)}, function* (${d.params.map(mg).join(", ")}) {   // 12 SF-7
+    for (const d of decls) if (d.k === "server") out.push(`${pad}const ${mg(d.name)} = __rt.serverFn(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {   // 12 SF-7
 ${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}
 ${pad}});`);
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)

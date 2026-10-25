@@ -833,13 +833,15 @@ export class Runtime {
   flight(key: string) { let f = this.flights.get(key); if (!f) this.flights.set(key, (f = new Flight(key))); return f; }
   /** 12 SF-7b: a server function as the client sees it — every call a flight. The body runs in place, behind a wire that copies
    *  the arguments and the result (SF-6a) and lets only declared failures through (SF-6b). A `server fn` is a loader: one
-   *  flight per arguments, as a JS import's (re-asked by `refresh`); a `server action` call is a new request each time. */
+   *  flight per arguments, as a JS import's (re-asked by `refresh`) when it is asked in reactive scope — a question; in
+   *  imperative scope each call is a new request (SF-2). */
   private serverSeq = 0;
   private serverFn(d: ServerDecl, home: Region) {
     return (...args: unknown[]) => {
       const key = `${d.name}:${args.map(fmt).join(",")}`;
-      if (d.kind === "fn" && this.flights.has(key)) return this.flights.get(key)!;
-      const f = d.kind === "fn" ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
+      const question = this.demandMode;
+      if (question && this.flights.has(key)) return this.flights.get(key)!;
+      const f = question ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
       const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
       const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
       env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));

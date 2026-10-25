@@ -2,6 +2,7 @@
 // program can mount on a page — or hydrate one the server runtime (rt-server.ts) streamed. Views are JSX that Solid's
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
+import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
@@ -183,15 +184,17 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
-    /** 12 SF-7: \`server fn\` / \`server action\` — every call a flight; the body (a generator, as an action's) is driven by promises,
+    /** 12 SF-7: \`server fn\` — every call a flight; the body (a generator, as an action's) is driven by promises,
      *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
-     *  failures through (SF-6). A loader has one flight per arguments, as a JS import's; an action's call is a new request.
+     *  failures through (SF-6). Asked in reactive scope it is a question, one flight per arguments, as a JS import's; in
+     *  imperative scope each call is a new request (SF-2).
      *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
-    serverFn(name: string, kind: "fn" | "action", gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+    serverFn(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
-        if (kind === "fn" && flights.has(key)) return flights.get(key)!;
-        const fl = kind === "fn" ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+        const question = !!getObserver();
+        if (question && flights.has(key)) return flights.get(key)!;
+        const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
         const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
         const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
         const step = (input: unknown, thrown: boolean) => {

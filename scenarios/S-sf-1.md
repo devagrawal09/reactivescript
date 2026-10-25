@@ -1,4 +1,4 @@
-# S-sf-1 — Server functions: a loader is a question, an action awaits a request, only declared failures cross
+# S-sf-1 — Server functions: awaited in an equation a question, in an action a request; only declared failures cross
 
 Rules exercised: SF-1, SF-2, SF-3, SF-4, SF-5a, SF-6; SV-5; R-io-3, R-f-5.
 
@@ -26,7 +26,7 @@ server fn loadUser(id) {
   let u = await findUser(id)
   return { name: u.name, notes: u.notes }
 }
-server action addNote(id, text) {
+server fn addNote(id, text) {
   if (len(text) > 5) { throw TooLong(len(text)) }
   await insertNote(id, text)
   return len(text)
@@ -46,8 +46,9 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 `user` is an ordinary question (SF-2b) over a server `fn`: asked when `id`
 changes, held, and its answer is what the body returned — the record it
 built, not the row `findUser` gave it (the password stays on the server).
-`note` awaits a server `action` (SF-2c) and writes what it returned
-(SF-4). A `loadUser` call can fail with `NotFound` (its body lets
+`addNote` is io — its body calls `insertNote` (SF-1) — so it is called
+only from imperative scope; `note` awaits it (SF-2c) and writes what it
+returned (SF-4). A `loadUser` call can fail with `NotFound` (its body lets
 `findUser`'s through) and with `Error` (every call can fail in transit,
 SF-6b); the untyped boundary discharges both.
 
@@ -115,7 +116,7 @@ is fine, naming its props is not.
 ```
 -- reject: SERVER_WRITE
 source status := ""
-server action save(x) { status := "saved"; return x }
+server fn save(x) { status := "saved"; return x }
 <p>{status}</p>
 ```
 
@@ -150,24 +151,16 @@ The declaration file says where `findUser` runs; the import cannot restate
 it.
 
 ```
--- reject: SERVER_FN_IO
+-- reject: IO_IN_REACTIVE
 import { insertNote } from "./api"
 server fn add(id) { await insertNote(id, "x"); return 1 }
 n = await add(1) catch (e) => 0
 <p>{n}</p>
 ```
 
-SF-1a: a `server fn` is asked again whenever a question needs it; a write
-belongs in a `server action`.
-
-```
--- reject: IO_IN_REACTIVE
-server action save(x) { return x }
-r = await save(1) catch (e) => 0
-<p>{r}</p>
-```
-
-A server action is io (SF-1b): it is called from imperative scope.
+SF-1: `add` is io because its body is, and an equation's `await` is a
+question, which may be asked again: io is called from imperative scope.
+The message names the call in the body that made it io.
 
 ```
 -- reject: UNHANDLED_FAILURE

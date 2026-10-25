@@ -118,7 +118,6 @@ named.
 | `SERVER_CAPTURE`                  | S   | 12 SF-3: a server function names reactive state (by kind; through the fns it calls) | S-sf-1 |
 | `SERVER_WRITE`                    | S   | 12 SF-4 | S-sf-1 |
 | `SERVER_ONLY`, `CLIENT_IN_SERVER` | S   | 12 SF-5a, SF-5c | S-sf-1 |
-| `SERVER_FN_IO`                    | S   | 12 SF-1a: a `server fn` is a loader | S-sf-1 |
 | `CLIENT_QUESTION_UNHELD`          | S   | 10 SV-7b: a client question's reader with no `loading` above it on some path (Solid: `ASYNC_OUTSIDE_LOADING_BOUNDARY`, at run time) | S-server-3 |
 | `CLIENT_NOT_AWAITED`              | S   | 12 SF-5b | S-server-3 |
 | `CONTENT_MODEL`                   | S   | 10 SV-7d: nesting the HTML parser restructures, across templates (component roots, branches, placed children) | S-server-4 |

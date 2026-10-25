@@ -21,38 +21,40 @@ rule the checker can state precisely.
 
 ---
 
-## SF-1 — Declaring a server function
+## SF-1 — Declaring a server function (one form; ruled 2026-10-24)
 
 - **SF-1a.** `server fn f(params) { … }` declares a function that runs on
   the server. Its body is a statement block (imperative scope, 01) that may
-  `await` and ends in `return v`. It is a **loader**: like `fn`, it is not
-  `io` (R-io-2) — its body may call `pure` and `server pure` JS (SF-5),
-  other server `fn`s, and value functions, and nothing `io`. So it is safe
-  to ask again, and a question may be built on it (SF-2b).
-- **SF-1b.** `server action f(params) { … }` declares an action that runs
-  on the server: the same block, and `io` — its body may call `io` and
-  `server` JS (a database write). It is called only from imperative scope
-  (R-io-3).
-- **SF-1c.** Either may be `export`ed; an importer sees it in the module's
-  signature (MO-3) as a server function with its rejections. A JS module's
-  own `"use server"` functions are ordinary JS here: a `.d.rx` declares
-  them like any export (`export pure fn load(id)` for a loader), and their
-  wire is the JS side's. (`server` in a `.d.rx` means SF-5a's server-only
-  JS, which a client cannot call at all.)
+  `await` and ends in `return v`.
+- **SF-1b (io is inferred).** A server fn is `io` when its body calls `io`
+  — JS declared io (a database write), `log`, or a server fn that is — and
+  not otherwise. The row is the body's, as an `.rx` export's rows are its
+  declaration's (MO-3); nothing is written at the declaration. There is no
+  second form: what Solid's ecosystem splits into `query` and `action` is
+  how the function is *called* (SF-2), and whether that call is allowed is
+  the row.
+- **SF-1c.** A server fn may be `export`ed; an importer sees it in the
+  module's signature (MO-3) with its io row and its rejections. A JS
+  module's own `"use server"` functions are ordinary JS here: a `.d.rx`
+  declares them like any export (`export pure fn load(id)`, `export fn
+  save(x)`), and their wire is the JS side's. (`server` in a `.d.rx` means
+  SF-5a's server-only JS, which a client cannot call at all.)
 
-## SF-2 — Calling one
+## SF-2 — Calling one: the call site decides
 
 - **SF-2a (Always remote).** A call to a server function is a request to
-  the server; its result is always a promise, so it is always awaited:
-  `await f(x)` in imperative scope, or in an equation's tail (R-1).
-- **SF-2b (A server `fn` is a question).** `user = await loadUser(id)` is an
-  ordinary question (R-1, V-9): it is asked when `id` changes, held,
-  refreshed (AC-4), and — in a served page — answered on the server during
-  the mount, with the answer sent to the client like any other (SV-3b). On
-  the server the call is a direct call; in the browser it is a request.
-- **SF-2c (A server `action` is an action's await).** `let r = await
-  save(form)` inside an action (AC-1): the action is one change across it,
-  as across any awaited work.
+  the server; its result is always a promise, so it is always awaited.
+- **SF-2b (In reactive scope, a question).** `user = await loadUser(id)` is
+  an ordinary question (R-1, V-9): asked when `id` changes, held, refreshed
+  (AC-4), one request per arguments while it stands, and — in a served
+  page — answered on the server during the mount, with the answer sent to
+  the client like any other (SV-3b). A question may be asked again, so an
+  `io` server fn here is `IO_IN_REACTIVE` (R-io-3), and the message names
+  the call in its body that made it io.
+- **SF-2c (In imperative scope, a request).** `let r = await save(form)`
+  inside an action (AC-1) is one request per call — two calls with the same
+  arguments are two requests — and the action is one change across it, as
+  across any awaited work. Any server fn may be called here, io or not.
 
 ## SF-3 — What a server body may name
 
@@ -126,8 +128,8 @@ rule the checker can state precisely.
   have no network: a call runs the body in place, behind a wire that
   copies arguments and result (SF-6a) and redacts undeclared failures
   (SF-6b), so the semantics a scenario observes are the remote ones. A
-  `server fn` call is a flight keyed by its arguments, as a JS import's
-  is; a `server action` call is a new one each time. The server runner
+  call in reactive scope is a flight keyed by its arguments, as a JS
+  import's is; a call in imperative scope is a new one each time (SF-2). The server runner
   runs the body on the server during the mount (its awaits are the served
   page's flights) and, after hydration, in place in the browser — the
   HTTP hop is not lowered yet.
@@ -141,7 +143,6 @@ rule the checker can state precisely.
 | `SERVER_CAPTURE` | S | SF-3: a server function names reactive state |
 | `SERVER_WRITE` | S | SF-4: a server function writes a source (99) |
 | `SERVER_ONLY` | S | SF-5a: `server` JS called outside a server function |
-| `SERVER_FN_IO` | S | SF-1a: a `server fn` calls io (make it a `server action`) |
 | `CLIENT_IN_SERVER` | S | SF-5c: `client` JS reached from a server function |
 | `CLIENT_QUESTION_UNHELD` | S | SV-7b: a client question read where nothing holds it |
 | `CLIENT_NOT_AWAITED` | S | SF-5b: `client` JS called for its value in reactive scope |
@@ -149,10 +150,11 @@ rule the checker can state precisely.
 
 ## Decisions taken by default (veto here)
 
-1. **Spelling**: `server fn` and `server action`, not a directive string;
-   `server`/`client` as import and `.d.rx` modifiers beside `pure`.
-2. **A server `fn` is a loader** (not `io`, re-askable), a server `action`
-   is `io`: the read/write split Solid's ecosystem draws between `query` and
-   `action`.
+1. **Spelling**: `server fn`, not a directive string; `server`/`client` as
+   import and `.d.rx` modifiers beside `pure`.
+2. *(Ruled 2026-10-24: one form.)* A server fn's io row is inferred from
+   its body (SF-1b), and the call site decides question or request (SF-2).
+   An earlier draft had `server fn` (a loader) and `server action` (io);
+   the split said nothing the row and the call site do not.
 3. **Capture is by kind** (SF-3), not by lexical position.
 4. **Every server call can fail with `Error`** (SF-6b).
