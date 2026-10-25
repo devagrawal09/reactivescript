@@ -252,7 +252,16 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   `<div>` in a `<p>`). Solid's compiler refuses it within a template; the
   checker refuses it across components: a component's signature records
   the content category of its root elements, and an application whose
-  parent forbids it is `CONTENT_MODEL` (bin S). **Not in `ref/` yet.**
+  parent forbids it is `CONTENT_MODEL` (bin S). Concretely (`ref/src/content.ts`,
+  after HTML's tree construction): a component's root, a branch's content,
+  and the children a component places, each against the elements open
+  above it — a `<tr>` outside a `<tbody>`/`<thead>`/`<tfoot>` (the parser
+  adds a `<tbody>` in a `<table>`, drops the tag elsewhere), anything but
+  table parts or a non-text child in the table modes (foster parenting),
+  a block in an open `<p>`, nested `<a>`, `<form>`, `<button>`, a heading
+  in a heading, an `<li>`/`<dd>`/`<dt>` in its own kind. A view's root is
+  an unknown place. Executable: S-server-4; `repros/sv7d-table/` shows the
+  page it prevents — served rows in a `<tbody>`, a later row outside it.
 - **SV-7e (The wire).** An answer must survive the trip: a value the
   serializer cannot carry is `WIRE_VALUE` (12 SF-6a), at run time while
   types are text, statically once they are not.

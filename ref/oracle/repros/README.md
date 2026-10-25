@@ -294,3 +294,24 @@ replaced by one the client builds: on the `"$$f"` route the boundary
 hydrates the fallback, then resumes its content, which suspends on the
 question it now asks, and the boundary renders its fallback again.
 Expected: the hydrated fallback stays until the content can show.
+
+---
+
+## SV-7d — why a `<tr>` from another template goes in a `<tbody>` (not a divergence)
+
+**Shape.** `<table><For each={names()}>{n => <Row name={n} />}</For></table>`
+with `Row` returning `<tr><td>…</td></tr>`; hydrate, then add a row. The
+control renders the same app on an empty page (`sv7d-table/`).
+
+**Observed.**
+
+```
+hydrate  <table><tbody><tr><td>Ann</td></tr><tr><td>Bo</td></tr></tbody><tr><td>Cy</td></tr></table>
+render   <table><tr><td>Ann</td></tr><tr><td>Bo</td></tr><tr><td>Cy</td></tr></table>
+```
+
+The parser put the served rows in a `<tbody>`; the client inserts its rows
+into the `<table>`. Hydration claims by key and does not notice; the page is
+two trees at once. This is HTML, not Solid: the checker refuses the
+application (`CONTENT_MODEL`, S-server-4), and `examples/users.rx` now
+writes its `<tbody>`.

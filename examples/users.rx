@@ -52,7 +52,7 @@ errored fallback(e) { <p class="error">Could not load users: {e.message}</p> } {
       <span class={pending? users ? "dim" : ""}>{status}</span>{saveError}
     </header>
     {loading on(query) fallback { <p>Searching…</p> } {
-      <table>{for u in users { <Row user={u} /> }}</table>
+      <table><tbody>{for u in users { <Row user={u} /> }}</tbody></table>   // SV-7d: a <tr> from another template goes in a <tbody>
     }}
     <button onClick={() => { nextPage() }} disabled={pending? users}>Next page ({latest page})</button>
   </section>

@@ -6,6 +6,7 @@ import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl } from "./parse.ts";
+import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
@@ -38,7 +39,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }> };
+export type CompSig = { own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }>; shape?: Shape };   // shape: SV-7d
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -66,7 +67,7 @@ type Sym = {
   rows?: () => Set<string>;            // inferred rows of its value (R-13)
   comp?: Extract<Decl, { k: "component" }>;
   expr?: Expr; env?: Env;              // an equation's (or a question source's) expression and the scope it reads in — C-3
-  compRegion?: Region;
+  compRegion?: Region; compEnv?: Env;   // a component: its root region, and the scope its body names from
   failsT?: () => Fails;                // R-f-2: the failures of its value (an equation, a question source) or of a call (a fn)
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
@@ -191,6 +192,7 @@ class Checker {
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private provisions: { key: string; e: Expr; env: Env }[] = [];
   private later: (() => void)[] = [];
+  private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, opts: { component?: boolean; provParent?: Region | null } = {}): Region {
@@ -202,6 +204,7 @@ class Checker {
   run(p: Program) {
     const root = new Env(null, this.region(null)); this.rootEnv = root;
     this.block(p.decls, p.view, root, { scope: "reactive" });
+    this.later.push(() => this.contentCheck(p.view, root, []));
     for (const f of this.later) f();
     this.resolveTree();
   }
@@ -229,7 +232,7 @@ class Checker {
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") sym.io = true;                                                 // R-io-2: an action is io
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
-      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, { component: true }); }
+      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, { component: true }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
       env.vars.set(d.name, sym);
     }
@@ -434,7 +437,9 @@ class Checker {
         const sym = env.lookup(d.name)!; const r = sym.compRegion!;
         const inner = new Env(env, r);
         inner.vars.set(d.props, { kind: "props", name: d.props, region: r, line: d.line });
+        sym.compEnv = inner;
         this.block(d.decls, d.view, inner, { scope: "reactive" });
+        this.later.push(() => this.contentCheck(d.view, inner, []));
         return;
       }
     }
@@ -736,6 +741,68 @@ class Checker {
     }
   }
 
+  // ---- SV-7d: the content model across templates ----
+  private shapes = new Map<Sym, Shape | null>();   // null: being computed (a recursive component contributes nothing more)
+  /** What a component contributes where it is applied (content.ts Shape): from its signature, or its body. */
+  private shape(c: Sym): Shape {
+    if (c.compRegion?.sig) return c.compRegion.sig.shape ?? EMPTY_SHAPE;
+    if (this.shapes.has(c)) return this.shapes.get(c) ?? EMPTY_SHAPE;
+    if (!c.comp || !c.compEnv) return EMPTY_SHAPE;
+    this.shapes.set(c, null);
+    const sh: Shape = { roots: [], closesP: false, a: false, form: false, childrenAt: [] }; const roots = new Set<string>();
+    const walk = (ms: Markup[], anc: string[], scoped: boolean, env: Env) => {
+      for (const m of ms) switch (m.k) {
+        case "text": if (!anc.length) roots.add("#text"); break;
+        case "read": if (this.readsChildren(m.e, env)) sh.childrenAt.push(anc); break;
+        case "el": {
+          if (m.tag === "") { walk(m.children, anc, scoped, env); break; }
+          if (/^[A-Z]/.test(m.tag)) {
+            const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
+            if (!anc.length) S.roots.forEach(r => roots.add(r));
+            if (S.closesP && !scoped) sh.closesP = true; if (S.a) sh.a = true; if (S.form) sh.form = true;
+            for (const ch of S.childrenAt) walk(m.children, [...anc, ...ch], scoped || ch.some(t => P_SCOPE.has(t)), env);   // the caller's children, where that component puts them
+            break;
+          }
+          if (!anc.length) roots.add(m.tag);
+          if (P_CLOSERS.has(m.tag) && !scoped) sh.closesP = true; if (m.tag === "a") sh.a = true; if (m.tag === "form") sh.form = true;
+          walk(m.children, [...anc, m.tag], scoped || P_SCOPE.has(m.tag), env); break;
+        }
+        case "mif": walk(m.t, anc, scoped, env); walk(m.f, anc, scoped, env); break;
+        case "mfor": walk(m.body, anc, scoped, env); break;
+        case "loading": case "errored": walk(m.fallback, anc, scoped, env); walk(m.body, anc, scoped, env); break;
+      }
+    };
+    walk(c.comp.view, [], false, c.compEnv);
+    sh.roots = [...roots]; this.shapes.set(c, sh); return sh;
+  }
+  private readsChildren(e: Expr, env: Env) { return e.k === "member" && e.p === "children" && e.o.k === "id" && env.lookup(e.o.name)?.kind === "props"; }
+  /** SV-7d: every element, text and component root of a view against the elements open above it (in this view; a view's
+   *  root is an unknown place), and a component's caller's children where that component places them. */
+  private contentCheck(ms: Markup[], env: Env, anc: string[]) {
+    const report = (what: string, why: string | null) => { if (why) this.err("CONTENT_MODEL", "SV-7d", `${what} inside <${anc[anc.length - 1]}>: the browser's HTML parser ${why}, so the served page is not the tree the client builds`); };
+    for (const m of ms) {
+      if (m.line) this.line = m.line;
+      switch (m.k) {
+        case "text": if (m.s.trim()) report("text", misnested(anc, "#text")); break;
+        case "el": {
+          if (m.tag === "") { this.contentCheck(m.children, env, anc); break; }
+          if (/^[A-Z]/.test(m.tag)) {
+            const s = env.lookup(m.tag); if (s?.kind !== "comp") break; const S = this.shape(s);
+            for (const r of S.roots) report(r === "#text" ? `<${m.tag}>'s text` : `<${r}>, the root of <${m.tag}>,`, misnested(anc, r));
+            report(`<${m.tag}>`, misnestedInside(anc, S));
+            for (const ch of S.childrenAt) this.contentCheck(m.children, env, [...anc, ...ch]);
+            break;
+          }
+          report(`<${m.tag}>`, misnested(anc, m.tag));
+          this.contentCheck(m.children, env, [...anc, m.tag]); break;
+        }
+        case "mif": this.contentCheck(m.t, env, anc); this.contentCheck(m.f, env, anc); break;
+        case "mfor": this.contentCheck(m.body, env, anc); break;
+        case "loading": case "errored": this.contentCheck(m.fallback, env, anc); this.contentCheck(m.body, env, anc); break;
+      }
+    }
+  }
+
   // ---- R-f: failures ----
   private failsThunk(e: Expr, env: Env): () => Fails {
     let cache: Fails | null = null; let busy = false;
@@ -946,7 +1013,8 @@ class Checker {
       }
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props };
+      const cs = this.compSyms.get(G);
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;
