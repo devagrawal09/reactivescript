@@ -205,6 +205,49 @@ DV-11 and DV-12 look like bugs: a hydrated node should follow its inputs
 once they change, and a hydrated error boundary should track the content it
 did not run.
 
+## SV-7 — A mismatch is unwritable
+
+The ideal SV-3c points at: nothing the program can say computes one thing
+on the server and another in the browser. What is left is assertions an
+author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
+
+- **SV-7a (Inside `.rx`).** Already so: there are no globals (`Math`,
+  `Date` and `window` are `UNBOUND` until imported), reactive scope has no
+  io (R-io-3), and every answer the mount used is the server's (SV-3b). So
+  an equation is a function of its inputs, and its inputs — initializers,
+  props, provisions, answers — are the same on both sides. The only way out
+  of the language is an import.
+- **SV-7b (Client questions).** An equation that awaits `client` JS (12
+  SF-5b) is not asked on the server. Its reader shows what holds it there:
+  under a `loading` region, the fallback; with a first paint (`-> v`, R-7),
+  `v`. The browser asks it once it has taken the page over, and its answer
+  lands as an ordinary landing. A reader of a client question that nothing
+  holds — no region, no first paint — is `CLIENT_QUESTION_UNHELD` (bin S):
+  the server could never finish that page. (Solid: `ssrSource: "client"`,
+  whose bare form is a render error at run time.) This is the one place
+  CN-3c's "pending need not be under a boundary" does not hold.
+- **SV-7c (Synchronous JS during the mount).** A `pure` JS call in reactive
+  scope is recomputed in the browser, and `pure` asserts no side effects,
+  not sameness across machines — `toLocaleString` with the server's locale
+  and time zone is the classic mismatch. During the mount, the result of
+  each such call is an answer: the server records it and the browser
+  adopts it (SV-3b); after the mount it is computed as usual. A `.d.rx`
+  that declares a function `stable` (`export stable pure fn slug(s)`)
+  asserts it computes the same everywhere, and its calls are not recorded.
+  **Not in `ref/` yet.**
+- **SV-7d (Structure).** The browser re-parses the server's HTML, and
+  nesting HTML forbids changes the tree it builds (text in a `<tr>`, a
+  `<div>` in a `<p>`). Solid's compiler refuses it within a template; the
+  checker refuses it across components: a component's signature records
+  the content category of its root elements, and an application whose
+  parent forbids it is `CONTENT_MODEL` (bin S). **Not in `ref/` yet.**
+- **SV-7e (The wire).** An answer must survive the trip: a value the
+  serializer cannot carry is `WIRE_VALUE` (12 SF-6a), at run time while
+  types are text, statically once they are not.
+
+What remains possible is an assertion that lies — `pure`, `stable`, a
+`.d.rx` — and `HYDRATION_MISMATCH` then names which one.
+
 ## Out of scope: the page changed by something else
 
 - **SV-OUT (ruled 2026-10-24).** A served page that something outside the
