@@ -270,3 +270,27 @@ rendered, then clicked twice   before "2" · after "2"
 `runHydrationEvents` drains `_$HY.events` in one microtask; no flush runs
 between two replayed handlers, so both actions read the committed `n`.
 
+
+---
+
+## DV-15 — a client question's served fallback is rebuilt on hydration
+
+**Rule.** 10 SV-3a: hydration adopts what the server sent; SV-7b: a client
+question's reader shows its hold's fallback on the server, and the browser
+asks the question once it has taken the page over.
+
+**Shape.** `createMemo(() => ask("viewport"), { ssrSource: "client" })`
+read under `<Loading fallback={<p>measuring</p>}>`. The server sends the
+fallback and serializes the boundary as `"$$f"`; the browser hydrates.
+
+**Observed.**
+
+```
+served "measuring" · hydrated "measuring" · dropped [<p _hk="20">measuring</p>] · built [<p>measuring</p>] · asked: viewport
+```
+
+The frame is right and nothing is asked twice, but the served `<p>` is
+replaced by one the client builds: on the `"$$f"` route the boundary
+hydrates the fallback, then resumes its content, which suspends on the
+question it now asks, and the boundary renders its fallback again.
+Expected: the hydrated fallback stays until the content can show.

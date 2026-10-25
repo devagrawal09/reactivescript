@@ -50,6 +50,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
 - `## Server frames` (10): rows `mount`, `resolve …`, `reject …` and the
   frame a browser shows from the server's stream after each — checked by
   `npm run -s ssr` only.
+- A client question's landing (10 SV-7b: a flight of `client` JS) is
+  written by key, `resolve "viewport:" 1024`; the server runner ends the
+  stream before it, and the browser lands it once it has the page.
 - `## Before hydration` (10 SV-3e): `mount`, then user events on the served
   page — `click "<selector>"`, `input "<selector>" "<text>"` — then
   `hydrate`, then ordinary rows; `npm run -s ssr` only. Every other table's mount and landings are also

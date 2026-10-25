@@ -149,6 +149,8 @@ const mapsIntoRecords = (e: Expr): boolean => {                         // `map(
   const fnArg = e.f.k === "id" && e.f.name === "map" ? e.args[1] : e.f.k === "member" && e.f.p === "map" ? e.args[0] : undefined;
   return !!fnArg && fnArg.k === "fn" && !fnArg.stmts && fnArg.body.k === "rec";
 };
+/** SV-7b: the provision a `loading` region makes for its content — what a reader of a client question needs above it. */
+const HOLD = "$hold";
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 
 // ---------------------------------------------------------------- the checker
@@ -342,7 +344,7 @@ class Checker {
       const rows = new Set<string>();
       const walk = (x: Expr): void => {
         switch (x.k) {
-          case "await": rows.add("pending"); break;
+          case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
           case "fn": return;                                                                // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
@@ -362,6 +364,9 @@ class Checker {
     };
   }
 
+  /** SF-5b: a call into `client` JS. */
+  private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && env.lookup(f.f.name)?.side === "client"; }
+  private awaitedCalls = new WeakSet<Expr>();
   private decl(d: Decl, env: Env, ctx: Ctx) {
     const reactive: Ctx = { scope: "reactive", inFn: ctx.inFn };
     switch (d.k) {
@@ -537,7 +542,7 @@ class Checker {
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
-      case "await": go(e.e); if (e.init) go(e.init); return;
+      case "await": this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;
       case "throw": go(e.e); return;
       case "catch": {
         go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
@@ -559,6 +564,7 @@ class Checker {
             if (ctx.inFn) this.err("IO_IN_FN", "R-io-2", `${e.f.name}(…) is io; a fn is pure by definition`);
             else this.err(s?.kind === "action" ? "ACTION_CALLED_IN_OWNED_SCOPE" : "IO_IN_REACTIVE", "IO-2", `${e.f.name}(…) is io and is called in reactive scope (R-io-3)`);
           }
+          if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
           if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
         }
@@ -714,7 +720,8 @@ class Checker {
         case "loading": {
           if (m.on) { this.expr(m.on, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
-          this.block(m.decls, m.body, new Env(env, this.region(env.region)), { scope: "reactive" });
+          const body = this.region(env.region); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
+          this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
         case "errored": {
@@ -861,6 +868,8 @@ class Checker {
     type Item = { cls: string; line: number; what: string };
     type Req = { name: string; line: number; what: string };
     const readerF = this.readers.map(r => ({ ...r, f: this.failsOf(r.e, r.env, false, new Map()) }));
+    for (const r of this.readers) if (this.rowsThunk(r.e, r.env)().has("client")) this.uses.push({ region: r.region, name: HOLD, line: r.line, display: show(r.e) });   // SV-7b
+    const argR = this.apps.flatMap(a => a.args.filter(x => this.rowsThunk(x.e, x.env)().has("client")).map(x => ({ app: a, field: x.field })));
     const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
     const ck = (c?: Catch) => c === undefined ? "-" : c === "all" ? "*" : [...c].sort().join("|");
@@ -901,13 +910,14 @@ class Checker {
     const escMemo = new Map<Region | null, { fails: Item[]; reqs: Req[] }>(); const escBusy = new Set<Region | null>();
     const compOf = (r: Region) => r.component;
     const esc = (C: Region | null): { fails: Item[]; reqs: Req[] } => {
-      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.at ? `${o.what} at ${o.at}` : o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: `use ${keyName(n)}` })) };
+      if (C?.sig) return { fails: C.sig.own.map(o => ({ cls: o.cls, line: -1, what: o.at ? `${o.what} at ${o.at}` : o.what })), reqs: C.sig.requires.map(n => ({ name: n, line: -1, what: n === HOLD ? "a reader of a client question" : `use ${keyName(n)}` })) };
       if (escMemo.has(C)) return escMemo.get(C)!; if (escBusy.has(C)) return { fails: [], reqs: [] }; escBusy.add(C);
       const fails: Item[] = []; const reqs: Req[] = []; const seen = new Set<string>();
       const pushF = (it: Item) => { const k = `F${it.cls}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); fails.push(it); } };
       const pushR = (it: Req) => { const k = `R${it.name}@${it.line}:${it.what}`; if (!seen.has(k)) { seen.add(k); reqs.push(it); } };
       for (const r of readerF) if (compOf(r.region) === C) for (const cls of r.f.cls) if (routes(r.region).some(q => escF(q, cls))) pushF({ cls, line: r.line, what: show(r.e) });
-      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: `use ${u.display}` });
+      for (const u of this.uses) if (compOf(u.region) === C) if (routes(u.region).some(q => escP(q, u.name))) pushR({ name: u.name, line: u.line, what: u.name === HOLD ? `a reader of ${u.display}` : `use ${u.display}` });
+      for (const a of argR) if (compOf(a.app.site) === C) for (const p of PF(a.app.comp, a.field)) if (!p.term && routes(a.app.site).some(q => escP([...p.chain, ...q], HOLD))) { pushR({ name: HOLD, line: a.app.line, what: `<${a.app.tag} ${a.field}={…}>, read in ${a.app.tag},` }); break; }   // SV-7b through a prop
       for (const a of this.apps) if (compOf(a.site) === C) {
         const e = esc(a.comp);
         for (const it of e.fails) if (routes(a.site).some(q => escF(q, it.cls))) pushF({ ...it, line: it.line < 0 ? a.line : it.line, what: `${it.what} (in <${a.tag}>)` });
@@ -921,7 +931,7 @@ class Checker {
     };
     const top = esc(null);
     for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — wrap it in \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\`, or catch it: \`… catch (e${it.cls === "Error" ? "" : `: ${it.cls}`}) => …\``); }
-    for (const it of top.reqs) { this.line = it.line; this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
+    for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
     // MO-3: the summaries an importing module checks against
     const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));

@@ -105,6 +105,13 @@ function bundle(dir: string, files: Map<string, string>, entry: string) {
   return r.outputFiles[0].text;
 }
 
+/** SV-7b: the `client` JS a program imports (12 SF-5b) — its flights are the browser's: the server never asks them. */
+function clientFns(sc: Scenario, src: string): Set<string> {
+  const out = new Set<string>();
+  for (const p of moduleSet(sc, src).programs.values()) for (const d of p.decls) if (d.k === "import") for (const { name } of d.names) if (d.side === "client" || d.declaredSide?.[name] === "client") out.add(name);
+  return out;
+}
+const isClientRow = (r: Row, cf: Set<string>) => { const m = /^(resolve|reject)\s+"([^":]*):/.exec(r.action); return !!m && cf.has(m[2]); };
 type Chain = Row[];
 const c0last = (chains: Chain[]) => chains[0][chains[0].length - 1];
 /** SV-3: serve, hydrate at `at` (after that many served chains — 1 is right after the shell), then run every chain on the
@@ -187,11 +194,15 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
         const dropped = ((window as any).__srvEls as Element[]).filter(n => !n.isConnected).map(n => n.tagName.toLowerCase());
         return { fresh, dropped, asked: [...c.app.flights.keys()], left: c.sharedConfig.registry ? c.sharedConfig.registry.size : 0 };
       });
+      const cf = clientFns(sc, src); d.asked = d.asked.filter((k: string) => !cf.has(k.split(":")[0]));   // a client question is the browser's to ask (SV-7b)
       // SV-3a: where hydration leaves the frame as the server drew it, every element is the server's (adopted, none rebuilt);
       // where the client draws a later frame at once (a landing the stream could not carry, DV-9), it builds what changed
       const same = before === norm(await textOf());
       const issues = [same && (d.fresh.length || d.dropped.length) ? `rebuilt instead of adopting: built ${d.fresh.join(" ") || "nothing"}, dropped ${d.dropped.join(" ") || "nothing"}` : "", d.asked.length ? `asked again: ${d.asked.join(", ")}` : "", d.left ? `${d.left} server element(s) never claimed` : "", pageErrors.length ? `page errors: ${pageErrors.join(" | ")}` : ""].filter(Boolean);
-      if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
+      // DV-15: a recorded `hydrated` divergence at this instant whose frame is the one shown: Solid rebuilt what it should adopt
+      const rec = known(chains[at - 1][chains[at - 1].length - 1]);
+      if (issues.length && rec && issues.every(x => x.startsWith("rebuilt")) && norm(rec.frame) === norm(await textOf())) lines.push(`  ≠ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}  — recorded (hydrated)`);
+      else if (issues.length) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrating after instant ${chains[at - 1][chains[at - 1].length - 1].instant}: ${issues.join("; ")}`); }
       shown.push(norm(await textOf()));
       const lastRow = chains[at - 1][chains[at - 1].length - 1]; const got = shown[shown.length - 1];
       if (!matches(lastRow, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] hydrated after instant ${lastRow.instant}: expected '${framesOf(lastRow).join("' or '")}', got '${got}'`); }
@@ -229,7 +240,8 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   let rows = t.rows; let own = 0;   // own: rows before this index are the base's, replayed to drive state
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
   const chains: Row[][] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
-  const upTo = chains.findIndex(c => !(c[0].action === "mount" || /^(resolve|reject)\s/.test(c[0].action)));
+  const cf = clientFns(sc, src);   // SV-7b: a client question's landing is the browser's — the stream ends before it
+  const upTo = chains.findIndex(c => !(c[0].action === "mount" || (/^(resolve|reject)\s/.test(c[0].action) && !isClientRow(c[0], cf))));
   const served = upTo < 0 ? chains : chains.slice(0, upTo);
   if (!served.length || served[0][0].action !== "mount") return true;
   // A variant with its own program has no frames for the base's rows: they only drive state, and its own rows are checked.

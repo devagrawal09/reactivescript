@@ -199,6 +199,16 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   where the rule says `loading…`, then `pear`. Recorded as a `hydrated`
   divergence.
 
+- **DV-15 (a client question's fallback is rebuilt) — reproduced
+  2026-10-24** (`dv15-client-hole/`). A bare `ssrSource: "client"` memo
+  read under `<Loading>`: the server sends the fallback and marks the
+  boundary `"$$f"`. Hydrating, the client adopts the fallback, resumes the
+  content, which suspends on the question it now asks, and renders the
+  fallback again — the served element is dropped for an identical one.
+  The frame is right and nothing is asked twice; what is lost is the
+  element (focus, selection, an animation). S-server-3 hydrated, recorded
+  as a `hydrated` divergence at the hydration instant.
+
 Questions for Solid: is the client-only fallback (DV-9) intended for client
 components, and could the server draw the fallback and the client adopt it?
 DV-11 and DV-12 look like bugs: a hydrated node should follow its inputs
@@ -225,7 +235,9 @@ author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
   holds — no region, no first paint — is `CLIENT_QUESTION_UNHELD` (bin S):
   the server could never finish that page. (Solid: `ssrSource: "client"`,
   whose bare form is a render error at run time.) This is the one place
-  CN-3c's "pending need not be under a boundary" does not hold.
+  CN-3c's "pending need not be under a boundary" does not hold. A prop
+  carries it: an argument computed from a client question is checked where
+  the component reads it. Executable: S-server-3 (DV-15 aside).
 - **SV-7c (Synchronous JS during the mount).** A `pure` JS call in reactive
   scope is recomputed in the browser, and `pure` asserts no side effects,
   not sameness across machines — `toLocaleString` with the server's locale

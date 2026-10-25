@@ -10,7 +10,7 @@ import { nonTailAwaits } from "../src/awaits.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string };
+type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean };   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -120,7 +120,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) env.vars.set(alias, { kind: "val", js: mg(alias) });
+      if (d.k === "import") for (const { name, alias } of d.names) env.vars.set(alias, { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" });
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
@@ -185,7 +185,8 @@ ${pad}});`);
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
       const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.aw(${body0})`;
       this.hoisted.set(h.node, v);
-      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${h.node.init ? `__rt.lv(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined"});\n${pad}__rt.hoisted(${J(name)}, ${v});`;
+      const lv = h.node.init ? `__rt.lv(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";
+      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.cq(${lv})` : lv});\n${pad}__rt.hoisted(${J(name)}, ${v});`;
     }).join("\n");
   }
   private value1(d: Decl, env: Env, ind: number, b: Bind): string {
@@ -213,7 +214,17 @@ ${pad}});`);
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
   }
-  private loadingValue(e: Expr, env: Env): string {                                            // R-7: the first paint of an `await … -> v`
+  /** SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server. */
+  private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && !!env.lookup(f.f.name)?.client; }
+  private tailClient(e: Expr, env: Env): boolean {
+    let hit = false;
+    const walk = (x: unknown): void => { if (hit || !x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } const o = x as Record<string, any>; if (o.k === "fn") return; if (o.k === "await" && !this.hoisted.has(o as Expr) && this.clientCall(o.e, env)) { hit = true; return; } Object.values(o).forEach(walk); };
+    walk(e); return hit;
+  }
+  private loadingValue(e: Expr, env: Env): string {                                            // R-7: the first paint of an `await … -> v`; SV-7b: a client question's ssrSource
+    const lv = this.loadingValue0(e, env); return this.tailClient(e, env) ? `__rt.cq(${lv})` : lv;
+  }
+  private loadingValue0(e: Expr, env: Env): string {
     let init: Expr | undefined;
     const walk = (x: unknown): void => { if (init || !x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } const o = x as Record<string, any>; if (o.k === "fn") return; if (o.k === "await" && o.init) { init = o.init; return; } Object.values(o).forEach(walk); };
     walk(e);

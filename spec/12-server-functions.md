@@ -1,7 +1,8 @@
 # 12 — Server functions, and code that runs on one side
 
-**Status: SF-1–SF-6 executable (S-sf-1, all four runners), 2026-10-24;
-SV-7b's client questions are next.** Some code must run only on the server (it
+**Status: executable, 2026-10-24** — SF-1–SF-6 by S-sf-1, SF-5b's client
+questions (10 SV-7b) by S-server-3, on all four runners. Not yet: the HTTP
+hop after hydration (SF-7b). Some code must run only on the server (it
 reads a database, holds a secret) and some only in the browser (it reads
 storage, measures the window). This document gives each a row, `server`
 or `client`, and says what may cross between the two. It is the companion
@@ -143,6 +144,7 @@ rule the checker can state precisely.
 | `SERVER_FN_IO` | S | SF-1a: a `server fn` calls io (make it a `server action`) |
 | `CLIENT_IN_SERVER` | S | SF-5c: `client` JS reached from a server function |
 | `CLIENT_QUESTION_UNHELD` | S | SV-7b: a client question read where nothing holds it |
+| `CLIENT_NOT_AWAITED` | S | SF-5b: `client` JS called for its value in reactive scope |
 | `WIRE_VALUE` | R | SF-6a: a value the wire cannot carry |
 
 ## Decisions taken by default (veto here)

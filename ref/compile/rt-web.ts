@@ -181,6 +181,8 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
+    cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-7: \`server fn\` / \`server action\` — every call a flight; the body (a generator, as an action's) is driven by promises,
      *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
      *  failures through (SF-6). A loader has one flight per arguments, as a JS import's; an action's call is a new request.

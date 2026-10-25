@@ -119,6 +119,8 @@ named.
 | `SERVER_WRITE`                    | S   | 12 SF-4 | S-sf-1 |
 | `SERVER_ONLY`, `CLIENT_IN_SERVER` | S   | 12 SF-5a, SF-5c | S-sf-1 |
 | `SERVER_FN_IO`                    | S   | 12 SF-1a: a `server fn` is a loader | S-sf-1 |
+| `CLIENT_QUESTION_UNHELD`          | S   | 10 SV-7b: a client question's reader with no `loading` above it on some path (Solid: `ASYNC_OUTSIDE_LOADING_BOUNDARY`, at run time) | S-server-3 |
+| `CLIENT_NOT_AWAITED`              | S   | 12 SF-5b | S-server-3 |
 | `IMPORT_ROW_MISMATCH` (SF-5)      | S   | `server`/`client` on an import that a `.d.rx` declares otherwise | S-sf-1 |
 | `WIRE_VALUE`                      | R   | 12 SF-6a, while types are text (then S) | S-sf-1 |
 
