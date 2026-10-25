@@ -180,6 +180,6 @@ How each enforcer is realised:
   failure and provision checks run as one pass whose steps record what
   each region discharges; an imported component's summary is one step.
 
-Not yet: reading a written `.d.rx` in place of its module; the type oracle (UNRECOGNIZED_INSERT_VALUE and friends); handler
+Types are 13: TypeScript checks a projection of the program (TY-1). Not yet: reading a written `.d.rx` in place of its module; handler
 statements typed into a scenario's `handler` rows (the interpreter checks
 those at run time).

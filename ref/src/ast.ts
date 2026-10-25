@@ -29,7 +29,7 @@ export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };  
 
 export type Stmt =
   | { k: "write"; target: Target; e: Expr }
-  | { k: "let"; name: string; e: Expr }
+  | { k: "let"; name: string; e: Expr; type?: string }
   | { k: "expr"; e: Expr }
   | { k: "optimistic"; target: Target; e: Expr }                // AC-3
   | { k: "refresh"; name: string }                              // AC-4
@@ -45,13 +45,13 @@ export type Decl =
   | { k: "source"; name: string; init: Expr; line: number; question?: boolean; type?: string; exported?: boolean; key?: string }   // question: `source x = e` (ST-5)
   | { k: "eq"; name: string; e: Expr; line: number; deferred?: boolean; key?: string; type?: string; exported?: boolean }   // deferred: declared lag (V-16, D-40); key: ST-4
   | { k: "import"; names: { name: string; alias: string }[]; from: string; pure: boolean; side?: "server" | "client"; line: number; fails?: string[]; resolved?: string; declared?: string; declaredErrors?: string[]; declaredPure?: string[]; declaredSide?: Record<string, "server" | "client"> }   // R-io-4: io unless `pure`; R-f-8: `fails A | B` narrows its rejections; resolved: an `.rx` import's module key (MO-1, set by the loader); declared: a JS import's declaration file (MO-8)
-  | { k: "error"; name: string; params: string[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
-  | { k: "typedecl"; name: string; line: number }                                                           // `type T = …`: text only
+  | { k: "error"; name: string; params: string[]; ptypes?: (string | undefined)[]; msg?: Expr; line: number; exported?: boolean }             // R-f-1: `error NotFound(id) => message`
+  | { k: "typedecl"; name: string; line: number; text?: string; exported?: boolean }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
   | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean }  // body: decls then a view
-  | { k: "action"; name: string; params: string[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
-  | { k: "server"; name: string; params: string[]; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
+  | { k: "action"; name: string; params: string[]; ptypes?: (string | undefined)[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
+  | { k: "server"; name: string; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
   | { k: "provide"; name: string; e: Expr; line: number }                                        // RG-7a: `name` resolves to a context declaration
   | { k: "context"; name: string; type?: string; source: boolean; dflt?: Expr; line: number; exported?: boolean };   // RG-7: `context theme: Theme = e`; source: `context f: source T` (RG-7c)
 

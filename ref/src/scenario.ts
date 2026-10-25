@@ -4,7 +4,7 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean };
+type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean };   // types: refused by the type layer (TY, types/run.ts)
 export type Divergence = { table: string; instant: number; frame: string; runner: "oracle" | "server" | "hydrated" };   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
   entry: string; modules: Map<string, string>;
@@ -55,8 +55,8 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
-        const r = /--\s*(reject|warn):\s*([\w-]+)/.exec(first);
-        if (r) rejected.push({ rule: r[2], warn: r[1] === "warn", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
+        const r = /--\s*(reject|warn|types):\s*([\w-]+)/.exec(first);
+        if (r) rejected.push({ rule: r[2], warn: r[1] === "warn", types: r[1] === "types", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
           handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
       }
     }
@@ -101,6 +101,7 @@ export function runScenario(sc: Scenario): Result {
     if (pending.length) { ok = false; lines.push(`  ✗ ${t.title}: ${pending.length} unlisted chained instant(s): ${pending.map(p => p.frame).join(" | ")}`); }
   }
   for (const rj of sc.rejected) {
+    if (rj.types) continue;                                              // TY: the type layer's, over the projection (types/run.ts)
     if (rj.warn) {
       try {
         const rt = new Runtime(moduleSet(sc, rj.program)); rt.step([]);

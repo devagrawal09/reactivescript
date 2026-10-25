@@ -61,6 +61,8 @@ function parseType(c: Cursor, braceStops = false): string {
   }
   const t = c.src.slice(start, c.i).trim(); if (!t) c.fail("type"); return t;
 }
+/** `x: T key k = …` (ST-4): the type ends where the key begins (found by the type layer: the key was read as type text). */
+function splitKey(type: string | undefined): { type?: string; key?: string } { const m = type ? /^([\s\S]*?)\s+key\s+([A-Za-z_$][\w$]*)$/.exec(type) : null; return m ? { type: m[1], key: m[2] } : { type }; }
 function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
 
 /** R-f: `A | B` — error class names. `Error` (or TS's `unknown`/`any`) is every failure: undefined. */
@@ -87,9 +89,9 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client" }   // side: 12 SF-5
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string }   // side: 12 SF-5; types: text, for TY (types/)
   | { kind: "error"; name: string; line: number }
-  | { kind: "type"; name: string; line: number };
+  | { kind: "type"; name: string; line: number; text?: string };
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -97,20 +99,20 @@ export function parseDeclarations(src: string): JsDecl[] {
     const line = c.line;
     if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
     c.ws();
-    if (c.keyword("type") || c.keyword("interface")) { c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line }); continue; }
+    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
-    const params: string[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    const params: string[] = []; const ptypes: (string | undefined)[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")");
-    const save = c.i; c.ws(false);
-    if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(/.exec(t); c.i += r ? r.index : t.length; } else c.i = save;
+    const save = c.i; c.ws(false); let ret: string | undefined;
+    if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(/.exec(t); ret = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim() || undefined; c.i += r ? r.index : t.length; } else c.i = save;
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
-    out.push({ kind: "fn", name, pure, params, rejects, line, ...(side ? { side } : {}) });
+    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}) });
   }
 }
 
@@ -134,21 +136,22 @@ function parseDecl(c: Cursor): Decl {
   }
   if (/^error\s+[A-Z]/.test(c.src.slice(c.i))) {                     // R-f-1: `error NotFound(id: number) => \`no user ${id}\``
     c.keyword("error"); c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
-    const params: string[] = [];
-    if (c.eat("(")) { c.ws(); while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("field")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); } c.expect(")"); }
+    const params: string[] = []; const ptypes: (string | undefined)[] = [];
+    if (c.eat("(")) { c.ws(); while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("field")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); } c.expect(")"); }
     const save = c.i; c.ws(false);
-    if (c.eat("=>")) { c.ws(); return { k: "error", name, params, msg: parseExpr(c), line }; }
+    if (c.eat("=>")) { c.ws(); return { k: "error", name, params, ptypes, msg: parseExpr(c), line }; }
     c.i = save;
-    return { k: "error", name, params, line };
+    return { k: "error", name, params, ptypes, line };
   }
-  if (c.keyword("type") || c.keyword("interface")) {                  // a TS type declaration: kept as text, not a binding
+  if (/^(type|interface)\b/.test(c.src.slice(c.i))) {                // a TS type declaration: kept as text, not a binding
+    const t0 = c.i; c.keyword("type") || c.keyword("interface");
     c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
     if (c.eat("=")) { c.ws(); parseType(c); } else { c.expect("{"); let depth = 1; while (!c.eof() && depth) { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } }
-    return { k: "typedecl", name, line };
+    return { k: "typedecl", name, line, text: c.src.slice(t0, c.i) };
   }
   if (c.keyword("source")) {
-    c.ws(); const name = c.ident() ?? c.fail("source name"); const type = optType(c); c.ws();
-    let key: string | undefined;
+    c.ws(); const name = c.ident() ?? c.fail("source name"); const tk = splitKey(optType(c)); const type = tk.type; c.ws();
+    let key: string | undefined = tk.key;
     if (/^key\s+[A-Za-z_$][\w$]*\s*(=|:=)[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(); }   // ST-4a on a source
     if (c.eat(":=")) { c.ws(); return { k: "source", name, init: parseExpr(c), line, type, key }; }
     c.expect("="); c.ws();
@@ -167,18 +170,18 @@ function parseDecl(c: Cursor): Decl {
   }
   if (c.keyword("action")) {
     c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
-    const params: string[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    const params: string[] = []; const ptypes: (string | undefined)[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
-    return { k: "action", name, params, body: parseBlock(c), line };
+    return { k: "action", name, params, ptypes, body: parseBlock(c), line };
   }
   if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }`
     c.keyword("server"); c.ws(); if (c.keyword("action")) c.fail("`server fn` (SF-1: one form — it is io when its body is; there is no `server action`)"); c.keyword("fn");
     c.ws(); const name = c.ident() ?? c.fail("server function name"); c.ws(); c.expect("("); c.ws();
-    const params: string[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
-    c.expect(")"); optType(c, true); c.ws();
-    return { k: "server", name, params, body: parseBlock(c), line };
+    const params: string[] = []; const ptypes: (string | undefined)[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); const ret = optType(c, true); c.ws();
+    return { k: "server", name, params, ptypes, ret, body: parseBlock(c), line };
   }
   if (c.keyword("context")) {                                         // RG-7: `context name: [source] Type [= default]`
     c.ws(); const name = c.ident() ?? c.fail("context name"); c.ws(false);
@@ -212,7 +215,7 @@ function parseDecl(c: Cursor): Decl {
   const name = c.ident();
   c.ws(false);
   let key: string | undefined; let type: string | undefined;
-  if (name && !KEYWORDS.has(name)) { type = optType(c); c.ws(false); }
+  if (name && !KEYWORDS.has(name)) { const tk = splitKey(optType(c)); type = tk.type; key = tk.key; c.ws(false); }
   if (name && !KEYWORDS.has(name) && /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i))) { c.keyword("key"); c.ws(); key = c.ident() ?? c.fail("key name"); c.ws(false); }   // ST-4: `x key k = e`
   if (name && !KEYWORDS.has(name) && c.peek() === "=" && c.peek(1) !== "=" && c.peek(1) !== ">") {
     c.i++; c.ws();
@@ -250,7 +253,7 @@ function parseStmt(c: Cursor): Stmt {
   if (c.keyword("refresh")) { c.ws(); return { k: "refresh", name: c.ident() ?? c.fail("name") }; }
   if (c.keyword("affects")) { c.ws(); return { k: "affects", name: c.ident() ?? c.fail("name") }; }
   if (c.keyword("action")) { c.ws(); return { k: "action", body: parseBlock(c) }; }
-  if (c.keyword("let") || c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("let name"); optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c) }; }
+  if (c.keyword("let") || c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("let name"); const type = optType(c); c.ws(); c.expect("="); c.ws(); return { k: "let", name, e: parseExpr(c), type }; }
   if (c.keyword("try")) {                                              // AC-7
     c.ws(); const body = parseBlock(c); c.ws();
     let catchName: string | undefined, handler: Stmt[] | undefined, fin: Stmt[] | undefined;

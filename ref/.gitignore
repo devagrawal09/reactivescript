@@ -3,3 +3,4 @@ compile/.out
 ssr/.out
 oracle/repros/*/.build
 oracle/repros/dv13.build
+.types

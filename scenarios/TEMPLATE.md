@@ -41,7 +41,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
   instant, then override; with their own program fence, prefix rows only
   drive state.
 - `## Rejected variants`: fences starting `-- reject: RULE` (or `-- warn:
-  CODE`), optional `-- handler: stmts` lines.
+  CODE`), optional `-- handler: stmts` lines; `-- types: CODE` is refused
+  by the type layer (TypeScript's `TSnnnn`, or a rule it states as a type,
+  such as `WIRE_VALUE`) and checked by `npm run -s types` only.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records
   what Solid 2.0 shows where the spec rules otherwise; `- server "<table>"
   instant N: …` what Solid's server render shows (10, `ref/ssr/`);

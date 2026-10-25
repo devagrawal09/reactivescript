@@ -18,7 +18,7 @@ repository (`../solid-next`), builds `@solidjs/signals`, `solid-js`,
 renderer for the compiled runner, `ssr` and `dom` (hydratable) for the server
 runner.
 
-Four runners over the same scenarios (`cd ref && npm install` once):
+Five runners over the same scenarios (`cd ref && npm install` once):
 
 | runner | what it runs | command |
 | --- | --- | --- |
@@ -26,6 +26,7 @@ Four runners over the same scenarios (`cd ref && npm install` once):
 | oracle | `oracle/lower.ts`, the program lowered onto Solid by interpretation | `npm --prefix ref run oracle` |
 | compiled | `compile/emit.ts`, the program compiled to a JS module whose views Solid's compiler lowers onto a string tree | `npm --prefix ref run compiled` |
 | server | the same compiled modules over `compile/rt-server.ts` (Solid's server build), streamed to Chromium and hydrated there over `compile/rt-web.ts` (spec/10) | `npm --prefix ref run ssr` |
+| types | each program projected to TSX (`types/project.ts`) and checked by TypeScript with Solid's JSX types; `-- types: CODE` refusals (spec/13) | `npm --prefix ref run types` |
 
 Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types

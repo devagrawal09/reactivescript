@@ -1,7 +1,7 @@
 // form.rx — the edit form. Owns the draft; hands it to `save` from settings.rx.
 
-import { save, validate, NameRequired, NameTooLong } from "./settings.rx"
-import { theme, density } from "./theme.rx"
+import { save, validate, NameRequired, NameTooLong, Settings } from "./settings.rx"
+import { theme, density, Theme, Density } from "./theme.rx"
 import { Panel, Appearance } from "./ui.rx"
 
 // Mounted once the settings have loaded; the draft is seeded from them once

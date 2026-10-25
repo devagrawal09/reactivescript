@@ -7,16 +7,18 @@
     "test": "node --experimental-strip-types run.ts",
     "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
     "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts",
-    "ssr": "node --experimental-strip-types --conditions=development ssr/run.ts"
+    "ssr": "node --experimental-strip-types --conditions=development ssr/run.ts",
+    "types": "node --experimental-strip-types types/run.ts"
   },
   "dependencies": {
+    "@solidjs/compiler": "file:../../solid-next/packages/compiler",
     "@solidjs/signals": "file:../../solid-next/packages/signals",
     "@solidjs/universal": "file:../../solid-next/packages/universal",
     "@solidjs/web": "file:../../solid-next/packages/web",
-    "solid-js": "file:../../solid-next/packages/solid",
-    "@solidjs/compiler": "file:../../solid-next/packages/compiler"
+    "solid-js": "file:../../solid-next/packages/solid"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3"
   }
 }

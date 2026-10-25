@@ -7,6 +7,7 @@ type Todo = { id: number; title: string; done: boolean }
 source todos: Todo[] := []
 source draft: string := ""
 source filter: "all" | "open" | "done" := "all"
+filters: ("all" | "open" | "done")[] = ["all", "open", "done"]   // typed: a write of `f` to `filter` is checked (TY)
 source nextId := 1
 
 shown = filter === "all" ? todos : todos.filter(t => filter === "done" ? t.done : !t.done)
@@ -38,7 +39,7 @@ component Item(props: { todo: Todo }) {
   <ul>{for t in shown { <Item todo={t} /> }}</ul>
   <footer>
     <span>{remaining} left</span>
-    {for f in ["all", "open", "done"] {
+    {for f in filters {
       <button class={filter === f ? "selected" : ""} onClick={() => { filter := f }}>{f}</button>
     }}
   </footer>

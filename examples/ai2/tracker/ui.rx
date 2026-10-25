@@ -26,11 +26,11 @@ export component DetailPanel(props: {}) {
     {if selected {
       {loading on(selected) fallback { <p>loading #{selected}</p> } {
         {errored fallback(e) { <p>detail error: {e.message}</p> } {
-          <h3>#{detail.id} {detail.title}</h3>{" "}<p>{detail.body}</p>
+          {if detail { <h3>#{detail.id} {detail.title}</h3>{" "}<p>{detail.body}</p> }}
         }}
       }}
       {" "}<button onClick={() => { refresh detail }}>retry</button>{" "}
-      <button onClick={() => { assignToMe(selected, me) }}>assign to {me}</button>{" "}
+      <button onClick={() => { if (selected != null) { assignToMe(selected, me) } }}>assign to {me}</button>{" "}
       {assignError}
     } else {
       <p>select an issue</p>

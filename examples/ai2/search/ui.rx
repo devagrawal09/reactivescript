@@ -42,7 +42,7 @@ export component ResultsPane(props: {}) {
 }
 
 component ItemView(props: {}) {
-  <article><h3>{item.name}</h3>{" "}<p>{item.blurb}</p></article>
+  if item { <article><h3>{item.name}</h3>{" "}<p>{item.blurb}</p></article> }   // TY: `item` is `Item | null` here — the component cannot know where it is applied
 }
 
 // The pane has its own boundaries, so nothing it shows — pending or

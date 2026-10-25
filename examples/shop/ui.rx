@@ -1,6 +1,7 @@
 // The shop's pieces of view. `Row` names `qtyOf` and `setQty` from the cart; whoever applies it does not need to import them
 // (a component's body sees its own module — 09 MO-6).
 import { qtyOf, setQty } from "./cart.rx"
+import { Product } from "./catalog.rx"
 
 export component Row(props: { product: Product }) {
   qty = qtyOf(props.product.id)

@@ -28,6 +28,7 @@ spec/
   10-server.md         SSR as the streamed mount; what runs where; hydration; what crosses
   11-compiler.md       the production compiler: a crate on solidjs-compiler; the one seam it needs
   12-server-functions.md  server fn (io inferred, the call site decides); the server and client rows; the wire
+  13-types.md          types: the program projected to TSX and checked by TypeScript
   99-diagnostics.md    Solid 2.0's diagnostic table, each code binned: unwritable / static / runtime
 scenarios/             one file per scenario: program, action, frames, compiles-or-rejects
 ref/                   interpreter, checker, Solid oracle, compiler and server runner (TypeScript) — all run scenarios/

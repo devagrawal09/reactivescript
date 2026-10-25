@@ -3,6 +3,7 @@
 
 import pure { loadSettings } from "./api"   // a loader: safe to re-ask, awaited in an equation
 import { saveSettings } from "./api"        // a write to the server: io, called only from an action
+import { Theme, Density } from "./theme.rx"   // types cross an import (MO-6c); TypeScript checks them (TY)
 
 export type Settings = { name: string; theme: Theme; density: Density }
 
