@@ -205,6 +205,16 @@ DV-11 and DV-12 look like bugs: a hydrated node should follow its inputs
 once they change, and a hydrated error boundary should track the content it
 did not run.
 
+## Out of scope: the page changed by something else
+
+- **SV-OUT (ruled 2026-10-24).** A served page that something outside the
+  program changes before or after hydration — a browser extension
+  injecting or removing nodes, a translator replacing text — is not a
+  mismatch the language can prevent: the page is an input the program does
+  not control. It stays with Solid's runtime and its warnings and errors
+  (key misses, unclaimed nodes, structure mismatches). The language's claim
+  is about the program: what it computes is the same on both sides.
+
 ## Diagnostics this document adds
 
 | code | bin | rule |
