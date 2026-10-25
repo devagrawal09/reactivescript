@@ -22,15 +22,18 @@ default, so it says nothing. No import restates any of this.
 
 ```
 import { fetchUser, saveUser, NotFound, Offline, User } from "./api"
-source id := 1
-source status := ""
-user = await fetchUser(id) catch (e: NotFound) => null
-action rename(n) {
-  try { await saveUser(id, n); status := "saved" }
-  catch (e: Offline) { status := "offline" }
-}
-errored fallback(e: Offline) { <p>offline: {e.message}</p> } {
-  <p>{user == null ? "no such user" : user.name} {status}</p>
+export default component App() {
+  source id := 1
+  source status := ""
+  user = await fetchUser(id) catch (e: NotFound) => null
+  action rename(n) {
+    try { await saveUser(id, n); status := "saved" }
+    catch (e: Offline) { status := "offline" }
+  }
+
+  errored fallback(e: Offline) { <p>offline: {e.message}</p> } {
+    <p>{user == null ? "no such user" : user.name} {status}</p>
+  }
 }
 ```
 
@@ -61,7 +64,10 @@ typed boundary.
 ```
 -- reject: NOT_EXPORTED
 import { deleteUser } from "./api"
-<p>x</p>
+
+export default component App() {
+  <p>x</p>
+}
 ```
 
 MO-8: with a declaration file, a JS module exports what it declares.
@@ -69,7 +75,10 @@ MO-8: with a declaration file, a JS module exports what it declares.
 ```
 -- reject: IMPORT_ROW_MISMATCH
 import pure { saveUser } from "./api"
-<p>x</p>
+
+export default component App() {
+  <p>x</p>
+}
 ```
 
 `saveUser` is declared io; `pure` on the import cannot lower it.
@@ -77,7 +86,10 @@ import pure { saveUser } from "./api"
 ```
 -- reject: IMPORT_ROW_MISMATCH
 import { fetchUser } from "./api" fails NotFound
-<p>x</p>
+
+export default component App() {
+  <p>x</p>
+}
 ```
 
 The declaration file is the row; the import cannot restate it.
@@ -85,15 +97,21 @@ The declaration file is the row; the import cannot restate it.
 ```
 -- reject: IO_IN_REACTIVE
 import { saveUser } from "./api"
-saved = saveUser(1, "x")
-<p>{saved}</p>
+export default component App() {
+  saved = saveUser(1, "x")
+
+  <p>{saved}</p>
+}
 ```
 
 ```
 -- reject: UNHANDLED_FAILURE
 import { fetchUser, NotFound } from "./api"
-user = await fetchUser(1) catch (e: NotFound) => null
-errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>{user.name}</p> }
+export default component App() {
+  user = await fetchUser(1) catch (e: NotFound) => null
+
+  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>{user.name}</p> }
+}
 ```
 
 `Offline` is left: the declared rejections are the whole row, and nothing
@@ -102,7 +120,10 @@ here discharges `Offline`.
 ```
 -- reject: UNCAUGHT_ACTION_FAILURE
 import { saveUser, NotFound } from "./api"
-source status := ""
-action save() { try { await saveUser(1, "x") } catch (e: NotFound) { status := "?" } }
-<p>{status}</p>
+export default component App() {
+  source status := ""
+  action save() { try { await saveUser(1, "x") } catch (e: NotFound) { status := "?" } }
+
+  <p>{status}</p>
+}
 ```

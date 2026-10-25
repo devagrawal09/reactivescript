@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source count := 0
-source show := true
-details = await fetch("d:" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>Count {count}</p> {if show { <p>{details}</p> }}</div>
+export default component App() {
+  source count := 0
+  source show := true
+  details = await fetch("d:" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>Count {count}</p> {if show { <p>{details}</p> }}</div>
+  }
 }
 ```
 

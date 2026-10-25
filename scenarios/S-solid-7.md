@@ -3,9 +3,12 @@
 ## Program
 
 ```
-user = await fetch("user")
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{user}</p>
+export default component App() {
+  user = await fetch("user")
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{user}</p>
+  }
 }
 ```
 
@@ -19,9 +22,12 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 ## Variant: with a boundary
 
 ```
-user = await fetch("user")
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>Spinner</p> } { <p>{user}</p> }}
+export default component App() {
+  user = await fetch("user")
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>Spinner</p> } { <p>{user}</p> }}
+  }
 }
 ```
 
@@ -34,8 +40,11 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 
 ```
 -- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
-user = await fetch("user")
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{user}</p>
+export default component App() {
+  user = await fetch("user")
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{user}</p>
+  }
 }
 ```

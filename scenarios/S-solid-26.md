@@ -5,11 +5,14 @@ Rules: R-9, H-9, AC-4, AC-5, AC-3.
 ## Program
 
 ```
-source id := 1
-user = await fetch("u:" + id)
-action reload() { try { affects user; refresh user; await fetch("gate") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>…</p> } { <div><p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p></div> }}
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+  action reload() { try { affects user; refresh user; await fetch("gate") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>…</p> } { <div><p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p></div> }}
+  }
 }
 ```
 
@@ -36,12 +39,15 @@ the re-ask lands into the action's hold (D-31) and reveals at its commit.
 ## Variant: a guess over `user` is verdict-inert (row 7)
 
 ```
-source id := 1
-user = await fetch("u:" + id)
-source shown = user.name
-action nick(n) { try { optimistic shown := n; await fetch("gate") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>…</p> } { <div><p>{shown}</p> <p>{pending? shown ? "updating" : ""}</p></div> }}
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+  source shown = user.name
+  action nick(n) { try { optimistic shown := n; await fetch("gate") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>…</p> } { <div><p>{shown}</p> <p>{pending? shown ? "updating" : ""}</p></div> }}
+  }
 }
 ```
 

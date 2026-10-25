@@ -5,19 +5,21 @@ import { products, coupon, discount, setCoupon } from "./catalog.rx"
 import { cart, count, subtotal, lastOrder, orderError, placeOrder } from "./cart.rx"
 import { Row, Panel } from "./ui.rx"
 
-total = subtotal - subtotal * (latest discount) / 100   // `latest`: the total keeps moving while the code is checked (H-7)
+export default component App() {
+  total = subtotal - subtotal * (latest discount) / 100   // `latest`: the total keeps moving while the code is checked (H-7)
 
-<Panel title="The shop">
-  <section>
-    <h1>Cart ({count})</h1>
-    <ul>{for p in products { <Row product={p} /> }}</ul>
-    <label>
-      Coupon <input value={coupon} onInput={e => { setCoupon(e.target.value) }} />
-      <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
-    </label>
-    <p>Subtotal {subtotal}</p>
-    <p>Total {total}</p>
-    <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
-    <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
-  </section>
-</Panel>
+  <Panel title="The shop">
+    <section>
+      <h1>Cart ({count})</h1>
+      <ul>{for p in products { <Row product={p} /> }}</ul>
+      <label>
+        Coupon <input value={coupon} onInput={e => { setCoupon(e.target.value) }} />
+        <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
+      </label>
+      <p>Subtotal {subtotal}</p>
+      <p>Total {total}</p>
+      <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
+      <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
+    </section>
+  </Panel>
+}

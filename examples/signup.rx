@@ -39,21 +39,23 @@ action submit() {
   }
 }
 
-errored fallback(e) { <p class="error">{e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
-  <form onSubmit={e => { e.preventDefault(); submit() }}>
-    <Field label="Username" error={usernameError}>
-      <input value={username} onInput={e => { username := e.target.value }} />
-      {if checking { <small>checking…</small> }}
-    </Field>
-    <Field label="Email" error={emailError}>
-      <input value={email} onInput={e => { email := e.target.value }} />
-    </Field>
-    <Field label="Password" error={passwordError}>
-      <input type="password" value={password} onInput={e => { password := e.target.value }} />
-    </Field>
-    <button disabled={submitted && !valid}>Sign up</button>
-    {errored fallback(e) { <p class="error">{e.message}</p> } {
-      {if result { <p class={result.ok ? "ok" : "error"}>{result.message}</p> }}
-    }}
-  </form>
+export default component App() {
+  errored fallback(e) { <p class="error">{e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+    <form onSubmit={e => { e.preventDefault(); submit() }}>
+      <Field label="Username" error={usernameError}>
+        <input value={username} onInput={e => { username := e.target.value }} />
+        {if checking { <small>checking…</small> }}
+      </Field>
+      <Field label="Email" error={emailError}>
+        <input value={email} onInput={e => { email := e.target.value }} />
+      </Field>
+      <Field label="Password" error={passwordError}>
+        <input type="password" value={password} onInput={e => { password := e.target.value }} />
+      </Field>
+      <button disabled={submitted && !valid}>Sign up</button>
+      {errored fallback(e) { <p class="error">{e.message}</p> } {
+        {if result { <p class={result.ok ? "ok" : "error"}>{result.message}</p> }}
+      }}
+    </form>
+  }
 }

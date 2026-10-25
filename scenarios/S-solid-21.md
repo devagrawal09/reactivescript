@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source id := 1
-product = await fetch("p:" + id)
-comments = await fetch("c:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>{product.name}</h1> {loading on(latest id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+export default component App() {
+  source id := 1
+  product = await fetch("p:" + id)
+  comments = await fetch("c:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>{product.name}</h1> {loading on(latest id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+  }
 }
 ```
 

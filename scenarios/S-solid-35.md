@@ -5,10 +5,13 @@ Rules: AC-1, AC-3, H-11.
 ## Program
 
 ```
-source truth := 1
-source guess = truth
-action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
-<p>{guess} / {latest guess} {pending? guess ? "p" : "-"}</p>
+export default component App() {
+  source truth := 1
+  source guess = truth
+  action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
+
+  <p>{guess} / {latest guess} {pending? guess ? "p" : "-"}</p>
+}
 ```
 
 ## Frames
@@ -28,12 +31,15 @@ commit) are one instant here.
 ## Variant: a derived flight keeps the hold open
 
 ```
-source truth := 1
-source guess = truth
-derived = await fetch("x:" + str(guess))
-action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
+export default component App() {
+  source truth := 1
+  source guess = truth
+  derived = await fetch("x:" + str(guess))
+  action attempt() { try { optimistic guess := 5; await fetch("unrelated") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{guess} {derived} / {latest guess} {pending? guess ? "p" : "-"}</p>
+  }
 }
 ```
 

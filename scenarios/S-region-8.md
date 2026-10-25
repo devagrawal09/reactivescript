@@ -13,9 +13,12 @@ component Dialog(props) {
   <div>{t} dialog {n}<button onClick={() => { open := false }}>close</button></div>
 }
 provide tone = "loud"
-<p>count {n}</p>
-if open {
-  portal { <Dialog /> }
+
+export default component App() {
+  <p>count {n}</p>
+  if open {
+    portal { <Dialog /> }
+  }
 }
 ```
 
@@ -41,8 +44,10 @@ Served, the page is `count 0`: the server renders nothing for a portal
 
 ```
 -- reject: CONTENT_MODEL
-portal { <tr><td>x</td></tr> }
-<p>x</p>
+export default component App() {
+  portal { <tr><td>x</td></tr> }
+  <p>x</p>
+}
 ```
 
 A portal's place is the end of the document, where a `<tr>` has no table

@@ -15,11 +15,14 @@ export client pure fn timeZone()
 
 ```
 import { viewport, timeZone } from "./api"
-width = await viewport()
-zone = await timeZone() -> "UTC"
-errored fallback(e) { <p>error</p> } {
-  <p>zone {zone}</p>{" "}
-  {loading fallback { <p>measuring</p> } { <p>{width < 600 ? "narrow" : "wide"}</p> }}
+export default component App() {
+  width = await viewport()
+  zone = await timeZone() -> "UTC"
+
+  errored fallback(e) { <p>error</p> } {
+    <p>zone {zone}</p>{" "}
+    {loading fallback { <p>measuring</p> } { <p>{width < 600 ? "narrow" : "wide"}</p> }}
+  }
 }
 ```
 
@@ -52,8 +55,11 @@ are the browser's, after it has taken the page over.
 ```
 -- reject: CLIENT_QUESTION_UNHELD
 import { viewport } from "./api"
-width = await viewport() catch (e) => 0
-<p>{width}</p>
+export default component App() {
+  width = await viewport() catch (e) => 0
+
+  <p>{width}</p>
+}
 ```
 
 Nothing holds it: on the server this page would never finish (Solid:
@@ -62,10 +68,13 @@ Nothing holds it: on the server this page would never finish (Solid:
 ```
 -- reject: CLIENT_QUESTION_UNHELD
 import { viewport } from "./api"
-width = await viewport() catch (e) => 0
-narrow = width < 600
-loading fallback { <p>…</p> } { <p>ok</p> }
-<p>{narrow}</p>
+export default component App() {
+  width = await viewport() catch (e) => 0
+  narrow = width < 600
+
+  loading fallback { <p>…</p> } { <p>ok</p> }
+  <p>{narrow}</p>
+}
 ```
 
 A value computed from a client question is one: its reader needs the hold.
@@ -74,8 +83,11 @@ A value computed from a client question is one: its reader needs the hold.
 -- reject: CLIENT_QUESTION_UNHELD
 import { viewport } from "./api"
 component Size(props) { <p>{props.w}</p> }
-width = await viewport() catch (e) => 0
-<Size w={width} />
+export default component App() {
+  width = await viewport() catch (e) => 0
+
+  <Size w={width} />
+}
 ```
 
 Through a prop: the component reads it where nothing holds it.
@@ -83,8 +95,11 @@ Through a prop: the component reads it where nothing holds it.
 ```
 -- reject: CLIENT_NOT_AWAITED
 import { viewport } from "./api"
-width = viewport()
-<p>{width}</p>
+export default component App() {
+  width = viewport()
+
+  <p>{width}</p>
+}
 ```
 
 SF-5b: the server has no `viewport`; in reactive scope a client call is a

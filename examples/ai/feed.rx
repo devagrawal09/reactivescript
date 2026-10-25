@@ -64,16 +64,19 @@ component Compose(props: {}) {
 }
 
 // --- the mounted view (07 §1: trailing markup is the app entry) ---
-errored fallback(e) { <p class="error">The feed is unavailable: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
-  <main>
-    {loading fallback { <p>rooms…</p> } {
-      <RoomList rooms={rooms} />
-    }}
-    {loading on(selected) fallback { <p>loading…</p> } {
-      <ol>
-        {for m in msgs { <li>{m.from}: {m.text}{" "}</li> }}
-      </ol>
-    }}
-    <Compose />
-  </main>
+
+export default component App() {
+  errored fallback(e) { <p class="error">The feed is unavailable: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+    <main>
+      {loading fallback { <p>rooms…</p> } {
+        <RoomList rooms={rooms} />
+      }}
+      {loading on(selected) fallback { <p>loading…</p> } {
+        <ol>
+          {for m in msgs { <li>{m.from}: {m.text}{" "}</li> }}
+        </ol>
+      }}
+      <Compose />
+    </main>
+  }
 }

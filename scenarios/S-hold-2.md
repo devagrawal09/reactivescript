@@ -6,17 +6,20 @@ H-5, H-6, H-7, R-4.
 ## Program
 
 ```
-source period := "q1"
-summary = await fetch("s:" + period)
-trend   = await fetch("t:" + period)
-audit   = await fetch("a:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>
-    <p>{latest period}</p>
-    {loading fallback { <p>skel</p> } {
-      <div><p>{summary}</p> <p>{trend}</p> <p>{audit}</p></div>
-    }}
-  </div>
+export default component App() {
+  source period := "q1"
+  summary = await fetch("s:" + period)
+  trend   = await fetch("t:" + period)
+  audit   = await fetch("a:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>
+      <p>{latest period}</p>
+      {loading fallback { <p>skel</p> } {
+        <div><p>{summary}</p> <p>{trend}</p> <p>{audit}</p></div>
+      }}
+    </div>
+  }
 }
 ```
 
@@ -39,18 +42,21 @@ change together (H-2). `latest period` moves at once (H-7).
 ## Variant: the audit panel takes its own skeleton with `on`
 
 ```
-source period := "q1"
-summary = await fetch("s:" + period)
-trend   = await fetch("t:" + period)
-audit   = await fetch("a:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>
-    <p>{latest period}</p>
-    {loading fallback { <p>skel</p> } {
-      <div><p>{summary}</p> <p>{trend}</p></div>
-    }}
-    {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
-  </div>
+export default component App() {
+  source period := "q1"
+  summary = await fetch("s:" + period)
+  trend   = await fetch("t:" + period)
+  audit   = await fetch("a:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>
+      <p>{latest period}</p>
+      {loading fallback { <p>skel</p> } {
+        <div><p>{summary}</p> <p>{trend}</p></div>
+      }}
+      {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+    </div>
+  }
 }
 ```
 
@@ -74,18 +80,21 @@ belongs to the frame of the change that armed it).
 ## Variant: audit lands first — its skeleton is never seen
 
 ```
-source period := "q1"
-summary = await fetch("s:" + period)
-trend   = await fetch("t:" + period)
-audit   = await fetch("a:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>
-    <p>{latest period}</p>
-    {loading fallback { <p>skel</p> } {
-      <div><p>{summary}</p> <p>{trend}</p></div>
-    }}
-    {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
-  </div>
+export default component App() {
+  source period := "q1"
+  summary = await fetch("s:" + period)
+  trend   = await fetch("t:" + period)
+  audit   = await fetch("a:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>
+      <p>{latest period}</p>
+      {loading fallback { <p>skel</p> } {
+        <div><p>{summary}</p> <p>{trend}</p></div>
+      }}
+      {loading on(period) fallback { <p>askel</p> } { <p>{audit}</p> }}
+    </div>
+  }
 }
 ```
 

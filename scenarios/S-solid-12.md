@@ -3,12 +3,15 @@
 ## Program
 
 ```
-source fixed := false
-source count := 0
-slow = await fetch("slow:" + fixed)
-selected = fixed ? 2 : count
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>Fixed {fixed} / Count {count} / Selected {selected} / Slow {slow}</p>
+export default component App() {
+  source fixed := false
+  source count := 0
+  slow = await fetch("slow:" + fixed)
+  selected = fixed ? 2 : count
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>Fixed {fixed} / Count {count} / Selected {selected} / Slow {slow}</p>
+  }
 }
 ```
 

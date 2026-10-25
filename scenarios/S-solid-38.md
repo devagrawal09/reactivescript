@@ -3,9 +3,12 @@
 ## Program
 
 ```
-source count := 0
-data = await fetch("d:" + count)
-<div><p>{count}</p> {errored fallback { <p>Fetch error</p> } { {loading fallback { <p>loading</p> } { <p>{data}</p> }} }}</div>
+export default component App() {
+  source count := 0
+  data = await fetch("d:" + count)
+
+  <div><p>{count}</p> {errored fallback { <p>Fetch error</p> } { {loading fallback { <p>loading</p> } { <p>{data}</p> }} }}</div>
+}
 ```
 
 ## Frames

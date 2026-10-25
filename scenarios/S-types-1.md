@@ -17,29 +17,32 @@ export pure fn fetchUser(id: number): Promise<User> rejects(NotFound)
 import { fetchUser, User, NotFound } from "./api"
 error TooShort(min: number) => `at least ${min}`
 context accent: string = "blue"
-source id := 1
-source draft := ""
-source tags: string[] := []
-user = await fetchUser(id) catch (e: NotFound) => null
-initial = user == null ? "?" : user.name.slice(0, 1)
-fn shout(s: string): string => s.toUpperCase()
 component Badge(props: { label: string; count?: number }) {
   tone = use accent
   <span class={tone}>{props.label}{props.count == null ? "" : ` ${props.count}`}</span>
 }
-action add(t: string) {
-  try {
-    if (len(t) < 2) { throw TooShort(2) }
-    tags := xs => [...xs, t]
-    draft := ""
-  } catch (e: TooShort) { draft := `${e.message} (${e.min})` }
-}
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>…</p> } {
-    {if user { <p>{shout(user.name)} {user.email ?? "no email"}</p> } else { <p>no user {initial}</p> }}
-    {for t in tags { <Badge label={t} count={len(t)} /> }}
-    <button onClick={() => { add(draft) }}>add</button>
-  }}
+export default component App() {
+  source id := 1
+  source draft := ""
+  source tags: string[] := []
+  user = await fetchUser(id) catch (e: NotFound) => null
+  initial = user == null ? "?" : user.name.slice(0, 1)
+  fn shout(s: string): string => s.toUpperCase()
+  action add(t: string) {
+    try {
+      if (len(t) < 2) { throw TooShort(2) }
+      tags := xs => [...xs, t]
+      draft := ""
+    } catch (e: TooShort) { draft := `${e.message} (${e.min})` }
+  }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>…</p> } {
+      {if user { <p>{shout(user.name)} {user.email ?? "no email"}</p> } else { <p>no user {initial}</p> }}
+      {for t in tags { <Badge label={t} count={len(t)} /> }}
+      <button onClick={() => { add(draft) }}>add</button>
+    }}
+  }
 }
 ```
 
@@ -69,8 +72,11 @@ badge shows its length.
 
 ```
 -- types: TS2345
-source count := 0
-<button onClick={() => { count := "one" }}>{count}</button>
+export default component App() {
+  source count := 0
+
+  <button onClick={() => { count := "one" }}>{count}</button>
+}
 ```
 
 A write is checked against the source (TY-2): `0` makes it a number.
@@ -78,7 +84,10 @@ A write is checked against the source (TY-2): `0` makes it a number.
 ```
 -- types: TS2322
 component Badge(props: { label: string }) { <span>{props.label}</span> }
-<Badge label={3} />
+
+export default component App() {
+  <Badge label={3} />
+}
 ```
 
 A component's props are checked where it is applied (TY-3).
@@ -86,7 +95,10 @@ A component's props are checked where it is applied (TY-3).
 ```
 -- types: TS2322
 component Badge(props: { label: string }) { <span>{props.label}</span> }
-<Badge />
+
+export default component App() {
+  <Badge />
+}
 ```
 
 A missing prop, likewise. (What a reader may insert is Solid's `JSX.Element`,
@@ -96,8 +108,11 @@ is still Solid's `UNRECOGNIZED_INSERT_VALUE`, at run time.)
 ```
 -- types: TS18047
 import { fetchUser, NotFound } from "./api"
-user = await fetchUser(1) catch (e: NotFound) => null
-errored fallback(e) { <p>{e.message}</p> } { <p>{user.name}</p> }
+export default component App() {
+  user = await fetchUser(1) catch (e: NotFound) => null
+
+  errored fallback(e) { <p>{e.message}</p> } { <p>{user.name}</p> }
+}
 ```
 
 `user` may be `null`: read it under `if user { … }`, which narrows it
@@ -106,11 +121,14 @@ errored fallback(e) { <p>{e.message}</p> } { <p>{user.name}</p> }
 ```
 -- types: TS2339
 error TooShort(min: number) => `at least ${min}`
-source msg := ""
-action check(t: string) {
-  try { throw TooShort(2) } catch (e: TooShort) { msg := e.max }
+export default component App() {
+  source msg := ""
+  action check(t: string) {
+    try { throw TooShort(2) } catch (e: TooShort) { msg := e.max }
+  }
+
+  <p>{msg}</p>
 }
-<p>{msg}</p>
 ```
 
 A typed catch binds its classes (R-f-4); `TooShort` has no `max`.
@@ -122,23 +140,32 @@ component Panel(props) {
   provide accent = 3
   <p>{use accent}</p>
 }
-<Panel />
+
+export default component App() {
+  <Panel />
+}
 ```
 
 A provision is checked against its context's type (RG-7).
 
 ```
 -- types: TS2345
-fn shout(s: string): string => s.toUpperCase()
-<p>{shout(1)}</p>
+export default component App() {
+  fn shout(s: string): string => s.toUpperCase()
+
+  <p>{shout(1)}</p>
+}
 ```
 
 ```
 -- types: WIRE_VALUE
 type Row = { id: number; at: Date }
 server fn rows(): Row[] { return [] }
-r = await rows() catch (e) => []
-<p>{len(r)}</p>
+export default component App() {
+  r = await rows() catch (e) => []
+
+  <p>{len(r)}</p>
+}
 ```
 
 SF-6a, statically: a `Date` is an instance of a class, so the result is

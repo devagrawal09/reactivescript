@@ -5,11 +5,14 @@ Rules: AC-1, AC-3, ST-5, H-11.
 ## Program
 
 ```
-source name := "Ann"
-source shown = name
-source saved := false
-action rename(n) { try { optimistic shown := n; saved := true; await fetch("save"); name := n } catch {} }
-<p>{shown} / {saved ? "saved" : "unsaved"} / {pending? shown ? "p" : "-"} {pending? saved ? "p" : "-"}</p>
+export default component App() {
+  source name := "Ann"
+  source shown = name
+  source saved := false
+  action rename(n) { try { optimistic shown := n; saved := true; await fetch("save"); name := n } catch {} }
+
+  <p>{shown} / {saved ? "saved" : "unsaved"} / {pending? shown ? "p" : "-"} {pending? saved ? "p" : "-"}</p>
+}
 ```
 
 ## Frames
@@ -41,9 +44,12 @@ was a plain write and commits (AC-1, DV-2).
 ```
 -- reject: OPTIMISTIC_OUTSIDE_HOLD
 -- handler: optimistic shown := "Zed"
-source name := "Ann"
-source shown = name
-<p>{shown}</p>
+export default component App() {
+  source name := "Ann"
+  source shown = name
+
+  <p>{shown}</p>
+}
 ```
 
 A guess outside a hold does not exist (D-32); here it is unwritable.
@@ -51,7 +57,10 @@ A guess outside a hold does not exist (D-32); here it is unwritable.
 ```
 -- reject: OPTIMISTIC_NO_QUESTION
 -- handler: fix()
-source shown := "Ann"
-action fix() { try { optimistic shown := "Zed"; await fetch("x") } catch {} }
-<p>{shown}</p>
+export default component App() {
+  source shown := "Ann"
+  action fix() { try { optimistic shown := "Zed"; await fetch("x") } catch {} }
+
+  <p>{shown}</p>
+}
 ```

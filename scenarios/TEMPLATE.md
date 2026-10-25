@@ -5,7 +5,9 @@ Rules exercised: <ids>. Solid scenario mirrored (holds only): S-<n>.
 ## Program
 
 ```
-<abstract syntax, 02-core §1>
+export default component App() {
+  <declarations, then the view (07; MO-1c)>
+}
 ```
 
 ## Frames

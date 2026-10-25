@@ -9,9 +9,12 @@ loop across instants and is refused. A write in a closure the apply creates
 ## Program
 
 ```
-source n := 0
-effect (n) { log($0); return () => { n := 0 } }
-<p>{n}</p>
+export default component App() {
+  source n := 0
+  effect (n) { log($0); return () => { n := 0 } }
+
+  <p>{n}</p>
+}
 ```
 
 ## Frames
@@ -29,9 +32,12 @@ cleanup writes `n := 0`, which opens instant 2 (EF-5, W-3).
 
 ```
 -- reject: EFFECT_WRITES_OWN_SOURCE
-source count := 0
-effect (count) { if ($0 > 10) count := 10 }
-<p>{count}</p>
+export default component App() {
+  source count := 0
+  effect (count) { if ($0 > 10) count := 10 }
+
+  <p>{count}</p>
+}
 ```
 
 Clamping in the apply: write `clamped = count > 10 ? 10 : count`, or clamp at
@@ -39,11 +45,14 @@ the write.
 
 ```
 -- reject: EFFECT_WRITES_OWN_SOURCE
-source items := [1, 2]
-source selected := 1
-valid = items.includes(selected)
-effect (valid) { if (!$0) selected := null }
-<p>{selected}</p>
+export default component App() {
+  source items := [1, 2]
+  source selected := 1
+  valid = items.includes(selected)
+  effect (valid) { if (!$0) selected := null }
+
+  <p>{selected}</p>
+}
 ```
 
 Through an equation: `valid` reads `selected`. Derive the shown value
@@ -53,9 +62,12 @@ and stays writable otherwise.
 
 ```
 -- reject: EFFECT_WRITES_OWN_SOURCE
-source n := 0
-effect (n) { try { n := n + 1 } catch (e) { } }
-<p>{n}</p>
+export default component App() {
+  source n := 0
+  effect (n) { try { n := n + 1 } catch (e) { } }
+
+  <p>{n}</p>
+}
 ```
 
 Nested statements are still the apply's own.

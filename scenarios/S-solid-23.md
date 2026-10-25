@@ -5,11 +5,14 @@ Rules exercised: RG-8 (PT-1, PT-2), H-5. Solid scenario mirrored: S-23 (D-19).
 ## Program
 
 ```
-x = await fetch("data")
-errored fallback(e) { <p>error: {e.message}</p> } {
-  loading fallback { <p>…</p> } {
-    portal { <p>dialog for {x}</p> }
-    <p>{x}</p>
+export default component App() {
+  x = await fetch("data")
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    loading fallback { <p>…</p> } {
+      portal { <p>dialog for {x}</p> }
+      <p>{x}</p>
+    }
   }
 }
 ```

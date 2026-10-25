@@ -5,9 +5,12 @@ Rules: ST-5, AC-4, E-6.
 ## Program
 
 ```
-source base := 1
-source x = base * 10
-<p>{x}</p>
+export default component App() {
+  source base := 1
+  source x = base * 10
+
+  <p>{x}</p>
+}
 ```
 
 ## Frames
@@ -27,10 +30,13 @@ the question with unchanged inputs: the override is dropped, quietly.
 ## Variant: an async question, re-asked quietly
 
 ```
-source id := 1
-source profile = await fetch("p:" + str(id))
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{profile} {pending? profile ? "p" : "-"}</p>
+export default component App() {
+  source id := 1
+  source profile = await fetch("p:" + str(id))
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{profile} {pending? profile ? "p" : "-"}</p>
+  }
 }
 ```
 
@@ -52,8 +58,11 @@ pends. Instant 5: a new question pends.
 ```
 -- reject: INVALID_REFRESH_TARGET
 -- handler: refresh base
-source base := 1
-<p>{base}</p>
+export default component App() {
+  source base := 1
+
+  <p>{base}</p>
+}
 ```
 
 A plain source has no question to re-ask.

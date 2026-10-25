@@ -9,10 +9,13 @@ import { SearchBox, ResultsPane, DetailPane } from "./ui.rx"
 // results list included. Without the root boundary, "a failing detail never
 // affects the results list" is a compile-time fact. The cost: a panic
 // (R-f-3, untracked) halts the app instead of showing a root fallback.
-<main>
-  <SearchBox />
-  {" "}
-  <ResultsPane />
-  {" "}
-  <DetailPane />
-</main>
+
+export default component App() {
+  <main>
+    <SearchBox />
+    {" "}
+    <ResultsPane />
+    {" "}
+    <DetailPane />
+  </main>
+}

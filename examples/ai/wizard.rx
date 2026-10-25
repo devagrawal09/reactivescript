@@ -14,62 +14,64 @@ import pure { submitSignup } from "./api"
 
 type Form = { name: string; email: string; plan: string }
 
-source step: number := 1
-source form: Form := { name: "", email: "", plan: "" }
-source status: string := ""
+export default component App() {
+  source step: number := 1
+  source form: Form := { name: "", email: "", plan: "" }
+  source status: string := ""
 
-// progress: the furthest step reached so far, remembered through `pre` of itself
-// (the oracle lowers only `pre` of the equation's own previous value — a memo's `prev`)
-furthest = step > (pre furthest -> 1) ? step : (pre furthest -> 1)
+  // progress: the furthest step reached so far, remembered through `pre` of itself
+  // (the oracle lowers only `pre` of the equation's own previous value — a memo's `prev`)
+  furthest = step > (pre furthest -> 1) ? step : (pre furthest -> 1)
 
-action submit() {
-  status := "submitting"                 // held with the action until the body ends (H-2)
-  try {
-    let id = await submitSignup(form)    // a snapshot of the form goes out
-    status := `done #${id}`
-  } catch (e) {
-    status := `failed: ${e.message}`     // same change as the held write above (AC-7)
+  action submit() {
+    status := "submitting"                 // held with the action until the body ends (H-2)
+    try {
+      let id = await submitSignup(form)    // a snapshot of the form goes out
+      status := `done #${id}`
+    } catch (e) {
+      status := `failed: ${e.message}`     // same change as the held write above (AC-7)
+    }
   }
+
+  <main>
+    <p>Step {step} of 3 (reached {furthest})</p>
+
+    {if step === 1 {
+      source tries := 0                    // step-local: how often "next" was refused
+      nameOk = len(form.name) > 0
+      effect () { log("enter", 1); return () => { log("leave", 1) } }
+      <section>
+        <input value={form.name} onInput={e => { form.name := e.target.value }} />
+        {if tries > 0 && !nameOk { <em>name required</em> }}
+        <button onClick={() => { if (nameOk) { step := 2 } else { tries := tries + 1 } }}>next</button>
+      </section>
+    }}
+
+    {if step === 2 {
+      source email := peek(form.email)          // E-4: a snapshot, written as one (DV-6)           // step-local edit buffer, seeded from the form (E-4)
+      emailOk = email.includes("@")
+      effect () { log("enter", 2); return () => { log("leave", 2) } }
+      <section>
+        <p>email: {email} {emailOk ? "" : "(invalid)"}</p>
+        <input value={email} onInput={e => { email := e.target.value }} />
+        <button onClick={() => { step := 1 }}>back</button>
+        <button disabled={!emailOk} onClick={() => { if (emailOk) { form.email := email; step := 3 } }}>next</button>
+      </section>
+    }}
+
+    {if step === 3 {
+      source agreed := false               // step-local: the terms checkbox
+      ready = form.plan !== "" && agreed
+      effect () { log("enter", 3); return () => { log("leave", 3) } }
+      <section>
+        <p>{form.name} / {form.email} / {form.plan === "" ? "no plan" : form.plan}</p>
+        <button onClick={() => { form.plan := "pro" }}>pro</button>
+        <button onClick={() => { agreed := !agreed }}>{agreed ? "agreed" : "agree"}</button>
+        <button onClick={() => { step := 2 }}>back</button>
+        <button disabled={!ready} onClick={() => { if (ready) { submit() } }}>submit</button>
+      </section>
+    }}
+
+    <p>{pending? status ? "submitting" : status}</p>
+  </main>
 }
-
-<main>
-  <p>Step {step} of 3 (reached {furthest})</p>
-
-  {if step === 1 {
-    source tries := 0                    // step-local: how often "next" was refused
-    nameOk = len(form.name) > 0
-    effect () { log("enter", 1); return () => { log("leave", 1) } }
-    <section>
-      <input value={form.name} onInput={e => { form.name := e.target.value }} />
-      {if tries > 0 && !nameOk { <em>name required</em> }}
-      <button onClick={() => { if (nameOk) { step := 2 } else { tries := tries + 1 } }}>next</button>
-    </section>
-  }}
-
-  {if step === 2 {
-    source email := peek(form.email)          // E-4: a snapshot, written as one (DV-6)           // step-local edit buffer, seeded from the form (E-4)
-    emailOk = email.includes("@")
-    effect () { log("enter", 2); return () => { log("leave", 2) } }
-    <section>
-      <p>email: {email} {emailOk ? "" : "(invalid)"}</p>
-      <input value={email} onInput={e => { email := e.target.value }} />
-      <button onClick={() => { step := 1 }}>back</button>
-      <button disabled={!emailOk} onClick={() => { if (emailOk) { form.email := email; step := 3 } }}>next</button>
-    </section>
-  }}
-
-  {if step === 3 {
-    source agreed := false               // step-local: the terms checkbox
-    ready = form.plan !== "" && agreed
-    effect () { log("enter", 3); return () => { log("leave", 3) } }
-    <section>
-      <p>{form.name} / {form.email} / {form.plan === "" ? "no plan" : form.plan}</p>
-      <button onClick={() => { form.plan := "pro" }}>pro</button>
-      <button onClick={() => { agreed := !agreed }}>{agreed ? "agreed" : "agree"}</button>
-      <button onClick={() => { step := 2 }}>back</button>
-      <button disabled={!ready} onClick={() => { if (ready) { submit() } }}>submit</button>
-    </section>
-  }}
-
-  <p>{pending? status ? "submitting" : status}</p>
-</main>

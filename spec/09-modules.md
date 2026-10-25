@@ -20,11 +20,15 @@ the end.
   exports. The path is relative to the importing file.
 - **MO-1b.** Each module is instantiated **once per app**: its top-level
   sources, equations and effects exist once, and every importer reads the
-  same ones. Module-level state is app state, as a module-level signal is in
-  Solid. Dependencies are instantiated before their importers.
-- **MO-1c.** A module's view is mounted only when the module is the entry. A
-  module imported for its exports may still have a view; it is checked like
-  any module and never rendered.
+  same ones. Module-level state is app state — not a JS module variable: on
+  the server an app is a request (SV-4), so nothing in it outlives or is
+  shared beyond its request. Dependencies are instantiated before their
+  importers.
+- **MO-1c.** [ruled 2026-10-25] A module has no markup at its top level
+  (`TOP_LEVEL_MARKUP`). The app's view is the entry module's default
+  component, `export default component App() { … }`: the runtime mounts it,
+  as Solid's `render(() => <App />, el)`. A module imported for its exports
+  may have a default component too; it is a component like any other.
 
 ## MO-2 — The value boundary
 
@@ -140,7 +144,8 @@ export component Save(props: { v: action catches(nothing) })
   export fn saveUser(id: number, name: string) rejects(Offline)     // io: dirty is the default
   export error NotFound                                             // a JS class that is an error class (R-f-1)
   export type User = { id: number; name: string }
-  ```
+  
+```
 
   `pure` is still the only row word that lowers taint and points one way;
   `rejects(…)` defaults to `Error`. In every `.d.rx` — written for a JS

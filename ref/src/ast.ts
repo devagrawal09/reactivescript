@@ -50,7 +50,7 @@ export type Decl =
   | { k: "typedecl"; name: string; line: number; text?: string; exported?: boolean }                                                           // `type T = …`: text only
   | { k: "effect"; inputs: Expr[]; body: Stmt[]; line: number }
   | { k: "fn"; name: string; params: Param[]; decls: Decl[]; tail: Expr; line: number; ret?: string; exported?: boolean }       // body: decls then a value
-  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean }  // body: decls then a view
+  | { k: "component"; name: string; props: string; decls: Decl[]; view: Markup[]; line: number; propsType?: string; exported?: boolean; isDefault?: boolean }  // body: decls then a view; isDefault: `export default component App` — the app's entry (MO-1c)
   | { k: "action"; name: string; params: string[]; ptypes?: (string | undefined)[]; body: Stmt[]; line: number; exported?: boolean }                   // AC-1
   | { k: "server"; name: string; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[]; line: number; exported?: boolean }   // 12 SF-1: `server fn f(a) { … }` — the body runs on the server; it is io when its body is
   | { k: "provide"; name: string; e: Expr; line: number }                                        // RG-7a: `name` resolves to a context declaration
@@ -68,4 +68,4 @@ export type Markup = (
   | { k: "portal"; to?: Expr; decls: Decl[]; body: Markup[] }                     // RG-8: rendered at the end of the document (or `to(e)`), owned here
 ) & { line?: number };                                                                   // the source line, for diagnostics
 
-export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view
+export type Program = { decls: Decl[]; view: Markup[]; legacyView?: boolean };   // a reactive block: declarations, then its view. A module's view is `<App />` for its default component (MO-1c); legacyView: markup written at the top level (refused, TOP_LEVEL_MARKUP)

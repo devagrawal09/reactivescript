@@ -3,12 +3,15 @@
 ## Program
 
 ```
-source page := 0
-source count := 0
-pageData = await fetch("pg:" + page)
-details = await fetch("d:" + pageData + ":" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Sum {page + count}</p></div>
+export default component App() {
+  source page := 0
+  source count := 0
+  pageData = await fetch("pg:" + page)
+  details = await fetch("d:" + pageData + ":" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Sum {page + count}</p></div>
+  }
 }
 ```
 
@@ -32,12 +35,15 @@ The boundary alone waits.
 ## Variant: an outside reader keeps the hold
 
 ```
-source page := 0
-source count := 0
-pageData = await fetch("pg:" + page)
-details = await fetch("d:" + pageData + ":" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Outside {details}</p> <p>Sum {page + count}</p></div>
+export default component App() {
+  source page := 0
+  source count := 0
+  pageData = await fetch("pg:" + page)
+  details = await fetch("d:" + pageData + ":" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>{loading on(page) fallback { <p>Loading...</p> } { <p>Details {details}</p> }} <p>Outside {details}</p> <p>Sum {page + count}</p></div>
+  }
 }
 ```
 

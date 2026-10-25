@@ -5,6 +5,8 @@ import { IssueList, DetailPanel } from "./ui.rx"
 
 provide currentUser = session
 
-<main>
-  <IssueList />{" / "}<DetailPanel />
-</main>
+export default component App() {
+  <main>
+    <IssueList />{" / "}<DetailPanel />
+  </main>
+}

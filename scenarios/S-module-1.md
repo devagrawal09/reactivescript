@@ -63,7 +63,10 @@ export component Save(props: { v: action catches(nothing) })
 import { selected, user, select } from "./store.rx"
 import { Card, Name, Badge, who } from "./ui.rx"
 provide who = "Zed"
-<div><p>#{selected}</p> <Card><Name user={user} /></Card> <Badge /></div>
+
+export default component App() {
+  <div><p>#{selected}</p> <Card><Name user={user} /></Card> <Badge /></div>
+}
 ```
 
 `user` fails with `Error` (the fetch) and `NotFound` (the throw). `Name`
@@ -93,7 +96,10 @@ question holds the change. Instant 4: the rejection is an `Error`, which
 ```
 -- reject: MO-2
 import { selected } from "./store.rx"
-<button onClick={() => { selected := 5 }}>{selected}</button>
+
+export default component App() {
+  <button onClick={() => { selected := 5 }}>{selected}</button>
+}
 ```
 
 An imported source is read-only: the module exports `select` to write it.
@@ -101,19 +107,28 @@ An imported source is read-only: the module exports `select` to write it.
 ```
 -- reject: NOT_EXPORTED
 import { hidden } from "./store.rx"
-<p>{hidden}</p>
+
+export default component App() {
+  <p>{hidden}</p>
+}
 ```
 
 ```
 -- reject: MODULE_NOT_FOUND
 import { x } from "./nope.rx"
-<p>{x}</p>
+
+export default component App() {
+  <p>{x}</p>
+}
 ```
 
 ```
 -- reject: MODULE_CYCLE
 import { a } from "./a.rx"
-<p>{a}</p>
+
+export default component App() {
+  <p>{a}</p>
+}
 ```
 
 MO-5: `a.rx` and `b.rx` import each other.
@@ -121,7 +136,10 @@ MO-5: `a.rx` and `b.rx` import each other.
 ```
 -- reject: IMPORT_ROW_MISMATCH
 import pure { select } from "./store.rx"
-<p>{select}</p>
+
+export default component App() {
+  <p>{select}</p>
+}
 ```
 
 MO-4: `select` is an action — `io` in its signature; `pure` cannot lower an
@@ -130,7 +148,10 @@ MO-4: `select` is an action — `io` in its signature; `pure` cannot lower an
 ```
 -- reject: CONTEXT_NOT_FOUND
 import { Badge } from "./ui.rx"
-<Badge />
+
+export default component App() {
+  <Badge />
+}
 ```
 
 RG-7b through a signature: `Badge` uses `who`, and nothing above this
@@ -140,7 +161,10 @@ application provides it.
 -- reject: UNHANDLED_FAILURE
 import { user } from "./store.rx"
 import { Name } from "./ui.rx"
-<Name user={user} />
+
+export default component App() {
+  <Name user={user} />
+}
 ```
 
 `Name` discharges `NotFound` only; the fetch's `Error` comes out at this
@@ -150,7 +174,10 @@ application with nothing above it.
 -- reject: UNCAUGHT_ACTION_FAILURE
 import { user } from "./store.rx"
 import { Save } from "./ui.rx"
-errored fallback(e) { <p>{e.message}</p> } { <Save v={user} /> }
+
+export default component App() {
+  errored fallback(e) { <p>{e.message}</p> } { <Save v={user} /> }
+}
 ```
 
 `Save`'s action reads `props.v`: an argument that can fail is refused at

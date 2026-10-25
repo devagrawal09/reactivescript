@@ -38,8 +38,11 @@ action note(t) {
   try { let n = await addNote(id, t); status := `saved ${n}` }
   catch (e) { status := e.message }
 }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>loading</p> } { <p>{user.name}: {user.notes} notes {status}</p> }}
+
+export default component App() {
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>loading</p> } { <p>{user.name}: {user.notes} notes {status}</p> }}
+  }
 }
 ```
 
@@ -82,7 +85,10 @@ it crosses as itself.
 source n := 1
 server fn f() { return n }
 x = await f() catch (e) => 0
-<p>{x}</p>
+
+export default component App() {
+  <p>{x}</p>
+}
 ```
 
 SF-3: a source, wherever it is declared — on the server it is the
@@ -94,7 +100,10 @@ source n := 1
 fn next() => n + 1
 server fn f() { return next() }
 x = await f() catch (e) => 0
-<p>{x}</p>
+
+export default component App() {
+  <p>{x}</p>
+}
 ```
 
 A value `fn` is nameable unless it reads reactive state; this one reads
@@ -107,7 +116,10 @@ component Card(props) {
   t = await title() catch (e) => ""
   <h2>{t}</h2>
 }
-<Card title="x" />
+
+export default component App() {
+  <Card title="x" />
+}
 ```
 
 Capture is by kind, not position: a server function inside a component
@@ -117,7 +129,10 @@ is fine, naming its props is not.
 -- reject: SERVER_WRITE
 source status := ""
 server fn save(x) { status := "saved"; return x }
-<p>{status}</p>
+
+export default component App() {
+  <p>{status}</p>
+}
 ```
 
 SF-4: return the value; the action that awaited the call writes it.
@@ -125,8 +140,11 @@ SF-4: return the value; the action that awaited the call writes it.
 ```
 -- reject: SERVER_ONLY
 import { findUser } from "./api"
-user = await findUser(1) catch (e) => null
-<p>{user}</p>
+export default component App() {
+  user = await findUser(1) catch (e) => null
+
+  <p>{user}</p>
+}
 ```
 
 SF-5a: `findUser` is not in the client bundle.
@@ -135,8 +153,11 @@ SF-5a: `findUser` is not in the client bundle.
 -- reject: CLIENT_IN_SERVER
 import { viewport } from "./api"
 server fn size() { return viewport() }
-n = await size() catch (e) => 0
-<p>{n}</p>
+export default component App() {
+  n = await size() catch (e) => 0
+
+  <p>{n}</p>
+}
 ```
 
 SF-5c: the browser's JS does not exist where the body runs.
@@ -144,7 +165,10 @@ SF-5c: the browser's JS does not exist where the body runs.
 ```
 -- reject: IMPORT_ROW_MISMATCH
 import client pure { findUser } from "./api"
-<p>x</p>
+
+export default component App() {
+  <p>x</p>
+}
 ```
 
 The declaration file says where `findUser` runs; the import cannot restate
@@ -154,8 +178,11 @@ it.
 -- reject: IO_IN_REACTIVE
 import { insertNote } from "./api"
 server fn add(id) { await insertNote(id, "x"); return 1 }
-n = await add(1) catch (e) => 0
-<p>{n}</p>
+export default component App() {
+  n = await add(1) catch (e) => 0
+
+  <p>{n}</p>
+}
 ```
 
 SF-1: `add` is io because its body is, and an equation's `await` is a
@@ -165,8 +192,11 @@ The message names the call in the body that made it io.
 ```
 -- reject: UNHANDLED_FAILURE
 server fn one() { return 1 }
-x = await one()
-<p>{x}</p>
+export default component App() {
+  x = await one()
+
+  <p>{x}</p>
+}
 ```
 
 SF-6b: a call can fail in transit even when the body cannot fail.
@@ -174,8 +204,11 @@ SF-6b: a call can fail in transit even when the body cannot fail.
 ```
 -- reject: WIRE_VALUE
 server fn f() { return { g: (x) => x } }
-v = await f() catch (e) => null
-<p>{v}</p>
+export default component App() {
+  v = await f() catch (e) => null
+
+  <p>{v}</p>
+}
 ```
 
 SF-6a: a function does not cross. While types are text, this is found

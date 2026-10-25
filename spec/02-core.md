@@ -362,12 +362,14 @@ An instant proceeds in three phases and no phase overlaps another:
 `scenarios/S-core-1.md` — the counter.
 
 ```
-source count := 0
-source show := true
-double = op*(count, 2)
-label  = op+("prev ", pre double -> 0)
-effect (double) { log(double) }
-<p>{show ? double : "-"} {label}</p>
+export default component App() {
+  source count := 0
+  source show := true
+  double = op*(count, 2)
+  label  = op+("prev ", pre double -> 0)
+  effect (double) { log(double) }
+  <p>{show ? double : "-"} {label}</p>
+}
 ```
 
 | instant | action                           | frame `<p>`  | effect    | notes                                           |

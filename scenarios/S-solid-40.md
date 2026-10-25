@@ -3,10 +3,13 @@
 ## Program
 
 ```
-source s := 0
-n0 = await fetch("n:" + s)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>{n0}</p> {loading fallback { <p>loading</p> } { <p>{latest s}</p> }}</div>
+export default component App() {
+  source s := 0
+  n0 = await fetch("n:" + s)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>{n0}</p> {loading fallback { <p>loading</p> } { <p>{latest s}</p> }}</div>
+  }
 }
 ```
 

@@ -29,7 +29,10 @@ component Themed(props) {
   <i>{props.children}</i>
 }
 provide accent = "blue"
-<div><Label /> <Themed><Label /></Themed></div>
+
+export default component App() {
+  <div><Label /> <Themed><Label /></Themed></div>
+}
 ```
 
 The first `Label` has no provision of `theme` above it and reads its
@@ -50,7 +53,10 @@ import { accent } from "./theme.rx"
 import { accent as paint } from "./other.rx"
 component Label(props) { <b>{use accent}</b> }
 provide paint = "red"
-<Label />
+
+export default component App() {
+  <Label />
+}
 ```
 
 MO-7: a provision of `other.rx`'s `accent` is not one of `theme.rx`'s.
@@ -59,7 +65,10 @@ MO-7: a provision of `other.rx`'s `accent` is not one of `theme.rx`'s.
 -- reject: ROW_NARROWER_THAN_INFERRED
 import { accent } from "./theme.rx"
 provide accent = await fetch("accent")
-errored fallback(e) { <p>{e.message}</p> } { <b>{use accent}</b> }
+
+export default component App() {
+  errored fallback(e) { <p>{e.message}</p> } { <b>{use accent}</b> }
+}
 ```
 
 RG-7e: an exported context's type is its contract — `accent: string`
@@ -70,7 +79,10 @@ the `provide`. Its importers, on both sides, rely on the declaration.
 -- reject: UNHANDLED_FAILURE
 context who: string
 provide who = await fetch("who")
-<b>{use who}</b>
+
+export default component App() {
+  <b>{use who}</b>
+}
 ```
 
 A context that is not exported and writes no rows takes its rows from its
@@ -80,7 +92,10 @@ provisions: `use who` can fail with `Error`, so its reader needs a boundary.
 -- reject: WRITE_TO_NON_SOURCE
 import { accent } from "./theme.rx"
 provide accent = "blue"
-<button onClick={() => { use accent := "red" }}>{use accent}</button>
+
+export default component App() {
+  <button onClick={() => { use accent := "red" }}>{use accent}</button>
+}
 ```
 
 RG-7c: only a context declared `source` is written through.
@@ -89,24 +104,36 @@ RG-7c: only a context declared `source` is written through.
 -- reject: PROVIDE_NOT_A_SOURCE
 context picked: source number
 provide picked = 1 + 1
-<b>{use picked}</b>
+
+export default component App() {
+  <b>{use picked}</b>
+}
 ```
 
 ```
 -- reject: NOT_A_CONTEXT
-source picked := 1
-provide picked = 2
-<b>{picked}</b>
+export default component App() {
+  source picked := 1
+  provide picked = 2
+
+  <b>{picked}</b>
+}
 ```
 
 ```
 -- reject: INVALID_CONTEXT_DEFAULT
 context picked: source number = 1
-<b>{use picked}</b>
+
+export default component App() {
+  <b>{use picked}</b>
+}
 ```
 
 ```
 -- reject: CONTEXT_AS_VALUE
 import { theme } from "./theme.rx"
-<b>{theme}</b>
+
+export default component App() {
+  <b>{theme}</b>
+}
 ```

@@ -3,14 +3,17 @@
 ## Program
 
 ```
-source count := 1
-source child := false
-slow = await fetch("slow:" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>parent {count} {slow}</p> {if child {
-    fast = await fetch("fast:" + count)
-    <p>child {fast}</p>
-  }}</div>
+export default component App() {
+  source count := 1
+  source child := false
+  slow = await fetch("slow:" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>parent {count} {slow}</p> {if child {
+      fast = await fetch("fast:" + count)
+      <p>child {fast}</p>
+    }}</div>
+  }
 }
 ```
 
@@ -32,14 +35,17 @@ hold is live — the answer does not show beside the parent on the old value.
 ## Variant: `fast` slower than `slow`
 
 ```
-source count := 1
-source child := false
-slow = await fetch("slow:" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>parent {count} {slow}</p> {if child {
-    fast = await fetch("fast:" + count)
-    <p>child {fast}</p>
-  }}</div>
+export default component App() {
+  source count := 1
+  source child := false
+  slow = await fetch("slow:" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>parent {count} {slow}</p> {if child {
+      fast = await fetch("fast:" + count)
+      <p>child {fast}</p>
+    }}</div>
+  }
 }
 ```
 

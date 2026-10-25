@@ -18,12 +18,15 @@ component Line(props) {
 component Panel(props) {
   <p>{props.body}</p>
 }
-<div>
-  <Safe><p>{value}</p></Safe>
-  <Safe><Line text={value} /></Safe>
-  {errored fallback(e) { <p>{e.message}</p> } { <Panel body={value} /> }}
-  <p>{other}</p>
-</div>
+
+export default component App() {
+  <div>
+    <Safe><p>{value}</p></Safe>
+    <Safe><Line text={value} /></Safe>
+    {errored fallback(e) { <p>{e.message}</p> } { <Panel body={value} /> }}
+    <p>{other}</p>
+  </div>
+}
 ```
 
 Four readers of failing values, each discharged a different way: `{value}`
@@ -64,7 +67,10 @@ value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Safe(props) {
   {props.children}
 }
-<Safe><p>{value}</p></Safe>
+
+export default component App() {
+  <Safe><p>{value}</p></Safe>
+}
 ```
 
 R-f-5: `Safe` renders its children with no boundary above them.
@@ -77,7 +83,10 @@ value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Panel(props) {
   <p>{props.body}</p>
 }
-<Panel body={value} />
+
+export default component App() {
+  <Panel body={value} />
+}
 ```
 
 Passing is not reading (R-2): the failure is found where `Panel` reads
@@ -91,20 +100,26 @@ value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Line(props) {
   <p>{props.text catch (e: Missing) => "-"}</p>
 }
-<Line text={value} />
+
+export default component App() {
+  <Line text={value} />
+}
 ```
 
 `Line` discharges `Missing`; the fetch's `Error` passes its catch.
 
 ```
 -- reject: UNCAUGHT_ACTION_FAILURE
-source key := "a"
-value = await fetch("v:" + key)
 component Btn(props) {
   action go() { log(props.v) }
   <button onClick={() => { go() }}>go</button>
 }
-errored fallback(e) { <p>{e.message}</p> } { <Btn v={value} /> }
+
+export default component App() {
+  source key := "a"
+  value = await fetch("v:" + key)
+  errored fallback(e) { <p>{e.message}</p> } { <Btn v={value} /> }
+}
 ```
 
 R-f-6, R-f-7: the action's snapshot of `props.v` throws when the argument
@@ -113,11 +128,14 @@ is an error — the boundary at the caller cannot catch inside an action.
 ```
 -- reject: UNCAUGHT_ACTION_FAILURE
 error Missing(key) => `missing ${key}`
-source status := ""
-action save() {
-  try { await fetch("save") } catch (e: Missing) { status := e.message }
+export default component App() {
+  source status := ""
+  action save() {
+    try { await fetch("save") } catch (e: Missing) { status := e.message }
+  }
+
+  <p>{status}</p>
 }
-<p>{status}</p>
 ```
 
 A typed catch discharges only its classes: the fetch fails with `Error`.

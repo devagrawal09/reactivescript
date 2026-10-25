@@ -6,11 +6,14 @@ Rules: R-f-10, R-f-3, R-f-4, R-f-5, CN-6b.
 
 ```
 import pure { fail } from "./prelude"
-source raw := "ok"
-detail = await fetch("detail")
-parsed = raw == "bad" ? fail("corrupt input") : raw
-errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
-  <div><p>{parsed}</p> {errored fallback(e) { <p>detail failed: {e.message}</p> } { <p>{detail}</p> }}</div>
+export default component App() {
+  source raw := "ok"
+  detail = await fetch("detail")
+  parsed = raw == "bad" ? fail("corrupt input") : raw
+
+  errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
+    <div><p>{parsed}</p> {errored fallback(e) { <p>detail failed: {e.message}</p> } { <p>{detail}</p> }}</div>
+  }
 }
 ```
 
@@ -37,10 +40,13 @@ value replaces it and the page recovers.
 
 ```
 -- reject: UNHANDLED_FAILURE
-source raw := "ok"
-detail = await fetch("detail")
-errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
-  <div><p>{raw}</p> <p>{detail}</p></div>
+export default component App() {
+  source raw := "ok"
+  detail = await fetch("detail")
+
+  errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
+    <div><p>{raw}</p> <p>{detail}</p></div>
+  }
 }
 ```
 

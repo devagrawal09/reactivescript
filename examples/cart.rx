@@ -56,17 +56,19 @@ component Row(props: { product: Product }) {
   </li>
 }
 
-errored fallback(e) { <p class="error">The shop is unavailable: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
-  <section>
-    <h1>Cart ({count})</h1>
-    <ul>{for p in products { <Row product={p} /> }}</ul>
-    <label>
-      Coupon <input value={coupon} onInput={e => { coupon := e.target.value }} />
-      <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
-    </label>
-    <p>Subtotal {subtotal}</p>
-    <p>Total {total}</p>
-    <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
-    <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
-  </section>
+export default component App() {
+  errored fallback(e) { <p class="error">The shop is unavailable: {e.message}</p> } {   // R-f-5: the fetches can fail; one boundary at the root discharges them
+    <section>
+      <h1>Cart ({count})</h1>
+      <ul>{for p in products { <Row product={p} /> }}</ul>
+      <label>
+        Coupon <input value={coupon} onInput={e => { coupon := e.target.value }} />
+        <small>{pending? discount ? "checking…" : (latest discount) > 0 ? `-${latest discount}%` : coupon !== "" ? "invalid code" : ""}</small>
+      </label>
+      <p>Subtotal {subtotal}</p>
+      <p>Total {total}</p>
+      <button onClick={() => { placeOrder() }} disabled={pending? cart || count === 0}>Checkout</button>
+      <p>{pending? cart ? "Placing order…" : orderError !== "" ? `Failed: ${orderError}` : lastOrder ? `Order #${lastOrder} placed` : ""}</p>
+    </section>
+  }
 }

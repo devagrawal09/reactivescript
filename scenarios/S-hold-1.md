@@ -6,15 +6,18 @@ H-5, H-6, H-7, H-9, R-1, R-4, R-9, R-10, R-11, V-1.
 ## Program
 
 ```
-source id := "a"
-product = await fetch("p:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>
-    <p>sel:{latest id}</p>
-    {loading fallback { <p>loading</p> } {
-      <div><p>{product.name}</p> <p>{pending? product}</p></div>
-    }}
-  </div>
+export default component App() {
+  source id := "a"
+  product = await fetch("p:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>
+      <p>sel:{latest id}</p>
+      {loading fallback { <p>loading</p> } {
+        <div><p>{product.name}</p> <p>{pending? product}</p></div>
+      }}
+    </div>
+  }
 }
 ```
 
@@ -42,9 +45,12 @@ the screen keeps `A`; `latest id` shows `b` and `pending? product` shows
 
 ```
 -- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
-source id := "a"
-product = await fetch("p:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{product.name}</p>
+export default component App() {
+  source id := "a"
+  product = await fetch("p:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{product.name}</p>
+  }
 }
 ```

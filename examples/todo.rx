@@ -31,16 +31,18 @@ component Item(props: { todo: Todo }) {
   </li>
 }
 
-<main>
-  <form onSubmit={e => { e.preventDefault(); add() }}>
-    <input value={draft} onInput={e => { draft := e.target.value }} placeholder="What needs doing?" />
-    <button disabled={!canAdd}>Add</button>
-  </form>
-  <ul>{for t in shown { <Item todo={t} /> }}</ul>
-  <footer>
-    <span>{remaining} left</span>
-    {for f in filters {
-      <button class={filter === f ? "selected" : ""} onClick={() => { filter := f }}>{f}</button>
-    }}
-  </footer>
-</main>
+export default component App() {
+  <main>
+    <form onSubmit={e => { e.preventDefault(); add() }}>
+      <input value={draft} onInput={e => { draft := e.target.value }} placeholder="What needs doing?" />
+      <button disabled={!canAdd}>Add</button>
+    </form>
+    <ul>{for t in shown { <Item todo={t} /> }}</ul>
+    <footer>
+      <span>{remaining} left</span>
+      {for f in filters {
+        <button class={filter === f ? "selected" : ""} onClick={() => { filter := f }}>{f}</button>
+      }}
+    </footer>
+  </main>
+}

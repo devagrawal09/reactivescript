@@ -3,10 +3,13 @@
 ## Program
 
 ```
-source id := 1
-data = await fetch("d:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+export default component App() {
+  source id := 1
+  data = await fetch("d:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>{loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+  }
 }
 ```
 
@@ -26,10 +29,13 @@ is never painted (`LOADING_ON_OUTSIDE_HOLD` in dev).
 ## Variant: a header reading `latest id` beside `on(id)`
 
 ```
-source id := 1
-data = await fetch("d:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><b>{latest id}</b> {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+export default component App() {
+  source id := 1
+  data = await fetch("d:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><b>{latest id}</b> {loading on(id) fallback { <p>spinner</p> } { <p>{data}</p> }} {loading fallback { <p>spinner</p> } { <p>{data}</p> }}</div>
+  }
 }
 ```
 

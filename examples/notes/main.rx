@@ -4,29 +4,31 @@ import { query, route, notes, current, search, back, NotFound } from "./data.rx"
 import { NoteList, NoteEditor } from "./ui.rx"
 import { viewport } from "./api"
 
-width = await viewport() -> 1024 catch (e) => 1024   // a client question with a first paint (SV-7b): the server sends "wide"
-layout = width < 640 ? "narrow" : "wide"
+export default component App() {
+  width = await viewport() -> 1024 catch (e) => 1024   // a client question with a first paint (SV-7b): the server sends "wide"
+  layout = width < 640 ? "narrow" : "wide"
 
-<style>
-  main { max-width: 960px; margin: auto }
-  .narrow { padding: 0 }
-  header { display: flex; gap: 8px }
-</style>
-<main class={layout}>
-  <header>
-    <input placeholder="search" value={query} onInput={e => { search(e.currentTarget.value) }} />
-    {if route.page == "note" { <button onClick={() => { back() }}>back</button> }}
-    <small>{layout}</small>
-  </header>
-  {errored fallback(e) { <p>could not load: {e.message}</p> } {
-    {if route.page == "list" {
-      {loading on(query) fallback { <p>searching…</p> } { <NoteList notes={notes} /> }}
-    } else {
-      {errored fallback(e: NotFound) { <p>{e.message}</p> } {
-        {loading fallback { <p>opening…</p> } {
-          {if current { <NoteEditor note={current} /> }}
+  <style>
+    main { max-width: 960px; margin: auto }
+    .narrow { padding: 0 }
+    header { display: flex; gap: 8px }
+  </style>
+  <main class={layout}>
+    <header>
+      <input placeholder="search" value={query} onInput={e => { search(e.currentTarget.value) }} />
+      {if route.page == "note" { <button onClick={() => { back() }}>back</button> }}
+      <small>{layout}</small>
+    </header>
+    {errored fallback(e) { <p>could not load: {e.message}</p> } {
+      {if route.page == "list" {
+        {loading on(query) fallback { <p>searching…</p> } { <NoteList notes={notes} /> }}
+      } else {
+        {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+          {loading fallback { <p>opening…</p> } {
+            {if current { <NoteEditor note={current} /> }}
+          }}
         }}
       }}
     }}
-  }}
-</main>
+  </main>
+}

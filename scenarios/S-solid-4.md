@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source a := 0
-source b := 0
-detailsA = await fetch("d:" + a)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{b}:{detailsA}</p>
+export default component App() {
+  source a := 0
+  source b := 0
+  detailsA = await fetch("d:" + a)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{b}:{detailsA}</p>
+  }
 }
 ```
 
@@ -33,12 +36,15 @@ stale-but-committed `detailsA`, which is not derived from `b` (H-1 intact).
 ## Variant: through a shared derivation the write waits
 
 ```
-source a := 0
-source b := 0
-detailsA = await fetch("d:" + a)
-sum = b + detailsA
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{b}:{detailsA} sum {sum}</p>
+export default component App() {
+  source a := 0
+  source b := 0
+  detailsA = await fetch("d:" + a)
+  sum = b + detailsA
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{b}:{detailsA} sum {sum}</p>
+  }
 }
 ```
 

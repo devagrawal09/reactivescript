@@ -5,11 +5,14 @@ Rules: H-7, R-9, R-10, R-4.
 ## Program
 
 ```
-source id := "a"
-product = await fetch("p:" + id)
-preview = await fetch("v:" + latest id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>{product.name}</p> <p>{preview}</p></div>
+export default component App() {
+  source id := "a"
+  product = await fetch("p:" + id)
+  preview = await fetch("v:" + latest id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>{product.name}</p> <p>{preview}</p></div>
+  }
 }
 ```
 

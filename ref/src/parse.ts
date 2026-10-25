@@ -83,7 +83,10 @@ export function parseProgram(src: string): Program {
   const view = parseMarkup(c, null);
   c.ws();
   if (!c.eof()) c.fail("declaration or markup");
-  return { decls, view };
+  const dflt = decls.filter(d => d.k === "component" && d.isDefault);
+  if (dflt.length > 1) c.fail("two default components: a module has one entry");
+  if (view.length === 0 && dflt.length) return { decls, view: [{ k: "el", tag: (dflt[0] as { name: string }).name, attrs: [], children: [], line: dflt[0].line }] };   // MO-1c: the mounted view is the default component, applied
+  return { decls, view, legacyView: view.length > 0 };
 }
 
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
@@ -119,7 +122,9 @@ export function parseDeclarations(src: string): JsDecl[] {
 function parseDecl(c: Cursor): Decl {
   c.ws();
   const line = c.line;
-  if (c.keyword("export")) { c.ws(); const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
+  if (c.keyword("export")) { c.ws();
+    if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
+    const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
     c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();

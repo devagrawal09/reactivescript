@@ -3,13 +3,16 @@
 ## Program
 
 ```
-source v := 0
-source late := false
-source gate := 0
-details = await fetch("d:" + latest v)
-hold = await fetch("g:" + gate + ":" + v)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>Details {details} / Value {v}</p> {if late { <p>Late {latest v}</p> }} <i>{hold}</i></div>
+export default component App() {
+  source v := 0
+  source late := false
+  source gate := 0
+  details = await fetch("d:" + latest v)
+  hold = await fetch("g:" + gate + ":" + v)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>Details {details} / Value {v}</p> {if late { <p>Late {latest v}</p> }} <i>{hold}</i></div>
+  }
 }
 ```
 

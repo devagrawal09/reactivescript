@@ -3,12 +3,15 @@
 ## Program
 
 ```
-source n := 0
-fast = await fetch("f:" + n)
-slow = await fetch("s:" + n)
-copy = slow
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>Fast {fast} / Slow {copy} / Pending {str(pending? [fast, copy])}</p>
+export default component App() {
+  source n := 0
+  fast = await fetch("f:" + n)
+  slow = await fetch("s:" + n)
+  copy = slow
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>Fast {fast} / Slow {copy} / Pending {str(pending? [fast, copy])}</p>
+  }
 }
 ```
 

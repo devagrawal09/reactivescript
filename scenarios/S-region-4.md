@@ -5,14 +5,17 @@ Rules exercised: RG-3, EF-2, EF-4, EF-5, O-2.
 ## Program
 
 ```
-source open := true
-source n := 0
-<div>
-  {if open {
-    effect (n) { log("run " + str(n)); fn () => log("cleanup " + str(n)) }
-    <p>{n}</p>
-  } else { <p>closed</p> }}
-</div>
+export default component App() {
+  source open := true
+  source n := 0
+
+  <div>
+    {if open {
+      effect (n) { log("run " + str(n)); fn () => log("cleanup " + str(n)) }
+      <p>{n}</p>
+    } else { <p>closed</p> }}
+  </div>
+}
 ```
 
 The apply block's last expression is its result; a function result is the

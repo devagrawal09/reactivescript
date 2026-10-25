@@ -44,8 +44,16 @@ export component Profile(props: { id: number }) { … }
   what the import's promises reject with (R-f-8); without `fails`, `Error`.
   A declaration file `api.d.rx` beside the JS module says it once instead,
   and the import then states nothing (09 MO-8).
-- A module whose top level ends in markup is an app entry: that markup is
-  the mounted view. The scenarios are written this way.
+- **A module is declarations; a view is a component's** (ruled
+  2026-10-25). The app's entry is the entry module's default component,
+  `export default component App() { … }`, which the runtime mounts (MO-1c).
+  Markup at a module's top level is `TOP_LEVEL_MARKUP`. So where a `source`
+  is written says what it is: inside a component it is the instance's
+  state; at a module's top level it is app state — instantiated once per
+  app, and on the server once per request (MO-1b, SV-4), never a JS module
+  variable shared across requests. Module state lives as long as the app
+  and there is one of it: state for a subtree, a route or an instance
+  belongs in a component, shared down through a context (RG-7).
 - `export` works on `component`, `fn`, `action`, `error`, `type`, and
   module-level sources and equations (exported as accessors — a module
   boundary is a value boundary, never a write boundary: W-1 holds across
@@ -305,37 +313,45 @@ Executable: S-surface-2 (the compiled runner checks the stylesheet).
 S-solid-8:
 
 ```
-source x := 0
-action save() { try { x := 1; await api.save() } catch {} }   // R-f-6: a failed save ends the body; `x` commits (DV-2)
-<div>
-  <p>{x}</p> <p>latest {latest x}</p>
-  <p>{pending? x ? "saving" : "idle"}</p>
-  <button onClick={() => { save() }}>save</button>
-</div>
+export default component App() {
+  source x := 0
+  action save() { try { x := 1; await api.save() } catch {} }   // R-f-6: a failed save ends the body; `x` commits (DV-2)
+  <div>
+    <p>{x}</p> <p>latest {latest x}</p>
+    <p>{pending? x ? "saving" : "idle"}</p>
+    <button onClick={() => { save() }}>save</button>
+  </div>
+}
 ```
 
 S-solid-26 (rows 4–7):
 
 ```
-source id := 1
-user = await fetchUser(id)
-action reload() { try { affects user; refresh user; await gate() } catch {} }
-errored fallback(e) { <p>{e.message}</p> } {      // R-f-5: `fetchUser` can reject
-  {loading fallback { <p>…</p> } {
-    <p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p>
-  }}
+export default component App() {
+  source id := 1
+  user = await fetchUser(id)
+  action reload() { try { affects user; refresh user; await gate() } catch {} }
+
+  errored fallback(e) { <p>{e.message}</p> } {      // R-f-5: `fetchUser` can reject
+    {loading fallback { <p>…</p> } {
+      <p>{user.name}</p> <p>{pending? user ? "updating" : ""}</p>
+    }}
+  }
 }
 ```
 
 S-store-3:
 
 ```
-source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
-view key id = map(rows, r => ({ id: r.id, name: r.name + "!" }))
-{for r in view {
-  effect (r.name) { log(r.id, $0) }
-  <p>{r.name}</p>
-}}
+export default component App() {
+  source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
+  view key id = map(rows, r => ({ id: r.id, name: r.name + "!" }))
+
+  {for r in view {
+    effect (r.name) { log(r.id, $0) }
+    <p>{r.name}</p>
+  }}
+}
 ```
 
 ## 8. Failures (04 R-f)
@@ -369,10 +385,10 @@ panic: not tracked, still caught at run time (R-f-3).
 ## 9. Grammar sketch
 
 ```
-Module    ::= Import* Decl* Markup*                                  -- trailing markup: the mounted view (an app entry)
+Module    ::= Import* Decl*                                          -- no markup: a view is a component's (MO-1c)
 Import    ::= "import" "pure"? ("{" (Name ("as" Name)?),* "}" | Name) "from" String ("fails" Classes)?
 Classes   ::= Name ("|" Name)*                                       -- error classes (R-f-1); `Error` is every class
-Decl      ::= "export"? Decl'
+Decl      ::= "export"? Decl' | "export" "default" Component        -- the entry's default component is the mounted view
 Decl'     ::= "source" Name Type? ("key" Name)? (":=" | "=") Expr
             | ("type" | "interface") Name …                        -- kept as text
             | "context" Name (":" "source"? Type)? ("=" Expr)?            -- RG-7a, RG-7c
@@ -441,3 +457,8 @@ Expr      ::= TSExpr with §3's removals and additions
 14. **One `catch` per `try`** (ruled 2026-10-25): TypeScript's statement
     form; a typed `catch (e: A)` rethrows other classes (AC-7), and two
     kinds of failure handled differently nest two `try`s (examples/notes).
+15. **The entry is `export default component App`** (ruled 2026-10-25):
+    no markup at a module's top level. Module-level state stays, as app
+    state (MO-1b, SV-4); weighed against components-only state, which would
+    force a provider component for every shared store and buys no SSR
+    safety, since a module is already instantiated per request.

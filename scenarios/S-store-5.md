@@ -9,10 +9,13 @@ with `await*` (07); a plain `await` takes the flight's first answer only.
 ## Program
 
 ```
-source room := "a"
-msgs = await* fetch("room:" + room)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{msgs} {pending? msgs ? "p" : "-"}</p>
+export default component App() {
+  source room := "a"
+  msgs = await* fetch("room:" + room)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{msgs} {pending? msgs ? "p" : "-"}</p>
+  }
 }
 ```
 

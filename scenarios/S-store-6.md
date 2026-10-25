@@ -6,15 +6,18 @@ D-34, D-35 (`createOptimisticStore`).
 ## Program
 
 ```
-source todos key id = await fetch("todos")
-action toggle(i) {
-  try { optimistic todos[i].done := true; await fetch("save"); refresh todos } catch {}
-}
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>loading</p> } {
-    <ul>{for t in todos { <li>{t.title}{t.done ? "+" : "-"}</li> }}</ul>
-    <p>{pending? todos ? "p" : "."}</p>
-  }}
+export default component App() {
+  source todos key id = await fetch("todos")
+  action toggle(i) {
+    try { optimistic todos[i].done := true; await fetch("save"); refresh todos } catch {}
+  }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>loading</p> } {
+      <ul>{for t in todos { <li>{t.title}{t.done ? "+" : "-"}</li> }}</ul>
+      <p>{pending? todos ? "p" : "."}</p>
+    }}
+  }
 }
 ```
 
@@ -59,11 +62,14 @@ corrected by the truth it was made over (D-35).
 ## Variant: a path guess on a record
 
 ```
-source id := 1
-source state = await fetch("s:" + str(id))
-action patch() { try { optimistic state.a := 5; await fetch("w") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}</p> }}
+export default component App() {
+  source id := 1
+  source state = await fetch("s:" + str(id))
+  action patch() { try { optimistic state.a := 5; await fetch("w") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}</p> }}
+  }
 }
 ```
 
@@ -82,9 +88,12 @@ body's end the guess reverts to the truth.
 
 ```
 -- reject: OPTIMISTIC_NO_QUESTION
-source todos: { done: boolean }[] := [{ done: false }]
-action toggle(i) { try { optimistic todos[i].done := true; await fetch("save") } catch {} }
-<p>{len(todos)}</p>
+export default component App() {
+  source todos: { done: boolean }[] := [{ done: false }]
+  action toggle(i) { try { optimistic todos[i].done := true; await fetch("save") } catch {} }
+
+  <p>{len(todos)}</p>
+}
 ```
 
 A path guess is a guess: its source needs a question to confirm it.

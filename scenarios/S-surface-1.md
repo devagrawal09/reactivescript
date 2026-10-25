@@ -25,11 +25,13 @@ export component Row(props: { todo: Todo }) {
   <li class={props.todo.done ? "done" : ""} onClick={() => { toggle(props.todo.id) }}>{props.todo.title}</li>
 }
 
-<main>
-  <p>{summary}</p>
-  <ul>{for t in shown { <Row todo={t} /> }}</ul>
-  <button disabled={len(todos) === 0} onClick={() => { filter := filter === "all" ? "open" : "all" }}>{filter}</button>
-</main>
+export default component App() {
+  <main>
+    <p>{summary}</p>
+    <ul>{for t in shown { <Row todo={t} /> }}</ul>
+    <button disabled={len(todos) === 0} onClick={() => { filter := filter === "all" ? "open" : "all" }}>{filter}</button>
+  </main>
+}
 ```
 
 ## Frames
@@ -49,25 +51,33 @@ changes, the text does not. Instant 3: a functional write appends.
 ```
 -- reject: IO-2
 import { log } from "./prelude"
-source n := 1
-m = log(n)
-<p>{m}</p>
+export default component App() {
+  source n := 1
+  m = log(n)
+
+  <p>{m}</p>
+}
 ```
 
 An `io` import called in reactive scope (R-io-3).
 
 ```
 -- reject: W-2
-source n := 1
-m = (n := 2)
-<p>{m}</p>
+export default component App() {
+  source n := 1
+  m = (n := 2)
+  <p>{m}</p>
+}
 ```
 
 ```
 -- reject: SNAPSHOT_INITIALIZER
-source form := { email: "a@x" }
-source email := form.email
-<p>{email}</p>
+export default component App() {
+  source form := { email: "a@x" }
+  source email := form.email
+
+  <p>{email}</p>
+}
 ```
 
 E-4 / DV-6: a snapshot must be written as one — `source email := peek(form.email)`.

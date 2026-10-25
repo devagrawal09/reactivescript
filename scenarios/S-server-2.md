@@ -5,12 +5,15 @@ Rules exercised: SV-3e, SV-3d; AC-1.
 ## Program
 
 ```
-source n := 0
-source note := ""
-action bump() { n := n + 1 }
-<p>{n} {note}</p>{" "}
-<button onClick={() => { bump() }}>+</button>
-<input value={note} onInput={(e) => { note := e.target.value }} />
+export default component App() {
+  source n := 0
+  source note := ""
+  action bump() { n := n + 1 }
+
+  <p>{n} {note}</p>{" "}
+  <button onClick={() => { bump() }}>+</button>
+  <input value={note} onInput={(e) => { note := e.target.value }} />
+}
 ```
 
 ## Frames

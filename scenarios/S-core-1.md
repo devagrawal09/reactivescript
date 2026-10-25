@@ -5,12 +5,15 @@ Rules exercised: E-1, E-2, E-4, E-6, W-1, W-2, W-3, C-2, C-2a, EF-2, EF-4, P-6.
 ## Program
 
 ```
-source count := 0
-source show := true
-double = count * 2
-label  = "prev " + pre double -> 0
-effect (double) { log(double) }
-<p>{show ? double : "-"} {label}</p>
+export default component App() {
+  source count := 0
+  source show := true
+  double = count * 2
+  label  = "prev " + pre double -> 0
+  effect (double) { log(double) }
+
+  <p>{show ? double : "-"} {label}</p>
+}
 ```
 
 ## Frames
@@ -27,11 +30,14 @@ effect (double) { log(double) }
 ## Variant: no effect (`double` undemanded while `show` is false)
 
 ```
-source count := 0
-source show := true
-double = count * 2
-label  = "prev " + pre double -> 0
-<p>{show ? double : "-"} {label}</p>
+export default component App() {
+  source count := 0
+  source show := true
+  double = count * 2
+  label  = "prev " + pre double -> 0
+
+  <p>{show ? double : "-"} {label}</p>
+}
 ```
 
 | instant | action                  | frame       |
@@ -62,8 +68,11 @@ count := 1
 
 ```
 -- reject: C-1
-source s := 0
-a = b + 1
-b = a + 1
-<p>{a}</p>
+export default component App() {
+  source s := 0
+  a = b + 1
+  b = a + 1
+
+  <p>{a}</p>
+}
 ```

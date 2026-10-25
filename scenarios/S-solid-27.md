@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source n := 0
-x = await fetch("x:" + n)
-y = await fetch("y:" + x)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>{str(pending? x) + "," + str(x)}</p> <p>{str(pending? latest x) + "," + str(latest x)}</p> <i>{y}</i></div>
+export default component App() {
+  source n := 0
+  x = await fetch("x:" + n)
+  y = await fetch("y:" + x)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>{str(pending? x) + "," + str(x)}</p> <p>{str(pending? latest x) + "," + str(latest x)}</p> <i>{y}</i></div>
+  }
 }
 ```
 

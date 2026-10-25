@@ -5,11 +5,14 @@ Rules: ST-2c, ST-5, AC-4, R-7.
 ## Program
 
 ```
-source id := 1
-source state = await fetch("s:" + str(id))
-action patch() { try { state.a := 5; await fetch("w") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}</p> }}
+export default component App() {
+  source id := 1
+  source state = await fetch("s:" + str(id))
+  action patch() { try { state.a := 5; await fetch("w") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>loading</p> } { <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}</p> }}
+  }
 }
 ```
 

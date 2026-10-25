@@ -7,11 +7,14 @@ S-core-1's multi-write instant; this scenario covers the held case.
 ## Program
 
 ```
-source count := 20
-doubled = count * 2
-slow = await fetch("s:" + count)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>{count}</p> <p>{latest count}</p> <p>{latest doubled}</p> <p>{pending? count}</p> <i>{slow}</i></div>
+export default component App() {
+  source count := 20
+  doubled = count * 2
+  slow = await fetch("s:" + count)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>{count}</p> <p>{latest count}</p> <p>{latest doubled}</p> <p>{pending? count}</p> <i>{slow}</i></div>
+  }
 }
 ```
 

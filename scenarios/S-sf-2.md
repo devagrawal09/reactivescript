@@ -15,14 +15,17 @@ export server pure fn now(): Date
 ```
 import pure { GET } from "@solidjs/web/server-functions"
 import { findUser } from "./api"
-getUser = GET(server fn (id: number) {
-  let u = await findUser(id)
-  return { name: u.name }
-})
-source id := 1
-user = await getUser(id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  loading fallback { <p>…</p> } { <p>{user.name}</p> }
+export default component App() {
+  getUser = GET(server fn (id: number) {
+    let u = await findUser(id)
+    return { name: u.name }
+  })
+  source id := 1
+  user = await getUser(id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    loading fallback { <p>…</p> } { <p>{user.name}</p> }
+  }
 }
 ```
 
@@ -48,8 +51,11 @@ author owns it, as an import's `pure` (IO-3).
 ```
 -- reject: IO_IN_REACTIVE
 import { GET } from "@solidjs/web/server-functions"
-getUser = GET(server fn (id) { return id })
-<p>x</p>
+export default component App() {
+  getUser = GET(server fn (id) { return id })
+
+  <p>x</p>
+}
 ```
 
 The wrapper is called when the equation is evaluated, in reactive scope: it
@@ -58,10 +64,13 @@ is imported `pure` (IO-2).
 ```
 -- reject: SERVER_CAPTURE
 import pure { GET } from "@solidjs/web/server-functions"
-source n := 1
-f = GET(server fn () { return n })
-x = await f() catch (e) => 0
-<p>{x}</p>
+export default component App() {
+  source n := 1
+  f = GET(server fn () { return n })
+  x = await f() catch (e) => 0
+
+  <p>{x}</p>
+}
 ```
 
 Wrapped or not, the body names nothing reactive (SF-3).
@@ -70,9 +79,12 @@ Wrapped or not, the body names nothing reactive (SF-3).
 -- reject: IO_IN_REACTIVE
 import pure { GET } from "@solidjs/web/server-functions"
 import { insert } from "./api2"
-save = GET(server fn (x) { await insert(x); return 1 })
-n = await save(1) catch (e) => 0
-<p>{n}</p>
+export default component App() {
+  save = GET(server fn (x) { await insert(x); return 1 })
+  n = await save(1) catch (e) => 0
+
+  <p>{n}</p>
+}
 ```
 
 The rows are the function's (SF-1d): this body is io, so its call in an
@@ -82,9 +94,12 @@ equation is refused — `GET` does not change what the body does.
 -- types: WIRE_VALUE
 import pure { GET } from "@solidjs/web/server-functions"
 import { now } from "./api"
-getUser = GET(server fn (id: number) { return { id: id, at: now() } })
-u = await getUser(1) catch (e) => null
-<p>{u == null ? "" : "ok"}</p>
+export default component App() {
+  getUser = GET(server fn (id: number) { return { id: id, at: now() } })
+  u = await getUser(1) catch (e) => null
+
+  <p>{u == null ? "" : "ok"}</p>
+}
 ```
 
 The wire is the function's, wrapped or not (TY-5a).

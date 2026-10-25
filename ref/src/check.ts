@@ -209,6 +209,7 @@ class Checker {
 
   run(p: Program) {
     const root = new Env(null, this.region(null)); this.rootEnv = root;
+    if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.later.push(() => this.contentCheck(p.view, root, []));
     for (const f of this.later) f();

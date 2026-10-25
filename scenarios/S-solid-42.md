@@ -3,12 +3,15 @@
 ## Program
 
 ```
-source count := 1
-data = await fetch("d:" + count)
-slow = await fetch("s:" + count)
-effect (data) { log($0) }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>{count}</p> {errored fallback { <p>Error</p> } { <p>{data}</p> }} <p>{slow}</p></div>
+export default component App() {
+  source count := 1
+  data = await fetch("d:" + count)
+  slow = await fetch("s:" + count)
+  effect (data) { log($0) }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>{count}</p> {errored fallback { <p>Error</p> } { <p>{data}</p> }} <p>{slow}</p></div>
+  }
 }
 ```
 

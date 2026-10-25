@@ -24,17 +24,20 @@ export posts = await fetchPosts(id)
 ```
 import { NotFound } from "./api"
 import { user, posts } from "./profile.rx"
-count = len(posts) > 2 ? fail("db password is hunter2") : len(posts)
-<main>
-  <h1>Profile</h1>{" "}
-  {errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    {loading fallback { <p>loading user</p> } { <p>{user.name}</p> }}
-  }}
-  {" "}
-  {errored fallback(e) { <p>error: {e.message}</p> } {
-    {loading fallback { <p>loading posts</p> } { <p>{count} posts</p> }}
-  }}
-</main>
+export default component App() {
+  count = len(posts) > 2 ? fail("db password is hunter2") : len(posts)
+
+  <main>
+    <h1>Profile</h1>{" "}
+    {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+      {loading fallback { <p>loading user</p> } { <p>{user.name}</p> }}
+    }}
+    {" "}
+    {errored fallback(e) { <p>error: {e.message}</p> } {
+      {loading fallback { <p>loading posts</p> } { <p>{count} posts</p> }}
+    }}
+  </main>
+}
 ```
 
 The questions live in a module, so they are module state (MO-1b) — per

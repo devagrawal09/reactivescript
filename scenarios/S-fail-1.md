@@ -10,10 +10,13 @@ error NotFound(id) => `no user ${id}`
 source id := 1
 user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
-errored fallback(e) { <p>down: {e.message}</p> } {
-  <div><p>#{id}</p> {errored fallback(e: BadId) { <p>{e.message}</p> } {
-    <p>{name catch (e: NotFound) => "(nobody)"}</p>
-  }}</div>
+
+export default component App() {
+  errored fallback(e) { <p>down: {e.message}</p> } {
+    <div><p>#{id}</p> {errored fallback(e: BadId) { <p>{e.message}</p> } {
+      <p>{name catch (e: NotFound) => "(nobody)"}</p>
+    }}</div>
+  }
 }
 ```
 
@@ -54,8 +57,11 @@ error NotFound(id) => `no user ${id}`
 source id := 1
 user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
-errored fallback(e: Error | NotFound) { <p>down: {e.message}</p> } {
-  <p>{name catch (e: NotFound) => "(nobody)"}</p>
+
+export default component App() {
+  errored fallback(e: Error | NotFound) { <p>down: {e.message}</p> } {
+    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+  }
 }
 ```
 
@@ -77,9 +83,12 @@ error NotFound(id) => `no user ${id}`
 source id := 1
 user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
-<p>#{id}</p>
-errored fallback(e: BadId) { <p>{e.message}</p> } {
-  <p>{name catch (e: NotFound) => "(nobody)"}</p>
+
+export default component App() {
+  <p>#{id}</p>
+  errored fallback(e: BadId) { <p>{e.message}</p> } {
+    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+  }
 }
 ```
 
@@ -93,8 +102,11 @@ error NotFound(id) => `no user ${id}`
 source id := 1
 user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
-errored fallback(e: BadId) { <p>{e.message}</p> } {
-  <p>{name}</p>
+
+export default component App() {
+  errored fallback(e: BadId) { <p>{e.message}</p> } {
+    <p>{name}</p>
+  }
 }
 ```
 
@@ -102,9 +114,12 @@ Neither `NotFound` (no catch on the reader) nor `Error` is discharged.
 
 ```
 -- reject: NOT_AN_ERROR_CLASS
-source id := 1
-user = await fetch("u:" + id)
-errored fallback(e: Missing) { <p>{e.message}</p> } { <p>{user}</p> }
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id)
+
+  errored fallback(e: Missing) { <p>{e.message}</p> } { <p>{user}</p> }
+}
 ```
 
 ```
@@ -113,7 +128,10 @@ error NotFound(id) => `no user ${id}`
 source id := 1
 user = await fetch("u:" + id)
 name: pending fails(NotFound) string = user == null ? throw NotFound(id) : user.name
-errored fallback(e) { <p>{e.message}</p> } { <p>{name}</p> }
+
+export default component App() {
+  errored fallback(e) { <p>{e.message}</p> } { <p>{name}</p> }
+}
 ```
 
 R-f-9: the written row leaves out the fetch's `Error`.

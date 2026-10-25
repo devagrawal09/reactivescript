@@ -5,16 +5,19 @@ Rules exercised: E-9, E-10 (diagnostic), RG-6a, RG-6b, RG-6c.
 ## Program
 
 ```
-fn double(v) => v * 2
-fn counter(ref base, step) {
-  source extra := 0
-  total = base + extra + step
-  total
+export default component App() {
+  fn double(v) => v * 2
+  fn counter(ref base, step) {
+    source extra := 0
+    total = base + extra + step
+    total
+  }
+  source n := 1
+  d = double(n)
+  t = counter(n, 10)
+
+  <p>{d} {t}</p>
 }
-source n := 1
-d = double(n)
-t = counter(n, 10)
-<p>{d} {t}</p>
 ```
 
 ## Frames
@@ -35,21 +38,27 @@ of `n` — the body did not re-run (instant 3 shows 3 + 5 + 10).
 
 ```
 -- reject: SNAPSHOT_ARGUMENT
-fn watch(v) {
-  effect (v) { log(v) }
-  v
+export default component App() {
+  fn watch(v) {
+    effect (v) { log(v) }
+    v
+  }
+  source n := 1
+  w = watch(n)
+
+  <p>{w}</p>
 }
-source n := 1
-w = watch(n)
-<p>{w}</p>
 ```
 
 ```
 -- reject: E-9
-fn counter(ref base) {
-  source extra := 0
-  base + extra
+export default component App() {
+  fn counter(ref base) {
+    source extra := 0
+    base + extra
+  }
+  source n := 1
+
+  <p>{counter(n)}</p>
 }
-source n := 1
-<p>{counter(n)}</p>
 ```

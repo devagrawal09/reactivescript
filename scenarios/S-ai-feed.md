@@ -77,9 +77,12 @@ DV-4 (a derived store's verdicts under a boundary).
 ```
 -- reject: OPTIMISTIC_NO_QUESTION
 -- handler: pick()
-source selected := 1
-action pick() { optimistic selected := 2; await fetch("x") }
-<p>{selected}</p>
+export default component App() {
+  source selected := 1
+  action pick() { optimistic selected := 2; await fetch("x") }
+
+  <p>{selected}</p>
+}
 ```
 
 `selected` is declared with `:=` — it has no question for a guess to confirm against (ST-5c).
@@ -90,7 +93,10 @@ context room: number
 component Room(props: { id: number }) {
   <p>{(use room) == props.id ? "*" : "-"}</p>
 }
-<Room id={1} />
+
+export default component App() {
+  <Room id={1} />
+}
 ```
 
 No provision of `room` above the room.

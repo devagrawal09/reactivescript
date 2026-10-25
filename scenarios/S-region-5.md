@@ -9,11 +9,14 @@ component Greeting(props) {
   shout = props.name + "!"
   <p>{shout} {props.children}</p>
 }
-source name := "a"
-source show := true
-<div>
-  {if show { <Greeting name={name}>{"hi"}</Greeting> }}
-</div>
+export default component App() {
+  source name := "a"
+  source show := true
+
+  <div>
+    {if show { <Greeting name={name}>{"hi"}</Greeting> }}
+  </div>
+}
 ```
 
 ## Frames
@@ -34,6 +37,9 @@ recreated with it (RG-4a, RG-1a).
 ```
 -- reject: RG-4a
 component Greeting(props) { <p>{props.name}</p> }
-x = Greeting
-<p>{x}</p>
+export default component App() {
+  x = Greeting
+
+  <p>{x}</p>
+}
 ```

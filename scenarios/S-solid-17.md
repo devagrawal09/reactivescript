@@ -3,12 +3,15 @@
 ## Program
 
 ```
-source b := 0
-source k := 0
-fast = await fetch("f:" + k)
-slow = await fetch("s:" + k + ":" + b)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>B {b}</p> {loading on(k) fallback { <p>Loading</p> } { <p>Fast {fast}</p> <p>Slow {slow}</p> }}</div>
+export default component App() {
+  source b := 0
+  source k := 0
+  fast = await fetch("f:" + k)
+  slow = await fetch("s:" + k + ":" + b)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>B {b}</p> {loading on(k) fallback { <p>Loading</p> } { <p>Fast {fast}</p> <p>Slow {slow}</p> }}</div>
+  }
 }
 ```
 

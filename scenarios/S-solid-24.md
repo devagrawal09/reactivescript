@@ -3,10 +3,13 @@
 ## Program
 
 ```
-source id := 0
-details = await fetch("d:" + latest id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+export default component App() {
+  source id := 0
+  details = await fetch("d:" + latest id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+  }
 }
 ```
 
@@ -24,10 +27,13 @@ header reveals now.
 ## Variant: once the boundary has shown content, the lane holds on `details`
 
 ```
-source id := 0
-details = await fetch("d:" + latest id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+export default component App() {
+  source id := 0
+  details = await fetch("d:" + latest id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><b>{latest id}</b> {loading fallback { <p>loading</p> } { <p>{details}</p> }}</div>
+  }
 }
 ```
 

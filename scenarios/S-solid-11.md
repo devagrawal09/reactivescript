@@ -3,13 +3,16 @@
 ## Program
 
 ```
-source x := 0
-source y := 0
-a = await fetch("a:" + x)
-b = await fetch("b:" + y)
-sum = a + b
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>A {a}</p> <p>B {b}</p> <p>Sum {sum}</p></div>
+export default component App() {
+  source x := 0
+  source y := 0
+  a = await fetch("a:" + x)
+  b = await fetch("b:" + y)
+  sum = a + b
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>A {a}</p> <p>B {b}</p> <p>Sum {sum}</p></div>
+  }
 }
 ```
 
@@ -30,12 +33,15 @@ Two flights, one shared on-screen derivation: one unit.
 ## Variant: without `Sum` the two are independent
 
 ```
-source x := 0
-source y := 0
-a = await fetch("a:" + x)
-b = await fetch("b:" + y)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>A {a}</p> <p>B {b}</p></div>
+export default component App() {
+  source x := 0
+  source y := 0
+  a = await fetch("a:" + x)
+  b = await fetch("b:" + y)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>A {a}</p> <p>B {b}</p></div>
+  }
 }
 ```
 

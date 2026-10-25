@@ -5,11 +5,14 @@ Rules: AC-1, H-5, H-8, RG-1.
 ## Program
 
 ```
-source x := false
-slow = await fetch("slow:" + str(x))
-action open() { try { x := true; await fetch("gate") } catch {} }
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><p>Slow {slow}</p> {if x { <div>{loading fallback { <p>fallback</p> } { content = await fetch("content"); <p>{content}</p> }}</div> }}</div>
+export default component App() {
+  source x := false
+  slow = await fetch("slow:" + str(x))
+  action open() { try { x := true; await fetch("gate") } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><p>Slow {slow}</p> {if x { <div>{loading fallback { <p>fallback</p> } { content = await fetch("content"); <p>{content}</p> }}</div> }}</div>
+  }
 }
 ```
 

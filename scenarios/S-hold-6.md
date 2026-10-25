@@ -9,8 +9,11 @@ error NotFound(id) => `item ${id} not found`
 source sel := 4
 item = await fetch("i:" + sel)
 shown = item == null ? throw NotFound(sel) : item
-loading on(sel) fallback { <p>loading…</p> } {
-  errored fallback(e) { <p>{e.message}</p> } { <p>{shown}</p> }
+
+export default component App() {
+  loading on(sel) fallback { <p>loading…</p> } {
+    errored fallback(e) { <p>{e.message}</p> } { <p>{shown}</p> }
+  }
 }
 ```
 

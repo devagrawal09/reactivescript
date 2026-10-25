@@ -15,9 +15,6 @@ region-local names); re-registration on change is the effect re-running.
 ## Program
 
 ```
-source showEmail := true
-source name := ""
-source email := ""
 context fields: source { ok: boolean }[]   // RG-7: declared; it carries a source (RG-7c)
 component Form(props) {
   source rows := []
@@ -34,10 +31,16 @@ component Field(props) {
   }
   <i>{props.value}</i>
 }
-<Form>
-  <Field value={name} />
-  {if showEmail { <Field value={email} /> }}
-</Form>
+
+export default component App() {
+  source showEmail := true
+  source name := ""
+  source email := ""
+  <Form>
+    <Field value={name} />
+    {if showEmail { <Field value={email} /> }}
+  </Form>
+}
 ```
 
 ## Frames
@@ -69,7 +72,10 @@ component Field(props) {
   ok = props.value != ""
   <i>{props.value} {len(use fields)}</i>
 }
-<Field value={"x"} />
+
+export default component App() {
+  <Field value={"x"} />
+}
 ```
 
 No provision for `fields` above the field.

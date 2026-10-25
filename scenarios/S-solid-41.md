@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source period := 1
-deferred fast = await fetch("f:" + period)
-deferred slow = await fetch("s:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+export default component App() {
+  source period := 1
+  deferred fast = await fetch("f:" + period)
+  deferred slow = await fetch("s:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+  }
 }
 ```
 
@@ -28,11 +31,14 @@ now; nothing holds on the panels. Each landing is its own change.
 ## Variant: plain async equations — one hold, gated on the slowest
 
 ```
-source period := 1
-fast = await fetch("f:" + period)
-slow = await fetch("s:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+export default component App() {
+  source period := 1
+  fast = await fetch("f:" + period)
+  slow = await fetch("s:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>Period {period}</h1> <p>fast {fast} {pending? fast}</p> <p>slow {slow} {pending? slow}</p></div>
+  }
 }
 ```
 
@@ -45,11 +51,14 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 ## Variant: `period` is held by another reader — a re-ask lands into that hold
 
 ```
-source period := 1
-gate = await fetch("g:" + period)
-deferred fast = await fetch("f:" + period)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>Period {period}</h1> <p>fast {fast}</p> <i>{gate}</i></div>
+export default component App() {
+  source period := 1
+  gate = await fetch("g:" + period)
+  deferred fast = await fetch("f:" + period)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>Period {period}</h1> <p>fast {fast}</p> <i>{gate}</i></div>
+  }
 }
 ```
 

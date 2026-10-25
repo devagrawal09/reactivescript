@@ -5,11 +5,14 @@ Rules: H-12, H-4, R-6, E-12.
 ## Program
 
 ```
-source id := "a"
-product = await fetch("p:" + id)
-<div>{errored fallback { <p>failed</p> } {
-  {loading fallback { <p>loading</p> } { <p>{product.name}</p> }}
-}}</div>
+export default component App() {
+  source id := "a"
+  product = await fetch("p:" + id)
+
+  <div>{errored fallback { <p>failed</p> } {
+    {loading fallback { <p>loading</p> } { <p>{product.name}</p> }}
+  }}</div>
+}
 ```
 
 ## Frames

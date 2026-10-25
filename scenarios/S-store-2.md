@@ -5,11 +5,14 @@ Rules: ST-3, C-2, E-6, EF-3.
 ## Program
 
 ```
-source id := 1
-selected = draft(pre selected -> {}) { d[str(pre id -> 0)] := false; d[str(id)] := true }
-effect (selected["1"]) { log("one", $0) }
-effect (selected["2"]) { log("two", $0) }
-<p>{selected["1"] ? "1" : "-"} {selected["2"] ? "2" : "-"}</p>
+export default component App() {
+  source id := 1
+  selected = draft(pre selected -> {}) { d[str(pre id -> 0)] := false; d[str(id)] := true }
+  effect (selected["1"]) { log("one", $0) }
+  effect (selected["2"]) { log("two", $0) }
+
+  <p>{selected["1"] ? "1" : "-"} {selected["2"] ? "2" : "-"}</p>
+}
 ```
 
 ## Frames
@@ -29,10 +32,13 @@ equation's value is the draft. Instant 3 touches `"2"` and `"3"` only:
 
 ```
 -- reject: ST-3a
-source id := 1
-source other := {}
-selected = draft(pre selected -> {}) { other[str(id)] := true }
-<p>{selected}</p>
+export default component App() {
+  source id := 1
+  source other := {}
+  selected = draft(pre selected -> {}) { other[str(id)] := true }
+
+  <p>{selected}</p>
+}
 ```
 
 A draft block writes only its draft.

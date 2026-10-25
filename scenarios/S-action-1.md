@@ -5,24 +5,27 @@ Rules: AC-7, AC-1, AC-3, W-6, R-f-6.
 ## Program
 
 ```
-source cart = [1, 2]
-source status := ""
-source orders := 0
-action placeOrder() {
-  optimistic cart := []
-  status := "placing"
-  try {
-    let receipt = await fetch("checkout")
-    cart := []
-    orders := orders + 1
-    status := `ok ${receipt}`
-  } catch (e) {
-    status := `failed: ${e.message}`
-  } finally {
-    orders := n => n + 100
+export default component App() {
+  source cart = [1, 2]
+  source status := ""
+  source orders := 0
+  action placeOrder() {
+    optimistic cart := []
+    status := "placing"
+    try {
+      let receipt = await fetch("checkout")
+      cart := []
+      orders := orders + 1
+      status := `ok ${receipt}`
+    } catch (e) {
+      status := `failed: ${e.message}`
+    } finally {
+      orders := n => n + 100
+    }
   }
+
+  <p>{cart.length} items / {status} / {orders}</p>
 }
-<p>{cart.length} items / {status} / {orders}</p>
 ```
 
 ## Frames
@@ -43,17 +46,20 @@ a failed action: the action handled it.
 ## Variant: a panic ends the body — the held writes still commit
 
 ```
-source cart = [1, 2]
-source status := ""
-action placeOrder() {
-  optimistic cart := []
-  status := "placing"
-  try { let receipt = await fetch("checkout") } catch (e) { status := "declined" }
-  fail("lost the receipt")
-  cart := []
-  status := "ok"
+export default component App() {
+  source cart = [1, 2]
+  source status := ""
+  action placeOrder() {
+    optimistic cart := []
+    status := "placing"
+    try { let receipt = await fetch("checkout") } catch (e) { status := "declined" }
+    fail("lost the receipt")
+    cart := []
+    status := "ok"
+  }
+
+  <p>{cart.length} items / {status}</p>
 }
-<p>{cart.length} items / {status}</p>
 ```
 
 | instant | action                      | frame                  |
@@ -71,8 +77,11 @@ rejection or a `throw` the body does not catch is a compile error (below).
 ## Variant: throw caught in a plain handler
 
 ```
-source status := ""
-<p>{status}</p>
+export default component App() {
+  source status := ""
+
+  <p>{status}</p>
+}
 ```
 
 | instant | action | frame |
@@ -83,16 +92,19 @@ source status := ""
 
 ```
 -- reject: UNCAUGHT_ACTION_FAILURE
-source cart = [1, 2]
-source status := ""
-action placeOrder() {
-  optimistic cart := []
-  status := "placing"
-  let receipt = await fetch("checkout")
-  cart := []
-  status := "ok"
+export default component App() {
+  source cart = [1, 2]
+  source status := ""
+  action placeOrder() {
+    optimistic cart := []
+    status := "placing"
+    let receipt = await fetch("checkout")
+    cart := []
+    status := "ok"
+  }
+
+  <p>{cart.length} items / {status}</p>
 }
-<p>{cart.length} items / {status}</p>
 ```
 
 R-f-6: the rejection of `fetch("checkout")` (a JS promise: `fails(Error)`)
@@ -102,12 +114,15 @@ that launched the action does not await it.
 ```
 -- reject: UNCAUGHT_ACTION_FAILURE
 error Declined(reason)
-source status := ""
-action placeOrder() {
-  try { let r = await fetch("checkout") } catch (e) { throw Declined(e.message) }
-  status := "ok"
+export default component App() {
+  source status := ""
+  action placeOrder() {
+    try { let r = await fetch("checkout") } catch (e) { throw Declined(e.message) }
+    status := "ok"
+  }
+
+  <p>{status}</p>
 }
-<p>{status}</p>
 ```
 
 A rethrow is a failure of the body like any other: the catch discharges

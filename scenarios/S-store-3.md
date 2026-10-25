@@ -5,12 +5,15 @@ Rules: ST-4, RG-2.
 ## Program
 
 ```
-source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
-view key id = map(rows, fn(r) => { id: r.id, name: r.name + "!" })
-{for r in view {
-  effect (r.name) { log(r.id, $0) }
-  <p>{r.name}</p>
-}}
+export default component App() {
+  source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
+  view key id = map(rows, fn(r) => { id: r.id, name: r.name + "!" })
+
+  {for r in view {
+    effect (r.name) { log(r.id, $0) }
+    <p>{r.name}</p>
+  }}
+}
 ```
 
 ## Frames
@@ -30,12 +33,15 @@ nothing is recreated. Instant 3: row 1 is removed, row 3 created.
 
 ```
 -- reject: UNSTABLE_LIST_IDENTITY
-source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
-view = map(rows, fn(r) => { id: r.id, name: r.name + "!" })
-{for r in view {
-  effect (r.name) { log(r.id, $0) }
-  <p>{r.name}</p>
-}}
+export default component App() {
+  source rows := [{ id: 1, name: "a" }, { id: 2, name: "b" }]
+  view = map(rows, fn(r) => { id: r.id, name: r.name + "!" })
+
+  {for r in view {
+    effect (r.name) { log(r.id, $0) }
+    <p>{r.name}</p>
+  }}
+}
 ```
 
 Unkeyed, every result would recreate every row (each `map` builds fresh

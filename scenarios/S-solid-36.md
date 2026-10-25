@@ -3,10 +3,13 @@
 ## Program
 
 ```
-source id := 1
-feed = await fetch("feed:" + id) -> "placeholder"
-errored fallback(e) { <p>error: {e.message}</p> } {
-  {loading fallback { <p>never shown</p> } { <div><p>{feed}</p> <p>{pending? feed}</p></div> }}
+export default component App() {
+  source id := 1
+  feed = await fetch("feed:" + id) -> "placeholder"
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    {loading fallback { <p>never shown</p> } { <div><p>{feed}</p> <p>{pending? feed}</p></div> }}
+  }
 }
 ```
 

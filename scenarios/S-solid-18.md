@@ -3,11 +3,14 @@
 ## Program
 
 ```
-source id := 1
-product = await fetch("p:" + id)
-comments = await fetch("c:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+export default component App() {
+  source id := 1
+  product = await fetch("p:" + id)
+  comments = await fetch("c:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+  }
 }
 ```
 
@@ -28,11 +31,14 @@ entered but not shown. Instant 4: it lands with `B`, not beside `A`.
 ## Variant: comments land first — no spinner ever
 
 ```
-source id := 1
-product = await fetch("p:" + id)
-comments = await fetch("c:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+export default component App() {
+  source id := 1
+  product = await fetch("p:" + id)
+  comments = await fetch("c:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div><h1>{product.name}</h1> {loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+  }
 }
 ```
 
@@ -45,10 +51,13 @@ errored fallback(e) { <p>error: {e.message}</p> } {
 ## Variant: nothing outside holds
 
 ```
-source id := 1
-comments = await fetch("c:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <div>{loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+export default component App() {
+  source id := 1
+  comments = await fetch("c:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <div>{loading on(id) fallback { <p>spinner</p> } { <ul>{comments}</ul> }}</div>
+  }
 }
 ```
 

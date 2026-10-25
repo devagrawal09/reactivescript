@@ -5,11 +5,14 @@ Rules: H-2, H-3, H-4, H-10, R-4. (H-3 rewritten after Solid S-4.)
 ## Program
 
 ```
-source id := "a"
-source n := 0
-product = await fetch("p:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{product.name} {n}</p>
+export default component App() {
+  source id := "a"
+  source n := 0
+  product = await fetch("p:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{product.name} {n}</p>
+  }
 }
 ```
 
@@ -32,10 +35,13 @@ caught). Instant 4: `product` lands.
 ## Variant: superseded flight
 
 ```
-source id := "a"
-product = await fetch("p:" + id)
-errored fallback(e) { <p>error: {e.message}</p> } {
-  <p>{product.name}</p>
+export default component App() {
+  source id := "a"
+  product = await fetch("p:" + id)
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{product.name}</p>
+  }
 }
 ```
 
