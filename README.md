@@ -58,9 +58,10 @@ Scenario IDs: `S-core-n`, `S-region-n`, `S-hold-n` (the latter mirror Solid's `S
 ## References
 
 - **Revisiting ReactiveScript** —
-  <https://hackmd.io/@0u1u3zEAQAO0iYWVAStEvw/BktlDvq9R>. The case for the
-  language as *strictness*, narrowed to two concerns, and where this spec
-  answers each:
+  <https://hackmd.io/@0u1u3zEAQAO0iYWVAStEvw/BktlDvq9R>. Earlier thinking
+  (before TSRX), kept for the record; later decisions supersede it where
+  they differ. The case for the language as *strictness*, narrowed to two
+  concerns, and where this spec answers each:
   - *Signals vs stores* — one `source`, atomic or structured behind a signal
     slot (06 ST-1, ST-2a); a mutable derivation is a `draft` (ST-3, its
     `$project`); `$memo` is an equation (E-1), `$async` an `await` in an
@@ -75,6 +76,6 @@ Scenario IDs: `S-core-n`, `S-region-n`, `S-hold-n` (the latter mirror Solid's `S
     instantiating `fn` runs once and its tail is bound as an equation in
     the caller (03 RG-6), and a writer crosses only as an `action` the
     tail carries (`{ value: n, inc }`), never as a setter.
-  - *Superset of `.tsx`, no SFCs* — partly: expressions and JSX are TS's
-    verbatim and a file is a module (07 §1), but declarations are keywords
-    (`source`, `x = e`), so `.rx` is not a superset of `.tsx`.
+  - *Superset of `.tsx`, no SFCs* — superseded: expressions and JSX are
+    TS's verbatim and a file is a module (07 §1); declarations are keywords
+    (`source`, `x = e`), as 07 rules.
