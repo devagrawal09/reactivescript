@@ -70,14 +70,15 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
   const files = new Map<string, string>();
   for (const path of set.order) {
-    const p = set.programs.get(path)!; g.file = path;
+    const p = set.programs.get(path)!; g.beginModule(path, p.decls);
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
     const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
-    if (path === set.entry) files.set(out(path), `${head}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${g.block(p.decls, p.view, new Env(null), 2, undefined, true)}\n  };\n}\n`);
+    if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
       const isComp = (n: string) => p.decls.some(d => d.k === "component" && d.name === n);
-      files.set(out(path), `${head}export default function module(__rt) {\n  const __B = __rt.B;\n${g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`)}\n}\n`);
+      const body = g.block(p.decls, [], new Env(null), 1, `{ ${exported.map(n => `${J(n)}: ${isComp(n) ? cm(n) : mg(n)}`).join(", ")} }`);
+      files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
   }
   return { files, entry: out(set.entry), css: g.css.join("\n") };   // CSS-4: the modules' stylesheets, beside their JavaScript
@@ -89,6 +90,35 @@ export function compileDynamicExpr(e: Expr): string { const g = new Gen(usage({ 
 class Gen {
   u: Usage;
   file = "main.rx"; css: string[] = [];
+  top: string[] = [];                                   // module-level code: hoisted server functions and the module's error classes
+  serverNames = new Map<string, string>();              // a module-level server fn → its hoisted function
+  private modDecls: Decl[] = [];
+  private sfSeq = 0;
+  /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
+  beginModule(path: string, decls: Decl[]) {
+    this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
+    for (const d of decls) if (d.k === "server") this.serverNames.set(d.name, `sf$${d.name}`);
+  }
+  /** 12 SF-7a: a server fn as Solid's \`"use server"\` function at module level — it may name only its parameters, its locals
+   *  and module-level bindings, which SF-3 makes always possible: every name a body may use is a module-level import, error
+   *  class or server fn, bound here from the calling app. Solid's \`transformDirectives\` then extracts it (server build) or
+   *  replaces it with a reference (browser build). */
+  private serverHoist(d: Extract<Decl, { k: "server" }>): string {
+    const f = this.serverNames.get(d.name) && !this.top.some(t => t.includes(`function ${this.serverNames.get(d.name)}(`)) ? this.serverNames.get(d.name)! : `sf$${d.name}$${this.sfSeq++}`;
+    const env = new Env(null); const pre: string[] = [];
+    for (const x of this.modDecls) {
+      if (x.k === "import" && !x.resolved) for (const { name, alias } of x.names) {
+        if (name === "log" || BUILTINS.has(name)) continue;
+        env.vars.set(alias, { kind: "val", js: mg(alias) });
+        pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
+      }
+      if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
+      if (x.k === "server") env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
+    }
+    const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
+    this.top.push(`async function ${f}(...__a) {\n  "use server";\n  const __rt = globalThis.__rx_app; const __B = __rt.B;\n  ${pre.join("\n  ")}\n  return __rt.serverCall(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {\n${body}\n  }, __a);\n}`);
+    return f;
+  }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
   mods?: { set: ModuleSet; out: (path: string) => string };
   constructor(u: Usage, mods?: { set: ModuleSet; out: (path: string) => string }) { this.u = u; this.mods = mods; }
@@ -171,14 +201,19 @@ class Gen {
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       out.push(`${pad}const ${mg(alias)} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${mg(alias)} });`);
     }
-    for (const d of decls) if (d.k === "error") { const inner = this.params(env, d.params); out.push(`${pad}const ${mg(d.name)} = __rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)});   // R-f-1`); }
+    for (const d of decls) if (d.k === "error") {
+      const inner = this.params(env, d.params); const make = `__rt.errorClass(${J(d.name)}, ${J(d.params)}, (${d.params.map(mg).join(", ")}) => ${d.msg ? this.expr(d.msg, inner, { imp: false }) : J(d.name)})`;
+      if (env.parent) { out.push(`${pad}const ${mg(d.name)} = ${make};   // R-f-1`); continue; }
+      // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
+      // hoisted to module level (SF-7a), throws the class an action's catch tests
+      this.top.push(`let c$${d.name};\nfunction g$${d.name}(__rt) { const __B = __rt.B; return c$${d.name} ??= ${make}; }`);
+      out.push(`${pad}const ${mg(d.name)} = g$${d.name}(__rt);   // R-f-1`);
+    }
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
-    for (const d of decls) if (d.k === "server") out.push(`${pad}const ${mg(d.name)} = __rt.serverFn(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {   // 12 SF-7
-${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}
-${pad}});`);
+    for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
     const vals = decls.filter(d => d.k === "source" || d.k === "eq" || d.k === "provide");
     const key = (d: Decl) => d.k === "provide" ? `provide:${d.name}` : (d as { name: string }).name;

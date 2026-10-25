@@ -6,6 +6,7 @@
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
 import { getObserver } from "solid-js";
+import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
 
@@ -79,6 +80,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const log: string[] = [];
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
+  const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -86,7 +88,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const app = {
     log, flights, lastKey, asyncError: null as unknown,
     /** Render `view` as a stream: `write` receives each chunk, `end` the close. */
-    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never); },
+    /** One request (a request event, as Solid's integrations provide one — a server function called during the render runs
+     *  in it, SF-2b). */
+    stream(view: () => unknown, sink: { write: (s: string) => void; end: () => void }) { return provideRequestEvent({ request: new Request("http://127.0.0.1/"), locals: {} }, () => renderToStream((process.env.SV_SCOPE ? () => runInServerComponentScope(view) : view) as never).pipe(sink as never)); },
 
     B: {
       len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
@@ -100,7 +104,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** MO-8: a class a `.d.rx` declares — a failure the server sends as it is (SV-5). */
-    jsError(name: string) { const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); return C; },
+    jsError(name: string) { if (jsErrors.has(name)) return jsErrors.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); jsErrors.set(name, C); return C; },
     /** A JS function's promise: a rejection with a declared class is marked safe to send; any other is redacted (SV-5). */
     api: (name: string) => {
       if (!opts.api) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
@@ -110,7 +114,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snap(e.get) : e.value; },
-    lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); return l[l.length - 1]; },
+    lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
     source(name: string, init: unknown): [Acc, Writer] {
@@ -144,28 +148,37 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
-    /** 12 SF-7: \`server fn\` — every call a flight; the body (a generator, as an action's) is driven by promises,
-     *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
-     *  failures through (SF-6). Asked in reactive scope it is a question, one flight per arguments, as a JS import's; in
-     *  imperative scope each call is a new request (SF-2).
-     *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
-    serverFn(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+    /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
+     *  flight per arguments, as a JS import's; in imperative scope each call is a new request. \`fn\` is the module-level
+     *  \`"use server"\` function (SF-7a): the body in place, or — once Solid's \`transformDirectives\` has made it a reference
+     *  — a request to the server. */
+    serverRef(name: string, fn: (...a: unknown[]) => Promise<unknown>) {
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
         if (question && flights.has(key)) return flights.get(key)!;
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
+        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        p.then(v => fl.resolve(v), e => fl.reject(e));
+        return fl;
+      };
+    },
+    /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
+     *  the client's — behind a wire that copies arguments and result and lets only declared failures through. */
+    serverCall(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, args: unknown[]): Promise<unknown> {
+      return new Promise((resolve, reject) => {
         const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
-        const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
+        let g: Generator<unknown, unknown, unknown>;
+        try { g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail))); } catch (e) { reject(e); return; }
         const step = (input: unknown, thrown: boolean) => {
           const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
-          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { currentEq = was; }
-          if (r.done) { try { fl.resolve(wireCopy(r.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
+          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { reject(wireFailure(e)); return; } finally { currentEq = was; }
+          if (r.done) { try { resolve(wireCopy(r.value, "its result", fail)); } catch (e) { reject(e); } return; }
           Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
         };
         step(undefined, false);
-        return fl;
-      };
+      });
     },
     hoisted(_name: string, _get: Acc) {},
     refresh: onServer("refresh"),

@@ -20,6 +20,25 @@ import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from
 import { buildSync } from "esbuild";
 import { lowerViews } from "../compile/jsx.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
+import { transformDirectives } from "@solidjs/compiler";
+import { handleServerFunctionRequest } from "@solidjs/web/server-functions";
+
+/** 12 SF-7a: Solid's \`"use server"\` pass over a lowered module — "server" keeps and registers each server function,
+ *  "client" replaces it with a reference that calls the server. The same filename on both sides, so the ids agree. */
+const directives = (code: string, filename: string, mode: "server" | "client") => { if (!code.includes('"use server"')) return code; const r = transformDirectives(code, { filename, root: "/", mode }); return r.valid ? r.code : code; };
+/** The requests a server function call made after hydration: each runs in an app of its own (SV-4), whose flights the
+ *  runner lands like the page's. */
+const rpcApps: ReturnType<typeof createApp>[] = [];
+async function serverFunction(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
+  const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
+  const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
+  const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks) });
+  const rpc = createApp(); rpcApps.push(rpc); (globalThis as { __rx_app?: unknown }).__rx_app = rpc;
+  const response = await handleServerFunctionRequest(request);
+  res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+  if (response.body) for await (const c of response.body as unknown as AsyncIterable<Uint8Array>) res.write(c);
+  res.end();
+}
 
 process.on("unhandledRejection", () => {});
 const { chromium } = createRequire(import.meta.url)("playwright");
@@ -31,7 +50,7 @@ export const REDACTED = "Internal Server Error";   // what Solid sends for an er
 // One live response at a time: the runner holds it open and writes what the server render streams.
 let pending: ((res: import("node:http").ServerResponse) => void) | null = null;
 let clientJs = "";   // the current table's client bundle (SV-3)
-const http = createServer((req, res) => { if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
+const http = createServer((req, res) => { if (req.url?.startsWith("/_server")) { serverFunction(req, res).catch(e => { res.statusCode = 500; res.end(String(e)); }); return; } if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
 await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
 const browser = await chromium.launch();
@@ -56,7 +75,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return undefined; } out = compileModules(set, {}); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return undefined; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   const app = createApp();
   const got: string[] = []; let ended = false; let chunks = 0; let renderError: unknown = null;
@@ -98,7 +117,7 @@ const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 /** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
 function bundle(dir: string, files: Map<string, string>, entry: string) {
   const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
-  for (const [name, js] of lowerViews(files, "dom")) writeFileSync(cdir + name, js);
+  for (const [name, js] of lowerViews(files, "dom")) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
   writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
   const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
@@ -124,7 +143,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = compileModules(set, { extraStmts: handlerStmts }); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   clientJs = bundle(dir, out.files, out.entry);
   const app = createApp(); let ended = false; let chunks = 0;
@@ -163,13 +182,15 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       if (done) return true;
       if (process.env.DEBUG) console.log("land on server:", r.action, await page.evaluate(() => JSON.stringify([...(window as any).__client.app.flights.keys()])));
     }
-    const key = named ?? app.lastKey.get(m[2]); const f = key === undefined ? undefined : app.flights.get(key);
+    const key = named ?? app.lastKey.get(m[2]);
+    const owner = key === undefined ? undefined : [app, ...[...rpcApps].reverse()].find(a => a.flights.has(key));   // the page's request, or a server function's
+    const f = owner?.flights.get(key!);
     if (!f) return false;
-    const value = new Function("__rt", "__B", `return ${js};`)(app, app.B);
+    const value = new Function("__rt", "__B", `return ${js};`)(owner, owner!.B);
     if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
     return true;
   };
-  let ok = true; const shown: string[] = []; const mark = lines.length;
+  let ok = true; const shown: string[] = []; const mark = lines.length; const rpcBefore = rpcApps.length;
   for (let i = 0; i <= chains.length; i++) {   // (i === chains.length: hydrating after the last row)
     const c = chains[i] ?? []; const r = c[0];
     if (i === at && chunks === 0 && at < served) at++;   // nothing has arrived to take over yet (a held shell, SV-1c): the client loads with the shell
@@ -226,7 +247,10 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
     shown.push(got);
   }
-  if (ok) lines.push(`  ✓ ${t.title} [${label}]: ${dedupe(shown).map(x => `'${x}'`).join(" → ")}`);
+  // SF-7: a server function the client called after taking over went to the server — its body is not in the bundle
+  const calls = rpcApps.length - rpcBefore; const bodyShipped = /\.serverCall\(/.test(clientJs);
+  if (bodyShipped) { ok = false; lines.push(`  ✗ ${t.title} [${label}]: a server function's body is in the browser bundle`); }
+  if (ok) lines.push(`  ✓ ${t.title} [${label}]: ${dedupe(shown).map(x => `'${x}'`).join(" → ")}${calls ? `  (${calls} server function request${calls > 1 ? "s" : ""})` : ""}`);
   // DV-9: a boundary that failed on the server before the client took over is the client's to render, and Solid's client
   // re-renders it from scratch — asking its questions again — instead of drawing the failure it was sent
   const dv9 = !scope && at > 0 && chains.slice(0, at).flat().some(r => sc.divergences.some(d => d.runner === "server" && d.table === t.title && d.instant === r.instant));
@@ -300,7 +324,7 @@ async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolea
   try { const set = moduleSet(sc, sc.program); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return true; } out = compileModules(set, {}); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return true; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, js);
+  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   clientJs = bundle(dir, out.files, out.entry);
   const app = createApp(); let chunks = 0;

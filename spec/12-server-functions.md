@@ -1,8 +1,8 @@
 # 12 — Server functions, and code that runs on one side
 
 **Status: executable, 2026-10-24** — SF-1–SF-6 by S-sf-1, SF-5b's client
-questions (10 SV-7b) by S-server-3, on all four runners. Not yet: the HTTP
-hop after hydration (SF-7b). Some code must run only on the server (it
+questions (10 SV-7b) by S-server-3, on all four runners; after hydration
+each call is an HTTP request to Solid's server-function handler (SF-7b). Some code must run only on the server (it
 reads a database, holds a secret) and some only in the browser (it reads
 storage, measures the window). This document gives each a row, `server`
 or `client`, and says what may cross between the two. It is the companion
@@ -120,20 +120,29 @@ rule the checker can state precisely.
 
 ## SF-7 — Where it runs in `ref/` (and in the product)
 
-- **SF-7a.** The compiler lowers a server function to Solid's server
-  function runtime: the `.rx` module's lowered JS goes through
-  `transformDirectives` (`@solidjs/compiler`) with the function marked
-  `"use server"`, exactly as a TSRX module does after `transform()`.
-- **SF-7b.** The client runners of `ref/` (interpreter, oracle, compiled)
-  have no network: a call runs the body in place, behind a wire that
+- **SF-7a (Lowering).** A server fn is emitted at module level as a
+  `"use server"` function, and the module's lowered JS goes through Solid's
+  `transformDirectives` (`@solidjs/compiler`), exactly as a TSRX module does
+  after `transform()`: the server build keeps and registers it, the browser
+  build replaces it with a reference that calls the server. Solid's rule
+  for that extraction is lexical — the function may name only its
+  parameters, its locals and module-level bindings — and SF-3 is what
+  makes it always satisfiable: everything a body may name (imports, error
+  classes, other server fns) is module-level, so the compiler emits it
+  there, and nothing reactive can be among it. A module's error classes are
+  the module's (one class however many apps), so the class a body throws is
+  the class a caller's catch tests. The call site keeps its own wrapper
+  (SF-2: question or request).
+- **SF-7b (In `ref/`).** The client runners (interpreter, oracle,
+  compiled) have no network: the body runs in place behind a wire that
   copies arguments and result (SF-6a) and redacts undeclared failures
-  (SF-6b), so the semantics a scenario observes are the remote ones. A
-  call in reactive scope is a flight keyed by its arguments, as a JS
-  import's is; a call in imperative scope is a new one each time (SF-2). The server runner
-  runs the body on the server during the mount (its awaits are the served
-  page's flights) and, after hydration, in place in the browser — the
-  HTTP hop is not lowered yet.
-
+  (SF-6b), so a scenario observes the remote semantics. The server runner
+  is the real thing: during the mount the server calls the function
+  directly inside the page's request event; after hydration — and on a
+  page the browser renders alone — each call is an HTTP request to
+  Solid's `handleServerFunctionRequest` (`@solidjs/web/server-functions`),
+  run in a request of its own (SV-4), and the runner checks that no server
+  body is in the browser bundle. (S-sf-1: four requests after hydration.)
 ---
 
 ## Diagnostics this document adds

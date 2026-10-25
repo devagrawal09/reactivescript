@@ -92,6 +92,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const hoistedBy = new Map<string, Acc[]>();   // an equation's hoisted awaits, re-asked with it by `refresh`
   const log: string[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
+  const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   // During hydration Solid runs a compute under `subFetch` to learn its inputs, with `fetch` and `Promise` mocked, and keeps
   // the server's answer (SV-3b). A flight asked there is that trace, not a question: it is not registered.
@@ -119,7 +120,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     } as Record<string, any>,
     /** `import pure { f } from "./api"`: every function is a flight keyed by its name and formatted arguments. */
     /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
-    jsError: (name: string) => (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`),
+    jsError: (name: string) => jsErrors.get(name) ?? (jsErrors.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), jsErrors.get(name)),
     api: (name: string) => opts.api ? (opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); })) : (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`),
 
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
@@ -186,28 +187,37 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
     cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
-    /** 12 SF-7: \`server fn\` — every call a flight; the body (a generator, as an action's) is driven by promises,
-     *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
-     *  failures through (SF-6). Asked in reactive scope it is a question, one flight per arguments, as a JS import's; in
-     *  imperative scope each call is a new request (SF-2).
-     *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
-    serverFn(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+    /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
+     *  flight per arguments, as a JS import's; in imperative scope each call is a new request. \`fn\` is the module-level
+     *  \`"use server"\` function (SF-7a): the body in place, or — once Solid's \`transformDirectives\` has made it a reference
+     *  — a request to the server. */
+    serverRef(name: string, fn: (...a: unknown[]) => Promise<unknown>) {
       return (...args: unknown[]) => {
         const key = `${name}:${args.map(fmt).join(",")}`;
         const question = !!getObserver();
         if (question && flights.has(key)) return flights.get(key)!;
         const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+        (globalThis as { __rx_app?: unknown }).__rx_app = app;   // the app a body run in place belongs to (it reads it once, at its start)
+        let p: Promise<unknown>; try { p = Promise.resolve(fn(...args)); } catch (e) { p = Promise.reject(e); }
+        p.then(v => fl.resolve(v), e => fl.reject(e));
+        return fl;
+      };
+    },
+    /** SF-6: a server fn's body (a generator, as an action's), driven by promises — not by an action: it is no change of
+     *  the client's — behind a wire that copies arguments and result and lets only declared failures through. */
+    serverCall(name: string, gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, args: unknown[]): Promise<unknown> {
+      return new Promise((resolve, reject) => {
         const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
-        const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
+        let g: Generator<unknown, unknown, unknown>;
+        try { g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail))); } catch (e) { reject(e); return; }
         const step = (input: unknown, thrown: boolean) => {
           const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
-          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { currentEq = was; }
-          if (r.done) { try { fl.resolve(wireCopy(r.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
+          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { reject(wireFailure(e)); return; } finally { currentEq = was; }
+          if (r.done) { try { resolve(wireCopy(r.value, "its result", fail)); } catch (e) { reject(e); } return; }
           Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
         };
         step(undefined, false);
-        return fl;
-      };
+      });
     },
     hoisted(name: string, get: Acc) { let l = hoistedBy.get(name); if (!l) hoistedBy.set(name, (l = [])); l.push(get); },
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
