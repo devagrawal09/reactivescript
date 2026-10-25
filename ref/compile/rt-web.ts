@@ -2,6 +2,7 @@
 // program can mount on a page — or hydrate one the server runtime (rt-server.ts) streamed. Views are JSX that Solid's
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
+import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
@@ -183,6 +184,8 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
+    Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */

@@ -184,6 +184,29 @@ fragment they are inert wrappers.
 
 ---
 
+### RG-8 Portals (ruled 2026-10-25: Solid's `Portal`)
+
+`portal { decls; view }` and `portal to(e) { … }` (07 §4).
+
+- **PT-1 (Owned here, shown elsewhere).** A portal is a region owned where
+  it is written: it opens and is disposed with its parent region (RG-1a),
+  its readers' pending and failures go to the boundaries above it there,
+  `use` finds the provisions above it there (RG-7b), and its handlers write
+  what any handler there may (O-4). Its view is placed at the end of the
+  document, or in `e`, an element. A frame shows the page's text, then
+  ` » ` and what portals show.
+- **PT-2 (Held with its region).** What a portal shows is placed when its
+  region is: behind a fallback it waits for the reveal (Solid D-19,
+  S-solid-23).
+- **PT-3 (Client-only).** The server renders nothing for a portal; the
+  browser renders it once it has taken the page over. So a client question
+  read inside a portal is held by it (SV-7b), and data that should come from
+  the server is read above the portal and passed in.
+- **PT-4 (Its place).** For the content model (10 SV-7d) a portal's view is
+  at the end of `<body>`: a `<tr>` there is refused.
+
+Executable: S-solid-23, S-region-8.
+
 ## Scenarios
 
 - `S-region-1`: `if` branch with a source — state resets on re-entry (RG-1a).

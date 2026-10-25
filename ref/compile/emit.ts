@@ -489,6 +489,10 @@ class Gen {
         const on = m.on ? ` on={${this.expr(m.on, env, re)}}` : "";
         return `<Loading${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</Loading>`;
       }
+      case "portal": {                                                                          // RG-8: Solid's Portal (the web's, or the test renderer's)
+        const to = m.to ? ` mount={${this.expr(m.to, env, re)}}` : "";
+        return `<__rt.Portal${to}>${this.region(m.decls, m.body, env, ind + 1)}</__rt.Portal>`;
+      }
       case "errored": {
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
         const fallback = `fallback={(${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)}}`;

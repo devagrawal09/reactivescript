@@ -8,7 +8,7 @@ import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
-  createRoot, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary
+  createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
@@ -45,6 +45,20 @@ const R = createRenderer<N>({
   getFirstChild: n => (n.kind === "el" ? n.children[0] : undefined),
   getNextSibling: n => { const p = n.parent; if (!p || p.kind !== "el") return undefined; return p.children[p.children.indexOf(n) + 1]; },
 });
+/** RG-8: Solid's \`Portal\` over the test renderer — the same shape as \`@solidjs/web\`'s: its content a memo, placed at the end
+ *  of the document (\`body\`) by a queued (\`schedule: true\`) render effect, so behind a fallback it waits for the reveal (D-19);
+ *  owned where it is written (its context, its disposal). It renders nothing in place. */
+function makePortal<N>(R: { createElement: (t: string) => N; insertNode: (p: N, n: N) => void; insert: (p: N, v: unknown) => void }, body: N) {
+  return (props: { children: unknown }) => {
+    const content = createMemo(() => props.children as unknown);
+    createRenderEffect(() => [content(), getOwner()] as const, ([c, owner]) => {
+      const box = R.createElement("portal"); R.insertNode(body, box);
+      const dispose = runWithOwner(owner, () => createRoot(d => { R.insert(box, () => c); return d; }));
+      return () => { dispose!(); const kids = (body as unknown as { children: N[] }).children; const i = kids.indexOf(box); if (i >= 0) kids.splice(i, 1); };
+    }, { schedule: true } as never);
+    return undefined;
+  };
+}
 export const serialize = (n: N): string => n.kind === "text" ? n.text : n.children.map(serialize).join("");
 
 const isView = (v: unknown): boolean => typeof v === "function" || (Array.isArray(v) && v.every(x => isView(x))) || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
@@ -141,7 +155,10 @@ export class Oracle {
     }, this.root);
   }
 
-  frame() { return serialize(this.root); }
+  body: N = { kind: "el", tag: "body", children: [], props: {} };   // RG-8: where portals render
+  private Portal = makePortal(R as never, this.body as never);
+  /** The page's text, then what portals show at the end of the document (RG-8). */
+  frame() { const b = serialize(this.body); return b.trim() ? `${serialize(this.root)} » ${b}` : serialize(this.root); }
 
   // ---- flights ----
   flight(key: string): Flight {
@@ -526,6 +543,10 @@ export class Oracle {
           get each() { return self.ev(m.xs, scope); },
           children: (item: unknown) => { const s2 = new Scope(scope); s2.vars.set(m.name, { k: "const", value: item }); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
         });
+      }
+      case "portal": {
+        const self2 = this; if (m.to) void untrack(() => this.ev(m.to!, scope));
+        return R.createComponent(this.Portal as any, { get children() { const s2 = new Scope(scope); self2.declare(m.decls, s2); return self2.fragment(m.body, s2); } });
       }
       case "loading": {
         const props: Record<string, unknown> = {

@@ -98,7 +98,7 @@ type Row = { elem: unknown; region: Region; inst: ViewInst };
 type ReaderItem = { k: "read"; node: Node; shown: string | null };
 type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
 type VItem =
-  | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst }
+  | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst; portal?: boolean }   // portal: RG-8 — settled and committed here, shown at the end of the document
   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
   | { k: "mif"; m: Extract<Markup, { k: "mif" }>; cond: Node; region: Region; committed: { branch: string; inst: ViewInst; openedBy: number } | null; inflight: { branch: string; inst: ViewInst; openedBy: number } | null }
   | { k: "mfor"; m: Extract<Markup, { k: "mfor" }>; xs: Node; region: Region; committedRows: Row[]; inflightRows: Row[]; rowsOpenedBy: number }
@@ -306,7 +306,10 @@ export class Runtime {
     for (const n of this.allNodes()) if (n.lane) { n.state = "clean"; this.markDirty(n); }   // re-settle lane nodes; their subscribers are notified too (a dirty node whose subs were not told blocks later invalidation)
     this.settle(this.view, [], null);
     this.patchLanes(this.view);
-    const frame = this.committedOnce ? this.renderCommitted(this.view) : "";
+    this.portalOut = [];
+    const main = this.committedOnce ? this.renderCommitted(this.view) : "";
+    const portals = this.portalOut.join("");
+    const frame = portals.trim() ? `${main} » ${portals}` : main;   // RG-8: what portals show follows the page's own text
 
     // Phase 3 — observe: E-8; effects (EF-2..EF-6) whose computes are committed.
     for (const n of this.allNodes()) {
@@ -516,11 +519,12 @@ export class Runtime {
       }
     }
   }
+  private portalOut: string[] = [];
   private renderCommitted(v: ViewInst): string { return v.items.map(i => this.renderItem(i)).join(""); }
   private renderItem(i: VItem): string {
     switch (i.k) {
       case "text": return i.s;
-      case "comp": return this.renderCommitted(i.inst);
+      case "comp": if (i.portal) { this.portalOut.push(this.renderCommitted(i.inst)); return ""; } return this.renderCommitted(i.inst);
       case "read": { const val = i.node.value; if (val instanceof ViewValue) return this.renderCommitted(val); return i.shown ?? ""; }
       case "el": return i.children.map(c => this.renderItem(c)).join("");
       case "mif": return i.committed ? this.renderCommitted(i.committed.inst) : "";
@@ -988,6 +992,7 @@ export class Runtime {
     switch (m.k) {
       case "text": return { k: "text", s: m.s };
       case "style": return { k: "text", s: "" };                                          // CSS-4: removed from the view
+      case "portal": { const r = new Region(region, this, region.boundary); this.declare(m.decls, r); return { k: "comp", portal: true, inst: this.instantiate(m.body, r) }; }   // RG-8: owned here (its boundary, its provisions), shown elsewhere
       case "read": return { k: "read", node: this.mkNode("reader", "reader", region, rt => rt.evalExpr(m.e, region)), shown: null };
       case "el": {
         if (/^[A-Z]/.test(m.tag)) {

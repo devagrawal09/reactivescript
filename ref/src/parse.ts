@@ -72,7 +72,7 @@ function parseClasses(c: Cursor): string[] | undefined {
   return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "optimistic", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -493,6 +493,12 @@ function parseControl(c: Cursor): Markup | null {
       const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
       return { k: "loading", on, fallback, decls, body };
+  }
+  if (c.keyword("portal")) {                                         // RG-8: `portal { … }` / `portal to(e) { … }`
+      c.ws(); let to: Expr | undefined;
+      if (c.keyword("to")) { c.ws(); c.expect("("); c.ws(); to = parseExpr(c); c.ws(); c.expect(")"); c.ws(); }
+      c.expect("{"); const { decls, body } = parseBlockBody(c);
+      return { k: "portal", to, decls, body };
   }
   if (c.keyword("errored")) {
       c.ws(); if (!c.keyword("fallback")) c.fail("fallback"); c.ws(false);

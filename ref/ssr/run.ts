@@ -59,7 +59,10 @@ const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.p
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
-  for (let n = w.nextNode(); n; n = w.nextNode()) s += n.nodeValue; return s;
+  for (let n = w.nextNode(); n; n = w.nextNode()) s += n.nodeValue;
+  // RG-8: what portals show at the end of the document (Solid's Portal appends to <body>), after the page's own text
+  let p = ""; for (const c of [...document.body.childNodes]) { if (c === root || (c as Element).tagName === "SCRIPT" || (c as Element).tagName === "TEMPLATE" || (c as Element).tagName === "STYLE") continue; p += c.textContent ?? ""; }
+  return p.trim() ? `${s} » ${p}` : s;
 });
 
 let seq = 0;
@@ -274,7 +277,8 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   // the client's frames for these instants: the spec's, or the oracle's where a divergence is recorded — every row of a
   // chain, since the server runs no effect (SV-2) and shows the frame before an effect's chain lands
   // (a `server` divergence: what Solid's server render shows there instead — DV-9)
-  const frameOf = (r: Row) => { const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(div ? div.frame : r.frame); };
+  const served1 = (f: string) => f.split(" » ")[0];   // PT-3: the server renders nothing for a portal — the browser does, once it has the page
+  const frameOf = (r: Row) => { const sv = !scope && sc.divergences.find(d => d.runner === "server" && d.table === t.title && d.instant === r.instant); if (sv) return norm(sv.frame); const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return norm(served1(div ? div.frame : r.frame)); };
   const want = served.slice(from).flatMap(c => c.map(frameOf));
   const res = await serve(sc, src, served.map(c => c[0]), t.title, lines);
   if (!res) return res !== false;

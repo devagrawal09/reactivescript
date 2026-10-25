@@ -321,8 +321,8 @@ this spec's own. Ported so far: S-1, S-2, S-3 (branch-mounted form), S-4, S-6, S
 S-11, S-12, S-13, S-14, S-16, S-17, S-18, S-19, S-21, S-22, S-24, S-25,
 S-26, S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
 S-42+S-43, and with 06: S-8, S-9 (inverted — no escape), S-15, S-20,
-S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37. Not yet expressible: S-5
-(two roots), S-23 (portals), S-28 (imperative probes), S-39 (one reader,
+S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37, and with 03 RG-8: S-23. Not yet expressible: S-5
+(two roots), S-28 (imperative probes), S-39 (one reader,
 two orders). Divergences found and fixed
 by porting are recorded in the rule they changed. Solid's probe columns
 (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an

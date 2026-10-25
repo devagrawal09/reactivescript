@@ -153,8 +153,9 @@ attributes are equations, children are readers, components are applied as
 </section>
 ```
 
-- `{if}`, `{for}`, `{loading}`, `{errored}` are braced inside an element and
-  bare at block level. Each block is a region: declarations, then markup
+- `{if}`, `{for}`, `{loading}`, `{errored}`, `{portal}` are braced inside an
+  element and bare at block level. `portal to(e) { … }` renders into `e`
+  (RG-8). Each block is a region: declarations, then markup
   (RG-1, RG-2, RG-5). `if x { … }` narrows `x` inside (RG-1c).
 - `for x in e` keys rows by identity, or by the collection's `key` (ST-4b).
 - Text follows JSX: whitespace that contains a line break is not text, a

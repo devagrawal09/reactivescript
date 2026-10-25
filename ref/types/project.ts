@@ -291,6 +291,10 @@ class Proj {
         if (m.on) this.w.emit(`${ind}{void ${this.expr(m.on, false)}}`, line);
         this.w.emit(`${ind}{(`, line); this.markup(m.fallback, ind + "  "); this.w.emit(`${ind})}{(`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
       }
+      case "portal": {
+        if (m.to) this.w.emit(`${ind}{void ${this.expr(m.to, false)}}`, line);
+        this.w.emit(`${ind}{(`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
+      }
       case "errored": {
         this.w.emit(`${ind}{((${m.errName ?? "__err"}: ${m.classes ? m.classes.join(" | ") : "Error"}) => (`, line); this.markup(m.fallback, ind + "  "); this.w.emit(`${ind}))(null!)}{(`, line);
         this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;

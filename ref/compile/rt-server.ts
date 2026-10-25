@@ -5,6 +5,7 @@
 // solid-js primitives in the same order, so each owner, element and hole takes the id the client will look for (SV-3). A failure of a declared class (R-f-1, MO-8) is marked safe and goes
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
+import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
@@ -144,6 +145,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
+    Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
     cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */

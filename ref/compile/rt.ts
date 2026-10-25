@@ -7,7 +7,7 @@
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
-  createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
+  createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createStore, createProjection, createDeferred,
   flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
 } from "@solidjs/signals";
 
@@ -76,6 +76,22 @@ export class Flight {
 // ---------------------------------------------------------------- the test renderer (compile/string-renderer.ts)
 import { R, serialize } from "./string-renderer.ts";
 
+/** RG-8: Solid's \`Portal\` over the test renderer — the same shape as \`@solidjs/web\`'s: its content a memo, placed at the end
+ *  of the document (\`body\`) by a queued (\`schedule: true\`) render effect, so behind a fallback it waits for the reveal (D-19);
+ *  owned where it is written (its context, its disposal). It renders nothing in place. */
+export function makePortal<N>(R: { createElement: (t: string) => N; insertNode: (p: N, n: N) => void; insert: (p: N, v: unknown) => void }, body: N) {
+  return (props: { children: unknown }) => {
+    const content = createMemo(() => props.children as unknown);
+    createRenderEffect(() => [content(), getOwner()] as const, ([c, owner]) => {
+      const box = R.createElement("portal"); R.insertNode(body, box);
+      const dispose = runWithOwner(owner, () => createRoot(d => { R.insert(box, () => c); return d; }));
+      return () => { dispose!(); const kids = (body as unknown as { children: N[] }).children; const i = kids.indexOf(box); if (i >= 0) kids.splice(i, 1); };
+    }, { schedule: true } as never);
+    return undefined;
+  };
+}
+
+
 // ---------------------------------------------------------------- one app instance
 export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
   const flights = new Map<string, Flight>();
@@ -92,10 +108,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
 
+  let portalOf: ReturnType<typeof makePortal> | undefined;
   const app = {
     root: { kind: "el", tag: "root", children: [], props: {} } as any,
+    body: { kind: "el", tag: "body", children: [], props: {} } as any,   // RG-8: where portals render
     log, flights, lastKey, asyncError: null as unknown,
-    frame: () => serialize(app.root),
+    frame: () => { const b = serialize(app.body); return b.trim() ? `${serialize(app.root)} » ${b}` : serialize(app.root); },   // the page, then its portals (RG-8)
+    get Portal() { return portalOf ??= makePortal(R as never, app.body); },
     mount(view: () => unknown) { return R.render(view as never, app.root); },
 
     // the prelude: what `import pure { … } from "./prelude"` and the built-in names refer to

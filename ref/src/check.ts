@@ -753,6 +753,13 @@ class Checker {
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
+        case "portal": {                                                                      // RG-8: a region owned here, rendered elsewhere
+          if (m.to) { this.expr(m.to, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
+          const body = this.region(env.region); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
+          this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
+          this.later.push(() => this.contentCheck(m.body, env, ["body"]));                     // its place is the end of the document
+          break;
+        }
         case "errored": {
           const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line });
           this.markup(m.fallback, f);

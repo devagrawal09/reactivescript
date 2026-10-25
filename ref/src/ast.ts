@@ -64,6 +64,7 @@ export type Markup = (
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
   | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[] }   // H-12; errName: `fallback(e)`; classes: `fallback(e: A | B)` (R-f-4), absent: every failure
+  | { k: "portal"; to?: Expr; decls: Decl[]; body: Markup[] }                     // RG-8: rendered at the end of the document (or `to(e)`), owned here
 ) & { line?: number };                                                                   // the source line, for diagnostics
 
 export type Program = { decls: Decl[]; view: Markup[] };   // a reactive block: declarations, then its view
