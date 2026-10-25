@@ -110,6 +110,17 @@
           }
         },
         {
+          "match": "\\b(server)\\s+(fn)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.server.rx"
+            },
+            "2": {
+              "name": "storage.type.function.rx"
+            }
+          }
+        },
+        {
           "match": "\\b(fn|action|component)\\s+([A-Za-z_$][\\w$]*)",
           "captures": {
             "1": {

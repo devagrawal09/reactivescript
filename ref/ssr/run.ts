@@ -30,6 +30,7 @@ const directives = (code: string, filename: string, mode: "server" | "client") =
  *  runner lands like the page's. */
 const rpcApps: ReturnType<typeof createApp>[] = [];
 async function serverFunction(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) {
+  if (process.env.DEBUG_RPC) console.log("  rpc:", req.method, req.url?.slice(0, 80));
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
   const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks) });

@@ -15,6 +15,10 @@ const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promi
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits } from "../src/awaits.ts";
+import { unwrapServer } from "../src/check.ts";
+/** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
+const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
+
 const hoistedOf = new WeakMap<object, Map<Expr, () => unknown>>();
 const NO_PROVISION = { k: "const", value: undefined } as const;
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
@@ -194,7 +198,8 @@ export class Oracle {
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
-      if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
+      if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d
+      if (d.k === "import") for (const { name, alias } of d.names) { const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "server") scope.vars.set(d.name, { k: "const", value: this.serverFn(d, scope) });
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
@@ -365,6 +370,7 @@ export class Oracle {
       case "pending": return isPending(() => this.ev(e.e, scope, env));
       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
+      case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, scope))); return f; }   // SF-1d
       case "catch": {                                                  // R-f-4: a matching failure becomes a value
         const classes = this.classValues(e.classes, scope);
         const match = (err: unknown) => isA(err, classes);
@@ -459,7 +465,8 @@ export class Oracle {
    *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and
    *  lets only declared failures through (SF-6b). Asked in reactive scope, one flight per arguments; in imperative scope, a new request each call. */
   private serverSeq = 0;
-  private serverFn(d: Extract<Decl, { k: "server" }>, scope: Scope) {
+  private serverFns = new WeakMap<Expr, unknown>(); private serverNames = new WeakMap<Expr, string>();
+  private serverFn(d: { name: string; params: string[]; body: Stmt[] }, scope: Scope) {
     return (...args: unknown[]) => {
       const key = `${d.name}:${args.map(fmt).join(",")}`; const out = (fl: Flight) => process.env.ORACLE_PROMISES ? fl.first : fl;
       const question = !!getObserver();                                       // SF-2: asked in reactive scope — a question, one flight per arguments

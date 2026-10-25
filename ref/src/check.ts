@@ -152,6 +152,12 @@ const mapsIntoRecords = (e: Expr): boolean => {                         // `map(
 };
 /** SV-7b: the provision a `loading` region makes for its content — what a reader of a client question needs above it. */
 const HOLD = "$hold";
+/** 12 SF-1d: the server fn a declaration's value is — itself, or wrapped by calls (\`GET(server fn …)\`, \`live(GET(…))\`). */
+export function unwrapServer(e: Expr): Extract<Expr, { k: "serverfn" }> | null {
+  if (e.k === "serverfn") return e;
+  if (e.k === "call") { const inner = e.args.map(unwrapServer).filter(Boolean); return inner.length === 1 ? inner[0] : null; }
+  return null;
+}
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 
 // ---------------------------------------------------------------- the checker
@@ -234,6 +240,7 @@ class Checker {
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, { component: true }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
+      if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
       env.vars.set(d.name, sym);
     }
     this.serverIo(decls, env);
@@ -250,7 +257,7 @@ class Checker {
   /** 12 SF-1: a server fn is io when its body calls io — JS declared io, `log`, or another server fn that is (to a fixpoint).
    *  Called in reactive scope it is a question, which may be asked again, so io there is IO_IN_REACTIVE at the call. */
   private serverIo(decls: Decl[], env: Env) {
-    const servers = decls.filter((d): d is Extract<Decl, { k: "server" }> => d.k === "server");
+    const servers = decls.flatMap(d => d.k === "server" ? [d] : d.k === "eq" && unwrapServer(d.e) ? [{ name: d.name, params: unwrapServer(d.e)!.params, body: unwrapServer(d.e)!.body }] : []);
     const callsIn = (x: unknown, out: string[]): string[] => {
       if (!x || typeof x !== "object") return out; if (Array.isArray(x)) { x.forEach(y => callsIn(y, out)); return out; }
       const o = x as Record<string, any>; if (o.k === "call" && o.f?.k === "id") out.push(o.f.name);
@@ -369,7 +376,7 @@ class Checker {
         switch (x.k) {
           case "await": rows.add("pending"); if (!x.init && this.clientCall(x.e, env)) rows.add("client"); break;   // SV-7b: a client question (no first paint)
           case "latest": case "pending": rows.add("lane"); break;
-          case "fn": return;                                                                // a closure's body is not this value's
+          case "fn": case "serverfn": return;                                               // a closure's body is not this value's
           case "use": {                                                                     // RG-7e
             const c = env.lookup(x.name)?.ctx; if (!c) return;
             if (c.contract) { for (const r of c.contract.rows) rows.add(r); return; }
@@ -390,6 +397,7 @@ class Checker {
   /** SF-5b: a call into `client` JS. */
   private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && env.lookup(f.f.name)?.side === "client"; }
   private awaitedCalls = new WeakSet<Expr>();
+  private serverExprs = new WeakMap<Expr, Sym>();
   private decl(d: Decl, env: Env, ctx: Ctx) {
     const reactive: Ctx = { scope: "reactive", inFn: ctx.inFn };
     switch (d.k) {
@@ -568,6 +576,14 @@ class Checker {
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
       case "await": this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;
+      case "serverfn": {                                                                   // SF-1d: as \`server fn\`, wherever it is written
+        const inner = new Env(env, env.region);
+        for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line });
+        this.stmts(e.body, inner, { scope: "imperative", server: true });
+        const sym = this.serverExprs.get(e); let cache: Set<string> | null = null;
+        if (sym) sym.serverRejects = () => cache ??= new Set([...this.stmtsFails(e.body, inner, new Map()).cls, "Error"]);
+        return;
+      }
       case "throw": go(e.e); return;
       case "catch": {
         go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
@@ -844,7 +860,7 @@ class Checker {
   private failsOf(e: Expr, env: Env, imp: boolean, bound: Map<string, Set<string>>): Fails {
     const out = noFails(); const go = (x: Expr) => addF(out, this.failsOf(x, env, imp, bound));
     switch (e.k) {
-      case "lit": case "pending": case "pre": return out;                                 // `pending? e` is a verdict, never e's error (R-f-4); `pre` is a value seen
+      case "lit": case "pending": case "pre": case "serverfn": return out;                // making a server fn fails nothing                                 // `pending? e` is a verdict, never e's error (R-f-4); `pre` is a value seen
       case "id": {
         if (bound.has(e.name)) return out;
         const s = env.lookup(e.name); if (!s) return out;

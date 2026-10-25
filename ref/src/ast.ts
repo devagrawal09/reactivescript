@@ -23,7 +23,8 @@ export type Expr =
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above
   | { k: "spread"; e: Expr }                                   // only inside an array literal
   | { k: "throw"; e: Expr }                                    // R-f-3: a failure; an expression in reactive scope too
-  | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr };   // R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
+  | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr }
+  | { k: "serverfn"; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[] };   // 12 SF-1d: `server fn (a) { … }`, an expression — for a wrapper (`GET(server fn …)`)   // R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
 
 export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)
 

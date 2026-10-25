@@ -393,6 +393,13 @@ function parsePostfix(c: Cursor): Expr {
 }
 function parsePrimary(c: Cursor): Expr {
   c.ws();
+  if (/^server\s+fn\s*\(/.test(c.src.slice(c.i))) {                   // 12 SF-1d: an anonymous server fn, for whatever wraps it
+    c.keyword("server"); c.ws(); c.keyword("fn"); c.ws(); c.expect("("); c.ws();
+    const params: string[] = []; const ptypes: (string | undefined)[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); const ret = optType(c, true); c.ws();
+    return { k: "serverfn", params, ptypes, ret, body: parseBlock(c) };
+  }
   const ch = c.peek();
   if (ch === "`") {                                                   // template literal
     c.i++; const parts: (string | Expr)[] = []; let s = "";

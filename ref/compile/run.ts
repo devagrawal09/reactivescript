@@ -31,7 +31,8 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; } out = compileModules(set, { extraStmts: handlerStmts }); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "universal")) writeFileSync(dir + name, js);
+  const local = JSON.stringify(fileURLToPath(new URL("./server-functions-local.ts", import.meta.url)));
+  for (const [name, js] of lowerViews(out.files, "universal")) writeFileSync(dir + name, js.replaceAll('"@solidjs/web/server-functions"', local));   // SF-7b: no network here
   const file = dir + out.entry;
   const app = createApp();
   let dispose: () => void = () => {};

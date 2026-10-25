@@ -7,6 +7,7 @@ import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits } from "../src/awaits.ts";
 import { transform } from "@solidjs/compiler";
+import { unwrapServer } from "../src/check.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
@@ -97,28 +98,51 @@ class Gen {
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {
     this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
-    for (const d of decls) if (d.k === "server") this.serverNames.set(d.name, `sf$${d.name}`);
+    for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
+    // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
+    for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
+      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
+      if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
+    }
   }
   /** 12 SF-7a: a server fn as Solid's \`"use server"\` function at module level — it may name only its parameters, its locals
    *  and module-level bindings, which SF-3 makes always possible: every name a body may use is a module-level import, error
    *  class or server fn, bound here from the calling app. Solid's \`transformDirectives\` then extracts it (server build) or
    *  replaces it with a reference (browser build). */
-  private serverHoist(d: Extract<Decl, { k: "server" }>): string {
-    const f = this.serverNames.get(d.name) && !this.top.some(t => t.includes(`function ${this.serverNames.get(d.name)}(`)) ? this.serverNames.get(d.name)! : `sf$${d.name}$${this.sfSeq++}`;
+  /** SF-1d: a wrapped server fn — the wrapper calls kept around it at module level, where Solid's directive pass finds it. */
+  private serverWrapped(name: string, e: Expr): string {
+    const f = this.serverNames.get(name)!;
+    const chain = (x: Expr): string => {
+      if (x.k === "serverfn") return this.serverHoist({ name, params: x.params, body: x.body }, true);
+      if (x.k === "call" && x.f.k === "id") {
+        const imp = this.modDecls.find(d => d.k === "import" && !d.resolved && !d.from.startsWith(".") && d.names.some(n => n.alias === (x.f as { name: string }).name));
+        if (!imp) throw new CompileError(`${name}: a server fn's wrapper is a package's function (here, ${x.f.name})`);
+        return `w$${x.f.name}(${x.args.map(a => unwrapServer(a) ? chain(a) : a.k === "lit" ? J(a.v) : (() => { throw new CompileError(`${name}: a wrapper's other arguments are literals`); })()).join(", ")})`;
+      }
+      throw new CompileError(`${name}: not a wrapped server fn`);
+    };
+    this.top.push(`const ${f} = ${chain(e)};`);
+    return f;
+  }
+  private serverHoist(d: { name: string; params: string[]; body: Stmt[] }, expression = false): string {
+    const f = this.serverNames.get(d.name) && !expression && !this.top.some(t => t.includes(`function ${this.serverNames.get(d.name)}(`)) ? this.serverNames.get(d.name)! : `sf$${d.name}$${this.sfSeq++}`;
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
       if (x.k === "import" && !x.resolved) for (const { name, alias } of x.names) {
         if (name === "log" || BUILTINS.has(name)) continue;
+        if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
-      if (x.k === "server") env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
+      if (x.k === "server" || (x.k === "eq" && unwrapServer(x.e))) env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
       if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
     for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
-    this.top.push(`async function ${f}(...__a) {\n  "use server";\n  const __rt = globalThis.__rx_app; const __B = __rt.B;\n  ${pre.join("\n  ")}\n  return __rt.serverCall(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {\n${body}\n  }, __a);\n}`);
+    const fn = `async function ${f}(...__a) {\n  "use server";\n  const __rt = globalThis.__rx_app; const __B = __rt.B;\n  ${pre.join("\n  ")}\n  return __rt.serverCall(${J(d.name)}, function* (${d.params.map(mg).join(", ")}) {\n${body}\n  }, __a);\n}`;
+    if (expression) return fn;
+    this.top.push(fn);
     return f;
   }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
@@ -196,10 +220,11 @@ class Gen {
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
+      if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
-      const v = name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : null;
+      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : null;
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       out.push(`${pad}const ${mg(alias)} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${mg(alias)} });`);
     }
@@ -215,9 +240,10 @@ class Gen {
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
-    const vals = decls.filter(d => d.k === "source" || d.k === "eq" || d.k === "provide");
+    const vals = decls.filter(d => d.k === "source" || (d.k === "eq" && !unwrapServer(d.e)) || d.k === "provide");
     const key = (d: Decl) => d.k === "provide" ? `provide:${d.name}` : (d as { name: string }).name;
     const local = new Set(vals.filter(d => d.k !== "provide").map(d => (d as { name: string }).name));
     const done = new Set<string>(); const order: Decl[] = []; const busy = new Set<string>();

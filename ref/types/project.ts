@@ -249,6 +249,11 @@ class Proj {
         const w = new W(); const saved = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = saved;
         return `(${hasAwait(e.stmts) ? "async " : ""}(${ps}) => {\n${w.out.join("\n")}\n})`;
       }
+      case "serverfn": {                                                                       // SF-1d: an async function, its wire checked (TY-5a)
+        const ps = e.params.map((n, i) => `${n}${e.ptypes?.[i] ? `: ${e.ptypes[i]}` : ""}`).join(", ");
+        const w = new W(); const saved = this.w; this.w = w; this.stmts(e.body, "  "); this.w = saved;
+        return `((__f) => (__.wire(__f, true), __f))(async (${ps})${e.ret ? `: Promise<${e.ret}>` : ""} => {\n${w.out.join("\n")}\n})`;
+      }
       case "draft": { const w = new W(); const saved = this.w; this.w = w; this.stmts(e.body, "  "); this.w = saved; return `__.draft(${go(e.seed)}, (d) => {\n${w.out.join("\n")}\n})`; }
       case "use": return `__.use(${e.name})`;
       case "bin": return `(${go(e.l)} ${e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op} ${go(e.r)})`;

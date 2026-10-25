@@ -40,6 +40,21 @@ rule the checker can state precisely.
   save(x)`), and their wire is the JS side's. (`server` in a `.d.rx` means
   SF-5a's server-only JS, which a client cannot call at all.)
 
+- **SF-1d (Wrapped: an expression).** `server fn (params) { … }` is also an
+  expression, so whatever wraps a server function is an ordinary function
+  applied to it where it is declared:
+  `getUser = GET(server fn (id: number) { … })`, `live(GET(server fn …))`,
+  or an app's own wrapper (ruled 2026-10-24: wrappers are user-defined,
+  like components and primitives, so no keyword names them). A wrapper is
+  JS, called once when the equation is evaluated, so it is imported `pure`
+  (IO-2). The equation is a server fn with the function's rows — its io,
+  what it rejects with, its wire (SF-6) — which is what Solid's compiler
+  assumes when it keeps the wrapping call in both builds. What a wrapper
+  promises beyond that (`GET`: a read safe to trigger from anywhere) is the
+  wrapper's, unchecked, as `pure` is the import's; its types are checked
+  (13). Lowered, the wrapping call is kept around the module-level
+  function (SF-7a): a `GET` server fn is called with an HTTP GET (S-sf-2).
+
 ## SF-2 — Calling one: the call site decides
 
 - **SF-2a (Always remote).** A call to a server function is a request to

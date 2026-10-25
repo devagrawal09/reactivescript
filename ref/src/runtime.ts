@@ -4,10 +4,12 @@ import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
-import { checkModules } from "./check.ts";
+import { checkModules, unwrapServer } from "./check.ts";
 export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
+/** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
+const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
 export const PENDING = new PendingVal();
@@ -164,13 +166,14 @@ export class Runtime {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
-        const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
+        const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
         region.scope.set(alias, { constant: d.pure || d.declaredPure?.includes(name) || d.declaredErrors?.includes(name) || typeof v !== "function" ? v : Object.assign((...a: unknown[]) => (v as (...a: unknown[]) => unknown)(...a), { io: true }) });
       }
       if (d.k === "error") { const msg = d.msg; region.scope.set(d.name, { constant: makeErrorClass(d.name, d.params, args => msg ? String(this.untracked(() => this.ev(msg, region, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") region.scope.set(d.name, { context: d, home: region, dflt: null });
       if (d.k === "server") region.scope.set(d.name, { constant: this.serverFn(d, region) });
+      if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d: its flights are named by the equation
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
@@ -758,6 +761,7 @@ export class Runtime {
         return open(n.heldBy);
       }
       case "if": { const c = this.ev(e.c, region, env); if (isAbsent(c)) return c; return this.ev(c ? e.t : e.f, region, env); }
+      case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, region))); return f; }   // SF-1d
       case "throw": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; throw v; }   // R-f-3: in reactive scope the equation's value is the error (E-12)
       case "catch": {                                                  // R-f-4: a matching failure becomes a value; pending and other failures pass
         let v: unknown; try { v = this.ev(e.e, region, env); } catch (err) { if (err instanceof RuleError) throw err; v = new ErrVal(err); }
@@ -840,7 +844,8 @@ export class Runtime {
    *  flight per arguments, as a JS import's (re-asked by `refresh`) when it is asked in reactive scope — a question; in
    *  imperative scope each call is a new request (SF-2). */
   private serverSeq = 0;
-  private serverFn(d: ServerDecl, home: Region) {
+  private serverFns = new WeakMap<Expr, unknown>(); private serverNames = new WeakMap<Expr, string>();
+  private serverFn(d: { name: string; params: string[]; body: Stmt[] }, home: Region) {
     return (...args: unknown[]) => {
       const key = `${d.name}:${args.map(fmt).join(",")}`;
       const question = this.demandMode;
