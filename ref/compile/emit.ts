@@ -124,6 +124,7 @@ class Gen {
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
+      if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq") env.vars.set(d.name, { kind: d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn" ? "acc" : "acc", js: mg(d.name), prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
@@ -138,6 +139,9 @@ class Gen {
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
     for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "server") out.push(`${pad}const ${mg(d.name)} = __rt.serverFn(${J(d.name)}, ${J(d.kind)}, function* (${d.params.map(mg).join(", ")}) {   // 12 SF-7
+${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}
+${pad}});`);
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
     const vals = decls.filter(d => d.k === "source" || d.k === "eq" || d.k === "provide");
     const key = (d: Decl) => d.k === "provide" ? `provide:${d.name}` : (d as { name: string }).name;

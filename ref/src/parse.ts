@@ -87,7 +87,7 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number }
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client" }   // side: 12 SF-5
   | { kind: "error"; name: string; line: number }
   | { kind: "type"; name: string; line: number };
 export function parseDeclarations(src: string): JsDecl[] {
@@ -99,6 +99,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     c.ws();
     if (c.keyword("type") || c.keyword("interface")) { c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line }); continue; }
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
@@ -109,7 +110,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(/.exec(t); c.i += r ? r.index : t.length; } else c.i = save;
     c.ws(false); let rejects: string[] | undefined;
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
-    out.push({ kind: "fn", name, pure, params, rejects, line });
+    out.push({ kind: "fn", name, pure, params, rejects, line, ...(side ? { side } : {}) });
   }
 }
 
@@ -118,16 +119,18 @@ function parseDecl(c: Cursor): Decl {
   const line = c.line;
   if (c.keyword("export")) { c.ws(); const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
-    c.ws(); const pure = c.keyword("pure"); c.ws();
+    c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
+    const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
     if (c.eat("{")) { c.ws(); while (!c.startsWith("}")) { const name = c.ident() ?? c.fail("import name"); c.ws(); let alias = name; if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); } names.push({ name, alias }); if (!c.eat(",")) break; c.ws(); } c.expect("}"); }
     else { const name = c.ident() ?? c.fail("import name"); names.push({ name: "default", alias: name }); }
     c.ws(); if (!c.keyword("from")) c.fail("from"); c.ws();
     const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
     const save = c.i; c.ws(false);
-    if (c.keyword("fails")) { c.ws(); const fails = parseClasses(c) ?? ["Error"]; return { k: "import", names, from: from.v, pure, line, fails }; }   // R-f-8
+    const sd = side ? { side } : {};
+    if (c.keyword("fails")) { c.ws(); const fails = parseClasses(c) ?? ["Error"]; return { k: "import", names, from: from.v, pure, line, fails, ...sd }; }   // R-f-8
     c.i = save;
-    return { k: "import", names, from: from.v, pure, line };
+    return { k: "import", names, from: from.v, pure, line, ...sd };
   }
   if (/^error\s+[A-Z]/.test(c.src.slice(c.i))) {                     // R-f-1: `error NotFound(id: number) => \`no user ${id}\``
     c.keyword("error"); c.ws(); const name = c.ident() ?? c.fail("error class name"); c.ws(false);
@@ -168,6 +171,14 @@ function parseDecl(c: Cursor): Decl {
     while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, body: parseBlock(c), line };
+  }
+  if (/^server\s+(fn|action)\b/.test(c.src.slice(c.i))) {             // 12 SF-1: `server fn f(a) { … }` / `server action f(a) { … }`
+    c.keyword("server"); c.ws(); const kind = c.keyword("fn") ? "fn" as const : (c.keyword("action"), "action" as const);
+    c.ws(); const name = c.ident() ?? c.fail("server function name"); c.ws(); c.expect("("); c.ws();
+    const params: string[] = [];
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); optType(c); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    c.expect(")"); optType(c, true); c.ws();
+    return { k: "server", kind, name, params, body: parseBlock(c), line };
   }
   if (c.keyword("context")) {                                         // RG-7: `context name: [source] Type [= default]`
     c.ws(); const name = c.ident() ?? c.fail("context name"); c.ws(false);
@@ -510,7 +521,7 @@ function parseBlockBody(c: Cursor): { decls: Decl[]; body: Markup[] } {
 }
 function looksLikeDecl(c: Cursor) {
   const save = c.i; c.ws();
-  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("context ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") || /^error\s+[A-Z]/.test(c.src.slice(c.i)) ||
+  const r = c.startsWith("source ") || c.startsWith("effect") || c.startsWith("fn ") || c.startsWith("component ") || c.startsWith("deferred ") || c.startsWith("action ") || c.startsWith("provide ") || c.startsWith("context ") || c.startsWith("import ") || c.startsWith("export ") || c.startsWith("type ") || c.startsWith("interface ") || /^error\s+[A-Z]/.test(c.src.slice(c.i)) || /^server\s+(fn|action)\b/.test(c.src.slice(c.i)) ||
     (() => { const id = c.ident(); c.ws(false); if (!id || KEYWORDS.has(id)) return false; if (c.peek() === ":" && c.peek(1) !== "=") return true; const ok = (c.peek() === "=" && c.peek(1) !== "=") || /^key\s+[A-Za-z_$][\w$]*\s*=[^=>]/.test(c.src.slice(c.i)); return ok; })();
   c.i = save; return r;
 }

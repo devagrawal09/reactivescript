@@ -1,12 +1,12 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
-type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>;
+type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
 import { checkModules } from "./check.ts";
 export { RuleError, CheckError };
-import { makeErrorClass, isA, PANIC } from "./failure.ts";
+import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
 export class PendingVal { }                              // R-2: absence flows like a value
@@ -71,7 +71,7 @@ type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: R
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
 type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
-type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown };
+type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
@@ -170,6 +170,7 @@ export class Runtime {
       }
       if (d.k === "error") { const msg = d.msg; region.scope.set(d.name, { constant: makeErrorClass(d.name, d.params, args => msg ? String(this.untracked(() => this.ev(msg, region, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") region.scope.set(d.name, { context: d, home: region, dflt: null });
+      if (d.k === "server") region.scope.set(d.name, { constant: this.serverFn(d, region) });
       if (d.k === "fn") region.scope.set(d.name, { fn: d, home: region }); if (d.k === "component") region.scope.set(d.name, { comp: d, home: region }); if (d.k === "action") region.scope.set(d.name, { action: d, home: region }); }
     for (const d of decls) {                                           // E-7: equations are a system
       if (d.k === "eq" && !this.instantiates(d.e, region)) { const n = this.mkNode("eq", d.name, region, rt => rt.evalExpr(d.e, region)); n.deferred = !!d.deferred; n.keyBy = d.key ?? null; region.scope.set(d.name, n); }
@@ -231,11 +232,7 @@ export class Runtime {
     if (/^".*"$/.test(target)) f = this.flights.get(target.slice(1, -1));
     else { const n = this.findNode(target); f = n?.flight ?? undefined; if (!n) throw new Error(`no node ${target}`); if (!f) throw new Error(`${target} has no flight`); }
     if (!f) throw new Error(`no flight ${target}`);
-    f.state = reject ? "rejected" : "resolved"; f.value = reject ? (value instanceof Error ? value : new Error(String(value))) : value;   // `reject x NotFound("…")`: a declared class (MO-8)
-    f.first ??= { state: f.state, value: f.value };
-    for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
-    const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
-    for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
+    this.answer(f, reject ? "rejected" : "resolved", reject ? (value instanceof Error ? value : new Error(String(value))) : value);   // `reject x NotFound("…")`: a declared class (MO-8)
     const w = this.pendingWrites; this.pendingWrites = [];
     return this.step(w);
   }
@@ -834,6 +831,29 @@ export class Runtime {
     return names.map(n => { if (n === "Error") return Error; if (n === "Panic") return PANIC; const b = region.lookup(n); if (!b || !("constant" in b)) throw new RuleError("R-f-1", `${n} is not an error class`); return b.constant; });
   }
   flight(key: string) { let f = this.flights.get(key); if (!f) this.flights.set(key, (f = new Flight(key))); return f; }
+  /** 12 SF-7b: a server function as the client sees it — every call a flight. The body runs in place, behind a wire that copies
+   *  the arguments and the result (SF-6a) and lets only declared failures through (SF-6b). A `server fn` is a loader: one
+   *  flight per arguments, as a JS import's (re-asked by `refresh`); a `server action` call is a new request each time. */
+  private serverSeq = 0;
+  private serverFn(d: ServerDecl, home: Region) {
+    return (...args: unknown[]) => {
+      const key = `${d.name}:${args.map(fmt).join(",")}`;
+      if (d.kind === "fn" && this.flights.has(key)) return this.flights.get(key)!;
+      const f = d.kind === "fn" ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
+      const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
+      const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
+      env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
+      this.resume({ frames: [{ stmts: d.body, i: 0, kind: "block" }], region: home, env, change: null, flight: null, action: false, bind: null, settle: { flight: f, name: d.name } });
+      return f;
+    };
+  }
+  /** A flight's answer: the nodes that asked it recompute, the runs waiting on it resume. */
+  private answer(f: Flight, state: "resolved" | "rejected", value: unknown) {
+    f.state = state; f.value = value; f.first ??= { state, value };
+    for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
+    const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
+    for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
+  }
 
   // ---- imperative scope (SC-2) ----
   runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = []): unknown {
@@ -858,7 +878,7 @@ export class Runtime {
           if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }   // R-f-6: a typed catch takes its classes; others pass
           if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
         }
-        this.endRun(run, true); return false;
+        this.endRun(run, true, err); return false;
       };
       try {
         if (run.flight) {                                                  // resuming after `await`
@@ -886,7 +906,7 @@ export class Runtime {
             }
             if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
             else if (s.k === "expr") run.result = this.ev(s.e, region, env);
-            else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.frames.length = 0; break; }
+            else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.returned = true; run.frames.length = 0; break; }
             else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
             else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin });
             else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
@@ -920,7 +940,13 @@ export class Runtime {
       this.pendingWrites.push({ node: b, path, value: this.ev(s.e, region, env) });
     }
   }
-  private endRun(run: Run, rejected: boolean) {
+  private endRun(run: Run, rejected: boolean, err?: unknown) {
+    if (run.settle) {                                                        // SF-6: the call's answer, across the wire
+      const { flight, name } = run.settle;
+      if (rejected) this.answer(flight, "rejected", wireFailure(err));
+      else this.answer(flight, "resolved", wireCopy(run.returned ? run.result : undefined, "its result", msg => { throw new RuleError("WIRE_VALUE", `${name}: ${msg}`); }));
+      return;
+    }
     if (!run.action) return;
     this.openActions.delete(run);
     if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct

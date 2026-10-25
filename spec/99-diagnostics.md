@@ -66,11 +66,11 @@ Bins:
 | `REACTIVITY_HALTED`               | R   | an error escaping every boundary                                   |
 | `INVARIANT_VIOLATION`             | R   | runtime internal                                                   |
 | `SETTLE_WALK_UNINITIALIZED_SOURCE`| U   | E-4: every source has an initializer                               |
-| `SERVER_WRITE`                    | S   | R-io with a server row (later)                                     |
+| `SERVER_WRITE`                    | S   | 12 SF-4: a write in a server function's body (anywhere else a write is imperative scope, which the server never runs, SV-2) |
 | `SSR_*`, `HEAD_*`, `LATE_HEADER_WRITE`, `FRAME_MARKER_CORRUPTED`, `LAZY_ASSET_UNMAPPED`, `PRELOAD_DESCRIPTOR_INVALID` | R | server/transport; out of scope for the language |
 | `UNRECOGNIZED_INSERT_VALUE`       | S   | a reader's type is not renderable                                  |
 | `UNSCOPED_HOLE_ALLOCATED_IDS`     | R   | hydration                                                          |
-| `HYDRATION_MISMATCH`              | R   | 10 SV-3c: a `pure` JS function computed differently on server and client |
+| `HYDRATION_MISMATCH`              | R   | 10 SV-3c: a `pure` JS function computed differently on server and client; SV-7 narrows it to an assertion that lied |
 | `LOWERCASE_EVENT_ATTRIBUTE`       | U   | X: handlers are a grammar form                                     |
 
 ## Codes the checker adds
@@ -115,6 +115,12 @@ named.
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `PROVIDE_NOT_A_SOURCE`, `INVALID_CONTEXT_DEFAULT`, `WRITE_TO_NON_SOURCE` (RG-7c) | S | RG-7c | S-context-1 |
 | `ROW_NARROWER_THAN_INFERRED` (RG-7e) | S | a provision wider than its context's declared rows | S-context-1 |
+| `SERVER_CAPTURE`                  | S   | 12 SF-3: a server function names reactive state (by kind; through the fns it calls) | S-sf-1 |
+| `SERVER_WRITE`                    | S   | 12 SF-4 | S-sf-1 |
+| `SERVER_ONLY`, `CLIENT_IN_SERVER` | S   | 12 SF-5a, SF-5c | S-sf-1 |
+| `SERVER_FN_IO`                    | S   | 12 SF-1a: a `server fn` is a loader | S-sf-1 |
+| `IMPORT_ROW_MISMATCH` (SF-5)      | S   | `server`/`client` on an import that a `.d.rx` declares otherwise | S-sf-1 |
+| `WIRE_VALUE`                      | R   | 12 SF-6a, while types are text (then S) | S-sf-1 |
 
 ## The advisory rows (ruled 2026-10-23, in part)
 
@@ -127,9 +133,9 @@ separate advisory tool that reads the same static graph and never fails a
 build (the rustc/clippy split). `EFFECT_WRITES_OWN_SOURCE` is an error
 (C-3); `EFFECT_RELAY_TEAR` (an effect copying one source into another — an
 equation written the long way, with a one-instant tear, but also how a
-source is synced into a JS-owned one) stays advisory. `UNRECOGNIZED_INSERT_VALUE`,
-`DYNAMIC_ASYNC_COMPONENT` and `SERVER_WRITE` are type questions and wait for
-the type oracle.
+source is synced into a JS-owned one) stays advisory. `UNRECOGNIZED_INSERT_VALUE`
+and `DYNAMIC_ASYNC_COMPONENT` are type questions and wait for the type
+oracle. (`SERVER_WRITE` was one; 12 SF-4 makes it a row rule.)
 
 ## Counting
 

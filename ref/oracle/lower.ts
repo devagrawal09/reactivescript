@@ -11,7 +11,7 @@ import {
 } from "@solidjs/signals";
 
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
-import { makeErrorClass, isA, PANIC } from "../src/failure.ts";
+import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits } from "../src/awaits.ts";
 const hoistedOf = new WeakMap<object, Map<Expr, () => unknown>>();
@@ -177,6 +177,7 @@ export class Oracle {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
       if (d.k === "import") for (const { name, alias } of d.names) { const v = name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
+      if (d.k === "server") scope.vars.set(d.name, { k: "const", value: this.serverFn(d, scope) });
       if (d.k === "error") { const msg = d.msg; scope.vars.set(d.name, { k: "const", value: makeErrorClass(d.name, d.params, args => msg ? String(untrack(() => this.ev(msg, scope, new Map(d.params.map((p, i) => [p, args[i]] as const))))) : d.name) }); }   // R-f-1
       if (d.k === "context") scope.vars.set(d.name, { k: "ctx", ctx: createContext<Binding | undefined>(NO_PROVISION as any, d.name), dflt: d.dflt ?? null, home: scope, dv: null });   // a sentinel default: absence is ours to decide (the default, or RG-7b)
       if (d.k === "fn") scope.vars.set(d.name, { k: "fn", decl: d, home: scope });
@@ -429,8 +430,40 @@ export class Oracle {
   /** AC-1: an action body is a generator; a statement-level `await` is a hold-safe `yield` of the flight. */
   private lowerAction(params: string[], body: Stmt[], scope: Scope, outer?: Map<string, unknown>) {
     const self = this;
-    /** AC-1/AC-7: a statement-level `await` is a hold-safe `yield`; `try`/`catch`/`finally`/`throw` are JavaScript's, around the yields. */
-    function* block(stmts: Stmt[], env: Map<string, unknown>): Generator<unknown, Returned | undefined, unknown> {
+    const run = action(function* (...args: unknown[]) {
+      const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
+      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
+      const r = yield* self.block(body, scope, env); return r ? r.value : undefined;
+    });
+    return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
+  }
+  /** 12 SF-7b: a server function as the client sees it — a call is a flight. The body runs in place (its generator driven by
+   *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and
+   *  lets only declared failures through (SF-6b). A `server fn` is a loader, one flight per arguments; an action's call is new. */
+  private serverSeq = 0;
+  private serverFn(d: Extract<Decl, { k: "server" }>, scope: Scope) {
+    return (...args: unknown[]) => {
+      const key = `${d.name}:${args.map(fmt).join(",")}`; const out = (fl: Flight) => process.env.ORACLE_PROMISES ? fl.first : fl;
+      if (d.kind === "fn" && this.flights.has(key)) return out(this.flights.get(key)!);
+      const fl = d.kind === "fn" ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
+      const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${d.name}: ${msg}`); };
+      const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
+      env.set("log", (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); });
+      const g = this.block(d.body, scope, env);
+      const step = (input: unknown, thrown: boolean) => {
+        const was = this.currentEq; this.currentEq = null;                    // the body's own flights are not the asking equation's
+        let r: IteratorResult<unknown, Returned | undefined>;
+        try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { this.currentEq = was; }
+        if (r.done) { try { fl.resolve(wireCopy(r.value?.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
+        Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
+      };
+      step(undefined, false);
+      return out(fl);
+    };
+  }
+  /** AC-1/AC-7: a statement-level `await` is a hold-safe `yield`; `try`/`catch`/`finally`/`throw` are JavaScript's, around the yields. */
+  private *block(stmts: Stmt[], scope: Scope, env: Map<string, unknown>): Generator<unknown, Returned | undefined, unknown> {
+      const self = this; const block = (ss: Stmt[], en: Map<string, unknown>) => self.block(ss, scope, en);
       for (const s of stmts) {
         const awaited = (s.k === "let" || s.k === "expr") && s.e.k === "await" ? s.e : null;
         if (awaited) {
@@ -451,13 +484,6 @@ export class Oracle {
         if (r instanceof Returned) return r;
       }
       return undefined;
-    }
-    const run = action(function* (...args: unknown[]) {
-      const env = new Map(outer); params.forEach((p, i) => env.set(p, args[i]));
-      env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
-      const r = yield* block(body, env); return r ? r.value : undefined;
-    });
-    return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
   }
 
   // ---- views ----

@@ -15,6 +15,7 @@ export function makeErrorClass(name: string, params: string[], message: (args: u
     }
   };
   Object.defineProperty(C, "name", { value: name });
+  Object.defineProperty(C, "declared", { value: true });                // SV-5a: a declared class's failures cross the wire as they are
   const f = ((...args: unknown[]) => new C(...args)) as ErrorClass;
   f.cls = C; f.errorClass = name;
   return f;
@@ -42,4 +43,21 @@ export function caughtValue(f: () => unknown, match: (err: unknown) => boolean, 
   }
   if (v && typeof (v as PromiseLike<unknown>).then === "function") return Promise.resolve(v).then(x => x, err => { if (!match(err)) throw err; return alt(err); });
   return v;
+}
+
+// ---------------------------------------------------------------- the wire (12 SF-6)
+/** SF-6a: what crosses between the two sides is data, copied: primitives, arrays and plain records. Anything else — a function,
+ *  an instance of a class — is `WIRE_VALUE` (a runtime error, naming where it was found). */
+export function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
+  if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
+  if (typeof v === "object") {
+    const proto = Object.getPrototypeOf(v);
+    if (proto === Object.prototype || proto === null) { const o: Record<string, unknown> = {}; for (const k of Object.keys(v as object)) o[k] = wireCopy((v as Record<string, unknown>)[k], `${where}.${k}`, fail); return o; }
+  }
+  return fail(`${where} is ${typeof v === "function" ? "a function" : `an instance of ${(v as object).constructor?.name ?? "a class"}`}, which the wire cannot carry: send data`);
+}
+/** SF-6b / SV-5: a failure crosses as it is when its class is declared; anything else as the generic error. */
+export function wireFailure(err: unknown): unknown {
+  return err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
 }

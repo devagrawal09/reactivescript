@@ -27,7 +27,7 @@ const onServer = (what: string) => () => { throw new Error(`SV-2: ${what} does n
 type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
 function errorClass(name: string, params: string[], message: (...args: unknown[]) => unknown, id?: string): ErrorClass {
   const C = class extends Error { constructor(...args: unknown[]) { super(""); this.name = name; params.forEach((p, i) => { (this as unknown as Record<string, unknown>)[p] = args[i]; }); this.message = String(untrack(() => message(...args))); if (id) (this as unknown as { $class: string }).$class = id; markSafeError(this); } };
-  Object.defineProperty(C, "name", { value: name });
+  Object.defineProperty(C, "name", { value: name }); Object.defineProperty(C, "declared", { value: true });
   const f = ((...args: unknown[]) => new C(...args)) as ErrorClass; f.cls = C; f.errorClass = name; (f as { $class?: string }).$class = id; return f;
 }
 const PANIC = { panic: true } as const;
@@ -41,6 +41,15 @@ function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
 function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): unknown {
   try { return f(); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); }
 }
+
+// ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
+function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
+  if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
+  if (typeof v === "object") { const proto = Object.getPrototypeOf(v); if (proto === Object.prototype || proto === null) { const o: Record<string, unknown> = {}; for (const k of Object.keys(v as object)) o[k] = wireCopy((v as Record<string, unknown>)[k], `${where}.${k}`, fail); return o; } }
+  return fail(`${where} is ${typeof v === "function" ? "a function" : `an instance of ${(v as object).constructor?.name ?? "a class"}`}, which the wire cannot carry: send data`);
+}
+const wireFailure = (err: unknown): unknown => err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
 
 // ---------------------------------------------------------------- flights (the harness's async)
 /** As rt.ts's Flight. A rejection is sent as it is only when its class is declared (SV-5): `errorClass` marks those. */
@@ -68,7 +77,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const modules = new Map<string, Record<string, unknown>>();
   const log: string[] = [];
   const declared: unknown[] = [];
-  let currentEq: string | null = null; let classSeq = 0;
+  let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -130,6 +139,27 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** 12 SF-7: \`server fn\` / \`server action\` — every call a flight; the body (a generator, as an action's) is driven by promises,
+     *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
+     *  failures through (SF-6). A loader has one flight per arguments, as a JS import's; an action's call is a new request.
+     *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
+    serverFn(name: string, kind: "fn" | "action", gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+      return (...args: unknown[]) => {
+        const key = `${name}:${args.map(fmt).join(",")}`;
+        if (kind === "fn" && flights.has(key)) return flights.get(key)!;
+        const fl = kind === "fn" ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+        const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
+        const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
+        const step = (input: unknown, thrown: boolean) => {
+          const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
+          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { currentEq = was; }
+          if (r.done) { try { fl.resolve(wireCopy(r.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
+          Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
+        };
+        step(undefined, false);
+        return fl;
+      };
+    },
     hoisted(_name: string, _get: Acc) {},
     refresh: onServer("refresh"),
     affects: onServer("affects"),

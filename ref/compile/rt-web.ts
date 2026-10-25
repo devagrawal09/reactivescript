@@ -28,7 +28,7 @@ const isView = (v: unknown): boolean => isNode(v) || (Array.isArray(v) && (v.len
 type ErrorClass = ((...args: unknown[]) => Error) & { cls: new (...args: unknown[]) => Error; errorClass: string };
 function errorClass(name: string, params: string[], message: (...args: unknown[]) => unknown, id?: string): ErrorClass {
   const C = class extends Error { constructor(...args: unknown[]) { super(""); this.name = name; params.forEach((p, i) => { (this as unknown as Record<string, unknown>)[p] = args[i]; }); this.message = String(untrack(() => message(...args))); if (id) (this as unknown as { $class: string }).$class = id; } };
-  Object.defineProperty(C, "name", { value: name });
+  Object.defineProperty(C, "name", { value: name }); Object.defineProperty(C, "declared", { value: true });
   const f = ((...args: unknown[]) => new C(...args)) as ErrorClass; f.cls = C; f.errorClass = name; (f as { $class?: string }).$class = id; return f;
 }
 const PANIC = { panic: true } as const;   // R-f-10: statically discharges nothing; at run time takes whatever reaches it
@@ -56,6 +56,15 @@ function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fal
 const NO_PROVISION: Entry = {};
 class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
 
+// ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
+function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
+  if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
+  if (typeof v === "object") { const proto = Object.getPrototypeOf(v); if (proto === Object.prototype || proto === null) { const o: Record<string, unknown> = {}; for (const k of Object.keys(v as object)) o[k] = wireCopy((v as Record<string, unknown>)[k], `${where}.${k}`, fail); return o; } }
+  return fail(`${where} is ${typeof v === "function" ? "a function" : `an instance of ${(v as object).constructor?.name ?? "a class"}`}, which the wire cannot carry: send data`);
+}
+const wireFailure = (err: unknown): unknown => err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
+
 // ---------------------------------------------------------------- flights (the scenario harness's async)
 /** A controllable flight: an async iterable (a stream — each resolve is a landing) that actions await through `first`. */
 export class Flight {
@@ -81,7 +90,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const modules = new Map<string, Record<string, unknown>>();
   const hoistedBy = new Map<string, Acc[]>();   // an equation's hoisted awaits, re-asked with it by `refresh`
   const log: string[] = [];
-  let currentEq: string | null = null; let classSeq = 0;
+  let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   // During hydration Solid runs a compute under `subFetch` to learn its inputs, with `fetch` and `Promise` mocked, and keeps
   // the server's answer (SV-3b). A flight asked there is that trace, not a question: it is not registered.
@@ -172,6 +181,27 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    /** 12 SF-7: \`server fn\` / \`server action\` — every call a flight; the body (a generator, as an action's) is driven by promises,
+     *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
+     *  failures through (SF-6). A loader has one flight per arguments, as a JS import's; an action's call is a new request.
+     *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
+    serverFn(name: string, kind: "fn" | "action", gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+      return (...args: unknown[]) => {
+        const key = `${name}:${args.map(fmt).join(",")}`;
+        if (kind === "fn" && flights.has(key)) return flights.get(key)!;
+        const fl = kind === "fn" ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+        const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
+        const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
+        const step = (input: unknown, thrown: boolean) => {
+          const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
+          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { currentEq = was; }
+          if (r.done) { try { fl.resolve(wireCopy(r.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
+          Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
+        };
+        step(undefined, false);
+        return fl;
+      };
+    },
     hoisted(name: string, get: Acc) { let l = hoistedBy.get(name); if (!l) hoistedBy.set(name, (l = [])); l.push(get); },
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
     affects: (get: Acc) => affects(get as any),

@@ -1,6 +1,7 @@
 # 12 — Server functions, and code that runs on one side
 
-**Status: OPEN (2026-10-24).** Some code must run only on the server (it
+**Status: SF-1–SF-6 executable (S-sf-1, all four runners), 2026-10-24;
+SV-7b's client questions are next.** Some code must run only on the server (it
 reads a database, holds a secret) and some only in the browser (it reads
 storage, measures the window). This document gives each a row, `server`
 or `client`, and says what may cross between the two. It is the companion
@@ -31,9 +32,12 @@ rule the checker can state precisely.
   on the server: the same block, and `io` — its body may call `io` and
   `server` JS (a database write). It is called only from imperative scope
   (R-io-3).
-- **SF-1c.** Either may be `export`ed. In a `.d.rx` the signature is
-  `export server fn f(a) rejects(C)` / `export server action f(a)` (MO-3,
-  MO-8).
+- **SF-1c.** Either may be `export`ed; an importer sees it in the module's
+  signature (MO-3) as a server function with its rejections. A JS module's
+  own `"use server"` functions are ordinary JS here: a `.d.rx` declares
+  them like any export (`export pure fn load(id)` for a loader), and their
+  wire is the JS side's. (`server` in a `.d.rx` means SF-5a's server-only
+  JS, which a client cannot call at all.)
 
 ## SF-2 — Calling one
 
@@ -120,9 +124,12 @@ rule the checker can state precisely.
 - **SF-7b.** The client runners of `ref/` (interpreter, oracle, compiled)
   have no network: a call runs the body in place, behind a wire that
   copies arguments and result (SF-6a) and redacts undeclared failures
-  (SF-6b), so the semantics a scenario observes are the remote ones. The
-  server runner calls it directly during the mount and over HTTP after
-  hydration.
+  (SF-6b), so the semantics a scenario observes are the remote ones. A
+  `server fn` call is a flight keyed by its arguments, as a JS import's
+  is; a `server action` call is a new one each time. The server runner
+  runs the body on the server during the mount (its awaits are the served
+  page's flights) and, after hydration, in place in the browser — the
+  HTTP hop is not lowered yet.
 
 ---
 
@@ -133,6 +140,7 @@ rule the checker can state precisely.
 | `SERVER_CAPTURE` | S | SF-3: a server function names reactive state |
 | `SERVER_WRITE` | S | SF-4: a server function writes a source (99) |
 | `SERVER_ONLY` | S | SF-5a: `server` JS called outside a server function |
+| `SERVER_FN_IO` | S | SF-1a: a `server fn` calls io (make it a `server action`) |
 | `CLIENT_IN_SERVER` | S | SF-5c: `client` JS reached from a server function |
 | `CLIENT_QUESTION_UNHELD` | S | SV-7b: a client question read where nothing holds it |
 | `WIRE_VALUE` | R | SF-6a: a value the wire cannot carry |
