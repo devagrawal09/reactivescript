@@ -4,8 +4,8 @@
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
-AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Not yet: AC-6
-`until`, optimistic path writes. AC-7 try/catch: S-action-1.
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. Not yet:
+AC-6 `until`. AC-7 try/catch: S-action-1.
 
 ---
 
@@ -148,9 +148,14 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   whatever its question gives: a constant (`source draft = "Ann"`), another
   source (`source draft = name`, S-solid-32), or an `await`. Lowers to
   `createOptimistic`/`createOptimisticStore` by usage. Path targets
-  (`optimistic x.a := v`) are per key like writes (ST-2c); not in `ref/`
-  yet, and a structured question source that is an optimistic target takes
-  root writes only in the oracle lowering. A guess is verdict-inert: an
+  (`optimistic x.a := v`, `optimistic todos[i].done := true`) guess per key,
+  as Solid's per-node override: the rest of `x` is the truth beneath the
+  guess, a new answer corrects only where it differs at a guessed key, and
+  equal there it confirms silently (S-store-6). A guess's own question
+  re-asked by its action (`refresh x`) is authoritative work in flight: the
+  change waits for that answer before the body-end correction (D-35).
+  Lowers to `createOptimisticStore(fn, seed)`; a plain write to a source
+  that is also guessed by path is not lowered yet. A guess is verdict-inert: an
   action that wants `pending? x` true while its guess stands declares
   `affects x` (AC-5; the idiom is in 07 §5).
 - **AC-4 (refresh).** `refresh x`, in imperative scope anywhere, re-asks

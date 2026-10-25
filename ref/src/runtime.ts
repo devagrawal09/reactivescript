@@ -24,6 +24,11 @@ const isErr = (v: unknown): v is ErrVal => v instanceof ErrVal;
 const isAbsent = (v: unknown) => v instanceof ErrVal || v instanceof PendingVal;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !(v instanceof ErrVal) && !(v instanceof PendingVal) && !(v instanceof Flight) && !(v instanceof ViewValue);
 
+/** Whether a difference between a guess and the truth touches a key the guess wrote (AC-3: a path guess is per key, Solid's per-node override). */
+function guessedAt(n: { guessPaths: Path[] }, diff: Set<Path>): boolean {
+  for (const d of diff) for (const g of n.guessPaths) if (g === "" || d === g || d.startsWith(g + ".") || g.startsWith(d + ".")) return true;
+  return false;
+}
 /** Leaf paths at which `a` and `b` differ (E-6 per path). */
 function diffPaths(a: unknown, b: unknown, path: Path, out: Set<Path>) {
   if (Object.is(a, b)) return;
@@ -59,8 +64,8 @@ export class Node {
   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
   question = false;                                    // ST-5: `source x = e` — an equation until written
-  guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false;   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
-  quiet = false; refreshBy: number | null = null;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+  guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
+  quiet = false; refreshBy: number | null = null; refreshInAction = false;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
   keyBy: string | null = null;                         // ST-4: a keyed collection is reconciled by this key
@@ -145,7 +150,7 @@ export class Runtime {
   private started: Run[] = [];                          // runs started by the current imperative run, not yet assigned a change
   private currentRun: Run | null = null;
   private pendingJoin: number[] = []; private pendingBodyEnds: number[] = [];
-  private pendingGuesses: { node: Node; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
+  private pendingGuesses: { node: Node; path: string[]; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
   program: Program;
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
@@ -267,7 +272,19 @@ export class Runtime {
         if (Array.isArray(o)) this.notify(o, "length");
       }
     }
-    for (const { node, value: v0 } of this.pendingGuesses) { const value = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(node.hasGuess ? node.guess : node.demanded ? node.value : this.pull(node)) : v0;   /* a guess over a source nothing on screen reads (found by S-app-notes: the list was unmounted) */ node.guess = value; node.hasGuess = true; /* W-6 applies to guesses too */ node.guessBy = this.instant; node.corrected = false; this.notify(node, ""); }   // AC-3: a guess shows from this instant's settle
+    for (const { node, path, value: v0 } of this.pendingGuesses) {   // AC-3: a guess shows from this instant's settle
+      const base = node.hasGuess ? node.guess : node.demanded ? node.value : this.pull(node);   /* a guess over a source nothing on screen reads (found by S-app-notes: the list was unmounted) */
+      const fresh = !node.hasGuess;
+      if (path.length === 0) { node.guess = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(base) : v0; node.guessPaths = [""]; }   // W-6 applies to guesses too
+      else {                                                            // a path guess: a copy along the written path; untouched rows keep identity (ST-3a)
+        const copy = (o: unknown) => Array.isArray(o) ? [...o] : { ...(o as object) } as Record<string, unknown>;
+        const root = copy(base) as Record<string, unknown>; let o = root;
+        for (const k of path.slice(0, -1)) { o[k] = isObj(o[k]) ? copy(o[k]) : /^\d+$/.test(k) ? [] : {}; o = o[k] as Record<string, unknown>; }
+        const last = path[path.length - 1]; o[last] = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(o[last]) : v0;
+        node.guess = root; node.guessPaths = [...(fresh ? [] : node.guessPaths), path.join(".")];
+      }
+      node.hasGuess = true; node.guessBy = this.instant; node.corrected = false; this.notify(node, "");
+    }
     this.pendingGuesses = [];
     for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
     this.pendingRefresh = [];
@@ -288,6 +305,7 @@ export class Runtime {
       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
       for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
       for (const a of this.openActions) if (a.change !== null) heldRoots.add(this.find(a.change));          // AC-1: an action holds its change until its body returns
+      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === this.find(n.refreshBy)) heldRoots.add(this.find(n.refreshBy));   // D-35: a guess's own question, re-asked by its action, is authoritative work in flight — the change waits for the answer that confirms or corrects the guess
       for (const l of this.heldLanes) { if (l.heldBy !== null) heldRoots.add(this.find(l.heldBy)); for (const t of l.taint) heldRoots.add(this.find(t)); }   // H-7: a held lane keeps its change staged (S-solid-33: the landing stays uncommitted)
       let any = false;
       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
@@ -348,10 +366,10 @@ export class Runtime {
       const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
       if (n.hasValue && !stillHeld && !openTaint && !(n.value instanceof PendingVal)) { n.committed = n.value; n.hasCommitted = true; }
       if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
-      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; this.notify(n, ""); }   // H-11: a guess lives as long as its hold
+      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; n.guessPaths = []; this.notify(n, ""); }   // H-11: a guess lives as long as its hold
       for (const [k, c] of n.heldKeys) if (this.find(c) === g) n.heldKeys.delete(k);
       if (n.affectedBy !== null && this.find(n.affectedBy) === g) n.affectedBy = null;
-      if (n.refreshBy !== null && this.find(n.refreshBy) === g) { n.refreshBy = null; if (!(n.value instanceof PendingVal)) n.quiet = false; }
+      if (n.refreshBy !== null && this.find(n.refreshBy) === g) { n.refreshBy = null; n.refreshInAction = false; if (!(n.value instanceof PendingVal)) n.quiet = false; }
     }
     this.commit(this.view, g);
   }
@@ -613,7 +631,7 @@ export class Runtime {
       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
       if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
       n.hasValue = true;
-      if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
+      if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now; equal there confirms silently (the screen keeps the guess's world until the commit)
       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
       if (n.heldBy !== null) n.taint.add(n.heldBy);
@@ -936,13 +954,14 @@ export class Runtime {
   private resumeStmtOnly(s: Stmt, region: Region, env: Map<string, unknown>) {
     const run = this.currentRun ?? { action: false };
     if (s.k === "action") this.startRun(s.body, region, new Map(env), true);
-    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); this.pendingRefresh.push(n); }
+    else if (s.k === "refresh") { const n = this.nodeNamed(s.name, region); if (!n || (n.kind !== "eq") || !(n.question || n.flight || n.compute)) throw new RuleError("INVALID_REFRESH_TARGET", `${s.name} has no question to re-ask`); n.refreshInAction = !!run.action; this.pendingRefresh.push(n); }
     else if (s.k === "affects") { const n = this.nodeNamed(s.name, region); if (!n) throw new RuleError("INVALID_AFFECTS_TARGET", `${s.name} is not reactive`); this.pendingAffects.push(n); }
     else if (s.k === "optimistic") {
       if (!run.action) throw new RuleError("OPTIMISTIC_OUTSIDE_HOLD", "optimistic outside an action body");
       const n = this.nodeNamed(s.target.name, region);
       if (!n || !n.question) throw new RuleError("OPTIMISTIC_NO_QUESTION", `${s.target.name} is not a source with a question (source x = e)`);
-      this.pendingGuesses.push({ node: n, value: this.ev(s.e, region, env) });
+      const path = s.target.path.map(p => typeof p === "string" ? p : String(this.ev(p, region, env)));
+      this.pendingGuesses.push({ node: n, path, value: this.ev(s.e, region, env) });
     } else if (s.k === "write") {
       let b: Binding | undefined = region.lookup(s.target.name);
       if (s.target.ctx) b = this.provisionOf(s.target.name, region);
@@ -971,7 +990,7 @@ export class Runtime {
     for (const g0 of this.pendingBodyEnds) { const g = this.find(g0);
       for (const n of this.allNodes()) if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) {
         const truth = n.demanded ? n.value : this.pull(n);
-        if (truth instanceof PendingVal) continue;                            // its own source is still answering: that answer corrects (D-34)
+        if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending")) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`): that answer corrects (D-34, D-35)
         const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg); if (dg.size) { n.guess = truth; n.corrected = true; any = true; }
       }
     }

@@ -296,7 +296,7 @@ class Gen {
       if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
       const lv = this.loadingValue(d.init, env);
       const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)} }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.qsource(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      return `${pad}const [${b.js}, ${b.w}] = __rt.qsource(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
     const reg = `\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js} });${prev}`;
@@ -454,7 +454,7 @@ class Gen {
           let w: string;
           if (s.target.ctx) w = `__rt.use(${this.ref(s.target.name, env, { imp: false, dyn: ctx.dyn })}, __o).w`;
           else { const b = env.lookup(s.target.name); if (!b?.w) throw new CompileError(`W-1: ${s.target.name} is not a source`); w = b.w; }
-          out.push(`${pad}${s.k === "optimistic" ? `${w}.guess(${v})` : s.target.path.length ? `${w}.path(${keys}, ${v})` : `${w}.set(${v})`};`);
+          out.push(`${pad}${s.k === "optimistic" ? `${w}.guess(${v}${s.target.path.length ? `, ${keys}` : ""})` : s.target.path.length ? `${w}.path(${keys}, ${v})` : `${w}.set(${v})`};`);
           break;
         }
         case "refresh": { const b = env.lookup(s.name); out.push(`${pad}__rt.refresh(${J(s.name)}, ${b ? b.js : `__rt.lookup(${J(s.name)}).get`});`); break; }

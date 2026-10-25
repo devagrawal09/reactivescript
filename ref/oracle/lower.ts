@@ -7,7 +7,7 @@ import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
 import {
-  createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred,
+  createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
   createRoot, createRenderEffect, flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, resetErrorHalt, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary
 } from "@solidjs/signals";
 
@@ -33,6 +33,14 @@ function boundaryRead(f: () => unknown, match: (err: unknown) => boolean, alt: (
 /** A boundary's fallback that is decided when read, so a failure that changes class while the fallback shows is re-decided. */
 class Fallback { get: () => unknown; constructor(g: () => unknown) { this.get = g; } }
 function unwrapFallback(v0: unknown): unknown { let v = v0; if (v instanceof Fallback) v = v.get(); if (v instanceof Forward) throw v.err; return v; }
+/** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
+function assignDraft(draft: any, v: unknown) {
+  if (!v || typeof v !== "object") return;
+  if (Array.isArray(draft) && Array.isArray(v)) { draft.length = v.length; v.forEach((x, i) => { draft[i] = x; }); return; }
+  for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
+  Object.assign(draft, v);
+}
+
 export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
 
 // ---------------------------------------------------------------- string-tree renderer
@@ -72,7 +80,7 @@ export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_
 // ---------------------------------------------------------------- scopes
 type Binding =
   | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean; setGuess?: (v: unknown) => void }
-  | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean }
+  | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean; setGuess?: (f: (d: any) => any) => void }
   | { k: "memo"; get: () => unknown }
   | { k: "const"; value: unknown }
   | { k: "fn"; decl: Extract<Decl, { k: "fn" }>; home: Scope }        // home: the declaring scope — bodies are lexical (RG-7a, MO-6)
@@ -220,7 +228,13 @@ export class Oracle {
           if (d.question) {                                             // ST-5: createSignal(fn) / createOptimistic(fn) / createStore(fn, seed)
             this.hoistAwaits(d.name, d.init, scope);
             const compute = this.computeOf(d.name, d.init, scope);
-            if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
+            if (this.optimisticTargets.has(d.name) && this.pathTargets.has(d.name)) {   // AC-3 path targets over ST-5 structured: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
+              const derive = async (draft: any) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; assignDraft(draft, v); };
+              const [store, setStore] = (createOptimisticStore as any)(derive, d.key ? [] : {}, d.key ? { key: d.key } : undefined);
+              const plain = () => { throw new Unsupported("a plain write to an optimistic store"); };
+              scope.vars.set(d.name, { k: "store", get: () => store, set: plain, setPath: plain, question: true, setGuess: setStore });
+            }
+            else if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
               const [truth, setTruth] = createSignal(compute as any, this.loadingValue(d.init, scope) as any);
               const [get, setGuess] = createOptimistic(() => truth());
               scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true });
@@ -431,6 +445,11 @@ export class Oracle {
         if (b.k === "sig") { if (s.target.path.length) throw new Unsupported("path write to a signal"); (s.k === "optimistic" ? (b.setGuess ?? b.set) : b.set)(v); return; }
         if (b.k === "store") {
           const path = s.target.path.map(p => typeof p === "string" ? p : String(untrack(() => this.ev(p, scope, env))));
+          if (s.k === "optimistic") {
+            if (!b.setGuess) throw new Error("OPTIMISTIC_NO_QUESTION");
+            b.setGuess((d: any) => { if (path.length === 0) { assignDraft(d, typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v); return; } let o = d; for (const k of path.slice(0, -1)) o = o[k]; const last = path[path.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });   // W-6 per key
+            return;
+          }
           if (path.length === 0) b.set(v);
           else b.setPath((d: any) => { let o = d; for (const k of path.slice(0, -1)) o = o[k]; o[path[path.length - 1]] = v; });
           return;

@@ -8,11 +8,11 @@
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
-import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
+import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
 
 export type Acc = () => unknown;
-export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown) => void };
+export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 export { generateHydrationScript };
 
@@ -123,8 +123,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); return ro(get as Acc); }
       const [get] = createSignal(init); return ro(get as Acc);
     },
-    qsource(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }): [Acc, Writer] {
+    qsource(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
+      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
       if (mode.structured) {
         const [store] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
@@ -225,3 +226,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   return app;
 }
 export type ServerApp = ReturnType<typeof createApp>;
+
+/** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
+function assignDraft(draft: any, v: unknown) {
+  if (!v || typeof v !== "object") return;
+  if (Array.isArray(draft) && Array.isArray(v)) { draft.length = v.length; v.forEach((x, i) => { draft[i] = x; }); return; }
+  for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
+  Object.assign(draft, v);
+}

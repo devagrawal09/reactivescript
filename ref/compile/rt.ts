@@ -7,13 +7,13 @@
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
-  createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createStore, createProjection, createDeferred,
+  createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
   flush, untrack, latest, isPending, action, refresh, affects, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
 } from "@solidjs/signals";
 
 export { flush };
 export type Acc = () => unknown;
-export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown) => void };
+export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 
 // ---------------------------------------------------------------- values
@@ -138,7 +138,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snap(e.get) : e.value; },
-    dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v); else if (keys.length) w.path(keys, v); else w.set(v); },
+    dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },
 
     // ---- declarations ----
     /** `source x := e`: atomic → a signal; structured → a store behind a signal slot, so the root can be replaced (ST-1, ST-2a). */
@@ -158,8 +158,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
-    qsource(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }): [Acc, Writer] {
+    qsource(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
+      if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
+        const [store, setStore] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined);
+        const get = () => store; storeAccs.add(get);
+        const plain = () => { throw new Error("a plain write to an optimistic store is not lowered yet"); };
+        return [get, { set: plain, path: plain, guess: (v, keys = []) => setStore((d: any) => { if (keys.length === 0) { assignDraft(d, typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v); return; } let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }) }];
+      }
       if (mode.optimistic) {
         const [truth, setTruth] = createSignal(fn as any, opts as any);
         const [get, setGuess] = createOptimistic(() => truth());
@@ -282,3 +288,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   return app;
 }
 export type App = ReturnType<typeof createApp>;
+
+/** A store draft becomes `v`: keys `v` lacks are removed, the rest assigned (an array's length follows). */
+function assignDraft(draft: any, v: unknown) {
+  if (!v || typeof v !== "object") return;
+  if (Array.isArray(draft) && Array.isArray(v)) { draft.length = v.length; v.forEach((x, i) => { draft[i] = x; }); return; }
+  for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k];
+  Object.assign(draft, v);
+}
