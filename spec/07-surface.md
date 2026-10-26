@@ -432,7 +432,7 @@ Expr      ::= TSExpr with §3's removals and additions
 
 ---
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
 1. **File = module** (ruled 2026-10-22), components declared with
    `component`, exported with `export`.
@@ -444,7 +444,8 @@ Expr      ::= TSExpr with §3's removals and additions
    a question or a value.
 3. **TS expression grammar verbatim**, with the removal list in §3. No
    `yield`; streams are `await*` (ruled 2026-10-22).
-4. **`c ? a : b`** kept beside `c ? a : b`; both are E-11.
+4. **`c ? a : b` is the one conditional expression** (ruled 2026-10-26;
+   E-11): `if` is a markup region and a statement, never an expression.
 5. **Imports are `io` unless `import pure`** (ruled 2026-10-22; R-io-4).
    `pure` is the only taint keyword and points one way.
 6. **Event handlers are JSX attributes** (`onClick={() => { … }}`), the
@@ -458,15 +459,14 @@ Expr      ::= TSExpr with §3's removals and additions
 10. **The `fails` row** (ruled 2026-10-23): an undischarged failure at a
     reader is a compile error; an action must catch in its body; a JS
     promise fails with `Error`, narrowable at the import (`fails A | B`).
-11. **`throw`, not `raise`** (taken by default): one word for a failure in
+11. **`throw`, not `raise`** (ruled 2026-10-26): one word for a failure in
     both scopes — TS's statement, and TC39's throw expression in reactive
     scope. The class is read off the operand (R-f-3).
-12. **`e catch (x: A | B) => alt`** (taken by default; no preference
-    given): a failure becomes a value without a region. Looser than every
+12. **`e catch (x: A | B) => alt`** (ruled 2026-10-26): a failure becomes a value without a region. Looser than every
     operator, so `c ? a : b catch …` catches the conditional.
 13. **Contexts are declared** (ruled 2026-10-23): `context x: T [= d]`;
     `provide`/`use` name the declaration (RG-7). Keyword `context`, and
-    defaults, taken by default.
+    defaults (except on a `source` context, RG-7c), ruled 2026-10-26.
 
 14. **One `catch` per `try`** (ruled 2026-10-25): TypeScript's statement
     form; a typed `catch (e: A)` rethrows other classes (AC-7), and two

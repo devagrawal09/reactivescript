@@ -9,8 +9,8 @@ it: the interpreter, the Solid oracle, and the compiler, which emits one ES
 module per `.rx` module. `S-module-1` and `S-app-shop` cover it.
 
 Rulings: file = module (07, 2026-10-22); a module boundary is a value
-boundary (07 §1, 2026-10-22). The rest is taken by default — see the list at
-the end.
+boundary (07 §1, 2026-10-22). The rest was taken by default and ruled 2026-10-26 —
+see the list at the end.
 
 ---
 
@@ -191,18 +191,18 @@ export component Save(props: { v: action catches(nothing) })
   `__rt.module` runs once — and `main.mjs` for the entry, which
   instantiates its dependencies at the start of its view.
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
-1. **Module state is a singleton per app** (MO-1b), as module-level
+1. **Module state is a singleton per app** (MO-1b; ruled 2026-10-26), as module-level
    signals are in Solid.
-2. **No import cycles** (MO-5).
-3. **`.rx` rows are the signature's**: `pure` must agree and `fails` is
+2. **No import cycles** (MO-5; ruled 2026-10-26).
+3. **`.rx` rows are the signature's** (ruled 2026-10-26): `pure` must agree and `fails` is
    refused on an `.rx` import (MO-4a).
-4. **Contexts are declared** (MO-7, ruled 2026-10-23). Taken by default
-   inside that ruling: the keyword `context`; defaults allowed, except on a
-   `source` context; an exported context's type is its contract, a
+4. **Contexts are declared** (MO-7, ruled 2026-10-23). The keyword
+   `context`, and defaults allowed except on a `source` context, ruled
+   2026-10-26 (07 #13). Ruled 2026-10-26 with the rest: an exported context's type is its contract, a
    module's own context infers its rows unless it writes them.
-5. **The `.d.rx` notation**: `catches(…)` on a prop is what the component
+5. **The `.d.rx` notation** (ruled 2026-10-26): `catches(…)` on a prop is what the component
    discharges for it; `action catches(…)` is what an action reading it
    catches; `fails(…)` after a component is what escapes its root;
    `uses(…)` the provisions it needs.

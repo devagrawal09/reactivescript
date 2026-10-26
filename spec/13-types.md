@@ -89,14 +89,16 @@ while types were text:
   (S-ai2-search's `ItemView`, TY-3c), or by a handler running while its
   branch is live (S-ai2-tracker): both now narrow where they read.
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
-1. **TypeScript checks the projection** — no type system of our own; the
+1. **TypeScript checks the projection** (ruled 2026-10-26) — no type system of our own; the
    checker's rules (08) stay the language's, the types TypeScript's.
-2. **Strict, but untyped parameters are `any`** (`noImplicitAny` off):
+2. **Strict, but untyped parameters are `any`** (ruled 2026-10-26) (`noImplicitAny` off):
    scenarios and small programs leave parameters untyped; a written type
    is always checked.
-3. **A source without a type is widened** (TY-2): a source is written
+3. **A source without a type is widened** (TY-2; ruled 2026-10-26): a source is written
    later, so its initializer's literal type would refuse every other write.
-4. **What a reader inserts is Solid's `JSX.Element`** (TY-3b), not a
-   narrower type of our own.
+4. **What a reader inserts is Solid's `JSX.Element`** (TY-3b; ruled 2026-10-26), not a
+   narrower type of our own. Where more could be done: a narrower
+   insertable type would refuse `<p>{record}</p>` statically at no run-time
+   cost; noted, not adopted, since it departs from Solid's types.

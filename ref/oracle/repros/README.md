@@ -144,7 +144,7 @@ in Solid; with `key`, the interpreter does too.
 
 ---
 
-## DV-9 — a failed boundary renders no fallback on the server
+## DV-9 — a failed boundary renders no fallback on the server (a Solid bug, ruled 2026-10-26; solidjs/solid#4287)
 
 **Rule.** 10-server SV-6: a boundary that takes a failure during the server
 render is streamed with its fallback drawn, so the browser shows the
@@ -182,7 +182,7 @@ hydrated                   "loading"
 
 ---
 
-## DV-10 — a held lane holds per render effect
+## DV-10 — a held lane holds per render effect (a Solid bug, ruled 2026-10-26; solidjs/solid#4284)
 
 **Rule.** 05 H-7: a pending reader in lane `x` holds every reader of lane
 `x`; Solid's D-25: an on-screen probe in a held lane keeps what it showed.
@@ -253,7 +253,7 @@ value, null)`), after B.
 
 ---
 
-## DV-14 — events replayed after hydration share one instant
+## DV-14 — events replayed after hydration share one instant (a Solid bug, ruled 2026-10-26; solidjs/solid#4285)
 
 **Rule.** 10 SV-3e: a replayed event is its own instant, as it would have
 been live.
@@ -275,7 +275,7 @@ between two replayed handlers, so both actions read the committed `n`.
 
 ---
 
-## DV-15 — a client question's served fallback is rebuilt on hydration
+## DV-15 — a client question's served fallback is rebuilt on hydration (a Solid bug, ruled 2026-10-26; solidjs/solid#4286)
 
 **Rule.** 10 SV-3a: hydration adopts what the server sent; SV-7b: a client
 question's reader shows its hold's fallback on the server, and the browser
@@ -335,7 +335,7 @@ spec (05, and the interpreter) holds in both orders.
 
 ---
 
-## DV-17 — two mounts under one error boundary merge their holds (open)
+## DV-17 — two mounts under one error boundary merge their holds (a Solid bug, ruled 2026-10-26)
 
 **Rule.** SCENARIOS.md S-5 rows 1′–3′ (D-4, *membership is the tick's*):
 two mounts made in separate flushes, each over its own hold, settle
@@ -344,5 +344,6 @@ independently.
 **Observed.** `dv17-boundary-merges-mounts.mjs boundary`: with both
 `<Show>`s under one `<Errored>`, `slowA`'s landing reveals nothing until
 `slowB` lands; `none` reveals `pA` alone, as ruled. The rules do not say a
-boundary is a shared reader — unruled. Found by S-solid-5.
+boundary is a shared reader; ruled a Solid bug 2026-10-26. Found by
+S-solid-5.
 

@@ -155,7 +155,8 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
 `app.jsx` compiled by `@solidjs/compiler` for both sides — in
 `ref/oracle/repros/`, re-run on `next` @ `2a0da2f`.
 
-- **DV-9 (a failed boundary on the server) — reproduced 2026-10-24**
+- **DV-9 (a failed boundary on the server) — a Solid bug, ruled
+  2026-10-26 (solidjs/solid#4287); reproduced 2026-10-24**
   (`dv9-ssr-after-shell.mjs`, `dv9-hydrate/`). Outside a server component,
   Solid renders no error fallback for a failure that reaches a `<Loading>`
   through an async read. A boundary that fails before the shell is empty in
@@ -181,7 +182,8 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   new question is never asked, and the old stream's landings show
   (S-store-5: `a3 -` where the rule says `a2 p`; S-ai-feed). Recorded as
   `hydrated` divergences.
-- **DV-14 (replay is one instant) — reproduced 2026-10-24**
+- **DV-14 (replay is one instant) — a Solid bug, ruled 2026-10-26
+  (solidjs/solid#4285); reproduced 2026-10-24**
   (`dv14-replay-instant/`). `runHydrationEvents` runs the recorded queue in
   one microtask with no flush between events, so handlers replayed together
   share an instant: two clicks whose actions each write `n := n + 1` both
@@ -199,8 +201,8 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   where the rule says `loading…`, then `pear`. Recorded as a `hydrated`
   divergence.
 
-- **DV-15 (a client question's fallback is rebuilt) — reproduced
-  2026-10-24** (`dv15-client-hole/`). A bare `ssrSource: "client"` memo
+- **DV-15 (a client question's fallback is rebuilt) — a Solid bug, ruled
+  2026-10-26 (solidjs/solid#4286, low priority); reproduced 2026-10-24** (`dv15-client-hole/`). A bare `ssrSource: "client"` memo
   read under `<Loading>`: the server sends the fallback and marks the
   boundary `"$$f"`. Hydrating, the client adopts the fallback, resumes the
   content, which suspends on the question it now asks, and renders the
@@ -209,11 +211,10 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   element (focus, selection, an animation). S-server-3 hydrated, recorded
   as a `hydrated` divergence at the hydration instant.
 
-Questions for Solid: is the client-only fallback (DV-9) intended for client
-components, and could the server draw the fallback and the client adopt it?
-DV-11 and DV-12 look like bugs: a hydrated node should follow its inputs
-once they change, and a hydrated error boundary should track the content it
-did not run.
+Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
+behaviour — the server draws a failed boundary's fallback and the client
+adopts it; each replayed event is its own instant; a hydrated fallback is
+kept. DV-11 and DV-12 were filed as bugs (solidjs/solid#4272, #4273).
 
 ## SV-7 — A mismatch is unwritable
 
@@ -336,18 +337,18 @@ and `HYDRATION_MISMATCH` then names which one.
 - **Not exercised yet:** `HYDRATION_MISMATCH` (no scenario imports a
   nondeterministic `pure` function).
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
-1. **Plain `Error` is redacted** (SV-5b). The ruling sends failures; a
+1. **Plain `Error` is redacted** (SV-5b; ruled 2026-10-26). The ruling sends failures; a
    rejection from an undeclared JS import is a failure of class `Error`
    for the checker (R-f-8), but its message is whatever the JS library put
    there (a database error, a path), so it is sent as the generic error.
    Declaring the class (MO-8) is how to send it.
-2. **No effect's apply half runs on the server** (SV-2), and the served
+2. **No effect's apply half runs on the server** (SV-2; ruled 2026-10-26), and the served
    frame is the pre-effect mount.
-3. **A replayed event is its own instant** (SV-3e). Solid's replay is one
+3. **A replayed event is its own instant** (SV-3e; ruled 2026-10-26). Solid's replay is one
    instant (DV-14); the rule is what a live user would have caused.
-4. **A stream question keeps the response open** (SV-1e) and sends its
+4. **A stream question keeps the response open** (SV-1e; ruled 2026-10-26) and sends its
    later landings as data.
 
 Ruled 2026-10-24 for SV-7: **the first version follows Solid's defaults and
