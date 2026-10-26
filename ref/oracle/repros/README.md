@@ -353,7 +353,7 @@ S-solid-5.
 
 ---
 
-## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280)
+## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280) — filed as solidjs/solid#4305
 
 **Rule.** RULES-DERIVED D-30, spec ST-4 and H-2: each landing reconciles a
 keyed projection's rows, and its readers show it.

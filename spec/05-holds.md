@@ -338,7 +338,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   landing, a memo per row — what a `for` row's `{r.name}` is — never sees
   a later landing, so the list and everything held with it keep the old
   rows. A render effect reading the rows directly follows. The spec frames
-  stand. Not filed yet.
+  stand. Filed as solidjs/solid#4305.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
