@@ -94,5 +94,5 @@ instant's hold.
 
 ## Divergences
 
-- oracle "Variant: both branches under one `errored` boundary" instant 7: `x/y` — DV-17 (open): in Solid, two mounts under one error boundary merge their holds although they were made in separate flushes; without the boundary they stay independent (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`)
+- oracle "Variant: both branches under one `errored` boundary" instant 7: `x/y` — DV-17 (a Solid bug, ruled 2026-10-26): in Solid, two mounts under one error boundary merge their holds although they were made in separate flushes; without the boundary they stay independent (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`)
 

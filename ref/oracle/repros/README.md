@@ -335,7 +335,7 @@ spec (05, and the interpreter) holds in both orders.
 
 ---
 
-## DV-17 — two mounts under one error boundary merge their holds (open)
+## DV-17 — two mounts under one error boundary merge their holds (a Solid bug, ruled 2026-10-26)
 
 **Rule.** SCENARIOS.md S-5 rows 1′–3′ (D-4, *membership is the tick's*):
 two mounts made in separate flushes, each over its own hold, settle
@@ -344,5 +344,6 @@ independently.
 **Observed.** `dv17-boundary-merges-mounts.mjs boundary`: with both
 `<Show>`s under one `<Errored>`, `slowA`'s landing reveals nothing until
 `slowB` lands; `none` reveals `pA` alone, as ruled. The rules do not say a
-boundary is a shared reader — unruled. Found by S-solid-5.
+boundary is a shared reader; ruled a Solid bug 2026-10-26. Found by
+S-solid-5.
 

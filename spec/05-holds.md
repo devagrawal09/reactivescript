@@ -282,15 +282,17 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   empty view as `null`, which keeps its slot.
 - **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
-- **DV-17 (a shared boundary merges mounts) — open, reproduced
-  2026-10-25** (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`,
+- **DV-17 (a shared boundary merges mounts) — a Solid bug, ruled
+  2026-10-26; reproduced 2026-10-25** (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`,
   found by S-solid-5). Two branches mounted in separate instants, each
   reading a value one of two independent holds keeps (born held, D-1),
   stay independent — until both sit under one error boundary: then Solid
   merges the holds, and the first landing reveals nothing. Solid's rules
   do not say a boundary is a shared reader (D-4 "membership is the
   tick's"; D-3 "a render effect's mere existence entangles nothing"), so
-  the spec keeps them independent; unruled by Solid.
+  the spec keeps them independent. Ruled 2026-10-26 (Ryan): the merge is
+  a Solid bug — a boundary reads nothing under it, so it entangles
+  nothing. The scenario keeps the ruled frame.
 - **DV-16 (S-39, `latest` first) — a Solid bug, reproduced 2026-10-25**
   (`ref/oracle/repros/dv16-latest-first.mjs`, found by S-solid-39). A
   newly mounted reader that reads `latest s` before `n0` — a lane
