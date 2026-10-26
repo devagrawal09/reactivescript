@@ -292,7 +292,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   tick's"; D-3 "a render effect's mere existence entangles nothing"), so
   the spec keeps them independent. Ruled 2026-10-26 (Ryan): the merge is
   a Solid bug — a boundary reads nothing under it, so it entangles
-  nothing. The scenario keeps the ruled frame.
+  nothing. Filed as solidjs/solid#4283. The scenario keeps the ruled frame.
 - **DV-16 (S-39, `latest` first) — a Solid bug, reproduced 2026-10-25**
   (`ref/oracle/repros/dv16-latest-first.mjs`, found by S-solid-39). A
   newly mounted reader that reads `latest s` before `n0` — a lane

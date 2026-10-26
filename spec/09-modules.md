@@ -198,9 +198,9 @@ export component Save(props: { v: action catches(nothing) })
 2. **No import cycles** (MO-5).
 3. **`.rx` rows are the signature's**: `pure` must agree and `fails` is
    refused on an `.rx` import (MO-4a).
-4. **Contexts are declared** (MO-7, ruled 2026-10-23). Taken by default
-   inside that ruling: the keyword `context`; defaults allowed, except on a
-   `source` context; an exported context's type is its contract, a
+4. **Contexts are declared** (MO-7, ruled 2026-10-23). The keyword
+   `context`, and defaults allowed except on a `source` context, ruled
+   2026-10-26 (07 #13). Taken by default inside that ruling: an exported context's type is its contract, a
    module's own context infers its rows unless it writes them.
 5. **The `.d.rx` notation**: `catches(…)` on a prop is what the component
    discharges for it; `action catches(…)` is what an action reading it
