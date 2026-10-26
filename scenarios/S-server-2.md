@@ -47,8 +47,3 @@ them in order, through the handlers it has just attached: two `bump()`s
 and the input's text, **each its own instant** (SV-3e) — the program cannot
 tell a replayed click from a live one, so the counter reads 2 as it would
 have live. Instant 5: an ordinary client instant (SV-3d).
-
-## Divergences
-
-- hydrated "Before hydration" instant 4: `1 hi +` — DV-14: Solid replays the recorded queue in one microtask with no flush between, so both `bump()`s read `n` = 0 (H-10) and one click is lost (`ref/oracle/repros/dv14-replay-instant/`)
-- hydrated "Before hydration" instant 5: `2 hi +` — DV-14

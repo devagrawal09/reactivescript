@@ -91,8 +91,3 @@ A boundary is where failures and pending are caught; it is not a reader
 of the values under it, so it entangles nothing (D-3: a render effect's
 mere existence entangles nothing). Each mount still joins only its own
 instant's hold.
-
-## Divergences
-
-- oracle "Variant: both branches under one `errored` boundary" instant 7: `x/y` — DV-17 (a Solid bug, ruled 2026-10-26): in Solid, two mounts under one error boundary merge their holds although they were made in separate flushes; without the boundary they stay independent (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`)
-

@@ -35,7 +35,6 @@ Instant 2: a later answer to the same question — quiet. Instant 3: a new
 question; the old stream is superseded (R-4) and its later answer (instant
 4) is inert.
 
-## Divergences
+## Hydration window
 
-- hydrated "Frames" instant 4: `a3 -` — DV-11: after hydration Solid reads the server's stream until it ends; the new question (`room:b`) is not asked and the old stream's landing shows (`ref/oracle/repros/dv11-hydrate/`)
-
+- "Frames" instant 4: `a3 -` — SV-3b: a stream the server is still sending when the client takes over is the server's until it ends; `room := "b"` is not followed before then, so `room:b` is not asked and the old stream's landing shows (Solid's position, DV-11)

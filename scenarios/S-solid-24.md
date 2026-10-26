@@ -48,7 +48,6 @@ The disarmed boundary forwards, so `details`' pending holds the lane
 exactly as with no boundary there: header `1` beside details `0` is the
 rejected screen.
 
-## Divergences
+## Hydration window
 
-- hydrated "Frames" instant 2: `1 loading` — DV-11: hydrated while the server's answer was out, the boundary waits for the server's fragment for the old question (`ref/oracle/repros/dv11-hydrate/`)
-
+- "Frames" instant 2: `1 loading` — SV-3b: hydrated while the server's answer for `d:0` was still out, the boundary keeps the server's state until that answer arrives; `id := 1` is not followed before then, so `d:1`'s landing shows nothing (Solid's position, DV-11)

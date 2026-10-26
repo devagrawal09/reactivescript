@@ -51,6 +51,11 @@ export default component App() {
   instant N: …` what Solid's server render shows (10, `ref/ssr/`);
   `- hydrated "<table>" instant N: …` what Solid's client shows once it has
   taken a served page over (the hydrated run stops there).
+- `## Hydration window` (10 SV-3b): `- "<table>" instant N: \`frame\` — why`,
+  the ruled frame of a client that took the page over while a server
+  answer was still out (the node does not follow its inputs until that
+  answer lands); checked by `npm run -s ssr`, and the hydrated run stops
+  there.
 - `## Server frames` (10): rows `mount`, `resolve …`, `reject …` and the
   frame a browser shows from the server's stream after each — checked by
   `npm run -s ssr` only.
