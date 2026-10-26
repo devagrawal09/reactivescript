@@ -47,19 +47,15 @@ export default component App() {
 | ------- | ------------------------ | --------------- |
 | 0       | mount                    | ``              |
 | 1       | resolve derived "x1"     | `1 x1 / 1 -`    |
-| 2       | handler `attempt()`          | `1 x1 / 1 -`    |
+| 2       | handler `attempt()`          | `1 x1 / 5 -`    |
 | 3       | resolve "unrelated" 0    | `1 x1 / 1 -`    |
 | 4       | resolve "x:5" "x5"       | `1 x1 / 1 -`    |
 | 5       | resolve derived "x1"     | `1 x1 / 1 -`    |
 
 Instant 2: the guess's lane holds itself on `derived(5)`; the guess never
-shows, and the on-screen probes are in the same lane (D-25). Instant 3:
+shows in `{guess}`, but `{latest guess}` reads ahead of the held lane and
+shows it (H-7, DV-10 — Solid's position, adopted 2026-10-26). Instant 3:
 the body's end corrects the guess — `derived` re-asks from the truth
 (`x:1`), so instant 5's `resolve derived` lands that flight while the
-obsolete `x:5` (instant 4) is inert; untracked, `latest guess` is the
-truth and `pending? guess` is `true` until the commit.
-
-## Divergences
-
-- oracle "Variant: a derived flight keeps the hold open" instant 2: `1 x1 / 5 -` — DV-10: Solid holds a lane per render effect; `latest guess`, its own `{…}` hole, shows the guess beside the held `{guess}` (`ref/oracle/repros/dv10-lane-effects.mjs`)
-
+obsolete `x:5` (instant 4) is inert; `latest guess` is the truth from
+instant 3, and untracked `pending? guess` is `true` until the commit.

@@ -153,7 +153,7 @@ by default — see the list at the end.
 
 Each has a standalone repro with nothing of ReactiveScript in it — one
 `app.jsx` compiled by `@solidjs/compiler` for both sides — in
-`ref/oracle/repros/`, re-run on `next` @ `2a0da2f`.
+`ref/oracle/repros/`, re-run on `next` @ `2f7dc84` (2026-10-26).
 
 - **DV-9 (a failed boundary on the server) — a Solid bug, ruled
   2026-10-26 (solidjs/solid#4287); reproduced 2026-10-24**
@@ -192,7 +192,7 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   Recorded as a `hydrated` divergence in S-server-2's `## Before
   hydration` table.
 - **DV-12 (a boundary hydrated in its error state) — reproduced
-  2026-10-24** (`dv12-hydrate/`). The client hydrates an error boundary the
+  2026-10-24; fixed on `next` 2026-10-26 (solidjs/solid#4273, fix #4279)** (`dv12-hydrate/`). The client hydrates an error boundary the
   server drew by throwing the server's error in place of running its
   content, so the boundary reads nothing: when the failed content's inputs
   change and a good answer lands, the boundary keeps the failure (the

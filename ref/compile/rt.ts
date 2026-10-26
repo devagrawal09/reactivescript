@@ -273,7 +273,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
     show: (v: unknown) => isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
-     *  and a memo throws it there (a rethrow from the fallback itself does not recover: ref/oracle/repros/dv7-rethrow.mjs). */
+     *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
       const out = R.createComponent(Errored as any, {

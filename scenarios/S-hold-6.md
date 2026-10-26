@@ -32,8 +32,3 @@ is pending (D-39), showing item 4's failure while item 3 loads. But the
 the pending content even behind an error fallback: its fallback replaces
 both (Solid's behaviour; the second AI test's search pane first wrapped its
 pane in `for id in [selected]` to get this).
-
-## Divergences
-
-- hydrated "Frames" instant 2: `item 4 not found` — DV-12: a boundary hydrated in its error state tracks nothing and never runs its content again (`ref/oracle/repros/dv12-hydrate/`)
-

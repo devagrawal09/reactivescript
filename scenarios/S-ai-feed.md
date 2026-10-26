@@ -61,16 +61,6 @@ change and lands with the body's end (AC-7).
 ## Divergences
 
 - hydrated "Frames" instant 8: `` — DV-11: after hydration Solid reads the server's stream until it ends; the new room's stream is never asked (`ref/oracle/repros/dv11-hydrate/`)
-- oracle "Frames" instant 7: `general - random * ann: hello bob: hey me: hi send`
-
-Through `solid-js`, the keyed equation `msgs key id = messages` (a keyed
-`createProjection`) keeps its last reconciled rows while its input `messages`
-re-asks for room 2: no reader under the re-armed `on(selected)` boundary is
-pending, so the old room's messages stay beside the committed room switch
-instead of the fallback. The spec rules otherwise: an equation that reads a
-pending value is pending (R-2) and `on` re-arms the boundary (H-6). Without
-the `key` (`for m in messages`) the oracle shows the fallback. Related to
-DV-4 (a derived store's verdicts under a boundary).
 
 ## Rejected variants
 

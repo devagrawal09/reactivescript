@@ -51,7 +51,3 @@ export default component App() {
 | ------- | ---------------------- | ---------- |
 | 3       | handler `id := 2`      | `c1`       |
 | 4       | resolve content "c2"   | `c2`       |
-
-## Divergences
-
-- oracle "Variant: content lands first — the fallback is never seen" instant 4: `c1` — Solid 2.0.0-rc.16: the re-armed fallback's `<p>` has an insert effect reading the pending `meta`, and that effect holds the content's reveal until `meta` lands. Solid's S-22 row 3′ says `content(2)`; its pinned test reads the data directly in the fallback function and passes. A Solid bug, reproduced in `@solidjs/signals` alone: `ref/oracle/repros/dv3-signals.mjs` (DV-3).

@@ -147,6 +147,13 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   an `await` over `latest x`, a derivation of it that is pending — holds the
   lane: the lane's readers keep what they showed and reveal together when
   it lands. A lane hold and the instant's hold are independent on both sides.
+  One reader is not held by a guess's lane: `latest x` of an optimistic
+  guess (H-11) reads ahead of the guess's held lane, as every probe reads
+  ahead of the instant's hold. It shows the guess — after a correction, the
+  truth — beside the lane's held readers (S-solid-35 variant instant 2:
+  `1 x1 / 5`; ruled 2026-10-26 by adopting Solid's position, DV-10). A lane
+  of `latest` readers is not a guess's lane: there pending work inside it
+  still holds its probes (S-solid-24).
 
 - **H-8 (Nothing else reveals early).** [F-7] Content derived from a held
   instant — a derivation, a new mount's content, a boundary's content —
@@ -181,7 +188,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   value (equations derive from it — S-solid-33: `related` re-asks from the
   guess) and the screen's, display-ahead — its readers are in a lane whose
   identity is `x` (H-7), so they show now unless pending work inside that
-  lane holds it. It is verdict-inert: `pending? x` is unaffected by the
+  lane holds it — and `latest x` shows the guess even then (H-7, DV-10).
+  It is verdict-inert: `pending? x` is unaffected by the
   guess alone (S-solid-32, S-solid-35); `latest x` answers the guess
   (S-solid-33, S-solid-34 — the first draft said "unaffected"; Solid's
   D-26 and S-33 say otherwise). It lives as long as the hold it was made
@@ -231,7 +239,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 ## Divergences from the oracle (Solid's `next`, `ref/oracle/`)
 
 Every scenario is also run through the real runtime — Solid's `next` branch
-built from source at the commit in `ref/SOLID_NEXT` (`2a0da2f`, 2026-10-24;
+built from source at the commit in `ref/SOLID_NEXT` (`2f7dc84`, 2026-10-26;
+before that `2a0da2f`, 2026-10-24;
 the records before that date were found on the published rc.16 and all
 re-run there): the oracle lowers the abstract syntax onto `solid-js` +
 `@solidjs/universal` by interpretation, and the compiled runner's views go
@@ -263,16 +272,21 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   lowers, so it has that shape by construction; the oracle lowers the same
   way by hand. Two records moved: DV-4 no longer shows in any scenario, and
   DV-10 appeared.
-- **DV-10 (a held lane, per render effect) — a Solid bug, ruled
-  2026-10-26 (solidjs/solid#4284); reproduced 2026-10-24** (`ref/oracle/repros/dv10-lane-effects.mjs`, found by
-  S-solid-35's variant once the lowering matched JSX). H-7: a pending
-  reader in lane `x` holds every reader of lane `x`. Solid holds the render
-  effects that read the pending work: a probe in its own `{…}` hole
-  (`{latest guess}`) shows the guess beside a held `{guess} {derived}` —
-  `1 x1 / 5` where the rule says `1 x1 / 1`. With both in one effect, Solid
-  agrees with the rule. The scenario keeps the ruled frame.
+- **DV-10 (a held lane, per render effect) — reversed 2026-10-26: Solid's
+  position adopted** (solidjs/solid#4284; `ref/oracle/repros/dv10-lane-effects.mjs`,
+  found by S-solid-35's variant once the lowering matched JSX). The spec
+  said a pending reader in lane `x` holds every reader of lane `x`, probes
+  included, so the variant's instant 2 was `1 x1 / 1`, and DV-10 was ruled
+  a Solid bug that morning (PR #2). Solid answered that a tracked
+  `latest()` of a guess reads ahead of the guess's held lane (pinned in
+  Solid's `verdict-contract.test.ts`, "the reader breaks out of the lane");
+  its bug is the other grouping: one render effect reading both the guess
+  and the probe freezes the probe. Solid is the source for holds, so H-7
+  and H-11 now say so and the frame is `1 x1 / 5`. The open part of #4284
+  (the one-effect grouping, the repro's `one` mode) shows in no scenario:
+  every `{…}` is its own effect.
 - **DV-13 (an empty fragment in the universal renderer) — a Solid bug,
-  reproduced 2026-10-24** (`ref/oracle/repros/dv13-universal-empty.mjs`,
+  reproduced 2026-10-24; fixed on `next` 2026-10-26 (solidjs/solid#4274, fix #4276)** (`ref/oracle/repros/dv13-universal-empty.mjs`,
   found by S-ai2-search once its views went through Solid's compiler). In
   `@solidjs/universal`, an element whose children are all dynamic gets
   `null` markers, and each region keeps its place with a sentinel; a region
@@ -293,7 +307,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   the spec keeps them independent. Ruled 2026-10-26 (Ryan): the merge is
   a Solid bug — a boundary reads nothing under it, so it entangles
   nothing. Filed as solidjs/solid#4283. The scenario keeps the ruled frame.
-- **DV-16 (S-39, `latest` first) — a Solid bug, reproduced 2026-10-25**
+- **DV-16 (S-39, `latest` first) — a Solid bug, reproduced 2026-10-25;
+  fixed on `next` 2026-10-26 (solidjs/solid#4275, fix #4281)**
   (`ref/oracle/repros/dv16-latest-first.mjs`, found by S-solid-39). A
   newly mounted reader that reads `latest s` before `n0` — a lane
   derivation that has never shown a value — publishes its branch with the
@@ -302,15 +317,30 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   frames stand; the interpreter holds in both orders (a reader that has
   never shown anything has no lane display to keep, so a read that throws
   holds the pass).
-- **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24**
+- **DV-8 (keyed projections) — a Solid bug, reproduced 2026-10-24; mostly
+  fixed on `next` 2026-10-26 (solidjs/solid#4271, fix #4280)**
   (`ref/oracle/repros/dv8-projection.mjs`, found by S-ai2-search). A
   keyed equation lowers to `createProjection` over its memo; once the
   projection has held a value, a later failure of the memo is swallowed
   (the projection keeps its last value) and the memo's re-ask reports no
   `pending?`. The spec frames stand (the interpreter matches the agent's
   predictions, and the same app without `key` matches in Solid).
+  Since the fix the projection reports its memo's errors and its re-ask's
+  `pending?`; two cases remain, both in S-ai2-search. After the memo has
+  failed, the re-ask reports no `pending?` through the projection (reduced
+  to signals alone; a plain memo reports it). At instant 4, a re-ask after
+  a landing shows no `searching…` either; that one is not reduced yet.
+- **DV-18 (a keyed projection's rows miss later landings) — a Solid bug,
+  reproduced 2026-10-26** (`ref/oracle/repros/dv18-projection-relanding.mjs`,
+  found by S-ai2-search on the repin). A regression from DV-8's fix
+  (solidjs/solid#4280, bisected to `1212b77`; `f811097` before it is
+  fine): once a keyed projection over an async memo has taken its first
+  landing, a memo per row — what a `for` row's `{r.name}` is — never sees
+  a later landing, so the list and everything held with it keep the old
+  rows. A render effect reading the rows directly follows. The spec frames
+  stand. Not filed yet.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
-  2026-10-23** (`ref/oracle/repros/dv4-signals.mjs`). Under a
+  2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts
   (`isPending(() => state.a)`) read `false` while the derive re-asks —
   when the verdict is read in the same computation as the value. Outside a
@@ -318,7 +348,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   the verdict in its own `{…}` hole — which is how compiled JSX reads it —
   they read `true` as D-30 says. Since the lowering matches JSX
   (2026-10-24) S-solid-37 shows the ruled frame on every runner.
-- **DV-3 (S-22 row 3′) — a Solid bug, reproduced 2026-10-23.** A render
+- **DV-3 (S-22 row 3′) — a Solid bug, reproduced 2026-10-23; fixed on
+  `next` 2026-10-26 (solidjs/solid#4268, fix #4282).** A render
   effect created inside a re-armed boundary's fallback, reading data the
   same change made pending, holds the content's reveal: content that lands
   first is withheld until the fallback's own data lands. Any compiled JSX
@@ -347,7 +378,8 @@ S-5 (two roots as two branches of one app — MO-1c; DV-17). Every scenario
 of Solid's `SCENARIOS.md` is now ported. Divergences found and fixed
 by porting are recorded in the rule they changed. Solid's probe columns
 (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
-on-screen probe in a held lane keeps what it showed (D-25, S-solid-24), so
+on-screen probe in a held lane of `latest` readers keeps what it showed
+(D-25, S-solid-24; a guess's lane does not hold its `latest` probe — H-7), so
 ports show the probe only where it is not in the held lane.
 
 Scenario actions gain `resolve x v` and `reject x e`, which land the current

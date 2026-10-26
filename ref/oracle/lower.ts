@@ -597,7 +597,7 @@ export class Oracle {
           get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
         });
         if (!classes) return out;
-        return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // R-f-4: another class passes to the boundary above (a rethrow from the fallback itself does not recover — ref/oracle/repros/dv7-rethrow.mjs)
+        return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // R-f-4: another class passes to the boundary above (a rethrow from the fallback itself did not recover until solidjs/solid#4277 — ref/oracle/repros/dv7-rethrow.mjs)
       }
     }
   }

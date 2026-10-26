@@ -1,7 +1,7 @@
 # Repros for Solid 2.0 (`next`)
 
 Standalone scripts against Solid's `next` branch built from source at the
-commit in `ref/SOLID_NEXT` (every one re-run there, `2a0da2f`, 2026-10-24) —
+commit in `ref/SOLID_NEXT` (every one re-run there, `2f7dc84`, 2026-10-26) —
 no ReactiveScript code involved. Run from `ref/oracle/` after `npm install`:
 
 ```
@@ -17,6 +17,7 @@ node --conditions=browser repros/dv13-universal-empty.mjs
 node repros/dv14-replay-instant/run.mjs
 node --conditions=browser --conditions=development repros/dv16-latest-first.mjs [latest-first|n0-first]
 node --conditions=browser --conditions=development repros/dv17-boundary-merges-mounts.mjs [boundary|none]
+node --conditions=browser --conditions=development repros/dv18-projection-relanding.mjs [row-memo|direct]
 ```
 
 The hydration repros are each one `app.jsx`, compiled by Solid's own
@@ -27,7 +28,7 @@ streamed by the server build to Chromium and hydrated there by the DOM build
 
 ---
 
-## DV-3 — a render effect inside a re-armed boundary's fallback holds the content's reveal
+## DV-3 — a render effect inside a re-armed boundary's fallback holds the content's reveal (fixed on `next` by solidjs/solid#4282; filed as #4268)
 
 **Rule.** SCENARIOS.md S-22 row 3′ (D-18): *"if `content(2)` lands before
 `meta(2)` → `content(2)` — the fallback is never seen."* Pinned by
@@ -64,7 +65,7 @@ case is not covered.
 
 ---
 
-## DV-4 — a derived store's per-key `isPending` is false under a boundary that has shown content
+## DV-4 — a derived store's per-key `isPending` is false under a boundary that has shown content (fixed on `next` by solidjs/solid#4278; filed as #4269)
 
 **Rule.** RULES-DERIVED D-30: *"a derived store's leaves report the
 derive's new-question refetch like any async memo"*; SCENARIOS S-37 row 2:
@@ -87,7 +88,7 @@ combination reads `false`.
 
 ---
 
-## DV-7 — an outer error boundary that caught a rethrow from an inner fallback does not recover
+## DV-7 — an outer error boundary that caught a rethrow from an inner fallback does not recover (fixed on `next` by solidjs/solid#4277; filed as #4270)
 
 Found while lowering typed `errored` boundaries (R-f-4); it is not one of
 our divergences, because the lowering avoids the shape.
@@ -119,7 +120,7 @@ re-runs and recovers when the content does (S-fail-1 instants 6–8).
 
 ---
 
-## DV-8 — a keyed projection over a memo stops following it after its first value
+## DV-8 — a keyed projection over a memo stops following it after its first value (mostly fixed on `next` by solidjs/solid#4280; filed as #4271 — what remains is in 05's DV-8 record)
 
 Found by an agent-written app (S-ai2-search): `results key id = q.length < 2
 ? throw TooShort(q) : await search(q)`, lowered as
@@ -182,19 +183,22 @@ hydrated                   "loading"
 
 ---
 
-## DV-10 — a held lane holds per render effect (a Solid bug, ruled 2026-10-26; solidjs/solid#4284)
+## DV-10 — a held lane holds per render effect (reversed 2026-10-26: Solid's position adopted; solidjs/solid#4284, open)
 
-**Rule.** 05 H-7: a pending reader in lane `x` holds every reader of lane
-`x`; Solid's D-25: an on-screen probe in a held lane keeps what it showed.
+**Rule.** 05 H-7 (since 2026-10-26, Solid's position): a tracked `latest x`
+of an optimistic guess reads ahead of the guess's held lane; the lane's
+other readers keep what they showed. Solid pins it in
+`verdict-contract.test.ts` ("the reader breaks out of the lane").
 
 **Shape.** `guess` is a question source with an optimistic layer;
 `derived` awaits on `guess`. An action guesses `5` and awaits something
 unrelated; `derived(5)` is pending, so the guess's lane is held.
 
-**Observed.** One render effect reading `guess`, `derived` and
-`latest(guess)` keeps `"1 x1 / 1"`. With `latest(guess)` in its own effect —
-which is what compiled JSX gives `<p>{guess()} {derived()} / {latest(guess)}</p>`
-— the probe shows the guess: `"1 x1 / 5"`.
+**Observed.** With `latest(guess)` in its own effect — which is what
+compiled JSX gives `<p>{guess()} {derived()} / {latest(guess)}</p>` — the
+probe shows the guess: `"1 x1 / 5"`, as ruled. One render effect reading
+`guess`, `derived` and `latest(guess)` keeps `"1 x1 / 1"`: that grouping is
+the open bug. No scenario shows it.
 
 ---
 
@@ -214,7 +218,7 @@ asked (`hydrateSignalFromAsyncIterable`).
 
 ---
 
-## DV-12 — a boundary hydrated in its error state never recovers
+## DV-12 — a boundary hydrated in its error state never recovers (fixed on `next` by solidjs/solid#4279; filed as #4273)
 
 **Rule.** 05 D-39, 10 SV-6: a boundary recovers when the failed content's
 inputs change and a good answer lands.
@@ -231,7 +235,7 @@ nothing.
 
 ---
 
-## DV-13 — an empty fragment loses its slot in the universal renderer
+## DV-13 — an empty fragment loses its slot in the universal renderer (fixed on `next` by solidjs/solid#4276; filed as #4274)
 
 **Shape.** `<main><A />{String(" ")}<B /></main>` compiled by
 `@solidjs/compiler` with `generate: "universal"`; A is a `<Show>` that starts
@@ -320,7 +324,7 @@ writes its `<tbody>`.
 
 ---
 
-## DV-16 — a reader whose first read is `latest(s)` publishes an empty slot
+## DV-16 — a reader whose first read is `latest(s)` publishes an empty slot (fixed on `next` by solidjs/solid#4281; filed as #4275)
 
 **Rule.** SCENARIOS.md S-39 (D-28, ruled 2026-10-09): *"a later unread value
 still throws"* — a reader that reads `latest(s)` and then `n0()`, a lane
@@ -346,4 +350,20 @@ independently.
 `slowB` lands; `none` reveals `pA` alone, as ruled. The rules do not say a
 boundary is a shared reader; ruled a Solid bug 2026-10-26. Found by
 S-solid-5.
+
+---
+
+## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280)
+
+**Rule.** RULES-DERIVED D-30, spec ST-4 and H-2: each landing reconciles a
+keyed projection's rows, and its readers show it.
+
+**Shape.** `createProjection(() => src(), [], { key: "id" })` over an async
+memo; `mapArray` over the rows with a memo per row reading `row.name`
+(what a `<For>` row's `{row.name}` compiles to). Two flights land in turn.
+
+**Observed** (`dv18-projection-relanding.mjs`): after the second landing the
+rows still read `"apple,apricot"` (expected `"apple,applesauce,apple pie"`).
+`direct` (one render effect reading `row.name`) follows both. Bisected:
+fine at `f811097`, broken at `1212b77` (#4280) and on `2f7dc84`.
 
