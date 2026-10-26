@@ -9,6 +9,7 @@ import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
 import type { JsDecl } from "../src/parse.ts";
+import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until"]);
@@ -85,11 +86,17 @@ export function projectModules(set: ModuleSet): Projected[] {
     new Proj(w, set, path, jsStubs).module(p);
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
+  for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
   for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
 
+/** TY-4c: an `.rx` module read by its signature (MO-9) is typed by the \`.d.ts\` TypeScript emits from its projection (TY-1c);
+ *  ref/ ships none, so its exports are \`any\` here. */
+function signatureStub(sig: ModSig): string {
+  return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
+}
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
 function declarationFile(decls: JsDecl[]): string {
   return decls.map(d => {

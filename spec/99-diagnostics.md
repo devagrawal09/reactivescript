@@ -122,6 +122,7 @@ named.
 | `CLIENT_NOT_AWAITED`              | S   | 12 SF-5b | S-server-3 |
 | `STYLE_PLACEMENT`                 | S   | 07 CSS-1: a `<style>` off its view's top level, or a second one | S-surface-2 |
 | `UNTIL_PREDICATE`                 | S   | 06 AC-6: `until`'s argument is not a predicate `() => e` | S-action-2 |
+| `AWAIT_IN_EXPRESSION` (new)       | S   | 06 AC-1: an `await` inside an expression of imperative scope — a run suspends only at a statement (`await e`, `let v = await e`, either with a `catch`) | S-await-1 |
 | `TOP_LEVEL_MARKUP`                | S   | 09 MO-1c: markup at a module's top level — the view is `export default component App` | every scenario |
 | `CONTENT_MODEL`                   | S   | 10 SV-7d: nesting the HTML parser restructures, across templates (component roots, branches, placed children) | S-server-4 |
 | `IMPORT_ROW_MISMATCH` (SF-5)      | S   | `server`/`client` on an import that a `.d.rx` declares otherwise | S-sf-1 |

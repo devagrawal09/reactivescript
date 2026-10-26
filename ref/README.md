@@ -32,7 +32,8 @@ Checker: `ref/src/check.ts` (spec/08) runs before the interpreter; a
 program with any diagnostic does not run. `node --experimental-strip-types
 ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
 `.rx` modules they import (spec/09), and with `--signature` each module's
-signature.
+signature as `.d.rx` text — the text an importer is checked against when
+the module's `.rx` is not there (MO-9, `src/signature.ts`).
 
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)
@@ -44,20 +45,18 @@ Runtime diffing against the real Solid 2.0 is `ref/oracle/` (see its README):
 the same scenarios lowered onto `solid-js` + `@solidjs/universal`; divergences
 are recorded per scenario and listed in `spec/05-holds.md §Divergences`.
 
-Status: phase 3 (holds) plus 06 (`action`, inline `action { }`,
-`optimistic`, `refresh`, `affects`, `source x = e`, per-key pending,
-`draft`, `key`, streams as repeated landings). `node --experimental-strip-types ref/run.ts [filter]`
-runs `scenarios/S-*.md`; S-core-1, S-region-1..6, S-hold-1..5, S-store-1..5, S-surface-1, S-app-todo/users/signup
-and thirty-eight ports of Solid's SCENARIOS (S-solid-*) pass — every scenario
-not behind portals, two roots, imperative probes, draft/key/yield or S-39
-(per-change membership with served reads and joining, loading/errored
-boundaries, `on` re-arm, probes/lanes, lane holds, superseded flights,
-action holds with revert, guesses with correction and provenance, quiet
-re-asks, declared pending). Not modelled yet: `until`, a `yield` body form,
-optimistic path writes, revert of held path writes.
+Status (2026-10-26): every scenario in `scenarios/` passes the interpreter
+(`node --experimental-strip-types ref/run.ts [filter]`), including a port of
+every scenario of Solid's `SCENARIOS.md` (S-solid-*) and the example apps
+(S-app-*, S-ai-*, S-ai2-*); the oracle, compiled, server and types runners
+pass them too, with the divergences each scenario records (Solid bugs,
+`spec/05-holds.md §Divergences`). For a program with modules, the
+interpreter's runner also checks each module against its imports' printed
+`.d.rx` in place of their bodies (09 MO-9). What is not in `ref/` yet is
+named where the spec states the rule ("not in `ref/`", "not lowered yet").
 
 Runs (handlers, apply blocks, action bodies) are frame stacks: a
-statement-level `await` suspends the run; `try`/`catch`/`finally`/`throw`
+statement-level `await` (with or without a `catch`, 06 AC-1) suspends the run; `try`/`catch`/`finally`/`throw`
 unwind the stack (AC-7), and a rejected flight is thrown at its `await`.
 
 Scenario actions: `handler \`stmts\`` (an imperative run; may call an action,

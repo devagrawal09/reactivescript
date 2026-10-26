@@ -81,7 +81,7 @@ type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: R
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
 type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
-type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
+type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
@@ -172,7 +172,7 @@ export class Runtime {
   // ---- declarations (E-1, E-4, E-7, EF-1) ----
   declare(decls: Decl[], region: Region) {
     for (const d of decls) {
-      if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved)!; for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
+      if (d.k === "import" && d.resolved) { const m = this.modules.get(d.resolved); if (!m) throw new RuleError("MO-9", `${d.from} is known by its signature only (${d.from.replace(/\.rx$/, ".d.rx")}): there is no body to run`); for (const { name, alias } of d.names) { const b = m.scope.get(name); if (b) region.scope.set(alias, b); } continue; }   // MO-1: the module's own bindings (a type binds nothing)
       if (d.k === "import") for (const { name, alias } of d.names) {                    // R-io-4: a JS import is io unless `pure`; the scenario prelude supplies the values
         const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => this.flight(`${name}:${a.map(fmt).join(",")}`) : undefined);   // "./api": every function is a flight keyed by its arguments
         if (v === undefined) throw new RuleError("IMPORT", `${name} from "${d.from}" is not in the scenario prelude`);
@@ -961,10 +961,17 @@ export class Runtime {
         this.endRun(run, true, err); return false;
       };
       try {
+        /** AC-1 / R-f-4: a statement-level `await e catch (x: C) => alt` — a matching rejection is the statement's value. */
+        const land = (bind: string | null, c: Extract<Expr, { k: "catch" }> | null | undefined, ok: boolean, v: unknown): boolean => {
+          if (!ok && !(c && isA(v, this.classValues(c.classes, region)))) return raise(v);
+          let val = v;
+          if (!ok) { const en = new Map(env); if (c!.name) en.set(c!.name, v); val = this.ev(c!.alt, region, en); }
+          if (bind) env.set(bind, val); else run.result = val;
+          return true;
+        };
         if (run.flight) {                                                  // resuming after `await`
-          const f = run.flight; run.flight = null;
-          if (f.state === "rejected") { if (!raise(f.value)) return undefined; }
-          else { if (run.bind) env.set(run.bind, f.value); run.bind = null; }
+          const f = run.flight; const bind = run.bind, c = run.caught; run.flight = null; run.bind = null; run.caught = null;
+          if (!land(bind, c, f.state !== "rejected", f.value)) return undefined;
         }
         while (run.frames.length) {
           const f = run.frames[run.frames.length - 1];
@@ -975,13 +982,15 @@ export class Runtime {
           }
           const s = f.stmts[f.i++];
           try {
-            const awaited = s.k === "let" && s.e.k === "await" ? s.e : s.k === "expr" && s.e.k === "await" ? s.e : null;
-            if (awaited) {                                                 // statement-level await: suspend the run on a pending flight
-              const v = this.ev(awaited.e, region, env);
-              if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = s.k === "let" ? s.name : null; this.suspended.push(run); return undefined; }
-              if (v instanceof Flight && v.state === "rejected") { if (!raise(v.value)) return undefined; continue; }
-              const val = v instanceof Flight ? v.value : v;
-              if (s.k === "let") env.set(s.name, val); else run.result = val;
+            const top = s.k === "let" || s.k === "expr" ? s.e : null;
+            const caught = top?.k === "catch" && top.e.k === "await" ? top : null;
+            const awaited = top?.k === "await" ? top : caught ? caught.e as Extract<Expr, { k: "await" }> : null;
+            if (awaited) {                                                 // statement-level await (AC-1), with its catch: suspend the run on a pending flight
+              const bind = s.k === "let" ? s.name : null;
+              let v: unknown;
+              try { v = this.ev(awaited.e, region, env); } catch (err) { if (err instanceof RuleError) throw err; if (!land(bind, caught, false, err)) return undefined; continue; }
+              if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = bind; run.caught = caught; this.suspended.push(run); return undefined; }
+              if (!land(bind, caught, !(v instanceof Flight && v.state === "rejected"), v instanceof Flight ? v.value : v)) return undefined;
               continue;
             }
             if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));

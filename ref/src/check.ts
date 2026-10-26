@@ -179,7 +179,7 @@ export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p) }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
 export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig> } {
-  const sigs = new Map<string, ModSig>(); const diags: Diagnostic[] = [...set.diags];
+  const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); }
   return { diags, sigs };
 }
@@ -576,7 +576,9 @@ class Checker {
       case "pre": { const s = this.resolve(e.name, env, ctx); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
       case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
       case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
-      case "await": this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;
+      case "await":
+        if (ctx.scope === "imperative" && !this.stmtAwaits.has(e)) this.err("AWAIT_IN_EXPRESSION", "AC-1", `\`${show(e)}\` inside an expression of imperative scope: a run suspends only at a statement — bind it first, \`let v = ${show(e)}\` (a \`catch (e) => alt\` may follow it)`);
+        this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;
       case "serverfn": {                                                                   // SF-1d: as \`server fn\`, wherever it is written
         const inner = new Env(env, env.region);
         for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line });
@@ -642,9 +644,12 @@ class Checker {
   }
 
   // ---- imperative scope (SC-2) ----
+  /** AC-1: the awaits a run suspends at — a statement's whole expression (`await e`, `let v = await e`), with its catch. */
+  private stmtAwaits = new WeakSet<Expr>();
   private stmts(ss: Stmt[], env0: Env, ctx: Ctx) {
     const env = new Env(env0, env0.region);
     for (const s of ss) {
+      if (s.k === "let" || s.k === "expr") { const t = s.e.k === "catch" ? s.e.e : s.e; if (t.k === "await") this.stmtAwaits.add(t); }
       switch (s.k) {
         case "let": {
           this.expr(s.e, env, ctx);

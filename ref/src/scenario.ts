@@ -17,6 +17,30 @@ const strip = (s: string) => s.replace(/`/g, "").trim();
 import { readFileSync, existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { loadModules, joinPath, type ModuleSet } from "./modules.ts";
+import { checkModules, type ModSig, type ExportSig } from "./check.ts";
+import { printSignature, parseSignature } from "./signature.ts";
+
+/** MO-9 / CN-4b: each module of a program checked against its imports' printed `.d.rx` — read back in place of their bodies —
+ *  gets the verdicts it gets against the bodies, and the text reads back as the signature it was printed from. Null: it holds. */
+export function signaturesInPlace(set: ModuleSet): string | null {
+  if (set.order.length < 2) return null;
+  let full: ReturnType<typeof checkModules>; try { full = checkModules(set); } catch { return null; }
+  const norm = (x: ExportSig) => JSON.stringify(x, (k, v) => v instanceof Set ? [...v].sort() : Array.isArray(v) && v.every(y => typeof y === "string") && k !== "params" && k !== "roots" ? [...v].sort() : k === "own" ? [...new Set((v as { cls: string }[]).map(o => o.cls))].sort() : v);
+  const back = new Map<string, ModSig>();
+  for (const [path, sig] of full.sigs) {
+    if (!set.order.includes(path)) continue;
+    const text = printSignature(sig); const read = parseSignature(text, path); back.set(path, read);
+    for (const [n, x] of sig.exports) { const y = read.exports.get(n); if (!y || norm(x) !== norm(y)) return `${path.split("/").pop()}: ${n} reads back as ${y ? norm(y) : "nothing"}, printed from ${norm(x)}`; }
+  }
+  const key = (d: { code: string; rule: string; line: number; file?: string }) => `${d.file ?? set.entry}:${d.line} ${d.code} (${d.rule})`;
+  for (const path of set.order) {                                       // each module alone, its dependencies by signature
+    const alone: ModuleSet = { ...set, programs: new Map([[path, set.programs.get(path)!]]), order: [path], diags: set.diags.filter(d => (d.file ?? set.entry) === path), signatures: new Map([...(set.signatures ?? []), ...[...back].filter(([p]) => p !== path)]) };
+    const want = [...new Set(full.diags.filter(d => (d.file ?? set.entry) === path).map(key))].sort().join("; ");
+    const got = [...new Set(checkModules(alone).diags.filter(d => (d.file ?? set.entry) === path).map(key))].sort().join("; ");
+    if (want !== got) return `${path.split("/").pop()} against its imports' .d.rx: ${got || "no diagnostic"}; against their bodies: ${want || "no diagnostic"}`;
+  }
+  return null;
+}
 /** The module set for one of a scenario's programs: the entry is `src`; its `.rx` imports are the `## Modules` fences, else files
  *  beside the entry (a `file:` program). */
 export function moduleSet(sc: Scenario, src: string): ModuleSet {
@@ -68,6 +92,16 @@ export type Result = { ok: boolean; lines: string[] };
 
 export function runScenario(sc: Scenario): Result {
   const lines: string[] = []; let ok = true;
+  for (const [title, src] of [["Program", sc.program], ...sc.tables.filter(t => t.program).map(t => [t.title, t.program!]), ...sc.rejected.filter(r => !r.types).map(r => [`rejected(${r.rule})`, r.program])] as [string, string][]) {
+    let set: ModuleSet; try { set = moduleSet(sc, src); } catch { continue; }
+    if (set.order.length < 2) continue;
+    const bad = signaturesInPlace(set);
+    if (bad) { ok = false; lines.push(`  ✗ ${title}: signatures in place (MO-9): ${bad}`); } else lines.push(`  ✓ ${title}: checked against its imports' .d.rx as against their bodies (MO-9)`);
+  }
+  if (!sc.tables.length && sc.program) {                                // a program with nothing to run (MO-9: modules by signature) is still checked
+    try { const d = checkModules(moduleSet(sc, sc.program)).diags; if (d.length) { ok = false; lines.push(`  ✗ Program: refused — ${d.map(x => `${x.code} (${x.rule}) line ${x.line}`).join(", ")}`); } else lines.push("  ✓ Program: accepted by the checker"); }
+    catch (e) { ok = false; lines.push(`  ✗ Program: ${(e as Error).message}`); }
+  }
   const base = sc.tables.find(t => t.title === "Frames");
   for (const t of sc.tables) {
     const src = t.program ?? sc.program;

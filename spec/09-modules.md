@@ -4,9 +4,10 @@
 document says what an import binds, what crosses a module boundary, and what
 the checker knows about another module (its signature, never its body). It
 makes 08 CN-4b executable. `ref/src/modules.ts` loads a program,
-`ref/src/check.ts` checks it module by module, and all three runners execute
+`ref/src/check.ts` checks it module by module, and every runner executes
 it: the interpreter, the Solid oracle, and the compiler, which emits one ES
-module per `.rx` module. `S-module-1` and `S-app-shop` cover it.
+module per `.rx` module (the compiled, server and types runners). `S-module-1` and `S-app-shop` cover it; `S-module-3`
+covers a module read by its `.d.rx` (MO-9).
 
 Rulings: file = module (07, 2026-10-22); a module boundary is a value
 boundary (07 §1, 2026-10-22). The rest was taken by default and ruled 2026-10-26 —
@@ -73,18 +74,18 @@ The summary is exact for the checks it serves: a class escapes a set of
 paths iff it is missing from the intersection of what the paths discharge.
 
 `ref/check.ts --signature file.rx` prints a program's signatures as `.d.rx`
-text (display only — reading a `.d.rx` in place of its module is not in
-`ref/` yet):
+text, and that text is the whole signature: it is read back in place of the
+module (MO-9).
 
 ```
-export source products: pending fails(Error)   // a question
+export source products: pending fails(Error) = …      // `= …`: a question (ST-5); `:= …` a plain source
 export discount: pending fails(Error)
 export pure fn qtyOf(id)
 export action setCoupon
-export component Panel(props: { title; children: catches(Error) })
+export component Panel(props: { title; children: catches(Error) }) shape(roots section; children-at section)
 export context who: string
-export component Badge(props: {}) uses(ui.rx#who)
-export component Save(props: { v: action catches(nothing) })
+export component Badge(props: {}) uses(./ui.rx#who) shape(roots b)
+export component Save(props: { v: unrendered action go catches(nothing) })
 ```
 
 ## MO-4 — Rows at the boundary
@@ -160,6 +161,43 @@ export component Save(props: { v: action catches(nothing) })
   JS, as `pure` is (CN-5): it is the boundary's one statement, written once
   instead of at every import (S-module-2).
 
+## MO-9 — A signature read in place of its module
+
+- **MO-9a.** `import … from "./x.rx"` where there is no `x.rx` but there is
+  an `x.d.rx` beside where it would be: the importer is checked against
+  that file, read as `x.rx`'s signature (MO-3), and never sees a body —
+  separate checking, as one crate is checked against another's metadata.
+  With both files, the `.rx` is the module and the `.d.rx` is not read.
+  With neither, `MODULE_NOT_FOUND`.
+- **MO-9b.** The text is the signature, all of it (`ref/src/signature.ts`
+  prints and reads it). An importer checked against a printed `.d.rx` gets
+  the verdicts it gets against the body: `ref/run.ts` checks this for every
+  scenario program with modules, each module against its imports' printed
+  text (S-module-3 is S-module-1 with only the text). Beyond decision 5's
+  words, a line carries:
+  - a source's kind: `export source x … = …` asks a question (ST-5),
+    `:= …` does not (`refresh x` and `optimistic x := …` depend on it);
+  - a fn's parameters (`ref`, with their written types), `rejects(…)` (absent:
+    the fn returns nothing that rejects — unlike a JS declaration's, MO-8a,
+    where absent is `Error`), and `instantiates` (RG-6);
+  - `export server fn f(a)` (12 SF-1; `server pure fn` when it is not io);
+  - per prop: `catches(*)` where every class is discharged, `provides(…)`
+    for children (RG-7b), `unrendered` for a prop only an action reads, and
+    the action's name (`action go catches(…)`) for its diagnostics;
+  - `uses(…)`: context keys relative to the module (`./ui.rx#who`), and
+    `loading` for a reader of a client question that needs a `loading`
+    above it (SV-7b);
+  - `shape(…)`: what SV-7d's content-model check needs where the component
+    is applied — its roots, `closes-p`, `a`, `form`, and `children-at`
+    chains.
+- **MO-9c.** A `.d.rx` carries rows, not code or types. The compiler binds
+  an import's kinds from it (accessor, function, instantiating function,
+  action, component) and imports the module's own compiled JavaScript,
+  beside it (`x.rx` → `x.mjs`); the types come from the `.d.ts` TypeScript
+  emits from the module's projection (13 TY-4c). A program whose module is
+  only a `.d.rx` checks and compiles; it runs once that JavaScript exists
+  (`ref/`'s runners have none, so S-module-3 is checked only).
+
 ---
 
 ## Diagnostics this document adds
@@ -185,6 +223,9 @@ export component Save(props: { v: action catches(nothing) })
   tree: each step up from a reader records what it discharges — failures at
   a boundary or a catch, provisions at a `provide` — and an imported
   component's summary is one such step.
+- A `.d.rx` found in place of an `.rx` import (MO-9) is parsed by
+  `parseSignature` into `ModuleSet.signatures`, which `checkModules` starts
+  from; such a module has no program and is not in `order`.
 - The interpreter instantiates each dependency in a region of its own; the
   oracle declares it in a scope of its own inside the mounted root. The
   compiler emits `mN.mjs` per dependency — a factory over the app that
@@ -206,3 +247,10 @@ export component Save(props: { v: action catches(nothing) })
    discharges for it; `action catches(…)` is what an action reading it
    catches; `fails(…)` after a component is what escapes its root;
    `uses(…)` the provisions it needs.
+6. **A `.d.rx` read in place, and the words it adds** (MO-9; taken by default 2026-10-26, veto
+   here): an `.rx` import with no `.rx` file reads `x.d.rx`; the `.rx`
+   wins when both exist (a stale `.d.rx` is not compared with it — noted:
+   checking it against the computed signature, as an `.mli` is, would be a
+   static check this could add). The added words are MO-9b's; `uses(…)`
+   names keys by relative path (`./ui.rx#who`) where it named a bare file
+   name, so that a key is exact across directories.

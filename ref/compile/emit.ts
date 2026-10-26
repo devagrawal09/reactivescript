@@ -5,7 +5,7 @@
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits } from "../src/awaits.ts";
+import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 
@@ -67,7 +67,8 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
 export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string; css: string } {
-  const out = (path: string) => path === set.entry ? "main.mjs" : `m${set.order.indexOf(path)}.mjs`;
+  // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
+  const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
   const files = new Map<string, string>();
   for (const path of set.order) {
@@ -148,10 +149,19 @@ class Gen {
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
   mods?: { set: ModuleSet; out: (path: string) => string };
   constructor(u: Usage, mods?: { set: ModuleSet; out: (path: string) => string }) { this.u = u; this.mods = mods; }
-  depVar(path: string) { return `__m${this.mods!.set.order.indexOf(path)}`; }
+  private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
+  depVar(path: string) { return `__m${this.modIndex(path)}`; }
   /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
   private importBind(path: string, name: string, alias: string): Bind {
-    const d = this.mods!.set.programs.get(path)!.decls.find(x => "name" in x && (x as { name: string }).name === name) as Decl | undefined;
+    const sig = this.mods!.set.programs.has(path) ? undefined : this.mods!.set.signatures?.get(path)?.exports.get(name);
+    if (sig) switch (sig.kind) {                                                             // MO-9: the kind is the signature's
+      case "fn": return { kind: sig.instantiating || sig.params.some(p => p.ref) ? "ifn" : "fn", js: mg(alias), fn: { k: "fn", name, params: sig.params, decls: [], tail: { k: "lit", v: undefined } } as unknown as FnDecl };
+      case "comp": return { kind: "comp", js: cm(alias) };
+      case "action": return { kind: "act", js: mg(alias) };
+      case "source": case "eq": return { kind: "acc", js: mg(alias) };
+      default: return { kind: "val", js: mg(alias) };
+    }
+    const d = this.mods!.set.programs.get(path)?.decls.find(x => "name" in x && (x as { name: string }).name === name) as Decl | undefined;
     const js = mg(alias);
     if (!d) return { kind: "val", js };
     switch (d.k) {
@@ -212,10 +222,10 @@ class Gen {
     const out: string[] = [`${pad}const __o = __rt.owner();`];
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
-      const iv = `__i${this.mods!.set.order.indexOf(d.resolved)}`;
+      const iv = `__i${this.modIndex(d.resolved)}`;
       if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
       for (const { name, alias } of d.names) {
-        if (this.mods!.set.programs.get(d.resolved)!.decls.some(x => x.k === "typedecl" && x.name === name)) continue;   // a type binds nothing
+        if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
         const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
       }
     }
@@ -266,8 +276,10 @@ class Gen {
     for (const d of order) out.push(this.value(d, env, ind));
     for (const d of decls) if (d.k === "effect") {
       const inner = new Env(env);
+      out.push(...this.hoistAll(d.inputs, env, pad));
       out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
     }
+    if (!exportsTail) out.push(...this.hoistAll(viewReaders(view), env, pad));
     out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
     return out.join("\n");
   }
@@ -277,8 +289,9 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     if (d.k === "provide") {
       const b = d.e.k === "id" ? env.lookup(d.e.name) : undefined;
+      const hoisted = b?.kind === "src" ? "" : this.hoistAll([d.e], env, pad).map(x => x + "\n").join("");
       const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
-      return `${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
+      return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
     const b = env.vars.get((d as { name: string }).name)!;
     const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? this.hoist(d.name, d.e, env, pad) : "";
@@ -288,24 +301,25 @@ class Gen {
   /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
    *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
   private hoisted = new Map<Expr, string>(); private hoistSeq = 0;
-  private hoist(name: string, e: Expr, env: Env, pad: string): string {
-    return nonTailAwaits(e).map(h => {
-      const v = `a$${name}$${this.hoistSeq++}`;
+  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true): string {
+    return nonTailAwaits(e, tail).map(h => {
+      const v = `a$${name ?? ""}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
-      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.aw(${body0})`;
+      const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.awaited(${body0})`;
       this.hoisted.set(h.node, v);
-      const lv = h.node.init ? `__rt.lv(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";
-      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.cq(${lv})` : lv});\n${pad}__rt.hoisted(${J(name)}, ${v});`;
+      const lv = h.node.init ? `__rt.firstPaint(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";
+      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.clientQuestion(${lv})` : lv});${name ? `\n${pad}__rt.hoisted(${J(name)}, ${v});` : ""}`;
     }).join("\n");
   }
+  private hoistAll(es: Expr[], env: Env, pad: string): string[] { return es.map(x => this.hoist(null, x, env, pad, false)).filter(Boolean); }
   private value1(d: Decl, env: Env, ind: number, b: Bind): string {
     const pad = " ".repeat(ind * 2);
-    const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.prevOf(${b.js});` : "";
+    const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.pre(${b.js});` : "";
     if (d.k === "source") {
       if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
       const lv = this.loadingValue(d.init, env);
       const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)} }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.qsource(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
     const reg = `\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js} });${prev}`;
@@ -318,7 +332,7 @@ class Gen {
     if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })});${reg}`;
     if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
       const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
-      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${this.expr(c.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchAcc(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${this.expr(c.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
     }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
@@ -331,13 +345,13 @@ class Gen {
     walk(e); return hit;
   }
   private loadingValue(e: Expr, env: Env): string {                                            // R-7: the first paint of an `await … -> v`; SV-7b: a client question's ssrSource
-    const lv = this.loadingValue0(e, env); return this.tailClient(e, env) ? `__rt.cq(${lv})` : lv;
+    const lv = this.loadingValue0(e, env); return this.tailClient(e, env) ? `__rt.clientQuestion(${lv})` : lv;
   }
   private loadingValue0(e: Expr, env: Env): string {
     let init: Expr | undefined;
     const walk = (x: unknown): void => { if (init || !x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } const o = x as Record<string, any>; if (o.k === "fn") return; if (o.k === "await" && o.init) { init = o.init; return; } Object.values(o).forEach(walk); };
     walk(e);
-    return init ? `__rt.lv(() => ${this.expr(init, env, { imp: false })})` : "undefined";
+    return init ? `__rt.firstPaint(() => ${this.expr(init, env, { imp: false })})` : "undefined";
   }
   private draftBody(ss: Stmt[], env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
@@ -360,13 +374,13 @@ class Gen {
     return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
   }
   private instantiate(call: Extract<Expr, { k: "call" }>, env: Env): string {
-    const f = env.lookup((call.f as { name: string }).name)!.fn!;
+    const b = env.lookup((call.f as { name: string }).name)!; const f = b.fn!;
     const args = f.params.map((p, i) => {
       const a = call.args[i]; if (!a) return "undefined";
       if (p.ref) { if (a.k === "id") { const b = env.lookup(a.name); if (b && (b.kind === "acc" || b.kind === "src")) return b.js; } return `__rt.memo(null, () => ${this.expr(a, env, { imp: false })})`; }
       return `__rt.untrack(() => ${this.expr(a, env, { imp: false })})`;
     });
-    return `${mg(f.name)}(${args.join(", ")})`;
+    return `${b.js}(${args.join(", ")})`;
   }
   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
@@ -383,25 +397,25 @@ class Gen {
       case "id": return this.ref(e.name, env, ctx);
       case "pre": {
         const init = e.init ? this.expr(e.init, env, sub) : "undefined";
-        if (ctx.self === e.name) return `__rt.orInit(__prev, () => ${init})`;            // the equation's own: the memo's previous value
+        if (ctx.self === e.name) return `__rt.preOr(__prev, () => ${init})`;            // the equation's own: the memo's previous value
         const b = env.lookup(e.name); if (!b?.prev) throw new CompileError(`pre ${e.name}: no companion memo`);
-        return `__rt.orInit(${b.prev}(), () => ${init})`;
+        return `__rt.preOr(${b.prev}(), () => ${init})`;
       }
       case "peek": return `__rt.untrack(() => ${go(e.e)})`;
       case "await": {
         if (this.hoisted.has(e)) return `${this.hoisted.get(e)}()`;
-        if (ctx.imp) return ctx.gen ? `(yield __rt.aw(${go(e.e)}))` : ctx.async ? `(await __rt.aw(${go(e.e)}))` : go(e.e);
+        if (ctx.imp) return ctx.gen ? `(yield __rt.awaited(${go(e.e)}))` : ctx.async ? `(await __rt.awaited(${go(e.e)}))` : go(e.e);
         if (!ctx.tail) throw new CompileError("`await` outside an equation's result position is not lowered yet");
-        return e.stream ? go(e.e) : `__rt.aw(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
+        return e.stream ? go(e.e) : `__rt.awaited(${go(e.e)})`;                                      // the memo returns the flight (R-1): a stream for `await*`, else its one answer
       }
       case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
       case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
-      case "throw": return `__rt.raise(${go(e.e)})`;                                          // R-f-3
+      case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
-        if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` in imperative scope is not lowered yet: use try/catch");
+        if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
         const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
-        return `__rt.${ctx.imp ? "tryCatch" : "caughtRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
+        return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
       case "member": return `${go(e.o)}?.${e.p}`;
@@ -439,7 +453,7 @@ class Gen {
       if (name === "log" && ctx.imp) return "__B.log";
       throw new CompileError(`unbound ${name}`);
     }
-    if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snap(${b.js})` : `${b.js}()`;
+    if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;
     if (b.kind === "comp") throw new CompileError(`component ${name} used as a value`);
     return b.js;
   }
@@ -453,6 +467,15 @@ class Gen {
     const out: string[] = [];
     ss.forEach((s, i) => {
       const e = (x: Expr) => this.expr(x, env, { ...ctx, tail: false });
+      const c = (s.k === "let" || s.k === "expr") && s.e.k === "catch" && s.e.e.k === "await" ? s.e : null;
+      if (c && (s.k === "let" || s.k === "expr")) {                                             // AC-1 / R-f-4: a statement-level `await … catch` is a try around the await
+        const v = s.k === "let" ? mg(s.name) : null; const set = (x: string) => `${pad}  ${v ? `${v} = ` : ""}${x};`;
+        const h = new Env(env); if (c.name) h.vars.set(c.name, { kind: "val", js: mg(c.name) });
+        const ev = c.name ? mg(c.name) : "__e";
+        out.push(`${v ? `${pad}let ${v};\n` : ""}${pad}try {\n${set(e(c.e))}\n${pad}} catch (${ev}) {\n${pad}  if (!__rt.isA(${ev}, ${this.classes(c.classes, env)})) throw ${ev};\n${set(this.expr(c.alt, h, { ...ctx, tail: false }))}\n${pad}}`);
+        if (v) env.vars.set(s.name, { kind: "val", js: v });
+        return;
+      }
       switch (s.k) {
         case "let": out.push(`${pad}let ${mg(s.name)} = ${e(s.e)};`); env.vars.set(s.name, { kind: "val", js: mg(s.name) }); break;
         case "expr": out.push(`${pad}${returnLast && i === ss.length - 1 ? "return " : ""}${e(s.e)};`); break;
@@ -509,7 +532,7 @@ class Gen {
           const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
           return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${attrs} children={[]} />`;
         }
-        let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.cls(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
+        let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
         if (this.styleHash && !m.attrs.some(a => a.name === "class")) attrs += ` class=${J(this.styleHash)}`;   // CSS-2: every HTML element of the view
         return VOID_TAGS.has(m.tag) ? `<${m.tag}${attrs} />` : `<${m.tag}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${m.tag}>`;
       }

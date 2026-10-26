@@ -15,7 +15,7 @@ import {
 const noFlight = (v: unknown) => { if (v instanceof Flight || v instanceof Promise) throw new Unsupported("`await` not in tail position (the oracle lowers a tail `await` to the memo's result)"); };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failure.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
-import { nonTailAwaits } from "../src/awaits.ts";
+import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
@@ -164,7 +164,7 @@ export class Oracle {
     this.rootScope = new VirtualScope(null);
     this.dispose = R.render(() => {
       for (const path of set.order) { if (path === set.entry) continue; const ms = new Scope(null); this.moduleScopes.set(path, ms); this.declare(set.programs.get(path)!.decls, ms); }
-      const scope = new Scope(null); this.declare(program.decls, scope); return this.fragment(program.view, scope) as any;
+      const scope = new Scope(null); return this.region(program.decls, program.view, scope) as any;
     }, this.root);
   }
 
@@ -183,8 +183,8 @@ export class Oracle {
   /** 07 §3 / R-1: each `await` that is not the equation's result becomes its own async memo, asked only while the conditions
    *  that reach it hold (E-11); the equation reads it where the `await` was (ref/src/awaits.ts). */
   hoistedByName = new Map<string, (() => unknown)[]>();
-  private hoistAwaits(name: string, e: Expr, scope: Scope) {
-    for (const h of nonTailAwaits(e)) {
+  private hoistAwaits(name: string | null, e: Expr, scope: Scope, tail = true) {
+    for (const h of nonTailAwaits(e, tail)) {
       const lv = h.node.init ? { loadingValue: untrack(() => this.ev(h.node.init!, scope)) } : undefined;
       const m = createMemo(() => {
         for (const g of h.guards) { const v = this.ev(g.e, scope); if (!(g.nullish ? v == null : g.neg ? !v : !!v)) return undefined; }
@@ -192,8 +192,15 @@ export class Oracle {
         try { const v = this.ev(h.node.e, scope); return !h.node.stream && v instanceof Flight ? v.first : v; } finally { this.currentEq = was; }   // a plain await: one answer
       }, lv as any);
       let map = hoistedOf.get(scope); if (!map) hoistedOf.set(scope, (map = new Map())); map.set(h.node, m);
+      if (name === null) continue;
       let byName = this.hoistedByName.get(name); if (!byName) this.hoistedByName.set(name, (byName = [])); byName.push(m);
     }
+  }
+  /** A region: its declarations, the awaits its own view reads (07 §3), then its view. */
+  region(decls: Decl[], view: Markup[], scope: Scope): unknown[] {
+    this.declare(decls, scope);
+    for (const e of viewReaders(view)) this.hoistAwaits(null, e, scope, false);
+    return this.fragment(view, scope);
   }
   /** R-f-4: error class names → their values; undefined: every failure. */
   classValues(names: string[] | undefined, scope: Scope): unknown[] | undefined {
@@ -206,7 +213,7 @@ export class Oracle {
   // ---- declarations ----
   declare(decls: Decl[], scope: Scope) {
     for (const d of decls) {
-      if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved)!; for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
+      if (d.k === "import" && d.resolved) { const ms = this.moduleScopes.get(d.resolved); if (!ms) throw new Error(`MO-9: ${d.from} is known by its signature only: there is no body to run`); for (const { name, alias } of d.names) { const b = ms.vars.get(name); if (b) scope.vars.set(alias, b); } continue; }   // MO-1: the module's own bindings
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) this.serverNames.set(sf, d.name); }   // SF-1d
       if (d.k === "import") for (const { name, alias } of d.names) { const v = d.from === "@solidjs/web/server-functions" ? LOCAL_WRAPPERS[name] : name === "log" ? (...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); } : d.declaredErrors?.includes(name) ? makeErrorClass(name, ["message"], a => String(a[0] ?? name)) : BUILTINS[name] ?? (d.from.endsWith("/api") ? (...a: unknown[]) => { const fl = this.flight(`${name}:${a.map(fmt).join(",")}`); return process.env.ORACLE_PROMISES ? fl.first : fl; } : undefined); if (v === undefined) throw new Error(`${name} from "${d.from}" is not in the scenario prelude`); scope.vars.set(alias, { k: "const", value: v }); }
       if (d.k === "server") scope.vars.set(d.name, { k: "const", value: this.serverFn(d, scope) });
@@ -222,7 +229,7 @@ export class Oracle {
           const ctx = this.ctxNamed(d.name, scope).ctx;
           const b = d.e.k === "id" ? scope.lookup(d.e.name) : undefined;
           if (b && (b.k === "sig" || b.k === "store")) setContext(ctx, b);
-          else { const get = createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }
+          else { this.hoistAwaits(null, d.e, scope, false); const get = createMemo(() => this.ev(d.e, scope)); setContext(ctx, { k: "memo", get } as Binding); }
           break;
         }
         case "source": {
@@ -285,7 +292,7 @@ export class Oracle {
           break;
         }
         case "effect": {                                                // EF: createEffect(compute, apply)
-          const inputs = d.inputs;
+          const inputs = d.inputs; for (const e of inputs) this.hoistAwaits(null, e, scope, false);
           const apply = (vals: unknown[]) => { const env = new Map<string, unknown>(); vals.forEach((v, i) => env.set(`$${i}`, v)); const r = this.runStmts(d.body, scope, env); return typeof r === "function" ? (r as () => void) : undefined; };
           let last: unknown[] | null = null;
           createEffect(() => inputs.map(e => this.ev(e, scope)), {
@@ -513,10 +520,13 @@ export class Oracle {
   private *block(stmts: Stmt[], scope: Scope, env: Map<string, unknown>): Generator<unknown, Returned | undefined, unknown> {
       const self = this; const block = (ss: Stmt[], en: Map<string, unknown>) => self.block(ss, scope, en);
       for (const s of stmts) {
-        const awaited = (s.k === "let" || s.k === "expr") && s.e.k === "await" ? s.e : null;
-        if (awaited) {
-          const v = untrack(() => self.ev(awaited.e, scope, env));
-          const r = v instanceof Flight ? yield v.first : v instanceof Promise ? yield v : v;
+        const top = s.k === "let" || s.k === "expr" ? s.e : null;
+        const caught = top?.k === "catch" && top.e.k === "await" ? top : null;
+        const awaited = top?.k === "await" ? top : caught ? caught.e as Extract<Expr, { k: "await" }> : null;
+        if (awaited) {                                                  // AC-1 / R-f-4: with its catch, a try around the yield
+          let r: unknown;
+          try { const v = untrack(() => self.ev(awaited.e, scope, env)); r = v instanceof Flight ? yield v.first : v instanceof Promise ? yield v : v; }
+          catch (e) { if (!caught || e instanceof NotReadyError || !isA(e, self.classValues(caught.classes, scope))) throw e; const en = new Map(env); if (caught.name) en.set(caught.name, e); self.imperative++; try { r = untrack(() => self.ev(caught.alt, scope, en)); } finally { self.imperative--; } }
           if (s.k === "let") env.set(s.name, r);
           continue;
         }
@@ -552,7 +562,7 @@ export class Oracle {
           const props: Record<string, unknown> = {};
           for (const a of m.attrs) Object.defineProperty(props, a.name, { enumerable: true, get: () => this.ev(a.e, scope) });
           Object.defineProperty(props, "children", { enumerable: true, get: () => this.fragment(m.children, scope) });
-          return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); this.declare(comp.decls, s2); return this.fragment(comp.view, s2); }, props);
+          return R.createComponent((p: any) => { const s2 = new Scope(home); s2.vars.set(comp.props, { k: "const", value: p }); return this.region(comp.decls, comp.view, s2); }, props);
         }
         const el = R.createElement(m.tag);
         for (const a of m.attrs) { if (/^on[A-Z:]/.test(a.name)) { const h = untrack(() => { this.imperative++; try { return this.ev(a.e, scope); } finally { this.imperative--; } }); R.setProp(el, a.name, h); } else R.effect(() => this.ev(a.e, scope), v => { R.setProp(el, a.name, v); }); }   // 07 §5: a handler is an imperative closure
@@ -563,24 +573,24 @@ export class Oracle {
         const narrowed = m.c.k === "id" ? m.c.name : null;
         return R.createComponent(Show as any, {
           get when() { return self.ev(m.c, scope); },
-          get fallback() { const s2 = new Scope(scope); self.declare(m.fDecls, s2); return self.fragment(m.f, s2); },
-          children: (item: () => unknown) => { const s2 = new Scope(scope); if (narrowed) s2.vars.set(narrowed, { k: "memo", get: item }); self.declare(m.tDecls, s2); return self.fragment(m.t, s2); },
+          get fallback() { const s2 = new Scope(scope); return self.region(m.fDecls, m.f, s2); },
+          children: (item: () => unknown) => { const s2 = new Scope(scope); if (narrowed) s2.vars.set(narrowed, { k: "memo", get: item }); return self.region(m.tDecls, m.t, s2); },
         });
       }
       case "mfor": {
         return R.createComponent(For as any, {
           get each() { return self.ev(m.xs, scope); },
-          children: (item: unknown) => { const s2 = new Scope(scope); s2.vars.set(m.name, { k: "const", value: item }); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+          children: (item: unknown) => { const s2 = new Scope(scope); s2.vars.set(m.name, { k: "const", value: item }); return self.region(m.decls, m.body, s2); },
         });
       }
       case "portal": {
         const self2 = this; if (m.to) void untrack(() => this.ev(m.to!, scope));
-        return R.createComponent(this.Portal as any, { get children() { const s2 = new Scope(scope); self2.declare(m.decls, s2); return self2.fragment(m.body, s2); } });
+        return R.createComponent(this.Portal as any, { get children() { const s2 = new Scope(scope); return self2.region(m.decls, m.body, s2); } });
       }
       case "loading": {
         const props: Record<string, unknown> = {
           get fallback() { return self.fragment(m.fallback, scope); },
-          get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+          get children() { const s2 = new Scope(scope); return self.region(m.decls, m.body, s2); },
         };
         if (m.on) Object.defineProperty(props, "on", { enumerable: true, get: () => this.ev(m.on!, scope) });
         return R.createComponent(Loading as any, props);
@@ -594,7 +604,7 @@ export class Oracle {
             const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
             return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => view(err))) : new Forward(err()));
           },
-          get children() { const s2 = new Scope(scope); self.declare(m.decls, s2); return self.fragment(m.body, s2); },
+          get children() { const s2 = new Scope(scope); return self.region(m.decls, m.body, s2); },
         });
         if (!classes) return out;
         return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // R-f-4: another class passes to the boundary above (a rethrow from the fallback itself does not recover — ref/oracle/repros/dv7-rethrow.mjs)

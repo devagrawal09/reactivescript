@@ -63,6 +63,10 @@ does for `.tsrx`. Nothing here is a second type system.
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
   declaration file is `any`.
+- **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
+  `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
+  beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
+  `.d.ts`, so there its exports are `any`.
 
 ## TY-5 — Rules the projection states as types
 

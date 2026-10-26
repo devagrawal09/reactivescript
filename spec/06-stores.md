@@ -130,7 +130,10 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   only its optimistic state reverts — a write is intent, a guess is the one
   provisional state (ruled 2026-10-22 against the oracle, DV-2; S-solid-8
   and S-solid-32 variants). Compensation is the catch's job. An action body suspends only at a
-  statement-level `await` (`await e` or `let v = await e`); the instant
+  statement-level `await` (`await e` or `let v = await e`, either with a
+  `catch (x: C) => alt` after it: a matching rejection is the statement's
+  value, R-f-4); an `await` anywhere else in imperative scope is
+  `AWAIT_IN_EXPRESSION` (bind it first; S-await-1). The instant
   begins when the run suspends or returns (H-10). An action called from a
   handler is launched, not awaited: the handler continues, and the
   handler's own writes are the same instant's change (D-7's same-tick
