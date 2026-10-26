@@ -29,6 +29,8 @@ streamed by the server build to Chromium and hydrated there by the DOM build
 
 ## DV-3 — a render effect inside a re-armed boundary's fallback holds the content's reveal
 
+Filed: https://github.com/solidjs/solid/issues/4268 (2026-10-26).
+
 **Rule.** SCENARIOS.md S-22 row 3′ (D-18): *"if `content(2)` lands before
 `meta(2)` → `content(2)` — the fallback is never seen."* Pinned by
 `tests/loading-on-rearm-reveal-3540.test.ts` "content lands before the
@@ -66,6 +68,8 @@ case is not covered.
 
 ## DV-4 — a derived store's per-key `isPending` is false under a boundary that has shown content
 
+Filed: https://github.com/solidjs/solid/issues/4269 (2026-10-26).
+
 **Rule.** RULES-DERIVED D-30: *"a derived store's leaves report the
 derive's new-question refetch like any async memo"*; SCENARIOS S-37 row 2:
 after `setId(2)`, `isPending(() => state.a)` is `true`.
@@ -88,6 +92,8 @@ combination reads `false`.
 ---
 
 ## DV-7 — an outer error boundary that caught a rethrow from an inner fallback does not recover
+
+Filed: https://github.com/solidjs/solid/issues/4270 (2026-10-26).
 
 Found while lowering typed `errored` boundaries (R-f-4); it is not one of
 our divergences, because the lowering avoids the shape.
@@ -120,6 +126,8 @@ re-runs and recovers when the content does (S-fail-1 instants 6–8).
 ---
 
 ## DV-8 — a keyed projection over a memo stops following it after its first value
+
+Filed: https://github.com/solidjs/solid/issues/4271 (2026-10-26).
 
 Found by an agent-written app (S-ai2-search): `results key id = q.length < 2
 ? throw TooShort(q) : await search(q)`, lowered as
@@ -200,6 +208,8 @@ which is what compiled JSX gives `<p>{guess()} {derived()} / {latest(guess)}</p>
 
 ## DV-11 — the hydration window
 
+Filed: https://github.com/solidjs/solid/issues/4272 (2026-10-26).
+
 **Rule.** 10 SV-3b: after the client takes over, a question whose input
 changes is a new question; its answer is the client's.
 
@@ -215,6 +225,8 @@ asked (`hydrateSignalFromAsyncIterable`).
 ---
 
 ## DV-12 — a boundary hydrated in its error state never recovers
+
+Filed: https://github.com/solidjs/solid/issues/4273 (2026-10-26).
 
 **Rule.** 05 D-39, 10 SV-6: a boundary recovers when the failed content's
 inputs change and a good answer lands.
@@ -232,6 +244,8 @@ nothing.
 ---
 
 ## DV-13 — an empty fragment loses its slot in the universal renderer
+
+Filed: https://github.com/solidjs/solid/issues/4274 (2026-10-26).
 
 **Shape.** `<main><A />{String(" ")}<B /></main>` compiled by
 `@solidjs/compiler` with `generate: "universal"`; A is a `<Show>` that starts
@@ -321,6 +335,8 @@ writes its `<tbody>`.
 ---
 
 ## DV-16 — a reader whose first read is `latest(s)` publishes an empty slot
+
+Filed: https://github.com/solidjs/solid/issues/4275 (2026-10-26).
 
 **Rule.** SCENARIOS.md S-39 (D-28, ruled 2026-10-09): *"a later unread value
 still throws"* — a reader that reads `latest(s)` and then `n0()`, a lane
