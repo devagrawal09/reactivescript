@@ -137,7 +137,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- the scenario harness's view of names (handler rows reach any live binding by name) ----
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) throw new Error(`unbound ${name}`); for (let i = l.length - 1; i >= 0; i--) if (l[i].w) return l[i]; return l[l.length - 1]; },
-    dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snap(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
+    dget(name: string, live = false) { const e = app.lookup(name); return e.get ? (live ? e.get() : app.snapshot(e.get)) : e.value; },   // live: inside a probe (R-12), the read itself
     dset(name: string, keys: (string | number)[], v: unknown, guess = false) { const w = app.lookup(name).w; if (!w) throw new Error(`W-1: write to non-source ${name}`); if (guess) w.guess(v, keys); else if (keys.length) w.path(keys, v); else w.set(v); },
 
     // ---- declarations ----
@@ -158,7 +158,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
-    qsource(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
+    question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
         const [store, setStore] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined);
@@ -186,8 +186,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
-    prevOf: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
-    lv: (f: () => unknown) => ({ loadingValue: untrack(f) }),
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** `effect (…) { … }`: compute, then apply; an error is an answer the apply receives (E-12); fires on a differing value (EF-2). */
     effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown) {
       const run = (vals: unknown[]) => { const r = apply(vals); return typeof r === "function" ? (r as () => void) : undefined; };
@@ -199,11 +199,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
-    aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** CSS-2: a dynamic class with the view's scope class after it. */
-    cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
-    cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
+    clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
      *  flight per arguments, as a JS import's; in imperative scope each call is a new request. \`fn\` is the module-level
      *  \`"use server"\` function (SF-7a): the body in place, or — once Solid's \`transformDirectives\` has made it a reference
@@ -240,7 +240,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     until: (p: () => unknown) => until(p),                                   // AC-6
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
     affects: (get: Acc) => affects(get as any),
-    orInit: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
+    preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
     module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
@@ -261,10 +261,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     // ---- reads ----
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
-    snap(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     // ---- failures (R-f) ----
-    errorClass, isA, PANIC, catchAcc, tryCatch, caughtRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
-    raise: (e: unknown): never => { throw e; },
+    errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,

@@ -2,12 +2,14 @@
 // equation that are not its result, each with the conditions under which the equation reaches it (E-11: an arm not selected is
 // not demanded, so its flight is not asked). The oracle and the compiler hoist each into its own async node, asked only while
 // its guards hold; the equation reads that node where the `await` was.
-import type { Expr } from "./ast.ts";
+import type { Expr, Markup } from "./ast.ts";
 
 export type Guard = { e: Expr; neg?: boolean; nullish?: boolean };
 export type Hoisted = { node: Extract<Expr, { k: "await" }>; guards: Guard[] };
 
-export function nonTailAwaits(root: Expr): Hoisted[] {
+/** `tail = false`: every await of `root` — a reader of a view, an effect's input or a provision, whose expression is not an
+ *  equation's own memo, so even its result-position `await` is a flight of its own (07 §3). */
+export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
   const out: Hoisted[] = [];
   const walk = (x: Expr, tail: boolean, g: Guard[]): void => {
     switch (x.k) {
@@ -29,6 +31,23 @@ export function nonTailAwaits(root: Expr): Hoisted[] {
         }
     }
   };
-  walk(root, true, []);
+  walk(root, tail, []);
   return out;
+}
+
+/** 07 §3: the expressions a region's own view reads — readers, attributes (not handlers), `if` conditions, `for` collections,
+ *  `loading on(…)` and fallbacks, `portal to(…)` — but not its sub-regions', which are hoisted where they are set up. Their
+ *  awaits are hoisted with `nonTailAwaits(e, false)`. An `errored` fallback binds its error, so it stays out. */
+export function viewReaders(ms: Markup[]): Expr[] {
+  return ms.flatMap((m): Expr[] => {
+    switch (m.k) {
+      case "read": return [m.e];
+      case "el": return [...m.attrs.filter(a => !/^on[A-Z:]/.test(a.name)).map(a => a.e), ...viewReaders(m.children)];
+      case "mif": return [m.c];
+      case "mfor": return [m.xs];
+      case "loading": return [...(m.on ? [m.on] : []), ...viewReaders(m.fallback)];
+      case "portal": return m.to ? [m.to] : [];
+      default: return [];
+    }
+  });
 }

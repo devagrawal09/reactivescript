@@ -3,8 +3,10 @@
 import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
 import type { Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
+import type { ModSig } from "./check.ts";
+import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]> };   // declarations: MO-8, by `.d.rx` path
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig> };   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
 
@@ -18,7 +20,7 @@ export function joinPath(fromFile: string, rel: string): string {
 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>();
+  const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -38,13 +40,18 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       if (d.k !== "import" || !isRx(d.from)) continue;
       const to = joinPath(path, d.from); d.resolved = to;
       if (state.get(to) === "busy") { diags.push({ code: "MODULE_CYCLE", rule: "MO-5", line: d.line, file: path, msg: `${[...stack, path].slice(stack.indexOf(to) >= 0 ? stack.indexOf(to) : 0).concat(to).join(" → ")}: modules may not import each other in a cycle (signatures are computed dependencies first)` }); continue; }
+      if (state.get(to) !== "done" && !signatures.has(to) && read(to) === undefined) {   // MO-9: no body — its signature, read in place
+        const sig = read(to.replace(/\.rx$/, ".d.rx"));
+        if (sig !== undefined) { try { signatures.set(to, parseSignature(sig, to)); } catch (e) { if (e instanceof SignatureError) throw new ParseError(e.message); throw e; } continue; }
+      }
+      if (signatures.has(to)) continue;
       if (state.get(to) !== "done" && read(to) === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", line: d.line, file: path, msg: `no module ${d.from} (from ${path})` }); continue; }
       visit(to, [...stack, path]);
     }
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags, declarations };
+  return { entry, programs, order, diags, declarations, signatures };
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */

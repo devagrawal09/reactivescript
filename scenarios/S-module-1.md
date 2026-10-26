@@ -50,12 +50,15 @@ checked against both signatures and never sees a body (MO-3). Its view of
 `ui.rx` (`ref/check.ts --signature`):
 
 ```text
-export component Card(props: { children: catches(Error) })
-export component Name(props: { user: catches(NotFound) })
 export context who: string
-export component Badge(props: {}) uses(ui.rx#who)
-export component Save(props: { v: action catches(nothing) })
+export component Card(props: { children: catches(*) }) shape(roots p div; closes-p; children-at div)
+export component Name(props: { user: catches(NotFound) }) shape(roots i)
+export component Badge(props: {}) uses(./ui.rx#who) shape(roots b)
+export component Save(props: { v: unrendered action go catches(nothing) }) shape(roots button)
 ```
+
+The same text, with no `ui.rx` beside it, is read in place of the module
+(MO-9, S-module-3).
 
 ## Program
 

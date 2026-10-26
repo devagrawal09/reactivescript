@@ -131,8 +131,13 @@ Added:
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
 | `e catch (x: A \| B) => alt` | `alt` when `e` fails with `A` or `B`; `catch (x) =>` takes every class; looser than `?:` | R-f-4 |
 
-`await` may appear anywhere in an expression; the compiler lifts each one to
-its own flight (04 R-1). `yield` is not an expression; a stream is `await*`.
+`await` may appear anywhere in an expression of reactive scope — an
+equation, a reader `{…}`, an attribute or prop, an `if` condition, a `for`
+collection, an effect's input, a provision; the compiler lifts each one to
+its own flight (04 R-1), asked only while the conditions that reach it hold
+(E-11; S-await-1). In imperative scope a run suspends only at a statement
+(06 AC-1): `await e`, `let v = await e`, either followed by `catch (x: C)
+=> alt`. `yield` is not an expression; a stream is `await*`.
 
 ## 4. Markup (02 §V, 03)
 
@@ -214,6 +219,8 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   a failing value throws (R-f-7). A rejected `await` throws at the `await`;
   a catch inside an action is still the action's change (AC-7).
   `catch (e: A | B)` takes those classes and rethrows the rest.
+  `let r = await save(x) catch (e: Offline) => null` is the statement form
+  of the same: a `try` around the `await` whose catch gives `r` (S-await-1).
 - An action catches every failure its body can produce (R-f-6): there is
   no one after the body to catch it.
 - `await` in an action body suspends the run and keeps its change open; in
@@ -476,3 +483,14 @@ Expr      ::= TSExpr with §3's removals and additions
     state (MO-1b, SV-4); weighed against components-only state, which would
     force a provider component for every shared store and buys no SSR
     safety, since a module is already instantiated per request.
+16. **In imperative scope, `await` is a statement** (taken by default
+    2026-10-26, veto here): `await e` or `let v = await e`, either with a
+    `catch (x: C) => alt` (06 AC-1, which already said a run suspends only
+    there); elsewhere `AWAIT_IN_EXPRESSION`. In reactive scope `await` goes
+    anywhere (§3). The alternative is JavaScript's rule — an `await` inside
+    any imperative expression. The compiler lowers that today (a body is a
+    generator), but the order of a statement's other reads around the
+    suspension becomes part of the semantics (each is a snapshot of σ, H-10,
+    taken before or after the instant the await opens), and the reference
+    interpreter would need a continuation per expression. Binding first
+    keeps every snapshot on one side of the suspension.

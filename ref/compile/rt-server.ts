@@ -114,7 +114,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
-    dget(name: string) { const e = app.lookup(name); return e.get ? app.snap(e.get) : e.value; },
+    dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
     lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
@@ -123,7 +123,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       if (typeof init === "object" && init !== null) { const [store] = createStore(init as any); const [get] = createSignal<unknown>(store); return ro(get as Acc); }
       const [get] = createSignal(init); return ro(get as Acc);
     },
-    qsource(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
+    question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
       if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
@@ -137,21 +137,21 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     deferred: (name: string, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, o as any) as Acc,
     keyed: (name: string, key: string, fn: () => unknown): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, [] as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
-    prevOf: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
-    lv: (f: () => unknown) => ({ loadingValue: untrack(f) }),
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** SV-2: the apply half runs on the client, after hydration. The compute half is reactive scope — Solid's server runs it;
      *  an input's failure is an answer (E-12), not a server error. */
     effect(_n: number, inputs: () => unknown[], _apply: (p: unknown[]) => unknown) {
       createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
     },
     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
-    aw: (v: unknown) => v instanceof Flight ? v.first : v,
+    awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** RG-8: Solid's Portal — client-only: the server renders nothing for it, the browser renders it once it has the page. */
     Portal: WebPortal,
     /** CSS-2: a dynamic class with the view's scope class after it. */
-    cls: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
+    scopedClass: (v: unknown, hash: string) => v == null || v === false || v === "" ? hash : `${v} ${hash}`,
     /** SV-7b: a client question — not asked on the server; the browser asks it once hydrated (Solid's \`ssrSource: "client"\`). */
-    cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
+    clientQuestion: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
     /** 12 SF-2: a server fn as the client calls it — every call a flight. Asked in reactive scope it is a question, one
      *  flight per arguments, as a JS import's; in imperative scope each call is a new request. \`fn\` is the module-level
      *  \`"use server"\` function (SF-7a): the body in place, or — once Solid's \`transformDirectives\` has made it a reference
@@ -187,7 +187,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     hoisted(_name: string, _get: Acc) {},
     refresh: onServer("refresh"),
     affects: onServer("affects"),
-    orInit: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
+    preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
@@ -202,10 +202,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
 
-    snap(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
+    snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
-    isA, PANIC, catchAcc, tryCatch, caughtRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
-    raise: (e: unknown): never => { throw e; },
+    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
+    throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
     untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
     fmt,

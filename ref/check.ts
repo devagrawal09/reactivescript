@@ -15,7 +15,7 @@ for (const f of args.filter(a => !a.startsWith("--"))) {
     const rel = (p?: string) => (p ?? resolve(f)).replace(process.cwd() + "/", "");
     if (!diags.length) console.log(`ok   ${f}${set.order.length > 1 ? ` (+${set.order.length - 1} module${set.order.length > 2 ? "s" : ""})` : ""}`);
     else { bad++; for (const d of diags) console.log(`${rel(d.file)}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }
-    if (sigOut) for (const p of set.order) { const s = sigs.get(p)!; console.log(printSignature({ ...s, file: rel(p) })); }
+    if (sigOut) for (const p of set.order) console.log(printSignature(sigs.get(p)!));
   } catch (e) { bad++; console.log(`${f}: parse error: ${(e as Error).message}`); }
 }
 process.exit(bad ? 1 : 0);

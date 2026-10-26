@@ -50,11 +50,19 @@ ref/                   interpreter, checker, Solid oracle, compiler and server r
 
 ## Rule IDs
 
-- `V-n` vocabulary · `SC-n` scopes · `E-n` equations · `W-n` writes · `C-n` causality
-- `O-n` ownership · `R-n` rows · `H-n` holds (each cites the Solid `F-n` it restates)
-- `ST-n` stores · `X-n` surface · `D-n` diagnostics (binned)
+- `V-n` vocabulary (00) · `SC-n` scopes (01)
+- `E-n` equations · `W-n` writes · `C-n` causality · `P-n` properties of an instant · `EF-n` effects · `IO-n` io (02)
+- `O-n` ownership · `RG-n` regions · `PT-n` portals (03)
+- `R-n` rows · `R-f-n` failures · `R-io-n` io (04)
+- `H-n` holds, each citing the Solid `F-n` it restates; `DV-n` divergences from Solid, recorded per scenario (05, 10)
+- `ST-n` stores · `AC-n` actions (06) · `CSS-n` scoped styles (07) · `CN-n` constraints (08)
+- `MO-n` modules (09) · `SV-n` server (10) · `CP-n` compiler (11) · `SF-n` server functions (12) · `TY-n` types (13)
+- Diagnostics keep Solid's codes (`UNHANDLED_FAILURE`), binned in 99.
 
-Scenario IDs: `S-core-n`, `S-region-n`, `S-hold-n` (the latter mirror Solid's `S-n`).
+Scenario IDs: `S-<area>-n` for the areas above (`S-core`, `S-region`,
+`S-hold`, `S-store`, `S-action`, `S-fail`, `S-module`, `S-server`, `S-sf`,
+`S-types`, …), `S-solid-n` for a port of Solid's `SCENARIOS.md` `S-n`, and
+`S-app-*`, `S-ai-*`, `S-ai2-*` for the example apps under `examples/`.
 
 ## References
 
