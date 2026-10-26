@@ -432,7 +432,7 @@ Expr      ::= TSExpr with §3's removals and additions
 
 ---
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
 1. **File = module** (ruled 2026-10-22), components declared with
    `component`, exported with `export`.

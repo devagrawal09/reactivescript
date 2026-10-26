@@ -263,8 +263,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   lowers, so it has that shape by construction; the oracle lowers the same
   way by hand. Two records moved: DV-4 no longer shows in any scenario, and
   DV-10 appeared.
-- **DV-10 (a held lane, per render effect) — a Solid behaviour, reproduced
-  2026-10-24** (`ref/oracle/repros/dv10-lane-effects.mjs`, found by
+- **DV-10 (a held lane, per render effect) — a Solid bug, ruled
+  2026-10-26 (solidjs/solid#4284); reproduced 2026-10-24** (`ref/oracle/repros/dv10-lane-effects.mjs`, found by
   S-solid-35's variant once the lowering matched JSX). H-7: a pending
   reader in lane `x` holds every reader of lane `x`. Solid holds the render
   effects that read the pending work: a probe in its own `{…}` hole

@@ -172,13 +172,13 @@ rule the checker can state precisely.
 | `CLIENT_NOT_AWAITED` | S | SF-5b: `client` JS called for its value in reactive scope |
 | `WIRE_VALUE` | R | SF-6a: a value the wire cannot carry |
 
-## Decisions taken by default (veto here)
+## Decisions (all ruled; the last open ones 2026-10-26)
 
-1. **Spelling**: `server fn`, not a directive string; `server`/`client` as
+1. **Spelling** (ruled 2026-10-26): `server fn`, not a directive string; `server`/`client` as
    import and `.d.rx` modifiers beside `pure`.
 2. *(Ruled 2026-10-24: one form.)* A server fn's io row is inferred from
    its body (SF-1b), and the call site decides question or request (SF-2).
    An earlier draft had `server fn` (a loader) and `server action` (io);
    the split said nothing the row and the call site do not.
-3. **Capture is by kind** (SF-3), not by lexical position.
-4. **Every server call can fail with `Error`** (SF-6b).
+3. **Capture is by kind** (SF-3; ruled 2026-10-26), not by lexical position.
+4. **Every server call can fail with `Error`** (SF-6b; ruled 2026-10-26).

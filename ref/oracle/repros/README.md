@@ -144,7 +144,7 @@ in Solid; with `key`, the interpreter does too.
 
 ---
 
-## DV-9 — a failed boundary renders no fallback on the server
+## DV-9 — a failed boundary renders no fallback on the server (a Solid bug, ruled 2026-10-26; solidjs/solid#4287)
 
 **Rule.** 10-server SV-6: a boundary that takes a failure during the server
 render is streamed with its fallback drawn, so the browser shows the
@@ -182,7 +182,7 @@ hydrated                   "loading"
 
 ---
 
-## DV-10 — a held lane holds per render effect
+## DV-10 — a held lane holds per render effect (a Solid bug, ruled 2026-10-26; solidjs/solid#4284)
 
 **Rule.** 05 H-7: a pending reader in lane `x` holds every reader of lane
 `x`; Solid's D-25: an on-screen probe in a held lane keeps what it showed.
@@ -253,7 +253,7 @@ value, null)`), after B.
 
 ---
 
-## DV-14 — events replayed after hydration share one instant
+## DV-14 — events replayed after hydration share one instant (a Solid bug, ruled 2026-10-26; solidjs/solid#4285)
 
 **Rule.** 10 SV-3e: a replayed event is its own instant, as it would have
 been live.
@@ -275,7 +275,7 @@ between two replayed handlers, so both actions read the committed `n`.
 
 ---
 
-## DV-15 — a client question's served fallback is rebuilt on hydration
+## DV-15 — a client question's served fallback is rebuilt on hydration (a Solid bug, ruled 2026-10-26; solidjs/solid#4286)
 
 **Rule.** 10 SV-3a: hydration adopts what the server sent; SV-7b: a client
 question's reader shows its hold's fallback on the server, and the browser
