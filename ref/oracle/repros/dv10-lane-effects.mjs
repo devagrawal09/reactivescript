@@ -1,6 +1,7 @@
-// DV-10: a held optimistic lane holds only the render effects that read its pending work.
-// Expected (spec H-7/H-11; Solid's D-25 "an on-screen probe in a held lane keeps what it showed"): while `derived(5)` is
-// pending, every reader of the guess's lane keeps what it showed — the screen stays "1 x1 / 1".
+// DV-10 (solidjs/solid#4284, reversed 2026-10-26: Solid's position adopted): a tracked latest() of a guess reads ahead of
+// the guess's held lane. Expected (spec H-7/H-11; Solid's verdict-contract.test.ts "the reader breaks out of the lane"):
+// while `derived(5)` is pending, `guess` and `derived` keep what they showed and `latest(guess)` shows the guess —
+// "1 x1 / 5" in both modes. Open on #4284: in `one` mode the combined effect parks as lane work and freezes the probe.
 // node --conditions=browser --conditions=development repros/dv10-lane-effects.mjs [one|two]
 //   one: one render effect reads guess, derived and latest(guess) — as one effect per element
 //   two: `latest(guess)` has its own effect — as compiled JSX gives each `{…}` child its own insert
@@ -28,4 +29,4 @@ createRoot(() => {
 flush();
 const show = label => console.log(label.padEnd(22), JSON.stringify(mode === "one" ? screen.a : `${screen.a} / ${screen.b}`));
 await tick(); await land("x:1", "x1"); show("x(1) lands");
-attempt(); flush(); await tick(); show("attempt()");            // expected "1 x1 / 1" in both modes
+attempt(); flush(); await tick(); show("attempt()");            // expected "1 x1 / 5" in both modes

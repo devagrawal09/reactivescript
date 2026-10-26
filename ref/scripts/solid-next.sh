@@ -12,6 +12,6 @@ if [ "$1" = "--latest" ]; then git -C "$DIR" rev-parse origin/next > "$HERE/SOLI
 git -C "$DIR" checkout -q "$(cat "$HERE/SOLID_NEXT")"
 cd "$DIR"
 pnpm install --frozen-lockfile
-for p in signals solid web universal; do (cd "packages/$p" && pnpm run build); done
+for p in signals solid web universal; do (cd "packages/$p" && pnpm run build && pnpm run --if-present types); done   # types: the JSX types the types runner checks against
 (cd packages/compiler && pnpm run build)          # the native Oxc compiler (needs a Rust toolchain)
 echo "solid next @ $(git rev-parse --short HEAD) built in $DIR"

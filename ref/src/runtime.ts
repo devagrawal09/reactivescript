@@ -57,6 +57,7 @@ export class Node {
   deps = new Map<Target, Set<string>>();
   lane = false;                                        // R-10: read a probe during last compute
   lanes = new Set<Node>();                             // R-10 / H-7: which probed sources' lanes this value lives in
+  inLanes = new Set<Node>();                           // H-7: the lanes it is held by: all but a guess's lane reached only through `latest` (DV-10)
   flight: Flight | null = null; answered = false; firstPaint = false;   // R-1, R-7
   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
@@ -531,7 +532,7 @@ export class Runtime {
         const val = i.node.value;
         if (val instanceof ViewValue) { this.commit(val, g); i.shown = null; return; }
         if (i.node.heldOn !== null) return;                             // still held on another group: keeps what it showed
-        if (i.node.lane && [...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) return;   // H-7: its lane is held: keeps what it showed
+        if (i.node.lane && this.laneHeld(i.node)) return;   // H-7: its lane is held: keeps what it showed
         if (val instanceof PendingVal) { i.shown = i.shown ?? ""; } else i.shown = fmt(val); return;
       }
       case "el": { for (const c of i.children) this.commitItem(c, g); return; }
@@ -573,7 +574,7 @@ export class Runtime {
   private patchItem(i: VItem) {
     switch (i.k) {
       case "read": { if (i.node.value instanceof ViewValue) return this.patchLanes(i.node.value);   // children rendered by a component (found by S-app-shop)
-        if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && ![...i.node.lanes].some(l => this.heldLanes.has(l) || this.frozen(l))) i.shown = fmt(i.node.value); return; }
+        if (i.node.lane && i.node.heldOn === null && !(i.node.value instanceof PendingVal) && !this.laneHeld(i.node)) i.shown = fmt(i.node.value); return; }
       case "el": { for (const c of i.children) this.patchItem(c); return; }
       case "comp": return this.patchLanes(i.inst);
       case "mif": {
@@ -626,7 +627,7 @@ export class Runtime {
     if (recompute) {
       const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
       this.unsubscribe(n);
-      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.taintFrom = new Set(); n.served = new Set();
+      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.taintFrom = new Set(); n.served = new Set();
       n.triggered = notified;
       let v: unknown;
       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
@@ -687,15 +688,19 @@ export class Runtime {
 
   // ---- expressions ----
   evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown { return this.ev(e, region, env); }
+  private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
+  private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
+  /** H-7: a reader keeps what it showed while one of the lanes it is in is held or frozen. */
+  private laneHeld(n: Node) { return [...n.inLanes].some(l => this.heldLanes.has(l) || this.frozen(l)); }
   /** A tracked read of a reactive node from reactive scope: guesses (H-11), lanes (R-10), serving (D-3), taint. */
   private readNode(b: Node): unknown {
       this.track(b, ""); const v = this.pull(b); this.probeReads?.add(b);
       if (this.authoritative && [...b.lanes].some(l => l.hasGuess)) throw NOT_YET;                   // AC-6: a derivation of a guess has no authoritative value until the guess is confirmed (D-31)
       if (b.hasGuess && this.demandMode && !this.committedView && !this.authoritative) {                                     // AC-3 / H-11: the guess is the graph's and the screen's value, display-ahead (a lane with identity b)
-        if (this.tracking) { this.tracking.lane = true; this.tracking.lanes.add(b); }
+        if (this.tracking) { this.tracking.lane = true; this.addLane(b); }
         return b.guess;
       }
-      if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.tracking.lanes.add(l); }   // R-10: lane flows through equations
+      if (b.lane && this.tracking && this.demandMode) { this.tracking.lane = true; for (const l of b.lanes) this.addLane(l, b.inLanes.has(l)); }   // R-10: lane flows through equations
       if (this.tracking && this.demandMode) {
         const held = b.heldBy !== null && (b.heldBy === this.instant || this.groupOpen(b.heldBy));
         const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
@@ -754,9 +759,10 @@ export class Runtime {
       }
       case "latest": {                                                 // R-9 probe: the value an update is moving toward, else the committed value
         const ln = this.nodeOf(e.e, region, env);
-        if (this.tracking) { this.tracking.lane = true; if (ln) this.tracking.lanes.add(ln); }
+        const ahead = !!ln?.hasGuess;                                  // DV-10: `latest` of a guess reads ahead of the guess's held lane (Solid #4284)
+        if (this.tracking) { this.tracking.lane = true; if (ln) this.addLane(ln, !ahead); }
         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
-        this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; }
+        this.probing++; if (ahead) this.latestOfGuess++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; }
         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
         if (v instanceof PendingVal && !this.demandMode) throw new Error("NotReadyError: latest of a value that has never had one");   // R-12: in imperative scope as anywhere, `latest` of a first load throws (Solid S-28, A7)
         return v;
@@ -767,11 +773,11 @@ export class Runtime {
         if (!n) {                                                      // composite: the verdict of the reads inside it (Solid S-29)
           const prev = this.probeReads; const reads = new Set<Node>(); this.probeReads = reads;
           this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; this.probeReads = prev; }
-          if (this.tracking) for (const r of reads) this.tracking.lanes.add(r);
+          if (this.tracking) for (const r of reads) this.addLane(r);
           if (v instanceof PendingVal) return true;
           return [...reads].some(r => r.value instanceof PendingVal || (r.heldBy !== null && (r.heldBy === this.instant || this.groupOpen(r.heldBy))));
         }
-        if (this.tracking) this.tracking.lanes.add(n);
+        if (this.tracking) this.addLane(n);
         this.track(n, ""); if (n.kind !== "source") this.pull(n);     // a probe is a (lane) dependency
         if (e.e.k === "latest") return n.value instanceof PendingVal;  // the latest channel's own verdict: x's own async is up (S-solid-27)
         if (n.lagging) return true;                                    // D-40: lagging behind a new question

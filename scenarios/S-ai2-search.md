@@ -40,7 +40,12 @@ file: ../examples/ai2/search/main.rx
 
 ## Divergences
 
-- oracle "Frames" instant 1: `0 results for a pick a result` — Solid 2.0.0-rc.16: `results` is keyed, lowered as a projection over the equation's memo; once the projection has held a value (`[]` for the empty query), a later failure of the memo is swallowed and the projection keeps its last value. A Solid bug, reproduced in `@solidjs/signals` alone: `ref/oracle/repros/dv8-projection.mjs` (DV-8).
-- oracle "Frames" instant 2: `0 results for ap pick a result` — the same: the error is still swallowed, and the re-ask reports no `pending?` through the projection (DV-8; DV-4 is the same symptom for a derived store).
+- oracle "Frames" instant 2: `too short: a pick a result` — DV-8, not fully fixed by solidjs/solid#4280: after the projection's memo has failed, its re-ask reports no `pending?` through the projection (a plain memo does: no `key` shows `searching…`).
 - oracle "Frames" instant 4: `2 results for app apple apricot pick a result` — DV-8: no `searching…`, the projection reports no pending verdict for its memo's re-ask.
-
+- oracle "Frames" instant 5: `2 results for app apple apricot pick a result` — DV-18: since solidjs/solid#4280, a keyed projection's row readers miss every landing after the first, so the list and the count keep the `ap` rows (`ref/oracle/repros/dv18-projection-relanding.mjs`)
+- oracle "Frames" instant 6: `2 results for app apple apricot loading…` — DV-18
+- oracle "Frames" instant 7: `2 results for app apple apricot item 4 not found` — DV-18
+- oracle "Frames" instant 8: `2 results for app apple apricot loading…` — DV-18
+- oracle "Frames" instant 9: `2 results for app apple apricot failed: timeout retry` — DV-18
+- oracle "Frames" instant 10: `2 results for app apple apricot failed: timeout retry` — DV-18
+- oracle "Frames" instant 11: `2 results for app apple apricot applesauce stewed apples` — DV-18

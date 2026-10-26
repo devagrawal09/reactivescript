@@ -74,7 +74,3 @@ export default component App() {
 | 1       | handler `bump()`          | `off`           |
 | 2       | handler `mounted := true` | `on loading`    |
 | 3       | resolve "n:1" 1           | `on [1, 1]`     |
-
-## Divergences
-
-- oracle "Frames" instant 2: `on` — DV-16: Solid publishes the branch with the slot empty when the reader reads `latest s` first (`ref/oracle/repros/dv16-latest-first.mjs`); D-28 rules it held
