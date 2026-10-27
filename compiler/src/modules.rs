@@ -19,6 +19,8 @@ pub struct ModuleSet {
     pub signatures: IndexMap<String, ModSig>,
     /// each program's text, which its spans index
     pub sources: HashMap<String, String>,
+    /// an editor's load (CP-8e): what the parse recovered from, each with its file
+    pub parse_errors: Vec<ParseError>,
 }
 
 pub fn is_rx(from: &str) -> bool {
@@ -62,6 +64,8 @@ struct Loader<'r> {
     signatures: IndexMap<String, ModSig>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
+    recover: bool,
+    parse_errors: Vec<ParseError>,
 }
 
 fn replace_js_ext(from: &str) -> String {
@@ -79,7 +83,13 @@ impl Loader<'_> {
             return Ok(());
         }
         let Some(src) = (self.read)(path) else { return Ok(()) };
-        let mut p = parse_program(&src).map_err(|e| ParseError(format!("{}: {}", path, e.0), e.1, Some(path.to_string())))?;
+        let mut p = if self.recover {
+            let (p, errs) = crate::parse::parse_program_recovering(&src);
+            self.parse_errors.extend(errs.into_iter().map(|e| ParseError(e.0, e.1, Some(path.to_string()))));
+            p
+        } else {
+            parse_program(&src).map_err(|e| ParseError(format!("{}: {}", path, e.0), e.1, Some(path.to_string())))?
+        };
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
             let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
@@ -150,7 +160,15 @@ impl Loader<'_> {
 
 /// Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or `None` when there is none.
 pub fn load_modules(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new() };
+    load(entry, read, false)
+}
+/// CP-8e: an editor's load. Each module is parsed recovering (`parse_program_recovering`), its errors in `parse_errors`;
+/// a declaration file that does not parse is still an error.
+pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
+    load(entry, read, true)
+}
+fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }

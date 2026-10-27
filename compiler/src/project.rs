@@ -148,12 +148,17 @@ pub fn projected_path(rx: &str) -> String {
 }
 
 pub fn project_modules(set: &ModuleSet) -> Vec<Projected> {
+    project_modules_with(set, None)
+}
+/// `prelude`: where the projections import the prelude from, in place of `__prelude.ts` at the program's root (an editor
+/// writes it once, where the project's own `@solidjs/web` resolves).
+pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Projected> {
     let mut out = vec![];
     let mut js_stubs: IndexMap<String, IndexSet<String>> = IndexMap::new();
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new() };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m });
@@ -261,6 +266,7 @@ struct Proj<'a> {
     used: IndexSet<String>,
     /// names the module declares (they shadow the prelude)
     declared: HashSet<String>,
+    prelude: Option<&'a str>,
 }
 
 impl Proj<'_> {
@@ -325,7 +331,7 @@ impl Proj<'_> {
         let body = std::mem::replace(&mut self.w, saved);
         let prelude: Vec<String> = self.used.iter().filter(|n| !self.declared.contains(*n)).cloned().collect();
         let types: Vec<&str> = ["View", "Panic"].into_iter().filter(|n| !self.declared.contains(*n)).collect();
-        let rel = self.rel("__prelude.ts");
+        let rel = self.prelude.map(|p| p.to_string()).unwrap_or_else(|| self.rel("__prelude.ts"));
         let mut head = format!("import * as __ from \"{rel}\"; import type {{ {} }} from \"{rel}\";", types.join(", "));
         if !prelude.is_empty() {
             head += &format!(" import {{ {} }} from \"{rel}\";", prelude.join(", "));
@@ -746,8 +752,10 @@ impl Proj<'_> {
                 c.t("`")
             }
             ExprKind::Member { o, p, opt } => {
-                let at = (!sp.is_none() && sp.text(self.src).ends_with(p.as_str())).then(|| sp.end as usize - p.len());
-                go!(o).t(if *opt { "?." } else { "." }).at(p, at)
+                // `.p` with its dot, so that a position just after the dot (what is being typed) is mapped too
+                let dot = format!(".{p}");
+                let at = (!sp.is_none() && sp.text(self.src).ends_with(dot.as_str())).then(|| sp.end as usize - dot.len());
+                go!(o).t(if *opt { "?" } else { "" }).at(&dot, at)
             }
             ExprKind::Index { o, i, opt } => go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]"),
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),

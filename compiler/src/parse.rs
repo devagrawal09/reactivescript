@@ -67,10 +67,28 @@ fn st(start: usize, k: StmtKind, c: &Cursor) -> Stmt {
 pub struct Cursor<'a> {
     pub src: &'a str,
     pub i: usize,
+    /// an editor's parse (CP-8e): a missing member name or expression is an error recorded in `errors`, and the parse goes
+    /// on with an empty one, so that what is being typed still projects
+    pub recover: bool,
+    pub errors: Vec<ParseError>,
 }
 impl<'a> Cursor<'a> {
     pub fn new(src: &'a str) -> Self {
-        Cursor { src, i: 0 }
+        Cursor { src, i: 0, recover: false, errors: vec![] }
+    }
+    /// What `fail` would return, recorded instead (`recover`).
+    fn note(&mut self, msg: &str) {
+        if let Err(e) = self.fail::<()>(msg) {
+            self.errors.push(e);
+        }
+    }
+    /// A member's name; in an editor's parse, `x.` with none yet is `x.` with an empty one.
+    fn member(&mut self) -> R<String> {
+        if self.recover && self.peek_ident().is_none() {
+            self.note("member");
+            return Ok(String::new());
+        }
+        self.ident_or("member")
     }
     pub fn line(&self) -> usize {
         self.src[..self.i].bytes().filter(|b| *b == b'\n').count() + 1
@@ -257,6 +275,71 @@ pub fn parse_program(src: &str) -> R<Program> {
     }
     let legacy = !view.is_empty();
     Ok(Program { decls, view, legacy_view: Some(legacy) })
+}
+
+/// CP-8e: an editor's parse. A declaration that does not parse is left out (the error recorded, the parse resumed at the
+/// next line that starts at column 0), and a missing member name or expression is an empty one, so the rest of the file
+/// still projects. Never used to compile: `parse_program` is the language.
+pub fn parse_program_recovering(src: &str) -> (Program, Vec<ParseError>) {
+    let mut c = Cursor::new(src);
+    c.recover = true;
+    let mut decls = vec![];
+    c.ws(true);
+    while !c.eof() {
+        if !looks_like_decl(&mut c) {
+            let (at, n) = (c.i, c.errors.len());
+            match parse_markup(&mut c, Close::Top) {
+                Ok(view) if !view.is_empty() => {
+                    let mut errors = c.errors;
+                    errors.push(ParseError("line 1: markup at a module's top level (MO-1c)".into(), Some(at), None));
+                    return (Program { decls, view, legacy_view: Some(true) }, errors);
+                }
+                Ok(_) => break,
+                Err(e) => {
+                    c.errors.truncate(n);
+                    c.errors.push(e);
+                    c.i = at;
+                    skip_line(&mut c);
+                }
+            }
+        } else {
+            let (at, n) = (c.i, c.errors.len());
+            match parse_decl(&mut c) {
+                Ok(d) => decls.push(d),
+                Err(e) => {
+                    // what the failed attempt noted on the way is moot: the declaration is out
+                    c.errors.truncate(n);
+                    c.errors.push(e);
+                    c.i = at;
+                    skip_line(&mut c);
+                }
+            }
+        }
+        c.ws(true);
+        c.eat(";");
+        c.ws(true);
+    }
+    let (view, legacy_view) = match decls.iter().find(|d| matches!(d, Decl::Component { is_default: true, .. })) {
+        Some(Decl::Component { name, line, .. }) => (vec![Markup { kind: MarkupKind::El { tag: name.clone(), attrs: vec![], children: vec![] }, line: Some(*line), span: Span::NONE }], None),
+        _ => (vec![], Some(false)),
+    };
+    (Program { decls, view, legacy_view }, c.errors)
+}
+/// On to the next line that starts at column 0 with something other than a closing brace (where a declaration may).
+fn skip_line(c: &mut Cursor) {
+    loop {
+        match c.rest().find('\n') {
+            None => {
+                c.i = c.src.len();
+                return;
+            }
+            Some(j) => c.i += j + 1,
+        }
+        let ch = c.peek();
+        if !ch.is_whitespace() && ch != '}' && ch != '\0' {
+            return;
+        }
+    }
 }
 
 /// MO-8: a declaration file (`api.d.rx`) for a JS module.
@@ -1158,11 +1241,11 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
                 c.expect("]")?;
                 e = Expr::new(ExprKind::Index { o: Box::new(e), i: Box::new(i), opt: true }, Span::new(start, c.i));
             } else {
-                let p = c.ident_or("member")?;
+                let p = c.member()?;
                 e = Expr::new(ExprKind::Member { o: Box::new(e), p, opt: true }, Span::new(start, c.i));
             }
         } else if c.eat(".") {
-            let p = c.ident_or("member")?;
+            let p = c.member()?;
             e = Expr::new(ExprKind::Member { o: Box::new(e), p, opt: false }, Span::new(start, c.i));
         } else if c.peek() == '[' {
             c.bump();
@@ -1354,8 +1437,17 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
     if c.keyword("null") {
         return Ok(ex(start, ExprKind::Lit(Lit::Null), c));
     }
+    if c.recover && (c.i == 0 || c.src.as_bytes()[c.i - 1] == b'\n') && looks_like_decl(c) {
+        c.note("expression");
+        return Ok(ex(start, ExprKind::Id(String::new()), c));
+    }
     if let Some(id) = c.ident() {
         return Ok(ex(start, ExprKind::Id(id), c));
+    }
+    if c.recover {
+        // a missing expression; what follows (on its own line) is the next declaration's
+        c.note("expression");
+        return Ok(ex(start, ExprKind::Id(String::new()), c));
     }
     c.fail("expression")
 }
@@ -1693,4 +1785,33 @@ fn parse_element(c: &mut Cursor) -> R<Markup> {
     }
     let children = parse_markup(c, Close::Tag(tag.clone()))?;
     Ok(mk(MarkupKind::El { tag, attrs, children }))
+}
+
+#[cfg(test)]
+mod recovering {
+    use super::*;
+
+    fn names(p: &Program) -> Vec<String> {
+        p.decls.iter().filter_map(|d| d.name().map(|n| n.to_string())).collect()
+    }
+
+    #[test]
+    fn half_typed_member_and_expression_still_parse() {
+        let src = "source user := { name: \"a\" }\nshown = user.\nnext = \nexport default component App() {\n  <p>{shown}</p>\n}\n";
+        let (p, errs) = parse_program_recovering(src);
+        assert_eq!(names(&p), ["user", "shown", "next", "App"]);
+        assert_eq!(errs.len(), 2);
+        let Decl::Eq { e, .. } = &p.decls[1] else { panic!() };
+        assert!(matches!(&e.k, ExprKind::Member { p, .. } if p.is_empty()));
+        assert_eq!(e.span.text(src), "user.");
+    }
+
+    #[test]
+    fn a_broken_declaration_is_left_out_and_the_rest_parse() {
+        let src = "source a := 1\nfn f(x => x\nb = a + 1\ncomponent Item(props) {\n  <li>{props.x</li>\n}\nexport default component App() {\n  <Item x={b} />\n}\n";
+        let (p, errs) = parse_program_recovering(src);
+        assert_eq!(names(&p), ["a", "b", "App"]);
+        assert_eq!(errs.len(), 2);
+        assert!(parse_program(src).is_err());
+    }
 }
