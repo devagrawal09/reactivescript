@@ -1,0 +1,91 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+
+error NotFound(id: number) => `issue #${id} not found`
+
+type AssignError = { id: number; message: string }
+type PendingAssign = { id: number; who: string; n: number }
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source assignError: AssignError | null := null
+  source issues = await fetchIssues(filter)
+  source pendingAssigns: PendingAssign[] := []
+  source assignSeq: number := 0
+
+  shownError = assignError != null && assignError.id == selected ? assignError.message : ""
+
+  action assignIssue(id: number, who: string, n: number) {
+    try {
+      let r = await assign(id, who)
+      issues := xs => xs.map(i => i.id == r.id ? { ...i, assignee: r.assignee } : i)
+    } catch (e) {
+      assignError := { id: id, message: e.message }
+    }
+    pendingAssigns := ps => ps.filter(p => p.n != n)
+  }
+
+  <div>
+    <div>
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.currentTarget.value }} /></label>
+    </div>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <div data-testid="list">
+      {loading on(filter) fallback { <p>{`loading ${filter} issues`}</p> } {
+        <div>
+          {errored fallback(e) { <p>{`list error: ${e.message}`}</p> } {
+            <ul>
+              {for issue in issues {
+                mine = pendingAssigns.filter(p => p.id == issue.id)
+                assignee = mine.length > 0 ? mine[mine.length - 1].who : issue.assignee
+                <li data-testid="issue" onClick={() => { selected := issue.id; assignError := null }}>{`#${issue.id} ${issue.title} (${assignee ?? "unassigned"})`}</li>
+              }}
+            </ul>
+          }}
+        </div>
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected {
+        detail = await fetchIssue(selected)
+        shown = detail == null ? throw NotFound(selected) : detail
+        <div>
+          <div>
+            {loading on(selected) fallback { <p>{`loading #${selected}`}</p> } {
+              <div>
+                {errored fallback(e) { <p>{`detail error: ${e.message}`}</p> } {
+                  <div>
+                    <h2>{`#${shown.id} ${shown.title}`}</h2>
+                    <p>{shown.body}</p>
+                  </div>
+                }}
+              </div>
+            }}
+          </div>
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+          <button data-testid="assign" onClick={() => {
+            let id = selected
+            let who = user
+            let n = assignSeq + 1
+            onFlush(() => {
+              assignSeq := n
+              assignError := null
+              pendingAssigns := ps => [...ps, { id: id, who: who, n: n }]
+            })
+            assignIssue(id, who, n)
+          }}>{`assign to ${user}`}</button>
+          {if shownError != "" {
+            <p data-testid="assign-error">{shownError}</p>
+          }}
+        </div>
+      } else {
+        <p>select an issue</p>
+      }}
+    </div>
+  </div>
+}

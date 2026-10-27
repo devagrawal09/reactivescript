@@ -1,0 +1,64 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import pure { len } from "./prelude"
+
+export default component App() {
+  settings = await loadSettings()
+  source saved = settings
+  source draft = settings
+  source inflight: { name: string; theme: string; density: string } | null := null
+  source saveError := ""
+  source seq := 0
+
+  nameLen = len(draft.name)
+  nameError = nameLen == 0 ? "Display name is required" : nameLen > 20 ? `Display name must be at most 20 characters, not ${nameLen}` : ""
+  savedLine = inflight != null ? `Saved: ${inflight.name} · ${inflight.theme} · ${inflight.density} (saving…)` : `Saved: ${saved.name} · ${saved.theme} · ${saved.density}`
+
+  <main>
+    {errored fallback(e) {
+      <p data-testid="load">Could not load settings: {e.message}</p>
+      <button data-testid="retry-load" onClick={() => { refresh settings }}>Retry</button>
+    } {
+      {loading fallback { <p data-testid="load">Loading settings…</p> } {
+        <p data-testid="saved">{savedLine}</p>
+        <form onSubmit={(e) => { e.preventDefault() }}>
+          <label>
+            Display name{" "}
+            <input data-testid="name" value={draft.name} onInput={(e) => { draft.name := e.currentTarget.value }} />
+          </label>
+          <span data-testid="name-count">{`${nameLen}/20`}</span>
+          {if nameError != "" {
+            <p data-testid="name-error">{nameError}</p>
+          }}
+          <div>
+            <button type="button" data-testid="theme-light" onClick={() => { draft.theme := "light" }}>Light</button>
+            <button type="button" data-testid="theme-dark" onClick={() => { draft.theme := "dark" }}>Dark</button>
+            <button type="button" data-testid="density-toggle" onClick={() => { draft.density := draft.density == "compact" ? "comfortable" : "compact" }}>Toggle density</button>
+          </div>
+          <p data-testid="preview">{`Preview: ${draft.theme} / ${draft.density}`}</p>
+          <button type="button" data-testid="save" onClick={() => {
+            if (nameError != "") { return }
+            let d = { name: draft.name, theme: draft.theme, density: draft.density }
+            let n = seq + 1
+            seq := n
+            inflight := d
+            saveError := ""
+            try {
+              let r = await saveSettings(d)
+              saved := r
+              if (seq == n) { inflight := null }
+            } catch (err) {
+              if (seq == n) {
+                inflight := null
+                saveError := `Save failed: ${err.message}`
+              }
+            }
+          }}>Save</button>
+          {if saveError != "" {
+            <p data-testid="save-error">{saveError}</p>
+          }}
+        </form>
+      }}
+    }}
+  </main>
+}

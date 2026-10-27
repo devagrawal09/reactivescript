@@ -1,0 +1,4 @@
+// src/api.js, as .rx sees it. loadSettings is a loader (safe to ask from an equation); saveSettings writes.
+export type Settings = { name: string; theme: string; density: string }
+export pure fn loadSettings(): Promise<Settings>
+export fn saveSettings(s: Settings): Promise<Settings>
