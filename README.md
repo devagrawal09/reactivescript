@@ -104,12 +104,16 @@ TSX projection ([spec/13](spec/13-types.md)). For whole apps, start with
 | [`ref/`](ref) | the reference implementation in TypeScript: interpreter, checker, compiler, and runners that check every scenario against Solid itself |
 | [`compiler/`](compiler) | the production compiler, a Rust crate (`rxc`) built on Solid's own compiler; also the npm package `@reactivescript/compiler` with a Vite front end |
 | [`runtime/`](runtime) | `@reactivescript/runtime`, the small layer compiled `.rx` calls over Solid |
-| [`tooling/vscode-rx`](tooling/vscode-rx) | VS Code syntax highlighting for `.rx` |
+| [`tooling/rx-language-server`](tooling/rx-language-server) | the `.rx` language server: TypeScript's hover, go to definition, rename, completion and type errors on `.rx`, plus the checker's diagnostics with their rules |
+| [`tooling/vscode-rx`](tooling/vscode-rx) | the VS Code extension: highlighting, and the language server |
 
-None of the packages is published to npm yet (`@reactivescript/compiler`,
-`@reactivescript/runtime`, and `@reactivescript/language-server` are planned).
-A language server with hover, go-to-definition and errors as you type is in
-review ([#7](https://github.com/ryansolid/reactivescript/pull/7)).
+Nothing is published yet. `@reactivescript/compiler`,
+`@reactivescript/runtime` and `@reactivescript/language-server` will go to
+npm, and the extension to the VS Marketplace and Open VSX
+([`tooling/RELEASING.md`](tooling/RELEASING.md)). In Vite, the compiler is a
+front end that Solid's Vite plugin loads on its own when the package is
+installed; that support is merged in Solid's plugin but not yet released
+([`compiler/README.md`](compiler/README.md)).
 
 ## Try it
 
@@ -122,11 +126,14 @@ node --experimental-strip-types ref/check.ts examples/todo.rx   # check a progra
 node --experimental-strip-types ref/run.ts                      # run every scenario
 ```
 
-Running the scenarios on Solid itself or building the Rust compiler needs
-Solid's `next` branch built from source (pnpm and a Rust toolchain); see
-[CONTRIBUTING.md](CONTRIBUTING.md), [`ref/README.md`](ref/README.md) and
-[`compiler/README.md`](compiler/README.md). The VS Code extension installs
-from its folder ([`tooling/vscode-rx/README.md`](tooling/vscode-rx/README.md)).
+Running the scenarios on Solid itself needs Solid's `next` branch built from
+source (pnpm and a Rust toolchain); see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[`ref/README.md`](ref/README.md). The compiler builds with Cargo
+([`compiler/README.md`](compiler/README.md)). For the editor, install a
+`.vsix` from a run of the repository's `editor` workflow, or build one
+([`tooling/vscode-rx/README.md`](tooling/vscode-rx/README.md)); other editors
+use the language server directly
+([`tooling/rx-language-server`](tooling/rx-language-server)).
 
 ## Reading the spec
 
