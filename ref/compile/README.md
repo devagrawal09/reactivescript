@@ -10,6 +10,7 @@ time instead of run time.
 | `emit.ts` | the code generator: `compile(program) → string`. Lexical scopes become JS scopes; every region is a function, every declaration a `const`, in dependency order (E-7 + C-1 make it a DAG). Names are mangled: `v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo. |
 | `rt.ts` | the runtime the module calls (`__rt`, whose names spec/11 CP-4b pins): sources (atomic → signal; structured → store behind a signal slot), question sources (with an optimistic layer), effects with an error arm, actions as generators, provisions as context, view helpers over `@solidjs/universal`. Renderer node operations are a parameter: a string tree for tests, `domNodes(document)` for the browser. |
 | `run.ts` | compiles every scenario's program, imports it, drives it through the scenario's rows. The output is Solid code, so it must show what the oracle shows. |
+| `lowered.ts` | a scenario program compiled for `run.ts` and `ssr/run.ts`: by `emit.ts` and Solid's `transform()`, or with `RX_CRATE=1` by the Rust crate (`compiler/`, `rxc lower`). |
 | `build.ts` | `node --experimental-strip-types ref/compile/build.ts app.rx` → `ref/compile/.out/web/app/` (index.html with an import map, app.mjs, rt.mjs, api.mjs). Serve `ref/` and open `/compile/.out/web/app/`. |
 
 ```
