@@ -5,6 +5,10 @@ semantics: equations by default, writes confined to imperative scope, ownership
 and async (pending, holds, lanes) as things the compiler checks rather than the
 runtime warns about.
 
+> **Status:** early design work. The spec, its scenarios and the reference
+> implementation change often, and nothing here is released. See
+> [CONTRIBUTING.md](CONTRIBUTING.md) to run the suite or propose a change.
+
 This repository is the **spec** and its **reference implementation**. The
 production compiler is a separate Rust crate over Solid's own
 `solidjs-compiler` (`spec/11-compiler.md`): ReactiveScript parses, checks
@@ -88,3 +92,7 @@ Scenario IDs: `S-<area>-n` for the areas above (`S-core`, `S-region`,
   - *Superset of `.tsx`, no SFCs* — superseded: expressions and JSX are
     TS's verbatim and a file is a module (07 §1); declarations are keywords
     (`source`, `x = e`), as 07 rules.
+
+## License
+
+[MIT](LICENSE)
