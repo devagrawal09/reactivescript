@@ -1,0 +1,64 @@
+import pure { search, fetchItem } from "./api"
+import pure { len } from "./prelude"
+
+export error NotFound(id: number) => `item ${id} not found`
+fn found(it, id) => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source q: string := ""
+  source sel: number := 0
+
+  typed = latest q
+  picked = latest sel
+  res = len(q) < 2 ? null : ({ q: q, hits: await search(q), err: "" } catch (e) => ({ q: q, hits: [], err: e.message }))
+  item = sel == 0 ? null : found(await fetchItem(sel), sel)
+
+  <main>
+    <input data-testid="query" onInput={(e) => { q := e.target.value }} />
+    <div data-testid="results">
+      {if typed == "" {
+      } else {
+        {if len(typed) < 2 {
+          <p>too short: {typed}</p>
+        } else {
+          {loading fallback { <p>searching…</p> } {
+            {if res == null {
+              <p>searching…</p>
+            } else {
+              {if pending? res { <p>searching…</p> }}
+              {if res.err != "" {
+                <p>search failed: {res.err}</p>
+              } else {
+                <p>{len(res.hits)} results for {res.q}</p>
+                <ul>
+                  {for h in res.hits {
+                    <li data-testid="hit" onClick={() => { sel := h.id }}>{picked == h.id ? "> " : ""}{h.name}</li>
+                  }}
+                </ul>
+              }}
+            }}
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if picked == 0 {
+        <p>pick a result</p>
+      } else {
+        {loading on(sel) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+          } {
+            {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+              {if item != null {
+                <h2>{item.name}</h2>
+                <p>{item.blurb}</p>
+              }}
+            }}
+          }}
+        }}
+      }}
+    </div>
+  </main>
+}

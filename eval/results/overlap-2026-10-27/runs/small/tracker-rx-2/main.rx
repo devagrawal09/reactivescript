@@ -1,0 +1,73 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, Issue, IssueDetail } from "./api"
+import pure { indexOf } from "./prelude"
+
+error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it: IssueDetail | null, id: number): IssueDetail => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user: string := "guest"
+  source status: string := "open"
+  source issues: Issue[] key id = await fetchIssues(status)
+  source selectedId: number | null := null
+  source assignError: string := ""
+
+  detail = selectedId == null ? null : found(await fetchIssue(selectedId ?? 0), selectedId ?? 0)
+
+  action assignIssue(id: number, who: string) {
+    assignError := ""
+    try {
+      let i = indexOf(issues, t => t.id == id)
+      if (i >= 0) {
+        optimistic issues[i].assignee := who
+      }
+      await assign(id, who)
+      refresh issues
+    } catch (e) {
+      assignError := e.message
+    }
+  }
+
+  <main>
+    <label>
+      User <input data-testid="user" value={user} onInput={e => { user := e.target.value }} />
+    </label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { status := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { status := "closed" }}>closed</button>
+    </div>
+
+    <section data-testid="list">
+      {errored fallback(e) { <p>{`list error: ${e.message}`}</p> } {
+        {loading on(status) fallback { <p>{`loading ${status} issues`}</p> } {
+          <ul>
+            {for issue in issues {
+              <li data-testid="issue" onClick={() => { selectedId := issue.id; assignError := "" }}>
+                {`#${issue.id} ${issue.title} (${issue.assignee ?? "unassigned"})`}
+              </li>
+            }}
+          </ul>
+        }}
+      }}
+    </section>
+
+    <section data-testid="detail">
+      {if selectedId == null {
+        <p>select an issue</p>
+      } else {
+        {errored fallback(e) { <p>{`detail error: ${e.message}`}</p> } {
+          {loading on(selectedId) fallback { <p>{`loading #${selectedId}`}</p> } {
+            <h2>{`#${detail?.id} ${detail?.title}`}</h2>
+            <p>{detail?.body}</p>
+          }}
+        }}
+        <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+        <button data-testid="assign" onClick={() => { assignIssue(selectedId ?? 0, user) }}>{`assign to ${user}`}</button>
+        {if assignError != "" {
+          <p data-testid="assign-error">{assignError}</p>
+        }}
+      }}
+    </section>
+  </main>
+}

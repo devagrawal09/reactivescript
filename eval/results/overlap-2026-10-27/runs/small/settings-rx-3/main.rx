@@ -1,0 +1,82 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import pure { len } from "./prelude"
+
+type Settings = { name: string; theme: string; density: string }
+
+// Bumped by retry: each bump asks the load again.
+source attempt := 0
+
+// The settings as last saved (or loaded). A question: asked again when `attempt` changes.
+source saved = attempt >= 0 ? await loadSettings() : null
+
+source saveError: string = ""
+
+action retry() {
+  attempt := attempt + 1
+}
+
+action save(s: Settings) {
+  optimistic saved := s
+  affects saved
+  optimistic saveError := ""
+  try {
+    let answer = await saveSettings(s)
+    saved := answer
+  } catch (e) {
+    saveError := e.message
+  }
+}
+
+// The draft: seeded once from the loaded settings, then it belongs to the user.
+component Editor(props: { initial: Settings }) {
+  source dName := peek(props.initial.name)
+  source dTheme := peek(props.initial.theme)
+  source dDensity := peek(props.initial.density)
+  nameOk = len(dName) > 0 && len(dName) <= 20
+
+  <section>
+    <p data-testid="saved">Saved: {saved.name} · {saved.theme} · {saved.density}{(pending? saved) ? " (saving…)" : ""}</p>
+
+    <label>
+      Name
+      <input data-testid="name" value={dName} onInput={(e) => { dName := e.target.value }} />
+    </label>
+    <span data-testid="name-count">{len(dName)}/20</span>
+    {if len(dName) == 0 {
+      <p data-testid="name-error">Display name is required</p>
+    }}
+    {if len(dName) > 20 {
+      <p data-testid="name-error">Display name must be at most 20 characters, not {len(dName)}</p>
+    }}
+
+    <div>
+      <button data-testid="theme-light" onClick={() => { dTheme := "light" }}>Light</button>
+      <button data-testid="theme-dark" onClick={() => { dTheme := "dark" }}>Dark</button>
+      <button data-testid="density-toggle" onClick={() => { dDensity := dDensity == "compact" ? "comfortable" : "compact" }}>Density</button>
+    </div>
+    <p data-testid="preview">Preview: {dTheme} / {dDensity}</p>
+
+    <button data-testid="save" onClick={() => {
+      if (nameOk) { save({ name: dName, theme: dTheme, density: dDensity }) }
+    }}>Save</button>
+    {if saveError != "" {
+      <p data-testid="save-error">Save failed: {saveError}</p>
+    }}
+  </section>
+}
+
+export default component App() {
+  loading on(attempt) fallback {
+    <p data-testid="load">Loading settings…</p>
+  } {
+    errored fallback(e) {
+      <div>
+        <p data-testid="load">Could not load settings: {e.message}</p>
+        <button data-testid="retry-load" onClick={() => { retry() }}>Retry</button>
+      </div>
+    } {
+      <Editor initial={saved} />
+    }
+  }
+}
