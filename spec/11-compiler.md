@@ -222,11 +222,14 @@ message, each module's printed `.d.rx` and the model. With `--lower`, every
 program the checker accepts (each scenario table with its handler rows, as
 `compile/run.ts` compiles it) is also lowered by both for the universal, dom
 and ssr targets, and each module's output must be the same JavaScript
-(comments dropped, both printed by esbuild). `RX_CRATE=1 npm --prefix ref run
-compiled` runs the scenarios on the crate's output. Not yet ported: the
-server and hydration build (`ref/ssr/`, whose `"use server"` extraction is a
-build-tool pass after the compiler), and `.rx` positions for diagnostics and
-source maps (CP-1c).
+(comments dropped, both printed by esbuild). With `RX_CRATE=1`, the runners
+take the crate's output instead of the reference's (`ref/compile/lowered.ts`):
+`compiled` runs the scenarios on its universal target, and `ssr` serves its
+ssr target and hydrates with its dom target. The `"use server"` extraction
+(12 SF-7a) is not the compiler's: it is Solid's `transformDirectives`, a
+bundler pass over the compiled module, which the runner applies to either
+output alike. Not yet built: `.rx` positions for diagnostics and source maps
+(CP-1c).
 
 ## Decisions taken by default (veto here)
 

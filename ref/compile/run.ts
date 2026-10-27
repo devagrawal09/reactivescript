@@ -3,16 +3,14 @@
 // the spec's frames, or a recorded divergence.
 // node --experimental-strip-types --conditions=browser --conditions=development ref/compile/run.ts [filter]
 import { SOLID } from "../solid-version.ts";
-import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
-import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
+import { compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
 import { createApp, flush } from "./rt.ts";
-import { lowerViews, STRING_RENDERER } from "./jsx.ts";
-import { loadModules } from "../src/modules.ts";
+import { build } from "./lowered.ts";
 import { resetErrorHalt } from "@solidjs/signals";
 
 process.on("unhandledRejection", () => {});
@@ -21,39 +19,17 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const outDir = fileURLToPath(new URL("./.out/", import.meta.url)); mkdirSync(outDir, { recursive: true });
 let seq = 0, divergent = 0;
 
-// RX_CRATE=1: the same tables run on the Rust crate's output (compiler/, `rxc lower`, CP-7) instead of compile/emit.ts's.
-const crate = !!process.env.RX_CRATE;
-const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
-if (crate) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileURLToPath(new URL("../../compiler/", import.meta.url)), stdio: "inherit" });
-function crateLower(sc: Scenario, src: string, rows: Scenario["tables"][number]["rows"]): { entry: string; views: Map<string, string> } {
-  const files: Record<string, string> = {};
-  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
-  loadModules(sc.entry, read);
-  const extra = rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7));
-  const [r] = JSON.parse(execFileSync(rxc, ["lower"], { input: JSON.stringify([{ id: sc.name, entry: sc.entry, files, extra, renderer: STRING_RENDERER }]), maxBuffer: 1 << 30 }).toString());
-  if (r.compileError) throw new CompileError(r.compileError);
-  if (r.refused || r.error || r.panic) throw new Error(`crate: ${JSON.stringify(r)}`);
-  const views = new Map<string, string>();
-  for (const [name, t] of Object.entries(r.files as Record<string, { universal: string | { error: string } }>)) {
-    if (typeof t.universal !== "string") throw new Error(`crate: ${name}: ${t.universal.error}`);
-    views.set(name, t.universal);
-  }
-  return { entry: r.entry, views };
-}
-
 async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scenario["tables"][number] | undefined, lines: string[]): Promise<boolean> {
   let ok = true;
   const src = t.program ?? sc.program;
   let rows = t.rows; let own = 0;
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
   const chains: typeof rows[] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
-  const handlerStmts = rows.filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
   resetErrorHalt();
   let entry: string, views: Map<string, string>;
   try {
     const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; }
-    if (crate) ({ entry, views } = crateLower(sc, src, rows));
-    else { const out = compileModules(set, { extraStmts: handlerStmts }); entry = out.entry; views = lowerViews(out.files, "universal"); }
+    const out = build(sc, src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); entry = out.entry; views = out.views("universal");
   }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
@@ -107,7 +83,7 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   for (const t of sc.tables) ok = (await runTable(sc, t, base, lines)) && ok;
   if (sc.css !== null) {   // 07 §6b: the program's stylesheet, as TSRX's engine scoped it — hashes renamed h1, h2… in order of appearance
     try {
-      const hashes: string[] = []; const css = compileModules(moduleSet(sc, sc.program)).css.replace(/tsrx-[0-9a-f]{8}/g, h => `h${(hashes.includes(h) ? hashes.indexOf(h) : hashes.push(h) - 1) + 1}`);
+      const hashes: string[] = []; const css = build(sc, sc.program, []).css.replace(/tsrx-[0-9a-f]{8}/g, h => `h${(hashes.includes(h) ? hashes.indexOf(h) : hashes.push(h) - 1) + 1}`);
       if (norm(css) === norm(sc.css)) lines.push(`  ✓ Scoped CSS: ${norm(css)}`); else { ok = false; lines.push(`  ✗ Scoped CSS: expected '${norm(sc.css)}', got '${norm(css)}'`); }
     } catch (e) { ok = false; lines.push(`  ✗ Scoped CSS: ${(e as Error).message}`); }
   }

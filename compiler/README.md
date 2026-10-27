@@ -29,6 +29,7 @@ target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program
 npm --prefix ../ref run crate -- --lower         # … and the lowered JavaScript, for every target
 RX_CRATE=1 npm --prefix ../ref run compiled      # the scenarios, run on the crate's output
+RX_CRATE=1 npm --prefix ../ref run ssr           # … served and hydrated from the crate's output
 ```
 
 `ref/` stays the specification: a change of behaviour lands there first (with
