@@ -105,7 +105,10 @@ record argued each way; this is the decision.
   (`rt.ts` is the client's over the test renderer). Each build exports
   `createApp(options)`; a compiled module's default export is a function of
   the app (`main(__rt)`, or `module(__rt)` for a dependency, MO-1), so the
-  helpers below are properties of `__rt`. The two builds create the same
+  helpers below are properties of `__rt`. It is `@reactivescript/runtime`
+  (`runtime/`), built from the reference itself, so the package runs what
+  every scenario runs; the export condition picks the build, as
+  `@solidjs/web`'s does. The two builds create the same
   owners in the same order (10, Implementation); where the client creates
   one the server has no counterpart for, the server reserves its ids. A
   value-level catch primitive that Solid provided on both sides would
@@ -256,8 +259,8 @@ stylesheet (CSS-4). Solid's plugin then takes it as it takes lowered `.tsrx`:
 primitive names aside, its lazy, refresh and server-function passes (12
 SF-7a, IDs hashed from the `.rx` path) and the stylesheet as a CSS module.
 Every example app builds and runs in Chromium that way
-(`compiler/test/vite.mjs`). The runtime package of CP-4a is not published
-yet: the apps take `createApp` from `ref/compile/rt-web.ts`.
+(`compiler/test/vite.mjs`), each mounted with `createApp` from
+`@reactivescript/runtime`, CP-4a's package (`runtime/`).
 
 ## Decisions taken by default (veto here)
 

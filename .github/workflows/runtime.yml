@@ -1,0 +1,80 @@
+# The runtime's npm package, @reactivescript/runtime (runtime/): built from ref/compile/rt-web.ts and rt-server.ts,
+# tested against the Solid release it names, with a program the crate compiles.
+#
+# A release is a version bump merged to main, once the repository variable RELEASES is `on`: a version npm does not
+# have is published by trusted publishing (OIDC, no token) and tagged `runtime-v<version>`.
+name: runtime
+
+on:
+  push:
+    branches: [main]
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "compiler/**", ".github/workflows/runtime.yml"]
+  pull_request:
+    paths: ["runtime/**", "ref/compile/rt-web.ts", "ref/compile/rt-server.ts", "compiler/**", ".github/workflows/runtime.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: The compiler's Node-API build (the test compiles a program)
+        working-directory: compiler
+        run: |
+          npm ci
+          npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+      - name: Build, test and pack
+        working-directory: runtime
+        run: |
+          npm ci
+          npm run build
+          npm test
+          npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtime
+          path: runtime/*.tgz
+
+  version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.RELEASES == 'on'
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          v=$(node -p 'require("./runtime/package.json").version')
+          if [ -z "$(npm view "@reactivescript/runtime@$v" version 2>/dev/null)" ]; then echo "version=$v" >> "$GITHUB_OUTPUT"; fi
+
+  publish:
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write # trusted publishing: npm takes the job's OIDC token, and adds provenance
+      contents: write # the tag
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtime
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest # trusted publishing needs npm 11.5.1 or later
+      - run: npm publish ./*.tgz --access public
+      - name: Tag
+        run: git tag "runtime-v$V" && git push origin "runtime-v$V"
+        env:
+          V: ${{ needs.version.outputs.version }}
