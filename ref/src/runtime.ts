@@ -154,6 +154,8 @@ export class Runtime {
   private started: Run[] = [];                          // runs started by the current imperative run, not yet assigned a change
   private currentRun: Run | null = null;
   private pendingJoin: number[] = []; private pendingBodyEnds: number[] = [];
+  private pendingFlush: (() => unknown)[] = [];                 // EF-8: onFlush callbacks; one run after the flush that registered them
+  private pendingSettled: { f: () => unknown; change: number | null }[] = [];   // EF-7: onSettled callbacks, by the change their run belongs to (null: the next instant opened)
   private pendingGuesses: { node: Node; path: string[]; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
   program: Program;
 
@@ -229,7 +231,17 @@ export class Runtime {
   step(writes: Write[]): { frame: string; effects: string[] }[] {
     const out: { frame: string; effects: string[] }[] = [];
     let w = writes;
-    do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
+    for (;;) {
+      do { this.instant++; out.push(this.runInstant(w)); w = this.pendingWrites; this.pendingWrites = []; } while (w.length && w.some(x => this.effective(x)));   // W-3: an apply's writes that are all equal open no instant
+      const logBefore = this.log.length;
+      const stray = this.pendingSettled.filter(s => s.change === null); this.pendingSettled = this.pendingSettled.filter(s => s.change !== null);
+      for (const s of stray) this.fireSettled(s.f);                    // EF-7: registered by a run whose writes opened no instant — it fires now, with this one
+      const fs = this.pendingFlush; this.pendingFlush = [];
+      for (const f of fs) f();                                           // EF-8: the flush is done; its onFlush callbacks are one run, a new instant
+      out[out.length - 1].effects.push(...this.log.slice(logBefore));
+      w = this.pendingWrites; this.pendingWrites = [];
+      if (!w.length || !w.some(x => this.effective(x))) break;
+    }
     return out;
   }
   /** Whether a write would change its slot (E-6 per path; a functional write is applied to the current value, W-6). */
@@ -254,6 +266,7 @@ export class Runtime {
     for (const n of this.allNodes()) { n.changed = false; n.demanded = false; n.evaluated = false; }
     for (const c of this.pendingJoin) this.union(this.instant, c); this.pendingJoin = [];                    // a continuation's instant is the action's change
     for (const r of this.started) r.change = this.instant; this.started = [];
+    for (const s of this.pendingSettled) if (s.change === null) s.change = this.instant;                    // EF-7: the change the registering run's writes open (or are adopted into)
     const queue = [...writes];
     for (let qi = 0; ; qi++) {
       if (qi >= queue.length) {                                         // AC-6: a write (or landing) that flips an until joins its action's change; the action resumes in this instant
@@ -363,6 +376,9 @@ export class Runtime {
       if (typeof r === "function") e.cleanup = r as () => void;
     }
     this.effects = this.effects.filter(e => e.alive);
+    const due = this.pendingSettled.filter(s => s.change !== null && s.change <= this.instant && !this.openChanges.has(this.find(s.change)));   // EF-7: its change has committed
+    this.pendingSettled = this.pendingSettled.filter(s => !due.includes(s));
+    for (const s of due) this.fireSettled(s.f);
     return { frame, effects: this.log.slice(logBefore) };
   }
 
@@ -851,6 +867,7 @@ export class Runtime {
       case "call": {
         let f: unknown, self: unknown;
         if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !region.lookup("until")) return this.until(e.args[0], region, env);   // AC-6
+        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !region.lookup(e.f.name)) return this.hook(e.f.name, e.args[0], region, env);   // EF-7, EF-8
         if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
         else f = this.ev(e.f, region, env);
         const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
@@ -897,6 +914,17 @@ export class Runtime {
     };
   }
   /** A flight's answer: the nodes that asked it recompute, the runs waiting on it resume. */
+  // ---- onSettled, onFlush (EF-7, EF-8; Solid's) ----
+  private hook(name: "onSettled" | "onFlush", arg: Expr | undefined, region: Region, env?: Map<string, unknown>): undefined {
+    if (this.demandMode) throw new RuleError("IO-2", `${name} in reactive scope`);
+    if (!arg || arg.k !== "fn" || arg.params.length) throw new RuleError("HOOK_CALLBACK", `${name} takes a closure, \`${name}(() => { … })\``);
+    const f = this.ev(arg, region, env ?? new Map()) as () => unknown;
+    if (name === "onFlush") this.pendingFlush.push(f);
+    else this.pendingSettled.push({ f, change: this.currentRun?.change ?? null });
+    return undefined;
+  }
+  private fireSettled(f: () => unknown) { if (typeof f() === "function") throw new RuleError("SETTLED_CLEANUP_UNOWNED", "an onSettled callback returned a cleanup: there is no region to bind it to (EF-7)"); }
+
   // ---- until (AC-6; Solid D-31) ----
   private untils: { flight: Flight; pred: Expr; region: Region; env?: Map<string, unknown> }[] = [];
   private authoritative = false;

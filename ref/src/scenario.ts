@@ -117,7 +117,7 @@ export function runScenario(sc: Scenario): Result {
       let got: { frame: string; effects: string[] } | undefined;
       try {
         if (r.action === "mount") { pending = rt.step([]); got = pending.shift(); }
-        else if (r.action === "(effect)") got = pending.shift();
+        else if ((r.action === "(effect)" || r.action === "(flush)")) got = pending.shift();
         else if (r.action.startsWith("handler")) { pending = rt.handler(parseStmts(r.action.slice(7))); got = pending.shift(); }
         else if (/^(resolve|reject)\s/.test(r.action)) {
           const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action)!;

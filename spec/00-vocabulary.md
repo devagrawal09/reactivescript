@@ -36,7 +36,8 @@ the committed state (V-13). Its writes begin the next instant.
 An effect is not a reader (V-4): its compute half holding a pending value does
 not hold the screen.
 
-Solid: `createEffect(compute, apply)`; an apply half with no inputs is `onSettled`.
+Solid: `createEffect(compute, apply)`; an apply half with no inputs is `onSettled`
+(its owned form; the form called from a handler is 02 EF-7).
 
 ## V-4. Reader [Solid: reader]
 
@@ -63,6 +64,7 @@ writes reach, and ends by committing. Several writes in one imperative run are
 one instant. Nothing observes a half-settled instant.
 
 Solid: a flush; "several writes in one synchronous tick are one change."
+`onFlush` (02 EF-8) schedules a run of its own after one.
 
 ## V-7. Hold [Solid: hold]
 

@@ -24,7 +24,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   const src = t.program ?? sc.program;
   let rows = t.rows; let own = 0;
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
-  const chains: typeof rows[] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
+  const chains: typeof rows[] = []; for (const r of rows) { if ((r.action === "(effect)" || r.action === "(flush)") && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
   resetErrorHalt();
   let entry: string, views: Map<string, string>;
   try {
