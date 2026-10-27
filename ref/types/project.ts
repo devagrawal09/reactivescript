@@ -12,7 +12,7 @@ import type { JsDecl } from "../src/parse.ts";
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until"]);
+const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 const isHandler = (a: string) => /^on[A-Z:]/.test(a);
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
@@ -55,6 +55,8 @@ export declare function effect(f: () => void | (() => void)): void;
 export declare function draft<T>(seed: T, f: (d: T) => void): T;
 export declare function len(x: unknown): number;
 export declare function until<T>(p: () => T): Promise<Exclude<T, false | 0 | "" | null | undefined>>;   // AC-6: Solid's until — the first truthy value
+export declare function onSettled(f: () => void): void;                   // EF-7: imperative scope only, so no cleanup return
+export declare function onFlush(f: () => void): void;                     // EF-8
 export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];

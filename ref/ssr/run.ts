@@ -6,7 +6,7 @@
 // message redacted (SV-5). SV-3: the same modules bundled over ref/compile/rt-web.ts then take the page over — after the
 // last landing, and right after the shell — and every remaining row runs in the browser.
 // node --experimental-strip-types ssr/run.ts [filter]      (default conditions: solid-js resolves to its server build)
-// env: CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
+// env: RX_CRATE=1 serves and hydrates the Rust crate's output (compiler/, compile/lowered.ts); CSR=1 also mounts each table in the browser with no server; NO_HYDRATE=1 serves only; SV_SCOPE=1 renders in
 // Solid's server-component scope (DV-9); DEBUG=1, DEBUG_NAMES=a,b and WAIT=ms help when a table disagrees.
 import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -16,9 +16,9 @@ import { createRequire } from "node:module";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
-import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
+import { compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
 import { buildSync } from "esbuild";
-import { lowerViews } from "../compile/jsx.ts";
+import { build, type Built } from "../compile/lowered.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 import { transformDirectives } from "@solidjs/compiler";
 import { handleServerFunctionRequest } from "@solidjs/web/server-functions";
@@ -75,11 +75,11 @@ type Served = { got: string[]; ended: boolean; file: string };
 /** Serve `src` once (a request: a fresh app, so fresh module state — SV-4) and land `rows[1..]` in order; the browser's text
  *  after the shell and after each landing. Undefined when the program is not served (refused, not compiled — noted). */
 async function serve(sc: Scenario, src: string, rows: Row[], title: string, lines: string[], other?: { chunks: string[] }): Promise<Served | undefined | false> {
-  let out: ReturnType<typeof compileModules>;
-  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return undefined; } out = compileModules(set, {}); }
+  let out: Built;
+  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return undefined; } out = build(sc, src, []); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return undefined; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
+  for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   const app = createApp();
   const got: string[] = []; let ended = false; let chunks = 0; let renderError: unknown = null;
@@ -119,9 +119,9 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
 
 const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 /** The browser's half of a table (SV-3): its compiled modules over rt-web.ts, bundled for the page. */
-function bundle(dir: string, files: Map<string, string>, entry: string) {
+function bundle(dir: string, views: Map<string, string>, entry: string) {
   const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
-  for (const [name, js] of lowerViews(files, "dom")) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
+  for (const [name, js] of views) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
   writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
   const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
@@ -142,14 +142,13 @@ const c0last = (chains: Chain[]) => chains[0][chains[0].length - 1];
  *  message may be redacted, SV-5b). After hydrating: every element the server sent was adopted, and no question the server
  *  answered was asked again. */
 async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string, chains: Chain[], served: number, at: number, label: string, lines: string[]): Promise<boolean> {
-  let out: ReturnType<typeof compileModules>;
-  const handlerStmts = chains.flat().filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
-  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = compileModules(set, { extraStmts: handlerStmts }); }
+  let out: Built;
+  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = build(sc, src, chains.flat().filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
+  for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.files, out.entry);
+  clientJs = bundle(dir, out.views("dom"), out.entry);
   const app = createApp(); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
@@ -267,7 +266,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   const src = t.program ?? sc.program;
   let rows = t.rows; let own = 0;   // own: rows before this index are the base's, replayed to drive state
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
-  const chains: Row[][] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
+  const chains: Row[][] = []; for (const r of rows) { if ((r.action === "(effect)" || r.action === "(flush)") && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
   const cf = clientFns(sc, src);   // SV-7b: a client question's landing is the browser's — the stream ends before it
   const upTo = chains.findIndex(c => !(c[0].action === "mount" || (/^(resolve|reject)\s/.test(c[0].action) && !isClientRow(c[0], cf))));
   const served = upTo < 0 ? chains : chains.slice(0, upTo);
@@ -325,13 +324,13 @@ async function runServerTable(sc: Scenario, lines: string[]): Promise<boolean> {
 async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolean> {
   const title = "Before hydration"; const rows = sc.before;
   if (!rows.length || rows[0].action !== "mount") { lines.push(`  ✗ ${title}: the first row is the mount`); return false; }
-  let out: ReturnType<typeof compileModules>;
-  try { const set = moduleSet(sc, sc.program); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return true; } out = compileModules(set, {}); }
+  let out: Built;
+  try { const set = moduleSet(sc, sc.program); if (checkModules(set).diags.length) { lines.push(`  ~ ${title}: refused by the checker`); return true; } out = build(sc, sc.program, []); }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${title}: not compiled — ${e.message}`); return true; } lines.push(`  ✗ ${title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of lowerViews(out.files, "ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
+  for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  clientJs = bundle(dir, out.files, out.entry);
+  clientJs = bundle(dir, out.views("dom"), out.entry);
   const app = createApp(); let chunks = 0;
   const served$ = new Promise<void>(resolve => {
     pending = res => {

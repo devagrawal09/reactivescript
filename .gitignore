@@ -1,1 +1,5 @@
 node_modules/
+compiler/target/
+compiler/*.node
+compiler/test/.out/
+compiler/artifacts/
