@@ -1,0 +1,21 @@
+{
+  "name": "@reactivescript/compiler-darwin-x64",
+  "version": "0.0.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "compiler.darwin-x64.node",
+  "files": [
+    "compiler.darwin-x64.node"
+  ],
+  "description": "ReactiveScript's compiler, in process through Node-API, and its front end for @solidjs/vite-plugin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryansolid/reactivescript.git",
+    "directory": "compiler"
+  },
+  "os": [
+    "darwin"
+  ]
+}

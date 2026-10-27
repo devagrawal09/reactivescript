@@ -8,9 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
-import { compileModules, compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
+import { compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
 import { createApp, flush } from "./rt.ts";
-import { lowerViews } from "./jsx.ts";
+import { build } from "./lowered.ts";
 import { resetErrorHalt } from "@solidjs/signals";
 
 process.on("unhandledRejection", () => {});
@@ -25,15 +25,17 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   let rows = t.rows; let own = 0;
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
   const chains: typeof rows[] = []; for (const r of rows) { if ((r.action === "(effect)" || r.action === "(flush)") && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
-  const handlerStmts = rows.filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });
   resetErrorHalt();
-  let out: ReturnType<typeof compileModules>;
-  try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; } out = compileModules(set, { extraStmts: handlerStmts }); }
+  let entry: string, views: Map<string, string>;
+  try {
+    const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; }
+    const out = build(sc, src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); entry = out.entry; views = out.views("universal");
+  }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   const local = JSON.stringify(fileURLToPath(new URL("./server-functions-local.ts", import.meta.url)));
-  for (const [name, js] of lowerViews(out.files, "universal")) writeFileSync(dir + name, js.replaceAll('"@solidjs/web/server-functions"', local));   // SF-7b: no network here
-  const file = dir + out.entry;
+  for (const [name, js] of views) writeFileSync(dir + name, js.replaceAll('"@solidjs/web/server-functions"', local));   // SF-7b: no network here
+  const file = dir + entry;
   const app = createApp();
   let dispose: () => void = () => {};
   try {
@@ -81,7 +83,7 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   for (const t of sc.tables) ok = (await runTable(sc, t, base, lines)) && ok;
   if (sc.css !== null) {   // 07 §6b: the program's stylesheet, as TSRX's engine scoped it — hashes renamed h1, h2… in order of appearance
     try {
-      const hashes: string[] = []; const css = compileModules(moduleSet(sc, sc.program)).css.replace(/tsrx-[0-9a-f]{8}/g, h => `h${(hashes.includes(h) ? hashes.indexOf(h) : hashes.push(h) - 1) + 1}`);
+      const hashes: string[] = []; const css = build(sc, sc.program, []).css.replace(/tsrx-[0-9a-f]{8}/g, h => `h${(hashes.includes(h) ? hashes.indexOf(h) : hashes.push(h) - 1) + 1}`);
       if (norm(css) === norm(sc.css)) lines.push(`  ✓ Scoped CSS: ${norm(css)}`); else { ok = false; lines.push(`  ✗ Scoped CSS: expected '${norm(sc.css)}', got '${norm(css)}'`); }
     } catch (e) { ok = false; lines.push(`  ✗ Scoped CSS: ${(e as Error).message}`); }
   }

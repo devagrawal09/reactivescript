@@ -7,6 +7,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
+import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
@@ -183,16 +184,18 @@ export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]> };
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p) }; }
+export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig> } {
+export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); }
-  return { diags, sigs };
+  const models = new Map<string, Model>();                              // CP-6: each module's resolved model
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
+  return { diags, sigs, models };
 }
 
 class Checker {
   diags: Diagnostic[] = [];
+  model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
   private opts: Opts;
   private rootEnv: Env | null = null;
   constructor(opts: Opts = {}) { this.opts = opts; }
@@ -208,14 +211,19 @@ class Checker {
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
-  private region(parent: Region | null, opts: { component?: boolean; provParent?: Region | null } = {}): Region {
+  private region(parent: Region | null, kind: RegionKind, opts: { component?: boolean; provParent?: Region | null; name?: string } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
     r.component = opts.component ? r : parent?.component ?? null;
+    this.model.region(r.id, kind, parent, opts.name);
     return r;
   }
+  /** CP-6: a computation the walk enters — its reads, writes and calls are recorded on it. */
+  private comp(kind: CompKind, env: Env, info: { name?: string; at?: string }, f: () => void) { this.model.within(kind, env.region, this.line, info, f); }
+  /** CP-6: a symbol bound in `env`, recorded for the model. */
+  private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
   run(p: Program) {
-    const root = new Env(null, this.region(null)); this.rootEnv = root;
+    const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.later.push(() => this.contentCheck(p.view, root, []));
@@ -230,13 +238,13 @@ class Checker {
       this.line = d.line;
       if (d.k === "import" && d.resolved) { this.importRx(d, env); continue; }                                  // MO-1/MO-3: an .rx module's signature
       if (d.k === "import" && d.declared) { this.importDeclared(d, env); continue; }                            // MO-8: a JS module's declaration file
-      if (d.k === "import") { for (const { alias } of d.names) env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side }); continue; }   // R-io-4, R-f-8, SF-5
+      if (d.k === "import") { for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side }); continue; }   // R-io-4, R-f-8, SF-5
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
       if (d.k === "context") {                                                             // RG-7: a declared context — its identity is the declaration, not its spelling
         if (env.vars.has(d.name)) this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
         const contract = (d.type && ROW_WORDS.test(d.type)) || d.exported ? this.contractOf(d.type) : null;   // RG-7e: written rows, or exported (its type is then the contract: no row words, no rows)
         if (d.source && d.dflt) this.err("INVALID_CONTEXT_DEFAULT", "RG-7c", `context ${d.name}: source … has no default — a provided source is its provider's; a default would be one source every user writes (declare that source instead)`);
-        env.vars.set(d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract } });
+        this.bind(env, d.name, { kind: "context", name: d.name, region: env.region, line: d.line, ctx: { key: `${this.opts.file ?? "main.rx"}#${d.name}${env.region.parent ? `@${this.seq++}` : ""}`, source: d.source, dflt: !!d.dflt, contract } });
         if (d.dflt) this.provisions.push({ key: env.vars.get(d.name)!.ctx!.key, e: d.dflt, env });
         continue;
       }
@@ -246,10 +254,10 @@ class Checker {
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") sym.io = true;                                                 // R-io-2: an action is io
       if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
-      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, { component: true }); this.compSyms.set(sym.compRegion, sym); }
+      if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } }
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
-      env.vars.set(d.name, sym);
+      this.bind(env, d.name, sym);
     }
     this.serverIo(decls, env);
     for (const d of decls) if (d.k === "source" && !d.question) env.vars.get(d.name)!.failsT = this.failsThunk(d.init, env);   // R-f-2: a source holds what its initializer gave it — an error, if that failed (found by S-ai2-settings)
@@ -289,8 +297,8 @@ class Checker {
     for (const { name, alias } of d.names) {
       const base: Sym = { kind: "import", name: alias, region: env.region, line: d.line };
       const x = sig?.exports.get(name);
-      if (!sig) { env.vars.set(alias, base); continue; }                                      // the module was not found or not checked (reported there)
-      if (!x) { this.err("NOT_EXPORTED", "MO-6", `${d.from} does not export ${name === "default" ? "a default" : name}`); env.vars.set(alias, base); continue; }
+      if (!sig) { this.bind(env, alias, base); continue; }                                      // the module was not found or not checked (reported there)
+      if (!x) { this.err("NOT_EXPORTED", "MO-6", `${d.from} does not export ${name === "default" ? "a default" : name}`); this.bind(env, alias, base); continue; }
       if (x.kind === "type") continue;                                                      // a type name: text to the checker (07 §2), nothing to bind
       const rowsOf = (r: string[]) => () => new Set(r);
       const failsOf = (f: string[]) => () => ({ cls: new Set(f), props: [] as PropRef[] });
@@ -302,11 +310,11 @@ class Checker {
         case "action": sym = { kind: "action", name: alias, region: env.region, line: d.line, io: true }; break;
         case "server": { const rj = new Set(x.rejects); sym = { kind: "server", name: alias, region: env.region, line: d.line, io: x.io, params: x.params.map(n => ({ name: n, ref: false })), serverRejects: () => rj }; break; }
         case "errclass": sym = { kind: "errclass", name: alias, region: env.region, line: d.line }; break;
-        case "comp": { const r = this.region(null, { component: true }); r.sig = x.sig; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }
+        case "comp": { const r = this.region(null, "imported", { component: true, name: alias }); r.sig = x.sig; sym = { kind: "comp", name: alias, region: env.region, line: d.line, compRegion: r }; break; }
         case "context": sym = { kind: "context", name: alias, region: env.region, line: d.line, ctx: { key: x.key, source: x.source, dflt: x.dflt, contract: { rows: new Set(x.rows), fails: new Set(x.fails) } } }; break;
       }
       if (d.pure && sym.io) this.err("IMPORT_ROW_MISMATCH", "MO-4", `${name} is io in ${d.from}'s signature; \`pure\` cannot lower an .rx row`);
-      env.vars.set(alias, sym);
+      this.bind(env, alias, sym);
     }
   }
   /** RG-7: the context a `provide`/`use` names — lexically, like any name. */
@@ -329,12 +337,12 @@ class Checker {
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.name === name);
-      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
+      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type") continue;
-      if (x.kind === "error") { env.vars.set(alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
+      if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
       if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
       if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      env.vars.set(alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side });
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side });
     }
   }
   /** MO-3: this module's signature — every export as an importer sees it. */
@@ -413,19 +421,20 @@ class Checker {
       case "typedecl": return;
       case "error": if (d.msg) { const inner = new Env(env, env.region); for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line }); this.expr(d.msg, inner, { scope: "reactive", inFn: true }); } return;
       case "source": {
-        if (d.question) { this.expr(d.init, env, reactive); this.rowCheck(d.name, d.type, env); return; }
+        if (d.question) { this.comp("question", env, { name: d.name }, () => this.expr(d.init, env, reactive)); this.rowCheck(d.name, d.type, env); return; }
         const reads = new Set<string>(); readsOutsidePeek(d.init, reads);
         const hit = [...reads].find(n => { const s = env.lookup(n); return s && reactiveKinds.has(s.kind); });
         if (hit) this.err("SNAPSHOT_INITIALIZER", "E-4", `source ${d.name} := … reads ${hit} outside peek(…): write the snapshot as one (DV-6)`);
-        this.expr(d.init, env, { scope: "reactive", inFn: ctx.inFn });
+        this.comp("seed", env, { name: d.name }, () => { this.model.snap++; this.expr(d.init, env, { scope: "reactive", inFn: ctx.inFn }); });   // E-4: a seed is a snapshot
         return;
       }
       case "eq": {
-        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { this.snapshotArgs(d.e, f, env); d.e.args.forEach(a => this.expr(a, env, reactive)); this.rowCheck(d.name, d.type, env); return; } }
-        this.expr(d.e, env, reactive); this.rowCheck(d.name, d.type, env); return;
+        const kind = d.deferred ? "deferred" : d.key ? "keyed" : "memo";
+        if (d.e.k === "call" && d.e.f.k === "id") { const f = env.lookup(d.e.f.name); if (f?.kind === "fn" && f.instantiating) { const call = d.e; this.snapshotArgs(call, f, env); this.comp(kind, env, { name: d.name }, () => { this.model.call(f); call.args.forEach((a, i) => { const value = !!f.params![i] && !f.params![i].ref; if (value) this.model.snap++; this.expr(a, env, reactive); if (value) this.model.snap--; }); }); this.rowCheck(d.name, d.type, env); return; } }   // E-10: a value parameter's argument is a snapshot
+        this.comp(kind, env, { name: d.name }, () => this.expr(d.e, env, reactive)); this.rowCheck(d.name, d.type, env); return;
       }
       case "provide": {
-        this.expr(d.e, env, reactive);
+        this.comp("provide", env, { name: d.name }, () => this.expr(d.e, env, reactive));
         const c = this.ctxOf(d.name, env); if (!c) return;
         env.region.provides.add(c.ctx!.key); this.provisions.push({ key: c.ctx!.key, e: d.e, env });
         if (c.ctx!.source) { const t = d.e.k === "id" ? env.lookup(d.e.name) : undefined; if (!t || t.kind !== "source" || t.imported) this.err("PROVIDE_NOT_A_SOURCE", "RG-7c", `context ${d.name} carries a source: provide one of this module's sources by name (\`provide ${d.name} = x\`)`); }
@@ -438,41 +447,42 @@ class Checker {
         });
         return;
       }
-      case "context": if (d.dflt) this.expr(d.dflt, env, reactive); return;
+      case "context": if (d.dflt) { const dflt = d.dflt; this.comp("default", env, { name: d.name }, () => this.expr(dflt, env, reactive)); } return;
       case "effect": {
-        for (const i of d.inputs) this.expr(i, env, reactive);                               // EF-1: the compute half is reactive scope
-        this.stmts(d.body, new Env(env, env.region), { scope: "imperative" });
+        this.comp("effect", env, {}, () => {
+          for (const i of d.inputs) this.expr(i, env, reactive);                             // EF-1: the compute half is reactive scope
+          this.comp("apply", env, {}, () => this.stmts(d.body, new Env(env, env.region), { scope: "imperative" }));
+        });
         this.ownSourceWrites(d, env);
         return;
       }
       case "action": {
         const inner = new Env(env, env.region);
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
-        this.stmts(d.body, inner, { scope: "imperative", inAction: true });
+        this.comp("action", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", inAction: true }));
         this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
         return;
       }
       case "server": {                                                                       // 12 SF-1/SF-3/SF-4: a statement block that runs on the server
         const inner = new Env(env, env.region);
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
-        this.stmts(d.body, inner, { scope: "imperative", server: true });
+        this.comp("server", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", server: true }));
         let cache: Set<string> | null = null;
         env.lookup(d.name)!.serverRejects = () => cache ??= new Set([...this.stmtsFails(d.body, inner, new Map()).cls, "Error"]);   // SF-6b: every call can also fail in transit
         return;
       }
       case "fn": {
-        const r = d.decls.length ? this.region(env.region) : env.region;                     // RG-6: an instantiating fn is a region
+        const r = d.decls.length ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
         const inner = new Env(env, r);
-        for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line });
-        this.block(d.decls, [], inner, { scope: "reactive", inFn: true });
-        this.expr(d.tail, inner, { scope: "reactive", inFn: true });
+        for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line });
+        this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true }); });
         { const sym = env.lookup(d.name)!; sym.fnTail = d.tail; sym.fnEnv = inner; sym.failsT = this.failsThunk(d.tail, inner); sym.rows = this.rowsThunk(d.tail, inner); }
         return;
       }
       case "component": {
         const sym = env.lookup(d.name)!; const r = sym.compRegion!;
         const inner = new Env(env, r);
-        inner.vars.set(d.props, { kind: "props", name: d.props, region: r, line: d.line });
+        this.bind(inner, d.props, { kind: "props", name: d.props, region: r, line: d.line });
         sym.compEnv = inner;
         this.block(d.decls, d.view, inner, { scope: "reactive" });
         this.later.push(() => this.contentCheck(d.view, inner, []));
@@ -575,21 +585,24 @@ class Checker {
     }
     return null;
   }
-  private expr(e: Expr, env: Env, ctx: Ctx): void {
+  /** `field`: the member read of an identifier (`props.title`), for the model (CP-6). */
+  private expr(e: Expr, env: Env, ctx: Ctx, field?: string): void {
     const go = (x: Expr) => this.expr(x, env, ctx);
     switch (e.k) {
       case "lit": return;
-      case "id": { const s = this.resolve(e.name, env, ctx); if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view`); if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
-      case "pre": { const s = this.resolve(e.name, env, ctx); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
-      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
-      case "peek": case "latest": case "pending": case "un": case "spread": go(e.e); return;
+      case "id": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", false, field); if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.name} used as a value: apply it in a view`); if (s?.kind === "context") this.err("CONTEXT_AS_VALUE", "RG-7", `context ${e.name} used as a value: read the nearest provision with \`use ${e.name}\``); return; }
+      case "pre": { const s = this.resolve(e.name, env, ctx); if (s) this.model.read(s, ctx.scope === "imperative", true); if (s && !reactiveKinds.has(s.kind)) this.err("PRE_OF_NON_REACTIVE", "C-2", `pre of ${e.name}, which is not reactive`); if (e.init) go(e.init); return; }
+      case "use": { if (ctx.server) this.err("SERVER_CAPTURE", "SF-3", `a server function's body reads \`use ${e.name}\`: a provision is the client's — pass it as an argument`); const c = this.ctxOf(e.name, env); if (c) this.model.read(c, ctx.scope === "imperative"); if (c && !c.ctx!.dflt) this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: e.name }); return; }
+      case "peek": this.model.snap++; go(e.e); this.model.snap--; return;                  // E-5: a snapshot
+      case "latest": case "pending": { const save = this.model.probe; this.model.probe = e.k; go(e.e); this.model.probe = save; return; }   // R-9, R-12: probes
+      case "un": case "spread": go(e.e); return;
       case "await":
         if (ctx.scope === "imperative" && !this.stmtAwaits.has(e)) this.err("AWAIT_IN_EXPRESSION", "AC-1", `\`${show(e)}\` inside an expression of imperative scope: a run suspends only at a statement — bind it first, \`let v = ${show(e)}\` (a \`catch (e) => alt\` may follow it)`);
         this.awaitedCalls.add(e.e); go(e.e); if (e.init) go(e.init); return;
       case "serverfn": {                                                                   // SF-1d: as \`server fn\`, wherever it is written
         const inner = new Env(env, env.region);
         for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line });
-        this.stmts(e.body, inner, { scope: "imperative", server: true });
+        this.comp("server", env, {}, () => this.stmts(e.body, inner, { scope: "imperative", server: true }));
         const sym = this.serverExprs.get(e); let cache: Set<string> | null = null;
         if (sym) sym.serverRejects = () => cache ??= new Set([...this.stmtsFails(e.body, inner, new Map()).cls, "Error"]);
         return;
@@ -603,7 +616,7 @@ class Checker {
       case "bin": go(e.l); go(e.r); return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": go(e.o); return;
+      case "member": if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
       case "index": go(e.o); go(e.i); return;
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) go("spread" in f ? f.spread : f.v); return;
@@ -633,6 +646,7 @@ class Checker {
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${e.f.name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
           if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${e.f.name}(…) declares state: bind it, \`x = ${e.f.name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${e.f.name} called as a function: apply it in a view`);
+          this.model.call(s);
         }
         go(e.f); e.args.forEach(go); return;
       }
@@ -682,10 +696,10 @@ class Checker {
           let target: Sym | undefined;
           if (s.target.ctx) {
             const c = this.ctxOf(s.target.name, env);
-            if (c) { this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "RG-7c", `context ${s.target.name} is not declared \`source\`: what is provided is read-only (\`context ${s.target.name}: source T\` to write through it)`); }
+            if (c) { this.model.write(c, s.k, s.target.path.length > 0); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "RG-7c", `context ${s.target.name} is not declared \`source\`: what is provided is read-only (\`context ${s.target.name}: source T\` to write through it)`); }
           }
           else {
-            target = this.resolve(s.target.name, env, ctx);
+            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0);
             if (target && target.kind !== "source") this.err("WRITE_TO_NON_SOURCE", "W-1", `${s.target.name} is ${target.kind === "eq" ? "an equation" : target.kind === "props" ? "props" : `a ${target.kind}`}: only sources are written (W-1)`);
             else if (target?.imported) this.err("WRITE_TO_NON_SOURCE", "MO-2", `${s.target.name} is a source of ${target.imported}: a module boundary is a value boundary — write it through an action ${target.imported} exports`);
           }
@@ -699,9 +713,9 @@ class Checker {
           break;
         }
         case "refresh": case "affects": case "action": if (ctx.server) { this.err("SERVER_CAPTURE", "SF-3", `\`${s.k}${s.k === "action" ? " { … }" : ` ${(s as { name: string }).name}`}\` in a server function's body: it is the client's (do it in the action that awaited the call)`); break; }
-          if (s.k === "action") { this.stmts(s.body, env, { scope: "imperative", inAction: true }); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); break; }
-          if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
-          { const t = this.resolve(s.name, env, ctx); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
+          if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); break; }
+          if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
+          { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
         case "try": {
           this.stmts(s.body, env, ctx);
@@ -757,50 +771,50 @@ class Checker {
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.expr(m.e, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" });
+            for (const a of m.attrs) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name, e: a.e, env })) });   // R-2: passing is not reading — checked where the component reads it
-              const kids = this.region(env.region, { provParent: s.compRegion! });              // RG-4c: children are named by the caller, owned where the component reads them
+              const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
               this.markup(m.children, new Env(env, kids));
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); }
+          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); }
           this.markup(m.children, env);
           break;
         }
         case "mif": {
-          this.expr(m.c, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
-          this.block(m.tDecls, m.t, new Env(env, this.region(env.region)), { scope: "reactive" });
-          this.block(m.fDecls, m.f, new Env(env, this.region(env.region)), { scope: "reactive" });
+          this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
+          this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
+          this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
           break;
         }
         case "mfor": {
-          this.expr(m.xs, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
+          this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
-          const r = this.region(env.region); const inner = new Env(env, r);
+          const r = this.region(env.region, "for"); const inner = new Env(env, r);
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
         case "loading": {
-          if (m.on) { this.expr(m.on, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
+          if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
-          const body = this.region(env.region); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
+          const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
         case "portal": {                                                                      // RG-8: a region owned here, rendered elsewhere
-          if (m.to) { this.expr(m.to, env, { scope: "reactive" }); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
-          const body = this.region(env.region); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
+          if (m.to) { const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
+          const body = this.region(env.region, "portal"); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           this.later.push(() => this.contentCheck(m.body, env, ["body"]));                     // its place is the end of the document
           break;
@@ -809,7 +823,7 @@ class Checker {
           const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line });
           this.markup(m.fallback, f);
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
-          const body = this.region(env.region); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
+          const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }

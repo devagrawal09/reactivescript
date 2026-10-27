@@ -89,7 +89,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
-  const modules = new Map<string, Record<string, unknown>>();
+  const modules = new Map<unknown, Record<string, unknown>>();
   const hoistedBy = new Map<string, Acc[]>();   // an equation's hoisted awaits, re-asked with it by `refresh`
   const log: string[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
@@ -237,7 +237,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     // ---- modules (09 MO-1): a dependency's factory runs once per app; its exports are shared by every importer ----
-    module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
+    module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7) ----
     owner: () => getOwner(),
     /** `context x: T = d` (RG-7): the declaration is the identity; `d`, if any, is evaluated once, owned where it is declared. */
