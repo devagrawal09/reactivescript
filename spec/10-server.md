@@ -164,7 +164,8 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
 `ref/oracle/repros/`, re-run on `next` @ `0847122` (2026-10-26).
 
 - **DV-9 (a failed boundary on the server) — a Solid bug, ruled
-  2026-10-26 (solidjs/solid#4287); reproduced 2026-10-24**
+  2026-10-26 (solidjs/solid#4287); reproduced 2026-10-24; fixed on `next`
+  2026-10-26 (shows in no scenario at `2c9fdd9`)**
   (`dv9-ssr-after-shell.mjs`, `dv9-hydrate/`). Outside a server component,
   Solid renders no error fallback for a failure that reaches a `<Loading>`
   through an async read. A boundary that fails before the shell is empty in
@@ -176,8 +177,12 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   shows the loading fallback, never the failure it was sent. Inside
   `runInServerComponentScope` the fallback is rendered on the server and
   every served frame is the client's (`SV_SCOPE=1 npm run -s ssr`).
-  Recorded as `server` divergences in S-server-1, S-hold-5, S-solid-38 and
-  S-ai2-settings; their hydrations after the failure are reported `≠ DV-9`.
+  It was recorded as `server` divergences in S-server-1, S-hold-5,
+  S-solid-38 and S-ai2-settings; those records were removed 2026-10-27:
+  at `2c9fdd9` the server draws the fallback. Solid's development server
+  build draws a panic's own message there (it keeps fidelity by design);
+  its production build sends the generic error SV-5b asks for, so the
+  `ssr` runner now runs the production server build.
   (A failure thrown synchronously in content the server renders is drawn —
   S-hold-6 serves `item 4 not found`.)
 - **DV-11 (the hydration window) — reversed 2026-10-26: Solid's position
@@ -211,14 +216,16 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   divergence.
 
 - **DV-15 (a client question's fallback is rebuilt) — a Solid bug, ruled
-  2026-10-26 (solidjs/solid#4286, low priority); reproduced 2026-10-24** (`dv15-client-hole/`). A bare `ssrSource: "client"` memo
+  2026-10-26 (solidjs/solid#4286, low priority); reproduced 2026-10-24;
+  fixed on `next` 2026-10-26 (shows in no scenario at `2c9fdd9`)** (`dv15-client-hole/`). A bare `ssrSource: "client"` memo
   read under `<Loading>`: the server sends the fallback and marks the
   boundary `"$$f"`. Hydrating, the client adopts the fallback, resumes the
   content, which suspends on the question it now asks, and renders the
   fallback again — the served element is dropped for an identical one.
   The frame is right and nothing is asked twice; what is lost is the
   element (focus, selection, an animation). S-server-3 hydrated, recorded
-  as a `hydrated` divergence at the hydration instant.
+  as a `hydrated` divergence at the hydration instant until 2026-10-27; at
+  `2c9fdd9` the served element is adopted.
 
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client

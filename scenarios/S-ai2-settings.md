@@ -39,8 +39,3 @@ Why, one line per instant:
 - **9.** A plain local write changes the `density` provision, so both Panels and the Preview update. Nothing else moves.
 - **10.** A new key (the density differs) means a new flight. The `settings` guess shows now. The `saveError` guess `""` closes the "Save failed" branch now (H-11; a lane condition's branch change attaches immediately, H-7). `pending? settings` is true.
 - **11.** The answer is written as the truth (`settings := saved`), equal to the guess, so it confirms silently. The plain `saveError := ""` is the truth for that source too, so it does not revert to "quota exceeded". The change commits, and `pending? settings` is false.
-
-## Divergences
-
-- server "Frames" instant 1: `` — DV-9: Solid streams an empty fragment for a boundary that fails after the shell; the fallback appears at hydration
-
