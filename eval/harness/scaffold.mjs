@@ -1,21 +1,25 @@
 // Makes a working directory for one arm of one task: the brief, the API, the visible tests and the commands the
 // agent may run. With --reference, also copies in the reference solution (eval/reference/<task>/<arm>).
-// Usage: node harness/scaffold.mjs <task> <rx|react> <dir> [--reference]
-import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+// --brief <name> uses tasks/<task>/brief-<name>.md (e.g. `plain`) instead of brief.md. Writes the agent's prompt to
+// <dir>/.prompt.
+// Usage: node harness/scaffold.mjs <task> <rx|react> <dir> [--reference] [--brief <name>]
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evalDir = path.resolve(here, "..");
 
-export function scaffold(task, arm, dir, { reference = false } = {}) {
+export function scaffold(task, arm, dir, { reference = false, brief = null } = {}) {
   const t = path.join(evalDir, "tasks", task);
   dir = path.resolve(dir);
   mkdirSync(path.join(dir, "src"), { recursive: true }); mkdirSync(path.join(dir, "tests"), { recursive: true });
   writeFileSync(path.join(dir, "arm"), `${arm}\n`);
-  cpSync(path.join(t, "brief.md"), path.join(dir, "BRIEF.md"));
+  cpSync(path.join(t, brief ? `brief-${brief}.md` : "brief.md"), path.join(dir, "BRIEF.md"));
   cpSync(path.join(t, "api.js"), path.join(dir, "src/api.js"));
-  cpSync(path.join(here, "flights.js"), path.join(dir, "src/flights.js"));
+  // a plain brief names no races, so the agent's copy of the plumbing loses the header that says tests order answers
+  const flights = readFileSync(path.join(here, "flights.js"), "utf8");
+  writeFileSync(path.join(dir, "src/flights.js"), brief === "plain" ? flights.replace(/^(\/\/.*\n)+\n/, "") : flights);
   cpSync(path.join(t, arm === "rx" ? "api.d.rx" : "api.d.ts"), path.join(dir, `src/${arm === "rx" ? "api.d.rx" : "api.d.ts"}`));
   cpSync(path.join(t, "visible.mjs"), path.join(dir, "tests/visible.mjs"));
   cpSync(path.join(t, "fixtures.mjs"), path.join(dir, "tests/fixtures.mjs"));
@@ -33,10 +37,20 @@ export function scaffold(task, arm, dir, { reference = false } = {}) {
     cpSync(path.join(evalDir, "../guide"), path.join(dir, "docs/guide"), { recursive: true });
   }
   if (reference) cpSync(path.join(evalDir, "reference", task, arm), path.join(dir, "src"), { recursive: true });
+  writeFileSync(path.join(dir, ".prompt"), prompt(arm, dir, { plain: brief === "plain" }));
   return dir;
+}
+
+export function prompt(arm, dir, { plain = false } = {}) {
+  const fill = { ...JSON.parse(readFileSync(path.join(here, "prompt-arms.json"), "utf8"))[arm] };
+  fill.BACKEND_NOTE = plain ? "" : " whose answers the tests control";
+  let text = readFileSync(path.join(here, "prompt.md"), "utf8");
+  for (let i = 0; i < 2; i++) for (const k of [...Object.keys(fill), "DIR"]) text = text.replaceAll(`{{${k}}}`, k === "DIR" ? dir : fill[k]);
+  return text;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [task, arm, dir] = process.argv.slice(2);
-  console.log(scaffold(task, arm, dir, { reference: process.argv.includes("--reference") }));
+  const b = process.argv.indexOf("--brief");
+  console.log(scaffold(task, arm, dir, { reference: process.argv.includes("--reference"), brief: b > 0 ? process.argv[b + 1] : null }));
 }
