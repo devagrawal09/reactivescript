@@ -11,6 +11,9 @@ import {
   flush, untrack, latest, isPending, action, refresh, affects, until, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
 } from "@solidjs/signals";
 
+// 05 H-9 / Solid D-24: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
+// value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
+const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
 export { flush };
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
@@ -266,7 +269,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead: (f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown) => catchAcc(f, match, alt)(),
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
-    untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(f as any),
+    untrack, latest: (f: () => unknown) => latest(f as any), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----

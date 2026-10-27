@@ -120,7 +120,7 @@ re-runs and recovers when the content does (S-fail-1 instants 6–8).
 
 ---
 
-## DV-8 — a keyed projection over a memo stops following it after its first value (mostly fixed on `next` by solidjs/solid#4280; filed as #4271 — what remains is in 05's DV-8 record)
+## DV-8 — a keyed projection over a memo stops following it after its first value (fixed on `next` by solidjs/solid#4280; filed as #4271 — the two cases left in S-ai2-search were our lowering, `dv8b-projection-pending.mjs`)
 
 Found by an agent-written app (S-ai2-search): `results key id = q.length < 2
 ? throw TooShort(q) : await search(q)`, lowered as
@@ -145,7 +145,7 @@ in Solid; with `key`, the interpreter does too.
 
 ---
 
-## DV-9 — a failed boundary renders no fallback on the server (a Solid bug, ruled 2026-10-26; solidjs/solid#4287)
+## DV-9 — a failed boundary renders no fallback on the server (a Solid bug, ruled 2026-10-26; solidjs/solid#4287, fixed on `next`)
 
 **Rule.** 10-server SV-6: a boundary that takes a failure during the server
 render is streamed with its fallback drawn, so the browser shows the
@@ -183,7 +183,7 @@ hydrated                   "loading"
 
 ---
 
-## DV-10 — a held lane holds per render effect (reversed 2026-10-26: Solid's position adopted; solidjs/solid#4284, open)
+## DV-10 — a held lane holds per render effect (reversed 2026-10-26: Solid's position adopted; solidjs/solid#4284, closed; the `one` mode is fixed on `next` at `2c9fdd9`)
 
 **Rule.** 05 H-7 (since 2026-10-26, Solid's position): a tracked `latest x`
 of an optimistic guess reads ahead of the guess's held lane; the lane's
@@ -281,7 +281,7 @@ between two replayed handlers, so both actions read the committed `n`.
 
 ---
 
-## DV-15 — a client question's served fallback is rebuilt on hydration (a Solid bug, ruled 2026-10-26; solidjs/solid#4286)
+## DV-15 — a client question's served fallback is rebuilt on hydration (a Solid bug, ruled 2026-10-26; solidjs/solid#4286, fixed on `next`)
 
 **Rule.** 10 SV-3a: hydration adopts what the server sent; SV-7b: a client
 question's reader shows its hold's fallback on the server, and the browser
@@ -355,7 +355,7 @@ S-solid-5.
 
 ---
 
-## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280) — filed as solidjs/solid#4305
+## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280) — filed as solidjs/solid#4305, fixed on `next`
 
 **Rule.** RULES-DERIVED D-30, spec ST-4 and H-2: each landing reconciles a
 keyed projection's rows, and its readers show it.
@@ -369,3 +369,13 @@ rows still read `"apple,apricot"` (expected `"apple,applesauce,apple pie"`).
 `direct` (one render effect reading `row.name`) follows both. Bisected:
 fine at `f811097`, broken at `1212b77` (#4280) and on `2f7dc84`.
 
+---
+
+## DV-8b — `pending?` over a keyed projection (ours, not Solid's)
+
+`dv8b-projection-pending.mjs [proxy|keys|length] [boundary|none]`. The probe
+`isPending(() => rows)` reads nothing — Solid judges the reads a probe's
+thunk makes, never its return value (RULES-DERIVED D-24, A23) — so it is
+`false` while the memo under the projection re-asks. `keys` (what
+`__rt.isPending` now does for a structured value) and `length` report
+`searching` as S-ai2-search's instants 2 and 4 expect.
