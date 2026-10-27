@@ -1,0 +1,67 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+import pure { map } from "./prelude"
+
+export error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id: number) => it == null ? throw NotFound(id) : it
+
+fn rowText(i) => `#${i.id} ${i.title} (${i.assignee == null ? "unassigned" : i.assignee})`
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source issues = await fetchIssues(filter)
+  source selected: number := 0
+  source assignError: string = ""
+  issue = found(await fetchIssue(selected), selected)
+
+  action assignTo(id: number, who: string) {
+    optimistic issues := xs => map(xs, i => i.id == id ? { ...i, assignee: who } : i)
+    optimistic assignError := ""
+    affects issues
+    try {
+      let answer = await assign(id, who)
+      assignError := ""
+      issues := xs => map(xs, i => i.id == answer.id ? { ...i, assignee: answer.assignee } : i)
+    } catch (e) {
+      assignError := e.message
+    }
+  }
+
+  action retry() {
+    refresh issue
+  }
+
+  <div>
+    <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} />
+    <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+    <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    <div data-testid="list">
+      {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+        {errored fallback(e) { <p>list error: {e.message}</p> } {
+          <ul>
+            {for it in issues {
+              <li data-testid="issue" onClick={() => { selected := it.id; assignError := "" }}>{rowText(it)}</li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected == 0 {
+        <p>select an issue</p>
+      } else {
+        {loading on(selected) fallback { <p>loading #{latest selected}</p> } {
+          {errored fallback(e) { <p>detail error: {e.message}</p> } {
+            <h2>#{issue.id} {issue.title}</h2>
+            <p>{issue.body}</p>
+          }}
+        }}
+        <button data-testid="retry" onClick={() => { retry() }}>retry</button>
+        <button data-testid="assign" onClick={() => { assignTo(selected, user) }}>assign to {user}</button>
+        {if assignError != "" { <p>{assignError}</p> }}
+      }}
+    </div>
+  </div>
+}

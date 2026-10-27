@@ -71,6 +71,9 @@ by what the screen should do:
   `onFlush` (the table above). Don't move the code into a plain handler to escape it.
 - **Two actions guessing the same source revert together.** Their guesses are one change (H-11): a declined one
   goes back when the other ends. Don't rebuild guesses by hand to separate them.
+- **A click waits for an action it has nothing to do with.** A plain write to a source an action in flight has
+  written or guessed joins that action's hold (H-2): a `select` that clears the action's error waits for the
+  server. Keep such a write off the action's sources, or make it an `onFlush` run.
 - **A failure stays up while its retry is in flight.** That's H-12. To show `loading…` instead, put
   `loading on(k)` above the `errored`.
 

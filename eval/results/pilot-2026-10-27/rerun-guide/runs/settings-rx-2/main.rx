@@ -1,0 +1,77 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import pure { len } from "./prelude"
+
+type Settings = { name: string; theme: string; density: string }
+
+source saved: Settings = await loadSettings()
+source saveError: string = ""
+
+action save(next: Settings) {
+  optimistic saved := next
+  optimistic saveError := ""
+  affects saved
+  try {
+    let answer = await saveSettings(next)
+    saved := answer
+  } catch (e) {
+    saveError := e.message
+  }
+}
+
+action retryLoad() {
+  refresh saved
+}
+
+fn nameError(n: string): string =>
+  len(n) == 0 ? "Display name is required"
+  : len(n) > 20 ? `Display name must be at most 20 characters, not ${len(n)}`
+  : ""
+
+component Form(props: { initial: Settings }) {
+  source name: string := peek(props.initial.name)
+  source theme: string := peek(props.initial.theme)
+  source density: string := peek(props.initial.density)
+  problem = nameError(name)
+  <div>
+    <label>
+      Display name
+      <input data-testid="name" value={name} onInput={(e) => { name := e.target.value }} />
+    </label>
+    <span data-testid="name-count">{`${len(name)}/20`}</span>
+    {if problem != "" {
+      <p data-testid="name-error">{problem}</p>
+    }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { theme := "light" }}>Light</button>
+      <button data-testid="theme-dark" onClick={() => { theme := "dark" }}>Dark</button>
+      <button data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>Toggle density</button>
+    </div>
+    <p data-testid="preview">{`Preview: ${theme} / ${density}`}</p>
+    <button data-testid="save" onClick={() => {
+      if (nameError(name) == "") {
+        save({ name: name, theme: theme, density: density })
+      }
+    }}>Save</button>
+    {if saveError != "" {
+      <p data-testid="save-error">{`Save failed: ${saveError}`}</p>
+    }}
+  </div>
+}
+
+export default component App() {
+  <main>
+    <h1>Settings</h1>
+    {errored fallback(e) {
+      <div>
+        <p data-testid="load">{`Could not load settings: ${e.message}`}</p>
+        <button data-testid="retry-load" onClick={() => { retryLoad() }}>Retry</button>
+      </div>
+    } {
+      {loading fallback { <p data-testid="load">Loading settings…</p> } {
+        <p data-testid="saved">{`Saved: ${saved.name} · ${saved.theme} · ${saved.density}${pending? saved ? " (saving…)" : ""}`}</p>
+        <Form initial={saved} />
+      }}
+    }}
+  </main>
+}
