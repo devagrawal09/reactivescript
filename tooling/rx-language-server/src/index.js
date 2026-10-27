@@ -62,17 +62,21 @@ function rxLanguagePlugin(ts, asFileName = uri => uri.fsPath ?? String(uri)) {
   };
 }
 
-/** The crate's diagnostics on a `.rx` document: the editor's parse's errors, else the checker's (CP-8d). */
-function rxDiagnostics(asFileName = uri => uri.fsPath) {
+/** The crate's diagnostics on a `.rx` document: the editor's parse's errors, else the checker's (CP-8d). Volar hands
+ *  the service the root virtual code's document, whose URI encodes the `.rx` file's. */
+function rxDiagnostics() {
   return {
     name: "reactivescript-diagnostics",
     capabilities: { diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false } },
-    create() {
+    create(context) {
       return {
         provideDiagnostics(document) {
           if (document.languageId !== "reactivescript") return;
           const { URI } = require("vscode-uri");
-          const file = asFileName(URI.parse(document.uri));
+          const uri = URI.parse(document.uri);
+          const source = context.decodeEmbeddedDocumentUri(uri)?.[0] ?? uri;
+          if (source.scheme !== "file") return;
+          const file = source.fsPath;
           if (!isModule(file)) return;
           const a = analysis(file, document.getText());
           return (a.diagnostics ?? []).filter(d => d.range).map(d => ({
