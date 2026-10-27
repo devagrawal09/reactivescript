@@ -1,3 +1,5 @@
 node_modules/
 compiler/target/
-vite-plugin-rx/.out/
+compiler/*.node
+compiler/test/.out/
+compiler/artifacts/

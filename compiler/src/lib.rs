@@ -2,6 +2,7 @@
 //! that they give the same answers on every program (CP-5); the resolved model between check and lower (CP-6); and the
 //! lowered modules handed to Solid's `solidjs-compiler` as Oxc programs (CP-1).
 
+pub mod app;
 pub mod ast;
 pub mod awaits;
 pub mod check;
@@ -10,6 +11,8 @@ pub mod emit;
 pub mod js;
 pub mod model;
 pub mod modules;
+#[cfg(feature = "node")]
+pub mod node;
 pub mod oxc;
 pub mod parse;
 pub mod project;

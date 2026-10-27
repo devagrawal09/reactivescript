@@ -2,19 +2,23 @@
 name = "reactivescript"
 version = "0.0.0"
 edition = "2021"
-description = "ReactiveScript's compiler (spec/11 CP-1a): parse, check, resolve. Lowering onto Solid's solidjs-compiler comes next."
+description = "ReactiveScript's compiler (spec/11): parse, check, resolve, and lower through Solid's solidjs-compiler"
 license = "MIT"
 publish = false
 
 [lib]
 name = "reactivescript"
 path = "src/lib.rs"
-# rlib for rxc; cdylib for the WebAssembly build the language server loads (src/wasm.rs, CP-8e)
+# rlib for rxc; cdylib for the Node-API build (`--features node`, src/node.rs) that @reactivescript/compiler ships, and
+# for the WebAssembly build the language server loads (src/wasm.rs, CP-8e)
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "rxc"
 path = "src/main.rs"
+
+[features]
+node = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
 indexmap = "2"
@@ -22,12 +26,17 @@ regex = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 # CP-1b: Solid's compiler, at the commit ref/ runs on (ref/SOLID_NEXT), and the Oxc release it is built against (CP-1c:
 # the program crosses the seam, so the versions must match)
-solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "0847122e9fc9681fda7feef37d5427db7316e56d", default-features = false }
+solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "d2323b077c7dda32ebced7843c2ce2b788a91e8d", default-features = false }
 oxc_allocator = "0.144"
 oxc_ast = "0.144"
 oxc_span = "0.144"
 oxc_sourcemap = "8.1"
 oxc_syntax = "0.144"
+napi = { version = "3.12", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "3.6", optional = true }
+
+[build-dependencies]
+napi-build = "2.4"
 
 [profile.release]
 debug = false

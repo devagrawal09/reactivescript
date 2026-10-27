@@ -228,7 +228,11 @@ action { refresh user; affects user }   // inline, one run (AC-1)
 - A handler that launches an action and also writes (`() => { draft := "";
   send() }`) makes one change: the handler's plain writes are adopted by the
   action and held with it (AC-1). Writes that should land now go in a
-  separate instant (a separate event), or are guesses.
+  separate instant (a separate event, or `onFlush(() => { draft := "" })`:
+  02 EF-8), or are guesses.
+- `onSettled(() => { … })` runs a block once the change this run belongs
+  to has committed (02 EF-7): `() => { save(); onSettled(() => toast("Saved")) }`.
+  In a component body the same thing is `effect () { … }` (EF-4).
 - The optimistic-action idiom, with a spinner:
 
   ```

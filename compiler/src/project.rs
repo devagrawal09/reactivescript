@@ -18,7 +18,7 @@ pub const PRELUDE: &str = include_str!("prelude.ts");
 
 static ROW_WORDS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^((?:io|pending|lane|fails\([^)]*\))\s+)+").unwrap());
 static SOURCE_WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^source\s+").unwrap());
-const BUILTINS: [&str; 10] = ["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until"];
+const BUILTINS: [&str; 12] = ["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"];
 fn builtin(n: &str) -> bool {
     BUILTINS.contains(&n)
 }

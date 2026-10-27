@@ -237,22 +237,27 @@ module with its source map onto its `.rx` (CP-1c) and the stylesheet;
 module's, each source and equation declared once is declared at a position
 mapped to its line, and on dom every element's line is mapped.
 
-In a Vite app, `.rx` goes through Solid's own Vite plugin: its `frontends`
-option (proposed upstream, solidjs/solid-vite-plugin, with a companion
-solidjs/solid compiler change so the secondary passes take any extension)
-hands each `.rx` module to `vite-plugin-rx/`. An `.rx` module JavaScript
-imports is a program's entry (JavaScript can import only an entry: a
-dependency is a factory over the app, 09 MO-1b), so no option names it: the
-plugin compiles the program whole from it with `rxc app` (CP-2), each module
-importing its dependencies as `./x.rx?rx-dep`, served from a program's build
-that contains them; `rxc app` keys `module(key, factory)` by the factory, so
-a module two programs share is one module. It returns the module's code for the
+In a Vite app, `.rx` goes through Solid's own Vite plugin with no option:
+its `frontends` hook (solidjs/solid-vite-plugin, with the compiler change
+solidjs/solid#4320 so the secondary passes take any extension) has `.rx`
+built in, and loads its front end from the project's
+`@reactivescript/compiler/vite` the first time an `.rx` module is compiled
+(decision 7). That package is the crate's Node-API build
+(`compiler/src/node.rs`, what `rxc app` does), one binary per platform as
+`@solidjs/compiler` ships. An `.rx` module JavaScript imports is a
+program's entry (JavaScript can import only an entry: a dependency is a
+factory over the app, 09 MO-1b), so no option names it: the front end
+compiles the program whole from it (CP-2), each module importing its
+dependencies as `./x.rx?rx-dep`, served from a program's build that contains
+them; the build keys `module(key, factory)` by the factory, so a module two
+programs share is one module. It returns the module's code for the
 environment's `generate`, its map onto `.rx`, and on the entry the
 stylesheet (CSS-4). Solid's plugin then takes it as it takes lowered `.tsrx`:
 primitive names aside, its lazy, refresh and server-function passes (12
 SF-7a, IDs hashed from the `.rx` path) and the stylesheet as a CSS module.
 Every example app builds and runs in Chromium that way
-(`vite-plugin-rx/test.mjs`).
+(`compiler/test/vite.mjs`). The runtime package of CP-4a is not published
+yet: the apps take `createApp` from `ref/compile/rt-web.ts`.
 
 ## CP-8 — Spans and the projection (for editors)
 
@@ -283,7 +288,7 @@ TY-1c), so every position has to cross between `.rx` and the projection.
   0-based columns in UTF-16 code units (LSP's), and byte offsets. The
   checker is line-precise (CN-1a), so a diagnostic's range is its line's:
   from the first node that starts on it to the furthest any such node
-  reaches on it (decision 8).
+  reaches on it (decision 9).
 - **CP-8e (the editor).** An editor's parse recovers: a declaration that
   does not parse is a parse error on its line and is skipped to the next
   line that starts at column 0, and a missing expression is an empty name,
@@ -296,7 +301,7 @@ TY-1c), so every position has to cross between `.rx` and the projection.
   type errors) in UTF-16 offsets, and the file's parse errors, else its
   checker diagnostics (CP-8d). `tooling/rx-language-server` is a Volar
   server over the same requests, and `tooling/vscode-rx` its VS Code client.
-  The server runs the crate's WebAssembly build in process (decision 9).
+  The server runs the crate's WebAssembly build in process (decision 10).
 
 ## Decisions taken by default (veto here)
 
@@ -335,23 +340,32 @@ TY-1c), so every position has to cross between `.rx` and the projection.
    need a span on every expression in both parsers, which nothing in the
    spec asks for yet. A handler or action statement maps to its
    declaration's line.
-7. **The projection maps only text it copies** (CP-8c, 2026-10-27, taken
+7. **`.rx` in Vite is Solid's plugin loading `@reactivescript/compiler`**
+   (CP-7, 2026-10-27, taken by default — veto here). The compiler ships on
+   npm under the `reactivescript` org as `@reactivescript/compiler`, a
+   Node-API build per platform (`@reactivescript/compiler-<platform>`), with
+   its Vite front end at `/vite`; Solid's plugin resolves it from the
+   project, so an app adds the package and nothing to its config. No
+   WebAssembly fallback yet (StackBlitz and other unlisted platforms):
+   `@solidjs/compiler`'s `wasm32-wasip1-threads` build shows how.
+8. **The projection maps only text it copies** (CP-8c, 2026-10-27, taken
    by default — veto here). A mapping joins the same text on both sides,
    so a position inside it maps exactly and `ref/crate.ts --project` checks
    every one. What the projection writes of its own (`__.set(…)`,
    `__.await_(…)`, a rewritten `==`) maps nowhere; an editor asking there
    gets the nearest mapped piece, as Volar does for Vue's and Svelte's.
-8. **A diagnostic's range is its line's** (CP-8d, 2026-10-27, taken by
+9. **A diagnostic's range is its line's** (CP-8d, 2026-10-27, taken by
    default — veto here). The checker reports lines (CN-1a); narrowing each
    rule to the node it is about is per-rule work in both checkers, left
    for when an editor shows where it falls short.
-
-9. **The language server runs the crate as WebAssembly** (CP-8e,
+10. **The language server runs the crate as WebAssembly** (CP-8e,
    2026-10-27, taken by default — veto here). Volar makes a file's virtual
    code synchronously, so the requests are synchronous calls into the
    crate built for `wasm32-unknown-unknown` (`compiler/src/wasm.rs`, a C
    ABI over linear memory with the host reading files), loaded once: one
    `.vsix` for every platform, about a millisecond per analysis. `$RXC`
    names a native `rxc` to run as `rxc serve` per request instead; both
-   give the same answers (the LSP tests run on each). A Node-API build
-   would need a binary per platform for no gain the editor shows.
+   give the same answers (the LSP tests run on each). The Node-API build
+   of decision 7 would serve the same requests, but one binary per
+   platform; this build answers only `serve.rs`'s requests, so it is not
+   decision 7's missing WebAssembly fallback for compiling.

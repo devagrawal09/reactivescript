@@ -40,6 +40,23 @@ impl Diagnostic {
 }
 
 const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every"];
+/// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
+fn returns_closure(f: &Expr) -> bool {
+    fn in_stmts(ss: &[Stmt]) -> bool {
+        ss.iter().any(|s| match &s.k {
+            StmtKind::Return(Some(Expr { k: ExprKind::Fn { .. }, .. })) => true,
+            StmtKind::Sif { t, f, .. } => in_stmts(t) || in_stmts(f),
+            StmtKind::Try { body, handler, fin, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || fin.as_deref().is_some_and(in_stmts),
+            _ => false,
+        })
+    }
+    match &f.k {
+        ExprKind::Fn { stmts: None, body, .. } => matches!(body.k, ExprKind::Fn { .. }),
+        ExprKind::Fn { stmts: Some(ss), .. } => in_stmts(ss) || matches!(ss.last().map(|s| &s.k), Some(StmtKind::Expr(Expr { k: ExprKind::Fn { .. }, .. }))),
+        _ => false,
+    }
+}
+
 fn is_handler(attr: &str) -> bool {
     let b = attr.as_bytes();
     b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
@@ -2018,6 +2035,28 @@ impl<'a> Checker<'a> {
                             return;
                         }
                         self.expr(&args[0], env, Ctx { server: ctx.server, ..Ctx::reactive() }, None);
+                        return;
+                    }
+                    // EF-7, EF-8: Solid's onSettled / onFlush, functions of the language
+                    if (fname == "onSettled" || fname == "onFlush") && self.lookup(env, fname).is_none() {
+                        let settled = fname == "onSettled";
+                        let rule = if settled { "EF-7" } else { "EF-8" };
+                        if !ctx.imperative {
+                            self.err("IO_IN_REACTIVE", rule, if settled { "onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)".into() } else { "onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush".into() });
+                        }
+                        let ok = args.len() == 1 && matches!(&args[0].k, ExprKind::Fn { params, .. } if params.is_empty());
+                        if !ok {
+                            self.err("HOOK_CALLBACK", rule, format!("{} takes a closure, `{}(() => {{ … }})`: its body is the run it schedules", fname, fname));
+                            for a in args {
+                                self.expr(a, env, ctx, None);
+                            }
+                            return;
+                        }
+                        if settled && returns_closure(&args[0]) {
+                            self.err("SETTLED_CLEANUP_UNOWNED", "EF-7", "an onSettled callback returns a cleanup, but it has no region to bind it to: setup with teardown is `effect () { … }` (EF-4, EF-5)".into());
+                        }
+                        // the callback is imperative scope
+                        self.expr(&args[0], env, Ctx { server: ctx.server, ..Ctx::imperative() }, None);
                         return;
                     }
                     let s = self.lookup(env, fname);

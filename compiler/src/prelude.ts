@@ -32,6 +32,8 @@ export declare function effect(f: () => void | (() => void)): void;
 export declare function draft<T>(seed: T, f: (d: T) => void): T;
 export declare function len(x: unknown): number;
 export declare function until<T>(p: () => T): Promise<Exclude<T, false | 0 | "" | null | undefined>>;   // AC-6: Solid's until — the first truthy value
+export declare function onSettled(f: () => void): void;                   // EF-7: imperative scope only, so no cleanup return
+export declare function onFlush(f: () => void): void;                     // EF-8
 export declare function str(x: unknown): string;
 export declare function map<X, U>(xs: X, f: (x: ElemOf<X>, i: number) => U): U[];
 export declare function filter<X>(xs: X, f: (x: ElemOf<X>) => unknown): ElemOf<X>[];

@@ -1,9 +1,9 @@
-// ReactiveScript's front end for @solidjs/vite-plugin's `frontends` hook (prototype):
+// ReactiveScript's front end for @solidjs/vite-plugin. The plugin loads it from `@reactivescript/compiler/vite` when
+// the project has the package, so `solid()` compiles `.rx` with no option; `solid({ frontends: { ".rx": rx() } })`
+// names it explicitly.
 //
-//   solid({ frontends: { ".rx": rx() } })
-//
-// The crate (compiler/, `rxc app`) already hands each module to Solid's compiler (spec/11 CP-1), so a `.rx` module
-// comes back as Solid's output for the environment's `generate`, with its source map onto the `.rx` and, on a
+// The crate (its Node-API build, `src/node.rs`: what `rxc app` does) already hands each module to Solid's compiler
+// (spec/11 CP-1), so a `.rx` module comes back as Solid's output for the environment's `generate`, with its source map onto the `.rx` and, on a
 // program's entry, the program's stylesheet. Solid's plugin then takes it the way it takes lowered `.tsrx`: primitive
 // names, `lazy()`, the HMR refresh pass, server functions (12 SF-7a), the stylesheet as a CSS module.
 //
@@ -13,27 +13,26 @@
 // changes. The crate's output imports its dependencies as `./x.rx?rx-dep`, and a dependency is served from the build
 // of a program that contains it. A module several programs share is one module: its instance is keyed by its factory
 // (11 CP-4b `module`), not by its place in a program.
-import { execFileSync } from "node:child_process";
 import { statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import path from "node:path";
 
-const RXC = fileURLToPath(new URL("../compiler/target/release/rxc", import.meta.url));
+const { app } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
 const mtime = file => { try { return statSync(file).mtimeMs; } catch { return -1; } };
 const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(DEP);
 // `import __m0 from "./catalog.rx";` → `"./catalog.rx?rx-dep"` (one line each: the module's map is by line, CP-1c)
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
 
-/** @param {{ rxc?: string }} [options] @returns {import("@solidjs/vite-plugin").Frontend} */
-export default function rx(options = {}) {
+/** @returns {import("@solidjs/vite-plugin").Frontend} */
+export default function rx() {
   const builds = new Map();   // entry\0target\0moduleName → { entry, target, moduleName, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   function build(entry, target, moduleName) {
     const key = `${entry}\0${target}\0${moduleName}`;
     const prior = builds.get(key);
     if (prior && fresh(prior)) return prior;
-    const out = JSON.parse(execFileSync(options.rxc ?? RXC, ["app", entry, "--target", target, "--module-name", moduleName], { maxBuffer: 1 << 30 }).toString());
+    const out = JSON.parse(app(entry, target, moduleName));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
     const b = { entry, target, moduleName, out, stamps: new Map(files.map(f => [f, mtime(f)])) };

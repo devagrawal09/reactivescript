@@ -187,6 +187,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     hoisted(_name: string, _get: Acc) {},
     refresh: onServer("refresh"),
     affects: onServer("affects"),
+    onSettled: onServer("onSettled"),                                       // EF-7: imperative scope only, and no imperative run happens here (SV-2a)
+    onFlush: onServer("onFlush"),                                           // EF-8
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
     module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },

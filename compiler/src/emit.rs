@@ -1241,6 +1241,16 @@ impl<'p> Gen<'p> {
                         return Ok(rtc("until", vec![thunk(self.expr(body, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?)]));
                     }
                 }
+                // EF-7, EF-8: Solid's own
+                if let ExprKind::Id(n) = &f.k {
+                    if (n == "onSettled" || n == "onFlush") && self.lookup(env, n).is_none() {
+                        let mut xs = vec![];
+                        for a in args {
+                            xs.push(self.expr(a, env, &sub)?);
+                        }
+                        return Ok(rtc(n, xs));
+                    }
+                }
                 let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
                 let mut xs = vec![];
                 for a in args {
