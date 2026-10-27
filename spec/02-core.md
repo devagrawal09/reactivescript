@@ -179,7 +179,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
   semantic one.
 - **W-3 (Instant).** All writes performed by one imperative run — one handler
   invocation, one apply block, one resumed continuation — form one instant
-  (V-6). There is no API to split or merge instants from inside a run. A
+  (V-6). There is no API to split or merge instants from inside a run:
+  `onFlush` (EF-8) does not split one, it schedules another run. A
   run whose writes all equal their slots' values (E-6) changes nothing and
   opens no instant (ruled with DV-5, 2026-10-23: the earlier "an equal
   write still opens an instant" existed only for the frame-indexed `pre`).
@@ -282,6 +283,39 @@ Function application `f(e…)` covers both language functions and FFI imports;
   the instant runs before any apply block of that instant (O-2), so
   `log(leave, 1); log(enter, 2)` across a step change is a legal
   expectation (S-ai-wizard).
+- **EF-7 (onSettled).** [taken by default 2026-10-27] `onSettled(() => B)`,
+  called in imperative scope, schedules `B` to run once, as an imperative
+  run of its own, in the observe phase of the instant in which the change
+  the calling run belongs to commits: the change its writes open, or the
+  change that adopts them (a handler that launches an action: AC-1). A
+  run whose writes open no instant (an apply block that writes nothing)
+  has its callbacks run at the end of the current instant. `B` reads the
+  committed state (SC-2); its writes begin the next instant (EF-3). It is
+  Solid's `onSettled` in its unowned form: "schedule work to run after the
+  action / transition triggered by the event has completed" (S-settled-1).
+  The owned form, in a component body, is `effect () { … }` (EF-4), so in
+  reactive scope `onSettled` is `IO_IN_REACTIVE`. `B` has no region, so a
+  cleanup return (EF-5's shapes) is `SETTLED_CLEANUP_UNOWNED`, a compile
+  error (Solid: a dev-mode throw). The argument is a closure with no
+  parameters (`HOOK_CALLBACK`). Like `until` (AC-6) it is a function of
+  the language, not syntax: a binding named `onSettled` shadows it.
+- **EF-8 (onFlush).** [taken by default 2026-10-27] `onFlush(() => B)`,
+  called in imperative scope, schedules `B` to run once, as an imperative
+  run of its own, right after the instant the calling run opens and the
+  instants its apply blocks' writes go on to open (EF-3). It never waits
+  on a hold: the callback runs even while that instant is held. Every `onFlush` callback registered in one step
+  runs in call order as one instant. Its use is keeping a write out of
+  another write's hold: `B`'s writes are a new change, which commits on its
+  own unless it joins a hold the way any later change does (H-2, D-8; a
+  write to a held slot, or a reader of both). So `onFlush(() => { open :=
+  false }); page := 2` closes a menu now while the page loads (S-flush-1),
+  where `open := false; page := 2` is one instant and waits for it (W-3).
+  A write in `B` lands after the run's own writes; writing one slot in
+  both is legal and composes in that order (W-6). In reactive scope it is
+  `IO_IN_REACTIVE` (Solid: the `ON_FLUSH_IN_OWNED_SCOPE` warning); the
+  argument is a closure with no parameters (`HOOK_CALLBACK`); a binding
+  named `onFlush` shadows it. Solid: `onFlush` (solidjs/solid#4292); a
+  no-op on the server, where no imperative run happens (10 SV-2a).
 
 ### V — Views
 

@@ -17,8 +17,8 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   const src = t.program ?? sc.program;
   let rows = t.rows; let own = 0;
   if (t !== base && base && rows.length && rows[0].instant > 0) { const pre = base.rows.filter(r => r.instant < rows[0].instant); own = pre.length; rows = [...pre, ...rows]; }
-  // chains: a row followed by its `(effect)` rows is one flush here
-  const chains: typeof rows[] = []; for (const r of rows) { if (r.action === "(effect)" && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
+  // chains: a row followed by its `(effect)` and `(flush)` rows (EF-8) is one step here
+  const chains: typeof rows[] = []; for (const r of rows) { if ((r.action === "(effect)" || r.action === "(flush)") && chains.length) chains[chains.length - 1].push(r); else chains.push([r]); }
   let o: Oracle;
   resetErrorHalt(); (await import("./lower.ts")).resetScopes(); Unsupported.last = "";
   const handlerStmts = rows.filter(r => r.action.startsWith("handler")).map(r => { try { return parseStmts(r.action.slice(7)); } catch { return []; } });

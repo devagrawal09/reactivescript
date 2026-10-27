@@ -120,8 +120,8 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   test asked). The
   handler that launches it is the same instant, so the handler's own plain
   writes — before or after the call — are the action's and are held with it
-  (D-7's same-tick adoption); to land something now, make it a guess or a
-  separate event.
+  (D-7's same-tick adoption); to land something now, make it a guess, a
+  separate event, or an `onFlush` run (02 EF-8).
   `action { … }` inline in a handler is the same for one run. There is no
   escape: a write after an `await` is still the action's (the language has
   the scope, so none of 2.0's generator plumbing — S-9's "fresh write

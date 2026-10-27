@@ -45,6 +45,13 @@ const noFails = (): Fails => ({ cls: new Set(), props: [] });
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
+/** EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one. */
+function returnsClosure(f: Extract<Expr, { k: "fn" }>): boolean {
+  const inStmts = (ss: Stmt[]): boolean => ss.some(s => (s.k === "return" && s.e?.k === "fn") || (s.k === "sif" && (inStmts(s.t) || inStmts(s.f))) || (s.k === "try" && (inStmts(s.body) || inStmts(s.handler ?? []) || inStmts(s.fin ?? []))));
+  if (!f.stmts) return f.body.k === "fn";
+  const last = f.stmts[f.stmts.length - 1];
+  return inStmts(f.stmts) || (last?.k === "expr" && last.e.k === "fn");
+}
 /** A short rendering of an expression, for messages. */
 function show(e: Expr): string {
   switch (e.k) {
@@ -606,6 +613,15 @@ class Checker {
           const p = e.args[0];
           if (e.args.length !== 1 || !p || p.k !== "fn" || p.params.length) { this.err("UNTIL_PREDICATE", "AC-6", "until takes a predicate, `until(() => e)`: a value would be read once and never change"); e.args.forEach(go); return; }
           this.expr(p, env, { scope: "reactive", server: ctx.server });                         // the predicate is reactive scope: it reads, tracked; it does not write
+          return;
+        }
+        if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) {   // EF-7, EF-8: Solid's onSettled / onFlush, functions of the language
+          const name = e.f.name;
+          if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", name === "onSettled" ? "EF-7" : "EF-8", name === "onSettled" ? "onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)" : "onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush");
+          const p = e.args[0];
+          if (e.args.length !== 1 || !p || p.k !== "fn" || p.params.length) { this.err("HOOK_CALLBACK", name === "onSettled" ? "EF-7" : "EF-8", `${name} takes a closure, \`${name}(() => { … })\`: its body is the run it schedules`); e.args.forEach(go); return; }
+          if (name === "onSettled" && returnsClosure(p)) this.err("SETTLED_CLEANUP_UNOWNED", "EF-7", "an onSettled callback returns a cleanup, but it has no region to bind it to: setup with teardown is `effect () { … }` (EF-4, EF-5)");
+          this.expr(p, env, { scope: "imperative", server: ctx.server });                       // the callback is imperative scope
           return;
         }
         if (e.f.k === "id") {

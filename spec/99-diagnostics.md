@@ -37,7 +37,8 @@ Bins:
 | `NO_OWNER_CLEANUP`                | U   | same                                                               |
 | `NO_OWNER_BOUNDARY`               | U   | same                                                               |
 | `RUN_WITH_DISPOSED_OWNER`         | S   | O-3: its static form is `REGION_ESCAPE`; the runtime error stays the JS-boundary backstop (CN-3b) |
-| `SETTLED_CLEANUP_UNOWNED`         | U   | EF-4/EF-5 with O                                                   |
+| `SETTLED_CLEANUP_UNOWNED`         | S   | EF-7: an `onSettled` callback that returns a cleanup (EF-5's shapes); `effect () { … }` is the owned form (EF-4) |
+| `ON_FLUSH_IN_OWNED_SCOPE`         | S   | EF-8: `onFlush` in reactive scope is `IO_IN_REACTIVE`, an error (Solid: a dev warning) |
 | `SNAPSHOT_ARGUMENT` (new)         | S   | E-10: reactive argument to a value parameter at an instantiation       |
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
@@ -122,6 +123,8 @@ named.
 | `CLIENT_NOT_AWAITED`              | S   | 12 SF-5b | S-server-3 |
 | `STYLE_PLACEMENT`                 | S   | 07 CSS-1: a `<style>` off its view's top level, or a second one | S-surface-2 |
 | `UNTIL_PREDICATE`                 | S   | 06 AC-6: `until`'s argument is not a predicate `() => e` | S-action-2 |
+| `HOOK_CALLBACK` (new)             | S   | 02 EF-7, EF-8: `onSettled`'s or `onFlush`'s argument is not a closure `() => { … }` | S-flush-1 |
+| `SETTLED_CLEANUP_UNOWNED`, `IO_IN_REACTIVE` (EF-7, EF-8) | S | an `onSettled` callback returning a cleanup; either hook called in reactive scope | S-settled-1, S-flush-1 |
 | `AWAIT_IN_EXPRESSION` (new)       | S   | 06 AC-1: an `await` inside an expression of imperative scope — a run suspends only at a statement (`await e`, `let v = await e`, either with a `catch`) | S-await-1 |
 | `TOP_LEVEL_MARKUP`                | S   | 09 MO-1c: markup at a module's top level — the view is `export default component App` | every scenario |
 | `CONTENT_MODEL`                   | S   | 10 SV-7d: nesting the HTML parser restructures, across templates (component roots, branches, placed children) | S-server-4 |

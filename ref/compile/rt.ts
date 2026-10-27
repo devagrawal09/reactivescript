@@ -8,7 +8,7 @@ import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createRenderEffect, createRoot, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred,
-  flush, untrack, latest, isPending, action, refresh, affects, until, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
 } from "@solidjs/signals";
 
 export { flush };
@@ -238,6 +238,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     hoisted(name: string, get: Acc) { let l = hoistedBy.get(name); if (!l) hoistedBy.set(name, (l = [])); l.push(get); },
     until: (p: () => unknown) => until(p),                                   // AC-6
+    onSettled: (f: () => void) => onSettled(f),                             // EF-7
+    onFlush: (f: () => void) => onFlush(f),                                 // EF-8
     refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
     affects: (get: Acc) => affects(get as any),
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
