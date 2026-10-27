@@ -1,0 +1,23 @@
+[package]
+name = "reactivescript"
+version = "0.0.0"
+edition = "2021"
+description = "ReactiveScript's compiler (spec/11 CP-1a): parse, check, resolve. Lowering onto Solid's solidjs-compiler comes next."
+license = "MIT"
+publish = false
+
+[lib]
+name = "reactivescript"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rxc"
+path = "src/main.rs"
+
+[dependencies]
+indexmap = "2"
+regex = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+debug = false

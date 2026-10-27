@@ -153,6 +153,57 @@ record argued each way; this is the decision.
   TypeScript implementation as the specification of each pass and as the
   oracle the crate is diffed against; it is not the thing being shipped.
 
+## CP-6 — The resolved model (between check and lower)
+
+**Taken by default 2026-10-27 (issue #1, agreed by Ryan 2026-10-26) — veto
+here.** The checker's resolution, kept as facts, so that lowering (and any
+other analysis) reads what the checker decided instead of recognising source
+spellings again. Compile-time only; nothing of it reaches run time.
+
+- **CP-6a (the facts).** Per module: its *regions* (03: the program, each
+  component, an imported module's alias, an instantiating `fn`, each
+  `then`/`else` branch, `for` row, `loading`/`portal`/`errored` boundary and
+  component children), its *symbols* (every name a declaration binds except
+  constants: sources with whether they have a question, equations, props,
+  fns, actions, components, imports, error classes, contexts, server fns)
+  and its *computations*: an equation's memo (`deferred`/`keyed` where
+  declared so), a source's question and seed, each reader of a view, each
+  prop argument and handler, an effect's inputs and its `apply`, an action
+  or server fn body, a `fn` body, a provision (RG-7) and a context's default.
+  A computation lists its **reads**, **writes** and **calls**, and the
+  computation it is nested in.
+- **CP-6b (read modes).** A read of a source, equation, props or context
+  (through `use`) is `tracked` in reactive scope (SC-1); `snapshot` in
+  imperative scope (SC-2), under `peek` (E-5), in a source's seed
+  (E-4) and as a value parameter's argument (E-10); or `pre` (C-2). Under
+  `latest` / `pending?` it carries the probe (R-9, R-12); a read of one
+  field of props or a store records the field.
+- **CP-6c (writes and calls).** A write is `x := e` (W-1, with whether it
+  writes a path), `optimistic` (AC-3), `refresh` (AC-4) or `affects`
+  (AC-5); `use p := e` writes the context's provided source (RG-7c). A call
+  names a fn, action, server fn or JS import called by name.
+- **CP-6d (one walk, two implementations).** The facts are recorded by the
+  checker's own walk, at the point where it resolves each name, in
+  `ref/src/model.ts` (filled by `ref/src/check.ts`) and in the crate's
+  `compiler/src/model.rs` (filled by `check.rs`). `ref/model.ts file.rx`
+  and `rxc model file.rx` print it.
+- **CP-6e (not a format).** No one outside the crate depends on it: it is
+  not a stable IR and not a commitment to a second front end (issue #1).
+  Ids are indices within one module's model.
+
+## CP-7 — The crate today
+
+`compiler/` is CP-1a's crate, `reactivescript` (binary `rxc`), so far its
+parse, module, check and signature stages and CP-6's model: a port of
+`ref/src/{parse,modules,content,signature,check,model}.ts`. CP-5 for these
+stages is `ref/crate.ts` (`npm --prefix ref run crate`): for every program in
+`scenarios/` (programs, variants, rejected and types variants) and
+`examples/`, both sides load the modules, parse, check, print signatures and
+build the model, and must agree exactly — the AST, every diagnostic with its
+message, each module's printed `.d.rx` and the model. Lowering onto
+`solidjs-compiler` (CP-1, through `oxc_ast::Program`) is next; the crate
+takes its oxc and Solid dependencies with it.
+
 ## Decisions taken by default (veto here)
 
 1. **The helper API is CP-4b's** (pinned 2026-10-26, taken by default —
@@ -165,3 +216,12 @@ record argued each way; this is the decision.
 2. **`compile_program` is proposed upstream as the seam** rather than
    vendoring Solid's back ends. If upstream declines, the fallback is a
    pinned fork exposing the same function — not a reimplementation.
+3. **The resolved model is recorded during the checker's walk** (CP-6d,
+   2026-10-27, taken by default — veto here), not computed by a pass of its
+   own over the AST. The checker already resolves every name and knows the
+   scope it is in; a second pass would re-derive both, and could disagree.
+4. **The crate matches `ref/` beyond verdicts** (CP-7, 2026-10-27, taken
+   by default — veto here): CP-5 asks for equal verdicts; the crate also
+   gives the same AST, diagnostic messages and signature text, so that
+   `ref/crate.ts` can diff it byte for byte. The port keeps the
+   reference's orders (insertion-ordered sets and maps) for that reason.

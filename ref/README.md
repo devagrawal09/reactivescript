@@ -35,6 +35,16 @@ ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
 signature as `.d.rx` text — the text an importer is checked against when
 the module's `.rx` is not there (MO-9, `src/signature.ts`).
 
+Resolved model (spec/11 CP-6): `src/model.ts`, filled by the checker's walk.
+`node --experimental-strip-types ref/model.ts file.rx…` prints, per module, its
+regions, symbols and computations, each computation with its reads (tracked,
+snapshot, pre), writes and calls.
+
+The Rust crate (`compiler/`, spec/11 CP-7) is diffed against this directory by
+`npm --prefix ref run crate` (`crate.ts`): every program in `scenarios/` and
+`examples/` is loaded, parsed, checked, its signatures printed and its model
+built by both, and the two must agree exactly. Needs cargo; not Solid.
+
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)
 2. regions: if/for as scoped sub-programs with disposal (03)
