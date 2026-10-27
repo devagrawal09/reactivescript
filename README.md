@@ -1,21 +1,152 @@
 # ReactiveScript
 
-Codename for a language that carries Solid 2.0's reactive semantics as language
-semantics: equations by default, writes confined to imperative scope, ownership
-and async (pending, holds, lanes) as things the compiler checks rather than the
-runtime warns about.
+A small language for reactive UIs that carries
+[Solid](https://github.com/solidjs/solid) 2.0's reactive semantics as
+*language* semantics, and checks them before your code runs. Files are `.rx`;
+they compile to plain Solid 2.0.
 
 > **Status:** early design work. The spec, its scenarios and the reference
 > implementation change often, and nothing here is released. See
 > [CONTRIBUTING.md](CONTRIBUTING.md) to run the suite or propose a change.
 
-This repository is the **spec** and its **reference implementation**. The
-production compiler is a separate Rust crate over Solid's own
-`solidjs-compiler` (`spec/11-compiler.md`): ReactiveScript parses, checks
-and lowers to an Oxc AST; Solid's compiler lowers the JSX. `ref/` is its
-conformance suite, run on Solid's `next` branch built from source.
+## Why
 
-## Layout
+In Solid you already write UIs as derivations over signals. Most of what goes
+wrong is a *shape* mistake: writing to something that should be derived,
+writing during a computation, reading async data with no loading or error
+boundary above it, leaking a value past the owner that created it. Solid's
+dev runtime warns about many of these when they happen. ReactiveScript makes
+them things the compiler refuses, the way Rust refuses a borrow, so the
+program that runs is one where those mistakes cannot happen
+([spec/08](spec/08-constraints.md), [spec/99](spec/99-diagnostics.md)).
+
+The checks are static only. A `.rx` program compiles to ordinary Solid 2.0
+code and adds nothing at run time beyond what Solid does
+([spec/11](spec/11-compiler.md)).
+
+It is also meant to be easy for an AI to write correctly. The rules are
+small and explicit, and each checker error names the rule it enforces and usually the fix. We
+test that directly: fresh agents given only the spec wrote the apps in
+[`examples/ai`](examples/ai) and [`examples/ai2`](examples/ai2) cold and
+predicted 70 of 71 frames of their behaviour before running them
+([examples/README.md](examples/README.md)).
+
+## A taste
+
+Three kinds of names do all the work:
+
+- `source x := 0` is state. Only a source can be written, with `:=`.
+- `y = x * 2` is an **equation**: it is always true, and recomputes when
+  what it reads changes (E-1).
+- Writes happen only in imperative scope: an event handler or an `action`
+  (W-1, W-2).
+
+```rx
+export default component Counter() {
+  source count := 0
+  double = count * 2
+
+  <button onClick={() => { count := count + 1 }}>{count} × 2 = {double}</button>
+}
+```
+
+Write to the equation instead, `double := 4`, and the checker refuses it:
+
+```
+counter.rx:5: error WRITE_TO_NON_SOURCE [W-1] double is an equation: only sources are written (W-1)
+```
+
+Async is an `await` in an equation. The compiler tracks that the value can be
+pending and can fail, so it asks you to say what to show in both cases:
+
+```rx
+import pure { fetchUser } from "./api"   // `pure`: safe to call from an equation (R-io-4)
+
+export default component Profile() {
+  source id := 1
+  user = await fetchUser(id)              // re-asked whenever `id` changes
+
+  <section>
+    <button onClick={() => { id := id + 1 }}>Next</button>
+    {errored fallback(e) { <p>Couldn't load: {e.message}</p> } {
+      {loading fallback { <p>Loading…</p> } {
+        <h1>{user.name}</h1>
+      }}
+    }}
+  </section>
+}
+```
+
+Leave out the `errored` boundary and it does not compile:
+
+```
+profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+```
+
+Beyond this the language has structured stores with per-path writes
+([spec/06](spec/06-stores.md)), optimistic updates and held values while new
+data loads ([spec/05](spec/05-holds.md)), modules that own their state and
+export actions to change it ([spec/09](spec/09-modules.md)), streamed SSR with
+hydration ([spec/10](spec/10-server.md)), `server fn` for code that runs on
+the server ([spec/12](spec/12-server-functions.md)), scoped `<style>`
+([spec/07](spec/07-surface.md)), and types checked by TypeScript through a
+TSX projection ([spec/13](spec/13-types.md)). For whole apps, start with
+[`examples/todo.rx`](examples/todo.rx) and
+[`examples/signup.rx`](examples/signup.rx).
+
+## What's here
+
+| | |
+| --- | --- |
+| [`spec/`](spec) | the language, as numbered rules |
+| [`scenarios/`](scenarios) | about 100 executable cases: program, actions, expected frames, accepted or refused |
+| [`examples/`](examples) | real apps in `.rx` |
+| [`ref/`](ref) | the reference implementation in TypeScript: interpreter, checker, compiler, and runners that check every scenario against Solid itself |
+| [`compiler/`](compiler) | the production compiler, a Rust crate (`rxc`) built on Solid's own compiler; also the npm package `@reactivescript/compiler` with a Vite front end |
+| [`runtime/`](runtime) | `@reactivescript/runtime`, the small layer compiled `.rx` calls over Solid |
+| [`tooling/rx-language-server`](tooling/rx-language-server) | the `.rx` language server: TypeScript's hover, go to definition, rename, completion and type errors on `.rx`, plus the checker's diagnostics with their rules |
+| [`tooling/vscode-rx`](tooling/vscode-rx) | the VS Code extension: highlighting, and the language server |
+
+Nothing is published yet. `@reactivescript/compiler`,
+`@reactivescript/runtime` and `@reactivescript/language-server` will go to
+npm, and the extension to the VS Marketplace and Open VSX
+([`tooling/RELEASING.md`](tooling/RELEASING.md)). In Vite, the compiler is a
+front end that Solid's Vite plugin loads on its own when the package is
+installed; that support is merged in Solid's plugin but not yet released
+([`compiler/README.md`](compiler/README.md)).
+
+## Try it
+
+You need Node 22 or later. The checker and the interpreter run straight from
+the repo with no install:
+
+```sh
+git clone https://github.com/ryansolid/reactivescript && cd reactivescript
+node --experimental-strip-types ref/check.ts examples/todo.rx   # check a program
+node --experimental-strip-types ref/run.ts                      # run every scenario
+```
+
+Running the scenarios on Solid itself needs Solid's `next` branch built from
+source (pnpm and a Rust toolchain); see [CONTRIBUTING.md](CONTRIBUTING.md) and
+[`ref/README.md`](ref/README.md). The compiler builds with Cargo
+([`compiler/README.md`](compiler/README.md)). For the editor, install a
+`.vsix` from a run of the repository's `editor` workflow, or build one
+([`tooling/vscode-rx/README.md`](tooling/vscode-rx/README.md)); other editors
+use the language server directly
+([`tooling/rx-language-server`](tooling/rx-language-server)).
+
+## Reading the spec
+
+The spec is the product: every behaviour claim is a numbered rule or a
+scenario. A good order for a first read is
+[00 vocabulary](spec/00-vocabulary.md) (each term mapped to Solid's),
+[01 scopes](spec/01-scopes.md), [02 core](spec/02-core.md), then
+[07 surface](spec/07-surface.md) for the syntax and
+[08 constraints](spec/08-constraints.md) for what the compiler refuses.
+Semantics come from Solid 2.0 (`solidjs/solid@next`); where this spec departs
+from Solid it records a `DV-n`.
+
+### Layout
 
 ```
 spec/
@@ -38,7 +169,7 @@ scenarios/             one file per scenario: program, action, frames, compiles-
 ref/                   interpreter, checker, Solid oracle, compiler and server runner (TypeScript) — all run scenarios/
 ```
 
-## Discipline
+### Discipline
 
 1. **Core before holds.** `02-core.md` is finished and `ref/` passes its scenarios
    before `05-holds.md` opens. The two are separate documents on purpose.
@@ -52,7 +183,7 @@ ref/                   interpreter, checker, Solid oracle, compiler and server r
    `packages/signals/docs/RULES-FUNDAMENTALS.md` from `solidjs/solid@next`. An
    open question there (Q-n) is open here; this spec does not rule on it.
 
-## Rule IDs
+### Rule IDs
 
 - `V-n` vocabulary (00) · `SC-n` scopes (01)
 - `E-n` equations · `W-n` writes · `C-n` causality · `P-n` properties of an instant · `EF-n` effects · `IO-n` io (02)
@@ -68,7 +199,7 @@ Scenario IDs: `S-<area>-n` for the areas above (`S-core`, `S-region`,
 `S-types`, …), `S-solid-n` for a port of Solid's `SCENARIOS.md` `S-n`, and
 `S-app-*`, `S-ai-*`, `S-ai2-*` for the example apps under `examples/`.
 
-## References
+### References
 
 - **Revisiting ReactiveScript** —
   <https://hackmd.io/@0u1u3zEAQAO0iYWVAStEvw/BktlDvq9R>. Earlier thinking
