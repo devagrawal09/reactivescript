@@ -1,13 +1,19 @@
 # The editor tools (spec/11 CP-8e): build the crate natively and as WebAssembly, run the language server's LSP tests on
-# both the server and the extension's bundle, and package the VS Code extension (one .vsix for every platform).
-# A tag `vscode-v<version>` also publishes it: to the VS Marketplace by trusted publishing (OIDC, variables
-# AZURE_CLIENT_ID and AZURE_TENANT_ID) and to Open VSX (secret OVSX_PAT), from the `release` environment.
+# both the server and the extension's bundle, and package the VS Code extension (one .vsix for every platform) and the
+# language server's npm package.
+#
+# Releases are by version (tooling/RELEASING.md), once the repository variable RELEASES is `on`. On main:
+# - a version of tooling/rx-language-server that npm does not have is published there by trusted publishing (OIDC,
+#   no token), and tagged `language-server-v<version>`;
+# - a version of tooling/vscode-rx without its tag `vscode-v<version>` is published to the VS Marketplace (a Microsoft
+#   Entra identity, or the secret VSCE_PAT) and Open VSX (the secret OVSX_PAT), and tagged.
+# So a release is a version bump, merged.
 name: editor
 
 on:
   push:
     branches: [main]
-    tags: ["vscode-v*"]
+    paths: ["compiler/**", "tooling/**", ".github/workflows/editor.yml"]
   pull_request:
     paths: ["compiler/**", "tooling/**", ".github/workflows/editor.yml"]
   workflow_dispatch:
@@ -47,30 +53,82 @@ jobs:
           npm ci
           npm run package
           SERVER=dist/server.js node ../rx-language-server/test/run.js
+      - name: Pack the language server
+        working-directory: tooling/rx-language-server
+        run: npm pack
       - uses: actions/upload-artifact@v4
         with:
           name: vsix
           path: tooling/vscode-rx/*.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm
+          path: tooling/rx-language-server/*.tgz
 
-  publish:
-    if: startsWith(github.ref, 'refs/tags/vscode-v')
+  # which versions are new: run on main only, after the build passed
+  versions:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.RELEASES == 'on'
     needs: build
     runs-on: ubuntu-latest
-    # trusted publishing: no long-lived token for the Marketplace; the job's OIDC token signs it in to Microsoft Entra
-    # through a federated credential on a managed identity that is a member of the publisher (tooling/vscode-rx/README.md)
+    outputs:
+      server: ${{ steps.v.outputs.server }}
+      vscode: ${{ steps.v.outputs.vscode }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        run: |
+          s=$(node -p 'const p = require("./tooling/rx-language-server/package.json"); p.name + "@" + p.version')
+          if [ -z "$(npm view "$s" version 2>/dev/null)" ]; then echo "server=$s" >> "$GITHUB_OUTPUT"; fi
+          v=$(node -p 'require("./tooling/vscode-rx/package.json").version')
+          if [ -z "$(git ls-remote --tags origin "refs/tags/vscode-v$v")" ]; then echo "vscode=$v" >> "$GITHUB_OUTPUT"; fi
+
+  publish-npm:
+    needs: versions
+    if: needs.versions.outputs.server != ''
+    runs-on: ubuntu-latest
     environment: release
     permissions:
-      id-token: write
-      contents: read
-    env:
-      OVSX_PAT: ${{ secrets.OVSX_PAT }} # job-wide, so that a step's `if` can see whether it is set
+      id-token: write # trusted publishing: npm takes the job's OIDC token, and adds provenance
+      contents: write # the tag
     steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest # trusted publishing needs npm 11.5.1 or later
+      - run: npm publish ./*.tgz --access public
+      - name: Tag
+        run: |
+          t="language-server-v${SERVER##*@}"
+          git tag "$t" && git push origin "$t"
+        env:
+          SERVER: ${{ needs.versions.outputs.server }}
+
+  publish-vscode:
+    needs: versions
+    if: needs.versions.outputs.vscode != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write # the Marketplace by Microsoft Entra, when AZURE_CLIENT_ID is set
+      contents: write # the tag
+    env: # job-wide, so that a step's `if` can see whether each is set
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           name: vsix
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      # the Marketplace takes a Microsoft Entra identity (no token) when the repository has AZURE_CLIENT_ID and
+      # AZURE_TENANT_ID, else the secret VSCE_PAT (an Azure DevOps token: global ones end 2026-12-01)
       - name: Sign in to Microsoft Entra (OIDC)
         if: vars.AZURE_CLIENT_ID != ''
         uses: azure/login@v2
@@ -79,10 +137,13 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
       - name: VS Marketplace
-        if: vars.AZURE_CLIENT_ID != ''
-        run: npx --yes @vscode/vsce publish --azure-credential --packagePath *.vsix
-      # Open VSX has no trusted publishing in its CLI yet (eclipse-openvsx/openvsx#1980 is server-side only): a token
-      # until it does
+        if: vars.AZURE_CLIENT_ID != '' || env.VSCE_PAT != ''
+        run: npx --yes @vscode/vsce publish --packagePath ./*.vsix ${{ vars.AZURE_CLIENT_ID != '' && '--azure-credential' || '' }}
       - name: Open VSX
         if: env.OVSX_PAT != ''
-        run: npx --yes ovsx publish *.vsix -p "$OVSX_PAT"
+        run: npx --yes ovsx publish ./*.vsix -p "$OVSX_PAT"
+      - name: Tag
+        if: vars.AZURE_CLIENT_ID != '' || env.VSCE_PAT != '' || env.OVSX_PAT != ''
+        run: git tag "vscode-v$V" && git push origin "vscode-v$V"
+        env:
+          V: ${{ needs.versions.outputs.vscode }}

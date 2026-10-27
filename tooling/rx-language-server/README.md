@@ -21,6 +21,14 @@ The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
 
 ## Running it
 
+From npm (published from this folder, `../RELEASING.md`):
+
+```sh
+npx @reactivescript/language-server --stdio
+```
+
+From the repository:
+
 ```sh
 cargo build --lib --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
 npm install
@@ -75,8 +83,9 @@ folder under Settings › Editor › TextMate Bundles for highlighting.
 **Zed** needs an extension of its own (a Zed extension declares the language
 and starts the server); there isn't one yet.
 
-The `/path/to/reactivescript` paths are a checkout of this repository. A
-published npm package would replace them with `npx`; there isn't one yet.
+The `/path/to/reactivescript` paths are a checkout of this repository; with
+the npm package, the command is `npx @reactivescript/language-server --stdio`
+instead (or `rx-language-server --stdio` once installed).
 
 ## Tests
 
