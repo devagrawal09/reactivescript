@@ -23,8 +23,3 @@ export default component App() {
 Instant 2: the write publishes beside the old error; the inner `loading` is
 hidden behind it — a pending is not a value, and the error fallback never
 clears to show broken state underneath.
-
-## Divergences
-
-- server "Frames" instant 1: `0` — DV-9: Solid streams an empty fragment for a boundary that fails after the shell; the fallback appears at hydration
-

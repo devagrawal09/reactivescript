@@ -69,10 +69,3 @@ generic error in its place, and the boundary shows that — the message
 never leaves the server. A second request for the page, rendered at the same
 time, has its own `profile.rx`: these landings are not its landings, and
 its stream stays at the shell.
-
-## Divergences
-
-- server "Server frames" instant 1: `Profile loading posts` — DV-9: Solid streams an empty fragment for a boundary that fails after the shell; the client draws the fallback at hydration
-- server "Server frames" instant 2: `Profile` — DV-9
-- server "Frames" instant 1: `Profile loading posts` — DV-9
-- server "Frames" instant 2: `Profile` — DV-9

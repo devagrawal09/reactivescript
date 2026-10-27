@@ -7,7 +7,7 @@
     "test": "node --experimental-strip-types run.ts",
     "oracle": "node --experimental-strip-types --conditions=browser --conditions=development oracle/run.ts",
     "compiled": "node --experimental-strip-types --conditions=browser --conditions=development compile/run.ts",
-    "ssr": "node --experimental-strip-types --conditions=development ssr/run.ts",
+    "ssr": "node --experimental-strip-types ssr/run.ts",
     "types": "node --experimental-strip-types types/run.ts",
     "crate": "node --experimental-strip-types crate.ts",
     "model": "node --experimental-strip-types model.ts"

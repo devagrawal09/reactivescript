@@ -284,7 +284,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   and the probe freezes the probe. Solid is the source for holds, so H-7
   and H-11 now say so and the frame is `1 x1 / 5`. The open part of #4284
   (the one-effect grouping, the repro's `one` mode) shows in no scenario:
-  every `{…}` is its own effect.
+  every `{…}` is its own effect. Fixed on `next` too: at `2c9fdd9` the
+  repro's `one` mode shows `1 x1 / 5`.
 - **DV-13 (an empty fragment in the universal renderer) — a Solid bug,
   reproduced 2026-10-24; fixed on `next` 2026-10-26 (solidjs/solid#4274, fix #4276)** (`ref/oracle/repros/dv13-universal-empty.mjs`,
   found by S-ai2-search once its views went through Solid's compiler). In
@@ -327,10 +328,15 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   `pending?`. The spec frames stand (the interpreter matches the agent's
   predictions, and the same app without `key` matches in Solid).
   Since the fix the projection reports its memo's errors and its re-ask's
-  `pending?`; two cases remain, both in S-ai2-search. After the memo has
-  failed, the re-ask reports no `pending?` through the projection (reduced
-  to signals alone; a plain memo reports it). At instant 4, a re-ask after
-  a landing shows no `searching…` either; that one is not reduced yet.
+  `pending?`. The two cases left in S-ai2-search (instants 2 and 4: no
+  `searching…`) were ours, not Solid's (2026-10-27,
+  `ref/oracle/repros/dv8b-projection-pending.mjs`): `pending? results`
+  lowered to `isPending(() => proj)`, and Solid's probe judges the reads
+  its thunk makes, never its return value — `isPending(() => store)` reads
+  nothing and is `false` by design (D-24, A23). `pending?` over a
+  structured value now reads its keys (`__rt.isPending`, the oracle's
+  `pending` case), Solid's "whole-store questions are asked through
+  reads"; S-ai2-search matches on every runner.
 - **DV-18 (a keyed projection's rows miss later landings) — a Solid bug,
   reproduced 2026-10-26** (`ref/oracle/repros/dv18-projection-relanding.mjs`,
   found by S-ai2-search on the repin). A regression from DV-8's fix
@@ -339,7 +345,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   landing, a memo per row — what a `for` row's `{r.name}` is — never sees
   a later landing, so the list and everything held with it keep the old
   rows. A render effect reading the rows directly follows. The spec frames
-  stand. Filed as solidjs/solid#4305.
+  stand. Filed as solidjs/solid#4305; fixed on `next` 2026-10-27 (shows
+  in no scenario at `2c9fdd9`).
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

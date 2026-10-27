@@ -44,12 +44,6 @@ and the hydrated page: the browser draws its answers as ordinary landings.
 Served, the stream is the mount alone (`zone UTC measuring`): the landings
 are the browser's, after it has taken the page over.
 
-## Divergences
-
-- hydrated "Frames" instant 0: `zone UTC measuring` — DV-15: hydrating,
-  Solid drops the served `<p>measuring</p>` and builds its own (the same
-  text); the rule adopts it (SV-3a). The frames after are the rule's.
-
 ## Rejected variants
 
 ```

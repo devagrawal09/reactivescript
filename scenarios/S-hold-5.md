@@ -29,8 +29,3 @@ Instant 1: the rejection ends the wait like a value (R-6) and reaches the
 question; the reader behind the error fallback holds nothing (H-4), so the
 instant commits and the fallback stays (Solid D-39). Instant 3: the answer
 replaces the error; content returns.
-
-## Divergences
-
-- server "Frames" instant 1: `` — DV-9: Solid streams an empty fragment for a boundary that fails after the shell; the fallback appears at hydration
-

@@ -2,9 +2,10 @@
 // this package (`@reactivescript/compiler/vite`) in the project, then driven in Chromium; and the todo app again under
 // the dev server. Vite, solid-js and @solidjs/web come from the solid-next checkout (ref/SOLID_NEXT), as ref/ takes
 // Solid. Solid's plugin needs built-in `.rx` (solid-vite-plugin PR, see README): SOLID_VITE_PLUGIN names a built
-// checkout of it, else the one pnpm installed in solid-next. The Node-API build first: `npm run build` here.
+// checkout of it, else the one pnpm installed in solid-next. The Node-API build first: `npm run build` here,
+// and the runtime's: `npm run build` in ../runtime.
 // Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node compiler/test/vite.mjs [filter]
-import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,7 +21,7 @@ const deps = path.resolve(installed, "../..");   // the installed plugin's node_
 const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;
 const { chromium } = createRequire(import.meta.url)("playwright");
-const rtWeb = path.join(repo, "ref/compile/rt-web.ts");
+const runtime = path.join(repo, "runtime");   // @reactivescript/runtime, built (`npm run build` there)
 
 // notes/ calls server functions: with no server behind the static build, it shows its own error boundary
 const apps = {
@@ -36,10 +37,18 @@ function project(name, entry) {
   const dir = path.join(out, name); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   // the project's node_modules: the plugin's (vite, solid-js, @solidjs/web) and this package, installed
   const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
-  for (const d of readdirSync(deps)) if (d !== "@reactivescript") symlinkSync(path.join(deps, d), path.join(nm, d));
+  for (const d of readdirSync(deps)) {
+    if (!d.startsWith("@")) { symlinkSync(path.join(deps, d), path.join(nm, d)); continue; }
+    mkdirSync(path.join(nm, d), { recursive: true });
+    for (const e of readdirSync(path.join(deps, d))) symlinkSync(path.join(deps, d, e), path.join(nm, d, e));
+  }
+  // the runtime's peers: solid-js and @solidjs/web are the plugin's; @solidjs/signals the one that solid-js runs on
+  if (!existsSync(path.join(nm, "@solidjs/signals"))) symlinkSync(realpathSync(path.join(deps, "solid-js/node_modules/@solidjs/signals")), path.join(nm, "@solidjs/signals"));
   symlinkSync(pkg, path.join(nm, "@reactivescript/compiler"));
+  // the runtime as installed: copied, so that it takes the project's Solid (a peer), not its own dev copy
+  for (const f of ["package.json", "dist"]) cpSync(path.join(runtime, f), path.join(nm, "@reactivescript/runtime", f), { recursive: true });
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
-  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from ${JSON.stringify(rtWeb)};\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
+  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
   return dir;
 }
@@ -90,7 +99,7 @@ for (const [name, entry] of Object.entries(apps)) {
 if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
   const dir = project("shared", "shop/main.rx");
   writeFileSync(path.join(dir, "src/shop/count.rx"), `import { products } from "./catalog.rx"\n\nexport default component Count() {\n  errored fallback(e) { <p>no catalogue</p> } {\n    <p>{len(products)} products</p>\n  }\n}\n`);
-  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from ${JSON.stringify(rtWeb)};\nimport shop from "./shop/main.rx";\nimport count from "./shop/count.rx";\nimport * as api from "./api.mjs";\nfor (const [main, el] of [[shop, "app"], [count, "app2"]]) { const app = createApp({ root: document.getElementById(el), api }); app.mount(main(app)); }\n`);
+  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport shop from "./shop/main.rx";\nimport count from "./shop/count.rx";\nimport * as api from "./api.mjs";\nfor (const [main, el] of [[shop, "app"], [count, "app2"]]) { const app = createApp({ root: document.getElementById(el), api }); app.mount(main(app)); }\n`);
   writeFileSync(path.join(dir, "index.html"), readFileSync(path.join(dir, "index.html"), "utf8").replace('<div id="app"></div>', '<div id="app"></div><div id="app2"></div>'));
   try {
     const bundle = await vite.build(config(dir, "shop/main.rx"));

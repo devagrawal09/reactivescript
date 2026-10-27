@@ -69,10 +69,12 @@ What happens to a `.rx` module in Vite:
   server-function passes (12 SF-7a) and links the stylesheet as a CSS module
   (CSS-4).
 
+The app mounts a program with `createApp` from `@reactivescript/runtime`
+(`../runtime`, CP-4a), as the examples do.
+
 Not yet: hot updates of `.rx` modules are untested; server rendering in Vite
-needs the runtime package (CP-4a; the examples take `createApp` from
-`ref/compile/rt-web.ts`) and the request-scoped app server functions run in;
-no WebAssembly fallback for platforms without a binary.
+needs a request-scoped app for server functions to run in; no WebAssembly
+fallback for platforms without a binary.
 
 ### Releasing
 
@@ -84,19 +86,22 @@ every platform on every change; on `main`, once the repository variable
 packages first, by trusted publishing from the `release` environment, and
 tags it `compiler-v<version>`.
 
+`@reactivescript/runtime` (`../runtime`) is released the same way by the
+`runtime` workflow, tagged `runtime-v<version>`.
+
 Once, by hand: npm sets up trusted publishing only on a package that
-exists, so each of the six packages needs a placeholder first,
+exists, so each of the seven packages needs a placeholder first,
 
 ```sh
 npm login
-for p in compiler compiler-darwin-x64 compiler-darwin-arm64 compiler-linux-x64-gnu compiler-linux-arm64-gnu compiler-win32-x64-msvc; do
+for p in runtime compiler compiler-darwin-x64 compiler-darwin-arm64 compiler-linux-x64-gnu compiler-linux-arm64-gnu compiler-win32-x64-msvc; do
   npx setup-npm-trusted-publish "@reactivescript/$p"
 done
 ```
 
 then, on each package's **Settings › Trusted publishing**, GitHub Actions:
-owner `ryansolid`, repository `reactivescript`, workflow `compiler.yml`,
-environment `release`.
+owner `ryansolid`, repository `reactivescript`, workflow `compiler.yml`
+(`runtime.yml` for the runtime), environment `release`.
 
 `ref/` stays the specification: a change of behaviour lands there first (with
 its scenario), then here, and `ref/crate.ts` keeps the two equal.
