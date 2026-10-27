@@ -1,0 +1,84 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+import pure { len, filter } from "./prelude"
+
+type Override = { t: number; id: number; assignee: string; ok: boolean }
+type AssignError = { id: number; message: string }
+
+error NotFound(id: number) => `issue #${id} not found`
+
+export default component App() {
+  source user: string := "guest"
+  source filterBy: string := "open"
+  source selected: number | null := null
+  source overrides: Override[] := []
+  source assignError: AssignError | null := null
+  source nextToken: number := 0
+
+  issues = await fetchIssues(filterBy)
+
+  <div>
+    <label>
+      user{" "}
+      <input data-testid="user" value={user} onInput={e => { user := e.target.value }} />
+    </label>
+    <div>
+      <button data-testid="filter-open" onClick={() => {
+        filterBy := "open"
+        overrides := os => filter(os, o => !o.ok)
+      }}>open</button>
+      <button data-testid="filter-closed" onClick={() => {
+        filterBy := "closed"
+        overrides := os => filter(os, o => !o.ok)
+      }}>closed</button>
+    </div>
+    <div data-testid="list">
+      {loading on(filterBy) fallback { <p>{`loading ${filterBy} issues`}</p> } {
+        {errored fallback(e) { <p>{`list error: ${e.message}`}</p> } {
+          {for i in issues {
+            mine = filter(overrides, o => o.id == i.id)
+            who = len(mine) > 0 ? mine[len(mine) - 1].assignee : (i.assignee ?? "unassigned")
+            <div data-testid="issue" onClick={() => {
+              selected := i.id
+              assignError := null
+            }}>{`#${i.id} ${i.title} (${who})`}</div>
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected {
+        issue = await fetchIssue(selected)
+        shown = issue == null ? throw NotFound(selected) : issue
+        assignMsg = assignError?.id == selected ? assignError?.message ?? "" : ""
+        {loading on(selected) fallback { <p>{`loading #${selected}`}</p> } {
+          {errored fallback(e) { <p>{`detail error: ${e.message}`}</p> } {
+            <h2>{`#${shown.id} ${shown.title}`}</h2>
+            <p>{shown.body}</p>
+          }}
+        }}
+        <button data-testid="retry" onClick={() => { refresh issue }}>retry</button>
+        <button data-testid="assign" onClick={() => {
+          let id = selected
+          let u = user
+          let t = nextToken
+          nextToken := t + 1
+          assignError := null
+          overrides := os => [...os, { t, id, assignee: u, ok: false }]
+          try {
+            let r = await assign(id, u)
+            overrides := os => os.map(o => o.t == t ? { ...o, assignee: r.assignee, ok: true } : o)
+          } catch (err) {
+            overrides := os => filter(os, o => o.t != t)
+            assignError := { id, message: err.message }
+          }
+        }}>{`assign to ${user}`}</button>
+        {if assignMsg != "" {
+          <p data-testid="assign-error">{assignMsg}</p>
+        }}
+      } else {
+        <p>select an issue</p>
+      }}
+    </div>
+  </div>
+}

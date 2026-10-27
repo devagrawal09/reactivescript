@@ -1,0 +1,78 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import pure { len } from "./prelude"
+
+fn savedLine(s: { name: string; theme: string; density: string }): string => `Saved: ${s.name} · ${s.theme} · ${s.density}`
+
+export default component App() {
+  settings = await loadSettings()
+
+  // the last settings the server confirmed
+  source saved = settings
+  // the draft: filled from the loaded settings, then the user's
+  source name = settings.name
+  source theme = settings.theme
+  source density = settings.density
+
+  // the save in flight (the latest one), if any
+  source inFlight: { name: string; theme: string; density: string } | null := null
+  source saveSeq: number := 0
+  source saveError: string := ""
+
+  nameLen = len(name)
+  nameError = nameLen == 0 ? "Display name is required" : nameLen > 20 ? `Display name must be at most 20 characters, not ${nameLen}` : ""
+
+  <main>
+    {errored fallback(e) {
+      <p data-testid="load">Could not load settings: {e.message}</p>
+      <button data-testid="retry-load" onClick={() => { refresh settings }}>Retry</button>
+    } {
+      {loading fallback {
+        <p data-testid="load">Loading settings…</p>
+      } {
+        <p data-testid="saved">{inFlight != null ? `${savedLine(inFlight)} (saving…)` : savedLine(saved)}</p>
+        <form onSubmit={(ev) => { ev.preventDefault() }}>
+          <label>
+            Display name{" "}
+            <input data-testid="name" value={name} onInput={(ev) => { name := ev.currentTarget.value }} />
+          </label>
+          <span data-testid="name-count">{`${nameLen}/20`}</span>
+          {if nameError != "" {
+            <p data-testid="name-error">{nameError}</p>
+          }}
+          <div>
+            <button type="button" data-testid="theme-light" onClick={() => { theme := "light" }}>Light</button>
+            <button type="button" data-testid="theme-dark" onClick={() => { theme := "dark" }}>Dark</button>
+            <button type="button" data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>Toggle density</button>
+          </div>
+          <p data-testid="preview">{`Preview: ${theme} / ${density}`}</p>
+          <button type="button" data-testid="save" onClick={() => {
+            if (nameError != "") { return }
+            let s = { name: name, theme: theme, density: density }
+            let my = saveSeq + 1
+            saveSeq := my
+            inFlight := s
+            saveError := ""
+            try {
+              let r = await saveSettings(s)
+              if (saveSeq == my) {
+                saved := r
+                inFlight := null
+              } else {
+                saved := r
+              }
+            } catch (err) {
+              if (saveSeq == my) {
+                inFlight := null
+                saveError := `Save failed: ${err.message}`
+              }
+            }
+          }}>Save</button>
+          {if saveError != "" {
+            <p data-testid="save-error">{saveError}</p>
+          }}
+        </form>
+      }}
+    }}
+  </main>
+}

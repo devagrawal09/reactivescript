@@ -1,0 +1,68 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+
+error NotFound(id: number) => `issue #${id} not found`
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source issues = await fetchIssues(filter)
+  source selected: number := 0
+  source selSeq: number := 0
+  source assignError: string = ""
+  source errorSeq: number := -1
+
+  action assignTo() {
+    let id = selected
+    let u = user
+    let seq = selSeq
+    optimistic assignError := ""
+    optimistic issues := xs => xs.map(i => i.id == id ? { ...i, assignee: u } : i)
+    try {
+      let r = await assign(id, u)
+      issues := xs => xs.map(i => i.id == r.id ? { ...i, assignee: r.assignee } : i)
+      assignError := ""
+    } catch (e) {
+      assignError := e.message
+      errorSeq := seq
+    }
+  }
+
+  <main>
+    <div>
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.currentTarget.value }} /></label>
+    </div>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <ul data-testid="list">
+      {loading on(filter) fallback { <li>{`loading ${filter} issues`}</li> } {
+        {errored fallback(e) { <li>{`list error: ${e.message}`}</li> } {
+          {for i in issues {
+            <li data-testid="issue" onClick={() => { selected := i.id; selSeq := selSeq + 1 }}>{`#${i.id} ${i.title} (${i.assignee ?? "unassigned"})`}</li>
+          }}
+        }}
+      }}
+    </ul>
+    <section data-testid="detail">
+      {if selected == 0 {
+        <p>select an issue</p>
+      } else {
+        detail = await fetchIssue(selected)
+        shown = detail == null ? throw NotFound(selected) : detail
+        {loading on(selected) fallback { <p>{`loading #${selected}`}</p> } {
+          {errored fallback(e) { <p>{`detail error: ${e.message}`}</p> } {
+            <h2>{`#${shown.id} ${shown.title}`}</h2>
+            <p>{shown.body}</p>
+          }}
+        }}
+        <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+        <button data-testid="assign" onClick={() => { assignTo() }}>{`assign to ${user}`}</button>
+        {if errorSeq == selSeq && assignError != "" {
+          <p data-testid="assign-error">{assignError}</p>
+        }}
+      }}
+    </section>
+  </main>
+}

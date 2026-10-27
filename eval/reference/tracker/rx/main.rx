@@ -1,0 +1,13 @@
+// main.rx — the tracker app: the issue list beside the selected issue.
+
+import { currentUser, session, signIn } from "./people.rx"
+import { IssueList, DetailPanel } from "./ui.rx"
+
+provide currentUser = session
+
+export default component App() {
+  <main>
+    <input data-testid="user" value={session} onInput={(e) => { signIn(e.target.value) }} />{" "}
+    <IssueList />{" / "}<DetailPanel />
+  </main>
+}

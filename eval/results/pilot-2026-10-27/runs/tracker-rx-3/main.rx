@@ -1,0 +1,78 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+import pure { len, filter } from "./prelude"
+
+type Override = { id: number; who: string; token: number }
+
+export default component App() {
+  source user: string := "guest"
+  source listFilter: string := "open"
+  source selectedId: number | null := null
+  source overrides: Override[] := []
+  source seq: number := 0
+  source assignError: { id: number; msg: string } | null := null
+
+  issues = await fetchIssues(listFilter)
+  assignMsg = assignError?.id == selectedId ? (assignError?.msg ?? "") : ""
+
+  <main>
+    <div>
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.currentTarget.value }} /></label>
+    </div>
+    <div>
+      <button data-testid="filter-open" onClick={() => { listFilter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { listFilter := "closed" }}>closed</button>
+    </div>
+    <div data-testid="list">
+      {loading on(listFilter) fallback { <p>loading {listFilter} issues</p> } {
+        {errored fallback(e) { <p>list error: {e.message}</p> } {
+          {for issue in issues {
+            mine = filter(overrides, o => o.id == issue.id)
+            who = len(mine) > 0 ? mine[0].who : issue.assignee
+            <div data-testid="issue" onClick={() => { selectedId := issue.id; assignError := null }}>#{issue.id} {issue.title} ({who ?? "unassigned"})</div>
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selectedId {
+        detail = await fetchIssue(selectedId)
+        {loading on(selectedId) fallback { <p>loading #{selectedId}</p> } {
+          {errored fallback(e) { <p>detail error: {e.message}</p> } {
+            {if detail {
+              <h2>#{detail.id} {detail.title}</h2>
+              <p>{detail.body}</p>
+            } else {
+              <p>detail error: issue #{selectedId} not found</p>
+            }}
+          }}
+        }}
+        <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+        <button data-testid="assign" onClick={() => {
+          const id = selectedId
+          const who = user
+          if (id == null) { return }
+          const token = seq + 1
+          const prev = filter(overrides, o => o.id == id)
+          seq := token
+          assignError := null
+          overrides := os => [...filter(os, o => o.id != id), { id: id, who: who, token: token }]
+          try {
+            await assign(id, who)
+          } catch (e) {
+            const stillMine = len(filter(overrides, o => o.id == id && o.token == token)) > 0
+            if (stillMine) {
+              overrides := os => len(filter(os, o => o.id == id && o.token == token)) > 0 ? [...filter(os, o => o.id != id), ...prev] : os
+              assignError := { id: id, msg: e.message }
+            }
+          }
+        }}>assign to {user}</button>
+        {if assignMsg != "" {
+          <p data-testid="assign-error">{assignMsg}</p>
+        }}
+      } else {
+        <p>select an issue</p>
+      }}
+    </div>
+  </main>
+}

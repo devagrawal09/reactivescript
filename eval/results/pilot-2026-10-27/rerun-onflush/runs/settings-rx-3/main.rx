@@ -1,0 +1,96 @@
+import pure { len } from "./prelude"
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+
+export default component App() {
+  source phase: string := "loading"
+  source loadError: string := ""
+  source saved: { name: string; theme: string; density: string } := { name: "", theme: "light", density: "comfortable" }
+  source pendingSave: { name: string; theme: string; density: string } := { name: "", theme: "light", density: "comfortable" }
+  source isSaving: boolean := false
+  source saveSeq: number := 0
+  source landedSeq: number := 0
+  source saveError: string := ""
+  source name: string := ""
+  source theme: string := "light"
+  source density: string := "comfortable"
+
+  action load() {
+    try {
+      let s = await loadSettings()
+      saved := s
+      name := s.name
+      theme := s.theme
+      density := s.density
+      phase := "ready"
+    } catch (e) {
+      loadError := e.message
+      phase := "error"
+    }
+  }
+
+  effect () { load() }
+
+  nameLen = len(name)
+  nameError = nameLen == 0 ? "Display name is required" : (nameLen > 20 ? `Display name must be at most 20 characters, not ${nameLen}` : "")
+  savedLine = isSaving ? `Saved: ${pendingSave.name} · ${pendingSave.theme} · ${pendingSave.density} (saving…)` : `Saved: ${saved.name} · ${saved.theme} · ${saved.density}`
+
+  <main>
+    {if phase == "loading" {
+      <p data-testid="load">Loading settings…</p>
+    }}
+    {if phase == "error" {
+      <p data-testid="load">{`Could not load settings: ${loadError}`}</p>
+      <button data-testid="retry-load" onClick={() => {
+        onFlush(() => { phase := "loading" })
+        load()
+      }}>Retry</button>
+    }}
+    {if phase == "ready" {
+      <p data-testid="saved">{savedLine}</p>
+      <form onSubmit={(ev) => { ev.preventDefault() }}>
+        <label>
+          Display name
+          <input data-testid="name" value={name} onInput={(ev) => { name := ev.target.value }} />
+        </label>
+        <span data-testid="name-count">{`${nameLen}/20`}</span>
+        {if nameError != "" {
+          <p data-testid="name-error">{nameError}</p>
+        }}
+        <div>
+          <button type="button" data-testid="theme-light" onClick={() => { theme := "light" }}>Light</button>
+          <button type="button" data-testid="theme-dark" onClick={() => { theme := "dark" }}>Dark</button>
+          <button type="button" data-testid="density-toggle" onClick={() => {
+            density := density == "compact" ? "comfortable" : "compact"
+          }}>Toggle density</button>
+        </div>
+        <p data-testid="preview">{`Preview: ${theme} / ${density}`}</p>
+        <button type="button" data-testid="save" onClick={() => {
+          if (nameError != "") { return }
+          let d = { name: name, theme: theme, density: density }
+          let my = saveSeq + 1
+          saveSeq := my
+          pendingSave := d
+          isSaving := true
+          saveError := ""
+          try {
+            let r = await saveSettings(d)
+            if (my > landedSeq) {
+              saved := r
+              landedSeq := my
+            }
+            if (saveSeq == my) { isSaving := false }
+          } catch (e) {
+            if (saveSeq == my) {
+              isSaving := false
+              saveError := `Save failed: ${e.message}`
+            }
+          }
+        }}>Save</button>
+        {if saveError != "" {
+          <p data-testid="save-error">{saveError}</p>
+        }}
+      </form>
+    }}
+  </main>
+}

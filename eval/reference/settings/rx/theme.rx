@@ -1,0 +1,13 @@
+// theme.rx — the two contexts the settings page renders under.
+// This module owns no state: it only declares what the contexts are (RG-7a).
+
+export type Theme = "light" | "dark"
+export type Density = "comfortable" | "compact"
+
+// The theme being edited. It carries a source (RG-7c), so a picker anywhere
+// beneath the provider can change it without knowing who owns it.
+export context theme: source Theme
+
+// Layout density. Only some subtrees provide it; everywhere else it is the
+// default (RG-7b).
+export context density: Density = "comfortable"

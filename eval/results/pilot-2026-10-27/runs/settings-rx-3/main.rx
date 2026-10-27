@@ -1,0 +1,81 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import { Settings } from "./api"
+
+component Editor(props: { initial: Settings }) {
+  source confirmed: Settings := peek(props.initial)
+  source confirmedSeq: number := 0
+  source inflight: Settings | null := null
+  source seq: number := 0
+  source saveError: string := ""
+
+  source name: string := peek(props.initial.name)
+  source theme: string := peek(props.initial.theme)
+  source density: string := peek(props.initial.density)
+
+  count = name.length
+  nameError = count == 0 ? "Display name is required" : count > 20 ? `Display name must be at most 20 characters, not ${count}` : ""
+  shown = inflight == null ? confirmed : inflight
+  savedLine = `Saved: ${shown.name} · ${shown.theme} · ${shown.density}${inflight == null ? "" : " (saving…)"}`
+
+  <div class="settings">
+    <p data-testid="saved">{savedLine}</p>
+    <form onSubmit={(e) => { e.preventDefault() }}>
+      <label>
+        Display name{" "}
+        <input data-testid="name" value={name} onInput={(e) => { name := e.currentTarget.value }} />
+      </label>
+      <span data-testid="name-count">{`${count}/20`}</span>
+      {if nameError != "" {
+        <p data-testid="name-error">{nameError}</p>
+      }}
+      <div>
+        <button type="button" data-testid="theme-light" aria-pressed={theme == "light"} onClick={() => { theme := "light" }}>Light</button>
+        <button type="button" data-testid="theme-dark" aria-pressed={theme == "dark"} onClick={() => { theme := "dark" }}>Dark</button>
+        <button type="button" data-testid="density-toggle" onClick={() => { density := density == "compact" ? "comfortable" : "compact" }}>Density: {density}</button>
+      </div>
+      <p data-testid="preview">{`Preview: ${theme} / ${density}`}</p>
+      <button type="button" data-testid="save" onClick={() => {
+        if (nameError != "") { return }
+        const d = { name: name, theme: theme, density: density }
+        const id = seq + 1
+        seq := id
+        inflight := d
+        saveError := ""
+        try {
+          const s = await saveSettings(d)
+          if (id > confirmedSeq) {
+            confirmed := s
+            confirmedSeq := id
+          }
+          if (seq == id) { inflight := null }
+        } catch (e) {
+          if (seq == id) {
+            inflight := null
+            saveError := `Save failed: ${e.message}`
+          }
+        }
+      }}>Save</button>
+      {if saveError != "" {
+        <p data-testid="save-error">{saveError}</p>
+      }}
+    </form>
+  </div>
+}
+
+export default component App() {
+  source attempt: number := 0
+  settings = await loadSettings()
+
+  <main>
+    <h1>Settings</h1>
+    {loading on(attempt) fallback { <p data-testid="load">Loading settings…</p> } {
+      {errored fallback(e) {
+        <p data-testid="load">Could not load settings: {e.message}</p>
+        <button data-testid="retry-load" onClick={() => { attempt := attempt + 1; refresh settings }}>Retry</button>
+      } {
+        <Editor initial={settings} />
+      }}
+    }}
+  </main>
+}

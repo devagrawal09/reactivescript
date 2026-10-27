@@ -1,0 +1,71 @@
+// ui.rx — components. Owns no state; writes only through the actions
+// search.rx and detail.rx export.
+
+import { query, results, count, setQuery, TooShort } from "./search.rx"
+import { selected, item, select, retry, NotFound } from "./detail.rx"
+
+// The input shows what was typed even while that instant is held by the
+// search it started (a lane reader, H-7) — a plain `value={query}` would
+// lag the keyboard until the results land.
+export component SearchBox(props: {}) {
+  <input data-testid="query" value={latest query} onInput={(e) => { setQuery(e.target.value) }} />
+}
+
+component ResultRow(props: { hit: { id: number; name: string } }) {
+  <li data-testid="hit" onClick={() => { select(props.hit.id) }}>{props.hit.id == selected ? "> " : ""}{props.hit.name}{" "}</li>
+}
+
+// While a search is in flight the change is held (H-2): the list and the
+// count keep the last committed answer. Only probes show ahead: the
+// "searching…" line and the dimming (pending?), and the query in the
+// header (latest).
+export component ResultsPane(props: {}) {
+  if query != "" {
+    <section data-testid="results">
+      <p>{pending? results ? "searching…" : ""}</p>
+      {" "}
+      {errored fallback(e) { <p>search failed: {e.message}</p> } {
+        errored fallback(e: TooShort) { <p>{e.message}</p> } {
+          loading fallback { <p>searching…</p> } {
+            <h2>{count} results for {latest query}</h2>
+            {" "}
+            <ul class={pending? results ? "dim" : ""}>
+              {for r in results {
+                <ResultRow hit={r} />
+              }}
+            </ul>
+          }
+        }
+      }}
+    </section>
+  }
+}
+
+component ItemView(props: {}) {
+  if item { <article><h3>{item.name}</h3>{" "}<p>{item.blurb}</p></article> }   // TY: `item` is `Item | null` here — the component cannot know where it is applied
+}
+
+// The pane has its own boundaries, so nothing it shows — pending or
+// failed — reaches the results list. `loading on(selected)` re-arms per
+// selection, so a new selection shows "loading…" now instead of holding the
+// click (and with it the row highlight). The row over `[selected]` gives
+// each selection a fresh region: an `errored` showing a failure stays on it
+// until a value replaces it (H-12), and without the fresh region the failure
+// of the previous item would stay up while the next one loads.
+export component DetailPane(props: {}) {
+  if selected == null {
+    <p data-testid="detail">pick a result</p>
+  } else {
+    <section data-testid="detail">
+      {loading on(selected) fallback { <p>loading…</p> } {
+        for id in [selected] {
+          errored fallback(e) { <p>failed: {e.message}</p>{" "}<button data-testid="retry" onClick={() => { retry() }}>retry</button> } {
+            errored fallback(e: NotFound) { <p>{e.message}</p> } {
+              <ItemView />
+            }
+          }
+        }
+      }}
+    </section>
+  }
+}
