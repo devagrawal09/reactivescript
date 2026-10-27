@@ -15,9 +15,9 @@ the crate are now main's (merge 7749fda), still on Solid rc.19.
 | tracker-rx-3 | 11/11 | 8 | yes | no | yes, to show pending assignments now | yes (pending list, counter) |
 
 **Still no defects, and `onFlush` didn't bring agents back to actions.** Two of six found `onFlush`, and both used it
-as the spec describes, to get a write out of a hold. Both also kept hand-written bookkeeping around it. Four of
-six still wrote save or assign as a plain handler or with counters: the same share as the pilot (3 of 6 on these
-two tasks).
+as the spec describes, to get a write out of a hold. Both also kept hand-written bookkeeping around it. Three of
+six still wrote the save or the assignment as a plain handler, the same share as the pilot on these two tasks
+(3 of 6). Five of six kept counters or tokens of their own, including one that used `action` and `optimistic`.
 
 The reasons agents gave:
 
