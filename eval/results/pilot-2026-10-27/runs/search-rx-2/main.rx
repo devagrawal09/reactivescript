@@ -1,0 +1,63 @@
+import pure { search, fetchItem } from "./api"
+import pure { len } from "./prelude"
+
+component Detail(props: { id: number }) {
+  item = await fetchItem(props.id)
+  action retry() { refresh item }
+
+  loading on(props.id) fallback { <p>loading…</p> } {
+    errored fallback(e) {
+      <p>{`failed: ${e.message}`}</p>
+      <button data-testid="retry" onClick={() => { retry() }}>retry</button>
+    } {
+      if item {
+        <h2>{item.name}</h2>
+        <p>{item.blurb}</p>
+      } else {
+        <p>{`item ${props.id} not found`}</p>
+      }
+    }
+  }
+}
+
+export default component App() {
+  source q: string := ""
+  source picked: Hit | null := null
+
+  <main>
+    <input data-testid="query" type="text" onInput={(ev) => { q := ev.target.value }} />
+    <div data-testid="results">
+      {if len(q) == 1 {
+        <p>{`too short: ${q}`}</p>
+      } else {
+        if len(q) >= 2 {
+          res = { hits: await search(q), err: "" } catch (e) => ({ hits: [], err: e.message })
+          loading fallback { <p>searching…</p> } {
+            if pending? res {
+              <p>searching…</p>
+            }
+            if res.err == "" {
+              <p>{`${len(res.hits)} results for ${q}`}</p>
+              <ul>
+                {for h in res.hits {
+                  <li data-testid="hit" onClick={() => { picked := h }}>{`${picked?.id == h.id ? "> " : ""}${h.name}`}</li>
+                }}
+              </ul>
+            } else {
+              if !(pending? res) {
+                <p>{`search failed: ${res.err}`}</p>
+              }
+            }
+          }
+        }
+      }}
+    </div>
+    <div data-testid="detail">
+      {if picked {
+        <Detail id={picked.id} />
+      } else {
+        <p>pick a result</p>
+      }}
+    </div>
+  </main>
+}

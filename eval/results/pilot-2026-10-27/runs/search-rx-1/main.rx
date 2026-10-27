@@ -1,0 +1,57 @@
+import pure { search, fetchItem } from "./api"
+import pure { len } from "./prelude"
+
+type Hit = { id: number; name: string }
+type Found = { q: string; hits: Hit[]; error: string }
+
+export default component App() {
+  source q: string := ""
+  source selected: number | null := null
+
+  // The answer for the typed query; a re-ask keeps the shown answer until the new one lands.
+  deferred res: Found | null = len(q) < 2 ? null : ({ q: q, hits: await search(q), error: "" } catch (e) => ({ q: q, hits: [], error: e.message }))
+
+  item = selected == null ? null : await fetchItem(selected)
+
+  <main>
+    <input data-testid="query" type="text" onInput={(ev) => { q := ev.currentTarget.value }} />
+    <section data-testid="results">
+      {if len(q) == 1 {
+        <p>too short: {q}</p>
+      }}
+      {if len(q) >= 2 && pending? res {
+        <p>searching…</p>
+      }}
+      {if res != null && res.error == "" {
+        <p>{len(res.hits)} results for {res.q}</p>
+        <ul>
+          {for h in res.hits {
+            <li data-testid="hit" onClick={() => { selected := h.id }}>{selected == h.id ? "> " : ""}{h.name}</li>
+          }}
+        </ul>
+      }}
+      {if res != null && res.error != "" && res.q == q {
+        <p>search failed: {res.error}</p>
+      }}
+    </section>
+    <section data-testid="detail">
+      {if selected == null {
+        <p>pick a result</p>
+      } else {
+        loading on(selected) fallback { <p>loading…</p> } {
+          errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+          } {
+            {if item {
+              <h2>{item.name}</h2>
+              <p>{item.blurb}</p>
+            } else {
+              <p>item {selected} not found</p>
+            }}
+          }
+        }
+      }}
+    </section>
+  </main>
+}

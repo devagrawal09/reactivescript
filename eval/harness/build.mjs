@@ -4,7 +4,7 @@
 // The app's API is `src/api.js` over `src/flights.js`: every call is a flight the test lands or fails.
 // Usage: node harness/build.mjs <dir> [rx|react]   (the arm defaults to what `<dir>/arm` says)
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -16,7 +16,7 @@ export const RT_WEB = process.env.RT_WEB ?? path.resolve(evalDir, "../../rx-pr6/
 export const armOf = dir => readFileSync(path.join(dir, "arm"), "utf8").trim();
 
 export async function build(dir, arm = armOf(dir)) {
-  dir = path.resolve(dir);
+  dir = realpathSync(path.resolve(dir));
   const work = path.join(dir, ".build");
   rmSync(work, { recursive: true, force: true }); mkdirSync(work, { recursive: true });
   // the app's bare imports resolve from the harness's packages
