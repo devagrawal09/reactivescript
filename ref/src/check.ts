@@ -207,6 +207,7 @@ class Checker {
   private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[] }[] = [];
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private provisions: { key: string; e: Expr; env: Env }[] = [];
+  private importSyms = new Set<Sym>();                                                     // MO-1d: what imports bound; a nested block may not shadow it
   private later: (() => void)[] = [];
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
@@ -236,9 +237,13 @@ class Checker {
     // 1. names (E-7: one declaration per name in a block)
     for (const d of decls) {
       this.line = d.line;
-      if (d.k === "import" && d.resolved) { this.importRx(d, env); continue; }                                  // MO-1/MO-3: an .rx module's signature
-      if (d.k === "import" && d.declared) { this.importDeclared(d, env); continue; }                            // MO-8: a JS module's declaration file
-      if (d.k === "import") { for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side }); continue; }   // R-io-4, R-f-8, SF-5
+      if (d.k === "import") {
+        if (d.resolved) this.importRx(d, env);                                                                    // MO-1/MO-3: an .rx module's signature
+        else if (d.declared) this.importDeclared(d, env);                                                         // MO-8: a JS module's declaration file
+        else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side });   // R-io-4, R-f-8, SF-5
+        for (const { alias } of d.names) { const s = env.vars.get(alias); if (s) this.importSyms.add(s); }
+        continue;
+      }
       if (d.k === "effect" || d.k === "provide" || d.k === "typedecl") continue;
       if (d.k === "context") {                                                             // RG-7: a declared context — its identity is the declaration, not its spelling
         if (env.vars.has(d.name)) this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
@@ -249,6 +254,8 @@ class Checker {
         continue;
       }
       if (env.vars.has(d.name) && env.vars.get(d.name)!.kind !== "import") this.err("DUPLICATE_DECLARATION", "E-7", `${d.name} is declared twice in one block`);
+      const shadowed = env.parent?.lookup(d.name);
+      if (shadowed && this.importSyms.has(shadowed)) this.err("SHADOWED_IMPORT", "MO-1d", `${d.name} shadows the imported ${d.name}: rename one (\`import { ${d.name} as … }\`)`);
       const sym: Sym = { kind: d.k === "fn" ? "fn" : d.k === "component" ? "comp" : d.k === "action" ? "action" : d.k === "server" ? "server" : d.k === "source" ? "source" : d.k === "error" ? "errclass" : "eq", name: d.name, region: env.region, line: d.line };
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;

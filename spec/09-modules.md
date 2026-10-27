@@ -30,6 +30,13 @@ see the list at the end.
   component, `export default component App() { … }`: the runtime mounts it,
   as Solid's `render(() => <App />, el)`. A module imported for its exports
   may have a default component too; it is a component like any other.
+- **MO-1d.** [taken by default 2026-10-27] A declaration in a nested block
+  may not shadow a name an import bound (`SHADOWED_IMPORT`): rename one,
+  `import { filter as keep }`. A declaration that hides an imported
+  function turns every call of it in that block into a call of a
+  value, which nothing checks before run time (no type checker in the
+  loop, 11). Found in round 4 of the AI eval: a component's
+  `source filter` hid the prelude's `filter`.
 
 ## MO-2 — The value boundary
 
