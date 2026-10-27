@@ -26,8 +26,9 @@ The Solid pin (`solidjs-compiler` in `Cargo.toml`) must be the commit in
 cargo build --release
 target/release/rxc check ../examples/todo.rx     # diagnostics
 target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
+target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program
-npm --prefix ../ref run crate -- --lower         # … and the lowered JavaScript, for every target
+npm --prefix ../ref run crate -- --lower         # … and the lowered JavaScript, for every target, and its source maps
 RX_CRATE=1 npm --prefix ../ref run compiled      # the scenarios, run on the crate's output
 RX_CRATE=1 npm --prefix ../ref run ssr           # … served and hydrated from the crate's output
 ```

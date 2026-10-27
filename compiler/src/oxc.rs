@@ -6,16 +6,18 @@
 //! Spans: Solid's SSR props hoisting reads source order as meaning (`ssr/props.rs`): it finds a component's props literal
 //! by its element's span, and constructs it ahead only from locals whose declaration ends before the element (else the
 //! getter stays, as `const x = <C a={x.y} />` needs). So the program carries the layout the reference's text has, not
-//! `.rx` positions: every declarator, import binding, catch parameter and JSX element or fragment opens and closes on a
-//! counter in print order, the rest are unspanned, and `source_text` is that many blanks — the module's shape with no
-//! text, which the back ends only slice for comments and spreads, neither of which the lowering writes.
+//! `.rx` positions: every statement, declarator, import binding, catch parameter, JSX element, fragment and attribute opens and
+//! closes on a counter in print order, the rest are unspanned, and `source_text` is that many blanks — the module's shape
+//! with no text, which the back ends only slice for comments and spreads, neither of which the lowering writes. Each
+//! position also records the `.rx` line it was lowered from (`S::At`, a markup's line), so a position in Solid's output —
+//! a source map's, an error's — is mapped back to `.rx` (`lines`).
 
 use crate::js::{AttrValue, Body, Child, Func, Jsx, JsxName, Key, Pat, Prop, E, P, S};
 use oxc_allocator::{Allocator, ArenaBox, ArenaVec};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use oxc_ast::ast::*;
 use oxc_ast::builder::AstBuilder;
-use oxc_span::{SourceType, Span, SPAN};
+use oxc_span::{GetSpanMut, SourceType, Span, SPAN};
 use oxc_syntax::number::NumberBase;
 use oxc_syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
 
@@ -24,16 +26,33 @@ pub struct Build<'a> {
     alloc: &'a Allocator,
     /// the next print-order position
     at: Cell<u32>,
+    /// the `.rx` line being lowered (1-based; 0: none)
+    line: Cell<u32>,
+    /// each position's `.rx` line
+    lines: RefCell<Vec<u32>>,
 }
 
 impl<'a> Build<'a> {
     pub fn new(alloc: &'a Allocator) -> Self {
-        Build { b: AstBuilder::new(alloc), alloc, at: Cell::new(0) }
+        Build { b: AstBuilder::new(alloc), alloc, at: Cell::new(0), line: Cell::new(0), lines: RefCell::new(vec![]) }
+    }
+    /// The `.rx` line (1-based) each position of the program was lowered from; 0 where none is known.
+    pub fn lines(&self) -> Vec<u32> {
+        self.lines.borrow().clone()
     }
     fn open(&self) -> u32 {
         let at = self.at.get();
         self.at.set(at + 1);
+        self.lines.borrow_mut().push(self.line.get());
         at
+    }
+    /// `f` lowers `.rx` line `line`, when there is one
+    fn on_line<T>(&self, line: Option<usize>, f: impl FnOnce() -> T) -> T {
+        let Some(l) = line else { return f() };
+        let prev = self.line.replace(l as u32);
+        let x = f();
+        self.line.set(prev);
+        x
     }
     fn close(&self, start: u32) -> Span {
         Span::new(start, self.open())
@@ -86,8 +105,18 @@ impl<'a> Build<'a> {
         Statement::new_variable_declaration(SPAN, kind, self.vec([d]), false, &self.b)
     }
     fn stmt(&self, s: &S) -> Statement<'a> {
+        if let S::At(l, s) = s {
+            return self.on_line(Some(*l), || self.stmt(s));
+        }
+        let start = self.open();
+        let mut st = self.stmt0(s);
+        *st.span_mut() = self.close(start);
+        st
+    }
+    fn stmt0(&self, s: &S) -> Statement<'a> {
         let b = &self.b;
         match s {
+            S::At(..) => unreachable!(),
             S::Const(p, e) => self.var(VariableDeclarationKind::Const, p, Some(e)),
             S::Let(n, e) => self.var(VariableDeclarationKind::Let, &Pat::Id(n.clone()), e.as_ref()),
             S::Expr(e) => Statement::new_expression_statement(SPAN, self.expr(e), b),
@@ -350,16 +379,16 @@ impl<'a> Build<'a> {
         self.vec(cs.iter().map(|c| match c {
             Child::Expr(e) => JSXChild::new_expression_container(SPAN, JSXExpression::from(self.expr(e)), &self.b),
             Child::Text(t) => JSXChild::new_text(SPAN, self.s(t), Some(self.s(t).into()), &self.b),
-            Child::Jsx(Jsx::Frag(cs)) => {
+            Child::Jsx(Jsx::Frag(cs, line)) => self.on_line(*line, || {
                 let start = self.open();
                 let cs = self.children(cs);
                 JSXChild::new_fragment(self.close(start), JSXOpeningFragment::new(SPAN, &self.b), cs, JSXClosingFragment::new(SPAN, &self.b), &self.b)
-            }
-            Child::Jsx(j @ Jsx::El { .. }) => {
+            }),
+            Child::Jsx(j @ Jsx::El { line, .. }) => self.on_line(*line, || {
                 let start = self.open();
                 let (o, cs, c) = self.element_parts(j);
                 JSXChild::new_element(self.close(start), o, cs, c, &self.b)
-            }
+            }),
         }))
     }
     #[allow(clippy::type_complexity)]
@@ -367,6 +396,7 @@ impl<'a> Build<'a> {
         let b = &self.b;
         let Jsx::El { name, attrs, children, self_closing, .. } = j else { unreachable!() };
         let attrs = self.vec(attrs.iter().map(|(n, v)| {
+            let start = self.open();
             let name = match n.split_once(':') {
                 Some((ns, local)) => JSXAttributeName::new_namespaced_name(SPAN, JSXIdentifier::new(SPAN, self.s(ns), b), JSXIdentifier::new(SPAN, self.s(local), b), b),
                 None => JSXAttributeName::new_identifier(SPAN, self.s(n), b),
@@ -375,7 +405,7 @@ impl<'a> Build<'a> {
                 AttrValue::Str(s) => JSXAttributeValue::new_string_literal(SPAN, self.s(s), None, b),
                 AttrValue::Expr(e) => JSXAttributeValue::new_expression_container(SPAN, JSXExpression::from(self.expr(e)), b),
             };
-            JSXAttributeItem::new_attribute(SPAN, name, Some(value), b)
+            JSXAttributeItem::new_attribute(self.close(start), name, Some(value), b)
         }));
         let opening = self.boxed(JSXOpeningElement::new(SPAN, self.jsx_name(name), None, attrs, b));
         let closing = if *self_closing { None } else { Some(self.boxed(JSXClosingElement::new(SPAN, self.jsx_name(name), b))) };
@@ -384,16 +414,16 @@ impl<'a> Build<'a> {
     fn jsx(&self, j: &Jsx) -> Expression<'a> {
         let b = &self.b;
         match j {
-            Jsx::Frag(cs) => {
+            Jsx::Frag(cs, line) => self.on_line(*line, || {
                 let start = self.open();
                 let cs = self.children(cs);
                 Expression::new_jsx_fragment(self.close(start), JSXOpeningFragment::new(SPAN, b), cs, JSXClosingFragment::new(SPAN, b), b)
-            }
-            Jsx::El { .. } => {
+            }),
+            Jsx::El { line, .. } => self.on_line(*line, || {
                 let start = self.open();
                 let (o, cs, c) = self.element_parts(j);
                 Expression::new_jsx_element(self.close(start), o, cs, c, b)
-            }
+            }),
         }
     }
 }

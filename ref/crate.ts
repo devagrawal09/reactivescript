@@ -2,7 +2,8 @@
 // sides load the modules, parse, check, print signatures and build the resolved model (CP-6); the two must agree exactly.
 // With --lower (CP-1): every program the checker accepts is also compiled by both — ref/compile/emit.ts then Solid's
 // transform(), the crate's emit.rs then compile_program() — for the universal, dom and ssr targets, with a scenario table's
-// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild).
+// handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild), and the
+// crate's source maps onto .rx must hold (checkMap, CP-1c).
 // Usage: node --experimental-strip-types ref/crate.ts [--lower] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
@@ -95,14 +96,15 @@ async function lower(): Promise<number> {
   const { transformSync } = await import("esbuild");
   const { parseStmts } = await import("./src/parse.ts");
   const norm = (code: string) => { try { return transformSync(code, { loader: "js", format: "esm", legalComments: "none" }).code; } catch (e) { return `esbuild: ${(e as Error).message}\n${code}`; } };
-  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER }))), maxBuffer: 1 << 30 }).toString();
+  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))), maxBuffer: 1 << 30 }).toString();
   const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
-  let bad = 0, compiled = 0, modules = 0;
+  let bad = 0, compiled = 0, modules = 0, mapped = 0;
   for (const r of reqs) {
     const have = got.get(r.id);
+    let set: ReturnType<typeof loadModules> | undefined;
     let want: any;
     try {
-      const set = loadModules(r.entry, p => r.files[p]);
+      set = loadModules(r.entry, p => r.files[p]);
       if (checkModules(set).diags.length) want = { refused: true };
       else {
         const extra = (r.extra ?? []).map(s => { try { return parseStmts(s); } catch { return []; } });
@@ -132,9 +134,55 @@ async function lower(): Promise<number> {
         }
         if (d) break;
       }
+      if (!d) for (const name of Object.keys(have.files)) {
+        const path = name === "main.mjs" ? set!.entry : set!.order[+name.slice(1, -4)];
+        for (const k of ["universal", "dom", "ssr"]) { d = checkMap(have.files[name][k], have.maps?.[name]?.[k], set!.programs.get(path)!, r.files[path] ?? "", k); if (d) { d = `${name} ${k} map: ${d}`; break; } mapped++; }
+        if (d) break;
+      }
     } else d = diff(want, (({ id: _, ...x }) => x)(have ?? {}));
     if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
   }
-  console.log(`${reqs.length - bad}/${reqs.length} programs lowered alike (${compiled} compiled, ${modules} modules × universal, dom, ssr)`);
+  console.log(`${reqs.length - bad}/${reqs.length} programs lowered alike (${compiled} compiled, ${modules} modules × universal, dom, ssr; ${mapped} source maps onto .rx checked)`);
   return bad ? 1 : 0;
+}
+
+/** Base64 VLQ `mappings` → [generated line, generated column, source line] (0-based). */
+function decodeMappings(mappings: string): [number, number, number][] {
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const out: [number, number, number][] = []; let srcLine = 0;
+  mappings.split(";").forEach((line, gl) => {
+    let gc = 0;
+    for (const seg of line.split(",").filter(Boolean)) {
+      const v: number[] = []; let shift = 0, n = 0;
+      for (const ch of seg) { const d = B64.indexOf(ch); n += (d & 31) << shift; if (d & 32) shift += 5; else { v.push(n & 1 ? -(n >>> 1) : n >>> 1); n = 0; shift = 0; } }
+      gc += v[0]; if (v.length >= 4) { srcLine += v[2]; out.push([gl, gc, srcLine]); }
+    }
+  });
+  return out;
+}
+/** CP-1c: a module's source map onto its `.rx`. Every mapped line is the module's; each source or equation declared once
+ *  is declared (`const v$x`, `const [v$x, w$x]`) at a position mapped to its line; on dom, every element's line is mapped. */
+function checkMap(code: string, map: string | undefined, prog: any, text: string, target: string): string | null {
+  if (!map) return "none";
+  const m = JSON.parse(map); const nlines = text.split("\n").length;
+  if (m.sourcesContent?.[0] !== text) return "sourcesContent is not the module's text";
+  const toks = decodeMappings(m.mappings);
+  const outside = toks.find(t => t[2] < 0 || t[2] >= nlines); if (outside) return `line ${outside[2] + 1} is past the module's ${nlines}`;
+  const decls: { name: string; line: number }[] = []; const els = new Set<number>();
+  const markup = (ms: any[]) => { for (const x of ms ?? []) { if (x.k === "el" && x.tag && x.line) els.add(x.line); for (const v of Object.values(x)) if (Array.isArray(v) && v.length && typeof v[0] === "object" && v[0]?.k) markup(v as any[]); if (Array.isArray(x.decls)) walk(x.decls); } };
+  const walk = (ds: any[]) => { for (const x of ds) { if (x.k === "source" || x.k === "eq") decls.push(x); if (x.decls) walk(x.decls); if (x.view) markup(x.view); } };
+  walk(prog.decls);
+  const lines = code.split("\n"); let checked = 0;
+  for (const dcl of decls) {
+    if (decls.filter(x => x.name === dcl.name).length > 1) continue;
+    const re = new RegExp(`(?:const|let|var)\\s+\\[?\\s*v\\$${dcl.name.replace(/\$/g, "\\$")}\\b`, "g");
+    const hits = [...code.matchAll(re)]; if (hits.length !== 1) continue;
+    const before = code.slice(0, hits[0].index!); const gl = before.split("\n").length - 1; const gc = gl ? before.length - before.lastIndexOf("\n") - 1 : before.length;
+    const at = toks.filter(t => t[0] === gl && t[1] <= gc).pop();
+    if (!at) return `${dcl.name} (line ${dcl.line}): no mapping at ${gl + 1}:${gc + 1} — ${lines[gl]?.trim().slice(0, 80)}`;
+    if (at[2] + 1 !== dcl.line) return `${dcl.name} maps to line ${at[2] + 1}, declared on ${dcl.line} — ${lines[gl]?.trim().slice(0, 80)}`;
+    checked++;
+  }
+  if (target === "dom") { const seen = new Set(toks.map(t => t[2] + 1)); const miss = [...els].find(l => !seen.has(l)); if (miss) return `element on line ${miss} is not mapped`; }
+  return null;
 }

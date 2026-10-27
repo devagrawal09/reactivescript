@@ -169,6 +169,8 @@ fn has_await_json(v: &Value) -> bool {
 /// One ES module per `.rx` module (MO-1), before Solid's compiler lowers its views.
 pub struct Compiled {
     pub files: IndexMap<String, Vec<S>>,
+    /// each module's `.rx` path
+    pub paths: IndexMap<String, String>,
     pub entry: String,
     /// CSS-4: the modules' stylesheets, beside their JavaScript
     pub css: String,
@@ -181,6 +183,7 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     let mut files = IndexMap::new();
+    let mut paths = IndexMap::new();
     for path in &set.order {
         let p = &set.programs[path];
         g.begin_module(path, &p.decls);
@@ -217,8 +220,9 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
             body.push(S::ExportDefault(Func { name: Some("module".into()), params: vec![P::Id("__rt".into())], directives: vec![], body: fbody, is_async: false, generator: false }));
         }
         files.insert(g.out(path), body);
+        paths.insert(g.out(path), path.clone());
     }
-    Ok(Compiled { files, entry: g.out(&set.entry), css: g.css.join("\n") })
+    Ok(Compiled { files, paths, entry: g.out(&set.entry), css: g.css.join("\n") })
 }
 
 struct Gen<'p> {
@@ -563,6 +567,7 @@ impl<'p> Gen<'p> {
         let mut instantiated: HashSet<String> = HashSet::new();
         for d in decls {
             let Decl::Import { resolved: Some(r), names, .. } = d else { continue };
+            let n0 = out.len();
             let iv = format!("__i{}", self.mod_index(r));
             if instantiated.insert(iv.clone()) {
                 out.push(konst(iv.clone(), rtc("module", vec![str(self.out(r)), id(self.dep_var(r))])));
@@ -578,6 +583,7 @@ impl<'p> Gen<'p> {
                 self.set(env, &n.alias, ib);
                 out.push(konst(js, E::Index(Box::new(id(iv.clone())), Box::new(str(n.name.clone())), false)));
             }
+            at(&mut out, n0, d.line());
         }
         // names first: hoisted functions and components; every other declaration is a const
         for d in decls {
@@ -617,6 +623,7 @@ impl<'p> Gen<'p> {
         }
         for d in decls {
             let Decl::Import { resolved: None, names, from, declared_errors, .. } = d else { continue };
+            let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
                 let v = if !from.starts_with('.') && !builtin(name) && name != "log" {
@@ -635,6 +642,7 @@ impl<'p> Gen<'p> {
                 out.push(konst(mg(alias), v));
                 out.push(sexpr(rtc("reg", vec![str(alias.clone()), obj(vec![("value", id(mg(alias)))])])));
             }
+            at(&mut out, n0, d.line());
         }
         for d in decls {
             let Decl::Error { name, params, msg, .. } = d else { continue };
@@ -648,9 +656,10 @@ impl<'p> Gen<'p> {
                 vec![str(name.clone()), strs(params), E::Arrow { params: params.iter().map(|p| P::Id(mg(p))).collect(), body: Body::Expr(Box::new(body)), is_async: false }],
             );
             if self.frames[env].parent.is_some() {
-                out.push(konst(mg(name), make)); // R-f-1
+                out.push(S::At(d.line(), Box::new(konst(mg(name), make)))); // R-f-1
                 continue;
             }
+            let t0 = self.top.len();
             // a module's error class is the module's, created once (by whichever app asks first): a server function's body,
             // hoisted to module level (SF-7a), throws the class an action's catch tests
             self.top.push(S::Let(format!("c${name}"), None));
@@ -662,10 +671,12 @@ impl<'p> Gen<'p> {
                 is_async: false,
                 generator: false,
             }));
-            out.push(konst(mg(name), call(id(format!("g${name}")), vec![id("__rt")]))); // R-f-1
+            at(&mut self.top, t0, d.line());
+            out.push(S::At(d.line(), Box::new(konst(mg(name), call(id(format!("g${name}")), vec![id("__rt")]))))); // R-f-1
         }
         for d in decls {
             let Decl::Context { name, dflt, .. } = d else { continue };
+            let n0 = out.len();
             let dv = match dflt {
                 Some(x) => thunk(self.expr(x, env, &reactive())?),
                 None => E::Null,
@@ -673,26 +684,29 @@ impl<'p> Gen<'p> {
             // RG-7: the declaration is the context's identity
             out.push(konst(mg(name), rtc("context", vec![str(name.clone()), dv])));
             out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            at(&mut out, n0, d.line());
         }
         for d in decls {
             if let Decl::Fn { .. } = d {
                 let s = self.fn_decl(d, env)?;
-                out.push(s);
+                out.push(S::At(d.line(), Box::new(s)));
             }
         }
         for d in decls {
             if let Decl::Component { .. } = d {
                 let s = self.component(d, env)?;
-                out.push(s);
+                out.push(S::At(d.line(), Box::new(s)));
             }
         }
         for d in decls {
             let Decl::Action { name, params, body, .. } = d else { continue };
+            let n0 = out.len();
             let penv = self.params(env, params);
             let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
             let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
             out.push(konst(mg(name), rtc("action", vec![gen])));
             out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
+            at(&mut out, n0, d.line());
         }
         for d in decls {
             let Decl::Eq { name, e, .. } = d else { continue };
@@ -701,13 +715,13 @@ impl<'p> Gen<'p> {
             }
             // 12 SF-1d: a wrapped server fn, at module level
             let f = self.server_wrapped(name, e)?;
-            out.push(konst(mg(name), rtc("serverRef", vec![str(name.clone()), id(f)])));
+            out.push(S::At(d.line(), Box::new(konst(mg(name), rtc("serverRef", vec![str(name.clone()), id(f)])))));
         }
         for d in decls {
             let Decl::Server { name, params, body, .. } = d else { continue };
             // 12 SF-7a: the call site's (question or request); the function is module-level
             let f = self.server_hoist(name, params, body, false)?;
-            out.push(konst(mg(name), rtc("serverRef", vec![str(name.clone()), f])));
+            out.push(S::At(d.line(), Box::new(konst(mg(name), rtc("serverRef", vec![str(name.clone()), f])))));
         }
         // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
         let vals: Vec<&Decl> = decls
@@ -755,11 +769,14 @@ impl<'p> Gen<'p> {
             visit(d, &vals, &local, &key, &mut done, &mut busy, &mut order);
         }
         for d in order {
+            let n0 = out.len();
             let mut v = self.value(d, env)?;
             out.append(&mut v);
+            at(&mut out, n0, d.line());
         }
         for d in decls {
             let Decl::Effect { inputs, body, .. } = d else { continue };
+            let n0 = out.len();
             let inner = self.new_env(Some(env));
             let mut h = self.hoist_all(&inputs.iter().collect::<Vec<_>>(), env)?;
             out.append(&mut h);
@@ -773,6 +790,7 @@ impl<'p> Gen<'p> {
                 "effect",
                 vec![E::Num(inputs.len() as f64), thunk(E::Arr(ins)), arrow(&["$p"], rtc("untrack", vec![arrow_block(vec![], apply, false)]))],
             )));
+            at(&mut out, n0, d.line());
         }
         match exports_tail {
             Some(t) => out.push(S::Return(Some(t))),
@@ -1457,7 +1475,7 @@ impl<'p> Gen<'p> {
         if ms.is_empty() {
             return Ok(E::Null);
         }
-        Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?))))
+        Ok(E::Jsx(Box::new(Jsx::Frag(self.kids(ms, env)?, None))))
     }
     fn kids(&mut self, ms: &[Markup], env: Env) -> R<Vec<Child>> {
         let mut out = vec![];
@@ -1492,7 +1510,8 @@ impl<'p> Gen<'p> {
     }
     fn child(&mut self, m: &Markup, env: Env) -> R<Option<Child>> {
         let re = reactive();
-        let el = |name: JsxName, attrs, children, self_closing| Child::Jsx(Jsx::El { name, attrs, children, self_closing });
+        let line = m.line;
+        let el = |name: JsxName, attrs, children, self_closing| Child::Jsx(Jsx::El { name, attrs, children, self_closing, line });
         Ok(Some(match &m.kind {
             MarkupKind::Text(s) => Child::Expr(str(s.clone())),
             // CSS-4: removed; the stylesheet is the module's
@@ -1502,7 +1521,7 @@ impl<'p> Gen<'p> {
                 if children.is_empty() {
                     Child::Text("null".into())
                 } else {
-                    Child::Jsx(Jsx::Frag(self.kids(children, env)?))
+                    Child::Jsx(Jsx::Frag(self.kids(children, env)?, line))
                 }
             }
             MarkupKind::El { tag, attrs, children } if tag.as_bytes()[0].is_ascii_uppercase() => {
@@ -1606,9 +1625,20 @@ fn static_op(op: &str) -> &'static str {
 }
 
 /// The reference drops every line `return null;` of an instantiating fn's body (its block's empty view).
+/// The statements `out[from..]` lower the declaration on `.rx` line `line` (the program's layout keeps it, CP-1c).
+fn at(out: &mut [S], from: usize, line: usize) {
+    for s in &mut out[from..] {
+        *s = S::At(line, Box::new(std::mem::replace(s, S::Block(vec![]))));
+    }
+}
+
 fn strip_return_null(ss: &mut Vec<S>) {
     ss.retain(|s| !matches!(s, S::Return(Some(E::Null))));
     for s in ss.iter_mut() {
+        let mut s = s;
+        while let S::At(_, inner) = s {
+            s = inner;
+        }
         if let S::Func(f) = s {
             strip_return_null(&mut f.body);
         }
@@ -1624,12 +1654,22 @@ pub enum Target {
     Ssr,
 }
 
+pub struct Lowered {
+    pub code: String,
+    /// a source map from `code` onto the module's `.rx` text, when one was asked for
+    pub map: Option<String>,
+}
+
 /// Each module's JSX → JavaScript for `target` (`ref/compile/jsx.ts`): dom and ssr with hydration; universal over the
-/// renderer `module_name`.
-pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &str) -> Result<String, String> {
+/// renderer `module_name`. With `rx` (the module's `.rx` path and text), the output carries a source map onto it. CP-1c:
+/// Solid's positions are the program's layout; each maps to the `.rx` line it was lowered from (`oxc::Build::lines`), at
+/// that line's first non-blank column. An error's `(line:column)` is reported as its `.rx` line.
+pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &str, rx: Option<(&str, &str)>) -> Result<Lowered, String> {
     use solidjs_compiler::{compile_program, CompileOptions, Generate};
     let alloc = oxc_allocator::Allocator::default();
-    let program = crate::oxc::Build::new(&alloc).program(module);
+    let build = crate::oxc::Build::new(&alloc);
+    let program = build.program(module);
+    let lines = build.lines();
     let src = program.source_text;
     let options = CompileOptions {
         filename: Some(filename.strip_suffix(".mjs").map(|s| format!("{s}.jsx")).unwrap_or(filename.to_string())),
@@ -1640,7 +1680,39 @@ pub fn lower_view(module: &[S], filename: &str, target: Target, module_name: &st
         },
         hydratable: target != Target::Universal,
         module_name: module_name.to_string(),
+        source_map: rx.is_some(),
         ..CompileOptions::default()
     };
-    compile_program(&alloc, program, src, &options).map(|o| o.code).map_err(|e| e.to_string())
+    let line_of = |pos: u32| lines.get(pos as usize).copied().filter(|l| *l > 0);
+    let out = compile_program(&alloc, program, src, &options).map_err(|e| {
+        // the blank layout is one line: a position is `(1:offset+1)`
+        let re = regex::Regex::new(r"\(1:(\d+)\)").unwrap();
+        re.replace_all(e.message(), |c: &regex::Captures| match c[1].parse::<u32>().ok().and_then(|n| line_of(n.saturating_sub(1))) {
+            Some(l) => format!("({}:{l})", rx.map(|r| r.0).unwrap_or(filename)),
+            None => c[0].to_string(),
+        })
+        .into_owned()
+    })?;
+    let map = match (rx, out.source_map) {
+        (Some((path, text)), Some(json)) => {
+            let layout = oxc_sourcemap::SourceMap::from_json_string(&json).map_err(|e| format!("source map: {e:?}"))?;
+            let indent: Vec<u32> = text.lines().map(|l| l.chars().take_while(|c| c.is_whitespace()).map(|c| c.len_utf16() as u32).sum()).collect();
+            let mut b = oxc_sourcemap::SourceMapBuilder::default();
+            b.set_file(filename);
+            let id = b.add_source_and_content(path, text);
+            let mut last = None;
+            for t in layout.get_tokens() {
+                let Some(l) = t.get_source_id().and_then(|_| line_of(t.get_src_col())) else { continue };
+                let at = (t.get_dst_line(), t.get_dst_col(), l);
+                if last.is_some_and(|(dl, _, ll)| dl == at.0 && ll == l) {
+                    continue; // the same .rx line, further along the same output line
+                }
+                last = Some(at);
+                b.add_token(at.0, at.1, l - 1, indent.get(l as usize - 1).copied().unwrap_or(0), Some(id), None);
+            }
+            Some(b.into_sourcemap().to_json_string())
+        }
+        _ => None,
+    };
+    Ok(Lowered { code: out.code, map })
 }

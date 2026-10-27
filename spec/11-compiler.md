@@ -56,8 +56,11 @@ record argued each way; this is the decision.
   differs from what the same module gets as text. So the crate's program
   carries the lowered module's layout instead (decision 5): spans in print
   order on what that rule compares, `source` blanks of that length. `.rx`
-  positions for diagnostics and source maps then come from a map the crate
-  keeps from layout to `.rx` (not built yet).
+  positions come from a map the crate keeps from layout to `.rx`: each
+  layout position records the `.rx` line it was lowered from (a
+  declaration's, a markup's), so Solid's source map is rewritten onto the
+  `.rx` file (that line, at its first non-blank column) and a position in a
+  Solid error is reported as `file.rx:line` (decision 6).
 
 - **CP-1d (Styles: a second seam).** Scoped styles (07 §6b) are TSRX's
   engine, `compile_style` in `packages/compiler/src/tsrx/style/`, which
@@ -228,8 +231,11 @@ take the crate's output instead of the reference's (`ref/compile/lowered.ts`):
 ssr target and hydrates with its dom target. The `"use server"` extraction
 (12 SF-7a) is not the compiler's: it is Solid's `transformDirectives`, a
 bundler pass over the compiled module, which the runner applies to either
-output alike. Not yet built: `.rx` positions for diagnostics and source maps
-(CP-1c).
+output alike. `rxc compile app.rx --out dir [--target …]` writes each
+module with its source map onto its `.rx` (CP-1c) and the stylesheet;
+`ref/crate.ts --lower` also checks every map: each mapped line is the
+module's, each source and equation declared once is declared at a position
+mapped to its line, and on dom every element's line is mapped.
 
 ## Decisions taken by default (veto here)
 
@@ -259,3 +265,10 @@ output alike. Not yet built: `.rx` positions for diagnostics and source maps
    positions move to a map the crate keeps. The alternative is upstream:
    make `declared_before` independent of spans (e.g. from statement order
    in the semantic model), which would let the program keep `.rx` spans.
+6. **`.rx` positions are lines** (CP-1c, 2026-10-27, taken by default —
+   veto here). A mapped position is the line of the declaration or markup
+   it was lowered from, at that line's first non-blank column. The AST
+   records lines (as `ref/`'s does, for diagnostics), not columns; columns
+   need a span on every expression in both parsers, which nothing in the
+   spec asks for yet. A handler or action statement maps to its
+   declaration's line.

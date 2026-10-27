@@ -7,7 +7,10 @@
 //!   rxc lower              reads `[{id, entry, files, extra: [statements], renderer}]` on stdin and prints, per program,
 //!                          each compiled module through Solid's compiler for the universal (over `renderer`), dom and ssr
 //!                          targets, and the stylesheet: what `ref/crate.ts --lower` compares and `ref/compile/run.ts`
-//!                          runs with `RX_CRATE=1`.
+//!                          runs with `RX_CRATE=1`. With `maps: true`, also each module's source maps onto its `.rx`.
+//!   rxc compile app.rx --out dir [--target dom|ssr|universal] [--module-name name]
+//!                          checks the program and writes each module's JavaScript for `target` (default dom) with its
+//!                          source map, and the stylesheet (`style.css`), into `dir`.
 
 use reactivescript::check::check_modules;
 use reactivescript::emit::{compile_modules, lower_view, Target};
@@ -77,18 +80,31 @@ fn lower_one(r: &Value) -> Value {
         Err(e) => return json!({ "compileError": e.0 }),
     };
     let renderer = r["renderer"].as_str().unwrap_or("@solidjs/web");
-    let mut mods = Map::new();
+    let with_maps = r["maps"].as_bool().unwrap_or(false);
+    let (mut mods, mut maps) = (Map::new(), Map::new());
     for (name, module) in &out.files {
-        let mut t = Map::new();
+        let path = &out.paths[name];
+        let rx = with_maps.then(|| (path.as_str(), files.get(path).map(|s| s.as_str()).unwrap_or("")));
+        let (mut t, mut m) = (Map::new(), Map::new());
         for (k, target, module_name) in [("universal", Target::Universal, renderer), ("dom", Target::Dom, "@solidjs/web"), ("ssr", Target::Ssr, "@solidjs/web")] {
-            t.insert(k.into(), match lower_view(module, name, target, module_name) {
-                Ok(code) => json!(code),
+            t.insert(k.into(), match lower_view(module, name, target, module_name, rx) {
+                Ok(l) => {
+                    if let Some(map) = l.map {
+                        m.insert(k.into(), json!(map));
+                    }
+                    json!(l.code)
+                }
                 Err(e) => json!({ "error": e }),
             });
         }
         mods.insert(name.clone(), Value::Object(t));
+        maps.insert(name.clone(), Value::Object(m));
     }
-    json!({ "entry": out.entry, "css": out.css, "files": mods })
+    let mut v = json!({ "entry": out.entry, "css": out.css, "files": mods });
+    if with_maps {
+        v["maps"] = Value::Object(maps);
+    }
+    v
 }
 
 fn main() {
@@ -133,6 +149,57 @@ fn main() {
                 })
                 .collect();
             println!("{}", serde_json::to_string(&out).unwrap());
+        }
+        "compile" => {
+            let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+            let (Some(file), Some(dir)) = (args[1..].iter().find(|a| !a.starts_with("--") && Some(*a) != opt("--out").as_ref() && Some(*a) != opt("--target").as_ref() && Some(*a) != opt("--module-name").as_ref()), opt("--out")) else {
+                eprintln!("usage: rxc compile app.rx --out dir [--target dom|ssr|universal] [--module-name name]");
+                std::process::exit(2);
+            };
+            let target = match opt("--target").as_deref().unwrap_or("dom") {
+                "dom" => Target::Dom,
+                "ssr" => Target::Ssr,
+                "universal" => Target::Universal,
+                t => {
+                    eprintln!("unknown target {t}");
+                    std::process::exit(2);
+                }
+            };
+            let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
+            let set = match load_modules(&abs(file), &read_disk) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{}: parse error: {}", file, e.0);
+                    std::process::exit(1);
+                }
+            };
+            let checked = check_modules(&set);
+            for d in &checked.diags {
+                eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(file), d.line, d.code, d.rule, d.msg);
+            }
+            if !checked.diags.is_empty() {
+                std::process::exit(1);
+            }
+            let out = compile_modules(&set, &[]).unwrap_or_else(|e| {
+                eprintln!("{}: not compiled: {}", file, e.0);
+                std::process::exit(1);
+            });
+            std::fs::create_dir_all(&dir).expect("--out");
+            let dir = Path::new(&dir);
+            for (name, module) in &out.files {
+                let path = &out.paths[name];
+                let text = read_disk(path).unwrap_or_default();
+                let l = lower_view(module, name, target, &module_name, Some((path, &text))).unwrap_or_else(|e| {
+                    eprintln!("{path}: {e}");
+                    std::process::exit(1);
+                });
+                std::fs::write(dir.join(name), format!("{}\n//# sourceMappingURL={name}.map\n", l.code.trim_end())).expect("write");
+                std::fs::write(dir.join(format!("{name}.map")), l.map.unwrap_or_default()).expect("write");
+            }
+            if !out.css.is_empty() {
+                std::fs::write(dir.join("style.css"), &out.css).expect("write");
+            }
+            println!("{}: {} module(s) → {} (entry {})", file, out.files.len(), dir.display(), out.entry);
         }
         "check" | "model" => {
             let mut bad = 0;

@@ -24,6 +24,7 @@ solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "0847122e9f
 oxc_allocator = "0.144"
 oxc_ast = "0.144"
 oxc_span = "0.144"
+oxc_sourcemap = "8.1"
 oxc_syntax = "0.144"
 
 [profile.release]

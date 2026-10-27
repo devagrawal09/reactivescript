@@ -90,6 +90,8 @@ pub enum S {
     /// `import { name as local, … } from "src"`
     ImportNamed(Vec<(String, String)>, String),
     ExportDefault(Func),
+    /// `s`, lowered from `.rx` line `line` (1-based): no JavaScript of its own, only the position its spans map to (CP-1c)
+    At(usize, Box<S>),
 }
 
 #[derive(Debug, Clone)]
@@ -114,9 +116,10 @@ pub enum Child {
 }
 
 #[derive(Debug, Clone)]
+/// `line`: the `.rx` line of the markup it is lowered from, `None` for a generated one (a view's fragment)
 pub enum Jsx {
-    El { name: JsxName, attrs: Vec<(String, AttrValue)>, children: Vec<Child>, self_closing: bool },
-    Frag(Vec<Child>),
+    El { name: JsxName, attrs: Vec<(String, AttrValue)>, children: Vec<Child>, self_closing: bool, line: Option<usize> },
+    Frag(Vec<Child>, Option<usize>),
 }
 
 // ---------------------------------------------------------------- constructors, so emit.rs reads like the reference

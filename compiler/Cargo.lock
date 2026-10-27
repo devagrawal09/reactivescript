@@ -816,6 +816,7 @@ dependencies = [
  "indexmap",
  "oxc_allocator",
  "oxc_ast",
+ "oxc_sourcemap",
  "oxc_span",
  "oxc_syntax",
  "regex",
