@@ -43,7 +43,11 @@ snapshot, pre), writes and calls.
 The Rust crate (`compiler/`, spec/11 CP-7) is diffed against this directory by
 `npm --prefix ref run crate` (`crate.ts`): every program in `scenarios/` and
 `examples/` is loaded, parsed, checked, its signatures printed and its model
-built by both, and the two must agree exactly. Needs cargo; not Solid.
+built by both, and the two must agree exactly. Needs cargo; not Solid. With
+`-- --lower`, both also lower every accepted program through Solid's compiler
+for each target and must write the same JavaScript (needs cargo and Solid at
+SOLID_NEXT); `RX_CRATE=1 npm run compiled` runs the scenarios on the crate's
+lowering.
 
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)

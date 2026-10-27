@@ -4,8 +4,14 @@
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
+//!   rxc lower              reads `[{id, entry, files, extra: [statements], renderer}]` on stdin and prints, per program,
+//!                          each compiled module through Solid's compiler for the universal (over `renderer`), dom and ssr
+//!                          targets, and the stylesheet: what `ref/crate.ts --lower` compares and `ref/compile/run.ts`
+//!                          runs with `RX_CRATE=1`.
 
 use reactivescript::check::check_modules;
+use reactivescript::emit::{compile_modules, lower_view, Target};
+use reactivescript::parse::parse_stmts;
 use reactivescript::modules::load_modules;
 use reactivescript::signature::print_signature;
 use serde_json::{json, Map, Value};
@@ -53,6 +59,38 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
     })
 }
 
+fn lower_one(r: &Value) -> Value {
+    let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
+    let entry = r["entry"].as_str().unwrap();
+    let read = |p: &str| files.get(p).cloned();
+    let set = match load_modules(entry, &read) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.0 }),
+    };
+    if !check_modules(&set).diags.is_empty() {
+        return json!({ "refused": true });
+    }
+    // a handler row that does not parse runs nothing (ref/compile/run.ts)
+    let extra: Vec<_> = r["extra"].as_array().map(|xs| xs.iter().map(|x| parse_stmts(x.as_str().unwrap()).unwrap_or_default()).collect()).unwrap_or_default();
+    let out = match compile_modules(&set, &extra) {
+        Ok(o) => o,
+        Err(e) => return json!({ "compileError": e.0 }),
+    };
+    let renderer = r["renderer"].as_str().unwrap_or("@solidjs/web");
+    let mut mods = Map::new();
+    for (name, module) in &out.files {
+        let mut t = Map::new();
+        for (k, target, module_name) in [("universal", Target::Universal, renderer), ("dom", Target::Dom, "@solidjs/web"), ("ssr", Target::Ssr, "@solidjs/web")] {
+            t.insert(k.into(), match lower_view(module, name, target, module_name) {
+                Ok(code) => json!(code),
+                Err(e) => json!({ "error": e }),
+            });
+        }
+        mods.insert(name.clone(), Value::Object(t));
+    }
+    json!({ "entry": out.entry, "css": out.css, "files": mods })
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = args.first() else {
@@ -70,6 +108,23 @@ fn main() {
                     let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
                     let entry = r["entry"].as_str().unwrap();
                     let mut v = std::panic::catch_unwind(|| conform_one(entry, &files)).unwrap_or_else(|e| {
+                        let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                        json!({ "panic": msg })
+                    });
+                    v["id"] = r["id"].clone();
+                    v
+                })
+                .collect();
+            println!("{}", serde_json::to_string(&out).unwrap());
+        }
+        "lower" => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input).expect("stdin");
+            let req: Vec<Value> = serde_json::from_str(&input).expect("request: [{id, entry, files, extra, renderer}]");
+            let out: Vec<Value> = req
+                .iter()
+                .map(|r| {
+                    let mut v = std::panic::catch_unwind(|| lower_one(r)).unwrap_or_else(|e| {
                         let msg = e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
                         json!({ "panic": msg })
                     });

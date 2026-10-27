@@ -18,6 +18,13 @@ path = "src/main.rs"
 indexmap = "2"
 regex = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
+# CP-1b: Solid's compiler, at the commit ref/ runs on (ref/SOLID_NEXT), and the Oxc release it is built against (CP-1c:
+# the program crosses the seam, so the versions must match)
+solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "0847122e9fc9681fda7feef37d5427db7316e56d", default-features = false }
+oxc_allocator = "0.144"
+oxc_ast = "0.144"
+oxc_span = "0.144"
+oxc_syntax = "0.144"
 
 [profile.release]
 debug = false

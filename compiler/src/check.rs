@@ -269,13 +269,13 @@ impl Ctx {
 
 /// A node the reference walks generically (`Object.values`): an expression, or a statement inside one.
 #[derive(Clone, Copy)]
-enum Node<'a> {
+pub(crate) enum Node<'a> {
     E(&'a Expr),
     S(&'a Stmt),
 }
 /// The children of a node in the order `Object.values` gives them; `paths`: also a write's target path (an object without
 /// `k`, which only a walk over every value reaches).
-fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
+pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
     let mut out = vec![];
     let ss = |out: &mut Vec<Node<'a>>, ss: &'a [Stmt]| out.extend(ss.iter().map(Node::S));
     match n {

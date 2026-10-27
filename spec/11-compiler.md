@@ -46,6 +46,19 @@ record argued each way; this is the decision.
   on `.rx` positions. This is the only change the ruling asks of Solid; it
   is additive and shared with any other front end that produces an AST.
 
+  *Found in porting (2026-10-27):* positions are not only for diagnostics.
+  Solid's SSR props hoisting (`ssr/props.rs`, on by default) finds a
+  component's props literal by its element's span, and constructs it ahead
+  only from locals whose declaration ends before the element in the source
+  (`declared_before`). An unspanned declaration counts as declared before
+  everything, and `.rx` positions order the view after the declarations
+  where the lowered module orders it first — either way the server output
+  differs from what the same module gets as text. So the crate's program
+  carries the lowered module's layout instead (decision 5): spans in print
+  order on what that rule compares, `source` blanks of that length. `.rx`
+  positions for diagnostics and source maps then come from a map the crate
+  keeps from layout to `.rx` (not built yet).
+
 - **CP-1d (Styles: a second seam).** Scoped styles (07 §6b) are TSRX's
   engine, `compile_style` in `packages/compiler/src/tsrx/style/`, which
   "deliberately has no dependency on the TSRX/Oxc frontend; the frontend
@@ -193,16 +206,27 @@ spellings again. Compile-time only; nothing of it reaches run time.
 
 ## CP-7 — The crate today
 
-`compiler/` is CP-1a's crate, `reactivescript` (binary `rxc`), so far its
-parse, module, check and signature stages and CP-6's model: a port of
-`ref/src/{parse,modules,content,signature,check,model}.ts`. CP-5 for these
-stages is `ref/crate.ts` (`npm --prefix ref run crate`): for every program in
+`compiler/` is CP-1a's crate, `reactivescript` (binary `rxc`): its parse,
+module, check and signature stages and CP-6's model, a port of
+`ref/src/{parse,modules,content,signature,check,model}.ts`, and the lowering,
+a port of `ref/compile/{emit,awaits}.ts` that hands each module to
+`solidjs-compiler`'s `compile_program` as an `oxc_ast::Program` (CP-1c) and
+its views' elements to `compile_style` (CP-1d). The Solid dependency is a git
+pin in `compiler/Cargo.toml` that must equal `ref/SOLID_NEXT`.
+
+CP-5 is `ref/crate.ts` (`npm --prefix ref run crate`): for every program in
 `scenarios/` (programs, variants, rejected and types variants) and
 `examples/`, both sides load the modules, parse, check, print signatures and
 build the model, and must agree exactly — the AST, every diagnostic with its
-message, each module's printed `.d.rx` and the model. Lowering onto
-`solidjs-compiler` (CP-1, through `oxc_ast::Program`) is next; the crate
-takes its oxc and Solid dependencies with it.
+message, each module's printed `.d.rx` and the model. With `--lower`, every
+program the checker accepts (each scenario table with its handler rows, as
+`compile/run.ts` compiles it) is also lowered by both for the universal, dom
+and ssr targets, and each module's output must be the same JavaScript
+(comments dropped, both printed by esbuild). `RX_CRATE=1 npm --prefix ref run
+compiled` runs the scenarios on the crate's output. Not yet ported: the
+server and hydration build (`ref/ssr/`, whose `"use server"` extraction is a
+build-tool pass after the compiler), and `.rx` positions for diagnostics and
+source maps (CP-1c).
 
 ## Decisions taken by default (veto here)
 
@@ -225,3 +249,10 @@ takes its oxc and Solid dependencies with it.
    gives the same AST, diagnostic messages and signature text, so that
    `ref/crate.ts` can diff it byte for byte. The port keeps the
    reference's orders (insertion-ordered sets and maps) for that reason.
+5. **The crate's program carries the lowered module's layout, not `.rx`
+   positions** (CP-1c, 2026-10-27, taken by default — veto here). Solid's
+   SSR props hoisting reads source order as meaning, so the program's spans
+   must order declarations and elements as the module's text would; `.rx`
+   positions move to a map the crate keeps. The alternative is upstream:
+   make `declared_before` independent of spans (e.g. from statement order
+   in the semantic model), which would let the program keep `.rx` spans.
