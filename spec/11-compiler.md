@@ -46,6 +46,22 @@ record argued each way; this is the decision.
   on `.rx` positions. This is the only change the ruling asks of Solid; it
   is additive and shared with any other front end that produces an AST.
 
+  *Found in porting (2026-10-27):* positions are not only for diagnostics.
+  Solid's SSR props hoisting (`ssr/props.rs`, on by default) finds a
+  component's props literal by its element's span, and constructs it ahead
+  only from locals whose declaration ends before the element in the source
+  (`declared_before`). An unspanned declaration counts as declared before
+  everything, and `.rx` positions order the view after the declarations
+  where the lowered module orders it first — either way the server output
+  differs from what the same module gets as text. So the crate's program
+  carries the lowered module's layout instead (decision 5): spans in print
+  order on what that rule compares, `source` blanks of that length. `.rx`
+  positions come from a map the crate keeps from layout to `.rx`: each
+  layout position records the `.rx` line it was lowered from (a
+  declaration's, a markup's), so Solid's source map is rewritten onto the
+  `.rx` file (that line, at its first non-blank column) and a position in a
+  Solid error is reported as `file.rx:line` (decision 6).
+
 - **CP-1d (Styles: a second seam).** Scoped styles (07 §6b) are TSRX's
   engine, `compile_style` in `packages/compiler/src/tsrx/style/`, which
   "deliberately has no dependency on the TSRX/Oxc frontend; the frontend
@@ -124,7 +140,7 @@ record argued each way; this is the decision.
   | `catchRead(f, match, alt)` | `e catch …` in reactive scope (R-f-4) | `createErrorBoundary` |
   | `tryCatch(f, match, alt)` | `e catch …` in imperative scope | `try` |
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
-  | `module(key, factory)` | an `.rx` dependency, once per app (MO-1) | — |
+  | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
   | `show(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted), a dynamic class with the view's scope (CSS-2) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
@@ -153,6 +169,96 @@ record argued each way; this is the decision.
   TypeScript implementation as the specification of each pass and as the
   oracle the crate is diffed against; it is not the thing being shipped.
 
+## CP-6 — The resolved model (between check and lower)
+
+**Taken by default 2026-10-27 (issue #1, agreed by Ryan 2026-10-26) — veto
+here.** The checker's resolution, kept as facts, so that lowering (and any
+other analysis) reads what the checker decided instead of recognising source
+spellings again. Compile-time only; nothing of it reaches run time.
+
+- **CP-6a (the facts).** Per module: its *regions* (03: the program, each
+  component, an imported module's alias, an instantiating `fn`, each
+  `then`/`else` branch, `for` row, `loading`/`portal`/`errored` boundary and
+  component children), its *symbols* (every name a declaration binds except
+  constants: sources with whether they have a question, equations, props,
+  fns, actions, components, imports, error classes, contexts, server fns)
+  and its *computations*: an equation's memo (`deferred`/`keyed` where
+  declared so), a source's question and seed, each reader of a view, each
+  prop argument and handler, an effect's inputs and its `apply`, an action
+  or server fn body, a `fn` body, a provision (RG-7) and a context's default.
+  A computation lists its **reads**, **writes** and **calls**, and the
+  computation it is nested in.
+- **CP-6b (read modes).** A read of a source, equation, props or context
+  (through `use`) is `tracked` in reactive scope (SC-1); `snapshot` in
+  imperative scope (SC-2), under `peek` (E-5), in a source's seed
+  (E-4) and as a value parameter's argument (E-10); or `pre` (C-2). Under
+  `latest` / `pending?` it carries the probe (R-9, R-12); a read of one
+  field of props or a store records the field.
+- **CP-6c (writes and calls).** A write is `x := e` (W-1, with whether it
+  writes a path), `optimistic` (AC-3), `refresh` (AC-4) or `affects`
+  (AC-5); `use p := e` writes the context's provided source (RG-7c). A call
+  names a fn, action, server fn or JS import called by name.
+- **CP-6d (one walk, two implementations).** The facts are recorded by the
+  checker's own walk, at the point where it resolves each name, in
+  `ref/src/model.ts` (filled by `ref/src/check.ts`) and in the crate's
+  `compiler/src/model.rs` (filled by `check.rs`). `ref/model.ts file.rx`
+  and `rxc model file.rx` print it.
+- **CP-6e (not a format).** No one outside the crate depends on it: it is
+  not a stable IR and not a commitment to a second front end (issue #1).
+  Ids are indices within one module's model.
+
+## CP-7 — The crate today
+
+`compiler/` is CP-1a's crate, `reactivescript` (binary `rxc`): its parse,
+module, check and signature stages and CP-6's model, a port of
+`ref/src/{parse,modules,content,signature,check,model}.ts`, and the lowering,
+a port of `ref/compile/{emit,awaits}.ts` that hands each module to
+`solidjs-compiler`'s `compile_program` as an `oxc_ast::Program` (CP-1c) and
+its views' elements to `compile_style` (CP-1d). The Solid dependency is a git
+pin in `compiler/Cargo.toml` that must equal `ref/SOLID_NEXT`.
+
+CP-5 is `ref/crate.ts` (`npm --prefix ref run crate`): for every program in
+`scenarios/` (programs, variants, rejected and types variants) and
+`examples/`, both sides load the modules, parse, check, print signatures and
+build the model, and must agree exactly — the AST, every diagnostic with its
+message, each module's printed `.d.rx` and the model. With `--lower`, every
+program the checker accepts (each scenario table with its handler rows, as
+`compile/run.ts` compiles it) is also lowered by both for the universal, dom
+and ssr targets, and each module's output must be the same JavaScript
+(comments dropped, both printed by esbuild). With `RX_CRATE=1`, the runners
+take the crate's output instead of the reference's (`ref/compile/lowered.ts`):
+`compiled` runs the scenarios on its universal target, and `ssr` serves its
+ssr target and hydrates with its dom target. The `"use server"` extraction
+(12 SF-7a) is not the compiler's: it is Solid's `transformDirectives`, a
+bundler pass over the compiled module, which the runner applies to either
+output alike. `rxc compile app.rx --out dir [--target …]` writes each
+module with its source map onto its `.rx` (CP-1c) and the stylesheet;
+`ref/crate.ts --lower` also checks every map: each mapped line is the
+module's, each source and equation declared once is declared at a position
+mapped to its line, and on dom every element's line is mapped.
+
+In a Vite app, `.rx` goes through Solid's own Vite plugin with no option:
+its `frontends` hook (solidjs/solid-vite-plugin, with the compiler change
+solidjs/solid#4320 so the secondary passes take any extension) has `.rx`
+built in, and loads its front end from the project's
+`@reactivescript/compiler/vite` the first time an `.rx` module is compiled
+(decision 7). That package is the crate's Node-API build
+(`compiler/src/node.rs`, what `rxc app` does), one binary per platform as
+`@solidjs/compiler` ships. An `.rx` module JavaScript imports is a
+program's entry (JavaScript can import only an entry: a dependency is a
+factory over the app, 09 MO-1b), so no option names it: the front end
+compiles the program whole from it (CP-2), each module importing its
+dependencies as `./x.rx?rx-dep`, served from a program's build that contains
+them; the build keys `module(key, factory)` by the factory, so a module two
+programs share is one module. It returns the module's code for the
+environment's `generate`, its map onto `.rx`, and on the entry the
+stylesheet (CSS-4). Solid's plugin then takes it as it takes lowered `.tsrx`:
+primitive names aside, its lazy, refresh and server-function passes (12
+SF-7a, IDs hashed from the `.rx` path) and the stylesheet as a CSS module.
+Every example app builds and runs in Chromium that way
+(`compiler/test/vite.mjs`). The runtime package of CP-4a is not published
+yet: the apps take `createApp` from `ref/compile/rt-web.ts`.
+
 ## Decisions taken by default (veto here)
 
 1. **The helper API is CP-4b's** (pinned 2026-10-26, taken by default —
@@ -165,3 +271,34 @@ record argued each way; this is the decision.
 2. **`compile_program` is proposed upstream as the seam** rather than
    vendoring Solid's back ends. If upstream declines, the fallback is a
    pinned fork exposing the same function — not a reimplementation.
+3. **The resolved model is recorded during the checker's walk** (CP-6d,
+   2026-10-27, taken by default — veto here), not computed by a pass of its
+   own over the AST. The checker already resolves every name and knows the
+   scope it is in; a second pass would re-derive both, and could disagree.
+4. **The crate matches `ref/` beyond verdicts** (CP-7, 2026-10-27, taken
+   by default — veto here): CP-5 asks for equal verdicts; the crate also
+   gives the same AST, diagnostic messages and signature text, so that
+   `ref/crate.ts` can diff it byte for byte. The port keeps the
+   reference's orders (insertion-ordered sets and maps) for that reason.
+5. **The crate's program carries the lowered module's layout, not `.rx`
+   positions** (CP-1c, 2026-10-27, taken by default — veto here). Solid's
+   SSR props hoisting reads source order as meaning, so the program's spans
+   must order declarations and elements as the module's text would; `.rx`
+   positions move to a map the crate keeps. The alternative is upstream:
+   make `declared_before` independent of spans (e.g. from statement order
+   in the semantic model), which would let the program keep `.rx` spans.
+6. **`.rx` positions are lines** (CP-1c, 2026-10-27, taken by default —
+   veto here). A mapped position is the line of the declaration or markup
+   it was lowered from, at that line's first non-blank column. The AST
+   records lines (as `ref/`'s does, for diagnostics), not columns; columns
+   need a span on every expression in both parsers, which nothing in the
+   spec asks for yet. A handler or action statement maps to its
+   declaration's line.
+7. **`.rx` in Vite is Solid's plugin loading `@reactivescript/compiler`**
+   (CP-7, 2026-10-27, taken by default — veto here). The compiler ships on
+   npm under the `reactivescript` org as `@reactivescript/compiler`, a
+   Node-API build per platform (`@reactivescript/compiler-<platform>`), with
+   its Vite front end at `/vite`; Solid's plugin resolves it from the
+   project, so an app adds the package and nothing to its config. No
+   WebAssembly fallback yet (StackBlitz and other unlisted platforms):
+   `@solidjs/compiler`'s `wasm32-wasip1-threads` build shows how.

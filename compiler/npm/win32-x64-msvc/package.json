@@ -1,0 +1,21 @@
+{
+  "name": "@reactivescript/compiler-win32-x64-msvc",
+  "version": "0.0.0",
+  "cpu": [
+    "x64"
+  ],
+  "main": "compiler.win32-x64-msvc.node",
+  "files": [
+    "compiler.win32-x64-msvc.node"
+  ],
+  "description": "ReactiveScript's compiler, in process through Node-API, and its front end for @solidjs/vite-plugin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryansolid/reactivescript.git",
+    "directory": "compiler"
+  },
+  "os": [
+    "win32"
+  ]
+}
