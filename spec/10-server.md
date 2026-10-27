@@ -78,9 +78,16 @@ by default — see the list at the end.
 - **SV-3b (Answers cross).** Every question the server answered is answered
   on the client with the server's answer, sent in the stream; it is not
   asked again. A question still pending when the client takes over
-  continues: its answer streams to the client. A question whose input
-  changes on the client is a new question, and the client asks it — DV-11
-  is Solid's exception. A failure crosses as SV-5 says.
+  continues: its answer streams to the client, and until it arrives the
+  node is the server's — it keeps the server's state and does not follow
+  a change to its inputs (a stream: until the server's stream ends). Once
+  the answer lands, the node hydrates and follows its inputs as usual: a
+  later change is a new question, and the client asks it. A question the
+  server had already answered follows its inputs from the takeover. (Ruled
+  2026-10-26 by adopting Solid's position, DV-11: a boundary waiting on
+  async cannot hydrate before the server's answer arrives. Scenarios list
+  these frames under `## Hydration window`: S-solid-24, S-store-5,
+  S-ai-feed.) A failure crosses as SV-5 says.
 - **SV-3c (Determinism).** Everything else is recomputed on the client
   from those answers and the initializers, and must come out the same.
   Inside `.rx` it does: there is no io in reactive scope (R-io-3), so an
@@ -92,14 +99,15 @@ by default — see the list at the end.
   their first instant (SV-2b), handlers are attached, and every later
   instant is the client's. A client may take over at any point of the
   stream — right after the shell, or after the last landing — and the
-  frames from then on are the client's frames.
+  frames from then on are the client's frames (with SV-3b's window: a node
+  whose server answer is still out follows its inputs once it lands).
 - **SV-3e (Input before hydration).** An event the user causes before the
   client has taken over is recorded and replayed after it, in order,
   through the handlers the client has just attached (Solid's hydration
   bootstrap and delegated-event replay). Each replayed event is **its own
   instant**, as it would have been live: a program cannot tell a replayed
   click from a user's, so two clicks on a counter are two bumps
-  (S-server-2). DV-14 is Solid's exception.
+  (S-server-2). Solid did not until 2026-10-26 (DV-14, fixed).
 
 ## SV-4 — State is per request (ruled)
 
@@ -153,7 +161,7 @@ by default — see the list at the end.
 
 Each has a standalone repro with nothing of ReactiveScript in it — one
 `app.jsx` compiled by `@solidjs/compiler` for both sides — in
-`ref/oracle/repros/`, re-run on `next` @ `2f7dc84` (2026-10-26).
+`ref/oracle/repros/`, re-run on `next` @ `0847122` (2026-10-26).
 
 - **DV-9 (a failed boundary on the server) — a Solid bug, ruled
   2026-10-26 (solidjs/solid#4287); reproduced 2026-10-24**
@@ -172,18 +180,19 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
   S-ai2-settings; their hydrations after the failure are reported `≠ DV-9`.
   (A failure thrown synchronously in content the server renders is drawn —
   S-hold-6 serves `item 4 not found`.)
-- **DV-11 (the hydration window) — reproduced 2026-10-24**
-  (`dv11-hydrate/`). Until the server has finished a node's answer, Solid's
-  client keeps the node on the server's answer even when its inputs change
-  on the client: a `<Loading>` whose content the server is still streaming
-  stays on its fallback after the client's own new answer lands (S-solid-24
-  hydrated after the mount: `1 loading` where the rule says `1 1`), and a
-  stream (an async iterable) is read from the server until it ends — the
-  new question is never asked, and the old stream's landings show
-  (S-store-5: `a3 -` where the rule says `a2 p`; S-ai-feed). Recorded as
-  `hydrated` divergences.
+- **DV-11 (the hydration window) — reversed 2026-10-26: Solid's position
+  adopted** (solidjs/solid#4272, closed by design; `dv11-hydrate/`). The
+  spec said a question whose input changes on the client after the
+  takeover is a new question the client asks at once. Solid answered that
+  a boundary waiting on async cannot hydrate until the server's answer
+  arrives: until then the node keeps the server's state and does not
+  follow its inputs, and afterwards it follows them as usual. SV-3b now
+  says so. The frames that were recorded as `hydrated` divergences
+  (S-solid-24 `1 loading`, S-store-5 `a3 -`, S-ai-feed) are the rule,
+  listed under each scenario's `## Hydration window`.
 - **DV-14 (replay is one instant) — a Solid bug, ruled 2026-10-26
-  (solidjs/solid#4285); reproduced 2026-10-24**
+  (solidjs/solid#4285); reproduced 2026-10-24; fixed on `next` 2026-10-26
+  (#4299)**
   (`dv14-replay-instant/`). `runHydrationEvents` runs the recorded queue in
   one microtask with no flush between events, so handlers replayed together
   share an instant: two clicks whose actions each write `n := n + 1` both
@@ -214,7 +223,8 @@ Each has a standalone repro with nothing of ReactiveScript in it — one
 Ruled 2026-10-26 (Ryan): DV-9, DV-14 and DV-15 are Solid bugs, not intended
 behaviour — the server draws a failed boundary's fallback and the client
 adopts it; each replayed event is its own instant; a hydrated fallback is
-kept. DV-11 and DV-12 were filed as bugs (solidjs/solid#4272, #4273).
+kept. DV-11 and DV-12 were filed as bugs (solidjs/solid#4272, #4273); DV-12
+was fixed, and DV-11 was answered by design and adopted (SV-3b).
 
 ## SV-7 — A mismatch is unwritable
 

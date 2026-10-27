@@ -1,7 +1,7 @@
 # Repros for Solid 2.0 (`next`)
 
 Standalone scripts against Solid's `next` branch built from source at the
-commit in `ref/SOLID_NEXT` (every one re-run there, `2f7dc84`, 2026-10-26) —
+commit in `ref/SOLID_NEXT` (every one re-run there, `0847122`, 2026-10-26) —
 no ReactiveScript code involved. Run from `ref/oracle/` after `npm install`:
 
 ```
@@ -202,10 +202,12 @@ the open bug. No scenario shows it.
 
 ---
 
-## DV-11 — the hydration window
+## DV-11 — the hydration window (solidjs/solid#4272, closed by design; adopted as 10 SV-3b)
 
-**Rule.** 10 SV-3b: after the client takes over, a question whose input
-changes is a new question; its answer is the client's.
+**Rule** (since 2026-10-26, Solid's position). 10 SV-3b: a node whose server
+answer is still out when the client takes over keeps the server's state and
+does not follow its inputs until that answer lands; the repro below shows
+exactly that, and is kept as the window's demonstration.
 
 **Shape.** `<Loading><p>{details()}</p></Loading>`, `details` over
 `id`. The server's answer for `id = 0` has not arrived when the client
@@ -257,7 +259,7 @@ value, null)`), after B.
 
 ---
 
-## DV-14 — events replayed after hydration share one instant (a Solid bug, ruled 2026-10-26; solidjs/solid#4285)
+## DV-14 — events replayed after hydration share one instant (a Solid bug, ruled 2026-10-26; solidjs/solid#4285, fixed on `next` by #4299)
 
 **Rule.** 10 SV-3e: a replayed event is its own instant, as it would have
 been live.
@@ -339,7 +341,7 @@ spec (05, and the interpreter) holds in both orders.
 
 ---
 
-## DV-17 — two mounts under one error boundary merge their holds (a Solid bug, ruled 2026-10-26)
+## DV-17 — two mounts under one error boundary merge their holds (a Solid bug, ruled 2026-10-26; solidjs/solid#4283, fixed on `next` by #4302)
 
 **Rule.** SCENARIOS.md S-5 rows 1′–3′ (D-4, *membership is the tick's*):
 two mounts made in separate flushes, each over its own hold, settle
@@ -353,7 +355,7 @@ S-solid-5.
 
 ---
 
-## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280)
+## DV-18 — a keyed projection's row readers miss every landing after the first (a regression from solidjs/solid#4280) — filed as solidjs/solid#4305
 
 **Rule.** RULES-DERIVED D-30, spec ST-4 and H-2: each landing reconciles a
 keyed projection's rows, and its readers show it.

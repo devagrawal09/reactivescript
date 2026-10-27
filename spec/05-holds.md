@@ -239,8 +239,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
 ## Divergences from the oracle (Solid's `next`, `ref/oracle/`)
 
 Every scenario is also run through the real runtime — Solid's `next` branch
-built from source at the commit in `ref/SOLID_NEXT` (`2f7dc84`, 2026-10-26;
-before that `2a0da2f`, 2026-10-24;
+built from source at the commit in `ref/SOLID_NEXT` (`0847122`, 2026-10-26;
+before that `2f7dc84` and `2a0da2f`, 2026-10-24;
 the records before that date were found on the published rc.16 and all
 re-run there): the oracle lowers the abstract syntax onto `solid-js` +
 `@solidjs/universal` by interpretation, and the compiled runner's views go
@@ -297,7 +297,8 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
 - **DV-9, DV-11, DV-12, DV-14 (the server and hydration)** — Solid's server render
   and its hydrating client; recorded in 10-server.md.
 - **DV-17 (a shared boundary merges mounts) — a Solid bug, ruled
-  2026-10-26; reproduced 2026-10-25** (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`,
+  2026-10-26; reproduced 2026-10-25; fixed on `next` 2026-10-26
+  (solidjs/solid#4283, fix #4302)** (`ref/oracle/repros/dv17-boundary-merges-mounts.mjs`,
   found by S-solid-5). Two branches mounted in separate instants, each
   reading a value one of two independent holds keeps (born held, D-1),
   stay independent — until both sit under one error boundary: then Solid
@@ -338,7 +339,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
   landing, a memo per row — what a `for` row's `{r.name}` is — never sees
   a later landing, so the list and everything held with it keep the old
   rows. A render effect reading the rows directly follows. The spec frames
-  stand. Not filed yet.
+  stand. Filed as solidjs/solid#4305.
 - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
   `<Loading>` that has shown content, a derived store's per-key verdicts

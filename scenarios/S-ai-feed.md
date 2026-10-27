@@ -58,10 +58,6 @@ and revert (AC-1, DV-2); the draft's plain write `"hi"` still overrides its
 question (ST-5a). `error := e.message` in the `catch` is still the action's
 change and lands with the body's end (AC-7).
 
-## Divergences
-
-- hydrated "Frames" instant 8: `` — DV-11: after hydration Solid reads the server's stream until it ends; the new room's stream is never asked (`ref/oracle/repros/dv11-hydrate/`)
-
 ## Rejected variants
 
 ```
@@ -90,3 +86,7 @@ export default component App() {
 ```
 
 No provision of `room` above the room.
+
+## Hydration window
+
+- "Frames" instant 8: `` — SV-3b: a stream the server is still sending when the client takes over stays the server's until it ends; the new room is not followed before then, so its stream is not asked (Solid's position, DV-11)

@@ -169,8 +169,8 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   // after hydration the client is Solid's client: the spec's frame, or Solid's where an oracle divergence is recorded
   const framesOf = (r: Row) => { const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === r.instant); return div ? [norm(r.frame), norm(div.frame)] : [norm(r.frame)]; };
   const matches = (r: Row, got: string) => framesOf(r).some(w => w === got || redactedMatch(w, got));
-  // a `hydrated` divergence: what Solid's client shows there once it has taken over a served page (DV-11, DV-12) — from
-  // there the rows cannot be followed (a question the scenario lands was never asked), so the run stops with it
+  // a `hydrated` divergence, or a `## Hydration window` frame (SV-3b, ruled): what the client shows there once it has taken
+  // over a served page — from there the rows cannot be followed (a question the scenario lands was never asked), so the run stops with it
   const known = (r: Row) => !scope && sc.divergences.find(d => d.runner === "hydrated" && d.table === t.title && d.instant === r.instant);
   const land = async (r: Row, server: boolean) => {
     const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action)!;
@@ -240,14 +240,14 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     }
     try {
       if (r.action.startsWith("handler")) { const body = compileDynamic(parseStmts(r.action.slice(7))); await page.evaluate((b: string) => { const c = (window as any).__client; new Function("__rt", "__B", b)(c.app, c.app.B); c.flush(); }, body); }
-      else if (/^(resolve|reject)\s/.test(r.action)) { if (!(await land(r, false))) { const k = known(r); if (k) { lines.push(`  ≠ ${t.title} [${label}] instant ${r.instant}: the question was never asked on the client  — recorded (hydrated)`); break; } ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: no flight on either side for ${r.action}`); break; } }
+      else if (/^(resolve|reject)\s/.test(r.action)) { if (!(await land(r, false))) { const k = known(r); if (k) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${r.instant}: the question was never asked on the client  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; } ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: no flight on either side for ${r.action}`); break; } }
       else { lines.push(`  ~ ${t.title} [${label}] instant ${r.instant}: ${r.action} not driven in the browser`); break; }
     } catch (e) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${r.instant}: ${(e as Error).message.split("\n")[0]}`); break; }
     await wait(Number(process.env.WAIT ?? 60));
     await page.evaluate(() => { (window as any).__client.flush(); });
     if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
     const got = norm(await textOf()); const last = c[c.length - 1];
-    const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ≠ ${t.title} [${label}] instant ${last.instant}: ${got}  — recorded (hydrated)`); break; }
+    const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${last.instant}: ${got}  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; }
     if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
     shown.push(got);
   }
