@@ -237,6 +237,16 @@ module with its source map onto its `.rx` (CP-1c) and the stylesheet;
 module's, each source and equation declared once is declared at a position
 mapped to its line, and on dom every element's line is mapped.
 
+In a Vite app, `vite-plugin-rx/` (a prototype) compiles `.rx` with `rxc app`
+(the program checked and compiled whole from its entry, each module
+importing its dependencies by `.rx` path) and hands Solid's Vite plugin
+ordinary JavaScript per environment target, with the source map onto `.rx`
+and the stylesheet as a CSS module. Every example app builds and runs in
+Chromium that way (`node vite-plugin-rx/test.mjs`). Solid's plugin has no
+hook for another front end; one (`.rx` routed as `.tsrx` is) would give
+`.rx` its refresh, lazy and source-name passes for free — an upstream ask,
+as CP-1c was.
+
 ## Decisions taken by default (veto here)
 
 1. **The helper API is CP-4b's** (pinned 2026-10-26, taken by default —

@@ -180,6 +180,12 @@ pub struct Compiled {
 /// app, the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is
 /// `main`. `extra`: statements the program does not hold that run against it (a scenario's handler rows), for usage only.
 pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
+    compile_linked(set, extra, false)
+}
+
+/// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
+/// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
+pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     let mut files = IndexMap::new();
@@ -195,7 +201,7 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
                 }
             }
         }
-        let mut body: Vec<S> = deps.iter().map(|d| S::ImportDefault(g.dep_var(d), format!("./{}", g.out(d)))).collect();
+        let mut body: Vec<S> = deps.iter().map(|d| S::ImportDefault(g.dep_var(d), if by_source { relative(path, d) } else { format!("./{}", g.out(d)) })).collect();
         if *path == set.entry {
             let root = g.new_env(None);
             let inner = g.block(&p.decls, &p.view, root, None, true)?;
@@ -1625,6 +1631,16 @@ fn static_op(op: &str) -> &'static str {
 }
 
 /// The reference drops every line `return null;` of an instantiating fn's body (its block's empty view).
+/// `to` as an import specifier from the module at `from` (both paths as the loader keyed them)
+fn relative(from: &str, to: &str) -> String {
+    let (f, t): (Vec<&str>, Vec<&str>) = (from.split('/').collect(), to.split('/').collect());
+    let dir = &f[..f.len() - 1];
+    let common = dir.iter().zip(&t).take_while(|(a, b)| a == b).count();
+    let up = dir.len() - common;
+    let rest = t[common..].join("/");
+    if up == 0 { format!("./{rest}") } else { format!("{}{rest}", "../".repeat(up)) }
+}
+
 /// The statements `out[from..]` lower the declaration on `.rx` line `line` (the program's layout keeps it, CP-1c).
 fn at(out: &mut [S], from: usize, line: usize) {
     for s in &mut out[from..] {

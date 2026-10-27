@@ -11,9 +11,12 @@
 //!   rxc compile app.rx --out dir [--target dom|ssr|universal] [--module-name name]
 //!                          checks the program and writes each module's JavaScript for `target` (default dom) with its
 //!                          source map, and the stylesheet (`style.css`), into `dir`.
+//!   rxc app app.rx [--target dom|ssr|universal] [--module-name name]
+//!                          for a bundler plugin: prints `{entry, css, modules: {path: {code, map}}}`, each module importing
+//!                          its dependencies by `.rx` path, or `{diagnostics: [...]}` / `{error}`.
 
 use reactivescript::check::check_modules;
-use reactivescript::emit::{compile_modules, lower_view, Target};
+use reactivescript::emit::{compile_linked, compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::modules::load_modules;
 use reactivescript::signature::print_signature;
@@ -200,6 +203,37 @@ fn main() {
                 std::fs::write(dir.join("style.css"), &out.css).expect("write");
             }
             println!("{}: {} module(s) → {} (entry {})", file, out.files.len(), dir.display(), out.entry);
+        }
+        "app" => {
+            let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+            let Some(file) = args.get(1) else {
+                eprintln!("usage: rxc app app.rx [--target dom|ssr|universal] [--module-name name]");
+                std::process::exit(2);
+            };
+            let target = match opt("--target").as_deref().unwrap_or("dom") {
+                "ssr" => Target::Ssr,
+                "universal" => Target::Universal,
+                _ => Target::Dom,
+            };
+            let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
+            let v = (|| {
+                let set = load_modules(&abs(file), &read_disk).map_err(|e| json!({ "error": format!("{file}: {}", e.0) }))?;
+                let checked = check_modules(&set);
+                if !checked.diags.is_empty() {
+                    return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
+                }
+                let out = compile_linked(&set, &[], true).map_err(|e| json!({ "error": format!("{file}: not compiled: {}", e.0) }))?;
+                let mut modules = Map::new();
+                for (name, module) in &out.files {
+                    let path = &out.paths[name];
+                    let text = read_disk(path).unwrap_or_default();
+                    let l = lower_view(module, path, target, &module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
+                    modules.insert(path.clone(), json!({ "code": l.code, "map": l.map }));
+                }
+                Ok(json!({ "entry": set.entry, "css": out.css, "modules": modules }))
+            })()
+            .unwrap_or_else(|e| e);
+            println!("{}", serde_json::to_string(&v).unwrap());
         }
         "check" | "model" => {
             let mut bad = 0;
