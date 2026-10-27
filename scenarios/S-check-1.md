@@ -289,6 +289,93 @@ export default component App() {
 A provision always outlives the component that writes through it.
 
 ```
+-- reject: REGION_ESCAPE
+source handlers := []
+fn counter(ref start: number) {
+  source n := peek(start)
+  { get: () => n }
+}
+
+export default component App() {
+  source rows := [1, 2]
+  <ul>{for r in rows {
+    c = counter(r)
+    <li onClick={() => { handlers := [...handlers, c.get] }}>{r}</li>
+  }}</ul>
+}
+```
+
+An instantiation's result carries what its closures capture: `c.get`
+reads the instance's `n`, and the instance lives as long as the row it
+was made in (RG-6a). Made in `App`'s own region and stored in `App`'s own
+source, the same closure is fine.
+Calling it is fine anywhere: `handlers := [...handlers, c.get()]` stores
+a number. What a call returns holds a closure only when the closure called
+makes one:
+
+```
+-- reject: REGION_ESCAPE
+export default component App() {
+  source handlers := []
+  source rows := [1, 2]
+
+  <ul>{for r in rows {
+    source hits := 0
+    later = () => () => hits
+    <li onClick={() => { handlers := [...handlers, later()] }}>{hits}</li>
+  }}</ul>
+}
+```
+
+```
+-- reject: REGION_ESCAPE
+source registry := []
+component Item(props) {
+  effect (props.label) { registry := r => [...r, props.onFocus] }
+  <i>{props.label}</i>
+}
+
+export default component App() {
+  source rows := [1, 2]
+  <ul>{for r in rows {
+    source hits := 0
+    <Item label={r} onFocus={() => { hits := hits + 1 }} />
+  }}</ul>
+}
+```
+
+`Item` stores the closure it is given, which is the caller's: what it
+captures is checked where `Item` is applied. Storing `props.label` (a
+value) is never an escape.
+
+```
+-- reject: REGION_ESCAPE
+context fields: source unknown[]
+component Form(props) {
+  source rows := []
+  provide fields = rows
+  <form>{props.children}</form>
+}
+component Field(props) {
+  effect (props.n) { use fields := f => [...f, props.onPick] }
+  <i>{props.n}</i>
+}
+component Labeled(props) { <label><Field n={props.n} onPick={props.onPick} /></label> }
+
+export default component App() {
+  source rows := [1, 2]
+  <Form>{for r in rows {
+    source hits := 0
+    <Labeled n={r} onPick={() => { hits := hits + 1 }} />
+  }}</Form>
+}
+```
+
+Passed on: `Labeled` hands `onPick` to `Field`, which stores it through a
+provision `Form` makes above the rows. Were `Form` applied inside the row,
+the same program would be accepted.
+
+```
 -- reject: CONTEXT_NOT_FOUND
 context panel: string
 component Panel(props) {

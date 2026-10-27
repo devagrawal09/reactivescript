@@ -152,7 +152,14 @@ How each enforcer is realised:
   or as the result of a functional write's function — capturing a reactive
   name from a region deeper than the written source's is `REGION_ESCAPE`.
   A write through a provision (`use p := …`) is taken to outlive the
-  writing component unless the provision is declared in it.
+  writing component unless the provision is declared in it. A name holds
+  a closure through a `let` or an equation's expression; a call to a
+  `fn` holds what its result captures, with the instance of an
+  instantiation (RG-6) standing for whatever it declared, at the call's
+  region (O-3a). A prop written into a place that outlives the component
+  is recorded on the component, and the argument is checked at each
+  application, where a provision's place is found up the application
+  tree from the site (O-3b).
 - **Provisions (RG-7b)** are checked over the static application tree:
   the names available in a region are its own provisions plus, for a
   component, the intersection over every place it is applied; children

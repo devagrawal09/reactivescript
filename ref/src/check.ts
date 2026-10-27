@@ -40,7 +40,7 @@ const escF = (chain: Step[], cls: string) => !chain.some(s => s.f && caught(s.f,
 const escP = (chain: Step[], name: string) => !chain.some(s => s.p && (s.p === "all" || s.p.has(name)));
 /** MO-3: an exported component as an importer sees it — what escapes its root, the provisions it needs from above, and per prop
  *  what it discharges on every path from its reads (`f`, `p`), and what an action reading it catches. */
-export type CompSig = { own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }>; shape?: Shape };   // shape: SV-7d
+export type CompSig = { own: { cls: string; what: string; at?: string }[]; requires: string[]; props: Record<string, { f: Catch; p: Catch; rendered: boolean; action?: { f: Catch; name: string } }>; shape?: Shape; stored?: Record<string, string[]> };   // shape: SV-7d; stored: O-3, a prop the component stores where it outlives it ("module", or a provision's key)
 const noFails = (): Fails => ({ cls: new Set(), props: [] });
 /** A context key (`file#name`, `@n` for one declared in a block) → its name. */
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
@@ -52,6 +52,11 @@ function returnsClosure(f: Extract<Expr, { k: "fn" }>): boolean {
   if (!f.stmts) return f.body.k === "fn";
   const last = f.stmts[f.stmts.length - 1];
   return inStmts(f.stmts) || (last?.k === "expr" && last.e.k === "fn");
+}
+/** A closure whose body makes another closure (O-3: what calling it returns may hold one). */
+function containsFn(f: Extract<Expr, { k: "fn" }>): boolean {
+  const any = (v: unknown): boolean => !!v && typeof v === "object" && (Array.isArray(v) ? v.some(any) : ((v as { k?: string }).k === "fn" || Object.values(v as object).some(any)));
+  return any(f.body) || any(f.stmts ?? []);
 }
 /** A short rendering of an expression, for messages. */
 function show(e: Expr): string {
@@ -71,6 +76,8 @@ type Sym = {
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
   params?: { name: string; ref: boolean }[];
   captures?: Sym[];                    // a value holding a closure: the reactive names it captured (O-3)
+  retCaptures?: Sym[];                 // what calling that value can return holding (O-3)
+  propOf?: { comp: Region; field: string };   // O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
   mapsRecords?: boolean;               // an unkeyed equation that maps into fresh records (ST-4b)
   rows?: () => Set<string>;            // inferred rows of its value (R-13)
   comp?: Extract<Decl, { k: "component" }>;
@@ -204,12 +211,13 @@ class Checker {
   private uses: { region: Region; name: string; line: number; display: string }[] = [];   // name: the context's key
   // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
   private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
-  private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[] }[] = [];
+  private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[]; passed: { field: string; e: Expr; env: Env }[] }[] = [];   // passed: every attribute, handlers too (O-3)
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private provisions: { key: string; e: Expr; env: Env }[] = [];
   private later: (() => void)[] = [];
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
+  private retains = new Map<Region, Map<string, Set<string>>>();   // O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, kind: RegionKind, opts: { component?: boolean; provParent?: Region | null; name?: string } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
@@ -228,6 +236,7 @@ class Checker {
     this.block(p.decls, p.view, root, { scope: "reactive" });
     this.later.push(() => this.contentCheck(p.view, root, []));
     for (const f of this.later) f();
+    this.retained();
     this.resolveTree();
   }
 
@@ -683,7 +692,7 @@ class Checker {
       switch (s.k) {
         case "let": {
           this.expr(s.e, env, ctx);
-          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env) });
+          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true) });
           break;
         }
         case "expr": case "throw": this.expr(s.e, env, ctx); break;
@@ -709,7 +718,7 @@ class Checker {
           }
           s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx));
           this.expr(s.e, env, ctx);
-          this.escape(s, target, env);
+          { const line = this.line; this.later.push(() => { this.line = line; this.escape(s, target, env); }); }   // O-3: after every fn's result is known
           break;
         }
         case "refresh": case "affects": case "action": if (ctx.server) { this.err("SERVER_CAPTURE", "SF-3", `\`${s.k}${s.k === "action" ? " { … }" : ` ${(s as { name: string }).name}`}\` in a server function's body: it is the client's (do it in the action that awaited the call)`); break; }
@@ -728,36 +737,102 @@ class Checker {
     }
   }
 
-  /** The reactive names captured by closures that a value stores (O-3). A functional write's own function is applied, not stored. */
-  private stored(e: Expr, env: Env): Sym[] {
+  /** The reactive names captured by closures that a value stores (O-3). A functional write's own function is applied, not stored,
+   *  and so is a closure handed to a prelude function (`map(xs, x => …)`). Through a name: a `let`'s captures, an equation's
+   *  expression; through a call: what the fn's result captures — for an instantiation (RG-6), a name of the instance stands for
+   *  the instance, which lives as long as the region of the call. A prop is marked (`propOf`): what it captures is the caller's. */
+  private stored(e: Expr, env: Env, seen = new Set<Sym>(), result = false): Sym[] {
     const out: Sym[] = [];
-    const walk = (x: Expr): void => {
+    // `res`: the value is called, and only what the call returns is stored — a closure stores nothing then unless its body makes one
+    const walk = (x: Expr, res: boolean): void => {
       if (x.k === "fn") {
+        if (res && !containsFn(x)) return;
         const names = new Set<string>(); freeNames(x, new Set(), names);
         for (const n of names) { const s = env.lookup(n.startsWith("pre:") ? n.slice(4) : n); if (s && reactiveKinds.has(s.kind)) out.push(s); if (s?.captures) out.push(...s.captures); }
         return;
       }
-      if (x.k === "id") { const s = env.lookup(x.name); if (s?.captures) out.push(...s.captures); return; }
+      if (x.k === "id") {
+        const s = env.lookup(x.name); if (!s) return;
+        const caps = res ? s.retCaptures ?? s.captures : s.captures; if (caps) out.push(...caps);
+        if (s.kind === "props") out.push({ kind: "props", name: s.name, region: s.region, line: s.line, propOf: { comp: s.region, field: "*" } });
+        if (s.kind === "eq" && s.expr && s.env && !seen.has(s)) { seen.add(s); out.push(...this.stored(s.expr, s.env, seen, res)); }
+        return;
+      }
+      if (x.k === "member" && x.o.k === "id") { const s = env.lookup(x.o.name); if (s?.kind === "props") { out.push({ kind: "props", name: `${s.name}.${x.p}`, region: s.region, line: s.line, propOf: { comp: s.region, field: x.p } }); return; } }
+      if (x.k === "call") {
+        const f = x.f.k === "id" ? env.lookup(x.f.name) : undefined;
+        if (x.f.k === "id" && !f && BUILTINS.has(x.f.name)) { x.args.forEach(a => walk(a, res || a.k === "fn")); return; }   // a prelude function applies the closures it is given
+        if (f?.kind === "fn" && f.fnTail && f.fnEnv && !seen.has(f)) {
+          seen.add(f); const R = f.fnEnv.region; let inst: Sym | null = null;
+          for (const c of this.stored(f.fnTail, f.fnEnv, seen, res)) {
+            let r: Region | null = c.region; while (r && r !== R) r = r.parent;
+            if (f.instantiating && r && !c.propOf) out.push(inst ??= { kind: "eq", name: `an instance of ${f.name}`, region: env.region, line: this.line });
+            else out.push(c);
+          }
+          seen.delete(f);
+        }
+        walk(x.f, true); x.args.forEach(a => walk(a, false));                                // the callee is applied; what it returns may be an argument
+        return;
+      }
       for (const v of Object.values(x as object)) {
-        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
-        else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr);
+        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
+        else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, res);
       }
     };
-    walk(e); return out;
+    walk(e, result); return out;
   }
   private escape(s: Extract<Stmt, { k: "write" | "optimistic" }>, target: Sym | undefined, env: Env) {
     const value = s.e.k === "fn" && !s.e.stmts ? s.e.body : s.e;                          // W-6: `x := f` applies f; f's result is what is stored
     const captured = this.stored(value, env); if (!captured.length) return;
-    let tDepth: number;
+    let tDepth: number; let prov: string | null = null;
     if (target) tDepth = target.region.depth;
     else {                                                                                   // `use p := …`: the provision is in this component, or above it
       let r: Region | null = env.region; let found: Region | null = null;
       const key = env.lookup(s.target.name)?.ctx?.key ?? s.target.name;
       while (r) { if (r.provides.has(key)) { found = r; break; } if (r.isComponentRoot) break; r = r.parent; }
       tDepth = found ? found.depth : env.region.component ? env.region.component.depth - 1 : 0;
+      if (!found) prov = key;
     }
-    const leak = captured.find(c => c.region.depth > tDepth);
+    const leak = captured.find(c => !c.propOf && c.region.depth > tDepth);
     if (leak) this.err("REGION_ESCAPE", "O-3", `a closure capturing ${leak.name} (declared in a region that ends sooner) is stored into ${s.target.ctx ? "use " : ""}${s.target.name}, which outlives it`);
+    for (const c of captured) if (c.propOf && tDepth < c.propOf.comp.depth) this.retain(c.propOf.comp, c.propOf.field, prov !== null ? `p:${prov}` : `d:${tDepth}`);   // checked where the component is applied
+  }
+  private retain(comp: Region, field: string, t: string): boolean {
+    let m = this.retains.get(comp); if (!m) this.retains.set(comp, m = new Map());
+    let ts = m.get(field); if (!ts) m.set(field, ts = new Set());
+    if (ts.has(t)) return false; ts.add(t); return true;
+  }
+  /** O-3 at an application: a closure passed for a prop the component stores must not capture a name that ends before where it is
+   *  stored. A provision's place is found from the site; a prop passed on (`x={props.y}`) is stored by this component too. */
+  private retained() {
+    const targets = (C: Region, field: string): string[] => {
+      if (C.sig) return [...(C.sig.stored?.[field] ?? []), ...(field !== "*" ? C.sig.stored?.["*"] ?? [] : [])].map(t => t === "module" ? "d:0" : `p:${t}`);
+      const m = this.retains.get(C); return m ? [...(m.get(field) ?? []), ...(field !== "*" ? m.get("*") ?? [] : [])] : [];
+    };
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const a of this.apps) for (const x of a.passed) {
+        const ts = targets(a.comp, x.field); if (!ts.length) continue;
+        const cap = this.stored(x.e, x.env);
+        for (const t of ts) {
+          const limit = t.startsWith("d:") ? +t.slice(2) : this.provAnchor(a.site, t.slice(2));
+          const leak = cap.find(c => !c.propOf && c.region.depth > limit);
+          if (leak) { this.line = a.line; this.err("REGION_ESCAPE", "O-3", `<${a.tag} ${x.field}={…}>: the closure passed captures ${leak.name} (declared in a region that ends sooner), and ${a.tag} stores ${x.field} (itself, or through a component it passes it to) where it outlives it`); }
+          for (const c of cap) if (c.propOf && limit < c.propOf.comp.depth && this.retain(c.propOf.comp, c.propOf.field, t)) changed = true;
+        }
+      }
+    }
+  }
+  /** The depth, in the site's lexical tree, of the region a provision written from beneath `site` lives as long as. */
+  private provAnchor(site: Region, key: string): number {
+    let r: Region | null = site;
+    while (r) {
+      if (r.provides.has(key)) return r.depth;
+      if (r.kids) { if (r.kids.comp.provides.has(key)) return r.kids.site.depth; r = r.kids.site; continue; }   // RG-4c: children see the component's provisions, then the site's
+      if (r.isComponentRoot) return r.depth - 1;                                           // above the component: it outlives every name in it
+      r = r.parent;
+    }
+    return 0;
   }
 
   // ---- views ----
@@ -779,7 +854,7 @@ class Checker {
             for (const a of m.attrs) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
-              this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name, e: a.e, env })) });   // R-2: passing is not reading — checked where the component reads it
+              this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name, e: a.e, env })), passed: m.attrs.map(a => ({ field: a.name, e: a.e, env })) });   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
               this.markup(m.children, new Env(env, kids));
@@ -1105,7 +1180,9 @@ class Checker {
       const e = esc(G);
       const file = (this.opts.file ?? "main.rx").split("/").pop();
       const cs = this.compSyms.get(G);
-      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE };
+      const st = this.retains.get(G); const stored: Record<string, string[]> = {};
+      if (st) for (const [f, ts] of st) stored[f] = [...new Set([...ts].map(t => t.startsWith("d:") ? "module" : t.slice(2)))].sort();   // an exported component's outside is its module
+      return { own: e.fails.map(i => ({ cls: i.cls, what: i.what, at: `${file}:${i.line}` })), requires: [...new Set(e.reqs.map(r => r.name))], props, shape: cs ? this.shape(cs) : EMPTY_SHAPE, ...(st ? { stored } : {}) };
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;

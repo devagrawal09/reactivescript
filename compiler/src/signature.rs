@@ -62,6 +62,8 @@ pub struct CompSig {
     pub requires: Vec<String>,
     pub props: IndexMap<String, PropSig>,
     pub shape: Option<Shape>,
+    /// O-3: the props it stores where they outlive it — "module", or a provision's key.
+    pub stored: IndexMap<String, Vec<String>>,
 }
 #[derive(Debug, Clone)]
 pub struct SigParam {
@@ -122,6 +124,13 @@ fn split_hash(key: &str) -> (String, String) {
     }
 }
 /// A context key relative to the module whose signature names it (`./theme.rx#theme`).
+/// O-3: the props a component stores where they outlive it, and where.
+fn retains_text(file: &str, st: &IndexMap<String, Vec<String>>) -> String {
+    let mut fs: Vec<&String> = st.keys().collect();
+    fs.sort();
+    let xs: Vec<String> = fs.into_iter().flat_map(|f| st[f].iter().map(move |t| format!("{}: {}", if f == "*" { "...props" } else { f }, if t == "module" { t.clone() } else { rel_key(file, t) }))).collect();
+    if xs.is_empty() { String::new() } else { format!(" retains({})", xs.join(", ")) }
+}
 fn rel_key(from: &str, key: &str) -> String {
     if key == HOLD {
         return "loading".into();
@@ -249,11 +258,12 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 .collect();
             let own: IndexSet<String> = s.own.iter().map(|o| o.cls.clone()).collect();
             format!(
-                "export component {}(props: {}){}{}{}",
+                "export component {}(props: {}){}{}{}{}",
                 name,
                 if props.is_empty() { "{}".to_string() } else { format!("{{ {} }}", props.join("; ")) },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
+                retains_text(file, &s.stored),
                 shape_text(&s.shape)
             )
         }
@@ -295,6 +305,7 @@ re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
 re!(P_PROVIDES, r"(^|[^A-Za-z0-9_])provides\(([^)]*)\)");
 re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
 re!(C_USES, r"(^|[^A-Za-z0-9_])uses\(([^)]*)\)");
+re!(C_RETAINS, r"(^|[^A-Za-z0-9_])retains\(([^)]*)\)");
 re!(C_SHAPE, r"(^|[^A-Za-z0-9_])shape\(([^)]*)\)");
 re!(SOURCE_WORD, r"^source([^A-Za-z0-9_]|$)");
 re!(REF_PARAM, r"^ref\s");
@@ -442,7 +453,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             continue;
         }
         if let Some(m) = T_COMP.captures(&s) {
-            let mut sig = CompSig { own: vec![], requires: vec![], props: IndexMap::new(), shape: None };
+            let mut sig = CompSig { own: vec![], requires: vec![], props: IndexMap::new(), shape: None, stored: IndexMap::new() };
             let inner = &m[2][1..m[2].len() - 1];
             for f in split(inner, ';') {
                 let (fname0, spec) = match f.find(':') {
@@ -486,6 +497,15 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             }
             if let Some(us) = C_USES.captures(tail) {
                 sig.requires = us[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect();
+            }
+            if let Some(so) = C_RETAINS.captures(tail) {
+                for x in split(&so[2], ',') {
+                    let i = x.find(':').unwrap_or(x.len());
+                    let f0 = crate::parse::js_trim(&x[..i]).to_string();
+                    let f = if f0 == "...props" { "*".to_string() } else { f0 };
+                    let t = crate::parse::js_trim(x.get(i + 1..).unwrap_or("")).to_string();
+                    sig.stored.entry(f).or_default().push(if t == "module" { t } else { abs_key(file, &t) });
+                }
             }
             sig.shape = Some(shape_of(C_SHAPE.captures(tail).map(|x| x.get(2).unwrap().as_str())).map_err(|e| fail(&e))?);
             exports.insert(m[1].to_string(), ExportSig::Comp { sig });

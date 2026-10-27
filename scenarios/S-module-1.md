@@ -30,6 +30,11 @@ export component Save(props) {
   action go() { log(props.v) }
   <button onClick={() => { go() }}>save</button>
 }
+source picks := []
+export component Pick(props) {
+  effect (props.n) { picks := ps => [...ps, props.onPick] }
+  <u>{props.n}</u>
+}
 ```
 
 ```
@@ -55,7 +60,13 @@ export component Card(props: { children: catches(*) }) shape(roots p div; closes
 export component Name(props: { user: catches(NotFound) }) shape(roots i)
 export component Badge(props: {}) uses(./ui.rx#who) shape(roots b)
 export component Save(props: { v: unrendered action go catches(nothing) }) shape(roots button)
+export component Pick(props: { n }) retains(onPick: module) shape(roots u)
 ```
+
+`Pick` keeps the callback it is given in a source of its module, which
+outlives every application of it: `retains(onPick: module)` is how an
+importer learns that, so the closure it passes is checked where it passes
+it (O-3).
 
 The same text, with no `ui.rx` beside it, is read in place of the module
 (MO-9, S-module-3).
@@ -106,6 +117,22 @@ export default component App() {
 ```
 
 An imported source is read-only: the module exports `select` to write it.
+
+```
+-- reject: REGION_ESCAPE
+import { Pick } from "./ui.rx"
+
+export default component App() {
+  source rows := [1, 2]
+  <ul>{for r in rows {
+    source hits := 0
+    <Pick n={r} onPick={() => { hits := hits + 1 }} />
+  }}</ul>
+}
+```
+
+O-3 through a signature: the row's closure would outlive the row in
+`ui.rx`'s `picks`. The checker sees only `retains(onPick: module)`.
 
 ```
 -- reject: NOT_EXPORTED

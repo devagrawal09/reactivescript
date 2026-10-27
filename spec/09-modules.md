@@ -68,7 +68,12 @@ A component's summary is what the static application tree needs from it
   out at the application with that application's argument. For
   `children`, the same holds for provisions. A prop an action reads also
   records what the action catches: an argument with another class is
-  refused at the application (R-f-6).
+  refused at the application (R-f-6);
+- **what it stores (O-3):** each prop it stores where the stored value
+  outlives the component (in a source of its module, or through a
+  provision above it), passed on to a component that does included. A
+  closure passed for one is checked at the application against that
+  place. `.d.rx`: `retains(onPick: module, onFocus: ./form.rx#fields)`.
 
 The summary is exact for the checks it serves: a class escapes a set of
 paths iff it is missing from the intersection of what the paths discharge.
