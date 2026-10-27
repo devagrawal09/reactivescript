@@ -11,9 +11,9 @@ agent's sources and its `./check`/`./test` log.
 | Runs with a shipped defect (headline) | 0 of 9 | 0 of 9 |
 | Hidden tests passed | 93 of 93 | 93 of 93 |
 | `./check` + `./test` cycles, mean (range) | 2.6 (2–5) | 6.4 (5–11) |
-| Cycles until the visible tests first passed, mean | 2.0 | 3.0 |
+| Cycles until the visible tests first passed, mean | 2.0 | 3.1 |
 | Agent tokens per run, mean | 46.6k | 110.8k |
-| Agent time per run, mean | 1.0 min | 3.4 min |
+| Agent time per run, mean | 1.0 min | 3.3 min |
 | Lines of app code, mean (range) | 168 (126–222) | 73 (62–85) |
 | Runs that added their own edge-case tests | 0 of 9 | 9 of 9 |
 
