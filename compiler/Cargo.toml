@@ -2,17 +2,22 @@
 name = "reactivescript"
 version = "0.0.0"
 edition = "2021"
-description = "ReactiveScript's compiler (spec/11 CP-1a): parse, check, resolve. Lowering onto Solid's solidjs-compiler comes next."
+description = "ReactiveScript's compiler (spec/11): parse, check, resolve, and lower through Solid's solidjs-compiler"
 license = "MIT"
 publish = false
 
 [lib]
 name = "reactivescript"
 path = "src/lib.rs"
+# rlib for rxc; cdylib for the Node-API build (`--features node`, src/node.rs) that @reactivescript/compiler ships
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "rxc"
 path = "src/main.rs"
+
+[features]
+node = ["dep:napi", "dep:napi-derive"]
 
 [dependencies]
 indexmap = "2"
@@ -26,6 +31,11 @@ oxc_ast = "0.144"
 oxc_span = "0.144"
 oxc_sourcemap = "8.1"
 oxc_syntax = "0.144"
+napi = { version = "3.12", default-features = false, features = ["napi4"], optional = true }
+napi-derive = { version = "3.6", optional = true }
+
+[build-dependencies]
+napi-build = "2.4"
 
 [profile.release]
 debug = false

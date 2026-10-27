@@ -1,0 +1,66 @@
+{
+  "name": "@reactivescript/compiler",
+  "description": "ReactiveScript's compiler, in process through Node-API, and its front end for @solidjs/vite-plugin",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryansolid/reactivescript.git",
+    "directory": "compiler"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./vite": {
+      "types": "./vite.d.mts",
+      "default": "./vite.mjs"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "vite.mjs",
+    "vite.d.mts",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "napi build --platform --release --strip --features node --manifest-path ./Cargo.toml -- --lib",
+    "build:debug": "napi build --platform --features node --manifest-path ./Cargo.toml -- --lib",
+    "artifacts": "napi artifacts",
+    "create-npm-dirs": "napi create-npm-dirs",
+    "version": "napi version && node scripts/sync-optional-deps.mjs",
+    "test": "node test/node.mjs"
+  },
+  "napi": {
+    "binaryName": "compiler",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "peerDependencies": {
+    "@solidjs/vite-plugin": "*"
+  },
+  "peerDependenciesMeta": {
+    "@solidjs/vite-plugin": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.10.6"
+  },
+  "optionalDependencies": {
+    "@reactivescript/compiler-darwin-x64": "0.0.0",
+    "@reactivescript/compiler-darwin-arm64": "0.0.0",
+    "@reactivescript/compiler-linux-x64-gnu": "0.0.0",
+    "@reactivescript/compiler-linux-arm64-gnu": "0.0.0",
+    "@reactivescript/compiler-win32-x64-msvc": "0.0.0"
+  }
+}

@@ -1,17 +1,18 @@
-// The prototype end to end: each example app built by Vite with vite-plugin-rx and @solidjs/vite-plugin, then driven in
-// Chromium — and the todo app again under the dev server. Vite, solid-js and @solidjs/web come from the solid-next
-// checkout (ref/SOLID_NEXT), as ref/ takes Solid. Solid's plugin needs the `frontends` option (solid-vite-plugin PR,
-// see README): SOLID_VITE_PLUGIN names a built checkout of it, else the one pnpm installed in solid-next.
-// Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node vite-plugin-rx/test.mjs [filter]
+// `.rx` in Vite end to end: each example app built by Vite with plain `solid()` from @solidjs/vite-plugin, which finds
+// this package (`@reactivescript/compiler/vite`) in the project, then driven in Chromium; and the todo app again under
+// the dev server. Vite, solid-js and @solidjs/web come from the solid-next checkout (ref/SOLID_NEXT), as ref/ takes
+// Solid. Solid's plugin needs built-in `.rx` (solid-vite-plugin PR, see README): SOLID_VITE_PLUGIN names a built
+// checkout of it, else the one pnpm installed in solid-next. The Node-API build first: `npm run build` here.
+// Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node compiler/test/vite.mjs [filter]
 import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import rx from "./index.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here, "..");
+const pkg = path.resolve(here, "..");
+const repo = path.resolve(pkg, "..");
 const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
 const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : installed;
@@ -33,7 +34,10 @@ const out = path.join(here, ".out"); mkdirSync(out, { recursive: true });
 /** A Vite project around an example: its sources, a page, an entry that mounts the program over rt-web.ts. */
 function project(name, entry) {
   const dir = path.join(out, name); rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-  symlinkSync(deps, path.join(dir, "node_modules"));
+  // the project's node_modules: the plugin's (vite, solid-js, @solidjs/web) and this package, installed
+  const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
+  for (const d of readdirSync(deps)) if (d !== "@reactivescript") symlinkSync(path.join(deps, d), path.join(nm, d));
+  symlinkSync(pkg, path.join(nm, "@reactivescript/compiler"));
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from ${JSON.stringify(rtWeb)};\nimport main from "./${entry}";\nimport * as api from "./api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
@@ -41,7 +45,7 @@ function project(name, entry) {
 }
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
-  plugins: [solid({ frontends: { ".rx": rx() } })],
+  plugins: [solid()],
   server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
