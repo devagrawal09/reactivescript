@@ -22,7 +22,8 @@ fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
 let pass = 0, fail = 0;
 function check(name, ok, got) {
   if (ok) pass++; else fail++;
-  console.log(`${ok ? "  ✓" : "  ✗"} ${name}${!ok || process.env.VERBOSE ? `\n      ${JSON.stringify(got)?.slice(0, 600)}` : ""}`);
+  const shown = Array.isArray(got) ? got.map(d => (d?.source ? { source: d.source, code: d.code, message: d.message, range: d.range } : d)) : got;
+  console.log(`${ok ? "  ✓" : "  ✗"} ${name}${!ok || process.env.VERBOSE ? `\n      ${JSON.stringify(shown)?.slice(0, ok ? 600 : 4000)}` : ""}`);
 }
 /** The position of the `n`th `needle` in `text`, `delta` characters into it. */
 function at(text, needle, delta = 0, n = 1) {

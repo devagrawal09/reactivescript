@@ -19,7 +19,10 @@ function analysis(file, text) {
   const hit = cache.get(file);
   if (hit && hit.text === text) return hit.result;
   let result;
-  try { result = analyze(file, text, preludeFor(file)); } catch (e) { result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) }; }
+  try { result = analyze(file, text, preludeFor(file)); } catch (e) {
+    console.error(`rx: analyzing ${file} failed: ${e?.stack ?? e}`); // the server's log, else the failure is silent
+    result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) };
+  }
   cache.set(file, { text, result });
   return result;
 }
