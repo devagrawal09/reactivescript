@@ -37,8 +37,10 @@ when the region ends. Regions nest; the program is the root region.
     returns (RG-6) captures the instance, and the instance lives as long
     as the region of the call. So a counter made in a row cannot be stored
     in a module source, and one made in `App` can be stored in `App`'s
-    own sources. A closure handed to a prelude function (`map`, `filter`,
-    `every`) is applied, not stored.
+    own sources. A closure that is called is applied, not stored: what
+    the call returns is stored, which holds a closure only if the called
+    one makes one (`c.get()` stores a number). The same holds for a
+    closure handed to a prelude function (`map`, `filter`, `every`).
   - **O-3b (Through props).** A prop's value belongs to the caller, so
     what a closure passed as a prop captures is the caller's. A component
     that stores a prop where the stored value outlives the component

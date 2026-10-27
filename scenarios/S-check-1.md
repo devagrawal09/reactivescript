@@ -309,6 +309,23 @@ An instantiation's result carries what its closures capture: `c.get`
 reads the instance's `n`, and the instance lives as long as the row it
 was made in (RG-6a). Made in `App`'s own region and stored in `App`'s own
 source, the same closure is fine.
+Calling it is fine anywhere: `handlers := [...handlers, c.get()]` stores
+a number. What a call returns holds a closure only when the closure called
+makes one:
+
+```
+-- reject: REGION_ESCAPE
+export default component App() {
+  source handlers := []
+  source rows := [1, 2]
+
+  <ul>{for r in rows {
+    source hits := 0
+    later = () => () => hits
+    <li onClick={() => { handlers := [...handlers, later()] }}>{hits}</li>
+  }}</ul>
+}
+```
 
 ```
 -- reject: REGION_ESCAPE

@@ -53,6 +53,11 @@ function returnsClosure(f: Extract<Expr, { k: "fn" }>): boolean {
   const last = f.stmts[f.stmts.length - 1];
   return inStmts(f.stmts) || (last?.k === "expr" && last.e.k === "fn");
 }
+/** A closure whose body makes another closure (O-3: what calling it returns may hold one). */
+function containsFn(f: Extract<Expr, { k: "fn" }>): boolean {
+  const any = (v: unknown): boolean => !!v && typeof v === "object" && (Array.isArray(v) ? v.some(any) : ((v as { k?: string }).k === "fn" || Object.values(v as object).some(any)));
+  return any(f.body) || any(f.stmts ?? []);
+}
 /** A short rendering of an expression, for messages. */
 function show(e: Expr): string {
   switch (e.k) {
@@ -71,6 +76,7 @@ type Sym = {
   instantiating?: boolean;             // fn with ref params or declarations (E-9)
   params?: { name: string; ref: boolean }[];
   captures?: Sym[];                    // a value holding a closure: the reactive names it captured (O-3)
+  retCaptures?: Sym[];                 // what calling that value can return holding (O-3)
   propOf?: { comp: Region; field: string };   // O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
   mapsRecords?: boolean;               // an unkeyed equation that maps into fresh records (ST-4b)
   rows?: () => Set<string>;            // inferred rows of its value (R-13)
@@ -686,7 +692,7 @@ class Checker {
       switch (s.k) {
         case "let": {
           this.expr(s.e, env, ctx);
-          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env) });
+          env.vars.set(s.name, { kind: "value", name: s.name, region: env.region, line: this.line, captures: this.stored(s.e, env), retCaptures: this.stored(s.e, env, new Set(), true) });
           break;
         }
         case "expr": case "throw": this.expr(s.e, env, ctx); break;
@@ -735,41 +741,45 @@ class Checker {
    *  and so is a closure handed to a prelude function (`map(xs, x => …)`). Through a name: a `let`'s captures, an equation's
    *  expression; through a call: what the fn's result captures — for an instantiation (RG-6), a name of the instance stands for
    *  the instance, which lives as long as the region of the call. A prop is marked (`propOf`): what it captures is the caller's. */
-  private stored(e: Expr, env: Env, seen = new Set<Sym>()): Sym[] {
+  private stored(e: Expr, env: Env, seen = new Set<Sym>(), result = false): Sym[] {
     const out: Sym[] = [];
-    const walk = (x: Expr): void => {
+    // `res`: the value is called, and only what the call returns is stored — a closure stores nothing then unless its body makes one
+    const walk = (x: Expr, res: boolean): void => {
       if (x.k === "fn") {
+        if (res && !containsFn(x)) return;
         const names = new Set<string>(); freeNames(x, new Set(), names);
         for (const n of names) { const s = env.lookup(n.startsWith("pre:") ? n.slice(4) : n); if (s && reactiveKinds.has(s.kind)) out.push(s); if (s?.captures) out.push(...s.captures); }
         return;
       }
       if (x.k === "id") {
         const s = env.lookup(x.name); if (!s) return;
-        if (s.captures) out.push(...s.captures);
+        const caps = res ? s.retCaptures ?? s.captures : s.captures; if (caps) out.push(...caps);
         if (s.kind === "props") out.push({ kind: "props", name: s.name, region: s.region, line: s.line, propOf: { comp: s.region, field: "*" } });
-        if (s.kind === "eq" && s.expr && s.env && !seen.has(s)) { seen.add(s); out.push(...this.stored(s.expr, s.env, seen)); }
+        if (s.kind === "eq" && s.expr && s.env && !seen.has(s)) { seen.add(s); out.push(...this.stored(s.expr, s.env, seen, res)); }
         return;
       }
       if (x.k === "member" && x.o.k === "id") { const s = env.lookup(x.o.name); if (s?.kind === "props") { out.push({ kind: "props", name: `${s.name}.${x.p}`, region: s.region, line: s.line, propOf: { comp: s.region, field: x.p } }); return; } }
-      if (x.k === "call" && x.f.k === "id") {
-        const f = env.lookup(x.f.name);
-        if (!f && BUILTINS.has(x.f.name)) { x.args.forEach(a => { if (a.k !== "fn") walk(a); }); return; }
+      if (x.k === "call") {
+        const f = x.f.k === "id" ? env.lookup(x.f.name) : undefined;
+        if (x.f.k === "id" && !f && BUILTINS.has(x.f.name)) { x.args.forEach(a => walk(a, res || a.k === "fn")); return; }   // a prelude function applies the closures it is given
         if (f?.kind === "fn" && f.fnTail && f.fnEnv && !seen.has(f)) {
           seen.add(f); const R = f.fnEnv.region; let inst: Sym | null = null;
-          for (const c of this.stored(f.fnTail, f.fnEnv, seen)) {
+          for (const c of this.stored(f.fnTail, f.fnEnv, seen, res)) {
             let r: Region | null = c.region; while (r && r !== R) r = r.parent;
             if (f.instantiating && r && !c.propOf) out.push(inst ??= { kind: "eq", name: `an instance of ${f.name}`, region: env.region, line: this.line });
             else out.push(c);
           }
           seen.delete(f);
         }
+        walk(x.f, true); x.args.forEach(a => walk(a, false));                                // the callee is applied; what it returns may be an argument
+        return;
       }
       for (const v of Object.values(x as object)) {
-        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
-        else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr);
+        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
+        else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, res);
       }
     };
-    walk(e); return out;
+    walk(e, result); return out;
   }
   private escape(s: Extract<Stmt, { k: "write" | "optimistic" }>, target: Sym | undefined, env: Env) {
     const value = s.e.k === "fn" && !s.e.stmts ? s.e.body : s.e;                          // W-6: `x := f` applies f; f's result is what is stored

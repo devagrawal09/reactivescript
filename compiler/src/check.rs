@@ -213,6 +213,8 @@ struct Sym<'a> {
     instantiating: bool,
     params: Option<Vec<SigParam>>,
     captures: Vec<SId>,
+    /// what calling that value can return holding (O-3); None: as `captures`
+    ret_captures: Option<Vec<SId>>,
     /// O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
     prop_of: Option<(RId, String)>,
     maps_records: bool,
@@ -244,6 +246,7 @@ impl<'a> Sym<'a> {
             instantiating: false,
             params: None,
             captures: vec![],
+            ret_captures: None,
             prop_of: None,
             maps_records: false,
             rows: None,
@@ -508,6 +511,13 @@ fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<St
             }
         }
     }
+}
+/// A closure whose body makes another closure (O-3: what calling it returns may hold one).
+fn contains_fn(f: &Expr) -> bool {
+    fn any(n: Node) -> bool {
+        children(n, true).into_iter().any(|c| matches!(c, Node::E(Expr { k: ExprKind::Fn { .. }, .. })) || any(c))
+    }
+    any(Node::E(f))
 }
 fn names_of(e: &Expr) -> IndexSet<String> {
     let mut out = IndexSet::new();
@@ -2167,9 +2177,11 @@ impl<'a> Checker<'a> {
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
                     self.expr(e, env, ctx, None);
-                    let captures = self.stored(e, env, &mut HashSet::new());
+                    let captures = self.stored(e, env, &mut HashSet::new(), false);
+                    let ret = self.stored(e, env, &mut HashSet::new(), true);
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
                     sym.captures = captures;
+                    sym.ret_captures = Some(ret);
                     let id = self.new_sym(sym);
                     self.envs[env].vars.insert(name.clone(), id);
                 }
@@ -2325,9 +2337,9 @@ impl<'a> Checker<'a> {
     /// equation's expression; through a call: what the fn's result captures — for an instantiation (RG-6), a name of the
     /// instance stands for the instance, which lives as long as the region of the call. A prop is marked (`prop_of`): what it
     /// captures is the caller's.
-    fn stored(&mut self, e: &'a Expr, env: EId, seen: &mut HashSet<SId>) -> Vec<SId> {
+    fn stored(&mut self, e: &'a Expr, env: EId, seen: &mut HashSet<SId>, result: bool) -> Vec<SId> {
         let mut out = vec![];
-        self.stored_walk(Node::E(e), env, seen, &mut out);
+        self.stored_walk(Node::E(e), env, seen, result, &mut out);
         out
     }
     fn prop_mark(&mut self, s: SId, name: String, field: &str) -> SId {
@@ -2336,9 +2348,14 @@ impl<'a> Checker<'a> {
         m.prop_of = Some((region, field.to_string()));
         self.new_sym(m)
     }
-    fn stored_walk(&mut self, x: Node<'a>, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<SId>) {
+    /// `res`: the value is called, and only what the call returns is stored — a closure stores nothing then unless its body
+    /// makes one.
+    fn stored_walk(&mut self, x: Node<'a>, env: EId, seen: &mut HashSet<SId>, res: bool, out: &mut Vec<SId>) {
         match x {
             Node::E(f @ Expr { k: ExprKind::Fn { .. }, .. }) => {
+                if res && !contains_fn(f) {
+                    return;
+                }
                 for n in names_of(f) {
                     if let Some(s) = self.lookup(env, strip_pre(&n)) {
                         if self.syms[s].kind.reactive() {
@@ -2350,7 +2367,11 @@ impl<'a> Checker<'a> {
             }
             Node::E(Expr { k: ExprKind::Id(n), .. }) => {
                 let Some(s) = self.lookup(env, n) else { return };
-                out.extend(self.syms[s].captures.iter().copied());
+                let caps = match (&self.syms[s].ret_captures, res) {
+                    (Some(r), true) => r.clone(),
+                    _ => self.syms[s].captures.clone(),
+                };
+                out.extend(caps);
                 if self.syms[s].kind == SymKind::Props {
                     let m = self.prop_mark(s, self.syms[s].name.clone(), "*");
                     out.push(m);
@@ -2358,7 +2379,7 @@ impl<'a> Checker<'a> {
                 if self.syms[s].kind == SymKind::Eq && !seen.contains(&s) {
                     if let Some((xe, xenv)) = self.syms[s].expr {
                         seen.insert(s);
-                        let c = self.stored(xe, xenv, seen);
+                        let c = self.stored(xe, xenv, seen, res);
                         out.extend(c);
                     }
                 }
@@ -2369,16 +2390,20 @@ impl<'a> Checker<'a> {
                 let m = self.prop_mark(s, format!("{}.{}", self.syms[s].name, p), p);
                 out.push(m);
             }
-            Node::E(Expr { k: ExprKind::Call { f, args }, .. }) if matches!(&f.k, ExprKind::Id(_)) => {
-                let ExprKind::Id(name) = &f.k else { unreachable!() };
-                let fs = self.lookup(env, name);
-                if fs.is_none() && BUILTINS.contains(&name.as_str()) {
-                    for a in args {
-                        if !matches!(a.k, ExprKind::Fn { .. }) {
-                            self.stored_walk(Node::E(a), env, seen, out);
+            Node::E(Expr { k: ExprKind::Call { f, args }, .. }) => {
+                let fs = match &f.k {
+                    ExprKind::Id(name) => self.lookup(env, name),
+                    _ => None,
+                };
+                if let ExprKind::Id(name) = &f.k {
+                    if fs.is_none() && BUILTINS.contains(&name.as_str()) {
+                        // a prelude function applies the closures it is given
+                        for a in args {
+                            let r = res || matches!(a.k, ExprKind::Fn { .. });
+                            self.stored_walk(Node::E(a), env, seen, r, out);
                         }
+                        return;
                     }
-                    return;
                 }
                 if let Some(fs) = fs {
                     if self.syms[fs].kind == SymKind::Fn && !seen.contains(&fs) {
@@ -2386,7 +2411,7 @@ impl<'a> Checker<'a> {
                             seen.insert(fs);
                             let r = self.reg(fenv);
                             let mut inst: Option<SId> = None;
-                            for c in self.stored(tail, fenv, seen) {
+                            for c in self.stored(tail, fenv, seen, res) {
                                 let mut q = Some(self.syms[c].region);
                                 while let Some(qi) = q {
                                     if qi == r {
@@ -2412,13 +2437,15 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                for c in children(x, false) {
-                    self.stored_walk(c, env, seen, out);
+                // the callee is applied; what it returns may be an argument
+                self.stored_walk(Node::E(f), env, seen, true, out);
+                for a in args {
+                    self.stored_walk(Node::E(a), env, seen, false, out);
                 }
             }
             _ => {
                 for c in children(x, false) {
-                    self.stored_walk(c, env, seen, out);
+                    self.stored_walk(c, env, seen, res, out);
                 }
             }
         }
@@ -2428,7 +2455,7 @@ impl<'a> Checker<'a> {
             ExprKind::Fn { body, stmts: None, .. } => &**body,
             _ => e,
         };
-        let captured = self.stored(value, env, &mut HashSet::new());
+        let captured = self.stored(value, env, &mut HashSet::new(), false);
         if captured.is_empty() {
             return;
         }
@@ -2513,7 +2540,7 @@ impl<'a> Checker<'a> {
                     if ts.is_empty() {
                         continue;
                     }
-                    let cap = self.stored(xe, xenv, &mut HashSet::new());
+                    let cap = self.stored(xe, xenv, &mut HashSet::new(), false);
                     for t in ts {
                         let limit = match t.strip_prefix("d:") {
                             Some(d) => d.parse::<i64>().unwrap_or(0),
