@@ -1,6 +1,7 @@
 # The editor tools (spec/11 CP-8e): build the crate natively and as WebAssembly, run the language server's LSP tests on
 # both the server and the extension's bundle, and package the VS Code extension (one .vsix for every platform).
-# A tag `vscode-v<version>` also publishes it to the VS Marketplace (secret VSCE_PAT) and Open VSX (secret OVSX_PAT).
+# A tag `vscode-v<version>` also publishes it: to the VS Marketplace by trusted publishing (OIDC, variables
+# AZURE_CLIENT_ID and AZURE_TENANT_ID) and to Open VSX (secret OVSX_PAT), from the `release` environment.
 name: editor
 
 on:
@@ -55,6 +56,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/vscode-v')
     needs: build
     runs-on: ubuntu-latest
+    # trusted publishing: no long-lived token for the Marketplace; the job's OIDC token signs it in to Microsoft Entra
+    # through a federated credential on a managed identity that is a member of the publisher (tooling/vscode-rx/README.md)
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      OVSX_PAT: ${{ secrets.OVSX_PAT }} # job-wide, so that a step's `if` can see whether it is set
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -62,13 +71,18 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      - name: Sign in to Microsoft Entra (OIDC)
+        if: vars.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
       - name: VS Marketplace
-        if: env.VSCE_PAT != ''
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx --yes @vscode/vsce publish --packagePath *.vsix
+        if: vars.AZURE_CLIENT_ID != ''
+        run: npx --yes @vscode/vsce publish --azure-credential --packagePath *.vsix
+      # Open VSX has no trusted publishing in its CLI yet (eclipse-openvsx/openvsx#1980 is server-side only): a token
+      # until it does
       - name: Open VSX
         if: env.OVSX_PAT != ''
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: npx --yes ovsx publish *.vsix -p "$OVSX_PAT"

@@ -51,8 +51,22 @@ per request instead of the WebAssembly build) or TypeScript.
 
 The repository's `editor` workflow (`.github/workflows/editor.yml`) builds and
 tests the extension on every change to `compiler/` or `tooling/`. A tag
-`vscode-v<version>` (matching `version` in `package.json`) also publishes it:
-to the VS Marketplace when the repository has the secret `VSCE_PAT` (a token of
-the `reactivescript` publisher), and to Open VSX when it has `OVSX_PAT`.
+`vscode-v<version>` (matching `version` in `package.json`) also publishes it,
+from the `release` environment:
+
+- **VS Marketplace, by trusted publishing** (no stored token). Once: create
+  the `reactivescript` publisher; in Azure, create a user-assigned managed
+  identity (or an app registration) with a federated credential for GitHub
+  Actions, issuer `https://token.actions.githubusercontent.com`, subject
+  `repo:ryansolid/reactivescript:environment:release`; add that identity to
+  the publisher as a Contributor; set the repository variables
+  `AZURE_CLIENT_ID` and `AZURE_TENANT_ID`. The job signs in with `azure/login`
+  and runs `vsce publish --azure-credential`.
+- **Open VSX, by token** for now: its trusted publishing is server-side work
+  in progress (eclipse-openvsx/openvsx#1980) with no CLI support yet. Set the
+  secret `OVSX_PAT` on the `release` environment; switch when `ovsx` can
+  exchange the job's OIDC token.
+
+Either step is skipped while its variable or secret is unset.
 
 Other editors: see [`../rx-language-server`](../rx-language-server#editors).
