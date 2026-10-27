@@ -25,7 +25,7 @@ regex = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 # CP-1b: Solid's compiler, at the commit ref/ runs on (ref/SOLID_NEXT), and the Oxc release it is built against (CP-1c:
 # the program crosses the seam, so the versions must match)
-solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "2c9fdd99b249fc7879b164371ebe993e145cadda", default-features = false }
+solidjs-compiler = { git = "https://github.com/solidjs/solid", rev = "d2323b077c7dda32ebced7843c2ce2b788a91e8d", default-features = false }
 oxc_allocator = "0.144"
 oxc_ast = "0.144"
 oxc_span = "0.144"
