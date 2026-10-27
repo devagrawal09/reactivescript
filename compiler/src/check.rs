@@ -213,6 +213,8 @@ struct Sym<'a> {
     instantiating: bool,
     params: Option<Vec<SigParam>>,
     captures: Vec<SId>,
+    /// O-3: not a name but a prop's argument, stored — its captures are the caller's ("*": all of props)
+    prop_of: Option<(RId, String)>,
     maps_records: bool,
     rows: Option<RowsT<'a>>,
     comp: Option<&'a Decl>,
@@ -242,6 +244,7 @@ impl<'a> Sym<'a> {
             instantiating: false,
             params: None,
             captures: vec![],
+            prop_of: None,
             maps_records: false,
             rows: None,
             comp: None,
@@ -712,6 +715,8 @@ struct AppRec<'a> {
     line: i64,
     tag: String,
     args: Vec<(String, &'a Expr, EId)>,
+    /// every attribute, handlers too (O-3)
+    passed: Vec<(String, &'a Expr, EId)>,
 }
 struct ActionRec<'a> {
     name: String,
@@ -728,6 +733,7 @@ enum Later<'a> {
     Content { ms: &'a [Markup], env: EId, anc: Vec<String> },
     Provide { name: String, e: &'a Expr, env: EId, line: i64, contract: (IndexSet<String>, IndexSet<String>) },
     RowFails { name: String, env: EId, fw: Option<String>, written: String, line: i64 },
+    Escape { target: &'a Target, e: &'a Expr, tsym: Option<SId>, env: EId, line: i64 },
 }
 
 pub struct Opts<'a> {
@@ -751,6 +757,8 @@ pub struct Checker<'a> {
     later: Vec<Later<'a>>,
     comp_syms: HashMap<RId, SId>,
     rows_busy: HashSet<String>,
+    /// O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
+    retains: HashMap<RId, IndexMap<String, IndexSet<String>>>,
     regions: Vec<Region>,
     syms: Vec<Sym<'a>>,
     envs: Vec<Env>,
@@ -822,6 +830,7 @@ impl<'a> Checker<'a> {
             later: vec![],
             comp_syms: HashMap::new(),
             rows_busy: HashSet::new(),
+            retains: HashMap::new(),
             regions: vec![],
             syms: vec![],
             envs: vec![],
@@ -935,11 +944,16 @@ impl<'a> Checker<'a> {
             self.run_later(job);
             i += 1;
         }
+        self.retained();
         self.resolve_tree();
     }
     fn run_later(&mut self, job: Later<'a>) {
         match job {
             Later::Content { ms, env, anc } => self.content_check(ms, env, &anc),
+            Later::Escape { target, e, tsym, env, line } => {
+                self.line = line;
+                self.escape(target, e, tsym, env);
+            }
             Later::Provide { name, e, env, line, contract } => {
                 let rows = self.rows_of(e, env);
                 let f = self.fails_of(e, env, false, &HashMap::new());
@@ -2153,7 +2167,7 @@ impl<'a> Checker<'a> {
             match &s.k {
                 StmtKind::Let { name, e, .. } => {
                     self.expr(e, env, ctx, None);
-                    let captures = self.stored(e, env);
+                    let captures = self.stored(e, env, &mut HashSet::new());
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
                     sym.captures = captures;
                     let id = self.new_sym(sym);
@@ -2241,7 +2255,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                     self.expr(e, env, ctx, None);
-                    self.escape(target, e, tsym, env);
+                    self.later.push(Later::Escape { target, e, tsym, env, line: self.line }); // O-3: after every fn's result is known
                 }
                 StmtKind::Refresh(name) | StmtKind::Affects(name) => {
                     let is_refresh = matches!(&s.k, StmtKind::Refresh(_));
@@ -2306,13 +2320,23 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// The reactive names captured by closures that a value stores (O-3).
-    fn stored(&self, e: &'a Expr, env: EId) -> Vec<SId> {
+    /// The reactive names captured by closures that a value stores (O-3). A functional write's own function is applied, not
+    /// stored, and so is a closure handed to a prelude function (`map(xs, x => …)`). Through a name: a `let`'s captures, an
+    /// equation's expression; through a call: what the fn's result captures — for an instantiation (RG-6), a name of the
+    /// instance stands for the instance, which lives as long as the region of the call. A prop is marked (`prop_of`): what it
+    /// captures is the caller's.
+    fn stored(&mut self, e: &'a Expr, env: EId, seen: &mut HashSet<SId>) -> Vec<SId> {
         let mut out = vec![];
-        self.stored_walk(Node::E(e), env, &mut out);
+        self.stored_walk(Node::E(e), env, seen, &mut out);
         out
     }
-    fn stored_walk(&self, x: Node<'a>, env: EId, out: &mut Vec<SId>) {
+    fn prop_mark(&mut self, s: SId, name: String, field: &str) -> SId {
+        let (region, line) = (self.syms[s].region, self.syms[s].line);
+        let mut m = Sym::new(SymKind::Props, &name, region, line);
+        m.prop_of = Some((region, field.to_string()));
+        self.new_sym(m)
+    }
+    fn stored_walk(&mut self, x: Node<'a>, env: EId, seen: &mut HashSet<SId>, out: &mut Vec<SId>) {
         match x {
             Node::E(f @ Expr { k: ExprKind::Fn { .. }, .. }) => {
                 for n in names_of(f) {
@@ -2325,13 +2349,76 @@ impl<'a> Checker<'a> {
                 }
             }
             Node::E(Expr { k: ExprKind::Id(n), .. }) => {
-                if let Some(s) = self.lookup(env, n) {
-                    out.extend(self.syms[s].captures.iter().copied());
+                let Some(s) = self.lookup(env, n) else { return };
+                out.extend(self.syms[s].captures.iter().copied());
+                if self.syms[s].kind == SymKind::Props {
+                    let m = self.prop_mark(s, self.syms[s].name.clone(), "*");
+                    out.push(m);
+                }
+                if self.syms[s].kind == SymKind::Eq && !seen.contains(&s) {
+                    if let Some((xe, xenv)) = self.syms[s].expr {
+                        seen.insert(s);
+                        let c = self.stored(xe, xenv, seen);
+                        out.extend(c);
+                    }
+                }
+            }
+            Node::E(Expr { k: ExprKind::Member { o, p, .. }, .. }) if matches!(&o.k, ExprKind::Id(n) if self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Props)) => {
+                let ExprKind::Id(n) = &o.k else { unreachable!() };
+                let s = self.lookup(env, n).unwrap();
+                let m = self.prop_mark(s, format!("{}.{}", self.syms[s].name, p), p);
+                out.push(m);
+            }
+            Node::E(Expr { k: ExprKind::Call { f, args }, .. }) if matches!(&f.k, ExprKind::Id(_)) => {
+                let ExprKind::Id(name) = &f.k else { unreachable!() };
+                let fs = self.lookup(env, name);
+                if fs.is_none() && BUILTINS.contains(&name.as_str()) {
+                    for a in args {
+                        if !matches!(a.k, ExprKind::Fn { .. }) {
+                            self.stored_walk(Node::E(a), env, seen, out);
+                        }
+                    }
+                    return;
+                }
+                if let Some(fs) = fs {
+                    if self.syms[fs].kind == SymKind::Fn && !seen.contains(&fs) {
+                        if let Some((tail, fenv)) = self.syms[fs].fn_tail {
+                            seen.insert(fs);
+                            let r = self.reg(fenv);
+                            let mut inst: Option<SId> = None;
+                            for c in self.stored(tail, fenv, seen) {
+                                let mut q = Some(self.syms[c].region);
+                                while let Some(qi) = q {
+                                    if qi == r {
+                                        break;
+                                    }
+                                    q = self.regions[qi].parent;
+                                }
+                                if self.syms[fs].instantiating && q.is_some() && self.syms[c].prop_of.is_none() {
+                                    let i = match inst {
+                                        Some(i) => i,
+                                        None => {
+                                            let i = self.new_sym(Sym::new(SymKind::Eq, &format!("an instance of {}", self.syms[fs].name), self.reg(env), self.line));
+                                            inst = Some(i);
+                                            i
+                                        }
+                                    };
+                                    out.push(i);
+                                } else {
+                                    out.push(c);
+                                }
+                            }
+                            seen.remove(&fs);
+                        }
+                    }
+                }
+                for c in children(x, false) {
+                    self.stored_walk(c, env, seen, out);
                 }
             }
             _ => {
                 for c in children(x, false) {
-                    self.stored_walk(c, env, out);
+                    self.stored_walk(c, env, seen, out);
                 }
             }
         }
@@ -2341,10 +2428,11 @@ impl<'a> Checker<'a> {
             ExprKind::Fn { body, stmts: None, .. } => &**body,
             _ => e,
         };
-        let captured = self.stored(value, env);
+        let captured = self.stored(value, env, &mut HashSet::new());
         if captured.is_empty() {
             return;
         }
+        let mut prov: Option<String> = None;
         let t_depth = match tsym {
             Some(t) => self.regions[self.syms[t].region].depth,
             None => {
@@ -2361,6 +2449,9 @@ impl<'a> Checker<'a> {
                     }
                     r = self.regions[ri].parent;
                 }
+                if found.is_none() {
+                    prov = Some(key);
+                }
                 match found {
                     Some(f) => self.regions[f].depth,
                     None => match self.regions[self.reg(env)].component {
@@ -2370,7 +2461,7 @@ impl<'a> Checker<'a> {
                 }
             }
         };
-        if let Some(&leak) = captured.iter().find(|&&c| self.regions[self.syms[c].region].depth > t_depth) {
+        if let Some(&leak) = captured.iter().find(|&&c| self.syms[c].prop_of.is_none() && self.regions[self.syms[c].region].depth > t_depth) {
             let ln = self.syms[leak].name.clone();
             self.err(
                 "REGION_ESCAPE",
@@ -2378,6 +2469,102 @@ impl<'a> Checker<'a> {
                 format!("a closure capturing {} (declared in a region that ends sooner) is stored into {}{}, which outlives it", ln, if target.is_ctx() { "use " } else { "" }, target.name),
             );
         }
+        for c in captured {
+            if let Some((comp, field)) = self.syms[c].prop_of.clone() {
+                if t_depth < self.regions[comp].depth {
+                    let t = match &prov {
+                        Some(k) => format!("p:{}", k),
+                        None => format!("d:{}", t_depth),
+                    };
+                    self.retain(comp, &field, t); // checked where the component is applied
+                }
+            }
+        }
+    }
+    fn retain(&mut self, comp: RId, field: &str, t: String) -> bool {
+        self.retains.entry(comp).or_default().entry(field.to_string()).or_default().insert(t)
+    }
+    /// O-3 at an application: a closure passed for a prop the component stores must not capture a name that ends before where
+    /// it is stored. A provision's place is found from the site; a prop passed on (`x={props.y}`) is stored by this component too.
+    fn retained(&mut self) {
+        let targets = |this: &Self, c: RId, field: &str| -> Vec<String> {
+            if let Some(sig) = &this.regions[c].sig {
+                let mut v: Vec<String> = sig.stored.get(field).cloned().unwrap_or_default();
+                if field != "*" {
+                    v.extend(sig.stored.get("*").cloned().unwrap_or_default());
+                }
+                return v.into_iter().map(|t| if t == "module" { "d:0".to_string() } else { format!("p:{}", t) }).collect();
+            }
+            let Some(m) = this.retains.get(&c) else { return vec![] };
+            let mut v: Vec<String> = m.get(field).map(|x| x.iter().cloned().collect()).unwrap_or_default();
+            if field != "*" {
+                v.extend(m.get("*").map(|x| x.iter().cloned().collect::<Vec<_>>()).unwrap_or_default());
+            }
+            v
+        };
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for ai in 0..self.apps.len() {
+                let (acomp, asite, aline, atag) = (self.apps[ai].comp, self.apps[ai].site, self.apps[ai].line, self.apps[ai].tag.clone());
+                for xi in 0..self.apps[ai].passed.len() {
+                    let (field, xe, xenv) = self.apps[ai].passed[xi].clone();
+                    let ts = targets(self, acomp, &field);
+                    if ts.is_empty() {
+                        continue;
+                    }
+                    let cap = self.stored(xe, xenv, &mut HashSet::new());
+                    for t in ts {
+                        let limit = match t.strip_prefix("d:") {
+                            Some(d) => d.parse::<i64>().unwrap_or(0),
+                            None => self.prov_anchor(asite, &t[2..]),
+                        };
+                        if let Some(&leak) = cap.iter().find(|&&c| self.syms[c].prop_of.is_none() && self.regions[self.syms[c].region].depth > limit) {
+                            self.line = aline;
+                            let ln = self.syms[leak].name.clone();
+                            self.err(
+                                "REGION_ESCAPE",
+                                "O-3",
+                                format!(
+                                    "<{} {}={{…}}>: the closure passed captures {} (declared in a region that ends sooner), and {} stores {} (itself, or through a component it passes it to) where it outlives it",
+                                    atag, field, ln, atag, field
+                                ),
+                            );
+                        }
+                        for &c in &cap {
+                            if let Some((comp, f)) = self.syms[c].prop_of.clone() {
+                                if limit < self.regions[comp].depth && self.retain(comp, &f, t.clone()) {
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /// The depth, in the site's lexical tree, of the region a provision written from beneath `site` lives as long as.
+    fn prov_anchor(&self, site: RId, key: &str) -> i64 {
+        let mut r = Some(site);
+        while let Some(ri) = r {
+            let reg = &self.regions[ri];
+            if reg.provides.contains(key) {
+                return reg.depth;
+            }
+            if let Some((comp, ksite)) = reg.kids {
+                // RG-4c: children see the component's provisions, then the site's
+                if self.regions[comp].provides.contains(key) {
+                    return self.regions[ksite].depth;
+                }
+                r = Some(ksite);
+                continue;
+            }
+            if reg.is_component_root {
+                return reg.depth - 1; // above the component: it outlives every name in it
+            }
+            r = reg.parent;
+        }
+        0
     }
 
     // ---- views ----
@@ -2418,7 +2605,7 @@ impl<'a> Checker<'a> {
                         }
                         if is_comp {
                             let cr = self.syms[s.unwrap()].comp_region.unwrap();
-                            self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: attrs.iter().filter(|a| !is_handler(&a.name)).map(|a| (a.name.clone(), &a.e, env)).collect() });
+                            self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: attrs.iter().filter(|a| !is_handler(&a.name)).map(|a| (a.name.clone(), &a.e, env)).collect(), passed: attrs.iter().map(|a| (a.name.clone(), &a.e, env)).collect() });
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
                             let kenv = self.env(Some(env), kids);
@@ -3414,7 +3601,16 @@ impl<'a> Checker<'a> {
             None => Shape::default(),
         };
         let requires: IndexSet<String> = e.reqs.iter().map(|r| r.name.clone()).collect();
-        CompSig { own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape) }
+        let mut stored: IndexMap<String, Vec<String>> = IndexMap::new();
+        if let Some(st) = self.retains.get(&g) {
+            for (f, ts) in st {
+                // an exported component's outside is its module
+                let mut v: Vec<String> = ts.iter().map(|t| if t.starts_with("d:") { "module".to_string() } else { t[2..].to_string() }).collect::<IndexSet<_>>().into_iter().collect();
+                v.sort();
+                stored.insert(f.clone(), v);
+            }
+        }
+        CompSig { own: e.fails.iter().map(|i| Own { cls: i.cls.clone(), what: i.what.clone(), at: Some(format!("{}:{}", file, i.line)) }).collect(), requires: requires.into_iter().collect(), props, shape: Some(shape), stored }
     }
 }
 

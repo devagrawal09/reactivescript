@@ -101,7 +101,7 @@ named.
 | `OPTIMISTIC_OUTSIDE_HOLD`         | S   | AC-3  | S-check-1 |
 | `OPTIMISTIC_NO_QUESTION`          | S   | AC-3 / ST-5c | S-check-1, S-solid-32 |
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
-| `REGION_ESCAPE`                   | S   | O-3   | S-check-1 (three shapes) |
+| `REGION_ESCAPE`                   | S   | O-3, O-3a, O-3b | S-check-1 (six shapes), S-module-1 |
 | `UNSTABLE_LIST_IDENTITY`          | S   | ST-4b (narrow form: `map` into fresh records, unkeyed) | S-store-3 |
 | `CONTEXT_NOT_FOUND`               | S   | RG-7b (over the static application tree; a context with a default is always found) | S-check-1, S-region-7, S-ai-feed, S-context-1 |
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |

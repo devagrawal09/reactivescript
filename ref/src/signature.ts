@@ -14,7 +14,9 @@
 //
 // A prop field: bare (rendered, discharges nothing), `catches(A | B)` / `catches(*)`, `provides(…)` (children), `unrendered`
 // (only an action reads it), `action save catches(…)` (an action reads it). `uses(loading)` is SV-7b's need for a `loading`
-// above a reader of a client question. Context keys are paths relative to the signature's own module.
+// above a reader of a client question. `stores(onPick: module, onFocus: ./form.rx#fields)` names the props the component
+// stores where they outlive it (O-3) — in its module's sources, or through a provision above it — so a closure passed for one
+// is checked at the application. Context keys are paths relative to the signature's own module.
 import type { ModSig, ExportSig, CompSig } from "./check.ts";
 import { EMPTY_SHAPE, type Shape } from "./content.ts";
 
@@ -23,6 +25,11 @@ const HOLD = "$hold";
 const cls = (c: Catch) => c === "all" ? "*" : c.size ? [...c].sort().join(" | ") : "nothing";
 const rows = (r: string[], fails: string[]) => [...["io", "pending", "lane"].filter(x => r.includes(x)), ...(fails.length ? [`fails(${[...fails].sort().join(" | ")})`] : [])].join(" ");
 const dir = (p: string) => p.split("/").slice(0, -1).join("/");
+/** O-3: the props a component stores where they outlive it, and where. */
+const storesText = (file: string, st?: Record<string, string[]>) => {
+  const xs = Object.entries(st ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).flatMap(([f, ts]) => ts.map(t => `${f === "*" ? "...props" : f}: ${t === "module" ? t : relKey(file, t)}`));
+  return xs.length ? ` stores(${xs.join(", ")})` : "";
+};
 /** A context key relative to the module whose signature names it (`./theme.rx#theme`). */
 function relKey(from: string, key: string): string {
   if (key === HOLD) return "loading";
@@ -70,7 +77,7 @@ function line(file: string, name: string, x: ExportSig): string {
         return `${f === "*" ? "...props" : f}${parts.length ? `: ${parts.join(" ")}` : ""}`;
       });
       const own = [...new Set(s.own.map(o => o.cls))];
-      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${shapeText(s.shape)}`;
+      return `export component ${name}(props: ${props.length ? `{ ${props.join("; ")} }` : "{}"})${own.length ? ` fails(${own.sort().join(" | ")})` : ""}${s.requires.length ? ` uses(${s.requires.map(k => relKey(file, k)).join(", ")})` : ""}${storesText(file, s.stored)}${shapeText(s.shape)}`;
     }
   }
 }
@@ -150,6 +157,7 @@ export function parseSignature(src: string, file: string): ModSig {
       const tail = m[3];
       const fl = /\bfails\(([^)]*)\)/.exec(tail); if (fl) sig.own = classesOf(fl[1]).map(c => ({ cls: c, what: `${m![1]}'s root`, at: file.split("/").pop() }));
       const us = /\buses\(([^)]*)\)/.exec(tail); if (us) sig.requires = us[1].split(",").map(k => absKey(file, k.trim()));
+      const so = /\bstores\(([^)]*)\)/.exec(tail); if (so) { sig.stored = {}; for (const x of split(so[1], ",")) { const i = x.indexOf(":"); const f0 = x.slice(0, i).trim(); const f = f0 === "...props" ? "*" : f0; const t = x.slice(i + 1).trim(); (sig.stored[f] ??= []).push(t === "module" ? t : absKey(file, t)); } }   // O-3
       sig.shape = shapeOf(/\bshape\(([^)]*)\)/.exec(tail)?.[1]);
       exports.set(m[1], { kind: "comp", sig }); return;
     }

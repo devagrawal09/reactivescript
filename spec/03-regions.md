@@ -31,6 +31,23 @@ when the region ends. Regions nest; the program is the root region.
   2026-10-22 — downstream registration (a child adding itself to a store
   its provider owns) is an effect with a cleanup, through context (RG-7,
   S-region-7); it needs no construct, only composable writes (W-6).
+  - **O-3a (Through names and calls).** A closure is stored however it
+    gets there: through a `let`, through an equation whose value holds
+    it, or as part of what a function returns. A closure an instantiation
+    returns (RG-6) captures the instance, and the instance lives as long
+    as the region of the call. So a counter made in a row cannot be stored
+    in a module source, and one made in `App` can be stored in `App`'s
+    own sources. A closure handed to a prelude function (`map`, `filter`,
+    `every`) is applied, not stored.
+  - **O-3b (Through props).** A prop's value belongs to the caller, so
+    what a closure passed as a prop captures is the caller's. A component
+    that stores a prop where the stored value outlives the component
+    (a source outside it, or a provision above it) is checked where it
+    is applied: the closure passed for that prop must not capture a name
+    that ends sooner than that place. Handing the prop on to a component
+    that stores it counts as storing it. Across modules this is in the
+    signature (09 MO-3). (Found by #15, 2026-10-27: both holes accepted a
+    row-local closure stored in a module source.)
 - **O-4 (Writer scope).** A source may be written by imperative code in its own
   region or any nested region, or by a handler that received the source — not
   a snapshot of it — as an argument. An exported source exports its reader;
