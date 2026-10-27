@@ -12,5 +12,6 @@ pub mod model;
 pub mod modules;
 pub mod oxc;
 pub mod parse;
+pub mod project;
 pub mod signature;
 pub mod spans;

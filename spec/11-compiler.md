@@ -254,6 +254,37 @@ SF-7a, IDs hashed from the `.rx` path) and the stylesheet as a CSS module.
 Every example app builds and runs in Chromium that way
 (`vite-plugin-rx/test.mjs`).
 
+## CP-8 — Spans and the projection (for editors)
+
+Ruled 2026-10-27 (Ryan, on the editor-support plan: spans replace lines).
+An editor's features are TypeScript's, asked of the TSX projection (13
+TY-1c), so every position has to cross between `.rx` and the projection.
+
+- **CP-8a (spans).** The crate's AST records the byte range each node was
+  parsed from: every expression and statement (a kind plus its span), every
+  declaration (from its first keyword, `export` included), markup item and
+  attribute (its name). A node the compiler makes has none (`Span::NONE`).
+  `ref/` keeps lines: its AST is the grammar's specification, and the spans
+  are where the crate's parser was, not a second grammar.
+- **CP-8b (what a span promises).** Inside the source and inside its
+  parent's span; a declaration's and a markup item's span starts on the
+  line the node records; a name's span is the name, a member's ends with
+  its property, an element's starts with its tag. `compiler/src/spans.rs`
+  checks this, and `ref/crate.ts` runs it on every program.
+- **CP-8c (the projection).** The crate projects a checked program as
+  `ref/types/project.ts` does, text for text (`ref/crate.ts --project`), and
+  records mappings: a piece of the projection that is a piece of the `.rx`,
+  the same text on both sides — every name, member, literal, written type,
+  tag and attribute the projection copies. `rxc project app.rx` prints the
+  files, their mappings (`[generated, source, length]`) and the prelude;
+  `RX_CRATE=1 npm --prefix ref run types` checks the scenarios on it.
+- **CP-8d (diagnostics).** `rxc check --json` gives each diagnostic and
+  parse error a range, as an editor and an agent read it: 1-based lines,
+  0-based columns in UTF-16 code units (LSP's), and byte offsets. The
+  checker is line-precise (CN-1a), so a diagnostic's range is its line's:
+  from the first node that starts on it to the furthest any such node
+  reaches on it (decision 8).
+
 ## Decisions taken by default (veto here)
 
 1. **The helper API is CP-4b's** (pinned 2026-10-26, taken by default —
@@ -282,10 +313,22 @@ Every example app builds and runs in Chromium that way
    positions move to a map the crate keeps. The alternative is upstream:
    make `declared_before` independent of spans (e.g. from statement order
    in the semantic model), which would let the program keep `.rx` spans.
-6. **`.rx` positions are lines** (CP-1c, 2026-10-27, taken by default —
-   veto here). A mapped position is the line of the declaration or markup
+6. **`.rx` positions are lines** (CP-1c, 2026-10-27). *Superseded
+   2026-10-27 by CP-8 (Ryan: spans replace lines) for the AST and
+   diagnostics.* Source maps of the lowered module still map lines, below;
+   they can now be made column-precise from the spans. A mapped position is the line of the declaration or markup
    it was lowered from, at that line's first non-blank column. The AST
    records lines (as `ref/`'s does, for diagnostics), not columns; columns
    need a span on every expression in both parsers, which nothing in the
    spec asks for yet. A handler or action statement maps to its
    declaration's line.
+7. **The projection maps only text it copies** (CP-8c, 2026-10-27, taken
+   by default — veto here). A mapping joins the same text on both sides,
+   so a position inside it maps exactly and `ref/crate.ts --project` checks
+   every one. What the projection writes of its own (`__.set(…)`,
+   `__.await_(…)`, a rewritten `==`) maps nowhere; an editor asking there
+   gets the nearest mapped piece, as Volar does for Vue's and Svelte's.
+8. **A diagnostic's range is its line's** (CP-8d, 2026-10-27, taken by
+   default — veto here). The checker reports lines (CN-1a); narrowing each
+   rule to the node it is about is per-rule work in both checkers, left
+   for when an editor shows where it falls short.

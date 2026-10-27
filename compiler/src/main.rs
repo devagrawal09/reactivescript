@@ -3,6 +3,9 @@
 //!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them
 //!   rxc check --json file.rx...
 //!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
+//!   rxc project app.rx     TY-1c: the program's TSX projection, each file with its mappings onto the `.rx`
+//!                          (`[generated offset, source offset, length]`, CP-8), and the prelude it imports; with no
+//!                          file, reads `[{id, entry, files}]` on stdin, as `conform` does (`ref/crate.ts --project`)
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
@@ -20,6 +23,7 @@
 use reactivescript::check::check_modules;
 use reactivescript::emit::{compile_linked, compile_modules, lower_view, Target};
 use reactivescript::parse::parse_stmts;
+use reactivescript::project::{project_modules, unverified, PRELUDE};
 use reactivescript::modules::load_modules;
 use reactivescript::signature::print_signature;
 use serde_json::{json, Map, Value};
@@ -73,6 +77,26 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
         "sigs": sigs,
         "models": models,
     })
+}
+
+/// TY-1c: each module's projection with its mappings onto the `.rx` (CP-8), and how many of them fail to hold (none).
+fn project_one(entry: &str, files: &HashMap<String, String>) -> Value {
+    let read = |p: &str| files.get(p).cloned();
+    let set = match load_modules(entry, &read) {
+        Ok(s) => s,
+        Err(e) => return json!({ "error": e.0 }),
+    };
+    projection_json(&set)
+}
+fn projection_json(set: &reactivescript::modules::ModuleSet) -> Value {
+    let files: Vec<Value> = project_modules(set)
+        .iter()
+        .map(|p| {
+            let bad = set.sources.get(&p.rx).map(|src| unverified(p, src).len()).unwrap_or(0);
+            json!({ "path": p.path, "rx": p.rx, "code": p.code, "lines": p.lines, "mappings": p.mappings.iter().map(|m| [m.gen, m.src, m.len]).collect::<Vec<_>>(), "unverified": bad })
+        })
+        .collect();
+    json!({ "files": files })
 }
 
 fn lower_one(r: &Value) -> Value {
@@ -174,6 +198,33 @@ fn main() {
                 })
                 .collect();
             println!("{}", serde_json::to_string(&out).unwrap());
+        }
+        "project" if args.len() == 1 => {
+            let mut input = String::new();
+            std::io::stdin().read_to_string(&mut input).expect("stdin");
+            let req: Vec<Value> = serde_json::from_str(&input).expect("request: [{id, entry, files}]");
+            let out: Vec<Value> = req
+                .iter()
+                .map(|r| {
+                    let files: HashMap<String, String> = r["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
+                    let mut v = std::panic::catch_unwind(|| project_one(r["entry"].as_str().unwrap(), &files)).unwrap_or_else(|_| json!({ "panic": true }));
+                    v["id"] = r["id"].clone();
+                    v
+                })
+                .collect();
+            println!("{}", serde_json::to_string(&json!({ "prelude": PRELUDE, "programs": out })).unwrap());
+        }
+        "project" => {
+            let set = match load_modules(&abs(&args[1]), &read_disk) {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("{}", json!({ "error": e.0 }));
+                    std::process::exit(1);
+                }
+            };
+            let mut v = projection_json(&set);
+            v["prelude"] = json!(PRELUDE);
+            println!("{}", serde_json::to_string_pretty(&v).unwrap());
         }
         "lower" => {
             let mut input = String::new();
