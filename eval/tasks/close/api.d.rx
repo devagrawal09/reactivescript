@@ -1,0 +1,7 @@
+// src/api.js, as .rx sees it. fetchIssues and fetchIssue are loaders (safe to ask from an equation); assign and closeIssue write.
+export type Issue = { id: number; title: string; assignee: string | null }
+export type IssueDetail = { id: number; title: string; body: string }
+export pure fn fetchIssues(filter: string): Promise<Issue[]>
+export pure fn fetchIssue(id: number): Promise<IssueDetail | null>
+export fn assign(id: number, user: string): Promise<{ id: number; assignee: string }>
+export fn closeIssue(id: number): Promise<{ id: number }>
