@@ -1,0 +1,64 @@
+{
+  "name": "@reactivescript/runtime",
+  "description": "ReactiveScript's runtime (spec/11 CP-4a): createApp and the __rt helpers compiled .rx calls, over Solid, for the browser and the server",
+  "version": "0.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryansolid/reactivescript.git",
+    "directory": "runtime"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "worker": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "browser": {
+        "types": "./dist/web.d.ts",
+        "default": "./dist/web.js"
+      },
+      "deno": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "node": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      },
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
+    },
+    "./web": {
+      "types": "./dist/web.d.ts",
+      "default": "./dist/web.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs",
+    "test": "node test.mjs"
+  },
+  "peerDependencies": {
+    "@solidjs/signals": "^2.0.0-rc.19",
+    "@solidjs/web": "^2.0.0-rc.19",
+    "solid-js": "^2.0.0-rc.19"
+  },
+  "devDependencies": {
+    "@solidjs/signals": "2.0.0-rc.19",
+    "@solidjs/web": "2.0.0-rc.19",
+    "esbuild": "^0.28.2",
+    "solid-js": "2.0.0-rc.19",
+    "typescript": "^6.0.3"
+  }
+}
