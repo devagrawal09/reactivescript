@@ -28,7 +28,10 @@ export function scaffold(task, arm, dir, { reference = false } = {}) {
   const cli = path.join(here, "agent-cli.mjs");
   for (const c of ["check", "test"]) writeFileSync(path.join(dir, c), `#!/bin/sh\nexec node ${JSON.stringify(cli)} ${c} "$(dirname "$0")"\n`, { mode: 0o755 });
   // the .rx arm's documentation: the spec, as the earlier agent tests had it (there is nothing about .rx online)
-  if (arm === "rx") cpSync(path.join(evalDir, "../spec"), path.join(dir, "docs/spec"), { recursive: true });
+  if (arm === "rx") {
+    cpSync(path.join(evalDir, "../spec"), path.join(dir, "docs/spec"), { recursive: true });
+    cpSync(path.join(evalDir, "../guide"), path.join(dir, "docs/guide"), { recursive: true });
+  }
   if (reference) cpSync(path.join(evalDir, "reference", task, arm), path.join(dir, "src"), { recursive: true });
   return dir;
 }
