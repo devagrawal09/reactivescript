@@ -73,7 +73,7 @@ A component's summary is what the static application tree needs from it
   outlives the component (in a source of its module, or through a
   provision above it), passed on to a component that does included. A
   closure passed for one is checked at the application against that
-  place. `.d.rx`: `stores(onPick: module, onFocus: ./form.rx#fields)`.
+  place. `.d.rx`: `retains(onPick: module, onFocus: ./form.rx#fields)`.
 
 The summary is exact for the checks it serves: a class escapes a set of
 paths iff it is missing from the intersection of what the paths discharge.

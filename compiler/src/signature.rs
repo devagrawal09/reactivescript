@@ -125,11 +125,11 @@ fn split_hash(key: &str) -> (String, String) {
 }
 /// A context key relative to the module whose signature names it (`./theme.rx#theme`).
 /// O-3: the props a component stores where they outlive it, and where.
-fn stores_text(file: &str, st: &IndexMap<String, Vec<String>>) -> String {
+fn retains_text(file: &str, st: &IndexMap<String, Vec<String>>) -> String {
     let mut fs: Vec<&String> = st.keys().collect();
     fs.sort();
     let xs: Vec<String> = fs.into_iter().flat_map(|f| st[f].iter().map(move |t| format!("{}: {}", if f == "*" { "...props" } else { f }, if t == "module" { t.clone() } else { rel_key(file, t) }))).collect();
-    if xs.is_empty() { String::new() } else { format!(" stores({})", xs.join(", ")) }
+    if xs.is_empty() { String::new() } else { format!(" retains({})", xs.join(", ")) }
 }
 fn rel_key(from: &str, key: &str) -> String {
     if key == HOLD {
@@ -263,7 +263,7 @@ fn line(file: &str, name: &str, x: &ExportSig) -> String {
                 if props.is_empty() { "{}".to_string() } else { format!("{{ {} }}", props.join("; ")) },
                 if own.is_empty() { String::new() } else { format!(" fails({})", sorted(own).join(" | ")) },
                 if s.requires.is_empty() { String::new() } else { format!(" uses({})", s.requires.iter().map(|k| rel_key(file, k)).collect::<Vec<_>>().join(", ")) },
-                stores_text(file, &s.stored),
+                retains_text(file, &s.stored),
                 shape_text(&s.shape)
             )
         }
@@ -305,7 +305,7 @@ re!(P_CATCHES, r"(^|[^A-Za-z0-9_])catches\(([^)]*)\)");
 re!(P_PROVIDES, r"(^|[^A-Za-z0-9_])provides\(([^)]*)\)");
 re!(C_FAILS, r"(^|[^A-Za-z0-9_])fails\(([^)]*)\)");
 re!(C_USES, r"(^|[^A-Za-z0-9_])uses\(([^)]*)\)");
-re!(C_STORES, r"(^|[^A-Za-z0-9_])stores\(([^)]*)\)");
+re!(C_RETAINS, r"(^|[^A-Za-z0-9_])retains\(([^)]*)\)");
 re!(C_SHAPE, r"(^|[^A-Za-z0-9_])shape\(([^)]*)\)");
 re!(SOURCE_WORD, r"^source([^A-Za-z0-9_]|$)");
 re!(REF_PARAM, r"^ref\s");
@@ -498,7 +498,7 @@ pub fn parse_signature(src: &str, file: &str) -> Result<ModSig, SignatureError> 
             if let Some(us) = C_USES.captures(tail) {
                 sig.requires = us[2].split(',').map(|k| abs_key(file, crate::parse::js_trim(k))).collect();
             }
-            if let Some(so) = C_STORES.captures(tail) {
+            if let Some(so) = C_RETAINS.captures(tail) {
                 for x in split(&so[2], ',') {
                     let i = x.find(':').unwrap_or(x.len());
                     let f0 = crate::parse::js_trim(&x[..i]).to_string();

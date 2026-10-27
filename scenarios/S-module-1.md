@@ -60,11 +60,11 @@ export component Card(props: { children: catches(*) }) shape(roots p div; closes
 export component Name(props: { user: catches(NotFound) }) shape(roots i)
 export component Badge(props: {}) uses(./ui.rx#who) shape(roots b)
 export component Save(props: { v: unrendered action go catches(nothing) }) shape(roots button)
-export component Pick(props: { n }) stores(onPick: module) shape(roots u)
+export component Pick(props: { n }) retains(onPick: module) shape(roots u)
 ```
 
 `Pick` keeps the callback it is given in a source of its module, which
-outlives every application of it: `stores(onPick: module)` is how an
+outlives every application of it: `retains(onPick: module)` is how an
 importer learns that, so the closure it passes is checked where it passes
 it (O-3).
 
@@ -132,7 +132,7 @@ export default component App() {
 ```
 
 O-3 through a signature: the row's closure would outlive the row in
-`ui.rx`'s `picks`. The checker sees only `stores(onPick: module)`.
+`ui.rx`'s `picks`. The checker sees only `retains(onPick: module)`.
 
 ```
 -- reject: NOT_EXPORTED
