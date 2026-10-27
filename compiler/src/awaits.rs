@@ -2,7 +2,7 @@
 //! which the equation reaches it (E-11: an arm not selected is not demanded, so its flight is not asked). The compiler
 //! hoists each into its own async node, asked only while its guards hold; the equation reads it where the `await` was.
 
-use crate::ast::{Expr, Markup, MarkupKind};
+use crate::ast::{Expr, ExprKind, Markup, MarkupKind};
 use crate::check::{children, Node};
 
 #[derive(Clone, Copy)]
@@ -12,7 +12,7 @@ pub struct Guard<'a> {
     pub nullish: bool,
 }
 pub struct Hoisted<'a> {
-    /// an `Expr::Await`
+    /// an `ExprKind::Await`
     pub node: &'a Expr,
     pub guards: Vec<Guard<'a>>,
 }
@@ -34,8 +34,8 @@ pub fn non_tail_awaits(root: &Expr, tail: bool) -> Vec<Hoisted<'_>> {
 fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>) {
     let g0 = |e| Guard { e, neg: false, nullish: false };
     if let Node::E(x) = n {
-        match x {
-            Expr::Await { e, init, .. } => {
+        match &x.k {
+            ExprKind::Await { e, init, .. } => {
                 if !tail {
                     out.push(Hoisted { node: x, guards: g.to_vec() });
                 }
@@ -45,13 +45,13 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
                 }
                 return;
             }
-            Expr::If { c, t, f } => {
+            ExprKind::If { c, t, f } => {
                 walk(Node::E(c), false, g, out);
                 walk(Node::E(t), tail, &with(g, g0(c)), out);
                 walk(Node::E(f), tail, &with(g, Guard { e: c, neg: true, nullish: false }), out);
                 return;
             }
-            Expr::Bin { op, l, r } => {
+            ExprKind::Bin { op, l, r } => {
                 walk(Node::E(l), false, g, out);
                 match op.as_str() {
                     "&&" => walk(Node::E(r), false, &with(g, g0(l)), out),
@@ -61,13 +61,13 @@ fn walk<'a>(n: Node<'a>, tail: bool, g: &[Guard<'a>], out: &mut Vec<Hoisted<'a>>
                 }
                 return;
             }
-            Expr::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, .. } => {
                 walk(Node::E(e), tail, g, out);
                 walk(Node::E(alt), false, g, out);
                 return;
             }
             // a closure's body runs later; a draft's statements are its own
-            Expr::Fn { .. } | Expr::Draft { .. } => return,
+            ExprKind::Fn { .. } | ExprKind::Draft { .. } => return,
             _ => {}
         }
     }

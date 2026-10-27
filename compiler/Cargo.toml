@@ -9,7 +9,8 @@ publish = false
 [lib]
 name = "reactivescript"
 path = "src/lib.rs"
-# rlib for rxc; cdylib for the Node-API build (`--features node`, src/node.rs) that @reactivescript/compiler ships
+# rlib for rxc; cdylib for the Node-API build (`--features node`, src/node.rs) that @reactivescript/compiler ships, and
+# for the WebAssembly build the language server loads (src/wasm.rs, CP-8e)
 crate-type = ["rlib", "cdylib"]
 
 [[bin]]

@@ -262,6 +262,50 @@ Every example app builds and runs in Chromium that way
 (`compiler/test/vite.mjs`), each mounted with `createApp` from
 `@reactivescript/runtime`, CP-4a's package (`runtime/`).
 
+## CP-8 — Spans and the projection (for editors)
+
+Ruled 2026-10-27 (Ryan, on the editor-support plan: spans replace lines).
+An editor's features are TypeScript's, asked of the TSX projection (13
+TY-1c), so every position has to cross between `.rx` and the projection.
+
+- **CP-8a (spans).** The crate's AST records the byte range each node was
+  parsed from: every expression and statement (a kind plus its span), every
+  declaration (from its first keyword, `export` included), markup item and
+  attribute (its name). A node the compiler makes has none (`Span::NONE`).
+  `ref/` keeps lines: its AST is the grammar's specification, and the spans
+  are where the crate's parser was, not a second grammar.
+- **CP-8b (what a span promises).** Inside the source and inside its
+  parent's span; a declaration's and a markup item's span starts on the
+  line the node records; a name's span is the name, a member's ends with
+  its property, an element's starts with its tag. `compiler/src/spans.rs`
+  checks this, and `ref/crate.ts` runs it on every program.
+- **CP-8c (the projection).** The crate projects a checked program as
+  `ref/types/project.ts` does, text for text (`ref/crate.ts --project`), and
+  records mappings: a piece of the projection that is a piece of the `.rx`,
+  the same text on both sides — every name, member, literal, written type,
+  tag and attribute the projection copies. `rxc project app.rx` prints the
+  files, their mappings (`[generated, source, length]`) and the prelude;
+  `RX_CRATE=1 npm --prefix ref run types` checks the scenarios on it.
+- **CP-8d (diagnostics).** `rxc check --json` gives each diagnostic and
+  parse error a range, as an editor and an agent read it: 1-based lines,
+  0-based columns in UTF-16 code units (LSP's), and byte offsets. The
+  checker is line-precise (CN-1a), so a diagnostic's range is its line's:
+  from the first node that starts on it to the furthest any such node
+  reaches on it (decision 9).
+- **CP-8e (the editor).** An editor's parse recovers: a declaration that
+  does not parse is a parse error on its line and is skipped to the next
+  line that starts at column 0, and a missing expression is an empty name,
+  so the rest of the module still checks and projects. On a module that
+  parses, the recovering parse gives the strict parse's tree and no errors
+  (`rxc conform` checks it on every program). `rxc serve` answers a
+  language server a line at a time: per file, with the editor's unsaved
+  text as overlays, the projection with its mappings (exact text) and
+  ranges (what was written for an expression or statement, for placing
+  type errors) in UTF-16 offsets, and the file's parse errors, else its
+  checker diagnostics (CP-8d). `tooling/rx-language-server` is a Volar
+  server over the same requests, and `tooling/vscode-rx` its VS Code client.
+  The server runs the crate's WebAssembly build in process (decision 10).
+
 ## Decisions taken by default (veto here)
 
 1. **The helper API is CP-4b's** (pinned 2026-10-26, taken by default —
@@ -290,8 +334,10 @@ Every example app builds and runs in Chromium that way
    positions move to a map the crate keeps. The alternative is upstream:
    make `declared_before` independent of spans (e.g. from statement order
    in the semantic model), which would let the program keep `.rx` spans.
-6. **`.rx` positions are lines** (CP-1c, 2026-10-27, taken by default —
-   veto here). A mapped position is the line of the declaration or markup
+6. **`.rx` positions are lines** (CP-1c, 2026-10-27). *Superseded
+   2026-10-27 by CP-8 (Ryan: spans replace lines) for the AST and
+   diagnostics.* Source maps of the lowered module still map lines, below;
+   they can now be made column-precise from the spans. A mapped position is the line of the declaration or markup
    it was lowered from, at that line's first non-blank column. The AST
    records lines (as `ref/`'s does, for diagnostics), not columns; columns
    need a span on every expression in both parsers, which nothing in the
@@ -305,3 +351,24 @@ Every example app builds and runs in Chromium that way
    project, so an app adds the package and nothing to its config. No
    WebAssembly fallback yet (StackBlitz and other unlisted platforms):
    `@solidjs/compiler`'s `wasm32-wasip1-threads` build shows how.
+8. **The projection maps only text it copies** (CP-8c, 2026-10-27, taken
+   by default — veto here). A mapping joins the same text on both sides,
+   so a position inside it maps exactly and `ref/crate.ts --project` checks
+   every one. What the projection writes of its own (`__.set(…)`,
+   `__.await_(…)`, a rewritten `==`) maps nowhere; an editor asking there
+   gets the nearest mapped piece, as Volar does for Vue's and Svelte's.
+9. **A diagnostic's range is its line's** (CP-8d, 2026-10-27, taken by
+   default — veto here). The checker reports lines (CN-1a); narrowing each
+   rule to the node it is about is per-rule work in both checkers, left
+   for when an editor shows where it falls short.
+10. **The language server runs the crate as WebAssembly** (CP-8e,
+   2026-10-27, taken by default — veto here). Volar makes a file's virtual
+   code synchronously, so the requests are synchronous calls into the
+   crate built for `wasm32-unknown-unknown` (`compiler/src/wasm.rs`, a C
+   ABI over linear memory with the host reading files), loaded once: one
+   `.vsix` for every platform, about a millisecond per analysis. `$RXC`
+   names a native `rxc` to run as `rxc serve` per request instead; both
+   give the same answers (the LSP tests run on each). The Node-API build
+   of decision 7 would serve the same requests, but one binary per
+   platform; this build answers only `serve.rs`'s requests, so it is not
+   decision 7's missing WebAssembly fallback for compiling.

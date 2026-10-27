@@ -24,7 +24,8 @@ does for `.tsrx`. Nothing here is a second type system.
   DAG).
 - **TY-1c.** In the product the compiler emits the projection beside the
   JavaScript (11, CP-1a) and hands it to TypeScript; an editor uses the
-  same projection.
+  same projection. The crate emits it with mappings onto the `.rx` (11
+  CP-8c: `rxc project`), the same text as `ref/`'s.
 
 ## TY-2 — What each form is, as a value
 

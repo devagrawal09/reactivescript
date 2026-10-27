@@ -2,6 +2,7 @@
 // A program the checker accepts must type-check; a rejected variant `-- reject: TS2322` must fail with that code, on its
 // `.rx` line. One TypeScript program holds every projection, so the libraries are read once.
 // node --experimental-strip-types types/run.ts [filter]      DEBUG=1 prints each projection with its errors
+// RX_CRATE=1: the projection is the crate's (`rxc project`, compiler/), not types/project.ts's (CP-5)
 import ts from "typescript";
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,19 @@ import { dirname, relative, join } from "node:path";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { checkModules } from "../src/check.ts";
 import { projectModules, PRELUDE, type Projected } from "./project.ts";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { loadModules } from "../src/modules.ts";
+
+const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
+/** RX_CRATE=1: the crate's projection of the program, read from the same files ref/ reads. */
+function crateProjection(sc: Scenario, src: string): Projected[] {
+  const files: Record<string, string> = {};
+  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
+  loadModules(sc.entry, read);
+  const out = JSON.parse(execFileSync(rxc, ["project"], { input: JSON.stringify([{ id: 0, entry: sc.entry, files }]), maxBuffer: 1 << 28 }).toString());
+  return out.programs[0].files;
+}
 
 const out = fileURLToPath(new URL("../.types/", import.meta.url)); rmSync(out, { recursive: true, force: true }); mkdirSync(out, { recursive: true });
 const opts: ts.CompilerOptions = {
@@ -26,7 +40,7 @@ function add(sc: Scenario, title: string, src: string, expect: string | null) {
   if (checkModules(set).diags.length) return;                                    // the checker refused it: no types are asked
   const dir = join(out, `${sc.name}.${seq++}`); const root = dirname(set.entry.startsWith("/") ? set.entry : "/" + set.entry);
   const files = new Map<string, Projected>();
-  for (const p of projectModules(set)) {
+  for (const p of process.env.RX_CRATE ? crateProjection(sc, src) : projectModules(set)) {
     const rel = relative(root, p.path.startsWith("/") ? p.path : "/" + p.path); const f = join(dir, rel);
     mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, p.code); files.set(f, p);
   }
@@ -61,5 +75,5 @@ for (const u of units) {
 }
 for (const d of byFile.get("(global)") ?? []) { fail++; console.log(`✗ global: TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`); }
 for (const [sc, lines] of scenarios) { console.log(`${lines.some(l => l.includes("✗")) ? "FAIL" : "PASS"} ${sc}`); for (const l of lines) console.log(l); }
-console.log(`\n${pass} pass, ${fail} fail (TypeScript ${ts.version}, ${roots.length} projected modules, ${Date.now() - t0} ms)`);
+console.log(`\n${pass} pass, ${fail} fail (TypeScript ${ts.version}, ${roots.length} projected modules${process.env.RX_CRATE ? " from the crate" : ""}, ${Date.now() - t0} ms)`);
 process.exit(fail ? 1 : 0);

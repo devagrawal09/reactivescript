@@ -43,16 +43,16 @@ const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
     fn in_stmts(ss: &[Stmt]) -> bool {
-        ss.iter().any(|s| match s {
-            Stmt::Return(Some(Expr::Fn { .. })) => true,
-            Stmt::Sif { t, f, .. } => in_stmts(t) || in_stmts(f),
-            Stmt::Try { body, handler, fin, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || fin.as_deref().is_some_and(in_stmts),
+        ss.iter().any(|s| match &s.k {
+            StmtKind::Return(Some(Expr { k: ExprKind::Fn { .. }, .. })) => true,
+            StmtKind::Sif { t, f, .. } => in_stmts(t) || in_stmts(f),
+            StmtKind::Try { body, handler, fin, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || fin.as_deref().is_some_and(in_stmts),
             _ => false,
         })
     }
-    match f {
-        Expr::Fn { stmts: None, body, .. } => matches!(**body, Expr::Fn { .. }),
-        Expr::Fn { stmts: Some(ss), .. } => in_stmts(ss) || matches!(ss.last(), Some(Stmt::Expr(Expr::Fn { .. }))),
+    match &f.k {
+        ExprKind::Fn { stmts: None, body, .. } => matches!(body.k, ExprKind::Fn { .. }),
+        ExprKind::Fn { stmts: Some(ss), .. } => in_stmts(ss) || matches!(ss.last().map(|s| &s.k), Some(StmtKind::Expr(Expr { k: ExprKind::Fn { .. }, .. }))),
         _ => false,
     }
 }
@@ -296,58 +296,58 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
     let mut out = vec![];
     let ss = |out: &mut Vec<Node<'a>>, ss: &'a [Stmt]| out.extend(ss.iter().map(Node::S));
     match n {
-        Node::E(e) => match e {
-            Expr::Lit(_) | Expr::Id(_) | Expr::Use(_) | Expr::StyleMap { .. } => {}
-            Expr::Bin { l, r, .. } => out.extend([Node::E(l), Node::E(r)]),
-            Expr::Un { e, .. } | Expr::Peek(e) | Expr::Latest(e) | Expr::Pending(e) | Expr::Spread(e) | Expr::Throw(e) => out.push(Node::E(e)),
-            Expr::Pre { init, .. } => out.extend(init.iter().map(|x| Node::E(x))),
-            Expr::Await { e, init, .. } => {
+        Node::E(e) => match &e.k {
+            ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
+            ExprKind::Bin { l, r, .. } => out.extend([Node::E(l), Node::E(r)]),
+            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Throw(e) => out.push(Node::E(e)),
+            ExprKind::Pre { init, .. } => out.extend(init.iter().map(|x| Node::E(x))),
+            ExprKind::Await { e, init, .. } => {
                 out.push(Node::E(e));
                 out.extend(init.iter().map(|x| Node::E(x)));
             }
-            Expr::If { c, t, f } => out.extend([Node::E(c), Node::E(t), Node::E(f)]),
-            Expr::Tpl(parts) => out.extend(parts.iter().filter_map(|p| if let TplPart::Expr(e) = p { Some(Node::E(e)) } else { None })),
-            Expr::Member { o, .. } => out.push(Node::E(o)),
-            Expr::Index { o, i, .. } => out.extend([Node::E(o), Node::E(i)]),
-            Expr::Call { f, args } => {
+            ExprKind::If { c, t, f } => out.extend([Node::E(c), Node::E(t), Node::E(f)]),
+            ExprKind::Tpl(parts) => out.extend(parts.iter().filter_map(|p| if let TplPart::Expr(e) = p { Some(Node::E(e)) } else { None })),
+            ExprKind::Member { o, .. } => out.push(Node::E(o)),
+            ExprKind::Index { o, i, .. } => out.extend([Node::E(o), Node::E(i)]),
+            ExprKind::Call { f, args } => {
                 out.push(Node::E(f));
                 out.extend(args.iter().map(Node::E));
             }
-            Expr::Arr(items) => out.extend(items.iter().map(Node::E)),
-            Expr::Rec(fields) => out.extend(fields.iter().map(|f| match f {
+            ExprKind::Arr(items) => out.extend(items.iter().map(Node::E)),
+            ExprKind::Rec(fields) => out.extend(fields.iter().map(|f| match f {
                 Field::Kv { v, .. } => Node::E(v),
                 Field::Spread(e) => Node::E(e),
             })),
-            Expr::Fn { body, stmts, .. } => {
+            ExprKind::Fn { body, stmts, .. } => {
                 out.push(Node::E(body));
                 if let Some(s) = stmts {
                     ss(&mut out, s);
                 }
             }
-            Expr::Draft { seed, body } => {
+            ExprKind::Draft { seed, body } => {
                 out.push(Node::E(seed));
                 ss(&mut out, body);
             }
-            Expr::Catch { e, alt, .. } => out.extend([Node::E(e), Node::E(alt)]),
-            Expr::ServerFn { body, .. } => ss(&mut out, body),
+            ExprKind::Catch { e, alt, .. } => out.extend([Node::E(e), Node::E(alt)]),
+            ExprKind::ServerFn { body, .. } => ss(&mut out, body),
         },
-        Node::S(s) => match s {
-            Stmt::Write { target, e } | Stmt::Optimistic { target, e } => {
+        Node::S(s) => match &s.k {
+            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                 if paths {
                     out.extend(target.path.iter().filter_map(|p| if let PathSeg::Expr(x) = p { Some(Node::E(x)) } else { None }));
                 }
                 out.push(Node::E(e));
             }
-            Stmt::Let { e, .. } | Stmt::Expr(e) | Stmt::Throw(e) => out.push(Node::E(e)),
-            Stmt::Refresh(_) | Stmt::Affects(_) => {}
-            Stmt::Action(body) => ss(&mut out, body),
-            Stmt::Sif { c, t, f } => {
+            StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Throw(e) => out.push(Node::E(e)),
+            StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
+            StmtKind::Action(body) => ss(&mut out, body),
+            StmtKind::Sif { c, t, f } => {
                 out.push(Node::E(c));
                 ss(&mut out, t);
                 ss(&mut out, f);
             }
-            Stmt::Return(e) => out.extend(e.iter().map(Node::E)),
-            Stmt::Try { body, handler, fin, .. } => {
+            StmtKind::Return(e) => out.extend(e.iter().map(Node::E)),
+            StmtKind::Try { body, handler, fin, .. } => {
                 ss(&mut out, body);
                 if let Some(h) = handler {
                     ss(&mut out, h);
@@ -365,59 +365,59 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
 /// Free identifiers of an expression (`pre:x` for `pre x`), minus names bound inside it.
 fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
     let go = |x: &Expr, out: &mut IndexSet<String>| free_names(x, bound, out);
-    match e {
-        Expr::Lit(_) | Expr::Use(_) => {}
-        Expr::Id(n) => {
+    match &e.k {
+        ExprKind::Lit(_) | ExprKind::Use(_) => {}
+        ExprKind::Id(n) => {
             if !bound.contains(n) {
                 out.insert(n.clone());
             }
         }
-        Expr::Pre { name, .. } => {
+        ExprKind::Pre { name, .. } => {
             if !bound.contains(name) {
                 out.insert(format!("pre:{}", name));
             }
         }
-        Expr::Peek(x) => go(x, out),
-        Expr::Await { e, init, .. } => {
+        ExprKind::Peek(x) => go(x, out),
+        ExprKind::Await { e, init, .. } => {
             go(e, out);
             if let Some(i) = init {
                 go(i, out);
             }
         }
-        Expr::Latest(x) | Expr::Pending(x) | Expr::Un { e: x, .. } | Expr::Spread(x) => go(x, out),
-        Expr::Bin { l, r, .. } => {
+        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::Spread(x) => go(x, out),
+        ExprKind::Bin { l, r, .. } => {
             go(l, out);
             go(r, out);
         }
-        Expr::If { c, t, f } => {
+        ExprKind::If { c, t, f } => {
             go(c, out);
             go(t, out);
             go(f, out);
         }
-        Expr::Tpl(parts) => {
+        ExprKind::Tpl(parts) => {
             for p in parts {
                 if let TplPart::Expr(x) = p {
                     go(x, out);
                 }
             }
         }
-        Expr::Member { o, .. } => go(o, out),
-        Expr::Index { o, i, .. } => {
+        ExprKind::Member { o, .. } => go(o, out),
+        ExprKind::Index { o, i, .. } => {
             go(o, out);
             go(i, out);
         }
-        Expr::Call { f, args } => {
+        ExprKind::Call { f, args } => {
             go(f, out);
             for a in args {
                 go(a, out);
             }
         }
-        Expr::Arr(items) => {
+        ExprKind::Arr(items) => {
             for a in items {
                 go(a, out);
             }
         }
-        Expr::Rec(fields) => {
+        ExprKind::Rec(fields) => {
             for f in fields {
                 match f {
                     Field::Kv { v, .. } => go(v, out),
@@ -425,7 +425,7 @@ fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
                 }
             }
         }
-        Expr::Fn { params, body, stmts } => {
+        ExprKind::Fn { params, body, stmts } => {
             let mut b = bound.clone();
             b.extend(params.iter().cloned());
             free_names(body, &b, out);
@@ -433,14 +433,14 @@ fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
                 free_names_stmts(ss, &b, out);
             }
         }
-        Expr::Draft { seed, body } => {
+        ExprKind::Draft { seed, body } => {
             go(seed, out);
             let mut b = bound.clone();
             b.insert("d".into());
             free_names_stmts(body, &b, out);
         }
-        Expr::Throw(x) => go(x, out),
-        Expr::Catch { e, name, alt, .. } => {
+        ExprKind::Throw(x) => go(x, out),
+        ExprKind::Catch { e, name, alt, .. } => {
             go(e, out);
             match name {
                 Some(n) => {
@@ -451,18 +451,18 @@ fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<String>) {
                 None => free_names(alt, bound, out),
             }
         }
-        Expr::StyleMap { .. } | Expr::ServerFn { .. } => {}
+        ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
     }
 }
 fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<String>) {
     let mut bound = bound0.clone();
     for s in ss {
-        match s {
-            Stmt::Let { name, e, .. } => {
+        match &s.k {
+            StmtKind::Let { name, e, .. } => {
                 free_names(e, &bound, out);
                 bound.insert(name.clone());
             }
-            Stmt::Write { target, e } | Stmt::Optimistic { target, e } => {
+            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                 if !target.is_ctx() && !bound.contains(&target.name) {
                     out.insert(target.name.clone());
                 }
@@ -473,24 +473,24 @@ fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<St
                 }
                 free_names(e, &bound, out);
             }
-            Stmt::Expr(e) | Stmt::Throw(e) => free_names(e, &bound, out),
-            Stmt::Return(e) => {
+            StmtKind::Expr(e) | StmtKind::Throw(e) => free_names(e, &bound, out),
+            StmtKind::Return(e) => {
                 if let Some(e) = e {
                     free_names(e, &bound, out);
                 }
             }
-            Stmt::Refresh(n) | Stmt::Affects(n) => {
+            StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                 if !bound.contains(n) {
                     out.insert(n.clone());
                 }
             }
-            Stmt::Action(body) => free_names_stmts(body, &bound, out),
-            Stmt::Sif { c, t, f } => {
+            StmtKind::Action(body) => free_names_stmts(body, &bound, out),
+            StmtKind::Sif { c, t, f } => {
                 free_names(c, &bound, out);
                 free_names_stmts(t, &bound, out);
                 free_names_stmts(f, &bound, out);
             }
-            Stmt::Try { body, catch_name, handler, fin, .. } => {
+            StmtKind::Try { body, catch_name, handler, fin, .. } => {
                 free_names_stmts(body, &bound, out);
                 if let Some(h) = handler {
                     let mut b = bound.clone();
@@ -517,11 +517,11 @@ fn strip_pre(n: &str) -> &str {
 /// Free names outside `peek` — the reads that make an initializer a snapshot (E-4).
 fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
     match n {
-        Node::E(Expr::Peek(_)) | Node::E(Expr::Fn { .. }) => {}
-        Node::E(Expr::Id(name)) => {
+        Node::E(Expr { k: ExprKind::Peek(_), .. }) | Node::E(Expr { k: ExprKind::Fn { .. }, .. }) => {}
+        Node::E(Expr { k: ExprKind::Id(name), .. }) => {
             out.insert(name.clone());
         }
-        Node::E(Expr::Pre { name, .. }) => {
+        Node::E(Expr { k: ExprKind::Pre { name, .. }, .. }) => {
             out.insert(name.clone());
         }
         _ => {
@@ -533,19 +533,19 @@ fn reads_outside_peek(n: Node, out: &mut IndexSet<String>) {
 }
 /// `map(xs, x => ({…}))` / `xs.map(x => ({…}))`
 fn maps_into_records(e: &Expr) -> bool {
-    let Expr::Call { f, args } = e else { return false };
-    let fn_arg = match &**f {
-        Expr::Id(n) if n == "map" => args.get(1),
-        Expr::Member { p, .. } if p == "map" => args.first(),
+    let ExprKind::Call { f, args } = &e.k else { return false };
+    let fn_arg = match &f.k {
+        ExprKind::Id(n) if n == "map" => args.get(1),
+        ExprKind::Member { p, .. } if p == "map" => args.first(),
         _ => None,
     };
-    matches!(fn_arg, Some(Expr::Fn { stmts: None, body, .. }) if matches!(**body, Expr::Rec(_)))
+    matches!(fn_arg, Some(Expr { k: ExprKind::Fn { stmts: None, body, .. }, .. }) if matches!(&body.k, ExprKind::Rec(_)))
 }
 /// 12 SF-1d: the server fn a declaration's value is — itself, or wrapped by calls.
 pub fn unwrap_server(e: &Expr) -> Option<&Expr> {
-    match e {
-        Expr::ServerFn { .. } => Some(e),
-        Expr::Call { args, .. } => {
+    match &e.k {
+        ExprKind::ServerFn { .. } => Some(e),
+        ExprKind::Call { args, .. } => {
             let inner: Vec<&Expr> = args.iter().filter_map(unwrap_server).collect();
             if inner.len() == 1 { Some(inner[0]) } else { None }
         }
@@ -557,27 +557,27 @@ fn js_string(s: &str) -> String {
 }
 /// A short rendering of an expression, for messages.
 pub fn show(e: &Expr) -> String {
-    match e {
-        Expr::Lit(l) => match l {
+    match &e.k {
+        ExprKind::Lit(l) => match l {
             Lit::Undefined => "undefined".into(),
             Lit::Null => "null".into(),
             Lit::Bool(b) => b.to_string(),
             Lit::Num(n) => js_number(*n),
             Lit::Str(s) => js_string(s),
         },
-        Expr::Id(n) => n.clone(),
-        Expr::Member { o, p, .. } => format!("{}.{}", show(o), p),
-        Expr::Call { f, .. } => format!("{}(…)", show(f)),
-        Expr::Await { e, .. } => format!("await {}", show(e)),
-        Expr::Latest(e) => format!("latest {}", show(e)),
-        Expr::Peek(e) => format!("peek {}", show(e)),
-        Expr::Throw(e) => format!("throw {}", show(e)),
-        Expr::Index { o, .. } => format!("{}[…]", show(o)),
-        Expr::Use(n) => format!("use {}", n),
-        Expr::Catch { e, .. } => format!("{} catch …", show(e)),
-        Expr::Tpl(_) => "`…`".into(),
-        Expr::Bin { op, l, r } => format!("{} {} {}", show(l), op, show(r)),
-        Expr::If { c, .. } => format!("{} ? … : …", show(c)),
+        ExprKind::Id(n) => n.clone(),
+        ExprKind::Member { o, p, .. } => format!("{}.{}", show(o), p),
+        ExprKind::Call { f, .. } => format!("{}(…)", show(f)),
+        ExprKind::Await { e, .. } => format!("await {}", show(e)),
+        ExprKind::Latest(e) => format!("latest {}", show(e)),
+        ExprKind::Peek(e) => format!("peek {}", show(e)),
+        ExprKind::Throw(e) => format!("throw {}", show(e)),
+        ExprKind::Index { o, .. } => format!("{}[…]", show(o)),
+        ExprKind::Use(n) => format!("use {}", n),
+        ExprKind::Catch { e, .. } => format!("{} catch …", show(e)),
+        ExprKind::Tpl(_) => "`…`".into(),
+        ExprKind::Bin { op, l, r } => format!("{} {} {}", show(l), op, show(r)),
+        ExprKind::If { c, .. } => format!("{} ? … : …", show(c)),
         _ => "…".into(),
     }
 }
@@ -1002,7 +1002,7 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 Decl::Effect { .. } | Decl::Provide { .. } | Decl::TypeDecl { .. } => continue,
-                Decl::Context { name, ty, source, dflt, line, exported } => {
+                Decl::Context { name, ty, source, dflt, line, exported, .. } => {
                     if self.envs[env].vars.contains_key(name) {
                         self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is declared twice in one block", name));
                     }
@@ -1062,7 +1062,7 @@ impl<'a> Checker<'a> {
                 }
                 Decl::Eq { e, key, .. } => {
                     sym.maps_records = key.is_none() && maps_into_records(e);
-                    if let Expr::Id(n) = e {
+                    if let ExprKind::Id(n) = &e.k {
                         if let Some(t) = self.lookup(env, n) {
                             if self.syms[t].io {
                                 sym.io = true;
@@ -1071,7 +1071,7 @@ impl<'a> Checker<'a> {
                     }
                     if let Some(sf) = unwrap_server(e) {
                         sym.kind = SymKind::Server;
-                        if let Expr::ServerFn { params, .. } = sf {
+                        if let ExprKind::ServerFn { params, .. } = &sf.k {
                             sym.params = Some(params.iter().map(|n| SigParam { name: n.clone(), r#ref: false, ty: None }).collect());
                         }
                         server_expr = Some(sf as *const Expr);
@@ -1126,7 +1126,7 @@ impl<'a> Checker<'a> {
             match d {
                 Decl::Server { name, params, body, .. } => servers.push((name, params, body)),
                 Decl::Eq { name, e, .. } => {
-                    if let Some(Expr::ServerFn { params, body, .. }) = unwrap_server(e) {
+                    if let Some(Expr { k: ExprKind::ServerFn { params, body, .. }, .. }) = unwrap_server(e) {
                         servers.push((name, params, body));
                     }
                 }
@@ -1450,18 +1450,18 @@ impl<'a> Checker<'a> {
     }
     fn rows_walk(&mut self, x: Node<'a>, env: EId, rows: &mut IndexSet<String>) {
         if let Node::E(e) = x {
-            match e {
-                Expr::Await { e: inner, init, .. } => {
+            match &e.k {
+                ExprKind::Await { e: inner, init, .. } => {
                     rows.insert("pending".into());
                     if init.is_none() && self.client_call(inner, env) {
                         rows.insert("client".into());
                     }
                 }
-                Expr::Latest(_) | Expr::Pending(_) => {
+                ExprKind::Latest(_) | ExprKind::Pending(_) => {
                     rows.insert("lane".into());
                 }
-                Expr::Fn { .. } | Expr::ServerFn { .. } => return,
-                Expr::Use(name) => {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => return,
+                ExprKind::Use(name) => {
                     let Some(c) = self.lookup(env, name).and_then(|s| self.syms[s].ctx.clone()) else { return };
                     if let Some((r, _)) = &c.contract {
                         rows.extend(r.iter().cloned());
@@ -1480,7 +1480,7 @@ impl<'a> Checker<'a> {
                     }
                     return;
                 }
-                Expr::Id(n) => {
+                ExprKind::Id(n) => {
                     if let Some(s) = self.lookup(env, n) {
                         if self.syms[s].rows.is_some() {
                             let r = self.sym_rows(s);
@@ -1499,10 +1499,10 @@ impl<'a> Checker<'a> {
 
     /// SF-5b: a call into `client` JS.
     fn client_call(&self, e: &Expr, env: EId) -> bool {
-        let f = if let Expr::Catch { e, .. } = e { &**e } else { e };
-        match f {
-            Expr::Call { f, .. } => match &**f {
-                Expr::Id(n) => self.lookup(env, n).is_some_and(|s| self.syms[s].side == Some(Side::Client)),
+        let f = if let ExprKind::Catch { e, .. } = &e.k { &**e } else { e };
+        match &f.k {
+            ExprKind::Call { f, .. } => match &f.k {
+                ExprKind::Id(n) => self.lookup(env, n).is_some_and(|s| self.syms[s].side == Some(Side::Client)),
                 _ => false,
             },
             _ => false,
@@ -1556,8 +1556,8 @@ impl<'a> Checker<'a> {
                 } else {
                     "memo"
                 };
-                if let Expr::Call { f, args } = e {
-                    if let Expr::Id(fname) = &**f {
+                if let ExprKind::Call { f, args } = &e.k {
+                    if let ExprKind::Id(fname) = &f.k {
                         if let Some(fs) = self.lookup(env, fname) {
                             if self.syms[fs].kind == SymKind::Fn && self.syms[fs].instantiating {
                                 self.snapshot_args(e, fs, env);
@@ -1592,7 +1592,7 @@ impl<'a> Checker<'a> {
                 self.regions[region].provides.insert(info.key.clone());
                 self.provisions.push(Provision { key: info.key.clone(), e, env });
                 if info.source {
-                    let t = if let Expr::Id(n) = e { self.lookup(env, n) } else { None };
+                    let t = if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None };
                     if t.is_none_or(|t| self.syms[t].kind != SymKind::Source || self.syms[t].imported.is_some()) {
                         self.err("PROVIDE_NOT_A_SOURCE", "RG-7c", format!("context {} carries a source: provide one of this module's sources by name (`provide {} = x`)", name, name));
                     }
@@ -1699,8 +1699,8 @@ impl<'a> Checker<'a> {
     }
     fn osw_direct(&mut self, ss: &'a [Stmt], env: EId, read: &IndexMap<SId, String>) {
         for st in ss {
-            match st {
-                Stmt::Write { target, .. } | Stmt::Optimistic { target, .. } if !target.is_ctx() => {
+            match &st.k {
+                StmtKind::Write { target, .. } | StmtKind::Optimistic { target, .. } if !target.is_ctx() => {
                     if let Some(t) = self.lookup(env, &target.name) {
                         if let Some(path) = read.get(&t) {
                             let n = self.syms[t].name.clone();
@@ -1715,11 +1715,11 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                Stmt::Sif { t, f, .. } => {
+                StmtKind::Sif { t, f, .. } => {
                     self.osw_direct(t, env, read);
                     self.osw_direct(f, env, read);
                 }
-                Stmt::Try { body, handler, fin, .. } => {
+                StmtKind::Try { body, handler, fin, .. } => {
                     self.osw_direct(body, env, read);
                     if let Some(h) = handler {
                         self.osw_direct(h, env, read);
@@ -1728,7 +1728,7 @@ impl<'a> Checker<'a> {
                         self.osw_direct(f, env, read);
                     }
                 }
-                Stmt::Action(body) => self.osw_direct(body, env, read),
+                StmtKind::Action(body) => self.osw_direct(body, env, read),
                 _ => {}
             }
         }
@@ -1736,7 +1736,7 @@ impl<'a> Checker<'a> {
 
     /// E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted.
     fn snapshot_args(&mut self, call: &'a Expr, f: SId, env: EId) {
-        let Expr::Call { args, .. } = call else { return };
+        let ExprKind::Call { args, .. } = &call.k else { return };
         let params = self.syms[f].params.clone().unwrap_or_default();
         let fname = self.syms[f].name.clone();
         for (i, p) in params.iter().enumerate() {
@@ -1888,9 +1888,9 @@ impl<'a> Checker<'a> {
 
     /// `field`: the member read of an identifier (`props.title`), for the model (CP-6).
     fn expr(&mut self, e: &'a Expr, env: EId, ctx: Ctx, field: Option<&str>) {
-        match e {
-            Expr::Lit(_) => {}
-            Expr::Id(name) => {
+        match &e.k {
+            ExprKind::Lit(_) => {}
+            ExprKind::Id(name) => {
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
                     self.read(s, ctx, false, field);
@@ -1901,7 +1901,7 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            Expr::Pre { name, init } => {
+            ExprKind::Pre { name, init } => {
                 let s = self.resolve(name, env, ctx);
                 if let Some(s) = s {
                     self.read(s, ctx, true, None);
@@ -1913,7 +1913,7 @@ impl<'a> Checker<'a> {
                     self.expr(i, env, ctx, None);
                 }
             }
-            Expr::Use(name) => {
+            ExprKind::Use(name) => {
                 if ctx.server {
                     self.err("SERVER_CAPTURE", "SF-3", format!("a server function's body reads `use {}`: a provision is the client's — pass it as an argument", name));
                 }
@@ -1927,19 +1927,19 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            Expr::Peek(x) => {
+            ExprKind::Peek(x) => {
                 self.model.snap += 1;
                 self.expr(x, env, ctx, None);
                 self.model.snap -= 1;
             }
-            Expr::Latest(x) | Expr::Pending(x) => {
+            ExprKind::Latest(x) | ExprKind::Pending(x) => {
                 let save = self.model.probe;
-                self.model.probe = Some(if matches!(e, Expr::Latest(_)) { "latest" } else { "pending" });
+                self.model.probe = Some(if matches!(&e.k, ExprKind::Latest(_)) { "latest" } else { "pending" });
                 self.expr(x, env, ctx, None);
                 self.model.probe = save;
             }
-            Expr::Un { e: x, .. } | Expr::Spread(x) => self.expr(x, env, ctx, None),
-            Expr::Await { e: inner, init, .. } => {
+            ExprKind::Un { e: x, .. } | ExprKind::Spread(x) => self.expr(x, env, ctx, None),
+            ExprKind::Await { e: inner, init, .. } => {
                 if ctx.imperative && !self.stmt_awaits.contains(&(e as *const Expr)) {
                     let sh = show(e);
                     self.err(
@@ -1954,7 +1954,7 @@ impl<'a> Checker<'a> {
                     self.expr(i, env, ctx, None);
                 }
             }
-            Expr::ServerFn { params, body, .. } => {
+            ExprKind::ServerFn { params, body, .. } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 for p in params {
@@ -1965,8 +1965,8 @@ impl<'a> Checker<'a> {
                     self.syms[sym].server_rejects = Some(ServerRejects::Body { body, env: inner, cache: None });
                 }
             }
-            Expr::Throw(x) => self.expr(x, env, ctx, None),
-            Expr::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Throw(x) => self.expr(x, env, ctx, None),
+            ExprKind::Catch { e: inner, name, classes, alt } => {
                 self.expr(inner, env, ctx, None);
                 if let Some(cs) = classes {
                     for n in cs {
@@ -1980,39 +1980,39 @@ impl<'a> Checker<'a> {
                 }
                 self.expr(alt, ienv, ctx, None);
             }
-            Expr::Bin { l, r, .. } => {
+            ExprKind::Bin { l, r, .. } => {
                 self.expr(l, env, ctx, None);
                 self.expr(r, env, ctx, None);
             }
-            Expr::If { c, t, f } => {
+            ExprKind::If { c, t, f } => {
                 self.expr(c, env, ctx, None);
                 self.expr(t, env, ctx, None);
                 self.expr(f, env, ctx, None);
             }
-            Expr::Tpl(parts) => {
+            ExprKind::Tpl(parts) => {
                 for p in parts {
                     if let TplPart::Expr(x) = p {
                         self.expr(x, env, ctx, None);
                     }
                 }
             }
-            Expr::Member { o, p, .. } => {
-                if let Expr::Id(_) = &**o {
+            ExprKind::Member { o, p, .. } => {
+                if let ExprKind::Id(_) = &o.k {
                     self.expr(o, env, ctx, Some(p));
                 } else {
                     self.expr(o, env, ctx, None);
                 }
             }
-            Expr::Index { o, i, .. } => {
+            ExprKind::Index { o, i, .. } => {
                 self.expr(o, env, ctx, None);
                 self.expr(i, env, ctx, None);
             }
-            Expr::Arr(items) => {
+            ExprKind::Arr(items) => {
                 for x in items {
                     self.expr(x, env, ctx, None);
                 }
             }
-            Expr::Rec(fields) => {
+            ExprKind::Rec(fields) => {
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.expr(v, env, ctx, None),
@@ -2020,13 +2020,13 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            Expr::Call { f, args } => {
-                if let Expr::Id(fname) = &**f {
+            ExprKind::Call { f, args } => {
+                if let ExprKind::Id(fname) = &f.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited".into());
                         }
-                        let ok = args.len() == 1 && matches!(&args[0], Expr::Fn { params, .. } if params.is_empty());
+                        let ok = args.len() == 1 && matches!(&args[0].k, ExprKind::Fn { params, .. } if params.is_empty());
                         if !ok {
                             self.err("UNTIL_PREDICATE", "AC-6", "until takes a predicate, `until(() => e)`: a value would be read once and never change".into());
                             for a in args {
@@ -2044,7 +2044,7 @@ impl<'a> Checker<'a> {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", rule, if settled { "onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)".into() } else { "onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush".into() });
                         }
-                        let ok = args.len() == 1 && matches!(&args[0], Expr::Fn { params, .. } if params.is_empty());
+                        let ok = args.len() == 1 && matches!(&args[0].k, ExprKind::Fn { params, .. } if params.is_empty());
                         if !ok {
                             self.err("HOOK_CALLBACK", rule, format!("{} takes a closure, `{}(() => {{ … }})`: its body is the run it schedules", fname, fname));
                             for a in args {
@@ -2092,7 +2092,7 @@ impl<'a> Checker<'a> {
                     self.expr(a, env, ctx, None);
                 }
             }
-            Expr::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts } => {
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 for p in params {
@@ -2108,19 +2108,19 @@ impl<'a> Checker<'a> {
                 }
                 self.expr(body, inner, Ctx { imperative: ctx.imperative, in_fn: ctx.in_fn, server: ctx.server, in_action: false }, None);
             }
-            Expr::Draft { seed, body } => {
+            ExprKind::Draft { seed, body } => {
                 self.expr(seed, env, ctx, None);
                 let region = self.reg(env);
                 let inner = self.env(Some(env), region);
                 self.set_value(inner, "d", self.line);
                 for s in body {
-                    match s {
-                        Stmt::Let { name, e, .. } => {
+                    match &s.k {
+                        StmtKind::Let { name, e, .. } => {
                             self.expr(e, inner, ctx, None);
                             self.set_value(inner, name, self.line);
                         }
-                        Stmt::Expr(x) => self.expr(x, inner, ctx, None),
-                        Stmt::Write { target, e } => {
+                        StmtKind::Expr(x) => self.expr(x, inner, ctx, None),
+                        StmtKind::Write { target, e } => {
                             if target.name != "d" || target.is_ctx() {
                                 self.err("DRAFT_WRITE_OUTSIDE_DRAFT", "ST-3a", format!("a draft block writes only its draft, not {}{}", if target.is_ctx() { "use " } else { "" }, target.name));
                             }
@@ -2135,7 +2135,7 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            Expr::StyleMap { .. } => {}
+            ExprKind::StyleMap { .. } => {}
         }
     }
 
@@ -2144,14 +2144,14 @@ impl<'a> Checker<'a> {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
         for s in ss {
-            if let Stmt::Let { e, .. } | Stmt::Expr(e) = s {
-                let t = if let Expr::Catch { e: inner, .. } = e { &**inner } else { e };
-                if let Expr::Await { .. } = t {
+            if let StmtKind::Let { e, .. } | StmtKind::Expr(e) = &s.k {
+                let t = if let ExprKind::Catch { e: inner, .. } = &e.k { &**inner } else { e };
+                if let ExprKind::Await { .. } = &t.k {
                     self.stmt_awaits.insert(t as *const Expr);
                 }
             }
-            match s {
-                Stmt::Let { name, e, .. } => {
+            match &s.k {
+                StmtKind::Let { name, e, .. } => {
                     self.expr(e, env, ctx, None);
                     let captures = self.stored(e, env);
                     let mut sym = Sym::new(SymKind::Value, name, region, self.line);
@@ -2159,14 +2159,14 @@ impl<'a> Checker<'a> {
                     let id = self.new_sym(sym);
                     self.envs[env].vars.insert(name.clone(), id);
                 }
-                Stmt::Expr(e) | Stmt::Throw(e) => self.expr(e, env, ctx, None),
-                Stmt::Return(e) => {
+                StmtKind::Expr(e) | StmtKind::Throw(e) => self.expr(e, env, ctx, None),
+                StmtKind::Return(e) => {
                     if let Some(e) = e {
                         self.expr(e, env, ctx, None);
                     }
                 }
-                Stmt::Write { target, e } | Stmt::Optimistic { target, e } => {
-                    let op = if matches!(s, Stmt::Optimistic { .. }) { "optimistic" } else { "write" };
+                StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    let op = if matches!(&s.k, StmtKind::Optimistic { .. }) { "optimistic" } else { "write" };
                     if ctx.server {
                         self.err(
                             "SERVER_WRITE",
@@ -2243,8 +2243,8 @@ impl<'a> Checker<'a> {
                     self.expr(e, env, ctx, None);
                     self.escape(target, e, tsym, env);
                 }
-                Stmt::Refresh(name) | Stmt::Affects(name) => {
-                    let is_refresh = matches!(s, Stmt::Refresh(_));
+                StmtKind::Refresh(name) | StmtKind::Affects(name) => {
+                    let is_refresh = matches!(&s.k, StmtKind::Refresh(_));
                     if ctx.server {
                         self.err(
                             "SERVER_CAPTURE",
@@ -2271,7 +2271,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                 }
-                Stmt::Action(body) => {
+                StmtKind::Action(body) => {
                     if ctx.server {
                         self.err("SERVER_CAPTURE", "SF-3", "`action { … }` in a server function's body: it is the client's (do it in the action that awaited the call)".into());
                         continue;
@@ -2279,12 +2279,12 @@ impl<'a> Checker<'a> {
                     self.comp("action", env, Some("(inline)".into()), None, |c| c.stmts(body, env, Ctx { in_action: true, ..Ctx::imperative() }));
                     self.actions.push(ActionRec { name: "(inline)".into(), body, env, line: self.line });
                 }
-                Stmt::Sif { c, t, f } => {
+                StmtKind::Sif { c, t, f } => {
                     self.expr(c, env, ctx, None);
                     self.stmts(t, env, ctx);
                     self.stmts(f, env, ctx);
                 }
-                Stmt::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     self.stmts(body, env, ctx);
                     if let Some(cs) = catch_classes {
                         for n in cs {
@@ -2314,7 +2314,7 @@ impl<'a> Checker<'a> {
     }
     fn stored_walk(&self, x: Node<'a>, env: EId, out: &mut Vec<SId>) {
         match x {
-            Node::E(f @ Expr::Fn { .. }) => {
+            Node::E(f @ Expr { k: ExprKind::Fn { .. }, .. }) => {
                 for n in names_of(f) {
                     if let Some(s) = self.lookup(env, strip_pre(&n)) {
                         if self.syms[s].kind.reactive() {
@@ -2324,7 +2324,7 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            Node::E(Expr::Id(n)) => {
+            Node::E(Expr { k: ExprKind::Id(n), .. }) => {
                 if let Some(s) = self.lookup(env, n) {
                     out.extend(self.syms[s].captures.iter().copied());
                 }
@@ -2337,8 +2337,8 @@ impl<'a> Checker<'a> {
         }
     }
     fn escape(&mut self, target: &Target, e: &'a Expr, tsym: Option<SId>, env: EId) {
-        let value = match e {
-            Expr::Fn { body, stmts: None, .. } => &**body,
+        let value = match &e.k {
+            ExprKind::Fn { body, stmts: None, .. } => &**body,
             _ => e,
         };
         let captured = self.stored(value, env);
@@ -2451,7 +2451,7 @@ impl<'a> Checker<'a> {
                 MarkupKind::Mfor { name, xs, decls, body } => {
                     self.comp("reader", env, None, Some("for".into()), |c| c.expr(xs, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e: xs, env, line: self.line });
-                    let src = if let Expr::Id(n) = xs { self.lookup(env, n) } else { None };
+                    let src = if let ExprKind::Id(n) = &xs.k { self.lookup(env, n) } else { None };
                     if src.is_some_and(|s| self.syms[s].maps_records) || maps_into_records(xs) {
                         self.err("UNSTABLE_LIST_IDENTITY", "ST-4b", format!("for {} in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)", name));
                     }
@@ -2600,9 +2600,9 @@ impl<'a> Checker<'a> {
         }
     }
     fn reads_children(&self, e: &Expr, env: EId) -> bool {
-        match e {
-            Expr::Member { o, p, .. } if p == "children" => match &**o {
-                Expr::Id(n) => self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Props),
+        match &e.k {
+            ExprKind::Member { o, p, .. } if p == "children" => match &o.k {
+                ExprKind::Id(n) => self.lookup(env, n).is_some_and(|s| self.syms[s].kind == SymKind::Props),
                 _ => false,
             },
             _ => false,
@@ -2715,7 +2715,7 @@ impl<'a> Checker<'a> {
         let mut out = Fails::default();
         let e = match n {
             Node::E(e) => e,
-            Node::S(Stmt::Throw(x)) => {
+            Node::S(Stmt { k: StmtKind::Throw(x), .. }) => {
                 // a statement walked as an expression shares the expression's `throw` case
                 let f = self.fails_of(x, env, imp, bound);
                 out.add(f);
@@ -2730,9 +2730,9 @@ impl<'a> Checker<'a> {
                 return out;
             }
         };
-        match e {
-            Expr::Lit(_) | Expr::Pending(_) | Expr::Pre { .. } | Expr::ServerFn { .. } => out,
-            Expr::Id(name) => {
+        match &e.k {
+            ExprKind::Lit(_) | ExprKind::Pending(_) | ExprKind::Pre { .. } | ExprKind::ServerFn { .. } => out,
+            ExprKind::Id(name) => {
                 if bound.contains_key(name) {
                     return out;
                 }
@@ -2750,8 +2750,8 @@ impl<'a> Checker<'a> {
                     _ => out,
                 }
             }
-            Expr::Member { o, p, .. } => {
-                if let Expr::Id(on) = &**o {
+            ExprKind::Member { o, p, .. } => {
+                if let ExprKind::Id(on) = &o.k {
                     if !bound.contains_key(on) {
                         if let Some(s) = self.lookup(env, on) {
                             if self.syms[s].kind == SymKind::Props {
@@ -2765,7 +2765,7 @@ impl<'a> Checker<'a> {
                 out.add(f);
                 out
             }
-            Expr::Use(name) => {
+            ExprKind::Use(name) => {
                 let Some(c) = self.lookup(env, name).and_then(|s| self.syms[s].ctx.clone()) else { return out };
                 if let Some((_, fails)) = &c.contract {
                     out.cls.extend(fails.iter().cloned());
@@ -2782,7 +2782,7 @@ impl<'a> Checker<'a> {
                 }
                 out
             }
-            Expr::Await { e: inner, init, .. } => {
+            ExprKind::Await { e: inner, init, .. } => {
                 let f = self.fails_of(inner, env, imp, bound);
                 out.add(f);
                 if let Some(i) = init {
@@ -2794,13 +2794,13 @@ impl<'a> Checker<'a> {
                 }
                 out
             }
-            Expr::Throw(x) => {
+            ExprKind::Throw(x) => {
                 let f = self.fails_of(x, env, imp, bound);
                 out.add(f);
                 out.cls.insert(self.class_of(x, env, bound));
                 out
             }
-            Expr::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Catch { e: inner, name, classes, alt } => {
                 let inn = self.fails_of(inner, env, imp, bound);
                 let c = Catch::of(classes);
                 let got: IndexSet<String> = inn.cls.iter().filter(|x| c.caught(x)).cloned().collect();
@@ -2822,7 +2822,7 @@ impl<'a> Checker<'a> {
                 out.add(f);
                 out
             }
-            Expr::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts } => {
                 if imp || stmts.is_some() {
                     return out;
                 }
@@ -2839,9 +2839,9 @@ impl<'a> Checker<'a> {
                 out.add(f);
                 out
             }
-            Expr::Call { f, args } => {
-                match &**f {
-                    Expr::Id(fname) if !bound.contains_key(fname) => {
+            ExprKind::Call { f, args } => {
+                match &f.k {
+                    ExprKind::Id(fname) if !bound.contains_key(fname) => {
                         if let Some(s) = self.lookup(env, fname) {
                             let k = self.syms[s].kind;
                             if k == SymKind::Fn && self.syms[s].fails_t.is_some() {
@@ -2864,11 +2864,11 @@ impl<'a> Checker<'a> {
                 }
                 out
             }
-            Expr::Draft { seed, body } => {
+            ExprKind::Draft { seed, body } => {
                 let x = self.fails_of(seed, env, imp, bound);
                 out.add(x);
                 for st in body {
-                    if let Stmt::Let { e, .. } | Stmt::Expr(e) | Stmt::Write { e, .. } = st {
+                    if let StmtKind::Let { e, .. } | StmtKind::Expr(e) | StmtKind::Write { e, .. } = &st.k {
                         let x = self.fails_of(e, env, imp, bound);
                         out.add(x);
                     }
@@ -2887,30 +2887,30 @@ impl<'a> Checker<'a> {
     /// R-f-8: what an awaited value's promise may reject with.
     fn rejects(&mut self, e: &'a Expr, env: EId, seen: &mut HashSet<SId>) -> IndexSet<String> {
         fn root(x: &Expr) -> &Expr {
-            match x {
-                Expr::Member { o, .. } | Expr::Index { o, .. } => root(o),
+            match &x.k {
+                ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => root(o),
                 _ => x,
             }
         }
         let error = || -> IndexSet<String> { ["Error".to_string()].into_iter().collect() };
-        match e {
-            Expr::Lit(_) | Expr::Tpl(_) | Expr::Arr(_) | Expr::Rec(_) | Expr::Bin { .. } | Expr::Un { .. } => IndexSet::new(),
-            Expr::If { t, f, .. } => {
+        match &e.k {
+            ExprKind::Lit(_) | ExprKind::Tpl(_) | ExprKind::Arr(_) | ExprKind::Rec(_) | ExprKind::Bin { .. } | ExprKind::Un { .. } => IndexSet::new(),
+            ExprKind::If { t, f, .. } => {
                 let mut a = self.rejects(t, env, seen);
                 a.extend(self.rejects(f, env, seen));
                 a
             }
-            Expr::Call { f, args } => {
+            ExprKind::Call { f, args } => {
                 let r = root(f);
-                if let Expr::Id(fname) = &**f {
+                if let ExprKind::Id(fname) = &f.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         return match args.first() {
-                            Some(Expr::Fn { body, stmts: None, .. }) => self.fails_of(body, env, false, &HashMap::new()).cls,
+                            Some(Expr { k: ExprKind::Fn { body, stmts: None, .. }, .. }) => self.fails_of(body, env, false, &HashMap::new()).cls,
                             _ => IndexSet::new(),
                         };
                     }
                 }
-                if let Expr::Id(rn) = r {
+                if let ExprKind::Id(rn) = &r.k {
                     if let Some(s) = self.lookup(env, rn) {
                         let k = self.syms[s].kind;
                         if k == SymKind::Import {
@@ -2921,7 +2921,7 @@ impl<'a> Checker<'a> {
                         }
                         if k == SymKind::Fn {
                             if let Some((t, te)) = self.syms[s].fn_tail {
-                                if matches!(&**f, Expr::Id(_)) && !seen.contains(&s) {
+                                if matches!(&f.k, ExprKind::Id(_)) && !seen.contains(&s) {
                                     seen.insert(s);
                                     return self.rejects(t, te, seen);
                                 }
@@ -2937,7 +2937,7 @@ impl<'a> Checker<'a> {
                 }
                 error()
             }
-            Expr::Id(name) => {
+            ExprKind::Id(name) => {
                 if let Some(s) = self.lookup(env, name) {
                     if let Some((x, xe)) = self.syms[s].expr {
                         if !seen.contains(&s) {
@@ -2953,14 +2953,14 @@ impl<'a> Checker<'a> {
     }
     /// R-f-3: the class a `throw` fails with — a declared class's construction, a rethrown catch binding, else Error.
     fn class_of(&self, e: &Expr, env: EId, bound: &HashMap<String, IndexSet<String>>) -> String {
-        if let Expr::Call { f, .. } = e {
-            if let Expr::Id(n) = &**f {
+        if let ExprKind::Call { f, .. } = &e.k {
+            if let ExprKind::Id(n) = &f.k {
                 if self.lookup(env, n).is_some_and(|s| matches!(self.syms[s].kind, SymKind::ErrClass | SymKind::Import)) {
                     return n.clone();
                 }
             }
         }
-        if let Expr::Id(n) = e {
+        if let ExprKind::Id(n) = &e.k {
             if let Some(b) = bound.get(n) {
                 return if b.len() == 1 {
                     b[0].clone()
@@ -2979,23 +2979,23 @@ impl<'a> Checker<'a> {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
         for s in ss {
-            match s {
-                Stmt::Let { name, e, .. } => {
+            match &s.k {
+                StmtKind::Let { name, e, .. } => {
                     let f = self.fails_of(e, env, true, bound);
                     out.add(f);
                     self.set_value(env, name, 0);
                 }
-                Stmt::Expr(e) => {
+                StmtKind::Expr(e) => {
                     let f = self.fails_of(e, env, true, bound);
                     out.add(f);
                 }
-                Stmt::Return(e) => {
+                StmtKind::Return(e) => {
                     if let Some(e) = e {
                         let f = self.fails_of(e, env, true, bound);
                         out.add(f);
                     }
                 }
-                Stmt::Write { target, e } | Stmt::Optimistic { target, e } => {
+                StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                     for p in &target.path {
                         if let PathSeg::Expr(x) = p {
                             let f = self.fails_of(x, env, true, bound);
@@ -3005,14 +3005,14 @@ impl<'a> Checker<'a> {
                     let f = self.fails_of(e, env, true, bound);
                     out.add(f);
                 }
-                Stmt::Throw(e) => {
+                StmtKind::Throw(e) => {
                     let f = self.fails_of(e, env, true, bound);
                     out.add(f);
                     for c in self.class_of(e, env, bound).split('|') {
                         out.cls.insert(c.to_string());
                     }
                 }
-                Stmt::Sif { c, t, f } => {
+                StmtKind::Sif { c, t, f } => {
                     let x = self.fails_of(c, env, true, bound);
                     out.add(x);
                     let x = self.stmts_fails(t, env, bound);
@@ -3020,7 +3020,7 @@ impl<'a> Checker<'a> {
                     let x = self.stmts_fails(f, env, bound);
                     out.add(x);
                 }
-                Stmt::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     let b = self.stmts_fails(body, env, bound);
                     if let Some(h) = handler {
                         let c = Catch::of(catch_classes);
@@ -3052,7 +3052,7 @@ impl<'a> Checker<'a> {
                         out.add(x);
                     }
                 }
-                Stmt::Action(_) | Stmt::Refresh(_) | Stmt::Affects(_) => {}
+                StmtKind::Action(_) | StmtKind::Refresh(_) | StmtKind::Affects(_) => {}
             }
         }
         out
@@ -3420,8 +3420,8 @@ impl<'a> Checker<'a> {
 
 /// The calls by name in a server fn's body (`callsIn`: every value, a target's path included).
 fn calls_in(n: Node, out: &mut Vec<String>) {
-    if let Node::E(Expr::Call { f, .. }) = n {
-        if let Expr::Id(name) = &**f {
+    if let Node::E(Expr { k: ExprKind::Call { f, .. }, .. }) = n {
+        if let ExprKind::Id(name) = &f.k {
             out.push(name.clone());
         }
     }

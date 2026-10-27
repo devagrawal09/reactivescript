@@ -47,7 +47,12 @@ built by both, and the two must agree exactly. Needs cargo; not Solid. With
 `-- --lower`, both also lower every accepted program through Solid's compiler
 for each target and must write the same JavaScript (needs cargo and Solid at
 SOLID_NEXT); with `RX_CRATE=1`, `npm run compiled` and `npm run ssr` run the
-scenarios on the crate's lowering (`compile/lowered.ts`).
+scenarios on the crate's lowering (`compile/lowered.ts`). The plain run also
+checks the crate's spans (CP-8b). With `-- --project`, both project every
+accepted program to TSX (`types/project.ts`) and must write the same files,
+and each of the crate's mappings onto `.rx` must join the same text (CP-8c);
+`RX_CRATE=1 npm run types` checks the types scenarios on the crate's
+projection.
 
 Phases:
 1. core: sources, equations, `pre`, `peek`, effects, instants (02-core §4)

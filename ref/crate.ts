@@ -4,7 +4,10 @@
 // transform(), the crate's emit.rs then compile_program() — for the universal, dom and ssr targets, with a scenario table's
 // handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild), and the
 // crate's source maps onto .rx must hold (checkMap, CP-1c).
-// Usage: node --experimental-strip-types ref/crate.ts [--lower] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
+// With --project (TY-1c, CP-8): every program the checker accepts is projected to TSX by both — types/project.ts and the
+// crate's project.rs — and the files must be the same text, line for line; each of the crate's mappings must join the same
+// text on both sides.
+// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +20,7 @@ import { printSignature } from "./src/signature.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lowerMode = process.argv.includes("--lower");
+const projectMode = process.argv.includes("--project");
 const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const verbose = !!process.env.VERBOSE;
 type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[] };
@@ -78,15 +82,16 @@ function diff(a: any, b: any, at = ""): string | null {
 
 execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: join(root, "compiler"), stdio: "inherit" });
 if (lowerMode) process.exit(await lower());
+if (projectMode) process.exit(await project());
 const out = execFileSync(join(root, "compiler/target/release/rxc"), ["conform"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString();
 const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
 let bad = 0;
 for (const r of reqs) {
-  const want = refOf(r); const { id: _, ...have } = got.get(r.id) ?? {};
-  const d = diff(want, have);
+  const want = refOf(r); const { id: _, spans, ...have } = got.get(r.id) ?? {};
+  const d = diff(want, have) ?? (spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
   if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
 }
-console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model)`);
+console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model), and its spans hold (CP-8)`);
 process.exit(bad ? 1 : 0);
 
 /** --lower: ref/compile's modules against the crate's, through Solid's compiler for each target. */
@@ -185,4 +190,29 @@ function checkMap(code: string, map: string | undefined, prog: any, text: string
   }
   if (target === "dom") { const seen = new Set(toks.map(t => t[2] + 1)); const miss = [...els].find(l => !seen.has(l)); if (miss) return `element on line ${miss} is not mapped`; }
   return null;
+}
+
+/** --project: types/project.ts's projection against the crate's, and the crate's mappings onto the `.rx`. */
+async function project(): Promise<number> {
+  const { projectModules, PRELUDE } = await import("./types/project.ts");
+  const out = JSON.parse(execFileSync(join(root, "compiler/target/release/rxc"), ["project"], { input: JSON.stringify(reqs), maxBuffer: 1 << 30 }).toString());
+  const got = new Map((out.programs as any[]).map(x => [x.id, x]));
+  let bad = 0, n = 0, maps = 0, files = 0;
+  if (out.prelude !== PRELUDE) { bad++; console.log("FAIL prelude: compiler/src/prelude.ts is not types/project.ts's PRELUDE"); }
+  for (const r of reqs) {
+    const read = (p: string) => r.files[p];
+    let set; try { set = loadModules(r.entry, read); } catch { continue; }
+    if (checkModules(set).diags.length) continue;                     // the checker refused it: nothing is projected (types/run.ts)
+    n++;
+    const want = projectModules(set).map(p => ({ path: p.path, rx: p.rx, code: p.code, lines: p.lines }));
+    const have = got.get(r.id);
+    const d = have?.files ? diff(want, have.files.map((f: any) => ({ path: f.path, rx: f.rx, code: f.code, lines: f.lines })))
+      ?? (have.files.some((f: any) => f.unverified) ? `mappings that do not hold: ${have.files.filter((f: any) => f.unverified).map((f: any) => `${f.path} ${f.unverified}`).join(", ")}` : null)
+      : `crate: ${JSON.stringify(have).slice(0, 300)}`;
+    if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); continue; }
+    for (const f of have.files) { files++; maps += f.mappings.length; }
+    if (verbose) console.log(`ok   ${r.id}`);
+  }
+  console.log(`${n - bad}/${n} accepted programs: the crate's projection is types/project.ts's (${files} files, ${maps} mappings onto .rx, all holding)`);
+  return bad ? 1 : 0;
 }
