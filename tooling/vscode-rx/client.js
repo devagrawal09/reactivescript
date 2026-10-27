@@ -19,7 +19,9 @@ function tsdk(config) {
 
 function activate(context) {
   const config = vscode.workspace.getConfiguration("reactivescript");
-  const module = config.get("server.path") || context.asAbsolutePath(path.join("..", "rx-language-server", "bin", "server.js"));
+  // the bundled server (node build.js), else the repository's, when the extension runs from a checkout
+  const bundled = context.asAbsolutePath(path.join("dist", "server.js"));
+  const module = config.get("server.path") || (fs.existsSync(bundled) ? bundled : context.asAbsolutePath(path.join("..", "rx-language-server", "bin", "server.js")));
   const env = { ...process.env, ...(config.get("rxc.path") ? { RXC: config.get("rxc.path") } : {}) };
   const run = { module, transport: TransportKind.ipc, options: { env } };
   client = new LanguageClient(

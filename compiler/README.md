@@ -30,6 +30,8 @@ target/release/rxc check ../examples/todo.rx     # diagnostics
 target/release/rxc check --json ../examples/todo.rx   # … with ranges, for an editor or an agent (CP-8d)
 target/release/rxc project ../examples/todo.rx   # the TSX projection, with mappings onto .rx (CP-8c)
 target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
+target/release/rxc serve                         # a language server's requests, a JSON line each (CP-8e)
+cargo build --lib --release --target wasm32-unknown-unknown   # … the same requests as WebAssembly (src/wasm.rs), what the server loads
 target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 target/release/rxc app ../examples/todo.rx       # the same as JSON, imports by .rx path: what vite-plugin-rx/ calls
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program

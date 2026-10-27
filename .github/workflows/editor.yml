@@ -1,0 +1,74 @@
+# The editor tools (spec/11 CP-8e): build the crate natively and as WebAssembly, run the language server's LSP tests on
+# both the server and the extension's bundle, and package the VS Code extension (one .vsix for every platform).
+# A tag `vscode-v<version>` also publishes it to the VS Marketplace (secret VSCE_PAT) and Open VSX (secret OVSX_PAT).
+name: editor
+
+on:
+  push:
+    branches: [main]
+    tags: ["vscode-v*"]
+  pull_request:
+    paths: ["compiler/**", "tooling/**", ".github/workflows/editor.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: rxc and its WebAssembly build
+        run: |
+          cargo build --release --manifest-path compiler/Cargo.toml
+          cargo build --lib --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+      - name: Solid next (the types the tests check against)
+        run: sh ref/scripts/solid-next.sh && npm --prefix ref install
+      - name: Language server tests
+        working-directory: tooling/rx-language-server
+        run: |
+          npm ci
+          node test/run.js
+          RXC=$GITHUB_WORKSPACE/compiler/target/release/rxc node test/run.js
+      - name: Package the extension
+        working-directory: tooling/vscode-rx
+        run: |
+          npm ci
+          npm run package
+          SERVER=dist/server.js node ../rx-language-server/test/run.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: tooling/vscode-rx/*.vsix
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/vscode-v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: VS Marketplace
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --packagePath *.vsix
+      - name: Open VSX
+        if: env.OVSX_PAT != ''
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx --yes ovsx publish *.vsix -p "$OVSX_PAT"

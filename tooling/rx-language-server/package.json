@@ -4,18 +4,22 @@
   "private": true,
   "type": "commonjs",
   "description": "The .rx language server (spec/11 CP-8): Volar over the crate's TSX projection, TypeScript's answers mapped back onto .rx, the crate's own diagnostics.",
-  "bin": { "rx-language-server": "./bin/server.js" },
+  "bin": {
+    "rx-language-server": "./bin/server.js"
+  },
   "main": "./src/index.js",
-  "scripts": { "test": "node test/run.js" },
+  "scripts": {
+    "test": "node test/run.js"
+  },
   "dependencies": {
     "@volar/language-core": "2.4.30",
     "@volar/language-server": "2.4.30",
     "@volar/typescript": "2.4.30",
     "volar-service-typescript": "0.0.71",
-    "vscode-uri": "^3.0.8"
+    "vscode-uri": "^3.0.8",
+    "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "@volar/test-utils": "2.4.30",
-    "typescript": "^6.0.3"
+    "@volar/test-utils": "2.4.30"
   }
 }

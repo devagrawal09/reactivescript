@@ -13,20 +13,46 @@ completion and type errors, asked of the TSX projection (spec/13 TY-1c) and
 mapped back onto the `.rx` (spec/11 CP-8), and the compiler's own diagnostics,
 each with its rule.
 
-## Running it from the repository
+## Installing
+
+From the VS Marketplace or Open VSX (Cursor, VSCodium), once published: search
+for **ReactiveScript**. Until then, from a `.vsix`: download the `vsix`
+artifact of a run of the repository's `editor` workflow, or build one (below),
+then run **Extensions: Install from VSIX…** in the command palette, or
 
 ```sh
-cargo build --release --manifest-path compiler/Cargo.toml   # rxc, which the server asks
-npm --prefix tooling/rx-language-server install
-npm --prefix tooling/vscode-rx install
-code --extensionDevelopmentPath=$PWD/tooling/vscode-rx examples/shop
+code --install-extension reactivescript-0.0.2.vsix
 ```
 
 The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
 `"jsxImportSource": "@solidjs/web"`) and `@solidjs/web` in its `node_modules`;
 the server writes the projection's prelude to `node_modules/.reactivescript/`.
-The settings `reactivescript.server.path`, `reactivescript.rxc.path` and
-`reactivescript.typescript.tsdk` point at another server, `rxc` or TypeScript.
+It uses the workspace's TypeScript, else the one VS Code ships.
 
-To package it, `npx @vscode/vsce package` (the server and `rxc` are not bundled
-yet: a packaged extension needs both, the second built per platform).
+One `.vsix` serves every platform: the compiler comes in it as WebAssembly
+(`dist/rxc.wasm`), run in the server's process.
+
+## Building it
+
+```sh
+cargo build --lib --release --target wasm32-unknown-unknown --manifest-path compiler/Cargo.toml
+npm --prefix tooling/rx-language-server install
+cd tooling/vscode-rx && npm install && npm run package   # dist/, then reactivescript-<version>.vsix
+```
+
+`npm run build` makes `dist/` alone; then
+`code --extensionDevelopmentPath=$PWD examples/shop` (from this folder, with
+the path adjusted) runs it without installing. The settings
+`reactivescript.server.path`, `reactivescript.rxc.path` and
+`reactivescript.typescript.tsdk` point at another server, an `rxc` binary (run
+per request instead of the WebAssembly build) or TypeScript.
+
+## Publishing
+
+The repository's `editor` workflow (`.github/workflows/editor.yml`) builds and
+tests the extension on every change to `compiler/` or `tooling/`. A tag
+`vscode-v<version>` (matching `version` in `package.json`) also publishes it:
+to the VS Marketplace when the repository has the secret `VSCE_PAT` (a token of
+the `reactivescript` publisher), and to Open VSX when it has `OVSX_PAT`.
+
+Other editors: see [`../rx-language-server`](../rx-language-server#editors).

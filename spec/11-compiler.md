@@ -295,8 +295,8 @@ TY-1c), so every position has to cross between `.rx` and the projection.
   ranges (what was written for an expression or statement, for placing
   type errors) in UTF-16 offsets, and the file's parse errors, else its
   checker diagnostics (CP-8d). `tooling/rx-language-server` is a Volar
-  server over it, and `tooling/vscode-rx` its VS Code client. The server
-  runs `rxc` as a process per analysis (decision 9).
+  server over the same requests, and `tooling/vscode-rx` its VS Code client.
+  The server runs the crate's WebAssembly build in process (decision 9).
 
 ## Decisions taken by default (veto here)
 
@@ -346,9 +346,12 @@ TY-1c), so every position has to cross between `.rx` and the projection.
    rule to the node it is about is per-rule work in both checkers, left
    for when an editor shows where it falls short.
 
-9. **The language server runs `rxc` as a process** (CP-8e, 2026-10-27,
-   taken by default — veto here). Volar makes a file's virtual code
-   synchronously, so the server calls `rxc serve` with `spawnSync` per
-   changed file and caches by text. A Node-API build of the crate would
-   save the process start (a few ms per keystroke batch) and is the next
-   step when that shows; it changes nothing the server sees.
+9. **The language server runs the crate as WebAssembly** (CP-8e,
+   2026-10-27, taken by default — veto here). Volar makes a file's virtual
+   code synchronously, so the requests are synchronous calls into the
+   crate built for `wasm32-unknown-unknown` (`compiler/src/wasm.rs`, a C
+   ABI over linear memory with the host reading files), loaded once: one
+   `.vsix` for every platform, about a millisecond per analysis. `$RXC`
+   names a native `rxc` to run as `rxc serve` per request instead; both
+   give the same answers (the LSP tests run on each). A Node-API build
+   would need a binary per platform for no gain the editor shows.

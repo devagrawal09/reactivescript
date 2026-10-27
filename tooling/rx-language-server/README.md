@@ -7,18 +7,76 @@ go to definition, references, rename, completion and type errors on the
 projection, and Volar maps the answers back. The crate's own diagnostics (parse
 errors, else the checker's, each with its rule) are a second service.
 
-- `src/rxc.js` asks `rxc serve` (`compiler/`, built with
-  `cargo build --release`; `RXC` names another binary) for a file's analysis,
-  with the editor's unsaved text as overlays, and writes the projection's
-  prelude to `node_modules/.reactivescript/prelude.d.ts`.
+- `src/rxc.js` asks the crate for a file's analysis, with the editor's unsaved
+  text as overlays: its WebAssembly build in process (`src/wasm.rs`; one build
+  for every platform, about a millisecond a file once loaded), or, when `RXC`
+  names a binary, `rxc serve` as a process per request. It writes the
+  projection's prelude to `node_modules/.reactivescript/prelude.d.ts`.
 - `src/index.js` is the language plugin (exact mappings carry every feature;
   ranges only place type errors) and the diagnostics service.
 - `bin/server.js` is the server, over stdio or IPC.
 
 The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
 `"jsxImportSource": "@solidjs/web"`) and Solid in its `node_modules`.
-`tooling/vscode-rx` starts it in VS Code; any LSP client can, with
-`initializationOptions: { typescript: { tsdk } }`.
+
+## Running it
+
+```sh
+cargo build --lib --release --target wasm32-unknown-unknown --manifest-path ../../compiler/Cargo.toml
+npm install
+node bin/server.js --stdio
+```
+
+`initializationOptions: { typescript: { tsdk } }` picks TypeScript's `lib`
+folder; without it, the server uses its own `typescript`.
+
+## Editors
+
+**VS Code** (and Cursor, VSCodium): the extension in
+[`../vscode-rx`](../vscode-rx), which bundles this server and the WebAssembly
+build.
+
+**Neovim** (0.11+), in `init.lua`:
+
+```lua
+vim.filetype.add({ extension = { rx = "reactivescript" } })
+vim.lsp.config("rx", {
+  cmd = { "node", "/path/to/reactivescript/tooling/rx-language-server/bin/server.js", "--stdio" },
+  filetypes = { "reactivescript" },
+  root_markers = { "tsconfig.json", "package.json" },
+})
+vim.lsp.enable("rx")
+```
+
+Neovim has no `.rx` grammar yet; the server's semantic tokens color names.
+
+**Helix**, in `languages.toml`:
+
+```toml
+[language-server.rx]
+command = "node"
+args = ["/path/to/reactivescript/tooling/rx-language-server/bin/server.js", "--stdio"]
+
+[[language]]
+name = "reactivescript"
+scope = "source.rx"
+file-types = ["rx"]
+roots = ["tsconfig.json", "package.json"]
+language-servers = ["rx"]
+```
+
+**JetBrains IDEs** (WebStorm, IntelliJ): install the
+[LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) plugin, add a
+language server with the command
+`node /path/to/reactivescript/tooling/rx-language-server/bin/server.js --stdio`,
+map the file name pattern `*.rx` to it, and add the `tooling/vscode-rx`
+folder under Settings › Editor › TextMate Bundles for highlighting.
+
+**Zed** needs an extension of its own (a Zed extension declares the language
+and starts the server); there isn't one yet.
+
+The `/path/to/reactivescript` paths are a checkout of this repository. A
+published npm package would replace them with `npx`; there isn't one yet.
 
 ## Tests
 

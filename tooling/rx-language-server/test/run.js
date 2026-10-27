@@ -35,7 +35,8 @@ function at(text, needle, delta = 0, n = 1) {
 const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : Array.isArray(h.contents) ? h.contents.map(c => c.value ?? c).join("\n") : h.contents.value;
 
 (async () => {
-  const server = startLanguageServer(path.join(__dirname, "../bin/server.js"), ws);
+  // SERVER: another build of it, such as the extension's bundle (tooling/vscode-rx/dist/server.js)
+  const server = startLanguageServer(process.env.SERVER ? path.resolve(process.env.SERVER) : path.join(__dirname, "../bin/server.js"), ws);
   await server.initialize(URI.file(ws).toString(), { typescript: { tsdk: path.dirname(require.resolve("typescript")) } });
   const cartFile = path.join(ws, "cart.rx");
   const cart = await server.openTextDocument(cartFile, "reactivescript");
