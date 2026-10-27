@@ -1,74 +1,47 @@
-// vite-plugin-rx (prototype): `.rx` modules in a Vite app, through ReactiveScript's crate (compiler/, `rxc app`). Use it
-// before @solidjs/vite-plugin: the crate already hands each module to Solid's compiler (spec/11 CP-1), so a `.rx` module
-// leaves this plugin as plain JavaScript for the environment's target — ssr for a server environment, dom (hydratable)
-// otherwise — with its source map onto the `.rx` and the stylesheet as a CSS module the entry imports. Solid's plugin
-// then treats it as an ordinary module; its server-functions pass extracts `"use server"` (12 SF-7a) when its filter
-// includes `.rx`.
+// ReactiveScript's front end for @solidjs/vite-plugin's `frontends` hook (prototype):
+//
+//   solid({ frontends: { ".rx": rx({ entry: "src/main.rx" }) } })
+//
+// The crate (compiler/, `rxc app`) already hands each module to Solid's compiler (spec/11 CP-1), so a `.rx` module
+// comes back as Solid's output for the environment's `generate` — with its source map onto the `.rx` and, on the entry,
+// the program's stylesheet. Solid's plugin then takes it the way it takes lowered `.tsrx`: primitive names, `lazy()`,
+// the HMR refresh pass, server functions (12 SF-7a), the stylesheet as a CSS module.
 //
 // The program is checked and compiled whole, from `entry` (CP-2: a module's lowering depends on its imports'
-// signatures), once per target and again after any `.rx`/`.d.rx` change; each module's transform takes its piece.
+// signatures), once per target, and again when one of its files changes; each module takes its piece.
 import { execFileSync } from "node:child_process";
+import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const CSS = "virtual:rx-styles.css";
 const RXC = fileURLToPath(new URL("../compiler/target/release/rxc", import.meta.url));
+const mtime = file => { try { return statSync(file).mtimeMs; } catch { return -1; } };
 
-/** @param {{ entry: string, rxc?: string, moduleName?: string }} options */
+/** @param {{ entry: string, rxc?: string }} options @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx(options) {
-  let root = process.cwd();
-  let entry = "";
-  const builds = new Map();   // target → the compiled program
-  const build = target => {
-    if (!builds.has(target)) {
-      const args = ["app", entry, "--target", target, ...(options.moduleName ? ["--module-name", options.moduleName] : [])];
-      const out = JSON.parse(execFileSync(options.rxc ?? RXC, args, { maxBuffer: 1 << 30 }).toString());
-      if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-      builds.set(target, out);
-    }
-    return builds.get(target);
-  };
-  const isRx = id => /\.rx$/.test(id.split("?")[0]);
+  const builds = new Map();   // target → { out, stamps }
+  function build(entry, target, moduleName) {
+    const key = `${entry}\0${target}\0${moduleName}`;
+    const prior = builds.get(key);
+    if (prior && [...prior.stamps].every(([f, t]) => mtime(f) === t)) return prior.out;
+    const out = JSON.parse(execFileSync(options.rxc ?? RXC, ["app", entry, "--target", target, "--module-name", moduleName], { maxBuffer: 1 << 30 }).toString());
+    if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
+    const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
+    builds.set(key, { out, stamps: new Map(files.map(f => [f, mtime(f)])) });
+    return out;
+  }
   return {
-    name: "reactivescript",
-    enforce: "pre",
-    configResolved(config) {
-      root = config.root;
-      entry = path.resolve(root, options.entry);
-    },
-    resolveId(id) {
-      if (id === CSS) return "\0" + CSS;
-    },
-    load(id) {
-      if (id === "\0" + CSS) return build("dom").css ?? "";
-    },
-    transform(_code, id, opts) {
-      if (!isRx(id)) return null;
-      const file = path.resolve(id.split("?")[0]);
-      const server = this.environment ? this.environment.config.consumer === "server" : !!opts?.ssr;
-      const out = build(server ? "ssr" : "dom");
-      if (out.diagnostics) {
-        const [d] = out.diagnostics;
-        this.error({ message: out.diagnostics.map(d => `${d.file}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`).join("\n"), id: d.file, loc: { line: d.line, column: 0 } });
-      }
-      if (out.error) this.error(out.error);
+    compile(_source, { id, root, solid, addWatchFile }) {
+      const entry = path.resolve(root, options.entry);
+      const file = path.resolve(id);
+      const out = build(entry, solid.generate === "ssr" ? "ssr" : solid.generate === "universal" ? "universal" : "dom", solid.moduleName ?? "@solidjs/web");
+      if (out.diagnostics) throw new Error(out.diagnostics.map(d => `${d.file}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`).join("\n"));
+      if (out.error) throw new Error(out.error);
       const m = out.modules[file];
-      if (!m) this.error(`${file} is not part of the program ${entry} imports`);
-      for (const p of Object.keys(out.modules)) if (p !== file) this.addWatchFile(p);
-      // the stylesheet rides on the entry (CSS-4: linked, not injected by the runtime)
-      const css = file === entry && !server && out.css ? `import ${JSON.stringify(CSS)};\n` : "";
-      const map = m.map ? JSON.parse(m.map) : null;
-      if (map && css) map.mappings = ";" + map.mappings;
-      return { code: css + m.code, map };
-    },
-    watchChange(id) {
-      if (/\.(d\.)?rx$/.test(id)) builds.clear();
-    },
-    hotUpdate({ file, modules }) {
-      if (!/\.(d\.)?rx$/.test(file)) return;
-      builds.clear();
-      // a module's output depends on the whole program's: every `.rx` module is stale, and its importers take it up
-      return [...this.environment.moduleGraph.idToModuleMap.values()].filter(m => m.id && isRx(m.id)).concat(modules);
+      if (!m) throw new Error(`${file} is not part of the program ${entry} imports`);
+      for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
+      // CSS-4: the program's stylesheet, linked once, from its entry
+      return { code: m.code, map: m.map, css: file === entry ? out.css : "" };
     },
   };
 }

@@ -1,7 +1,8 @@
 // The prototype end to end: each example app built by Vite with vite-plugin-rx and @solidjs/vite-plugin, then driven in
-// Chromium — and the todo app again under the dev server. Vite and Solid's plugin come from the solid-next checkout
-// (ref/SOLID_NEXT), as ref/ takes Solid: SOLID_VITE_PLUGIN names the plugin's package directory, else the one pnpm
-// installed there. Usage: node vite-plugin-rx/test.mjs [filter]
+// Chromium — and the todo app again under the dev server. Vite, solid-js and @solidjs/web come from the solid-next
+// checkout (ref/SOLID_NEXT), as ref/ takes Solid. Solid's plugin needs the `frontends` option (solid-vite-plugin PR,
+// see README): SOLID_VITE_PLUGIN names a built checkout of it, else the one pnpm installed in solid-next.
+// Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node vite-plugin-rx/test.mjs [filter]
 import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -12,8 +13,9 @@ import rx from "./index.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..");
 const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
-const pluginDir = process.env.SOLID_VITE_PLUGIN ?? path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
-const deps = path.resolve(pluginDir, "../..");   // the plugin's node_modules: vite, solid-js, @solidjs/web as it was installed with
+const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
+const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : installed;
+const deps = path.resolve(installed, "../..");   // the installed plugin's node_modules: vite, solid-js, @solidjs/web
 const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;
 const { chromium } = createRequire(import.meta.url)("playwright");
@@ -39,8 +41,8 @@ function project(name, entry) {
 }
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
-  plugins: [rx({ entry: `src/${entry}` }), solid({ include: ["src/**/*.{jsx,tsx,ts,js,mjs,rx}"] })],
-  server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next")] } },
+  plugins: [solid({ frontends: { ".rx": rx({ entry: `src/${entry}` }) } })],
+  server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
 

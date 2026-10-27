@@ -237,15 +237,18 @@ module with its source map onto its `.rx` (CP-1c) and the stylesheet;
 module's, each source and equation declared once is declared at a position
 mapped to its line, and on dom every element's line is mapped.
 
-In a Vite app, `vite-plugin-rx/` (a prototype) compiles `.rx` with `rxc app`
-(the program checked and compiled whole from its entry, each module
-importing its dependencies by `.rx` path) and hands Solid's Vite plugin
-ordinary JavaScript per environment target, with the source map onto `.rx`
-and the stylesheet as a CSS module. Every example app builds and runs in
-Chromium that way (`node vite-plugin-rx/test.mjs`). Solid's plugin has no
-hook for another front end; one (`.rx` routed as `.tsrx` is) would give
-`.rx` its refresh, lazy and source-name passes for free — an upstream ask,
-as CP-1c was.
+In a Vite app, `.rx` goes through Solid's own Vite plugin: its `frontends`
+option (proposed upstream, solidjs/solid-vite-plugin, with a companion
+solidjs/solid compiler change so the secondary passes take any extension)
+hands each `.rx` module to `vite-plugin-rx/`, which compiles the program
+whole from its entry with `rxc app` (CP-2; each module imports its
+dependencies by `.rx` path) and returns the module's code for the
+environment's `generate`, its map onto `.rx`, and on the entry the
+stylesheet (CSS-4). Solid's plugin then takes it as it takes lowered `.tsrx`:
+primitive names aside, its lazy, refresh and server-function passes (12
+SF-7a, IDs hashed from the `.rx` path) and the stylesheet as a CSS module.
+Every example app builds and runs in Chromium that way
+(`vite-plugin-rx/test.mjs`).
 
 ## Decisions taken by default (veto here)
 
