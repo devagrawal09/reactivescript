@@ -1,0 +1,12 @@
+// people.rx — who is using the tracker.
+//
+// The current user reaches components through a context, so a subtree can be
+// rendered as someone else (a preview, a test) without touching the session.
+// Where nothing provides it, the user is "guest".
+
+export context currentUser: string = "guest"
+
+// The signed-in session. main.rx provides it as `currentUser`.
+export source session: string := "guest"
+
+export action signIn(name: string) { session := name }

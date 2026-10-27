@@ -1,0 +1,5 @@
+// src/api.js, as .rx sees it. Both are loaders: safe to ask from an equation.
+export type Hit = { id: number; name: string }
+export type Item = { id: number; name: string; blurb: string }
+export pure fn search(q: string): Promise<Hit[]>
+export pure fn fetchItem(id: number): Promise<Item | null>

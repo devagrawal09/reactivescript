@@ -1,0 +1,39 @@
+// ui.rx — the two panels. Each panel owns its own `errored` boundary, so a
+// failure in one never reaches the other.
+
+import { currentUser } from "./people.rx"
+import { filter, issues, selected, detail, assignError, setFilter, select, assignToMe } from "./issues.rx"
+
+export component IssueList(props: {}) {
+  <section data-testid="list">
+    <button data-testid="filter-open" onClick={() => { setFilter("open") }}>open</button>{" "}
+    <button data-testid="filter-closed" onClick={() => { setFilter("closed") }}>closed</button>{" "}
+    {errored fallback(e) { <p>list error: {e.message}</p> } {
+      {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+        <ul>
+          {for issue in issues {
+            <li data-testid="issue" onClick={() => { select(issue.id) }}>#{issue.id} {issue.title} ({issue.assignee ?? "unassigned"}){" "}</li>
+          }}
+        </ul>
+      }}
+    }}
+  </section>
+}
+
+export component DetailPanel(props: {}) {
+  me = use currentUser
+  <section data-testid="detail">
+    {if selected {
+      {loading on(selected) fallback { <p>loading #{selected}</p> } {
+        {errored fallback(e) { <p>detail error: {e.message}</p> } {
+          {if detail { <h3>#{detail.id} {detail.title}</h3>{" "}<p>{detail.body}</p> }}
+        }}
+      }}
+      {" "}<button data-testid="retry" onClick={() => { refresh detail }}>retry</button>{" "}
+      <button data-testid="assign" onClick={() => { if (selected != null) { assignToMe(selected, me) } }}>assign to {me}</button>{" "}
+      {assignError}
+    } else {
+      <p>select an issue</p>
+    }}
+  </section>
+}

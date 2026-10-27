@@ -1,0 +1,42 @@
+// settings.rx — the settings as the server has them, and the only ways to change them.
+// Everything module-level here is written only by the actions this module exports (MO-2a).
+
+import pure { loadSettings } from "./api"   // a loader: safe to re-ask, awaited in an equation
+import { saveSettings } from "./api"        // a write to the server: io, called only from an action
+import { Theme, Density } from "./theme.rx"   // types cross an import (MO-6c); TypeScript checks them (TY)
+
+export type Settings = { name: string; theme: Theme; density: Density }
+
+// The two ways a display name can be wrong (R-f-1).
+export error NameRequired() => "Display name is required"
+export error NameTooLong(count: number) => `Display name must be at most 20 characters, not ${count}`
+
+// Validation is an equation: lifted over its argument, failing with a declared class.
+export fn validate(s: Settings): Settings =>
+  s.name.length == 0 ? throw NameRequired()
+  : s.name.length > 20 ? throw NameTooLong(s.name.length)
+  : s
+
+// The truth. A source with a question (ST-5): `refresh` re-asks it, a save guesses it.
+export source settings: Settings = await loadSettings()
+
+// What the last save failed with, or "". A question with a constant truth, so
+// a new save can clear it as a guess the moment it starts (ST-5a).
+export source saveError: string = ""
+
+export action retryLoad() {
+  refresh settings
+}
+
+export action save(next: Settings) {
+  optimistic settings := next     // the page shows what is being saved, now (H-11)
+  optimistic saveError := ""      // and stops showing the previous failure
+  affects settings                // `pending? settings` is true until the save ends (AC-5)
+  try {
+    let saved = await saveSettings(next)
+    settings := saved             // the truth; equal to the guess, it confirms silently
+    saveError := ""
+  } catch (e) {
+    saveError := e.message        // lands with the reverted guess, one frame (AC-7)
+  }
+}

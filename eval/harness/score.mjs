@@ -1,0 +1,41 @@
+// Scores finished runs: for each run directory (named <task>-<arm>-<n>), the arm's check, the visible and the hidden
+// tests, and the agent's own log of `./check` and `./test` runs. Writes results.json and prints a summary table.
+// Usage: node harness/score.mjs <runs-dir> [out.json]
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { check } from "./check.mjs";
+import { runFile } from "./test.mjs";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const tasksDir = path.resolve(here, "../tasks");
+const [runsArg, outArg] = process.argv.slice(2);
+const runs = path.resolve(runsArg);
+
+const rows = [];
+for (const name of readdirSync(runs).sort()) {
+  const dir = path.join(runs, name);
+  const m = name.match(/^(\w+)-(rx|react)-(\d+)$/);
+  if (!m) continue;
+  const [, task, arm, n] = m;
+  const log = existsSync(path.join(dir, ".runlog")) ? readFileSync(path.join(dir, ".runlog"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];
+  const firstGreen = log.findIndex(e => e.cmd === "test" && e.ok);
+  const checked = check(dir);
+  const visible = await runFile(dir, path.join(tasksDir, task, "visible.mjs"));
+  const hidden = await runFile(dir, path.join(tasksDir, task, "hidden.mjs"));
+  const failedHidden = hidden.results.filter(r => !r.ok);
+  rows.push({
+    run: name, task, arm, n: Number(n),
+    checks: log.filter(e => e.cmd === "check").length, tests: log.filter(e => e.cmd === "test").length,
+    cyclesToGreen: firstGreen < 0 ? null : firstGreen + 1,
+    checkOk: checked.ok, built: hidden.build.ok,
+    visible: `${visible.results.filter(r => r.ok).length}/${visible.results.length}`,
+    hidden: `${hidden.results.length - failedHidden.length}/${hidden.results.length}`,
+    shippedDefect: !hidden.build.ok || visible.results.some(r => !r.ok) || failedHidden.length > 0,
+    failedHidden: failedHidden.map(r => ({ name: r.name, error: r.error })),
+    failedVisible: visible.results.filter(r => !r.ok).map(r => ({ name: r.name, error: r.error })),
+  });
+  const r = rows.at(-1);
+  console.log(`${r.run.padEnd(18)} check ${r.checkOk ? "ok " : "ERR"}  visible ${r.visible}  hidden ${r.hidden.padEnd(5)}  cycles ${r.checks + r.tests} (green after ${r.cyclesToGreen ?? "never"})${r.shippedDefect ? "  DEFECT" : ""}`);
+}
+writeFileSync(outArg ? path.resolve(outArg) : path.join(runs, "results.json"), JSON.stringify(rows, null, 2) + "\n");
