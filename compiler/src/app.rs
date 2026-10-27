@@ -25,6 +25,8 @@ pub fn target(name: &str) -> Target {
 
 /// `{entry, css, modules: {path: {code, map}}}`, or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
 pub fn app(entry: &str, target: Target, module_name: &str) -> Value {
+    // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
+    let entry = &entry.replace('\\', "/");
     (|| {
         if read_disk(entry).is_none() {
             return Err(json!({ "error": format!("{entry}: no such file") }));

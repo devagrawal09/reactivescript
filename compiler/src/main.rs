@@ -28,7 +28,8 @@ use std::path::Path;
 
 
 fn abs(f: &str) -> String {
-    std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string())
+    // module keys are POSIX paths (`modules::join_path`), on Windows too
+    std::path::absolute(f).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| f.to_string()).replace('\\', "/")
 }
 
 fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
