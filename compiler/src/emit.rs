@@ -188,6 +188,7 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
+    g.by_source = by_source;
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
     for path in &set.order {
@@ -235,6 +236,8 @@ struct Gen<'p> {
     u: Usage,
     set: &'p ModuleSet,
     file: String,
+    /// Modules imported by source path, for a bundler (`compile_linked`), not as sibling `.mjs` files.
+    by_source: bool,
     css: Vec<String>,
     /// module-level code: hoisted server functions and the module's error classes
     top: Vec<S>,
@@ -257,6 +260,7 @@ impl<'p> Gen<'p> {
             u,
             set,
             file: "main.rx".into(),
+            by_source: false,
             css: vec![],
             top: vec![],
             top_fns: HashSet::new(),
@@ -576,7 +580,10 @@ impl<'p> Gen<'p> {
             let n0 = out.len();
             let iv = format!("__i{}", self.mod_index(r));
             if instantiated.insert(iv.clone()) {
-                out.push(konst(iv.clone(), rtc("module", vec![str(self.out(r)), id(self.dep_var(r))])));
+                // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
+                // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
+                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
+                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))

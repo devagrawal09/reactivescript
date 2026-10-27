@@ -140,7 +140,7 @@ record argued each way; this is the decision.
   | `catchRead(f, match, alt)` | `e catch …` in reactive scope (R-f-4) | `createErrorBoundary` |
   | `tryCatch(f, match, alt)` | `e catch …` in imperative scope | `try` |
   | `context(name, dflt)`, `provide(c, entry)`, `use(c, owner)`, `useGet(c, owner)`, `owner()` | contexts (RG-7) | `createContext`, `setContext`, `getContext`, `getOwner` |
-  | `module(key, factory)` | an `.rx` dependency, once per app (MO-1) | — |
+  | `module(key, factory)` | an `.rx` dependency, once per app (MO-1); `key` is the file's name in a sibling-file build, the factory itself when modules are imported by source for a bundler (`rxc app`), so a module two programs share is one key | — |
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
   | `show(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted), a dynamic class with the view's scope (CSS-2) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
@@ -240,9 +240,13 @@ mapped to its line, and on dom every element's line is mapped.
 In a Vite app, `.rx` goes through Solid's own Vite plugin: its `frontends`
 option (proposed upstream, solidjs/solid-vite-plugin, with a companion
 solidjs/solid compiler change so the secondary passes take any extension)
-hands each `.rx` module to `vite-plugin-rx/`, which compiles the program
-whole from its entry with `rxc app` (CP-2; each module imports its
-dependencies by `.rx` path) and returns the module's code for the
+hands each `.rx` module to `vite-plugin-rx/`. An `.rx` module JavaScript
+imports is a program's entry (JavaScript can import only an entry: a
+dependency is a factory over the app, 09 MO-1b), so no option names it: the
+plugin compiles the program whole from it with `rxc app` (CP-2), each module
+importing its dependencies as `./x.rx?rx-dep`, served from a program's build
+that contains them; `rxc app` keys `module(key, factory)` by the factory, so
+a module two programs share is one module. It returns the module's code for the
 environment's `generate`, its map onto `.rx`, and on the entry the
 stylesheet (CSS-4). Solid's plugin then takes it as it takes lowered `.tsrx`:
 primitive names aside, its lazy, refresh and server-function passes (12

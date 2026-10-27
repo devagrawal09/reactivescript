@@ -77,7 +77,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
-  const modules = new Map<string, Record<string, unknown>>();
+  const modules = new Map<unknown, Record<string, unknown>>();
   const log: string[] = [];
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
@@ -189,7 +189,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     affects: onServer("affects"),
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
-    module(key: string, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
+    module(key: unknown, factory: (rt: unknown) => Record<string, unknown>) { let m = modules.get(key); if (!m) { m = factory(app); modules.set(key, m); } return m; },
     // ---- context (RG-7): the server build's owner context, keyed by the declaration ----
     owner: () => getOwner(),
     context(name: string, dflt: (() => unknown) | null): Ctx { return { name, id: Symbol(name), dflt, owner: getOwner(), dv: dflt ? { get: createMemo(dflt as any) as Acc } : null }; },

@@ -41,7 +41,7 @@ function project(name, entry) {
 }
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
-  plugins: [solid({ frontends: { ".rx": rx({ entry: `src/${entry}` }) } })],
+  plugins: [solid({ frontends: { ".rx": rx() } })],
   server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
@@ -82,6 +82,25 @@ for (const [name, entry] of Object.entries(apps)) {
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, name === "todo" ? todo : undefined);
   http.close();
+}
+if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
+  const dir = project("shared", "shop/main.rx");
+  writeFileSync(path.join(dir, "src/shop/count.rx"), `import { products } from "./catalog.rx"\n\nexport default component Count() {\n  errored fallback(e) { <p>no catalogue</p> } {\n    <p>{len(products)} products</p>\n  }\n}\n`);
+  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from ${JSON.stringify(rtWeb)};\nimport shop from "./shop/main.rx";\nimport count from "./shop/count.rx";\nimport * as api from "./api.mjs";\nfor (const [main, el] of [[shop, "app"], [count, "app2"]]) { const app = createApp({ root: document.getElementById(el), api }); app.mount(main(app)); }\n`);
+  writeFileSync(path.join(dir, "index.html"), readFileSync(path.join(dir, "index.html"), "utf8").replace('<div id="app"></div>', '<div id="app"></div><div id="app2"></div>'));
+  try {
+    const bundle = await vite.build(config(dir, "shop/main.rx"));
+    const ids = (Array.isArray(bundle) ? bundle : [bundle]).flatMap(b => b.output.flatMap(o => Object.keys(o.modules ?? {})));
+    const catalogs = ids.filter(m => m.includes("catalog.rx"));
+    if (catalogs.length !== 1) throw new Error(`catalog.rx bundled as ${JSON.stringify(catalogs)}`);
+    const dist = path.join(dir, "dist");
+    const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
+    await new Promise(r => http.listen(0, "127.0.0.1", r));
+    await drive("shared (build)", `http://127.0.0.1:${http.address().port}/`, async page => {
+      const t = await page.textContent("#app2"); if (!/3 products/.test(t)) throw new Error(`second program: ${t}`);
+    });
+    http.close();
+  } catch (e) { fail++; console.log(`✗ shared: ${e.message.split("\n").slice(0, 6).join(" | ")}`); }
 }
 if (!filter || "todo".includes(filter)) {   // the dev server: modules transformed on request
   const dir = project("todo-dev", "todo.rx");
