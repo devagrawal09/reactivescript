@@ -1,18 +1,31 @@
 {
   "name": "reactivescript",
   "displayName": "ReactiveScript",
-  "description": "Syntax highlighting for ReactiveScript (.rx, .d.rx): TypeScript's expressions and JSX, with the language's own forms on top.",
-  "version": "0.0.1",
+  "description": "ReactiveScript (.rx, .d.rx): highlighting, and TypeScript's types, hover, go to definition, completion and errors through the .rx language server, with the compiler's own diagnostics.",
+  "version": "0.0.2",
   "publisher": "reactivescript",
   "license": "MIT",
-  "engines": { "vscode": "^1.80.0" },
+  "engines": { "vscode": "^1.82.0" },
   "categories": ["Programming Languages"],
+  "main": "./client.js",
+  "activationEvents": ["onLanguage:reactivescript"],
   "contributes": {
     "languages": [
       { "id": "reactivescript", "aliases": ["ReactiveScript", "rx"], "extensions": [".rx"], "configuration": "./language-configuration.json" }
     ],
     "grammars": [
       { "language": "reactivescript", "scopeName": "source.rx", "path": "./syntaxes/rx.tmLanguage.json", "embeddedLanguages": { "meta.embedded.block.css": "css" } }
-    ]
+    ],
+    "configuration": {
+      "title": "ReactiveScript",
+      "properties": {
+        "reactivescript.server.path": { "type": "string", "default": "", "description": "The language server's entry (bin/server.js of tooling/rx-language-server). Empty: the one beside this extension in the repository." },
+        "reactivescript.rxc.path": { "type": "string", "default": "", "description": "The rxc binary the server asks (compiler/target/release/rxc). Empty: the repository's release build." },
+        "reactivescript.typescript.tsdk": { "type": "string", "default": "", "description": "TypeScript's lib folder. Empty: the workspace's node_modules/typescript, else the one VS Code ships." }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

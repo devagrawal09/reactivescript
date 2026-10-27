@@ -1,0 +1,91 @@
+// The .rx language plugin for Volar (spec/11 CP-8). A `.rx` file's virtual code is its TSX projection (spec/13 TY-1c),
+// made by the crate with mappings onto the `.rx`: TypeScript's hover, definition, references, rename, completion and
+// type errors come back through them. The crate's own diagnostics (rule IDs, spec/99) are a service of their own.
+const { analyze, preludeFor } = require("./rxc");
+
+/** Every feature, where the projection copies the `.rx`'s text (a name, a member, a literal, a type, a tag). */
+const EXACT = { verification: true, completion: true, semantic: true, navigation: true, structure: true, format: false };
+/** Where it wrote text for a piece of the `.rx` (an expression, a statement): only for placing type errors. */
+const COARSE = { verification: true };
+
+/** A module: `.rx`, not a declaration file (`.d.rx`, MO-8/MO-9), which the crate reads beside the modules that import it. */
+const isModule = f => f.endsWith(".rx") && !f.endsWith(".d.rx");
+
+const snapshotOf = text => ({ getText: (s, e) => text.slice(s, e), getLength: () => text.length, getChangeRange: () => undefined });
+
+/** The last analysis of each file, by its text: the virtual code and the diagnostics share one `rxc` run. */
+const cache = new Map();
+function analysis(file, text) {
+  const hit = cache.get(file);
+  if (hit && hit.text === text) return hit.result;
+  let result;
+  try { result = analyze(file, text, preludeFor(file)); } catch (e) { result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) }; }
+  cache.set(file, { text, result });
+  return result;
+}
+
+function virtualCode(file, snapshot) {
+  const text = snapshot.getText(0, snapshot.getLength());
+  const a = analysis(file, text);
+  const code = a.code ?? "";
+  const mappings = [
+    ...(a.mappings ?? []).map(([g, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], data: EXACT })),
+    ...(a.ranges ?? []).map(([g, gn, s, n]) => ({ sourceOffsets: [s], generatedOffsets: [g], lengths: [n], generatedLengths: [gn], data: COARSE })),
+  ];
+  return {
+    id: "root",
+    languageId: "reactivescript",
+    snapshot,
+    mappings: [{ sourceOffsets: [0], generatedOffsets: [0], lengths: [text.length], data: { verification: true, completion: true, semantic: true, navigation: true, structure: true, format: true } }],
+    embeddedCodes: [{ id: "tsx", languageId: "typescriptreact", snapshot: snapshotOf(code), mappings }],
+  };
+}
+
+/** @param {typeof import("typescript")} ts */
+function rxLanguagePlugin(ts, asFileName = uri => uri.fsPath ?? String(uri)) {
+  return {
+    getLanguageId(id) { return isModule(String(id.path ?? id)) ? "reactivescript" : undefined; },
+    createVirtualCode(id, languageId, snapshot) {
+      if (languageId !== "reactivescript" || !isModule(asFileName(id))) return undefined;
+      return virtualCode(asFileName(id), snapshot);
+    },
+    typescript: {
+      extraFileExtensions: [{ extension: "rx", isMixedContent: true, scriptKind: ts.ScriptKind.Deferred }],
+      getServiceScript(root) {
+        const tsx = root.embeddedCodes?.find(c => c.id === "tsx");
+        return tsx ? { code: tsx, extension: ".tsx", scriptKind: ts.ScriptKind.TSX } : undefined;
+      },
+    },
+  };
+}
+
+/** The crate's diagnostics on a `.rx` document: the editor's parse's errors, else the checker's (CP-8d). */
+function rxDiagnostics(asFileName = uri => uri.fsPath) {
+  return {
+    name: "reactivescript-diagnostics",
+    capabilities: { diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false } },
+    create() {
+      return {
+        provideDiagnostics(document) {
+          if (document.languageId !== "reactivescript") return;
+          const { URI } = require("vscode-uri");
+          const file = asFileName(URI.parse(document.uri));
+          if (!isModule(file)) return;
+          const a = analysis(file, document.getText());
+          return (a.diagnostics ?? []).filter(d => d.range).map(d => ({
+            range: {
+              start: { line: d.range.start.line - 1, character: d.range.start.column },
+              end: { line: d.range.end.line - 1, character: d.range.end.column },
+            },
+            severity: 1,
+            source: "rx",
+            code: d.code,
+            message: `${d.message} (${d.rule})`,
+          }));
+        },
+      };
+    },
+  };
+}
+
+module.exports = { rxLanguagePlugin, rxDiagnostics, analysis };

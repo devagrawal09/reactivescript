@@ -8,7 +8,7 @@
 //!                          file, reads `[{id, entry, files}]` on stdin, as `conform` does (`ref/crate.ts --project`)
 //!   rxc serve              for a language server: one JSON request a line on stdin, `{id, method: "analyze", params:
 //!                          {file, overlays, prelude}}`, answered a line each with the file's projection (mappings in
-//!                          UTF-16 offsets) and its diagnostics, the parse recovering (CP-8e); `method: "prelude"` too
+//!                          UTF-16 offsets; `ranges`, `[generated, length, source, length]`) and its diagnostics, the parse recovering (CP-8e); `method: "prelude"` too
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
@@ -103,7 +103,7 @@ fn projection_json(set: &reactivescript::modules::ModuleSet) -> Value {
         .iter()
         .map(|p| {
             let bad = set.sources.get(&p.rx).map(|src| unverified(p, src).len()).unwrap_or(0);
-            json!({ "path": p.path, "rx": p.rx, "code": p.code, "lines": p.lines, "mappings": p.mappings.iter().map(|m| [m.gen, m.src, m.len]).collect::<Vec<_>>(), "unverified": bad })
+            json!({ "path": p.path, "rx": p.rx, "code": p.code, "lines": p.lines, "mappings": p.mappings.iter().map(|m| [m.gen, m.src, m.len]).collect::<Vec<_>>(), "ranges": p.ranges.iter().map(|r| [r.gen, r.glen, r.src, r.len]).collect::<Vec<_>>(), "unverified": bad })
         })
         .collect();
     json!({ "files": files })
@@ -221,7 +221,9 @@ fn analyze(params: &Value) -> Value {
     if let Some(p) = reactivescript::project::project_modules_with(&set, prelude).into_iter().find(|p| p.rx == file) {
         let (gi, si) = (utf16_index(&p.code), utf16_index(&src));
         let maps: Vec<[u32; 3]> = p.mappings.iter().map(|m| [gi[m.gen as usize], si[m.src as usize], si[(m.src + m.len) as usize] - si[m.src as usize]]).collect();
-        out = json!({ "code": p.code, "mappings": maps });
+        let u = |i: &[u32], a: u32, n: u32| [i[a as usize], i[(a + n) as usize] - i[a as usize]];
+        let ranges: Vec<[u32; 4]> = p.ranges.iter().map(|r| { let (g, s) = (u(&gi, r.gen, r.glen), u(&si, r.src, r.len)); [g[0], g[1], s[0], s[1]] }).collect();
+        out = json!({ "code": p.code, "mappings": maps, "ranges": ranges });
     }
     let own: Vec<Value> = if set.parse_errors.iter().any(|e| e.2.as_deref() == Some(file.as_str())) {
         set.parse_errors.iter().filter(|e| e.2.as_deref() == Some(file.as_str())).map(|e| parse_error_in(&file, e, Some(&src))).collect()

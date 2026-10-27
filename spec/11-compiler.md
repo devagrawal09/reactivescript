@@ -284,6 +284,19 @@ TY-1c), so every position has to cross between `.rx` and the projection.
   checker is line-precise (CN-1a), so a diagnostic's range is its line's:
   from the first node that starts on it to the furthest any such node
   reaches on it (decision 8).
+- **CP-8e (the editor).** An editor's parse recovers: a declaration that
+  does not parse is a parse error on its line and is skipped to the next
+  line that starts at column 0, and a missing expression is an empty name,
+  so the rest of the module still checks and projects. On a module that
+  parses, the recovering parse gives the strict parse's tree and no errors
+  (`rxc conform` checks it on every program). `rxc serve` answers a
+  language server a line at a time: per file, with the editor's unsaved
+  text as overlays, the projection with its mappings (exact text) and
+  ranges (what was written for an expression or statement, for placing
+  type errors) in UTF-16 offsets, and the file's parse errors, else its
+  checker diagnostics (CP-8d). `tooling/rx-language-server` is a Volar
+  server over it, and `tooling/vscode-rx` its VS Code client. The server
+  runs `rxc` as a process per analysis (decision 9).
 
 ## Decisions taken by default (veto here)
 
@@ -332,3 +345,10 @@ TY-1c), so every position has to cross between `.rx` and the projection.
    default — veto here). The checker reports lines (CN-1a); narrowing each
    rule to the node it is about is per-rule work in both checkers, left
    for when an editor shows where it falls short.
+
+9. **The language server runs `rxc` as a process** (CP-8e, 2026-10-27,
+   taken by default — veto here). Volar makes a file's virtual code
+   synchronously, so the server calls `rxc serve` with `spawnSync` per
+   changed file and caches by text. A Node-API build of the crate would
+   save the process start (a few ms per keystroke batch) and is the next
+   step when that shows; it changes nothing the server sees.

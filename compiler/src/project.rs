@@ -31,18 +31,37 @@ pub struct Mapping {
     pub len: u32,
 }
 
+/// A coarser correspondence: `glen` bytes at `gen` in the projection were written for the `len` bytes at `src` (an
+/// expression, a statement, a declaration's line), not the same text. An editor maps through it what falls between
+/// mappings (a type error on `(a + b)` starts at its parenthesis); it is listed innermost first.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Range {
+    pub gen: u32,
+    pub glen: u32,
+    pub src: u32,
+    pub len: u32,
+}
+
 /// Text with the mappings of the pieces in it that came from the source.
 #[derive(Default, Clone)]
 struct Code {
     s: String,
     m: Vec<Mapping>,
+    r: Vec<Range>,
 }
 impl Code {
     fn new() -> Self {
         Code::default()
     }
     fn of(s: &str) -> Self {
-        Code { s: s.to_string(), m: vec![] }
+        Code { s: s.to_string(), m: vec![], r: vec![] }
+    }
+    /// All of this text was written for `sp`.
+    fn from(mut self, sp: Span) -> Self {
+        if !sp.is_none() {
+            self.r.push(Range { gen: 0, glen: self.s.len() as u32, src: sp.start, len: sp.end - sp.start });
+        }
+        self
     }
     fn t(mut self, s: &str) -> Self {
         self.s.push_str(s);
@@ -55,6 +74,7 @@ impl Code {
     fn push(&mut self, o: Code) {
         let at = self.s.len() as u32;
         self.m.extend(o.m.into_iter().map(|m| Mapping { gen: m.gen + at, ..m }));
+        self.r.extend(o.r.into_iter().map(|r| Range { gen: r.gen + at, ..r }));
         self.s.push_str(&o.s);
     }
     /// `text`, mapped to `src` when it was found there.
@@ -111,6 +131,7 @@ pub struct Projected {
     pub lines: Vec<usize>,
     pub rx: String,
     pub mappings: Vec<Mapping>,
+    pub ranges: Vec<Range>,
 }
 
 /// A written type, without its row words (`pending T` → `T`, 04 CN-4a) or a context's `source` (RG-7c).
@@ -161,18 +182,18 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
         let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
-        out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m });
+        out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
     }
     for (rx, sig) in &set.signatures {
-        out.push(Projected { path: format!("{rx}.d.ts"), code: signature_stub(sig), lines: vec![], rx: rx.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or(rx.clone()), mappings: vec![] });
+        out.push(Projected { path: format!("{rx}.d.ts"), code: signature_stub(sig), lines: vec![], rx: rx.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or(rx.clone()), mappings: vec![], ranges: vec![] });
     }
     for (dts, decls) in &set.declarations {
         let path = dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone());
-        out.push(Projected { path, code: declaration_file(decls), lines: vec![], rx: dts.clone(), mappings: vec![] });
+        out.push(Projected { path, code: declaration_file(decls), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
     }
     for (m, names) in js_stubs {
         let code = names.iter().map(|n| if n == "default" { "declare const __d: any; export default __d;".to_string() } else { format!("export declare const {n}: any;") }).collect::<Vec<_>>().join("\n");
-        out.push(Projected { path: m.clone(), code, lines: vec![], rx: m, mappings: vec![] });
+        out.push(Projected { path: m.clone(), code, lines: vec![], rx: m, mappings: vec![], ranges: vec![] });
     }
     out
 }
@@ -470,13 +491,13 @@ impl Proj<'_> {
                         Some(t) => Code::of(&format!("__.typed<{t}>(")).c(self.expr(init, false, None)).t(")"),
                         None => Code::of("__.src(").c(self.expr(init, false, None)).t(")"),
                     };
-                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";"), *line);
+                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
                 }
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
                     let v = self.expr(e, false, Some(name));
-                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";"), *line);
+                    self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
                 }
                 Decl::Provide { name, e, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -613,27 +634,27 @@ impl Proj<'_> {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}let ")).c(nm).c(a).t(" = ").c(v).t(";"), 0);
+                    self.w.emit(Code::of(&format!("{ind}let ")).c(nm).c(a).t(" = ").c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Expr(e) => {
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(ind).c(v).t(";"), 0);
+                    self.w.emit(Code::of(ind).c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Return(e) => {
                     let v = match e {
                         Some(e) => Code::of(" ").c(self.expr(e, true, None)),
                         None => Code::new(),
                     };
-                    self.w.emit(Code::of(&format!("{ind}return")).c(v).t(";"), 0);
+                    self.w.emit(Code::of(&format!("{ind}return")).c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Throw(e) => {
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}throw ")).c(v).t(";"), 0);
+                    self.w.emit(Code::of(&format!("{ind}throw ")).c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
                     let t = self.target(target, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");"), 0);
+                    self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
                 }
                 StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                     let nm = self.name(n, sp, &mut at);
@@ -689,6 +710,9 @@ impl Proj<'_> {
 
     // ---- expressions: `imp` imperative scope (a real `await`); `me` the equation being defined (its own `pre`) ----
     fn expr(&mut self, e: &Expr, imp: bool, me: Option<&str>) -> Code {
+        self.expr_text(e, imp, me).from(e.span)
+    }
+    fn expr_text(&mut self, e: &Expr, imp: bool, me: Option<&str>) -> Code {
         let sp = e.span;
         let src_at = |text: &str| -> Option<usize> { (!sp.is_none() && sp.text(self.src) == text).then_some(sp.start as usize) };
         macro_rules! go {
@@ -858,7 +882,7 @@ impl Proj<'_> {
             MarkupKind::Style(_) => {}
             MarkupKind::Read(e) => {
                 let v = self.expr(e, false, None);
-                self.w.emit(Code::of(&format!("{ind}{{")).c(v).t("}"), line);
+                self.w.emit(Code::of(&format!("{ind}{{")).c(v).t("}").from(sp), line);
             }
             MarkupKind::El { tag, attrs, children } => {
                 if tag.is_empty() {
