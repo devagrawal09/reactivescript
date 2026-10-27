@@ -1,0 +1,65 @@
+import pure { search, fetchItem } from "./api"
+import pure { len } from "./prelude"
+
+source query := ""
+source selected: number | null := null
+
+// The hits for the query, with the query they answer. Empty and one-character
+// queries ask nothing. While a new answer is on its way the last one stays put.
+answer = len(query) < 2 ? null : { q: query, hits: await search(query) }
+
+// The chosen hit's full item, or null when there is no such item.
+item = selected == null ? null : await fetchItem(selected)
+
+export default component App() {
+  <main>
+    <input data-testid="query" type="text" onInput={(e) => { query := e.target.value }} />
+
+    <section data-testid="results">
+      {if len(query) == 1 {
+        <p>too short: {query}</p>
+      }}
+      {if len(query) > 1 {
+        {loading fallback { <p>searching…</p> } {
+          {if pending? answer {
+            <p>searching…</p>
+          }}
+          {errored fallback(e) {
+            <p>search failed: {e.message}</p>
+          } {
+            {if answer {
+              <div>
+                <p>{len(answer.hits)} results for {answer.q}</p>
+                <ul>
+                  {for h in answer.hits {
+                    <li data-testid="hit" onClick={() => { selected := h.id }}>{selected == h.id ? "> " : ""}{h.name}</li>
+                  }}
+                </ul>
+              </div>
+            }}
+          }}
+        }}
+      }}
+    </section>
+
+    <section data-testid="detail">
+      {if selected == null {
+        <p>pick a result</p>
+      } else {
+        {loading on(selected) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+          } {
+            {if item == null {
+              <p>item {selected} not found</p>
+            } else {
+              <h2>{item.name}</h2>
+              <p>{item.blurb}</p>
+            }}
+          }}
+        }}
+      }}
+    </section>
+  </main>
+}

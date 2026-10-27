@@ -1,0 +1,57 @@
+import pure { search, fetchItem } from "./api"
+import pure { len } from "./prelude"
+
+export default component App() {
+  source q: string := ""
+  source selected: number | null := null
+
+  item = selected == null ? null : await fetchItem(selected)
+
+  <main>
+    <input data-testid="query" value={q} onInput={(e) => { q := e.target.value }} />
+    <section data-testid="results">
+      {if q == "" {
+      } else {
+        {if len(q) < 2 {
+          <p>too short: {q}</p>
+        } else {
+          found = { q: q, err: "", hits: await search(q) } catch (e) => ({ q: q, err: e.message, hits: [] })
+          {loading fallback { <p>searching…</p> } {
+            {if pending? found {
+              <p>searching…</p>
+            }}
+            {if found.err != "" {
+              <p>search failed: {found.err}</p>
+            } else {
+              <p>{len(found.hits)} results for {found.q}</p>
+              <ul>
+                {for h in found.hits {
+                  <li data-testid="hit" onClick={() => { selected := h.id }}>{h.id == selected ? "> " : ""}{h.name}</li>
+                }}
+              </ul>
+            }}
+          }}
+        }}
+      }}
+    </section>
+    <section data-testid="detail">
+      {if selected == null {
+        <p>pick a result</p>
+      } else {
+        {loading on(selected) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+          } {
+            {if item {
+              <h2>{item.name}</h2>
+              <p>{item.blurb}</p>
+            } else {
+              <p>item {selected} not found</p>
+            }}
+          }}
+        }}
+      }}
+    </section>
+  </main>
+}

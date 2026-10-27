@@ -1,0 +1,61 @@
+import pure { search, fetchItem } from "./api"
+
+type Hit = { id: number; name: string }
+type Item = { id: number; name: string; blurb: string }
+
+error NotFound(id: number) => `item ${id} not found`
+
+fn found(it: Item | null, id: number): Item => it == null ? throw NotFound(id) : it
+
+component Detail(props: { id: number }) {
+  item = found(await fetchItem(props.id), props.id)
+  <div>
+    {loading on(props.id) fallback { <p>loading…</p> } {
+      {errored fallback(e) {
+        <p>failed: {e.message}</p>
+        <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+      } {
+        {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+          <h2>{item.name}</h2>
+          <p>{item.blurb}</p>
+        }}
+      }}
+    }}
+  </div>
+}
+
+export default component App() {
+  source query := ""
+  source selected: number | null := null
+
+  hits: Hit[] = query.length < 2 ? [] : await search(query)
+
+  <main>
+    <input data-testid="query" value={query} onInput={(e) => { query := e.target.value }} />
+    <div data-testid="results">
+      {if query.length == 1 {
+        <p>too short: {query}</p>
+      }}
+      {if query.length > 1 {
+        {loading fallback { <p>searching…</p> } {
+          {errored fallback(e) { <p>search failed: {e.message}</p> } {
+            {if pending? hits { <p>searching…</p> }}
+            <p>{hits.length} results for {query}</p>
+            <ul>
+              {for h in hits {
+                <li data-testid="hit" onClick={() => { selected := h.id }}>{selected == h.id ? "> " : ""}{h.name}</li>
+              }}
+            </ul>
+          }}
+        }}
+      }}
+    </div>
+    <section data-testid="detail">
+      {if selected != null {
+        <Detail id={selected} />
+      } else {
+        <p>pick a result</p>
+      }}
+    </section>
+  </main>
+}

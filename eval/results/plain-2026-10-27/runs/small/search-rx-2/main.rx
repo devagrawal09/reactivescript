@@ -1,0 +1,66 @@
+import pure { search, fetchItem } from "./api"
+
+// One item, asked again whenever `id` changes. `loading on(props.id)` shows
+// "loading…" on each new selection; `refresh item` retries after a failure.
+component Detail(props: { id: number }) {
+  item = await fetchItem(props.id)
+
+  <div>
+    {loading on(props.id) fallback { <p>loading…</p> } {
+      errored fallback(e) {
+        <p>failed: {e.message}</p>
+        <button data-testid="retry" onClick={() => { refresh item }}>retry</button>
+      } {
+        if item == null {
+          <p>item {props.id} not found</p>
+        } else {
+          <h2>{item.name}</h2>
+          <p>{item.blurb}</p>
+        }
+      }
+    }}
+  </div>
+}
+
+export default component App() {
+  source query := ""
+  source selected: number | null := null
+
+  // Empty and one-character queries ask nothing; the held value is the last
+  // answer, and `q` says which query that answer is for.
+  answered = query.length < 2 ? null : { q: query, hits: await search(query) }
+  busy = pending? answered
+
+  <main>
+    <input data-testid="query" value={query} onInput={(e) => { query := e.target.value }} />
+    <section data-testid="results">
+      {if query.length == 1 {
+        <p>too short: {query}</p>
+      }}
+      {if busy {
+        <p>searching…</p>
+      }}
+      {if query.length >= 2 {
+        errored fallback(e) {
+          <p>search failed: {e.message}</p>
+        } {
+          if answered {
+            <p>{answered.hits.length} results for {answered.q}</p>
+            <ul>
+              {for hit in answered.hits {
+                <li data-testid="hit" onClick={() => { selected := hit.id }}>{selected == hit.id ? "> " : ""}{hit.name}</li>
+              }}
+            </ul>
+          }
+        }
+      }}
+    </section>
+    <aside data-testid="detail">
+      {if selected != null {
+        <Detail id={selected} />
+      } else {
+        <p>pick a result</p>
+      }}
+    </aside>
+  </main>
+}

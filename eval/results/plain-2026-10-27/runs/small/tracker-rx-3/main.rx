@@ -1,0 +1,68 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+
+error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id) => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+
+  // A question: asked again when `filter` changes. Writable: the assign action guesses into it.
+  source issues = await fetchIssues(filter)
+  // The selected issue's detail. A `null` answer is a declared failure (NotFound).
+  detail = selected == null ? null : found(await fetchIssue(selected), selected)
+  // The last assignment's server message, or "" when there is none.
+  source assignError: string = ""
+
+  action assignTo(id: number, who: string) {
+    optimistic assignError := ""
+    try {
+      optimistic issues := issues.map(r => (r.id == id ? { ...r, assignee: who } : r))
+      let answer = await assign(id, who)
+      issues := issues.map(r => (r.id == answer.id ? { ...r, assignee: answer.assignee } : r))
+    } catch (e) {
+      assignError := e.message
+    }
+  }
+
+  <main>
+    <div class="bar">
+      <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <div class="panes">
+      <section data-testid="list">
+        {loading on(filter) fallback { <p>loading {filter} issues</p> } {
+          {errored fallback(e) { <p>list error: {e.message}</p> } {
+            {for i in issues {
+              <button data-testid="issue" class="row" onClick={() => { selected := i.id; onFlush(() => { assignError := "" }) }}>
+                #{i.id} {i.title} ({i.assignee ?? "unassigned"})
+              </button>
+            }}
+          }}
+        }}
+      </section>
+      <section data-testid="detail">
+        {if selected == null {
+          <p>select an issue</p>
+        } else {
+          <button data-testid="assign" onClick={() => { assignTo(selected ?? 0, user) }}>assign to {user}</button>
+          {loading on(selected) fallback { <p>loading #{selected}</p> } {
+            {errored fallback(e) {
+              <p>detail error: {e.message}</p>
+              <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+            } {
+              <h2>#{detail.id} {detail.title}</h2>
+              <p>{detail.body}</p>
+            }}
+          }}
+          <p class="assign-error">{assignError}</p>
+        }}
+      </section>
+    </div>
+  </main>
+}

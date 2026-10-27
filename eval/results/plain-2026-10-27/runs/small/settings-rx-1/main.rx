@@ -1,0 +1,78 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+
+type Settings = { name: string; theme: string; density: string }
+
+// The loaded (and then saved) settings: a source with a standing question. The save action may guess at it.
+source saved: Settings = await loadSettings()
+// The last save's failure, if any. Cleared as soon as a new save starts.
+source saveError: string = ""
+
+action save(next: Settings) {
+  optimistic saved := next
+  optimistic saveError := ""
+  affects saved
+  try {
+    let answer = await saveSettings(next)
+    saved := answer
+  } catch (e) {
+    saveError := e.message
+  }
+}
+
+// The draft is seeded once from the loaded settings and belongs to the user from then on.
+component Form(props: { initial: Settings }) {
+  source draftName := peek(props.initial.name)
+  source draftTheme := peek(props.initial.theme)
+  source draftDensity := peek(props.initial.density)
+  nameError = draftName.length == 0 ? "Display name is required" : draftName.length > 20 ? `Display name must be at most 20 characters, not ${draftName.length}` : ""
+
+  <div>
+    <label>
+      Display name
+      <input data-testid="name" value={draftName} onInput={(e) => { draftName := e.target.value }} />
+    </label>
+    <span data-testid="name-count">{draftName.length}/20</span>
+    {if nameError != "" {
+      <p data-testid="name-error">{nameError}</p>
+    }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { draftTheme := "light" }}>Light</button>
+      <button data-testid="theme-dark" onClick={() => { draftTheme := "dark" }}>Dark</button>
+      <button data-testid="density-toggle" onClick={() => { draftDensity := draftDensity == "compact" ? "comfortable" : "compact" }}>Density</button>
+    </div>
+    <p data-testid="preview">Preview: {draftTheme} / {draftDensity}</p>
+    <button data-testid="save" onClick={() => { if (nameError == "") { save({ name: draftName, theme: draftTheme, density: draftDensity }) } }}>Save</button>
+  </div>
+}
+
+export default component App() {
+  source attempt := 0
+  isSaving = pending? saved
+
+  action retry() {
+    attempt := attempt + 1
+    refresh saved
+  }
+
+  <main>
+    {loading on(attempt) fallback {
+      <p data-testid="load">Loading settings…</p>
+    } {
+      {errored fallback(e) {
+        <div>
+          <p data-testid="load">Could not load settings: {e.message}</p>
+          <button data-testid="retry-load" onClick={() => { retry() }}>Retry</button>
+        </div>
+      } {
+        <div>
+          <p data-testid="saved">Saved: {saved.name} · {saved.theme} · {saved.density}{isSaving ? " (saving…)" : ""}</p>
+          {if saveError != "" {
+            <p data-testid="save-error">Save failed: {saveError}</p>
+          }}
+          <Form initial={saved} />
+        </div>
+      }}
+    }}
+  </main>
+}
