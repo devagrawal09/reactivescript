@@ -89,6 +89,7 @@ export class Flight {
 export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) => unknown> }) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
+  const truthOf = new Map<Acc, Acc>();                                  // an optimistic signal-form source: its guess layer -> its question
   const registry = new Map<string, Entry[]>();
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
@@ -163,6 +164,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       if (mode.optimistic) {
         const [truth, setTruth] = createSignal(fn as any, opts as any);
         const [get, setGuess] = createOptimistic(() => truth());
+        truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
@@ -236,7 +238,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     until: (p: () => unknown) => until(p),                                   // AC-6
     onSettled: (f: () => void) => onSettled(f),                             // EF-7
     onFlush: (f: () => void) => onFlush(f),                                 // EF-8
-    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); refresh((storeAccs.has(get) ? get() : get) as any); },
+    refresh(name: string, get: Acc) { const key = lastKey.get(name); if (key) flights.delete(key); for (const h of hoistedBy.get(name) ?? []) refresh(h as any); const t = truthOf.get(get) ?? get; refresh((storeAccs.has(t) ? t() : t) as any); },
     affects: (get: Acc) => affects(get as any),
     preOr: (v: unknown, init: () => unknown) => v === undefined ? init() : v,
 
