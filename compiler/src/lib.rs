@@ -13,3 +13,4 @@ pub mod modules;
 pub mod oxc;
 pub mod parse;
 pub mod signature;
+pub mod spans;

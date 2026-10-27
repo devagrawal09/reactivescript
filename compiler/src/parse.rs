@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParseError(pub String);
+/// What failed to parse; where (a byte offset), and in which file, when known.
+pub struct ParseError(pub String, pub Option<usize>, pub Option<String>);
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -51,6 +52,15 @@ fn is_kw(s: &str) -> bool {
 }
 fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
+}
+
+/// An expression from `start` to where the cursor is.
+fn ex(start: usize, k: ExprKind, c: &Cursor) -> Expr {
+    Expr::new(k, Span::new(start, c.i))
+}
+/// A statement from `start` to where the cursor is.
+fn st(start: usize, k: StmtKind, c: &Cursor) -> Stmt {
+    Stmt { k, span: Span::new(start, c.i) }
 }
 
 /// A position in the source, in bytes, always on a char boundary. `peek` at the end is `'\0'` (the reference's `""`).
@@ -123,7 +133,7 @@ impl<'a> Cursor<'a> {
     }
     pub fn fail<T>(&self, msg: &str) -> R<T> {
         let near: String = self.rest().chars().take(20).collect();
-        Err(ParseError(format!("line {}: {} near '{}'", self.line(), msg, near)))
+        Err(ParseError(format!("line {}: {} near '{}'", self.line(), msg, near), Some(self.i), None))
     }
     pub fn ident(&mut self) -> Option<String> {
         let m = IDENT.find(self.rest())?;
@@ -242,7 +252,7 @@ pub fn parse_program(src: &str) -> R<Program> {
             Decl::Component { name, line, .. } => (name.clone(), *line),
             _ => unreachable!(),
         };
-        let el = Markup { kind: MarkupKind::El { tag: name, attrs: vec![], children: vec![] }, line: Some(line) };
+        let el = Markup { kind: MarkupKind::El { tag: name, attrs: vec![], children: vec![] }, line: Some(line), span: Span::NONE };
         return Ok(Program { decls, view: vec![el], legacy_view: None });
     }
     let legacy = !view.is_empty();
@@ -388,6 +398,12 @@ fn params_typed(c: &mut Cursor) -> R<(Vec<String>, Vec<Option<String>>)> {
 
 fn parse_decl(c: &mut Cursor) -> R<Decl> {
     c.ws(true);
+    let start = c.i;
+    let mut d = parse_decl_at(c)?;
+    d.set_span(Span::new(start, c.i));
+    Ok(d)
+}
+fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     let line = c.line();
     if c.keyword("export") {
         c.ws(true);
@@ -453,13 +469,13 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
             return c.fail("from");
         }
         c.ws(true);
-        let from = match parse_primary(c)? {
-            Expr::Lit(Lit::Str(s)) => s,
+        let from = match parse_primary(c)?.k {
+            ExprKind::Lit(Lit::Str(s)) => s,
             _ => return c.fail("module path"),
         };
         let save = c.i;
         c.ws(false);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);
@@ -493,10 +509,10 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         if c.eat("=>") {
             c.ws(true);
             let msg = parse_expr(c)?;
-            return Ok(Decl::Error { name, params, ptypes, msg: Some(msg), line, exported: false });
+            return Ok(Decl::Error { name, params, ptypes, msg: Some(msg), line, span: Span::NONE, exported: false });
         }
         c.i = save;
-        return Ok(Decl::Error { name, params, ptypes, msg: None, line, exported: false });
+        return Ok(Decl::Error { name, params, ptypes, msg: None, line, span: Span::NONE, exported: false });
     }
     if TYPE_DECL.is_match(c.rest()) {
         let t0 = c.i;
@@ -520,7 +536,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
                 c.bump();
             }
         }
-        return Ok(Decl::TypeDecl { name, line, text: c.src[t0..c.i].to_string(), exported: false });
+        return Ok(Decl::TypeDecl { name, line, span: Span::NONE, text: c.src[t0..c.i].to_string(), exported: false });
     }
     if c.keyword("source") {
         c.ws(true);
@@ -536,12 +552,12 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         if c.eat(":=") {
             c.ws(true);
             let init = parse_expr(c)?;
-            return Ok(Decl::Source { name, init, line, question: false, ty, exported: false, key });
+            return Ok(Decl::Source { name, init, line, span: Span::NONE, question: false, ty, exported: false, key });
         }
         c.expect("=")?;
         c.ws(true);
         let init = parse_expr(c)?;
-        return Ok(Decl::Source { name, init, line, question: true, ty, exported: false, key });
+        return Ok(Decl::Source { name, init, line, span: Span::NONE, question: true, ty, exported: false, key });
     }
     if c.keyword("effect") {
         c.ws(true);
@@ -559,7 +575,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Decl::Effect { inputs, body, line });
+        return Ok(Decl::Effect { inputs, body, line, span: Span::NONE });
     }
     if c.keyword("deferred") {
         c.ws(true);
@@ -569,7 +585,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.expect("=")?;
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Decl::Eq { name, e, line, deferred: true, key: None, ty, exported: false });
+        return Ok(Decl::Eq { name, e, line, span: Span::NONE, deferred: true, key: None, ty, exported: false });
     }
     if c.keyword("action") {
         c.ws(true);
@@ -581,7 +597,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Decl::Action { name, params, ptypes, body, line, exported: false });
+        return Ok(Decl::Action { name, params, ptypes, body, line, span: Span::NONE, exported: false });
     }
     if SERVER_DECL.is_match(c.rest()) {
         c.keyword("server");
@@ -600,7 +616,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         let ret = opt_type(c, true)?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Decl::Server { name, params, ptypes, ret, body, line, exported: false });
+        return Ok(Decl::Server { name, params, ptypes, ret, body, line, span: Span::NONE, exported: false });
     }
     if c.keyword("context") {
         c.ws(true);
@@ -621,10 +637,10 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
             c.bump();
             c.ws(true);
             let dflt = parse_expr(c)?;
-            return Ok(Decl::Context { name, ty, source, dflt: Some(dflt), line, exported: false });
+            return Ok(Decl::Context { name, ty, source, dflt: Some(dflt), line, span: Span::NONE, exported: false });
         }
         c.i = save;
-        return Ok(Decl::Context { name, ty, source, dflt: None, line, exported: false });
+        return Ok(Decl::Context { name, ty, source, dflt: None, line, span: Span::NONE, exported: false });
     }
     if c.keyword("provide") {
         c.ws(true);
@@ -633,7 +649,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.expect("=")?;
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Decl::Provide { name, e, line });
+        return Ok(Decl::Provide { name, e, line, span: Span::NONE });
     }
     if c.keyword("fn") {
         c.ws(true);
@@ -660,7 +676,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         if c.eat("=>") {
             c.ws(true);
             let tail = parse_expr(c)?;
-            return Ok(Decl::Fn { name, params, decls: vec![], tail, line, ret, exported: false });
+            return Ok(Decl::Fn { name, params, decls: vec![], tail, line, span: Span::NONE, ret, exported: false });
         }
         c.expect("{")?;
         let mut decls = vec![];
@@ -677,7 +693,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         let tail = parse_expr(c)?;
         c.ws(true);
         c.expect("}")?;
-        return Ok(Decl::Fn { name, params, decls, tail, line, ret, exported: false });
+        return Ok(Decl::Fn { name, params, decls, tail, line, span: Span::NONE, ret, exported: false });
     }
     if c.keyword("component") {
         c.ws(true);
@@ -692,7 +708,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         c.expect("{")?;
         let (decls, view) = parse_block_body(c)?;
-        return Ok(Decl::Component { name, props, decls, view, line, props_type, exported: false, is_default: false });
+        return Ok(Decl::Component { name, props, decls, view, line, span: Span::NONE, props_type, exported: false, is_default: false });
     }
     let save = c.i;
     let name = c.ident();
@@ -716,7 +732,7 @@ fn parse_decl(c: &mut Cursor) -> R<Decl> {
         c.bump();
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Decl::Eq { name: name.unwrap(), e, line, deferred: false, key, ty, exported: false });
+        return Ok(Decl::Eq { name: name.unwrap(), e, line, span: Span::NONE, deferred: false, key, ty, exported: false });
     }
     c.i = save;
     if c.peek_ident().is_some() && WRITE_AHEAD.is_match(c.rest()) {
@@ -772,6 +788,7 @@ fn parse_path(c: &mut Cursor) -> R<Vec<PathSeg>> {
 
 fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
     c.ws(true);
+    let start = c.i;
     if c.keyword("optimistic") {
         c.ws(true);
         let name = c.ident_or("target")?;
@@ -780,19 +797,19 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         c.expect(":=")?;
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Stmt::Optimistic { target: Target { name, path, ctx: None }, e });
+        return Ok(st(start, StmtKind::Optimistic { target: Target { name, path, ctx: None }, e }, c));
     }
     if c.keyword("refresh") {
         c.ws(true);
-        return Ok(Stmt::Refresh(c.ident_or("name")?));
+        return Ok(st(start, StmtKind::Refresh(c.ident_or("name")?), c));
     }
     if c.keyword("affects") {
         c.ws(true);
-        return Ok(Stmt::Affects(c.ident_or("name")?));
+        return Ok(st(start, StmtKind::Affects(c.ident_or("name")?), c));
     }
     if c.keyword("action") {
         c.ws(true);
-        return Ok(Stmt::Action(parse_block(c)?));
+        return Ok(st(start, StmtKind::Action(parse_block(c)?), c));
     }
     if c.keyword("let") || c.keyword("const") {
         c.ws(true);
@@ -802,7 +819,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         c.expect("=")?;
         c.ws(true);
         let e = parse_expr(c)?;
-        return Ok(Stmt::Let { name, e, ty });
+        return Ok(st(start, StmtKind::Let { name, e, ty }, c));
     }
     if c.keyword("try") {
         c.ws(true);
@@ -835,18 +852,18 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         if handler.is_none() && fin.is_none() {
             return c.fail("catch or finally");
         }
-        return Ok(Stmt::Try { body, catch_name, catch_classes, handler, fin });
+        return Ok(st(start, StmtKind::Try { body, catch_name, catch_classes, handler, fin }, c));
     }
     if c.keyword("throw") {
         c.ws(true);
-        return Ok(Stmt::Throw(parse_expr(c)?));
+        return Ok(st(start, StmtKind::Throw(parse_expr(c)?), c));
     }
     if c.keyword("return") {
         c.ws(false);
         if c.peek() == '}' || c.peek() == ';' || c.peek() == '\n' || c.eof() {
-            return Ok(Stmt::Return(None));
+            return Ok(st(start, StmtKind::Return(None), c));
         }
-        return Ok(Stmt::Return(Some(parse_expr(c)?)));
+        return Ok(st(start, StmtKind::Return(Some(parse_expr(c)?)), c));
     }
     if c.keyword("if") {
         c.ws(true);
@@ -863,7 +880,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             c.ws(true);
             f = if c.peek() == '{' { parse_block(c)? } else { vec![parse_stmt(c)?] };
         }
-        return Ok(Stmt::Sif { c: cond, t, f });
+        return Ok(st(start, StmtKind::Sif { c: cond, t, f }, c));
     }
     // write?  target := expr
     let save = c.i;
@@ -881,18 +898,19 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
             if c.eat(":=") {
                 c.ws(true);
                 let e = parse_expr(c)?;
-                return Ok(Stmt::Write { target: Target { name: n, path, ctx: Some(ctx) }, e });
+                return Ok(st(start, StmtKind::Write { target: Target { name: n, path, ctx: Some(ctx) }, e }, c));
             }
         }
     }
     c.i = save;
-    Ok(Stmt::Expr(parse_expr(c)?))
+    Ok(st(start, StmtKind::Expr(parse_expr(c)?), c))
 }
 
 // ---- expressions ----
 /// An expression, with any trailing `catch (x: A | B) => alt` (R-f-4).
 pub fn parse_expr(c: &mut Cursor) -> R<Expr> {
     let mut e = parse_expr_no_catch(c)?;
+    let start = e.span.start as usize;
     loop {
         let save = c.i;
         c.ws(true);
@@ -917,7 +935,7 @@ pub fn parse_expr(c: &mut Cursor) -> R<Expr> {
         c.expect("=>")?;
         c.ws(true);
         let alt = parse_expr_no_catch(c)?;
-        e = Expr::Catch { e: Box::new(e), name, classes, alt: Box::new(alt) };
+        e = Expr::new(ExprKind::Catch { e: Box::new(e), name, classes, alt: Box::new(alt) }, Span::new(start, c.i));
     }
 }
 
@@ -946,6 +964,7 @@ fn draft_ahead(c: &Cursor) -> bool {
 
 fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
+    let start = c.i;
     if draft_ahead(c) {
         c.keyword("draft");
         c.ws(true);
@@ -956,7 +975,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Expr::Draft { seed: Box::new(seed), body });
+        return Ok(ex(start, ExprKind::Draft { seed: Box::new(seed), body }, c));
     }
     {
         // 07 §3: TS arrow functions, verbatim — `x => e`, `(a, b) => e`
@@ -1000,14 +1019,14 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
             if c.peek() == '{' {
                 let at = c.i;
                 if let Ok(stmts) = parse_block(c) {
-                    if stmts.iter().any(|st| !matches!(st, Stmt::Expr(Expr::Id(_)))) {
-                        return Ok(Expr::Fn { params, body: Box::new(Expr::Lit(Lit::Undefined)), stmts: Some(stmts) });
+                    if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
+                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts) }, c));
                     }
                 }
                 c.i = at;
             }
             let body = parse_expr(c)?;
-            return Ok(Expr::Fn { params, body: Box::new(body), stmts: None });
+            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
         }
         c.i = save;
     }
@@ -1029,7 +1048,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.expect("=>")?;
         c.ws(true);
         let body = parse_expr(c)?;
-        return Ok(Expr::Fn { params, body: Box::new(body), stmts: None });
+        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));
     }
     let cond = parse_bin(c, 0)?;
     c.ws(false);
@@ -1044,7 +1063,7 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
         c.expect(":")?;
         c.ws(true);
         let f = parse_expr_no_catch(c)?;
-        return Ok(Expr::If { c: Box::new(cond), t: Box::new(t), f: Box::new(f) });
+        return Ok(ex(cond.span.start as usize, ExprKind::If { c: Box::new(cond), t: Box::new(t), f: Box::new(f) }, c));
     }
     Ok(cond)
 }
@@ -1055,6 +1074,7 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
         return parse_unary(c);
     }
     let mut l = parse_bin(c, lvl + 1)?;
+    let start = l.span.start as usize;
     loop {
         c.ws(false);
         let op = LEVELS[lvl].iter().find(|o| c.starts_with(o) && !(**o == "-" && c.peek_at(1) == '>'));
@@ -1067,17 +1087,18 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
             "!==" => "!=",
             o => o,
         };
-        l = Expr::Bin { op: op.to_string(), l: Box::new(l), r: Box::new(r) };
+        l = Expr::new(ExprKind::Bin { op: op.to_string(), l: Box::new(l), r: Box::new(r) }, Span::new(start, c.i));
     }
 }
 fn parse_unary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
+    let start = c.i;
     if c.eat("!") {
-        return Ok(Expr::Un { op: "!".into(), e: Box::new(parse_unary(c)?) });
+        return Ok(ex(start, ExprKind::Un { op: "!".into(), e: Box::new(parse_unary(c)?) }, c));
     }
     if c.peek() == '-' && c.peek_at(1) != '>' {
         c.bump();
-        return Ok(Expr::Un { op: "-".into(), e: Box::new(parse_unary(c)?) });
+        return Ok(ex(start, ExprKind::Un { op: "-".into(), e: Box::new(parse_unary(c)?) }, c));
     }
     if c.keyword("pre") {
         c.ws(true);
@@ -1085,13 +1106,13 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
         c.ws(false);
         if c.eat("->") {
             c.ws(true);
-            return Ok(Expr::Pre { name, init: Some(Box::new(parse_unary(c)?)) });
+            return Ok(ex(start, ExprKind::Pre { name, init: Some(Box::new(parse_unary(c)?)) }, c));
         }
-        return Ok(Expr::Pre { name, init: None });
+        return Ok(ex(start, ExprKind::Pre { name, init: None }, c));
     }
     if c.keyword("peek") {
         c.ws(true);
-        return Ok(Expr::Peek(Box::new(parse_unary(c)?)));
+        return Ok(ex(start, ExprKind::Peek(Box::new(parse_unary(c)?)), c));
     }
     if c.keyword("await") {
         let stream = c.eat("*");
@@ -1101,31 +1122,32 @@ fn parse_unary(c: &mut Cursor) -> R<Expr> {
         if c.eat("->") {
             c.ws(true);
             let init = parse_unary(c)?;
-            return Ok(Expr::Await { e: Box::new(e), init: Some(Box::new(init)), stream });
+            return Ok(ex(start, ExprKind::Await { e: Box::new(e), init: Some(Box::new(init)), stream }, c));
         }
-        return Ok(Expr::Await { e: Box::new(e), init: None, stream });
+        return Ok(ex(start, ExprKind::Await { e: Box::new(e), init: None, stream }, c));
     }
     if c.keyword("latest") {
         c.ws(true);
-        return Ok(Expr::Latest(Box::new(parse_unary(c)?)));
+        return Ok(ex(start, ExprKind::Latest(Box::new(parse_unary(c)?)), c));
     }
     if c.keyword("throw") {
         c.ws(true);
-        return Ok(Expr::Throw(Box::new(parse_unary(c)?)));
+        return Ok(ex(start, ExprKind::Throw(Box::new(parse_unary(c)?)), c));
     }
     if c.keyword("use") {
         c.ws(true);
-        return Ok(Expr::Use(c.ident_or("context name")?));
+        return Ok(ex(start, ExprKind::Use(c.ident_or("context name")?), c));
     }
     if c.starts_with("pending?") {
         c.i += 8;
         c.ws(true);
-        return Ok(Expr::Pending(Box::new(parse_unary(c)?)));
+        return Ok(ex(start, ExprKind::Pending(Box::new(parse_unary(c)?)), c));
     }
     parse_postfix(c)
 }
 fn parse_postfix(c: &mut Cursor) -> R<Expr> {
     let mut e = parse_primary(c)?;
+    let start = e.span.start as usize;
     loop {
         if c.eat("?.") {
             if c.peek() == '[' {
@@ -1134,21 +1156,21 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
                 let i = parse_expr(c)?;
                 c.ws(true);
                 c.expect("]")?;
-                e = Expr::Index { o: Box::new(e), i: Box::new(i), opt: true };
+                e = Expr::new(ExprKind::Index { o: Box::new(e), i: Box::new(i), opt: true }, Span::new(start, c.i));
             } else {
                 let p = c.ident_or("member")?;
-                e = Expr::Member { o: Box::new(e), p, opt: true };
+                e = Expr::new(ExprKind::Member { o: Box::new(e), p, opt: true }, Span::new(start, c.i));
             }
         } else if c.eat(".") {
             let p = c.ident_or("member")?;
-            e = Expr::Member { o: Box::new(e), p, opt: false };
+            e = Expr::new(ExprKind::Member { o: Box::new(e), p, opt: false }, Span::new(start, c.i));
         } else if c.peek() == '[' {
             c.bump();
             c.ws(true);
             let i = parse_expr(c)?;
             c.ws(true);
             c.expect("]")?;
-            e = Expr::Index { o: Box::new(e), i: Box::new(i), opt: false };
+            e = Expr::new(ExprKind::Index { o: Box::new(e), i: Box::new(i), opt: false }, Span::new(start, c.i));
         } else if c.peek() == '(' {
             c.bump();
             c.ws(true);
@@ -1162,7 +1184,7 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
                 c.ws(true);
             }
             c.expect(")")?;
-            e = Expr::Call { f: Box::new(e), args };
+            e = Expr::new(ExprKind::Call { f: Box::new(e), args }, Span::new(start, c.i));
         } else {
             return Ok(e);
         }
@@ -1170,6 +1192,7 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
 }
 fn parse_primary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
+    let start = c.i;
     if STYLE.is_match(c.rest()) {
         let line = c.line();
         c.i += "<style".len();
@@ -1180,7 +1203,7 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         let Some(end) = c.rest().find("</style>") else { return c.fail("expected </style>") };
         let css = c.rest()[..end].to_string();
         c.i += end + "</style>".len();
-        return Ok(Expr::StyleMap { css, line });
+        return Ok(ex(start, ExprKind::StyleMap { css, line }, c));
     }
     if SERVER_FN_EXPR.is_match(c.rest()) {
         c.keyword("server");
@@ -1194,7 +1217,7 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         let ret = opt_type(c, true)?;
         c.ws(true);
         let body = parse_block(c)?;
-        return Ok(Expr::ServerFn { params, ptypes, ret, body });
+        return Ok(ex(start, ExprKind::ServerFn { params, ptypes, ret, body }, c));
     }
     let ch = c.peek();
     if ch == '`' {
@@ -1225,7 +1248,7 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         if !s.is_empty() || parts.is_empty() {
             parts.push(TplPart::Str(s));
         }
-        return Ok(Expr::Tpl(parts));
+        return Ok(ex(start, ExprKind::Tpl(parts), c));
     }
     if ch == '"' || ch == '\'' {
         c.bump();
@@ -1240,12 +1263,12 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
             c.bump();
         }
         c.expect(&ch.to_string())?;
-        return Ok(Expr::Lit(Lit::Str(s)));
+        return Ok(ex(start, ExprKind::Lit(Lit::Str(s)), c));
     }
     if let Some(m) = NUMBER.find(c.rest()) {
         let text = m.as_str().to_string();
         c.i += text.len();
-        return Ok(Expr::Lit(Lit::Num(text.replace('_', "").parse::<f64>().unwrap_or(f64::NAN))));
+        return Ok(ex(start, ExprKind::Lit(Lit::Num(text.replace('_', "").parse::<f64>().unwrap_or(f64::NAN))), c));
     }
     if c.eat("(") {
         c.ws(true);
@@ -1258,9 +1281,10 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         c.ws(true);
         let mut items = vec![];
         while !c.starts_with("]") {
+            let s0 = c.i;
             if c.eat("...") {
                 c.ws(true);
-                items.push(Expr::Spread(Box::new(parse_expr(c)?)));
+                items.push(ex(s0, ExprKind::Spread(Box::new(parse_expr(c)?)), c));
             } else {
                 items.push(parse_expr(c)?);
             }
@@ -1271,7 +1295,7 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
         }
         c.expect("]")?;
-        return Ok(Expr::Arr(items));
+        return Ok(ex(start, ExprKind::Arr(items), c));
     }
     if c.eat("{") {
         c.ws(true);
@@ -1287,12 +1311,13 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
                 c.ws(true);
                 continue;
             }
+            let k0 = c.i;
             let key = match c.ident() {
                 Some(k) => k,
                 None => {
                     if c.peek() == '"' || c.peek() == '\'' {
-                        match parse_primary(c)? {
-                            Expr::Lit(Lit::Str(s)) => s,
+                        match parse_primary(c)?.k {
+                            ExprKind::Lit(Lit::Str(s)) => s,
                             _ => unreachable!(),
                         }
                     } else {
@@ -1306,7 +1331,7 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
                 let v = parse_expr(c)?;
                 fields.push(Field::Kv { key, v });
             } else {
-                fields.push(Field::Kv { v: Expr::Id(key.clone()), key });
+                fields.push(Field::Kv { v: Expr::new(ExprKind::Id(key.clone()), Span::new(k0, k0 + key.len())), key });
             }
             c.ws(true);
             if !c.eat(",") {
@@ -1315,22 +1340,22 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
         }
         c.expect("}")?;
-        return Ok(Expr::Rec(fields));
+        return Ok(ex(start, ExprKind::Rec(fields), c));
     }
     if c.keyword("true") {
-        return Ok(Expr::Lit(Lit::Bool(true)));
+        return Ok(ex(start, ExprKind::Lit(Lit::Bool(true)), c));
     }
     if c.keyword("false") {
-        return Ok(Expr::Lit(Lit::Bool(false)));
+        return Ok(ex(start, ExprKind::Lit(Lit::Bool(false)), c));
     }
     if c.keyword("undefined") {
-        return Ok(Expr::Lit(Lit::Undefined));
+        return Ok(ex(start, ExprKind::Lit(Lit::Undefined), c));
     }
     if c.keyword("null") {
-        return Ok(Expr::Lit(Lit::Null));
+        return Ok(ex(start, ExprKind::Lit(Lit::Null), c));
     }
     if let Some(id) = c.ident() {
-        return Ok(Expr::Id(id));
+        return Ok(ex(start, ExprKind::Id(id), c));
     }
     c.fail("expression")
 }
@@ -1366,7 +1391,7 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             broke = s.contains('\n');
             let tag = close_text.as_deref().unwrap();
             if !s.is_empty() && !broke && !c.starts_with(&format!("</{}>", tag)) && !out.is_empty() {
-                out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None });
+                out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
             }
         } else {
             c.ws(true);
@@ -1388,9 +1413,11 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             return Ok(out);
         }
         let line = c.line();
+        let m0 = c.i;
         if c.starts_with("<") {
             let mut m = parse_element(c)?;
             m.line = Some(line);
+            m.span = Span::new(m0, c.i);
             out.push(m);
             continue;
         }
@@ -1401,18 +1428,20 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
                 c.ws(true);
                 c.expect("}")?;
                 ctl.line = Some(line);
+                ctl.span = Span::new(m0, c.i);
                 out.push(ctl);
                 continue;
             }
             let e = parse_expr(c)?;
             c.ws(true);
             c.expect("}")?;
-            out.push(Markup { kind: MarkupKind::Read(e), line: Some(line) });
+            out.push(Markup { kind: MarkupKind::Read(e), line: Some(line), span: Span::new(m0, c.i) });
             continue;
         }
         if !in_element {
             if let Some(mut ctl) = parse_control(c)? {
                 ctl.line = Some(line);
+                ctl.span = Span::new(m0, c.i);
                 out.push(ctl);
                 continue;
             }
@@ -1421,6 +1450,7 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             return c.fail("declaration after markup: a block is declarations, then its view");
         }
         let mut s = String::new();
+        let s0 = c.i;
         while !c.eof() && !"<{}\n".contains(c.peek()) {
             s.push(c.peek());
             c.bump();
@@ -1445,10 +1475,11 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             return c.fail("declaration or markup");
         }
         if broke && matches!(out.last(), Some(Markup { kind: MarkupKind::Text(_), .. })) {
-            out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None });
+            out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
         }
         if !s.is_empty() {
-            out.push(Markup { kind: MarkupKind::Text(s), line: None });
+            let span = Span::new(s0, s0 + s.len());
+            out.push(Markup { kind: MarkupKind::Text(s), line: None, span });
         }
         if c.i == start {
             // the reference loops here forever (a stray `}` in an element); this ends it
@@ -1460,7 +1491,7 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
 /// Control forms of a view: `if c { … } else { … }`, `for x in e { … }`, `loading … { … }`, `errored …`, `portal …`.
 fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
     let save = c.i;
-    let mk = |kind| Some(Markup { kind, line: None });
+    let mk = |kind| Some(Markup { kind, line: None, span: Span::NONE });
     if c.keyword("if") {
         c.ws(true);
         let cond = parse_expr(c)?;
@@ -1611,7 +1642,7 @@ fn looks_like_decl(c: &mut Cursor) -> bool {
 }
 fn parse_element(c: &mut Cursor) -> R<Markup> {
     c.expect("<")?;
-    let mk = |kind| Markup { kind, line: None };
+    let mk = |kind| Markup { kind, line: None, span: Span::NONE };
     if c.eat(">") {
         let children = parse_markup(c, Close::Tag(String::new()))?;
         return Ok(mk(MarkupKind::El { tag: String::new(), attrs: vec![], children }));
@@ -1640,22 +1671,24 @@ fn parse_element(c: &mut Cursor) -> R<Markup> {
         if c.eat(">") {
             break;
         }
+        let a0 = c.i;
         let Some(name) = c.tag_name() else { return c.fail("attr") };
+        let span = Span::new(a0, c.i);
         c.ws(false);
         if !c.eat("=") {
-            attrs.push(Attr { name, e: Expr::Lit(Lit::Bool(true)) });
+            attrs.push(Attr { name, e: Expr::new(ExprKind::Lit(Lit::Bool(true)), span), span });
             continue;
         }
         c.ws(true);
         if c.eat("{") {
             c.ws(true);
             let e = parse_expr(c)?;
-            attrs.push(Attr { name, e });
+            attrs.push(Attr { name, e, span });
             c.ws(true);
             c.expect("}")?;
         } else {
             let e = parse_primary(c)?;
-            attrs.push(Attr { name, e });
+            attrs.push(Attr { name, e, span });
         }
     }
     let children = parse_markup(c, Close::Tag(tag.clone()))?;

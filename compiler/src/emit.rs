@@ -4,7 +4,7 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{Decl, Expr, Lit, Markup, MarkupKind, PathSeg, Program, Stmt};
+use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
 use crate::awaits::{is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
@@ -357,10 +357,10 @@ impl<'p> Gen<'p> {
         Ok(f)
     }
     fn chain(&mut self, name: &str, x: &Expr) -> R<E> {
-        match x {
-            Expr::ServerFn { params, body, .. } => self.server_hoist(name, params, body, true),
-            Expr::Call { f, args } if matches!(&**f, Expr::Id(_)) => {
-                let Expr::Id(fname) = &**f else { unreachable!() };
+        match &x.k {
+            ExprKind::ServerFn { params, body, .. } => self.server_hoist(name, params, body, true),
+            ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(_)) => {
+                let ExprKind::Id(fname) = &f.k else { unreachable!() };
                 let found = self.mod_decls.iter().any(|d| matches!(d, Decl::Import { resolved: None, from, names, .. } if !from.starts_with('.') && names.iter().any(|n| &n.alias == fname)));
                 if !found {
                     return fail(format!("{name}: a server fn's wrapper is a package's function (here, {fname})"));
@@ -369,7 +369,7 @@ impl<'p> Gen<'p> {
                 for a in args {
                     out.push(if unwrap_server(a).is_some() {
                         self.chain(name, a)?
-                    } else if let Expr::Lit(l) = a {
+                    } else if let ExprKind::Lit(l) = &a.k {
                         lit(l)
                     } else {
                         return fail(format!("{name}: a wrapper's other arguments are literals"));
@@ -516,9 +516,9 @@ impl<'p> Gen<'p> {
                             .filter(|a| !is_handler(&a.name))
                             .map(|a| Attribute {
                                 name: a.name.clone(),
-                                value: match &a.e {
-                                    Expr::Lit(Lit::Str(s)) => Some(AttributeValue::Static(s.clone())),
-                                    Expr::Lit(Lit::Bool(true)) => None,
+                                value: match &a.e.k {
+                                    ExprKind::Lit(Lit::Str(s)) => Some(AttributeValue::Static(s.clone())),
+                                    ExprKind::Lit(Lit::Bool(true)) => None,
                                     _ => Some(AttributeValue::Dynamic),
                                 },
                             })
@@ -859,7 +859,7 @@ impl<'p> Gen<'p> {
     }
     fn value(&mut self, d: &Decl, env: Env) -> R<Vec<S>> {
         if let Decl::Provide { name, e, .. } = d {
-            let b = if let Expr::Id(n) = e { self.lookup(env, n) } else { None };
+            let b = if let ExprKind::Id(n) = &e.k { self.lookup(env, n) } else { None };
             let src = b.as_ref().filter(|b| b.kind == Kind::Src);
             let mut out = if src.is_some() { vec![] } else { self.hoist_all(&[e], env)? };
             let entry = match src {
@@ -877,7 +877,7 @@ impl<'p> Gen<'p> {
         let b = self.frames[env].vars.get(name).unwrap().clone();
         let mut out = match d {
             Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
-            Decl::Eq { e, .. } if !matches!(e, Expr::Draft { .. }) => self.hoist(Some(name), e, env, true)?,
+            Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => self.hoist(Some(name), e, env, true)?,
             _ => vec![],
         };
         out.append(&mut self.value1(d, env, &b)?);
@@ -895,7 +895,7 @@ impl<'p> Gen<'p> {
                 let x = self.expr(g.e, env, &reactive())?;
                 guards.push(if g.nullish { bin("==", x, E::Null) } else if g.neg { not(x) } else { x });
             }
-            let Expr::Await { e: inner, init, stream } = h.node else { unreachable!() };
+            let ExprKind::Await { e: inner, init, stream } = &h.node.k else { unreachable!() };
             let body0 = self.expr(inner, env, &Ctx { tail: true, ..Ctx::default() })?;
             let body = if *stream { body0 } else { rtc("awaited", vec![body0]) };
             self.hoisted.insert(h.node as *const Expr, v.clone());
@@ -959,8 +959,8 @@ impl<'p> Gen<'p> {
                     Ok(out)
                 };
                 // ST-3
-                if let Expr::Draft { seed, body } = e {
-                    let Expr::Pre { name: sn, init: Some(si) } = &**seed else { return fail("a draft's seed must be `pre self -> seed`") };
+                if let ExprKind::Draft { seed, body } = &e.k {
+                    let ExprKind::Pre { name: sn, init: Some(si) } = &seed.k else { return fail("a draft's seed must be `pre self -> seed`") };
                     if sn != name {
                         return fail("a draft's seed must be `pre self -> seed`");
                     }
@@ -971,8 +971,8 @@ impl<'p> Gen<'p> {
                     return fin(vec![konst(b.js.clone(), rtc("draft", vec![rtc("untrack", vec![thunk(s)]), arrow_block(vec![P::Id("v$d".into())], db, false)]))], self);
                 }
                 // RG-6
-                if let Expr::Call { f, .. } = e {
-                    if let Expr::Id(fname) = &**f {
+                if let ExprKind::Call { f, .. } = &e.k {
+                    if let ExprKind::Id(fname) = &f.k {
                         if self.lookup(env, fname).is_some_and(|x| x.kind == Kind::Ifn) {
                             let v = self.instantiate(e, env)?;
                             return fin(vec![konst(b.js.clone(), v)], self);
@@ -984,7 +984,7 @@ impl<'p> Gen<'p> {
                     return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x)]))], self);
                 }
                 // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
-                if let (Expr::Catch { e: ce, name: cn, classes, alt }, false) = (e, deferred) {
+                if let (ExprKind::Catch { e: ce, name: cn, classes, alt }, false) = (&e.k, deferred) {
                     let inner = self.new_env(Some(env));
                     if let Some(n) = cn {
                         self.set(inner, n, val(mg(n)));
@@ -1015,9 +1015,9 @@ impl<'p> Gen<'p> {
     }
     /// SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server.
     fn client_call(&self, e: &Expr, env: Env) -> bool {
-        let f = if let Expr::Catch { e, .. } = e { &**e } else { e };
-        if let Expr::Call { f, .. } = f {
-            if let Expr::Id(n) = &**f {
+        let f = if let ExprKind::Catch { e, .. } = &e.k { &**e } else { e };
+        if let ExprKind::Call { f, .. } = &f.k {
+            if let ExprKind::Id(n) = &f.k {
                 return self.lookup(env, n).is_some_and(|b| b.client);
             }
         }
@@ -1026,9 +1026,9 @@ impl<'p> Gen<'p> {
     fn tail_client(&self, e: &Expr, env: Env) -> bool {
         fn walk(g: &Gen, n: Node, env: Env) -> bool {
             if let Node::E(x) = n {
-                match x {
-                    Expr::Fn { .. } => return false,
-                    Expr::Await { e, .. } if !g.hoisted.contains_key(&(x as *const Expr)) && g.client_call(e, env) => return true,
+                match &x.k {
+                    ExprKind::Fn { .. } => return false,
+                    ExprKind::Await { e, .. } if !g.hoisted.contains_key(&(x as *const Expr)) && g.client_call(e, env) => return true,
                     _ => {}
                 }
             }
@@ -1044,9 +1044,9 @@ impl<'p> Gen<'p> {
     fn loading_value0(&mut self, e: &Expr, env: Env) -> R<E> {
         fn find<'a>(n: Node<'a>) -> Option<&'a Expr> {
             if let Node::E(x) = n {
-                match x {
-                    Expr::Fn { .. } => return None,
-                    Expr::Await { init: Some(i), .. } => return Some(i),
+                match &x.k {
+                    ExprKind::Fn { .. } => return None,
+                    ExprKind::Await { init: Some(i), .. } => return Some(i),
                     _ => {}
                 }
             }
@@ -1060,13 +1060,13 @@ impl<'p> Gen<'p> {
     fn draft_body(&mut self, ss: &[Stmt], env: Env) -> R<Vec<S>> {
         let mut out = vec![];
         for s in ss {
-            match s {
-                Stmt::Let { name, e, .. } => {
+            match &s.k {
+                StmtKind::Let { name, e, .. } => {
                     self.set(env, name, val(mg(name)));
                     out.push(konst(mg(name), self.expr(e, env, &reactive())?));
                 }
-                Stmt::Expr(e) => out.push(sexpr(self.expr(e, env, &reactive())?)),
-                Stmt::Write { target, e } => {
+                StmtKind::Expr(e) => out.push(sexpr(self.expr(e, env, &reactive())?)),
+                StmtKind::Write { target, e } => {
                     let mut path = vec![];
                     for p in &target.path {
                         path.push(match p {
@@ -1103,7 +1103,7 @@ impl<'p> Gen<'p> {
         // an instantiating fn (RG-6): called once, returns the accessor of its tail
         let mut body = self.block(decls, &[], inner, None, false)?;
         strip_return_null(&mut body);
-        let tb = if let Expr::Id(n) = tail { self.lookup(inner, n) } else { None };
+        let tb = if let ExprKind::Id(n) = &tail.k { self.lookup(inner, n) } else { None };
         let t = match tb {
             Some(tb) if matches!(tb.kind, Kind::Acc | Kind::Src) => id(tb.js),
             _ => rtc("memo", vec![E::Null, thunk(self.expr(tail, inner, &reactive())?)]),
@@ -1112,8 +1112,8 @@ impl<'p> Gen<'p> {
         Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }))
     }
     fn instantiate(&mut self, e: &Expr, env: Env) -> R<E> {
-        let Expr::Call { f, args } = e else { unreachable!() };
-        let Expr::Id(fname) = &**f else { unreachable!() };
+        let ExprKind::Call { f, args } = &e.k else { unreachable!() };
+        let ExprKind::Id(fname) = &f.k else { unreachable!() };
         let b = self.lookup(env, fname).unwrap();
         let mut out = vec![];
         for (i, (_, r#ref)) in b.f.as_ref().unwrap().params.iter().enumerate() {
@@ -1122,7 +1122,7 @@ impl<'p> Gen<'p> {
                 continue;
             };
             if *r#ref {
-                if let Expr::Id(n) = a {
+                if let ExprKind::Id(n) = &a.k {
                     if let Some(ab) = self.lookup(env, n).filter(|ab| matches!(ab.kind, Kind::Acc | Kind::Src)) {
                         out.push(id(ab.js));
                         continue;
@@ -1146,10 +1146,10 @@ impl<'p> Gen<'p> {
     // ---- expressions
     fn expr(&mut self, e: &Expr, env: Env, ctx: &Ctx) -> R<E> {
         let sub = Ctx { tail: false, ..ctx.clone() };
-        Ok(match e {
-            Expr::Lit(l) => lit(l),
-            Expr::Id(n) => self.reference(n, env, ctx)?,
-            Expr::Pre { name, init } => {
+        Ok(match &e.k {
+            ExprKind::Lit(l) => lit(l),
+            ExprKind::Id(n) => self.reference(n, env, ctx)?,
+            ExprKind::Pre { name, init } => {
                 let i = match init {
                     Some(i) => self.expr(i, env, &sub)?,
                     None => undef(),
@@ -1161,8 +1161,8 @@ impl<'p> Gen<'p> {
                 let Some(p) = self.lookup(env, name).and_then(|b| b.prev) else { return fail(format!("pre {name}: no companion memo")) };
                 rtc("preOr", vec![call(id(p), vec![]), thunk(i)])
             }
-            Expr::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
-            Expr::Await { e: x, stream, .. } => {
+            ExprKind::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::Await { e: x, stream, .. } => {
                 if let Some(v) = self.hoisted.get(&(e as *const Expr)) {
                     return Ok(call(id(v.clone()), vec![]));
                 }
@@ -1188,18 +1188,18 @@ impl<'p> Gen<'p> {
                 }
             }
             // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
-            Expr::Latest(x) => rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)]),
-            Expr::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
-            Expr::If { c, t, f } => {
+            ExprKind::Latest(x) => rtc("latest", vec![thunk(self.expr(x, env, &Ctx { imp: false, ..ctx.clone() })?)]),
+            ExprKind::Pending(x) => rtc("isPending", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::If { c, t, f } => {
                 let c = self.expr(c, env, &sub)?;
                 let t = self.expr(t, env, ctx)?;
                 let f = self.expr(f, env, ctx)?;
                 E::Cond(Box::new(c), Box::new(t), Box::new(f))
             }
             // R-f-3
-            Expr::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
+            ExprKind::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
             // R-f-4: over a sync value, or the tail await's promise/stream
-            Expr::Catch { e: x, name, classes, alt } => {
+            ExprKind::Catch { e: x, name, classes, alt } => {
                 if ctx.imp && has_await_json(&x.to_json()) {
                     return fail("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
                 }
@@ -1213,7 +1213,7 @@ impl<'p> Gen<'p> {
                 let p = name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
                 rtc(if ctx.imp { "tryCatch" } else { "catchRead" }, vec![thunk(body), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)])
             }
-            Expr::Tpl(parts) => {
+            ExprKind::Tpl(parts) => {
                 let mut xs = vec![];
                 for p in parts {
                     xs.push(match p {
@@ -1227,38 +1227,38 @@ impl<'p> Gen<'p> {
                     Some(first) => it.fold(first, |a, b| bin("+", a, b)),
                 }
             }
-            Expr::Member { o, p, .. } => E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true),
-            Expr::Index { o, i, .. } => {
+            ExprKind::Member { o, p, .. } => E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true),
+            ExprKind::Index { o, i, .. } => {
                 let o = self.expr(o, env, &sub)?;
                 E::Index(Box::new(o), Box::new(self.expr(i, env, &sub)?), true)
             }
             // 07 CSS-5
-            Expr::StyleMap { css, line } => self.class_map(css, *line)?,
-            Expr::Call { f, args } => {
+            ExprKind::StyleMap { css, line } => self.class_map(css, *line)?,
+            ExprKind::Call { f, args } => {
                 // AC-6: Solid's until; the predicate is reactive scope
-                if let (Expr::Id(n), Some(Expr::Fn { body, .. })) = (&**f, args.first()) {
+                if let (ExprKind::Id(n), Some(Expr { k: ExprKind::Fn { body, .. }, .. })) = (&f.k, args.first()) {
                     if n == "until" && self.lookup(env, "until").is_none() {
                         return Ok(rtc("until", vec![thunk(self.expr(body, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?)]));
                     }
                 }
-                let callee = if let Expr::Member { o, p, .. } = &**f { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
+                let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
                 let mut xs = vec![];
                 for a in args {
                     xs.push(self.expr(a, env, &sub)?);
                 }
                 call(callee, xs)
             }
-            Expr::Arr(items) => {
+            ExprKind::Arr(items) => {
                 let mut xs = vec![];
                 for i in items {
-                    xs.push(match i {
-                        Expr::Spread(x) => E::Spread(Box::new(self.expr(x, env, &sub)?)),
+                    xs.push(match &i.k {
+                        ExprKind::Spread(x) => E::Spread(Box::new(self.expr(x, env, &sub)?)),
                         _ => self.expr(i, env, &sub)?,
                     });
                 }
                 E::Arr(xs)
             }
-            Expr::Rec(fields) => {
+            ExprKind::Rec(fields) => {
                 let mut ps = vec![];
                 for f in fields {
                     ps.push(match f {
@@ -1268,7 +1268,7 @@ impl<'p> Gen<'p> {
                 }
                 E::Obj(ps)
             }
-            Expr::Fn { params, body, stmts } => {
+            ExprKind::Fn { params, body, stmts } => {
                 let inner = self.params(env, params);
                 let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
                 match stmts {
@@ -1283,8 +1283,8 @@ impl<'p> Gen<'p> {
                     }
                 }
             }
-            Expr::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
-            Expr::Bin { op, l, r } => {
+            ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
+            ExprKind::Bin { op, l, r } => {
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {
@@ -1293,10 +1293,10 @@ impl<'p> Gen<'p> {
                     op => bin(static_op(op), l, r),
                 }
             }
-            Expr::Un { op, e: x } => E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?)),
-            Expr::Draft { .. } => return fail("a draft is an equation's whole expression"),
-            Expr::Spread(_) => return fail("spread outside an array literal"),
-            Expr::ServerFn { .. } => undef(),
+            ExprKind::Un { op, e: x } => E::Un(static_op(op), Box::new(self.expr(x, env, &sub)?)),
+            ExprKind::Draft { .. } => return fail("a draft is an equation's whole expression"),
+            ExprKind::Spread(_) => return fail("spread outside an array literal"),
+            ExprKind::ServerFn { .. } => undef(),
         })
     }
     fn reference(&mut self, name: &str, env: Env, ctx: &Ctx) -> R<E> {
@@ -1348,12 +1348,12 @@ impl<'p> Gen<'p> {
         let mut out = vec![];
         for (i, s) in ss.iter().enumerate() {
             // AC-1 / R-f-4: a statement-level `await … catch` is a try around the await
-            let c = match s {
-                Stmt::Let { e: c @ Expr::Catch { e: inner, .. }, .. } | Stmt::Expr(c @ Expr::Catch { e: inner, .. }) if matches!(&**inner, Expr::Await { .. }) => Some(c),
+            let c = match &s.k {
+                StmtKind::Let { e: c @ Expr { k: ExprKind::Catch { e: inner, .. }, .. }, .. } | StmtKind::Expr(c @ Expr { k: ExprKind::Catch { e: inner, .. }, .. }) if matches!(&inner.k, ExprKind::Await { .. }) => Some(c),
                 _ => None,
             };
-            if let Some(Expr::Catch { e: ce, name: cn, classes, alt }) = c {
-                let v = if let Stmt::Let { name, .. } = s { Some(mg(name)) } else { None };
+            if let Some(Expr { k: ExprKind::Catch { e: ce, name: cn, classes, alt }, .. }) = c {
+                let v = if let StmtKind::Let { name, .. } = &s.k { Some(mg(name)) } else { None };
                 let set = |x: E| match &v {
                     Some(v) => sexpr(E::Assign("=", Box::new(id(v.clone())), Box::new(x))),
                     None => sexpr(x),
@@ -1375,31 +1375,31 @@ impl<'p> Gen<'p> {
                     handler: Some(vec![S::IfThen(not(rtc("isA", vec![id(ev.clone()), cls])), Box::new(S::Throw(id(ev)))), set(a)]),
                     fin: None,
                 });
-                if let (Some(v), Stmt::Let { name, .. }) = (&v, s) {
+                if let (Some(v), StmtKind::Let { name, .. }) = (&v, &s.k) {
                     self.set(env, name, val(v.clone()));
                 }
                 continue;
             }
-            match s {
-                Stmt::Let { name, e, .. } => {
+            match &s.k {
+                StmtKind::Let { name, e, .. } => {
                     let x = self.expr(e, env, &sub)?;
                     out.push(S::Let(mg(name), Some(x)));
                     self.set(env, name, val(mg(name)));
                 }
-                Stmt::Expr(e) => {
+                StmtKind::Expr(e) => {
                     let x = self.expr(e, env, &sub)?;
                     out.push(if return_last && i == ss.len() - 1 { S::Return(Some(x)) } else { sexpr(x) });
                 }
-                Stmt::Return(e) => {
+                StmtKind::Return(e) => {
                     let x = match e {
                         Some(e) => Some(self.expr(e, env, &sub)?),
                         None => None,
                     };
                     out.push(S::Return(x));
                 }
-                Stmt::Throw(e) => out.push(S::Throw(self.expr(e, env, &sub)?)),
-                Stmt::Write { target, e } | Stmt::Optimistic { target, e } => {
-                    let optimistic = matches!(s, Stmt::Optimistic { .. });
+                StmtKind::Throw(e) => out.push(S::Throw(self.expr(e, env, &sub)?)),
+                StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                    let optimistic = matches!(&s.k, StmtKind::Optimistic { .. });
                     let mut keys = vec![];
                     for p in &target.path {
                         keys.push(match p {
@@ -1431,25 +1431,25 @@ impl<'p> Gen<'p> {
                         call(dot(w, "set"), vec![v])
                     }));
                 }
-                Stmt::Refresh(n) | Stmt::Affects(n) => {
+                StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                     let get = match self.lookup(env, n) {
                         Some(b) => id(b.js),
                         None => dot(rtc("lookup", vec![str(n.clone())]), "get"),
                     };
-                    out.push(sexpr(if matches!(s, Stmt::Refresh(_)) { rtc("refresh", vec![str(n.clone()), get]) } else { rtc("affects", vec![get]) }));
+                    out.push(sexpr(if matches!(&s.k, StmtKind::Refresh(_)) { rtc("refresh", vec![str(n.clone()), get]) } else { rtc("affects", vec![get]) }));
                 }
-                Stmt::Action(body) => {
+                StmtKind::Action(body) => {
                     let b = self.stmts(body, env, &Ctx { imp: true, gen: true, dynamic: ctx.dynamic, ..Ctx::default() }, false)?;
                     let gen = E::Func(Box::new(Func { name: None, params: vec![], directives: vec![], body: b, is_async: false, generator: true }));
                     out.push(sexpr(call(rtc("action", vec![gen]), vec![])));
                 }
-                Stmt::Sif { c, t, f } => {
+                StmtKind::Sif { c, t, f } => {
                     let c = self.expr(c, env, &sub)?;
                     let t = self.stmts(t, env, ctx, false)?;
                     let f = self.stmts(f, env, ctx, false)?;
                     out.push(S::If(c, t, Some(f)));
                 }
-                Stmt::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
                     let block = self.stmts(body, env, ctx, false)?;
                     let (param, handler) = match handler {
                         Some(hs) => {
@@ -1553,11 +1553,11 @@ impl<'p> Gen<'p> {
             MarkupKind::El { tag, attrs, children } => {
                 let mut xs = vec![];
                 for a in attrs {
-                    xs.push(match (&self.style_hash, a.name.as_str(), &a.e) {
-                        (Some(h), "class", Expr::Lit(Lit::Str(v))) => ("class".to_string(), AttrValue::Expr(str(format!("{v} {h}")))),
-                        (Some(h), "class", e) => {
+                    xs.push(match (&self.style_hash, a.name.as_str(), &a.e.k) {
+                        (Some(h), "class", ExprKind::Lit(Lit::Str(v))) => ("class".to_string(), AttrValue::Expr(str(format!("{v} {h}")))),
+                        (Some(h), "class", _) => {
                             let h = h.clone();
-                            ("class".to_string(), AttrValue::Expr(rtc("scopedClass", vec![self.expr(e, env, &re)?, str(h)])))
+                            ("class".to_string(), AttrValue::Expr(rtc("scopedClass", vec![self.expr(&a.e, env, &re)?, str(h)])))
                         }
                         _ => self.attr(&a.name, &a.e, env)?,
                     });
@@ -1575,7 +1575,7 @@ impl<'p> Gen<'p> {
                 }
             }
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
-                let narrowed = if let Expr::Id(n) = c { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
+                let narrowed = if let ExprKind::Id(n) = &c.k { self.lookup(env, n).filter(|b| matches!(b.kind, Kind::Acc | Kind::Src)).map(|b| (n.clone(), b)) } else { None };
                 let narrow = narrowed.map(|(n, b)| {
                     let mut nb = bind(Kind::Acc, format!("n${n}"));
                     nb.w = b.w;

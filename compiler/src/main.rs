@@ -1,6 +1,8 @@
 //! `rxc`: the crate's command line.
 //!
 //!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them
+//!   rxc check --json file.rx...
+//!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
 //!   rxc model file.rx...   the resolved model (CP-6) of each module, as JSON
 //!   rxc conform            reads `[{id, entry, files: {path: source}}]` on stdin and prints, per program, every module's
 //!                          AST, the diagnostics, the printed signatures and the models: what `ref/crate.ts` compares.
@@ -56,7 +58,15 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
     for (p, m) in &checked.models {
         models.insert(p.clone(), m.clone());
     }
+    let mut spans = Map::new();
+    for p in &set.order {
+        let bad = reactivescript::spans::check_spans(&set.sources[p], &set.programs[p]);
+        if !bad.is_empty() {
+            spans.insert(p.clone(), json!(bad));
+        }
+    }
     json!({
+        "spans": spans,
         "order": set.order,
         "asts": asts,
         "diags": checked.diags.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
@@ -106,6 +116,35 @@ fn lower_one(r: &Value) -> Value {
     let mut v = json!({ "entry": out.entry, "css": out.css, "files": mods });
     if with_maps {
         v["maps"] = Value::Object(maps);
+    }
+    v
+}
+
+/// `rxc check --json`: a diagnostic with its range (CP-8), for an editor or an agent. Lines are 1-based, columns 0-based in
+/// UTF-16 code units, as LSP counts; `start`/`end` are byte offsets; `rule` names the spec rule (spec/99).
+fn diagnostic_json(set: &reactivescript::modules::ModuleSet, d: &reactivescript::check::Diagnostic) -> Value {
+    let file = d.file.clone().unwrap_or_else(|| set.entry.clone());
+    let mut v = json!({ "file": file, "line": d.line, "code": d.code, "rule": d.rule, "message": d.msg });
+    if let (Some(src), Some(p)) = (set.sources.get(&file), set.programs.get(&file)) {
+        if let Some(r) = reactivescript::spans::line_range(src, p, d.line.max(1) as usize) {
+            let ((l0, c0), (l1, c1)) = (reactivescript::spans::line_col(src, r.start), reactivescript::spans::line_col(src, r.end));
+            v["range"] = json!({ "start": { "line": l0, "column": c0 }, "end": { "line": l1, "column": c1 }, "offsets": [r.start, r.end] });
+        }
+    }
+    v
+}
+
+/// A parse error as `diagnostic_json` writes a diagnostic: from where the parser stopped to the end of that line.
+fn parse_error_json(f: &str, e: &reactivescript::parse::ParseError) -> Value {
+    let file = e.2.clone().unwrap_or_else(|| abs(f));
+    let mut v = json!({ "file": file, "code": "PARSE", "rule": "07", "message": e.0 });
+    if let (Some(at), Some(src)) = (e.1, read_disk(&file)) {
+        let at = at.min(src.len());
+        let end = src[at..].find('\n').map(|j| at + j).unwrap_or(src.len());
+        let end = at + src[at..end].trim_end().len();
+        let ((l0, c0), (l1, c1)) = (reactivescript::spans::line_col(&src, at as u32), reactivescript::spans::line_col(&src, end as u32));
+        v["line"] = json!(l0);
+        v["range"] = json!({ "start": { "line": l0, "column": c0 }, "end": { "line": l1, "column": c1 }, "offsets": [at, end] });
     }
     v
 }
@@ -237,19 +276,29 @@ fn main() {
         }
         "check" | "model" => {
             let mut bad = 0;
-            for f in &args[1..] {
+            let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
+            let mut found: Vec<Value> = vec![];
+            for f in args[1..].iter().filter(|a| !a.starts_with("--")) {
                 let set = match load_modules(&abs(f), &read_disk) {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("{}: parse error: {}", f, e.0);
                         bad += 1;
+                        if as_json {
+                            found.push(parse_error_json(f, &e));
+                        } else {
+                            eprintln!("{}: parse error: {}", f, e.0);
+                        }
                         continue;
                     }
                 };
                 let checked = check_modules(&set);
                 for d in &checked.diags {
                     bad += 1;
-                    eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
+                    if as_json {
+                        found.push(diagnostic_json(&set, d));
+                    } else {
+                        eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
+                    }
                 }
                 if cmd == "model" {
                     let cwd = std::env::current_dir().map(|p| p.to_string_lossy().into_owned() + "/").unwrap_or_default();
@@ -263,9 +312,12 @@ fn main() {
                         })
                         .collect();
                     println!("{}", serde_json::to_string_pretty(&ms).unwrap());
-                } else if checked.diags.is_empty() {
+                } else if checked.diags.is_empty() && !as_json {
                     println!("{}: ok", f);
                 }
+            }
+            if as_json {
+                println!("{}", serde_json::to_string_pretty(&json!({ "diagnostics": found })).unwrap());
             }
             std::process::exit(if bad > 0 { 1 } else { 0 });
         }

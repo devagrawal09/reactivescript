@@ -25,8 +25,47 @@ pub enum Field {
     Spread(Expr),
 }
 
+/// A byte range of the `.rx` source (`start..end`). `Span::NONE` (0..0) marks a node the compiler made, not the parser.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Span {
+    pub start: u32,
+    pub end: u32,
+}
+impl Span {
+    pub const NONE: Span = Span { start: 0, end: 0 };
+    pub fn new(start: usize, end: usize) -> Self {
+        Span { start: start as u32, end: end as u32 }
+    }
+    pub fn is_none(&self) -> bool {
+        self.start == 0 && self.end == 0
+    }
+    /// The 1-based line `start` is on.
+    pub fn line(&self, src: &str) -> usize {
+        src.as_bytes()[..(self.start as usize).min(src.len())].iter().filter(|b| **b == b'\n').count() + 1
+    }
+    pub fn text<'a>(&self, src: &'a str) -> &'a str {
+        src.get(self.start as usize..self.end as usize).unwrap_or("")
+    }
+}
+
+/// An expression and where it was written.
 #[derive(Debug, Clone)]
-pub enum Expr {
+pub struct Expr {
+    pub k: ExprKind,
+    pub span: Span,
+}
+impl Expr {
+    pub fn new(k: ExprKind, span: Span) -> Self {
+        Expr { k, span }
+    }
+    /// An expression the compiler made: no source.
+    pub fn made(k: ExprKind) -> Self {
+        Expr { k, span: Span::NONE }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ExprKind {
     Lit(Lit),
     Id(String),
     Bin { op: String, l: Box<Expr>, r: Box<Expr> },
@@ -80,8 +119,15 @@ impl Target {
     }
 }
 
+/// A statement and where it was written.
 #[derive(Debug, Clone)]
-pub enum Stmt {
+pub struct Stmt {
+    pub k: StmtKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum StmtKind {
     Write { target: Target, e: Expr },
     Let { name: String, e: Expr, ty: Option<String> },
     Expr(Expr),
@@ -96,18 +142,23 @@ pub enum Stmt {
 }
 impl Stmt {
     pub fn kind(&self) -> &'static str {
+        self.k.kind()
+    }
+}
+impl StmtKind {
+    pub fn kind(&self) -> &'static str {
         match self {
-            Stmt::Write { .. } => "write",
-            Stmt::Let { .. } => "let",
-            Stmt::Expr(_) => "expr",
-            Stmt::Optimistic { .. } => "optimistic",
-            Stmt::Refresh(_) => "refresh",
-            Stmt::Affects(_) => "affects",
-            Stmt::Action(_) => "action",
-            Stmt::Sif { .. } => "sif",
-            Stmt::Return(_) => "return",
-            Stmt::Try { .. } => "try",
-            Stmt::Throw(_) => "throw",
+            StmtKind::Write { .. } => "write",
+            StmtKind::Let { .. } => "let",
+            StmtKind::Expr(_) => "expr",
+            StmtKind::Optimistic { .. } => "optimistic",
+            StmtKind::Refresh(_) => "refresh",
+            StmtKind::Affects(_) => "affects",
+            StmtKind::Action(_) => "action",
+            StmtKind::Sif { .. } => "sif",
+            StmtKind::Return(_) => "return",
+            StmtKind::Try { .. } => "try",
+            StmtKind::Throw(_) => "throw",
         }
     }
 }
@@ -141,14 +192,15 @@ pub struct ImportName {
 
 #[derive(Debug, Clone)]
 pub enum Decl {
-    Source { name: String, init: Expr, line: usize, question: bool, ty: Option<String>, exported: bool, key: Option<String> },
-    Eq { name: String, e: Expr, line: usize, deferred: bool, key: Option<String>, ty: Option<String>, exported: bool },
+    Source { name: String, init: Expr, line: usize, span: Span, question: bool, ty: Option<String>, exported: bool, key: Option<String> },
+    Eq { name: String, e: Expr, line: usize, span: Span, deferred: bool, key: Option<String>, ty: Option<String>, exported: bool },
     Import {
         names: Vec<ImportName>,
         from: String,
         pure: bool,
         side: Option<Side>,
         line: usize,
+        span: Span,
         fails: Option<Vec<String>>,
         /// an `.rx` import's module key (MO-1, set by the loader)
         resolved: Option<String>,
@@ -158,15 +210,15 @@ pub enum Decl {
         declared_pure: Option<Vec<String>>,
         declared_side: Option<Vec<(String, Side)>>,
     },
-    Error { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, msg: Option<Expr>, line: usize, exported: bool },
-    TypeDecl { name: String, line: usize, text: String, exported: bool },
-    Effect { inputs: Vec<Expr>, body: Vec<Stmt>, line: usize },
-    Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, ret: Option<String>, exported: bool },
-    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, props_type: Option<String>, exported: bool, is_default: bool },
-    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, exported: bool },
-    Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, exported: bool },
-    Provide { name: String, e: Expr, line: usize },
-    Context { name: String, ty: Option<String>, source: bool, dflt: Option<Expr>, line: usize, exported: bool },
+    Error { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, msg: Option<Expr>, line: usize, span: Span, exported: bool },
+    TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
+    Effect { inputs: Vec<Expr>, body: Vec<Stmt>, line: usize, span: Span },
+    Fn { name: String, params: Vec<Param>, decls: Vec<Decl>, tail: Expr, line: usize, span: Span, ret: Option<String>, exported: bool },
+    Component { name: String, props: String, decls: Vec<Decl>, view: Vec<Markup>, line: usize, span: Span, props_type: Option<String>, exported: bool, is_default: bool },
+    Action { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
+    Server { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt>, line: usize, span: Span, exported: bool },
+    Provide { name: String, e: Expr, line: usize, span: Span },
+    Context { name: String, ty: Option<String>, source: bool, dflt: Option<Expr>, line: usize, span: Span, exported: bool },
 }
 impl Decl {
     pub fn line(&self) -> usize {
@@ -183,6 +235,39 @@ impl Decl {
             | Decl::Server { line, .. }
             | Decl::Provide { line, .. }
             | Decl::Context { line, .. } => *line,
+        }
+    }
+    /// Where the declaration was written, from its first keyword (`export` included) to its end.
+    pub fn span(&self) -> Span {
+        match self {
+            Decl::Source { span, .. }
+            | Decl::Eq { span, .. }
+            | Decl::Import { span, .. }
+            | Decl::Error { span, .. }
+            | Decl::TypeDecl { span, .. }
+            | Decl::Effect { span, .. }
+            | Decl::Fn { span, .. }
+            | Decl::Component { span, .. }
+            | Decl::Action { span, .. }
+            | Decl::Server { span, .. }
+            | Decl::Provide { span, .. }
+            | Decl::Context { span, .. } => *span,
+        }
+    }
+    pub fn set_span(&mut self, to: Span) {
+        match self {
+            Decl::Source { span, .. }
+            | Decl::Eq { span, .. }
+            | Decl::Import { span, .. }
+            | Decl::Error { span, .. }
+            | Decl::TypeDecl { span, .. }
+            | Decl::Effect { span, .. }
+            | Decl::Fn { span, .. }
+            | Decl::Component { span, .. }
+            | Decl::Action { span, .. }
+            | Decl::Server { span, .. }
+            | Decl::Provide { span, .. }
+            | Decl::Context { span, .. } => *span = to,
         }
     }
     /// The name a declaration binds (`"name" in d`): every kind but `import` and `effect`.
@@ -235,6 +320,8 @@ impl Decl {
 pub struct Attr {
     pub name: String,
     pub e: Expr,
+    /// the attribute's name
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -258,6 +345,7 @@ pub enum MarkupKind {
 pub struct Markup {
     pub kind: MarkupKind,
     pub line: Option<usize>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -313,55 +401,55 @@ pub fn num_json(n: f64) -> Value {
 
 impl Expr {
     pub fn kind(&self) -> &'static str {
-        match self {
-            Expr::Lit(_) => "lit",
-            Expr::Id(_) => "id",
-            Expr::Bin { .. } => "bin",
-            Expr::Un { .. } => "un",
-            Expr::Pre { .. } => "pre",
-            Expr::Peek(_) => "peek",
-            Expr::Await { .. } => "await",
-            Expr::Latest(_) => "latest",
-            Expr::Pending(_) => "pending",
-            Expr::If { .. } => "if",
-            Expr::Tpl(_) => "tpl",
-            Expr::Member { .. } => "member",
-            Expr::Index { .. } => "index",
-            Expr::Call { .. } => "call",
-            Expr::Arr(_) => "arr",
-            Expr::Rec(_) => "rec",
-            Expr::Fn { .. } => "fn",
-            Expr::Draft { .. } => "draft",
-            Expr::Use(_) => "use",
-            Expr::Spread(_) => "spread",
-            Expr::Throw(_) => "throw",
-            Expr::Catch { .. } => "catch",
-            Expr::StyleMap { .. } => "stylemap",
-            Expr::ServerFn { .. } => "serverfn",
+        match &self.k {
+            ExprKind::Lit(_) => "lit",
+            ExprKind::Id(_) => "id",
+            ExprKind::Bin { .. } => "bin",
+            ExprKind::Un { .. } => "un",
+            ExprKind::Pre { .. } => "pre",
+            ExprKind::Peek(_) => "peek",
+            ExprKind::Await { .. } => "await",
+            ExprKind::Latest(_) => "latest",
+            ExprKind::Pending(_) => "pending",
+            ExprKind::If { .. } => "if",
+            ExprKind::Tpl(_) => "tpl",
+            ExprKind::Member { .. } => "member",
+            ExprKind::Index { .. } => "index",
+            ExprKind::Call { .. } => "call",
+            ExprKind::Arr(_) => "arr",
+            ExprKind::Rec(_) => "rec",
+            ExprKind::Fn { .. } => "fn",
+            ExprKind::Draft { .. } => "draft",
+            ExprKind::Use(_) => "use",
+            ExprKind::Spread(_) => "spread",
+            ExprKind::Throw(_) => "throw",
+            ExprKind::Catch { .. } => "catch",
+            ExprKind::StyleMap { .. } => "stylemap",
+            ExprKind::ServerFn { .. } => "serverfn",
         }
     }
     pub fn to_json(&self) -> Value {
         let k = s(self.kind());
         let b = |e: &Expr| Some(e.to_json());
         let ob = |e: &Option<Box<Expr>>| e.as_ref().map(|e| e.to_json());
-        match self {
-            Expr::Lit(l) => obj(vec![("k", k), ("v", lit_json(l))]),
-            Expr::Id(n) => obj(vec![("k", k), ("name", s(n))]),
-            Expr::Bin { op, l, r } => obj(vec![("k", k), ("op", s(op)), ("l", b(l)), ("r", b(r))]),
-            Expr::Un { op, e } => obj(vec![("k", k), ("op", s(op)), ("e", b(e))]),
-            Expr::Pre { name, init } => obj(vec![("k", k), ("name", s(name)), ("init", ob(init))]),
-            Expr::Peek(e) | Expr::Latest(e) | Expr::Pending(e) | Expr::Spread(e) | Expr::Throw(e) => obj(vec![("k", k), ("e", b(e))]),
-            Expr::Await { e, init, stream } => obj(vec![("k", k), ("e", b(e)), ("init", ob(init)), ("stream", Some(Value::Bool(*stream)))]),
-            Expr::If { c, t, f } => obj(vec![("k", k), ("c", b(c)), ("t", b(t)), ("f", b(f))]),
-            Expr::Tpl(parts) => obj(vec![
+        match &self.k {
+            ExprKind::Lit(l) => obj(vec![("k", k), ("v", lit_json(l))]),
+            ExprKind::Id(n) => obj(vec![("k", k), ("name", s(n))]),
+            ExprKind::Bin { op, l, r } => obj(vec![("k", k), ("op", s(op)), ("l", b(l)), ("r", b(r))]),
+            ExprKind::Un { op, e } => obj(vec![("k", k), ("op", s(op)), ("e", b(e))]),
+            ExprKind::Pre { name, init } => obj(vec![("k", k), ("name", s(name)), ("init", ob(init))]),
+            ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Throw(e) => obj(vec![("k", k), ("e", b(e))]),
+            ExprKind::Await { e, init, stream } => obj(vec![("k", k), ("e", b(e)), ("init", ob(init)), ("stream", Some(Value::Bool(*stream)))]),
+            ExprKind::If { c, t, f } => obj(vec![("k", k), ("c", b(c)), ("t", b(t)), ("f", b(f))]),
+            ExprKind::Tpl(parts) => obj(vec![
                 ("k", k),
                 ("parts", Some(Value::Array(parts.iter().map(|p| match p { TplPart::Str(x) => Value::String(x.clone()), TplPart::Expr(e) => e.to_json() }).collect()))),
             ]),
-            Expr::Member { o, p, opt } => obj(vec![("k", k), ("o", b(o)), ("p", s(p)), ("opt", flag(*opt))]),
-            Expr::Index { o, i, opt } => obj(vec![("k", k), ("o", b(o)), ("i", b(i)), ("opt", flag(*opt))]),
-            Expr::Call { f, args } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect())))]),
-            Expr::Arr(items) => obj(vec![("k", k), ("items", Some(Value::Array(items.iter().map(|a| a.to_json()).collect())))]),
-            Expr::Rec(fields) => obj(vec![
+            ExprKind::Member { o, p, opt } => obj(vec![("k", k), ("o", b(o)), ("p", s(p)), ("opt", flag(*opt))]),
+            ExprKind::Index { o, i, opt } => obj(vec![("k", k), ("o", b(o)), ("i", b(i)), ("opt", flag(*opt))]),
+            ExprKind::Call { f, args } => obj(vec![("k", k), ("f", b(f)), ("args", Some(Value::Array(args.iter().map(|a| a.to_json()).collect())))]),
+            ExprKind::Arr(items) => obj(vec![("k", k), ("items", Some(Value::Array(items.iter().map(|a| a.to_json()).collect())))]),
+            ExprKind::Rec(fields) => obj(vec![
                 ("k", k),
                 (
                     "fields",
@@ -376,12 +464,12 @@ impl Expr {
                     )),
                 ),
             ]),
-            Expr::Fn { params, body, stmts } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss)))]),
-            Expr::Draft { seed, body } => obj(vec![("k", k), ("seed", b(seed)), ("body", Some(stmts_json(body)))]),
-            Expr::Use(n) => obj(vec![("k", k), ("name", s(n))]),
-            Expr::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
-            Expr::StyleMap { css, line } => obj(vec![("k", k), ("css", s(css)), ("line", num(*line))]),
-            Expr::ServerFn { params, ptypes, ret, body } => obj(vec![("k", k), ("params", Some(strs(params))), ("ptypes", Some(ostrs(ptypes))), ("ret", os(ret)), ("body", Some(stmts_json(body)))]),
+            ExprKind::Fn { params, body, stmts } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss)))]),
+            ExprKind::Draft { seed, body } => obj(vec![("k", k), ("seed", b(seed)), ("body", Some(stmts_json(body)))]),
+            ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
+            ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
+            ExprKind::StyleMap { css, line } => obj(vec![("k", k), ("css", s(css)), ("line", num(*line))]),
+            ExprKind::ServerFn { params, ptypes, ret, body } => obj(vec![("k", k), ("params", Some(strs(params))), ("ptypes", Some(ostrs(ptypes))), ("ret", os(ret)), ("body", Some(stmts_json(body)))]),
         }
     }
 }
@@ -399,15 +487,15 @@ fn target_json(t: &Target) -> Value {
 impl Stmt {
     pub fn to_json(&self) -> Value {
         let k = s(self.kind());
-        match self {
-            Stmt::Write { target, e } | Stmt::Optimistic { target, e } => obj(vec![("k", k), ("target", Some(target_json(target))), ("e", Some(e.to_json()))]),
-            Stmt::Let { name, e, ty } => obj(vec![("k", k), ("name", s(name)), ("e", Some(e.to_json())), ("type", os(ty))]),
-            Stmt::Expr(e) | Stmt::Throw(e) => obj(vec![("k", k), ("e", Some(e.to_json()))]),
-            Stmt::Refresh(n) | Stmt::Affects(n) => obj(vec![("k", k), ("name", s(n))]),
-            Stmt::Action(body) => obj(vec![("k", k), ("body", Some(stmts_json(body)))]),
-            Stmt::Sif { c, t, f } => obj(vec![("k", k), ("c", Some(c.to_json())), ("t", Some(stmts_json(t))), ("f", Some(stmts_json(f)))]),
-            Stmt::Return(e) => obj(vec![("k", k), ("e", e.as_ref().map(|e| e.to_json()))]),
-            Stmt::Try { body, catch_name, catch_classes, handler, fin } => obj(vec![
+        match &self.k {
+            StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => obj(vec![("k", k), ("target", Some(target_json(target))), ("e", Some(e.to_json()))]),
+            StmtKind::Let { name, e, ty } => obj(vec![("k", k), ("name", s(name)), ("e", Some(e.to_json())), ("type", os(ty))]),
+            StmtKind::Expr(e) | StmtKind::Throw(e) => obj(vec![("k", k), ("e", Some(e.to_json()))]),
+            StmtKind::Refresh(n) | StmtKind::Affects(n) => obj(vec![("k", k), ("name", s(n))]),
+            StmtKind::Action(body) => obj(vec![("k", k), ("body", Some(stmts_json(body)))]),
+            StmtKind::Sif { c, t, f } => obj(vec![("k", k), ("c", Some(c.to_json())), ("t", Some(stmts_json(t))), ("f", Some(stmts_json(f)))]),
+            StmtKind::Return(e) => obj(vec![("k", k), ("e", e.as_ref().map(|e| e.to_json()))]),
+            StmtKind::Try { body, catch_name, catch_classes, handler, fin } => obj(vec![
                 ("k", k),
                 ("body", Some(stmts_json(body))),
                 ("catchName", os(catch_name)),
@@ -428,7 +516,7 @@ pub fn markups_json(ms: &[Markup]) -> Value {
 impl Decl {
     pub fn to_json(&self) -> Value {
         match self {
-            Decl::Source { name, init, line, question, ty, exported, key } => obj(vec![
+            Decl::Source { name, init, line, question, ty, exported, key, .. } => obj(vec![
                 ("k", s("source")),
                 ("name", s(name)),
                 ("init", Some(init.to_json())),
@@ -438,7 +526,7 @@ impl Decl {
                 ("key", os(key)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Eq { name, e, line, deferred, key, ty, exported } => obj(vec![
+            Decl::Eq { name, e, line, deferred, key, ty, exported, .. } => obj(vec![
                 ("k", s("eq")),
                 ("name", s(name)),
                 ("e", Some(e.to_json())),
@@ -448,7 +536,7 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side } => obj(vec![
+            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side, .. } => obj(vec![
                 ("k", s("import")),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
@@ -471,7 +559,7 @@ impl Decl {
                     }),
                 ),
             ]),
-            Decl::Error { name, params, ptypes, msg, line, exported } => obj(vec![
+            Decl::Error { name, params, ptypes, msg, line, exported, .. } => obj(vec![
                 ("k", s("error")),
                 ("name", s(name)),
                 ("params", Some(strs(params))),
@@ -480,9 +568,9 @@ impl Decl {
                 ("line", num(*line)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::TypeDecl { name, line, text, exported } => obj(vec![("k", s("typedecl")), ("name", s(name)), ("line", num(*line)), ("text", s(text)), ("exported", flag(*exported))]),
-            Decl::Effect { inputs, body, line } => obj(vec![("k", s("effect")), ("inputs", Some(Value::Array(inputs.iter().map(|e| e.to_json()).collect()))), ("body", Some(stmts_json(body))), ("line", num(*line))]),
-            Decl::Fn { name, params, decls, tail, line, ret, exported } => obj(vec![
+            Decl::TypeDecl { name, line, text, exported, .. } => obj(vec![("k", s("typedecl")), ("name", s(name)), ("line", num(*line)), ("text", s(text)), ("exported", flag(*exported))]),
+            Decl::Effect { inputs, body, line, .. } => obj(vec![("k", s("effect")), ("inputs", Some(Value::Array(inputs.iter().map(|e| e.to_json()).collect()))), ("body", Some(stmts_json(body))), ("line", num(*line))]),
+            Decl::Fn { name, params, decls, tail, line, ret, exported, .. } => obj(vec![
                 ("k", s("fn")),
                 ("name", s(name)),
                 ("params", Some(Value::Array(params.iter().map(|p| obj(vec![("name", s(&p.name)), ("ref", Some(Value::Bool(p.r#ref))), ("type", os(&p.ty))])).collect()))),
@@ -492,7 +580,7 @@ impl Decl {
                 ("ret", os(ret)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Component { name, props, decls, view, line, props_type, exported, is_default } => obj(vec![
+            Decl::Component { name, props, decls, view, line, props_type, exported, is_default, .. } => obj(vec![
                 ("k", s("component")),
                 ("name", s(name)),
                 ("props", s(props)),
@@ -503,7 +591,7 @@ impl Decl {
                 ("exported", flag(*exported)),
                 ("isDefault", flag(*is_default)),
             ]),
-            Decl::Action { name, params, ptypes, body, line, exported } => obj(vec![
+            Decl::Action { name, params, ptypes, body, line, exported, .. } => obj(vec![
                 ("k", s("action")),
                 ("name", s(name)),
                 ("params", Some(strs(params))),
@@ -512,7 +600,7 @@ impl Decl {
                 ("line", num(*line)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Server { name, params, ptypes, ret, body, line, exported } => obj(vec![
+            Decl::Server { name, params, ptypes, ret, body, line, exported, .. } => obj(vec![
                 ("k", s("server")),
                 ("name", s(name)),
                 ("params", Some(strs(params))),
@@ -522,8 +610,8 @@ impl Decl {
                 ("line", num(*line)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Provide { name, e, line } => obj(vec![("k", s("provide")), ("name", s(name)), ("e", Some(e.to_json())), ("line", num(*line))]),
-            Decl::Context { name, ty, source, dflt, line, exported } => obj(vec![
+            Decl::Provide { name, e, line, .. } => obj(vec![("k", s("provide")), ("name", s(name)), ("e", Some(e.to_json())), ("line", num(*line))]),
+            Decl::Context { name, ty, source, dflt, line, exported, .. } => obj(vec![
                 ("k", s("context")),
                 ("name", s(name)),
                 ("type", os(ty)),

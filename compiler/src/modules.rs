@@ -17,6 +17,8 @@ pub struct ModuleSet {
     pub declarations: IndexMap<String, Vec<JsDecl>>,
     /// MO-9, by `.rx` path
     pub signatures: IndexMap<String, ModSig>,
+    /// each program's text, which its spans index
+    pub sources: HashMap<String, String>,
 }
 
 pub fn is_rx(from: &str) -> bool {
@@ -58,6 +60,7 @@ struct Loader<'r> {
     diags: Vec<Diagnostic>,
     declarations: IndexMap<String, Vec<JsDecl>>,
     signatures: IndexMap<String, ModSig>,
+    sources: HashMap<String, String>,
     state: HashMap<String, State>,
 }
 
@@ -76,7 +79,7 @@ impl Loader<'_> {
             return Ok(());
         }
         let Some(src) = (self.read)(path) else { return Ok(()) };
-        let mut p = parse_program(&src).map_err(|e| ParseError(format!("{}: {}", path, e.0)))?;
+        let mut p = parse_program(&src).map_err(|e| ParseError(format!("{}: {}", path, e.0), e.1, Some(path.to_string())))?;
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
             let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
@@ -85,7 +88,7 @@ impl Loader<'_> {
                 let dts = join_path(path, &(replace_js_ext(from) + ".d.rx"));
                 if !self.declarations.contains_key(&dts) {
                     if let Some(src) = (self.read)(&dts) {
-                        let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0)))?;
+                        let ds = parse_declarations(&src).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone())))?;
                         self.declarations.insert(dts.clone(), ds);
                     }
                 }
@@ -121,7 +124,7 @@ impl Loader<'_> {
                 // MO-9: no body — its signature, read in place
                 let dts = to.strip_suffix(".rx").map(|s| format!("{}.d.rx", s)).unwrap_or_else(|| to.clone());
                 if let Some(sig) = (self.read)(&dts) {
-                    let s = parse_signature(&sig, &to).map_err(|e| ParseError(e.0))?;
+                    let s = parse_signature(&sig, &to).map_err(|e| ParseError(e.0, None, Some(dts.clone())))?;
                     self.signatures.insert(to.clone(), s);
                     continue;
                 }
@@ -138,6 +141,7 @@ impl Loader<'_> {
             self.visit(&to, &st)?;
         }
         self.programs.insert(path.to_string(), p);
+        self.sources.insert(path.to_string(), src);
         self.state.insert(path.to_string(), State::Done);
         self.order.push(path.to_string());
         Ok(())
@@ -146,7 +150,7 @@ impl Loader<'_> {
 
 /// Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or `None` when there is none.
 pub fn load_modules(entry: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), state: HashMap::new() };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new() };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources })
 }

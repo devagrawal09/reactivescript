@@ -82,11 +82,11 @@ const out = execFileSync(join(root, "compiler/target/release/rxc"), ["conform"],
 const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
 let bad = 0;
 for (const r of reqs) {
-  const want = refOf(r); const { id: _, ...have } = got.get(r.id) ?? {};
-  const d = diff(want, have);
+  const want = refOf(r); const { id: _, spans, ...have } = got.get(r.id) ?? {};
+  const d = diff(want, have) ?? (spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
   if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
 }
-console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model)`);
+console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model), and its spans hold (CP-8)`);
 process.exit(bad ? 1 : 0);
 
 /** --lower: ref/compile's modules against the crate's, through Solid's compiler for each target. */
