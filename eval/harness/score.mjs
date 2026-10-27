@@ -1,6 +1,7 @@
 // Scores finished runs: for each run directory (named <task>-<arm>-<n>), the arm's check, the visible and the hidden
 // tests, and the agent's own log of `./check` and `./test` runs. Writes results.json and prints a summary table.
-// Usage: node harness/score.mjs <runs-dir> [out.json]
+// With --overlap, each task's hidden-overlap.mjs (round 3) runs too and counts toward the defect.
+// Usage: node harness/score.mjs <runs-dir> [out.json] [--overlap]
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,8 @@ import { runFile } from "./test.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tasksDir = path.resolve(here, "../tasks");
-const [runsArg, outArg] = process.argv.slice(2);
+const overlap = process.argv.includes("--overlap");
+const [runsArg, outArg] = process.argv.slice(2).filter(a => a !== "--overlap");
 const runs = path.resolve(runsArg);
 
 const rows = [];
@@ -23,7 +25,9 @@ for (const name of readdirSync(runs).sort()) {
   const checked = check(dir);
   const visible = await runFile(dir, path.join(tasksDir, task, "visible.mjs"));
   const hidden = await runFile(dir, path.join(tasksDir, task, "hidden.mjs"));
+  const extra = overlap ? await runFile(dir, path.join(tasksDir, task, "hidden-overlap.mjs")) : null;
   const failedHidden = hidden.results.filter(r => !r.ok);
+  const failedOverlap = extra ? extra.results.filter(r => !r.ok) : [];
   rows.push({
     run: name, task, arm, n: Number(n),
     checks: log.filter(e => e.cmd === "check").length, tests: log.filter(e => e.cmd === "test").length,
@@ -31,11 +35,12 @@ for (const name of readdirSync(runs).sort()) {
     checkOk: checked.ok, built: hidden.build.ok,
     visible: `${visible.results.filter(r => r.ok).length}/${visible.results.length}`,
     hidden: `${hidden.results.length - failedHidden.length}/${hidden.results.length}`,
-    shippedDefect: !hidden.build.ok || visible.results.some(r => !r.ok) || failedHidden.length > 0,
+    ...(extra ? { overlap: `${extra.results.length - failedOverlap.length}/${extra.results.length}`, failedOverlap: failedOverlap.map(r => ({ name: r.name, error: r.error })) } : {}),
+    shippedDefect: !hidden.build.ok || visible.results.some(r => !r.ok) || failedHidden.length > 0 || failedOverlap.length > 0,
     failedHidden: failedHidden.map(r => ({ name: r.name, error: r.error })),
     failedVisible: visible.results.filter(r => !r.ok).map(r => ({ name: r.name, error: r.error })),
   });
   const r = rows.at(-1);
-  console.log(`${r.run.padEnd(18)} check ${r.checkOk ? "ok " : "ERR"}  visible ${r.visible}  hidden ${r.hidden.padEnd(5)}  cycles ${r.checks + r.tests} (green after ${r.cyclesToGreen ?? "never"})${r.shippedDefect ? "  DEFECT" : ""}`);
+  console.log(`${r.run.padEnd(18)} check ${r.checkOk ? "ok " : "ERR"}  visible ${r.visible}  hidden ${r.hidden.padEnd(5)}${r.overlap ? `  overlap ${r.overlap}` : ""}  cycles ${r.checks + r.tests} (green after ${r.cyclesToGreen ?? "never"})${r.shippedDefect ? "  DEFECT" : ""}`);
 }
 writeFileSync(outArg ? path.resolve(outArg) : path.join(runs, "results.json"), JSON.stringify(rows, null, 2) + "\n");

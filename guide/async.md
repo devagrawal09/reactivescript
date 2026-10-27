@@ -65,12 +65,35 @@ by what the screen should do:
 | Record the server's answer | `x := answer` after the `await` |
 | Handle a failure | `try { … } catch (e) { … }`: the catch's writes and the revert are one frame (AC-7) |
 
+### Writing one row of a list
+
+When several actions can each change a different row of one list, guess the row, not the list:
+
+```
+export source todos: Todo[] key id = await loadTodos()
+
+export action markDone(id: number) {
+  try {
+    let i = indexOf(todos, t => t.id == id)   // from the prelude; -1 when absent
+    optimistic todos[i].done := true          // this row only
+    await saveDone(id)
+    refresh todos                             // the server's list confirms the guess
+  } catch (e) { … }
+}
+```
+
+A guess on `todos[i].done` belongs to its own action: another action's guess on another row reverts on its own
+(AC-3). A guess on the whole list (`optimistic todos := …`) makes every action on the list one change, so a
+declined one stays on screen until the others end. After the `await`, re-ask the list (`refresh todos`) rather than
+writing the row: a plain write to a list that is guessed by row is not supported yet.
+
 ## 4. Things that look like bugs and aren't
 
 - **A plain write in an action doesn't show until the server answers.** That's the hold. Use `optimistic` or
   `onFlush` (the table above). Don't move the code into a plain handler to escape it.
 - **Two actions guessing the same source revert together.** Their guesses are one change (H-11): a declined one
-  goes back when the other ends. Don't rebuild guesses by hand to separate them.
+  goes back when the other ends. For a list, guess the row instead (above). Don't rebuild guesses by hand to
+  separate them.
 - **A click waits for an action it has nothing to do with.** A plain write to a source an action in flight has
   written or guessed joins that action's hold (H-2): a click that clears the action's error waits for the
   server. Keep such a write off the action's sources, or make it an `onFlush` run.
