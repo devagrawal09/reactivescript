@@ -98,6 +98,6 @@ mutants/   naive React drafts the hidden tests must catch
 results/   scored runs
 ```
 
-Setup: `npm install` here; `cargo build --release --bin rxc` in PR #6's `compiler/` with its Solid pin set to
-d2323b0 (rc.19); `RXC` and `RT_WEB` point at the binary and `ref/compile/rt-web.ts` if they aren't at
-`../../rx-pr6/…`.
+Setup: `npm install` here; `cargo build --release --bin rxc` in `../compiler` (its Solid pin is d2323b0, rc.19).
+`RXC` and `RT_WEB` override the paths to the binary and `ref/compile/rt-web.ts`. (The pilot itself ran on PR #6's
+crate before it merged, built with the same pin.)

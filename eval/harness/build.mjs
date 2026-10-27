@@ -10,8 +10,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evalDir = path.resolve(here, "..");
-export const RXC = process.env.RXC ?? path.resolve(evalDir, "../../rx-pr6/compiler/target/release/rxc");
-export const RT_WEB = process.env.RT_WEB ?? path.resolve(evalDir, "../../rx-pr6/ref/compile/rt-web.ts");
+export const RXC = process.env.RXC ?? path.resolve(evalDir, "../compiler/target/release/rxc");
+export const RT_WEB = process.env.RT_WEB ?? path.resolve(evalDir, "../ref/compile/rt-web.ts");
 
 export const armOf = dir => readFileSync(path.join(dir, "arm"), "utf8").trim();
 

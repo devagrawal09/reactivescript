@@ -39,7 +39,11 @@ current query may ever show". The briefs named the race, so the model guarded it
    pattern .rx is meant to remove. All three gave the same reason: a plain write in an action that awaits is held
    until the action ends (AC-1), so "clear the old error at once" doesn't happen. The tracker reference hit the
    same thing before any agent ran. The idiom that works (`optimistic x := …` on a question source) is in the spec
-   but not where an agent looks.
+   but not where an agent looks. **Since the runs:** main now has `onFlush` (02 EF-8, PR #10), Solid's tool for
+   exactly this: `onFlush(() => { assignError := "" })` in the action clears the error at once. Checked through
+   the crate on rc.19: the tracker reference with that line instead of `optimistic` passes all 11 hidden tests;
+   with a plain write it fails "a new assignment clears the previous error at once". The agents' spec predates
+   EF-8, so none of them could use it; a rerun of the .rx arm on main tests whether they find it.
 2. **`errored` around a search hides the next `pending?`.** search-rx-2 tried an `errored` boundary for search
    failures and found `pending?` never turned true for the next query after a failure; it turned the failure into
    a value with `catch` instead. Same family as DV-8.
