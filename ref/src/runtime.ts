@@ -1157,6 +1157,7 @@ const BUILTINS: Record<string, unknown> = {
   sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
   fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
   every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
+  indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
   fetch: (key: string) => key,   // intercepted in `call`: returns the Flight for `key`
 };
 

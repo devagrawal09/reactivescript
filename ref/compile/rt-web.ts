@@ -118,6 +118,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
       sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
       every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
+      indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
