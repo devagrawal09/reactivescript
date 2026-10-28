@@ -4,7 +4,9 @@
 // <dir>/.prompt.
 // --base <dir> makes a change task (round 4): it copies an existing app's source files from <dir> into src/, and the
 // task's BASE.md (the brief that app was built to) next to BRIEF.md, and the prompt asks for a change, not a new app.
-// Usage: node harness/scaffold.mjs <task> <rx|react> <dir> [--reference] [--brief <name>] [--base <dir>]
+// --inline-docs (round 5) puts the .rx guide's two pages (guide/language.md, guide/async.md) at the end of the .rx
+// prompt, so reading them costs no tool calls; the React prompt is unchanged.
+// Usage: node harness/scaffold.mjs <task> <rx|react> <dir> [--reference] [--brief <name>] [--base <dir>] [--inline-docs]
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -12,7 +14,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evalDir = path.resolve(here, "..");
 
-export function scaffold(task, arm, dir, { reference = false, brief = null, base = null } = {}) {
+export function scaffold(task, arm, dir, { reference = false, brief = null, base = null, inline = false } = {}) {
   const t = path.join(evalDir, "tasks", task);
   dir = path.resolve(dir);
   mkdirSync(path.join(dir, "src"), { recursive: true }); mkdirSync(path.join(dir, "tests"), { recursive: true });
@@ -44,15 +46,17 @@ export function scaffold(task, arm, dir, { reference = false, brief = null, base
     for (const f of readdirSync(base)) if (/\.(rx|tsx?)$/.test(f)) cpSync(path.join(base, f), path.join(dir, "src", f));
     mkdirSync(path.join(dir, ".scratch"));
   }
-  writeFileSync(path.join(dir, ".prompt"), prompt(arm, dir, { plain: brief === "plain", change: !!base }));
+  writeFileSync(path.join(dir, ".prompt"), prompt(arm, dir, { plain: brief === "plain", change: !!base, inline }));
   return dir;
 }
 
-export function prompt(arm, dir, { plain = false, change = false } = {}) {
-  const fill = { ...JSON.parse(readFileSync(path.join(here, "prompt-arms.json"), "utf8"))[arm] };
+export function prompt(arm, dir, { plain = false, change = false, inline = false } = {}) {
+  const docs = inline && arm === "rx";
+  const fill = { ...JSON.parse(readFileSync(path.join(here, "prompt-arms.json"), "utf8"))[docs ? "rx-inline" : arm] };
   fill.BACKEND_NOTE = plain ? "" : " whose answers the tests control";
   let text = readFileSync(path.join(here, change ? "prompt-change.md" : "prompt.md"), "utf8");
   for (let i = 0; i < 2; i++) for (const k of [...Object.keys(fill), "DIR"]) text = text.replaceAll(`{{${k}}}`, k === "DIR" ? dir : fill[k]);
+  if (docs) for (const f of ["language.md", "async.md"]) text += `\n---\n\n${readFileSync(path.join(evalDir, "../guide", f), "utf8")}`;
   return text;
 }
 
@@ -60,5 +64,5 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [task, arm, dir] = process.argv.slice(2);
   const b = process.argv.indexOf("--brief");
   const base = process.argv.indexOf("--base");
-  console.log(scaffold(task, arm, dir, { reference: process.argv.includes("--reference"), brief: b > 0 ? process.argv[b + 1] : null, base: base > 0 ? path.resolve(process.argv[base + 1]) : null }));
+  console.log(scaffold(task, arm, dir, { reference: process.argv.includes("--reference"), brief: b > 0 ? process.argv[b + 1] : null, base: base > 0 ? path.resolve(process.argv[base + 1]) : null, inline: process.argv.includes("--inline-docs") }));
 }

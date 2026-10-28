@@ -77,7 +77,7 @@ export source todos: Todo[] key id = await loadTodos()
 
 export action markDone(id: number) {
   try {
-    let i = indexOf(todos, t => t.id == id)   // from the prelude; -1 when absent
+    let i = todos.findIndex(t => t.id == id)  // -1 when absent
     optimistic todos[i].done := true          // this row only
     await saveDone(id)
     refresh todos                             // the server's list confirms the guess

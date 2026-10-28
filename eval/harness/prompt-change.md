@@ -15,3 +15,5 @@ Two commands, run from {{DIR}}:
 
 You may run `./check` and `./test` at most 15 times in total. When you believe the app does everything both briefs
 say, stop and reply with two or three sentences on what you changed and anything you were unsure about.
+Use only file, search and shell tools inside that directory: no messaging, chat, document or GitHub tools. Your
+report goes in your final reply and nowhere else.
