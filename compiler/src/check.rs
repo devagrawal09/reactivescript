@@ -8,6 +8,7 @@
 
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
+use crate::infer::{inferred_action, run_findings, trigger_text, Code};
 use crate::model::{ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{js_trim, JsDecl};
@@ -1641,6 +1642,7 @@ impl<'a> Checker<'a> {
                         let inner = c.env(Some(env), region);
                         c.stmts(body, inner, Ctx::imperative());
                     });
+                    c.run_checks(body, false, &[], false);
                 });
                 self.own_source_writes(inputs, body, env);
             }
@@ -1652,6 +1654,7 @@ impl<'a> Checker<'a> {
                 }
                 self.comp("action", env, Some(name.clone()), None, |c| c.stmts(body, inner, Ctx { in_action: true, ..Ctx::imperative() }));
                 self.actions.push(ActionRec { name: name.clone(), body, env: inner, line: *line as i64 });
+                self.run_checks(body, true, params, false);
             }
             Decl::Server { name, params, body, line, .. } => {
                 let region = self.reg(env);
@@ -2127,7 +2130,15 @@ impl<'a> Checker<'a> {
                         self.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", "a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)".into());
                         return;
                     }
-                    self.stmts(ss, inner, Ctx { server: ctx.server, ..Ctx::imperative() });
+                    // AC-1b: an arrow that guesses, or writes and awaits, is an action
+                    let why = if ctx.server { None } else { inferred_action(ss) };
+                    self.stmts(ss, inner, Ctx { server: ctx.server, in_action: why.is_some(), ..Ctx::imperative() });
+                    if let Some(w) = why {
+                        self.actions.push(ActionRec { name: format!("inferred here (AC-1b: {})", trigger_text(w)), body: ss, env: inner, line: self.line });
+                    }
+                    if !ctx.server {
+                        self.run_checks(ss, why.is_some(), params, why.is_some());
+                    }
                     return;
                 }
                 self.expr(body, inner, Ctx { imperative: ctx.imperative, in_fn: ctx.in_fn, server: ctx.server, in_action: false }, None);
@@ -2164,6 +2175,17 @@ impl<'a> Checker<'a> {
     }
 
     // ---- imperative scope (SC-2) ----
+    /// AC-1c, AC-1d over one imperative run (`crate::infer`).
+    fn run_checks(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) {
+        for f in run_findings(stmts, action, bound, inferred) {
+            let n = &f.name;
+            match f.code {
+                Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `optimistic {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
+                Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
+            }
+        }
+    }
+
     fn stmts(&mut self, ss: &'a [Stmt], env0: EId, ctx: Ctx) {
         let region = self.reg(env0);
         let env = self.env(Some(env0), region);
@@ -2249,7 +2271,7 @@ impl<'a> Checker<'a> {
                     }
                     if op == "optimistic" {
                         if !ctx.in_action {
-                            self.err("OPTIMISTIC_OUTSIDE_HOLD", "AC-3", "optimistic outside an action body: a guess needs a hold to live in".into());
+                            self.err("OPTIMISTIC_OUTSIDE_HOLD", "AC-3", "optimistic outside an action: a guess needs a hold to live in — an apply block is never an action (its return is the cleanup, EF-5): declare one, `action save(v) { optimistic … }`, and call it from the block".into());
                         }
                         if let Some(t) = tsym {
                             if self.syms[t].kind == SymKind::Source && !self.syms[t].question {
@@ -2304,6 +2326,7 @@ impl<'a> Checker<'a> {
                     }
                     self.comp("action", env, Some("(inline)".into()), None, |c| c.stmts(body, env, Ctx { in_action: true, ..Ctx::imperative() }));
                     self.actions.push(ActionRec { name: "(inline)".into(), body, env, line: self.line });
+                    self.run_checks(body, true, &[], false);
                 }
                 StmtKind::Sif { c, t, f } => {
                     self.expr(c, env, ctx, None);

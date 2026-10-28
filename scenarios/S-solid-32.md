@@ -39,20 +39,19 @@ in one frame. Never `Ann / unsaved` after 1 (guess held) nor `Bob / saved`
 The guess `Bob` reverts to the truth (`name` is still `Ann`); `saved = true`
 was a plain write and commits (AC-1, DV-2).
 
+## Variant: a guess in a handler, with nothing to hold it
+
+| instant | action                              | frame                  |
+| ------- | ----------------------------------- | ---------------------- |
+| 1       | handler `optimistic shown := "Zed"` | `Ann / unsaved / - -`  |
+
+A guess outside a hold does not exist (D-32). A handler with a guess is an
+action (AC-1b), so this compiles; the action's change opens and commits in
+the same instant, and the guess ends with it before any frame shows it.
+The `effect` form, which is never an action, is still rejected (S-check-1).
+
 ## Rejected variants
 
-```
--- reject: OPTIMISTIC_OUTSIDE_HOLD
--- handler: optimistic shown := "Zed"
-export default component App() {
-  source name := "Ann"
-  source shown = name
-
-  <p>{shown}</p>
-}
-```
-
-A guess outside a hold does not exist (D-32); here it is unwritable.
 
 ```
 -- reject: OPTIMISTIC_NO_QUESTION

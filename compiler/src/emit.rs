@@ -1282,6 +1282,12 @@ impl<'p> Gen<'p> {
                 let inner = self.params(env, params);
                 let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
                 match stmts {
+                    Some(ss) if crate::infer::inferred_action(ss).is_some() => {
+                        // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
+                        let b = self.stmts(ss, inner, &Ctx { imp: true, gen: true, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() }, false)?;
+                        let gen = E::Func(Box::new(Func { name: None, params: vec![], directives: vec![], body: b, is_async: false, generator: true }));
+                        E::Arrow { params: ps, body: Body::Expr(Box::new(call(rtc("action", vec![gen]), vec![]))), is_async: false }
+                    }
                     Some(ss) => {
                         let is_async = has_await_json(&Value::Array(ss.iter().map(|s| s.to_json()).collect()));
                         let b = self.stmts(ss, inner, &Ctx { imp: true, is_async, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() }, false)?;

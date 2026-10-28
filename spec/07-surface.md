@@ -205,6 +205,11 @@ action rename(n: string) {
 }
 
 action { refresh user; affects user }   // inline, one run (AC-1)
+
+<button onClick={() => {             // an action without the keyword: it guesses (AC-1b)
+  optimistic liked := true
+  try { let r = await api.like(id); liked := r } catch (e) { likeError := e.message }
+}}>♥</button>
 ```
 
 - A write is `target := e`; `target` is a source or a path into one (W-1),
@@ -223,8 +228,16 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   of the same: a `try` around the `await` whose catch gives `r` (S-await-1).
 - An action catches every failure its body can produce (R-f-6): there is
   no one after the body to catch it.
+- An arrow that guesses, declares `affects`, or both writes and awaits is
+  an action (06 AC-1b); an `effect`'s apply block never is. In such an
+  arrow a plain write before an `await` is `HELD_WRITE` (AC-1c): make it
+  `optimistic` if it is ephemeral state that shows while the work runs,
+  `onFlush(() => { … })` if it is a reset that lands now, or declare the
+  action to hold it on purpose. In every run, reading a source the run's
+  own change wrote is `STALE_OWN_READ` (AC-1d): keep the value in a local.
 - `await` in an action body suspends the run and keeps its change open; in
-  a plain handler it ends the change (the continuation is a new one).
+  a plain run it ends the change (the continuation is a new one). A plain
+  run that awaits writes nothing, or it would be an action.
 - A handler that launches an action and also writes (`() => { draft := "";
   send() }`) makes one change: the handler's plain writes are adopted by the
   action and held with it (AC-1). Writes that should land now go in a
@@ -498,3 +511,16 @@ Expr      ::= TSExpr with §3's removals and additions
     taken before or after the instant the await opens), and the reference
     interpreter would need a continuation per expression. Binding first
     keeps every snapshot on one side of the suspension.
+17. **Inferred actions** (ruled 2026-10-28): an arrow whose body guesses,
+    declares `affects`, or writes and awaits is an action without the
+    keyword (06 AC-1b), with two checks that keep the hold visible:
+    `HELD_WRITE` for an early write in such a body (AC-1c) and
+    `STALE_OWN_READ` for a read of a run's own write anywhere (AC-1d).
+    Weighed against keeping `action` explicit: agents in the AI eval wrote
+    server writes as plain async handlers with hand-made counters, which
+    worked only because the handler's `await` committed the counter; the
+    compiler sees every `await` (decision 16), so it can hold the run as
+    Solid would and refuse the code that would then break. An `effect`'s
+    apply block is not inferred (its return is the cleanup, EF-5). The
+    declared `action` stays for names, reuse, and holding a write on
+    purpose.

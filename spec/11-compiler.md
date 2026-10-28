@@ -132,7 +132,7 @@ record argued each way; this is the decision.
   | `awaited(v)` | `await e` — the flight the memo returns or the action yields | identity on a promise |
   | `hoisted(name, get)` | an equation's hoisted awaits, which `refresh` re-asks with it | — |
   | `effect(n, inputs, apply)` | `effect (…) { … }` (EF, E-12) | `createEffect(compute, { effect, error })` |
-  | `action(gen)` | `action f(…) { … }` (AC-1, AC-7) | `action` over a generator |
+  | `action(gen)` | `action f(…) { … }` (AC-1, AC-7); an inferred action, `(ps) => action(function* () { … })()` (AC-1b) | `action` over a generator |
   | `refresh(name, get)`, `affects(get)`, `until(p)` | AC-4, AC-5, AC-6 | `refresh`, `affects`, `until` (`until`: client build only) |
   | `snapshot(get)` | an imperative read (H-10, R-f-7) | `untrack` |
   | `untrack`, `latest`, `isPending` | `peek` (E-5), `latest` (R-12), `pending?` (R-9) | the same |

@@ -4,6 +4,7 @@ import { SOLID } from "../solid-version.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
+import { inferredAction } from "../src/infer.ts";
 import { parseProgram, parseStmts } from "../src/parse.ts";
 import { Oracle, flush, resetErrorHalt, Unsupported } from "./lower.ts";
 const isUnsupported = (e: unknown) => (e as Error)?.name === "Unsupported" || (Unsupported.last !== "" && String((e as Error)?.message ?? e).includes(Unsupported.last));
@@ -30,7 +31,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
       const logBefore = r.action === "mount" ? 0 : o.log.length;   // effects' first runs happen inside render()
       try {
         if (r.action === "mount") { flush(); await settle(); }
-        else if (r.action.startsWith("handler")) { const stmts = parseStmts(r.action.slice(7)); o.runStmts(stmts, rootScope(o), new Map()); flush(); await settle(); }
+        else if (r.action.startsWith("handler")) { const body = parseStmts(r.action.slice(7)); const stmts = inferredAction(body) ? [{ k: "action" as const, body }] : body; o.runStmts(stmts, rootScope(o), new Map()); flush(); await settle(); }   // AC-1b: a handler row is a handler's body
         else if (/^(resolve|reject)\s/.test(r.action)) {
           const m = /^(resolve|reject)\s+(\S+)\s+([\s\S]*)$/.exec(r.action)!;
           const valueExpr = parseStmts(m[3])[0];

@@ -8,6 +8,7 @@ import type { ModuleSet } from "./modules.ts";
 import type { JsDecl } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { inferredAction, runFindings, triggerText } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);   // the scenario prelude; all pure
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
@@ -461,6 +462,7 @@ class Checker {
         this.comp("effect", env, {}, () => {
           for (const i of d.inputs) this.expr(i, env, reactive);                             // EF-1: the compute half is reactive scope
           this.comp("apply", env, {}, () => this.stmts(d.body, new Env(env, env.region), { scope: "imperative" }));
+          this.runChecks(d.body, false, []);
         });
         this.ownSourceWrites(d, env);
         return;
@@ -470,6 +472,7 @@ class Checker {
         for (const p of d.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: d.line });
         this.comp("action", env, { name: d.name }, () => this.stmts(d.body, inner, { scope: "imperative", inAction: true }));
         this.actions.push({ name: d.name, body: d.body, env: inner, line: d.line });
+        this.runChecks(d.body, true, d.params);
         return;
       }
       case "server": {                                                                       // 12 SF-1/SF-3/SF-4: a statement block that runs on the server
@@ -664,7 +667,11 @@ class Checker {
         for (const p of e.params) inner.vars.set(p, { kind: "value", name: p, region: env.region, line: this.line });
         if (e.stmts) {
           if (ctx.scope === "reactive") { this.err("REACTIVE_WRITE_IN_OWNED_SCOPE", "W-2", "a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)"); return; }
-          this.stmts(e.stmts, inner, { scope: "imperative", server: ctx.server }); return;
+          const why = ctx.server ? null : inferredAction(e.stmts);                          // AC-1b: an arrow that guesses, or writes and awaits, is an action
+          this.stmts(e.stmts, inner, { scope: "imperative", server: ctx.server, inAction: !!why });
+          if (why) this.actions.push({ name: `inferred here (AC-1b: ${triggerText(why)})`, body: e.stmts, env: inner, line: this.line });
+          if (!ctx.server) this.runChecks(e.stmts, !!why, e.params, !!why);
+          return;
         }
         this.expr(e.body, inner, { scope: ctx.scope, inFn: ctx.inFn, server: ctx.server }); return;
       }
@@ -679,6 +686,14 @@ class Checker {
         }
         return;
       }
+    }
+  }
+
+  /** AC-1c, AC-1d over one imperative run (ref/src/infer.ts). */
+  private runChecks(stmts: Stmt[], action: boolean, bound: string[], inferred = false) {
+    for (const f of runFindings(stmts, action, bound, inferred)) {
+      if (f.code === "HELD_WRITE") this.err("HELD_WRITE", "AC-1c", `${f.name} := … comes before an \`await\` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, \`optimistic ${f.name} := …\` (a source with a question, ST-5c); for a reset that lands now, \`onFlush(() => { ${f.name} := … })\` (EF-8); to hold it on purpose, declare the action (\`action name() { … }\`); or write it after the \`await\``);
+      else this.err("STALE_OWN_READ", "AC-1d", `${f.name} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (\`let v = …; ${f.name} := v\`) and read that, or write functionally (\`${f.name} := v => …\`, W-6)`);
     }
   }
 
@@ -713,7 +728,7 @@ class Checker {
             else if (target?.imported) this.err("WRITE_TO_NON_SOURCE", "MO-2", `${s.target.name} is a source of ${target.imported}: a module boundary is a value boundary — write it through an action ${target.imported} exports`);
           }
           if (s.k === "optimistic") {
-            if (!ctx.inAction) this.err("OPTIMISTIC_OUTSIDE_HOLD", "AC-3", "optimistic outside an action body: a guess needs a hold to live in");
+            if (!ctx.inAction) this.err("OPTIMISTIC_OUTSIDE_HOLD", "AC-3", "optimistic outside an action: a guess needs a hold to live in — an apply block is never an action (its return is the cleanup, EF-5): declare one, `action save(v) { optimistic … }`, and call it from the block");
             if (target && target.kind === "source" && !target.question) this.err("OPTIMISTIC_NO_QUESTION", "AC-3", `${s.target.name} is declared with := — a guess needs a question to confirm it (source ${s.target.name} = …, ST-5c)`);
           }
           s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx));
@@ -722,7 +737,7 @@ class Checker {
           break;
         }
         case "refresh": case "affects": case "action": if (ctx.server) { this.err("SERVER_CAPTURE", "SF-3", `\`${s.k}${s.k === "action" ? " { … }" : ` ${(s as { name: string }).name}`}\` in a server function's body: it is the client's (do it in the action that awaited the call)`); break; }
-          if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); break; }
+          if (s.k === "action") { this.comp("action", env, { name: "(inline)" }, () => this.stmts(s.body, env, { scope: "imperative", inAction: true })); this.actions.push({ name: "(inline)", body: s.body, env, line: this.line }); this.runChecks(s.body, true, []); break; }
           if (s.k === "affects") { const t = this.resolve(s.name, env, ctx); this.model.write(t, "affects"); if (t && !reactiveKinds.has(t.kind)) this.err("INVALID_AFFECTS_TARGET", "AC-5", `${s.name} is not reactive`); break; }
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
