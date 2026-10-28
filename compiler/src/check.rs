@@ -2191,13 +2191,14 @@ impl<'a> Checker<'a> {
     }
 
     // ---- imperative scope (SC-2) ----
-    /// AC-1c, AC-1d over one imperative run (`crate::infer`).
+    /// AC-1c, AC-1d, AC-1e over one imperative run (`crate::infer`).
     fn run_checks(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) {
         for f in run_findings(stmts, action, bound, inferred) {
             let n = &f.name;
             match f.code {
                 Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `optimistic {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
+                Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`optimistic`, AC-3) and let the answer replace the guess")),
             }
         }
     }

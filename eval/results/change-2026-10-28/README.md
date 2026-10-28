@@ -79,12 +79,25 @@ characters per token), an estimate.
 - The new tests were written after round 3's results were known, and tuned on the references.
 - 18 runs per arm detects a large effect only.
 
+## Found after scoring: a check for the lost update
+
+`STALE_WRITE_BACK` (06 AC-1e, taken by default 2026-10-28, added after these runs) rejects a plain write after an
+`await` computed from the same source as read before it. Run over every .rx app the eval's agents have written (76,
+pilot to round 4) and the repository's examples, it fires on three: small close-rx-1 and small comments-rx-2 (the two
+lost-update defects above), and frontier rename-rx-3, which passed every test. That one writes
+`detail := { id: d.id, title: answer.title, body: d.body }` from a `d` read before the rename's `await`; an
+exploratory probe confirms it: switch to #1 while a rename of #3 is out, and when the rename lands #1's detail shows
+#3. The 6 React rename apps and the other 5 .rx ones pass that probe. None of this changes the pre-registered count.
+
+A rule for the third defect (a guess with no `refresh` of its source) was drafted and dropped: a guess can be answered
+by a write to anything its question reads, and a guess meant to revert is legitimate, so it would reject correct
+programs.
+
 ## What this means
 
 Changing an app did not separate the arms either. The frontier model made all three changes correctly in both
 languages. The small model did so in React, and in .rx shipped one pattern twice that the checker does not see: a
-read before an await written back after it. A static check for it (a write after an `await` whose value depends on
-a read of the same source taken before the `await`) is a candidate, not adopted here.
+read before an await written back after it. The static check for it (above) is now in the compiler.
 
 ## Files
 
