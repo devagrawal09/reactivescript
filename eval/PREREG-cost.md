@@ -31,7 +31,8 @@ smaller source should count.
   (`reference/<task>/<arm>`, not subjects) pass all of them in both arms.
 - **Prompt**: `harness/prompt-change.md`; the .rx arm with `--inline-docs`. Each run keeps scratch files in its own
   `.scratch` folder and uses no messaging tools.
-- **Model**: the frontier model only (cost is the question; round 4's small-model runs add variance, not an answer).
+- **Model**: the frontier model only, at the agent harness's default effort; the model id and effort are recorded with
+  the results (cost is the question; round 4's small-model runs add variance, not an answer).
 - **Runs**: 3 tasks × 2 arms × 6 runs = 36. Run k of a task starts from the same base in its arm.
 - **Toolchain**: Solid next at the pin in `ref/SOLID_NEXT` at freezing (must include the solidjs/solid#4379 fix: on
   6b792a9 the .rx base fails one desk test, "a list that loads while an assignment is out keeps the new assignee").
@@ -52,7 +53,11 @@ smaller source should count.
   - per task: cost, model calls, output tokens, `./check` and `./test` cycles;
   - the cost split: the fixed prompt (system, tools, brief, and for .rx the inline docs), reading the app, and the
     agent's own work (output and the turns it takes);
-  - wall-clock time per run.
+  - wall-clock time per run;
+  - medians beside the means (a run that wanders off moves a mean, not a median), and the cost in API dollars at the
+    prices of the day, as Claude Code reports it, so the numbers compare with other published framework cost
+    benchmarks (Nolan Lawson, "The AI cost of JavaScript frameworks", 2026-10-28, which builds an app from scratch
+    in 12 setups; this round changes an existing one).
 - Published as is, whatever the outcome.
 
 ## Known limits
