@@ -64,7 +64,7 @@ for (const u of units) {
   const got: string[] = [];
   for (const [f, p] of u.files) for (const d of byFile.get(f) ?? []) {
     const line = d.file && d.start !== undefined ? d.file.getLineAndCharacterOfPosition(d.start).line : 0;
-    const msg0 = ts.flattenDiagnosticMessageText(d.messageText, " "); const own = /"(WIRE_VALUE): ([^"]*)"/.exec(msg0);   // a rule the projection states as a type
+    const msg0 = ts.flattenDiagnosticMessageText(d.messageText, " "); const own = /"(WIRE_VALUE|MISSING_AWAIT): ([^"]*)"/.exec(msg0);   // a rule the projection states as a type
     if (own) { got.push(`${own[1]} ${p.rx.split("/").pop()}:${p.lines[line] ?? "?"}: ${own[2]}`); continue; }
     got.push(`TS${d.code} ${p.rx.split("/").pop()}:${p.lines[line] ?? "?"}: ${ts.flattenDiagnosticMessageText(d.messageText, " ").slice(0, Number(process.env.MSG ?? 220))}`);
     if (process.env.DEBUG) console.log(`--- ${f}\n${p.code.split("\n").map((l, i) => `${String(i + 1).padStart(3)}${i === line ? ">" : " "} ${l}`).join("\n")}`);

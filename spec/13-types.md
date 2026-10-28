@@ -75,6 +75,10 @@ does for `.tsrx`. Nothing here is a second type system.
   checked to be data: a function, or an instance of a class (a `Date`),
   where the types are known is `WIRE_VALUE` at compile time. Where they are
   `any` — an untyped parameter — the run-time check stands.
+- **TY-5b (R-1a statically).** An equation is projected as `__.eq(e)`,
+  whose type is `e`'s and which refuses a promise or an async iterable on
+  any branch: `MISSING_AWAIT`. Where the type is `any` the check is silent
+  (04 R-1a). (Ruled 2026-10-28; S-types-1.)
 
 ## Found by the type layer (2026-10-25)
 
