@@ -17,8 +17,12 @@ echo "canary workspace: $TMP"
 git clone -q --no-checkout "$WS/reactivescript" "$TMP/reactivescript"
 git -C "$TMP/reactivescript" remote set-url origin "$(pin .reactivescript.repo)"
 git -C "$TMP/reactivescript" remote set-url --push origin NO_PUSH
-git -C "$TMP/reactivescript" cat-file -e "$REV^{commit}" 2>/dev/null || git -C "$TMP/reactivescript" fetch -q origin "$REV" || git -C "$TMP/reactivescript" fetch -q origin
-COMMIT=$(git -C "$TMP/reactivescript" rev-parse "$REV^{commit}")
+if git -C "$TMP/reactivescript" cat-file -e "$REV^{commit}" 2>/dev/null; then
+  COMMIT=$(git -C "$TMP/reactivescript" rev-parse "$REV^{commit}")
+else
+  git -C "$TMP/reactivescript" fetch -q origin "$REV"   # a branch name or a sha from the upstream remote (read-only fetch)
+  COMMIT=$(git -C "$TMP/reactivescript" rev-parse "FETCH_HEAD^{commit}")
+fi
 PINNED=$(pin .reactivescript.commit)
 SOLID_PIN=$(git -C "$TMP/reactivescript" show "$COMMIT:ref/SOLID_NEXT" | tr -d '[:space:]')
 git -C "$TMP/reactivescript" fetch -q origin "$PINNED" 2>/dev/null || true

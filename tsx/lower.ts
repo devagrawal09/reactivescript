@@ -2330,15 +2330,11 @@ export function lowerTsx(
       fn.body.type === "BlockStatement"
         ? statements(fn.body.body, inner)
         : actionExpr(fn.body, inner);
-    // Inferred actions (pinned upstream AC-1b): a plain Solid callback is never an action. Upstream makes this body
-    // one, so only spellings whose observable behavior does not depend on that are accepted; the differential tests
-    // cover the accepted await-then-write form.
+    // Inferred actions (pinned upstream AC-1b): a plain Solid callback is never an action, but upstream infers one
+    // from the lowered body. Refused here only where the meaning provably differs: a write before an await, which
+    // Solid applies at once and upstream holds (AC-1c). Other inferred actions (await-then-write, refresh/affects) are
+    // left to the shared checker and are covered by the differential suites.
     const inferred = actionInference(stmts);
-    if (inferred.trigger && inferred.trigger !== "write+await")
-      return fail(
-        fn,
-        "Plain callbacks cannot guess or declare affects: ReactiveScript would infer an action (" + inferred.why + "); wrap the callback in action(...)",
-      );
     if (inferred.held.length)
       return fail(
         fn,

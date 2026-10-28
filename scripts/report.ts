@@ -44,7 +44,10 @@ const missing = Object.keys(baseline).filter(k => !passing.has(k) && !leafFailur
 const summaries = readdirSync(out).filter(f => f.startsWith("upstream-") && f.endsWith(".log")).map(f => {
   const text = readFileSync(out + "/" + f, "utf8");
   const name = f.slice("upstream-".length, -".log".length);
-  const line = text.split("\n").reverse().find(l => /\d+ pass, \d+ fail/.test(l) || /programs/.test(l)) ?? "(no summary line; see " + f + ")";
+  // The interpreter runner (npm test) prints PASS/FAIL per scenario and no summary line; count those.
+  const tally = (word: string) => text.split("\n").filter(l => l.startsWith(word + " ")).length;
+  const line = text.split("\n").reverse().find(l => /\d+ pass, \d+ fail/.test(l) || /programs/.test(l))
+    ?? (tally("PASS") + tally("FAIL") ? tally("PASS") + " pass, " + tally("FAIL") + " fail (PASS/FAIL lines)" : "(no summary line; see " + f + ")");
   const summary = (line.match(/\d+ pass, \d+ fail(, \d+ skip)?/) ?? [line.trim()])[0];
   const expected = pins.upstreamBaseline?.[name];
   return { name, summary, expected, changed: expected !== undefined && expected !== summary };

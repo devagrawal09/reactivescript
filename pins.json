@@ -17,7 +17,7 @@
     "playwright": "1.59.1"
   },
   "upstreamBaseline": {
-    "test": "104 pass, 0 fail, 0 skip",
+    "test": "104 pass, 0 fail",
     "oracle": "104 pass, 0 fail, 0 skip",
     "compiled": "104 pass, 0 fail, 0 skip",
     "types": "144 pass, 0 fail",

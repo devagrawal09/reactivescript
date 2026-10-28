@@ -210,12 +210,12 @@ export function Counter() {
   }}>{n()}/{finalized()}</button>;
 }`, `import { request } from "./api";
 source n = 0; source finalized = 0;
-<button onClick={() => {
+export default component App() { <button onClick={() => {
   n := 1;
   try { let result = await request("value"); n := result; return result; }
   catch (error) { n := -1; return 7; }
   finally { await 0; finalized := finalized + 1; }
-}}>{n}/{finalized}</button>`, "0/0", [
+}}>{n}/{finalized}</button> }`, "0/0", [
       { before: "1/0", after: (failed ? "-1" : "42") + "/1", result: failed ? 7 : 42,
         land: failed ? { failure: "offline" } : { value: 42 } },
       { before: "1/1", after: (failed ? "-1" : "42") + "/2", result: failed ? 7 : 42 },
@@ -290,7 +290,7 @@ export function Counter() {
     return 7;
   }}>ready</button>;
 }`, `import { request } from "./api";
-<button onClick={() => { let later = () => { let result = await request("value"); return result; }; return 7; }}>ready</button>`,
+export default component App() { <button onClick={() => { let later = () => { let result = await request("value"); return result; }; return 7; }}>ready</button> }`,
   "ready", [{ before: "ready", after: "ready", result: 7 }], { async: false, authored: false }));
 
 test("an RX callback launching an inline held action stays synchronous", t =>
@@ -305,13 +305,15 @@ export function Counter() {
     })();
   }}>{n()}</button>;
 }`, `import { request } from "./api"; source n = 0;
-<button onClick={() => { action {
+export default component App() { <button onClick={() => { action {
   try { let result = await request("value"); n := result; } catch (error) { n := -1; }
-} }}>{n}</button>`, "0", [{ before: "0", after: "42", land: { value: 42 } }], { async: false, authored: false }));
+} }}>{n}</button> }`, "0", [{ before: "0", after: "42", land: { value: 42 } }], { async: false, authored: false }));
 
 test("the direct scenario handler API retains synchronous frame arrays across flights", () => {
   const program = parseProgram(rx);
-  const button = program.view[0];
+  const app = program.decls.find(d => d.k === "component" && d.isDefault);
+  if (!app || app.k !== "component") throw new Error("the RX program's entry is its default component (MO-1c)");
+  const button = app.view[0];
   assert.equal(button.k, "el");
   if (button.k !== "el") return;
   const callback = button.attrs[0].e;
@@ -360,7 +362,7 @@ export function Counter() {
   const rx = `import { request } from "./api";
 source n := 0; source draft = 0; source status := "idle"; source finalized := 0;
 ${optimistic ? "source overlay = draft;" : ""}
-<button onClick={() => {
+export default component App() { <button onClick={() => {
   n := 1; draft := 1; status := "placing";
   action {
     ${optimistic ? "optimistic overlay := 10;" : ""}
@@ -368,7 +370,7 @@ ${optimistic ? "source overlay = draft;" : ""}
     catch (error) { status := "failed"; }
     finally { finalized := finalized + 1; }
   }
-}}>{n}/{draft}/{status}/{finalized}|{latest n}/{latest draft}|{pending? n ? "pending" : "idle"}/{pending? draft ? "pending" : "idle"}${optimistic ? "|{overlay}" : ""}</button>`;
+}}>{n}/{draft}/{status}/{finalized}|{latest n}/{latest draft}|{pending? n ? "pending" : "idle"}/{pending? draft ? "pending" : "idle"}${optimistic ? "|{overlay}" : ""}</button> }`;
   for (const failed of [false, true]) {
     test("synchronous callback pre-writes join an inline held action through " + (failed ? "failure" : "success") +
       (optimistic ? " with an optimistic overlay" : ""), t => {
