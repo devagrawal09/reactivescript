@@ -1,0 +1,107 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, renameIssue } from "./api"
+import pure { indexOf } from "./prelude"
+
+export error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id) => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source issues key id = await fetchIssues(filter)
+  source assignError: { id: number; message: string } | null := null
+
+  source renameError: { id: number; message: string } | null := null
+  source titleDraft: string := ""
+
+  source detail = selected == null ? null : found(await fetchIssue(selected), selected)
+  shownRenameError = renameError != null && renameError.id == selected ? renameError.message : ""
+  shownError = assignError != null && assignError.id == selected ? assignError.message : ""
+
+  action assignTo(id: number, who: string) {
+    try {
+      let i = indexOf(issues, t => t.id == id)
+      if (i >= 0) {
+        optimistic issues[i].assignee := who
+      }
+      await assign(id, who)
+      refresh issues
+    } catch (e) {
+      assignError := { id: id, message: e.message }
+    }
+  }
+
+  action renameTo(id: number, title: string) {
+    try {
+      let d = detail
+      if (d != null && d.id == id) {
+        optimistic detail := { id: d.id, title: title, body: d.body }
+      }
+      let i = indexOf(issues, t => t.id == id)
+      if (i >= 0) {
+        optimistic issues[i].title := title
+      }
+      let answer = await renameIssue(id, title)
+      if (d != null && d.id == id) {
+        detail := { id: d.id, title: answer.title, body: d.body }
+      }
+      refresh issues
+    } catch (e) {
+      renameError := { id: id, message: e.message }
+    }
+  }
+
+  <div>
+    <label>user <input data-testid="user" value={user} onInput={(ev) => { user := ev.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <div style="display: flex; gap: 2em">
+      <ul data-testid="list">
+        {loading on(filter) fallback { <li>loading {filter} issues</li> } {
+          {errored fallback(e) { <li>list error: {e.message}</li> } {
+            {for it in issues {
+              <li data-testid="issue" onClick={() => {
+                selected := it.id
+                titleDraft := ""
+                onFlush(() => { assignError := null })
+                onFlush(() => { renameError := null })
+              }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</li>
+            }}
+          }}
+        }}
+      </ul>
+      <div data-testid="detail">
+        {if selected == null {
+          <p>select an issue</p>
+        } else {
+          {loading on(selected) fallback { <p>loading #{selected}</p> } {
+            {errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{detail.id} {detail.title}</h2>
+              <p>{detail.body}</p>
+            }}
+          }}
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+          <button data-testid="assign" onClick={() => {
+            onFlush(() => { assignError := null })
+            assignTo(selected, user)
+          }}>assign to {user}</button>
+          {if shownError != "" { <p data-testid="assign-error">{shownError}</p> }}
+          <div>
+            <input data-testid="title-input" value={titleDraft} onInput={(ev) => { titleDraft := ev.target.value }} />
+            <button data-testid="rename" onClick={() => {
+              if (titleDraft != "") {
+                onFlush(() => { renameError := null })
+                renameTo(selected, titleDraft)
+              }
+            }}>rename</button>
+          </div>
+          {if shownRenameError != "" { <p data-testid="rename-error">rename error: {shownRenameError}</p> }}
+        }}
+      </div>
+    </div>
+  </div>
+}
