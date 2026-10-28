@@ -4,12 +4,12 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { parseProgram } from "../src/parse.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import { parseProgram } from "./rx/compiler.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 
 type Step = {
   before: string;
@@ -38,7 +38,7 @@ const settle = async () => {
 async function compare(t: TestContext, source: string, rx: string, initial: string, steps: Step[],
   options: { async?: boolean; authored?: boolean } = {}) {
   const isAsync = options.async ?? true;
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "tsx-async-handlers-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
@@ -248,7 +248,7 @@ export function Counter() {
   ]));
 
 test("lexically async callbacks return promises even when returning or throwing before the await", t =>
-  compare(t, `import { defineError } from "reactivescript-ref/tsx";
+  compare(t, `import { defineError } from "reactivescript-tsx";
 const Early = defineError("Early", [], () => "early");
 export function Counter() {
   return <button onClick={async (mode: number) => {

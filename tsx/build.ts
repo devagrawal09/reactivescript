@@ -2,10 +2,10 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadTsxModules } from "./modules.ts";
-import { checkModules } from "../src/check.ts";
-import { CheckError } from "../src/errors.ts";
-import { compileModules } from "../compile/emit.ts";
-import { lowerViews, type Target } from "../compile/jsx.ts";
+import { checkModules } from "./rx/compiler.ts";
+import { CheckError } from "./rx/compiler.ts";
+import { compileModules } from "./rx/compiler.ts";
+import { lowerViews, type Target } from "./rx/compiler.ts";
 
 /** The same checked module graph and Solid backends for both authored syntaxes. */
 export function buildTsx(entry: string, read: (path: string) => string | undefined,

@@ -5,9 +5,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
 import { loadTsxModules } from "./modules.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { checkModules } from "../src/check.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { checkModules } from "./rx/compiler.ts";
 
 const source = `import { createSignal, createOptimistic, action } from "solid-js";
 import { request } from "./api";
@@ -44,7 +44,7 @@ for (const name of ["native.mts", "main.mjs"]) {
       ? transform(source, { filename: "Counter.tsx", generate: "universal", moduleName: STRING_RENDERER }).code
         .replaceAll('"./api"', '"./api.mjs"')
       : buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" }).files.get(name)!;
-    const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+    const root = fileURLToPath(new URL("../.out/", import.meta.url));
     mkdirSync(root, { recursive: true });
     const dir = mkdtempSync(root + "tsx-actions-");
     const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

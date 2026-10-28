@@ -1,4 +1,5 @@
 // Real-browser adoption test, separate from the fast TSX suite.
+import { runtimeFiles } from "./rx/runtime.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -44,12 +45,12 @@ const scenarios = [
     name: "two-input-effect", frames: ["0/0", "1/2", "2/3", "3/4"], hydrationCalls: 0,
     // A direct second input makes the apply rerun on every change of n (EF-2 compares each input).
     rx: 'export component Counter() { source n := 0; source runs := 0; effect(n > 2, n) { runs := p => p + 1 } <button onClick={() => { n := n + 1 }}>{"" + n}/{"" + runs}</button> }',
-    tsx: 'import { createSignal } from "solid-js"; import { createRxEffect } from "reactivescript-ref/tsx"; export function Counter() { const [n,setN] = createSignal(0); const [runs,setRuns] = createSignal(0); createRxEffect([() => n() > 2, () => n()], (flag, value) => { setRuns(previous => previous + 1); }); return <button onClick={() => setN(n()+1)}>{n()}/{runs()}</button>; }',
+    tsx: 'import { createSignal } from "solid-js"; import { createRxEffect } from "reactivescript-tsx"; export function Counter() { const [n,setN] = createSignal(0); const [runs,setRuns] = createSignal(0); createRxEffect([() => n() > 2, () => n()], (flag, value) => { setRuns(previous => previous + 1); }); return <button onClick={() => setN(n()+1)}>{n()}/{runs()}</button>; }',
   },
   {
     name: "rx-effect", frames: ["0/initial", "1/#error", "2/false", "3/false"], hydrationCalls: 0,
     rx: 'error Boom(); export component Counter() { source n := 0; source last := "initial"; value = n == 1 ? throw Boom() : false; effect(value) { last := "" + $0 } <button onClick={() => { n := n + 1 }}>{"" + n}/{last}</button> }',
-    tsx: 'import { createSignal, createMemo } from "solid-js"; import { createRxEffect, defineError, raiseFailure } from "reactivescript-ref/tsx"; const Boom = defineError("Boom", [], () => "boom"); export function Counter() { const [n,setN] = createSignal(0); const [last,setLast] = createSignal("initial"); const value = createMemo(() => n() === 1 ? raiseFailure(Boom()) : false); createRxEffect([() => value()], answer => { setLast("" + answer); }); return <button onClick={() => setN(n()+1)}>{n()}/{last()}</button>; }',
+    tsx: 'import { createSignal, createMemo } from "solid-js"; import { createRxEffect, defineError, raiseFailure } from "reactivescript-tsx"; const Boom = defineError("Boom", [], () => "boom"); export function Counter() { const [n,setN] = createSignal(0); const [last,setLast] = createSignal("initial"); const value = createMemo(() => n() === 1 ? raiseFailure(Boom()) : false); createRxEffect([() => value()], answer => { setLast("" + answer); }); return <button onClick={() => setN(n()+1)}>{n()}/{last()}</button>; }',
   },
   {
     name: "stream", frames: ["4", "15", "25", "35"], hydrationCalls: 1,
@@ -64,28 +65,28 @@ const scenarios = [
   {
     name: "source-context", frames: ["0", "1", "2", "3"], hydrationCalls: 0,
     rx: 'context Count: source number; component Reader() { <button onClick={() => { use Count := use Count + 1 }}>{"" + use Count}</button> } export component Counter() { source count := 0; provide Count = count; <Reader/> }',
-    tsx: 'import { createSignal } from "solid-js"; import { createSourceContext, useSourceContext } from "reactivescript-ref/tsx"; const Count = createSourceContext<number>(); function Reader() { const [count,setCount] = useSourceContext(Count); return <button onClick={() => setCount(count()+1)}>{count()}</button>; } export function Counter() { const [count,setCount] = createSignal(0); return <Count value={[count,setCount]}><Reader/></Count>; }',
+    tsx: 'import { createSignal } from "solid-js"; import { createSourceContext, useSourceContext } from "reactivescript-tsx"; const Count = createSourceContext<number>(); function Reader() { const [count,setCount] = useSourceContext(Count); return <button onClick={() => setCount(count()+1)}>{count()}</button>; } export function Counter() { const [count,setCount] = createSignal(0); return <Count value={[count,setCount]}><Reader/></Count>; }',
   },
   {
     name: "typed-failure", frames: ["0/ok", "1/ok", "2/missing 2"], hydrationCalls: 0,
     rx: 'error Missing(id) => "missing " + id; export component Counter() { source n := 0; value = n < 2 ? "ok" : throw Missing(n); <button onClick={() => { n := n + 1 }}>{"" + n}/{errored fallback(e: Missing) { <span>{e.message}</span> } { <span>{value}</span> }}</button> }',
-    tsx: 'import { createSignal, createMemo } from "solid-js"; import { defineError, raiseFailure, FailureBoundary } from "reactivescript-ref/tsx"; const Missing = defineError("Missing", ["id"], (id: number) => "missing " + id); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo((): string => n() < 2 ? "ok" : raiseFailure(Missing(n()))); return <button onClick={() => setN(n()+1)}>{n()}/<FailureBoundary classes={[Missing]} fallback={error => <span>{error().message}</span>}><span>{value()}</span></FailureBoundary></button>; }',
+    tsx: 'import { createSignal, createMemo } from "solid-js"; import { defineError, raiseFailure, FailureBoundary } from "reactivescript-tsx"; const Missing = defineError("Missing", ["id"], (id: number) => "missing " + id); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo((): string => n() < 2 ? "ok" : raiseFailure(Missing(n()))); return <button onClick={() => setN(n()+1)}>{n()}/<FailureBoundary classes={[Missing]} fallback={error => <span>{error().message}</span>}><span>{value()}</span></FailureBoundary></button>; }',
   },
   {
     name: "server-loader", frames: ["4", "14", "24", "34"], hydrationCalls: 1,
     rx: 'import pure { fetchValue } from "./api"; server fn load(n) { let value = await fetchValue(n); return value } export component Counter() { source n := 0; value = await load(n); errored fallback { <p>failed</p> } { loading fallback { <p>waiting</p> } { <button onClick={() => { n := n + 1 }}>{"" + value}</button> } } }',
-    tsx: 'import { createSignal, createMemo, Loading, Errored } from "solid-js"; import { serverFunction } from "reactivescript-ref/tsx"; import { fetchValue } from "./api"; const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { const value: number = yield fetchValue(n); return value; }); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo(async (): Promise<number> => await load(n())); return <Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}><button onClick={() => setN(n()+1)}>{value()}</button></Loading></Errored>; }',
+    tsx: 'import { createSignal, createMemo, Loading, Errored } from "solid-js"; import { serverFunction } from "reactivescript-tsx"; import { fetchValue } from "./api"; const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { const value: number = yield fetchValue(n); return value; }); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo(async (): Promise<number> => await load(n())); return <Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}><button onClick={() => setN(n()+1)}>{value()}</button></Loading></Errored>; }',
   },
   {
     name: "server-factories", frames: ["4/5", "5/6", "6/7", "7/8"], hydrationCalls: 0,
     rx: 'component Left(props: {n: number}) { server fn load(x) { return x + 4 } answer = await load(props.n); <span>{"" + answer}/</span> } component Right(props: {n: number}) { server fn load(x) { return x + 5 } answer = await load(props.n); <span>{"" + answer}</span> } export component Counter() { source n := 0; <button onClick={() => { n := n + 1 }}>{errored fallback { <span>failed</span> } { loading fallback { <span>waiting</span> } { <Left n={n}/><Right n={n}/> } }}</button> }',
-    tsx: 'import { createSignal, createMemo, Loading, Errored } from "solid-js"; import { serverFunction } from "reactivescript-ref/tsx"; function Left(props: {n: number}) { const load = serverFunction("load", function* (x: number): Generator<unknown, number, unknown> { return x + 4; }); const answer = createMemo(async (): Promise<number> => await load(props.n)); return <span>{answer()}/</span>; } function Right(props: {n: number}) { const load = serverFunction("load", function* (x: number): Generator<unknown, number, unknown> { return x + 5; }); const answer = createMemo(async (): Promise<number> => await load(props.n)); return <span>{answer()}</span>; } export function Counter() { const [n,setN] = createSignal(0); return <button onClick={() => setN(n()+1)}><Errored fallback={<span>failed</span>}><Loading fallback={<span>waiting</span>}><Left n={n()}/><Right n={n()}/></Loading></Errored></button>; }',
+    tsx: 'import { createSignal, createMemo, Loading, Errored } from "solid-js"; import { serverFunction } from "reactivescript-tsx"; function Left(props: {n: number}) { const load = serverFunction("load", function* (x: number): Generator<unknown, number, unknown> { return x + 4; }); const answer = createMemo(async (): Promise<number> => await load(props.n)); return <span>{answer()}/</span>; } function Right(props: {n: number}) { const load = serverFunction("load", function* (x: number): Generator<unknown, number, unknown> { return x + 5; }); const answer = createMemo(async (): Promise<number> => await load(props.n)); return <span>{answer()}</span>; } export function Counter() { const [n,setN] = createSignal(0); return <button onClick={() => setN(n()+1)}><Errored fallback={<span>failed</span>}><Loading fallback={<span>waiting</span>}><Left n={n()}/><Right n={n()}/></Loading></Errored></button>; }',
   },
 ];
 
 for (const scenario of scenarios) for (const syntax of (["rx-effect", "server-factories", "async-handler"].includes(scenario.name) ? ["rx", "tsx", "native"] : ["rx", "tsx"]) as ("rx" | "tsx" | "native")[]) test(syntax + " " + scenario.name + " streams HTML, adopts the same DOM on hydration, then updates on clicks", async () => {
   const source = syntax === "native" ? scenario.tsx : scenario[syntax], expectedFrames = scenario.frames;
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-browser-");
   try {
@@ -101,8 +102,8 @@ for (const scenario of scenarios) for (const syntax of (["rx-effect", "server-fa
       const result = buildTsx(input, path => path === input ? source : path === "api.d.rx" ? "export pure fn fetchValue(n: number): number" : undefined, { target, mount: "Counter" });
       for (const [name, code] of result.files) writeFileSync(dir + "/" + target + "/" + name, code);
     }
-    const serverRuntime = fileURLToPath(new URL("../compile/rt-server.ts", import.meta.url));
-    const clientRuntime = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
+    const serverRuntime = runtimeFiles.server;
+    const clientRuntime = runtimeFiles.web;
     const server = [
       "import { createApp, generateHydrationScript } from " + JSON.stringify(serverRuntime) + ";",
       syntax === "native" ? 'import { Counter } from "./ssr/main.mts";' : 'import main from "./ssr/main.mjs";',

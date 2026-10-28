@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
 
 type Step = { click: number } | { land: string; value: unknown };
 const imports = 'import { createSignal, createMemo, createDeferred, isPending, Loading, Errored, action, refresh, affects } from "solid-js"; import { fetch } from "./api";';
@@ -26,7 +26,7 @@ function interpretedButtons(items: any[]): any[] {
 async function differential(
   nativeSources: [string, string][], compiledSources: [string, string][], declarations: string, steps: Step[], expected: string[], calls: Record<string, number>,
 ) {
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "async-control-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

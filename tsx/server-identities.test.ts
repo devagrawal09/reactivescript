@@ -6,12 +6,12 @@ import { transform } from "@solidjs/compiler";
 import { createRoot, getOwner } from "@solidjs/signals";
 import { serverFunction } from "./primitives.ts";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
-import { parseProgram } from "../src/parse.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { parseProgram } from "./rx/compiler.ts";
 
-const imports = 'import { createSignal, action, Loading, Errored, untrack } from "solid-js"; import { serverFunction, serverAction, createServerMemo, refresh } from "reactivescript-ref/tsx";';
+const imports = 'import { createSignal, action, Loading, Errored, untrack } from "solid-js"; import { serverFunction, serverAction, createServerMemo, refresh } from "reactivescript-tsx";';
 const boundary = (body: string) => '<Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}>' + body + "</Loading></Errored>";
 const settle = async () => { for (let i = 0; i < 4; i++) { await new Promise<void>(resolve => setImmediate(resolve)); flush(); } };
 const buttons = (node: any): any[] => node.tag === "button" ? [node] : (node.children ?? []).flatMap(buttons);
@@ -22,7 +22,7 @@ async function differential(source: string, expected: string[], options: {
   declarations?: string;
   interpreted?: boolean;
 } = {}) {
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "server-identities-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
@@ -39,7 +39,7 @@ async function differential(source: string, expected: string[], options: {
       if (target === "native") {
         entry = "native.mts";
         const code = transform(source, { filename: "main.tsx", generate: "universal", moduleName: STRING_RENDERER }).code
-          .replaceAll('"reactivescript-ref/tsx"', JSON.stringify(primitives)).replaceAll('"./api"', '"./api.mjs"');
+          .replaceAll('"reactivescript-tsx"', JSON.stringify(primitives)).replaceAll('"./api"', '"./api.mjs"');
         writeFileSync(dir + "/" + entry, code.replaceAll(STRING_RENDERER, renderer));
       } else {
         const built = buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" });

@@ -6,14 +6,14 @@ import {
   Errored, Loading, Show, createComponent, createEffect, createMemo, createProjection,
   createRoot, createSignal, flush, onCleanup, type Accessor, type Element,
 } from "solid-js";
-import { createPrevious } from "reactivescript-ref/tsx";
-import { parseProgram, parseStmts } from "../src/parse.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp } from "../compile/rt.ts";
-import { R, serialize } from "../compile/string-renderer.ts";
+import { createPrevious } from "reactivescript-tsx";
+import { parseProgram, parseStmts } from "./rx/compiler.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp } from "./rx/runtime.ts";
+import { R, serialize } from "./rx/runtime.ts";
 import { lowerTsx } from "./lower.ts";
 import { traces } from "./test-utils.ts";
 
@@ -48,7 +48,7 @@ async function assertCore(source: string, writes: Writes, expected: string[], ef
     assert.deepEqual(frames, interpreterExpected, "raw RX interpreter");
     assert.deepEqual(log, effects, "raw RX interpreter effects");
   } finally { runtime.root.dispose(); }
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "tsx-previous-core-");
   try {
@@ -196,14 +196,14 @@ test("chained previous accessors equality-cut repeated intermediate answers", as
   } finally { app.dispose(); }
   await assertCore('source x := 0; previous = pre x -> 0; twice = pre previous -> -1; <p>{x}/{previous}/{twice}</p>',
     [[["x", 1]], [["x", 2]], [["x", 3]]], expected);
-  const source = 'import {createSignal} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [x,setX]=createSignal(0);const previous=createPrevious(x,()=>0);const twice=createPrevious(previous,()=>-1);return <button onClick={()=>setX(x()+1)}>{x()}/{previous()}/{twice()}</button>}';
+  const source = 'import {createSignal} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [x,setX]=createSignal(0);const previous=createPrevious(x,()=>0);const twice=createPrevious(previous,()=>-1);return <button onClick={()=>setX(x()+1)}>{x()}/{previous()}/{twice()}</button>}';
   await traces(source, lowerTsx(source), expected);
 });
 
 test("seeded previous falls back on undefined history values, but never on null", async () => {
   for (const initial of ["undefined", "null"]) {
     const expected = initial === "undefined" ? ["undefined/99", "1/99", "2/1"] : ["null/99", "1/null", "2/1"];
-    const source = 'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const current=createMemo(()=>n()===0?' + initial + ':n());const previous=createPrevious(current,()=>99);return <button onClick={()=>setN(n()+1)}>{current()===' + initial + '?"' + initial + '":current()}/{previous()===' + initial + '?"' + initial + '":previous()}</button>}';
+    const source = 'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const current=createMemo(()=>n()===0?' + initial + ':n());const previous=createPrevious(current,()=>99);return <button onClick={()=>setN(n()+1)}>{current()===' + initial + '?"' + initial + '":current()}/{previous()===' + initial + '?"' + initial + '":previous()}</button>}';
     await traces(source, lowerTsx(source), expected);
     await assertCore('source x := ' + initial + '; previous = pre x -> 99; <p>{x == ' + initial + ' ? "' + initial + '" : x}/{previous == ' + initial + ' ? "' + initial + '" : previous}</p>',
       [[["x", 1]], [["x", 2]]], expected);
@@ -211,14 +211,14 @@ test("seeded previous falls back on undefined history values, but never on null"
 });
 
 test("source previous coalesces multiple writes in one handler", async () => {
-  const source = 'import {createSignal} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [x,setX]=createSignal(0);const [step,setStep]=createSignal(0);const previous=createPrevious(x,()=>99);return <button onClick={()=>{if(step()===0)setX(1);else{setX(5);setX(7)}setStep(step()+1)}}>{x()}/{previous()}</button>}';
+  const source = 'import {createSignal} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [x,setX]=createSignal(0);const [step,setStep]=createSignal(0);const previous=createPrevious(x,()=>99);return <button onClick={()=>{if(step()===0)setX(1);else{setX(5);setX(7)}setStep(step()+1)}}>{x()}/{previous()}</button>}';
   const expected = ["0/99", "1/0", "7/1"];
   await traces(source, lowerTsx(source), expected);
   await assertCore('source x := 0; previous = pre x -> 99; <p>{x}/{previous}</p>', [[["x", 1]], [["x", 5], ["x", 7]]], expected);
 });
 
 test("same-setup history can be consumed later, but inherited targets fail closed at setup", async () => {
-  const prefix = 'import {createSignal,createMemo,Show} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);';
+  const prefix = 'import {createSignal,createMemo,Show} from "solid-js";import {createPrevious} from "reactivescript-tsx";const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);';
   const tail = 'export function Counter(){const [shown,setShown]=createSignal(false);const [step,setStep]=createSignal(0);return <button onClick={()=>{if(step()===0)setN(1);else if(step()===1)setN(2);else setShown(true);setStep(step()+1)}}>{double()}|<Show when={shown()} fallback="-"><Panel/></Show></button>}';
   const legal = prefix + 'const previous=createPrevious(double,()=>-1);function Panel(){return <span>{previous()}</span>}' + tail;
   await traces(legal, lowerTsx(legal), ["0|-", "2|-", "4|-", "4|2"]);
@@ -308,7 +308,7 @@ test("failed input attempts are skipped, and successful equal-value recovery adv
 
 test("authored and raw RX previous recover from failed current inputs with native packet history", async () => {
   const expected = ["0", "1", "failed", "failed", "2", "failed", "3", "3"];
-  const source = 'import {createSignal,createMemo,Errored} from "solid-js";import {createPrevious,defineError,raiseFailure} from "reactivescript-ref/tsx";const Failed=defineError("Failed",[],()=>"failed");function Content(props:{n:number;failed:boolean}){const input=createMemo(()=>props.failed?raiseFailure(Failed()):props.n);const previous=createPrevious(input,()=>0);return <span>{previous()}</span>}export function Counter(){const [n,setN]=createSignal(1);const [failed,setFailed]=createSignal(false);const [step,setStep]=createSignal(0);return <button onClick={()=>{if(step()===0)setN(2);else if(step()===1)setFailed(true);else if(step()===2)setN(3);else if(step()===3)setFailed(false);else if(step()===4)setFailed(true);else if(step()===5)setFailed(false);else setN(4);setStep(step()+1)}}><Errored fallback={_error=><span>failed</span>}><Content n={n()} failed={failed()}/></Errored></button>}';
+  const source = 'import {createSignal,createMemo,Errored} from "solid-js";import {createPrevious,defineError,raiseFailure} from "reactivescript-tsx";const Failed=defineError("Failed",[],()=>"failed");function Content(props:{n:number;failed:boolean}){const input=createMemo(()=>props.failed?raiseFailure(Failed()):props.n);const previous=createPrevious(input,()=>0);return <span>{previous()}</span>}export function Counter(){const [n,setN]=createSignal(1);const [failed,setFailed]=createSignal(false);const [step,setStep]=createSignal(0);return <button onClick={()=>{if(step()===0)setN(2);else if(step()===1)setFailed(true);else if(step()===2)setN(3);else if(step()===3)setFailed(false);else if(step()===4)setFailed(true);else if(step()===5)setFailed(false);else setN(4);setStep(step()+1)}}><Errored fallback={_error=><span>failed</span>}><Content n={n()} failed={failed()}/></Errored></button>}';
   await traces(source, lowerTsx(source), expected);
   await assertCore('source n := 1; source failed := false; error Failed() => "failed"; input = failed ? throw Failed() : n; previous = pre input -> 0; <p>{previous catch (error) => "failed"}</p>',
     [[["n", 2]], [["failed", true]], [["n", 3]], [["failed", false]], [["failed", true]], [["failed", false]], [["n", 4]]], expected);

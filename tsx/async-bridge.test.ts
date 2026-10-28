@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 
 const baseSource = 'import { createSignal, createMemo, Loading, Errored, isPending, latest } from "solid-js"; import { fetchValue } from "./api"; export function Counter() { const [n,setN] = createSignal(0); const result = createMemo(async (): Promise<number> => await fetchValue(n())); return <Errored fallback={err => <p>failed</p>}><Loading fallback={<p>waiting</p>}><div><button onClick={() => setN(n()+1)}>{result()}</button><span>{isPending(() => result()) ? "pending" : "idle"}</span><span>{latest(() => n())}</span></div></Loading></Errored>; }';
 
@@ -13,7 +13,7 @@ for (const explicitOn of [false, true]) test("async equations, JS contracts, fai
   const source = explicitOn ? baseSource.replace("<Loading fallback", "<Loading on={n()} fallback") : baseSource;
   const inputs: Record<string, string> = { "main.tsx": source, "api.d.rx": "export pure fn fetchValue(n: number): number" };
   const native = transform(source, { filename: "Counter.tsx", generate: "universal", moduleName: STRING_RENDERER }).code.replaceAll('"./api"', '"./api.mjs"');
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-async-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

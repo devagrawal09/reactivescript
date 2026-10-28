@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
 
 type Interaction = {
   tag: string;
@@ -18,7 +18,7 @@ type Interaction = {
 const click: Interaction = { tag: "button", event: "onClick" };
 
 async function compare(t: TestContext, source: string, steps: Interaction[], expected: string[]) {
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-callbacks-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
@@ -169,7 +169,7 @@ export function Counter() {
 // These are synchronous callbacks, not actions; no failure-row type notation is needed.
 test("a child catches its parent callback failure and still runs finally", async t => {
   await compare(t, `import { createSignal } from "solid-js";
-import { defineError } from "reactivescript-ref/tsx";
+import { defineError } from "reactivescript-tsx";
 const Broken = defineError("Broken", ["value"], (value: number) => "broken " + value);
 function Button(props: { onSave: () => void }) {
   const [status, setStatus] = createSignal("idle");
@@ -196,7 +196,7 @@ export function Counter() {
 
 test("callback rethrows reach the event caller with their payload after both finalizers", async t => {
   await compare(t, `import { createSignal } from "solid-js";
-import { defineError } from "reactivescript-ref/tsx";
+import { defineError } from "reactivescript-tsx";
 const Broken = defineError("Broken", ["value"], (value: number) => "broken " + value);
 function Button(props: { onSave: () => void }) {
   const [status, setStatus] = createSignal("idle");
@@ -232,7 +232,7 @@ export function Counter() {
 
 test("nested finalizers preserve completions unless their own return or throw overrides them", async t => {
   await compare(t, `import { createSignal } from "solid-js";
-import { defineError } from "reactivescript-ref/tsx";
+import { defineError } from "reactivescript-tsx";
 const Broken = defineError("Broken", ["value"], (value: number) => "broken " + value);
 export function Counter() {
   const [attempts, setAttempts] = createSignal(0);

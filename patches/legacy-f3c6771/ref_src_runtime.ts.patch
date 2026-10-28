@@ -1,0 +1,635 @@
+diff --git a/ref/src/runtime.ts b/ref/src/runtime.ts
+index 9f1dd5a..562f7f7 100644
+--- a/ref/src/runtime.ts
++++ b/ref/src/runtime.ts
+@@ -1,15 +1,17 @@
+ // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
+ // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
+-import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
++import { hasAwait, type Decl, type Expr, type Markup, type Program, type Stmt } from "./ast.ts";
+ type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
+ 
+ import { RuleError, CheckError } from "./errors.ts";
+ import { checkModules } from "./check.ts";
+ export { RuleError, CheckError };
+-import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
++import { makeErrorClass, isA, PANIC, wireCopy, wireCacheKey, wireFailure } from "./failure.ts";
+ import { singleModule, type ModuleSet } from "./modules.ts";
+ export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
+-export class PendingVal { }                              // R-2: absence flows like a value
++// E-12's apply parameters are opaque answers, not reactive error propagation (as compiled ERR).
++const EFFECT_ERROR = Object.freeze({ toString: () => "#error" });
++export class PendingVal { declare private readonly pending: true; }   // R-2: nominal marker, not the structural empty-object type
+ export const PENDING = new PendingVal();
+ /** A flight lands any number of times: `await*` reads its latest landing (a stream, ST-6b); a plain `await` its first (R-1). */
+ export class Flight { key: string; state: "pending" | "resolved" | "rejected" = "pending"; value: unknown; first: { state: "resolved" | "rejected"; value: unknown } | null = null; constructor(key: string) { this.key = key; } }
+@@ -40,9 +42,11 @@ export class Node {
+   static seq = 0;
+   id = Node.seq++;
+   value: unknown = undefined; hasValue = false;        // in-flight (σ′)
++  selfPre: { instant: number; value: unknown; hasValue: boolean } | null = null;   // stable across settle passes of one instant
+   committed: unknown = undefined; hasCommitted = false; // committed (σ)
+   changedSinceCommit = false;
+   prev: unknown = undefined; hasPrev = false;           // C-2 (ruled 2026-10-23, DV-5): the value before the most recent change
++  prePacket: { cur: unknown; prev: unknown; instant: number } | null = null; // non-self pre keeps successful history across errors/pending
+   state: "clean" | "check" | "dirty" = "dirty";
+   changed = false; demanded = false; evaluated = false; // this instant
+   deps = new Map<Target, Set<string>>();
+@@ -62,6 +66,7 @@ export class Node {
+   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
+   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
+   keyBy: string | null = null;                         // ST-4: a keyed collection is reconciled by this key
++  keyedValue: unknown[] | null = null;                 // last successful rows, retained across pending/error
+   kind: Kind; name: string; region: Region; compute?: (rt: Runtime) => unknown;
+   constructor(kind: Kind, name: string, region: Region, compute?: (rt: Runtime) => unknown) { this.kind = kind; this.name = name; this.region = region; this.compute = compute; }
+ }
+@@ -70,23 +75,36 @@ type CtxBinding = { context: Extract<Decl, { k: "context" }>; home: Region; dflt
+ type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: Region } | { comp: CompDecl; home: Region } | { action: ActionDecl; home: Region };   // home: the declaring region — bodies resolve names there (lexical, RG-7a; across modules, MO-6)
+ /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
+ /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
+-type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[] };
+-type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
++type Completion = { kind: "return" | "throw"; value: unknown };
++type PromiseControls = { resolve: (value: unknown) => void; reject: (error: unknown) => void };
++type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; fin?: Stmt[]; completion?: Completion };
++type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; result?: unknown; returned?: boolean; async?: PromiseControls; waiting?: PromiseControls; completion?: Completion; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
+ export class Region {
+   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
++  nativeOwned = new Set<Region | EffectRec>();
+   scope = new Map<string, Binding>();
+   provided = new Map<CtxBinding, Node>();              // RG-7: provisions by context, found through the instantiation chain
+   alive = true;
+   parent: Region | null; rt: Runtime; boundary: BoundaryItem | null;
+   lexical: Region | null;                              // RG-4c: children keep the caller's names while owned where they are rendered
+-  constructor(parent: Region | null, rt: Runtime, boundary: BoundaryItem | null = parent?.boundary ?? null, lexical: Region | null = parent) { this.parent = parent; this.rt = rt; this.boundary = boundary; this.lexical = lexical; parent?.children.add(this); }
++  constructor(parent: Region | null, rt: Runtime, boundary: BoundaryItem | null = parent?.boundary ?? null, lexical: Region | null = parent) { this.parent = parent; this.rt = rt; this.boundary = boundary; this.lexical = lexical; parent?.children.add(this); parent?.nativeOwned.add(this); }
+   lookup(name: string): Binding | undefined { return this.scope.get(name) ?? this.lexical?.lookup(name); }
+-  dispose() {
++  private nativeCleanups(): (() => void)[] {
++    return [...this.nativeOwned].reverse().flatMap(owned => {
++      if (owned instanceof Region) return owned.alive ? owned.nativeCleanups() : [];
++      const cleanup = owned.cleanup; owned.cleanup = undefined;
++      return cleanup ? [cleanup] : [];
++    });
++  }
++  dispose(collectNative = true) {
+     if (!this.alive) return; this.alive = false;
+-    for (const c of [...this.children]) c.dispose();
++    const native = collectNative ? this.nativeCleanups() : [];
++    for (const c of [...this.children]) c.dispose(false);
+     for (const e of this.effects) { if (e.cleanup) this.rt.pendingCleanups.push(e.cleanup); e.cleanup = undefined; e.alive = false; }
++    this.rt.pendingCleanups.push(...native);
+     for (const n of this.nodes) this.rt.unsubscribe(n);
+     this.parent?.children.delete(this);
++    this.parent?.nativeOwned.delete(this);
+   }
+ }
+ type EffectRec = { computes: Node[]; body: Stmt[]; region: Region; ran: boolean; alive: boolean; cleanup?: () => void; last: unknown[] };
+@@ -96,7 +114,7 @@ type Write = { node: Node; path: (string | number)[]; value: unknown };
+ type ViewInst = { region: Region; items: VItem[] };
+ type Row = { elem: unknown; region: Region; inst: ViewInst };
+ type ReaderItem = { k: "read"; node: Node; shown: string | null };
+-type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
++type BoundaryItem = { classes?: unknown[]; k: "loading" | "errored"; m: Extract<Markup, { k: "loading" | "errored" }>; region: Region; parent: BoundaryItem | null; armed: boolean; onNode: Node | null; fallback: ViewInst | null; errorNode: Node | null; content: ViewInst; showingFallback: boolean; committedFallback: boolean; caught: Node[]; stillWaiting: boolean; armedBy: number; laneAttached: boolean; bornCandidates: number };
+ type VItem =
+   | { k: "text"; s: string } | ReaderItem | { k: "comp"; inst: ViewInst }
+   | { k: "el"; tag: string; attrs: { name: string; node: Node }[]; children: VItem[] }
+@@ -184,9 +202,11 @@ export class Runtime {
+         const n = region.scope.get(d.name) as Node;
+         if (isReactive(d.init, region)) throw new RuleError("SNAPSHOT_INITIALIZER", `source ${d.name} := … reads a reactive value: write the snapshot as peek(…) (E-4, DV-6)`);
+         n.value = this.demandMode && !this.currentRun ? this.unsubscribed(() => this.evalExpr(d.init, region)) : this.snapshot(d.init, region); n.hasValue = true; n.state = "clean"; n.changed = true; n.changedSinceCommit = true;   // E-4
++        this.recordPrevious(n, n.value);
+       } else if (d.k === "effect") {
+         const computes = d.inputs.map((e, i) => this.mkNode("eq", `effect#${i}`, region, rt => rt.evalExpr(e, region)));
+         const rec: EffectRec = { computes, body: d.body, region, ran: false, alive: true, last: [] };
++        region.nativeOwned.add(rec);   // RX helpers share Solid's reverse ownership disposal order
+         region.effects.push(rec); this.effects.push(rec);
+       }
+     }
+@@ -203,7 +223,8 @@ export class Runtime {
+       if (p.ref) { const b = arg?.k === "id" ? region.lookup(arg.name) : undefined; r.scope.set(p.name, b instanceof Node ? b : this.mkNode("eq", `${f.name}.${p.name}`, region, rt => arg ? rt.evalExpr(arg, region) : undefined)); }
+       else {
+         if (arg && isReactive(arg, region)) this.diagnostics.push(`SNAPSHOT_ARGUMENT: ${f.name}(…): argument for value parameter ${p.name} is reactive and is snapshotted; declare the parameter ref`);
+-        r.scope.set(p.name, { constant: arg ? this.snapshot(arg, region) : undefined });
++        // A helper mounted in this pass sees staged values, just like its eager locals.
++        r.scope.set(p.name, { constant: arg ? this.demandMode && !this.currentRun ? this.unsubscribed(() => this.evalExpr(arg, region)) : this.snapshot(arg, region) : undefined });
+       }
+     });
+     this.declare(f.decls, r);
+@@ -249,10 +270,11 @@ export class Runtime {
+         w = { ...w, value: (w.value as (v: unknown) => unknown)(cur) };
+       }
+       if (w.path.length === 0) {
+-        if (w.node.keyBy && Array.isArray(w.value) && Array.isArray(w.node.value)) w = { ...w, value: this.reconcile(w.node.value, w.value, w.node.keyBy) };   // ST-4a on a source: a root write reconciles by key
++        if (w.node.keyBy) w = { ...w, value: this.reconcile(w.node, w.value) };   // ST-4a on a source: a root write reconciles by key
+         const d = new Set<Path>(); diffPaths(w.node.value, w.value, "", d);
+         if (d.size === 0) continue;
+         w.node.prev = w.node.value; w.node.hasPrev = true;
++        this.recordPrevious(w.node, w.value);
+         w.node.value = w.value; w.node.changed = true; w.node.changedSinceCommit = true; w.node.evaluated = true; w.node.heldBy = this.instant; w.node.heldKeys.set("", this.instant); this.notify(w.node, "");
+       } else {
+         let o = w.node.value as Record<string, unknown>;
+@@ -311,20 +333,21 @@ export class Runtime {
+     // Phase 3 — observe: E-8; effects (EF-2..EF-6) whose computes are committed.
+     for (const n of this.allNodes()) {
+       const inFrame = n.kind === "source" || n.demanded;
+-      if (!inFrame) { n.hasValue = false; n.value = undefined; n.hasCommitted = false; }   // E-8
++      if (!inFrame) { n.hasValue = false; n.value = undefined; n.hasCommitted = false; n.keyedValue = null; }   // E-8
+     }
+     const logBefore = this.log.length;
+     for (const c of this.pendingCleanups) c(); this.pendingCleanups = [];
+     for (const e of [...this.effects]) {
+       if (!e.alive) continue;
+       const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));   // E-12: an error is an answer
+-      const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
+-      const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
++      const values = e.computes.map(c => isErr(c.value) ? EFFECT_ERROR : c.value);
++      const differs = (i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], values[i], "", d); return d.size > 0; };
++      const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(i)));   // RX EF-2: pending → equal is not a change
+       if (!fire) continue;
+       for (const c of e.computes) c.changedSinceCommit = false;
+-      e.last = e.computes.map(c => c.value);
++      e.last = values;
+       e.cleanup?.(); e.cleanup = undefined; e.ran = true;
+-      const r = this.runStmts(e.body, e.region, new Map(), e.computes.map(c => c.value));
++      const r = this.runStmts(e.body, e.region, new Map(), values);
+       if (typeof r === "function") e.cleanup = r as () => void;
+     }
+     this.effects = this.effects.filter(e => e.alive);
+@@ -455,7 +478,7 @@ export class Runtime {
+         i.caught = []; i.bornCandidates = 0;
+         this.settle(i.content, holding, i);
+         if (i.armed) { i.showingFallback = i.caught.length > 0 || i.bornCandidates > 0; if (!i.showingFallback) i.armed = false; }   // H-5: catch; disarm when ready (born-held candidates keep it armed until the hold is decided)
+-        if (i.showingFallback) this.settle(i.fallback, holding, boundary);
++        if (i.showingFallback) this.settle(i.fallback!, holding, boundary);
+         return;
+       }
+       case "errored": {
+@@ -467,11 +490,35 @@ export class Runtime {
+           const owners = (i.caught.length ? i.caught : this.contentReaders(i.content)).flatMap(r => [...r.taint]).filter(t => this.openChanges.has(this.find(t)) || t === this.instant);
+           i.armedBy = owners.length ? owners[0] : this.instant;
+         }
+-        if (i.showingFallback) this.settle(i.fallback, holding, boundary);
++        if (i.showingFallback) this.settle(this.errorFallback(i), holding, boundary);
+         return;
+       }
+     }
+   }
++  private errorFallback(i: BoundaryItem): ViewInst {
++    const caught = i.caught[0], value = caught?.value;
++    if (!i.fallback) {
++      const region = new Region(i.region, this, i.parent);
++      if (i.m.k === "errored" && i.m.errName) {
++        i.errorNode = this.mkNode("source", i.m.errName, region);
++        i.errorNode.value = value instanceof ErrVal ? value.err : undefined; i.errorNode.hasValue = true;
++        i.errorNode.heldBy = caught?.heldOn ?? null;
++        region.scope.set(i.m.errName, i.errorNode);
++      }
++      // Mount after the error is bound, so fallback consts capture the entry payload.
++      i.fallback = this.instantiate(i.m.fallback, region);
++    }
++    if (i.errorNode && value instanceof ErrVal && !Object.is(i.errorNode.value, value.err)) {
++      i.errorNode.value = value.err; i.errorNode.changed = true; i.errorNode.changedSinceCommit = true;
++      i.errorNode.heldBy = caught?.heldOn ?? null; this.notify(i.errorNode, "");
++    }
++    return i.fallback;
++  }
++  private releaseErrorFallback(i: BoundaryItem) {
++    if (i.k === "errored" && !i.showingFallback && !i.committedFallback && i.fallback) {
++      i.fallback.region.dispose(); i.fallback = null; i.errorNode = null;
++    }
++  }
+   /** An errored control reader (`if`/`for`) is caught exactly as an errored read is (H-12, D-41). */
+   private erroredControl(node: Node, v: ErrVal, boundary: BoundaryItem | null) {
+     const eb = catching(boundary, v.err); if (eb) eb.caught.push(node);
+@@ -512,7 +559,8 @@ export class Runtime {
+       case "loading": case "errored": {
+         if (g === null) i.laneAttached = true;
+         if (g === null || this.find(i.armedBy) === g || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;   // H-5 / D-41: the fallback moves with the frame of the change that armed it
+-        this.commit(i.content, g); this.commit(i.fallback, g); return;
++        this.releaseErrorFallback(i);
++        this.commit(i.content, g); if (i.fallback) this.commit(i.fallback, g); return;
+       }
+     }
+   }
+@@ -525,7 +573,7 @@ export class Runtime {
+       case "el": return i.children.map(c => this.renderItem(c)).join("");
+       case "mif": return i.committed ? this.renderCommitted(i.committed.inst) : "";
+       case "mfor": return i.committedRows.map(r => this.renderCommitted(r.inst)).join("");
+-      case "loading": case "errored": return i.committedFallback ? this.renderCommitted(i.fallback) : this.renderCommitted(i.content);
++      case "loading": case "errored": return i.committedFallback ? this.renderCommitted(i.fallback!) : this.renderCommitted(i.content);
+     }
+   }
+   private contentReaders(v: ViewInst): Node[] {
+@@ -558,13 +606,19 @@ export class Runtime {
+       case "loading": case "errored": {
+         // D-17: `on` read a probe → the fallback shows now; otherwise the display follows settle once nothing under it is held on an open change
+         if ((i.k === "loading" && i.onNode?.lane) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
+-        this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return;
++        this.releaseErrorFallback(i);
++        this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback!); return;
+       }
+       case "text": return;
+     }
+   }
+ 
+   // ---- invalidation / pull (E-3, E-6, E-8) ----
++  private recordPrevious(n: Node, cur: unknown) {
++    if (isAbsent(cur)) return;
++    const packet = n.prePacket;
++    n.prePacket = { cur, prev: packet?.instant === this.instant ? packet.prev : packet?.cur, instant: this.instant };
++  }
+   private notify(t: Target, key: string) { for (const s of this.subs.get(t)?.get(key) ?? []) this.markDirty(s); }
+   unsubscribe(n: Node, clear = true) { for (const [t, ks] of n.deps) for (const k of ks) this.subs.get(t)?.get(k)?.delete(n); if (clear) n.deps.clear(); }
+   private subscribe(n: Node) { for (const [t, ks] of n.deps) for (const k of ks) { let m = this.subs.get(t); if (!m) this.subs.set(t, (m = new Map())); let st = m.get(k); if (!st) m.set(k, (st = new Set())); st.add(n); } }
+@@ -578,17 +632,21 @@ export class Runtime {
+     if (n.kind === "source") { n.taint = n.heldBy !== null ? new Set([n.heldBy]) : new Set(); return this.demandMode ? n.value : (n.hasCommitted ? n.committed : n.value); }   // H-10: snapshots see σ
+     if (!this.demandMode) return this.transient(n);
+     n.demanded = true;
+-    if (n.evaluated) return n.value;
++    if (n.evaluated) {
++      // Manual writes can mark a question evaluated before its new hold reaches a tracked reader.
++      if (n.heldBy !== null) n.taint.add(n.heldBy);
++      return n.value;
++    }
+     let recompute = !n.hasValue || n.state === "dirty";
+     const notified = n.state !== "clean" || !n.hasValue;
+     if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal || n.served.size > 0)) recompute = true;   // a held or served display re-runs its pass each instant
+     if (!recompute) {
+       n.taint = new Set();
+       for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); for (const t of d.taint) n.taint.add(t); if (n.state === "check" && d.changed) { recompute = true; break; } }
+-      if (!recompute && n.state === "check") recompute = true;
+     }
+     if (process.env.RS_TRACE_PULL) console.log(`  pull ${n.name}#${n.id} state=${n.state} recompute=${recompute} evaluated=${n.evaluated} value=${fmt(n.value)}`);
+     if (recompute) {
++      if (n.selfPre?.instant !== this.instant) n.selfPre = { instant: this.instant, value: n.value, hasValue: n.hasValue && !(n.value instanceof PendingVal) };
+       const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
+       this.unsubscribe(n);
+       const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.served = new Set();
+@@ -601,12 +659,14 @@ export class Runtime {
+       else if (n.deferred) n.lagging = false;
+       if (n.quiet && v instanceof PendingVal && n.answered) v = n.value;                              // AC-4: a quiet re-ask reveals silently; nothing pends
+       else if (n.quiet && !(v instanceof PendingVal)) { if (n.refreshBy !== null && this.groupOpen(n.refreshBy)) n.heldBy = n.refreshBy; else { n.quiet = false; n.refreshBy = null; } }   // D-31: a refresh in a hold lands into it
+-      if (n.keyBy && Array.isArray(v) && Array.isArray(n.value)) v = this.reconcile(n.value, v, n.keyBy);   // ST-4a: rows with the same key keep their identity and receive per-key updates
++      if (n.keyBy) v = this.reconcile(n, v);   // ST-4a: rows with the same key keep their identity and receive per-key updates
+       const ch = new Set<Path>();
+       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
+       if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
++      if (ch.size > 0) this.recordPrevious(n, v);
+       n.hasValue = true;
+-      if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
++      // Truth proposals preceding a new guess in the same instant must not overwrite that guess.
++      if (n.hasGuess && n.guessBy !== this.instant && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (dg.size) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess corrects the graph now; equal confirms silently
+       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
+       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
+       if (n.heldBy !== null) n.taint.add(n.heldBy);
+@@ -622,10 +682,15 @@ export class Runtime {
+     return n.value;
+   }
+   /** ST-4a: reconcile a new collection by key — same key: the old object, updated in place per key; new key: the new object. */
+-  private reconcile(old: unknown[], nu: unknown[], key: string): unknown[] {
++  private reconcile(n: Node, value: unknown): unknown {
++    if (isAbsent(value)) return value;
++    if (!Array.isArray(value)) { n.keyedValue = null; return value; }
++    const old = Array.isArray(n.value) ? n.value : n.keyedValue;
++    if (!old) return n.keyedValue = value;
++    const key = n.keyBy!;
+     const byKey = new Map<unknown, Record<string, unknown>>();
+     for (const o of old) if (isObj(o)) byKey.set(o[key], o);
+-    return nu.map(e => { if (!isObj(e)) return e; const o = byKey.get(e[key]); if (!o) return e; this.applyDiff(o, e); return o; });
++    return n.keyedValue = value.map(e => { if (!isObj(e)) return e; const o = byKey.get(e[key]); if (!o) return e; this.applyDiff(o, e); return o; });
+   }
+   private applyDiff(o: Record<string, unknown>, e: Record<string, unknown>) {
+     for (const k of new Set([...Object.keys(o), ...Object.keys(e)])) {
+@@ -648,6 +713,35 @@ export class Runtime {
+    *  change's answers — without making them inputs of the reading equation. */
+   private unsubscribed<T>(f: () => T): T { const tr = this.tracking; this.tracking = null; try { return f(); } finally { this.tracking = tr; } }
+   private snapshot(e: Expr, region: Region) { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return this.evalExpr(e, region); } finally { this.demandMode = dm; this.tracking = tr; } }
++  private storeSnapshots = new WeakMap<Node, Map<string, object>>();
++  private storeSnapshot(node: Node, value: Record<string, unknown>, path: string[] = []): object {
++    let snapshots = this.storeSnapshots.get(node);
++    if (!snapshots) this.storeSnapshots.set(node, (snapshots = new Map()));
++    const key = JSON.stringify(path), previous = snapshots.get(key);
++    if (previous) return previous;
++    const read = () => {
++      let current = this.readNode(node);
++      for (const part of path) { if (!isObj(current)) return current; this.track(current, part); current = current[part]; }
++      return current;
++    };
++    // Native store snapshots retain their proxy identity, not the object from the first answer.
++    const proxy = new Proxy(Array.isArray(value) ? [] : {}, {
++      get: (_target, key) => {
++        const current = read();
++        if (!isObj(current)) return isAbsent(current) ? current : undefined;
++        this.track(current, String(key));
++        const next = Reflect.get(current, key);
++        return typeof key === "string" && isObj(next) ? this.storeSnapshot(node, next, [...path, key]) : next;
++      },
++      ownKeys: () => { const current = read(); return isObj(current) ? Reflect.ownKeys(current) : []; },
++      getOwnPropertyDescriptor: (target, key) => {
++        const current = read(), descriptor = isObj(current) ? Reflect.getOwnPropertyDescriptor(current, key) : undefined;
++        return descriptor && { ...descriptor, configurable: !(Array.isArray(target) && key === "length") };
++      },
++    });
++    snapshots.set(key, proxy);
++    return proxy;
++  }
+   private untracked<T>(f: () => T): T { const dm = this.demandMode, tr = this.tracking; this.demandMode = false; this.tracking = null; try { return f(); } finally { this.demandMode = dm; this.tracking = tr; } }
+ 
+   // ---- expressions ----
+@@ -675,6 +769,26 @@ export class Runtime {
+     if (e.k === "latest") return this.nodeOf(e.e, region, env);
+     return null;
+   }
++  /** Optional short-circuiting crosses access/call links, but never escapes as an ordinary value. */
++  private reference(e: Extract<Expr, { k: "member" | "index" | "call" }>, region: Region, env?: Map<string, unknown>): { value: unknown; receiver?: unknown; skipped?: boolean } {
++    const get = (x: Expr) => x.k === "member" || x.k === "index" || x.k === "call" ? this.reference(x, region, env) : { value: this.ev(x, region, env), receiver: undefined, skipped: false };
++    if (e.k !== "call") {
++      const base = get(e.o); if (base.skipped) return base;
++      const v = base.value; if (isAbsent(v)) return { value: v };
++      if (e.opt && v == null) return { value: undefined, skipped: true };
++      const key = e.k === "member" ? e.p : this.ev(e.i, region, env); if (isAbsent(key)) return { value: key };
++      if (isObj(v)) this.track(v, String(key));
++      return { value: (v as any)[key as any], receiver: v };
++    }
++    const callee = get(e.f); if (callee.skipped) return callee;
++    const f = callee.value; const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent);
++    if (isAbsent(f)) return { value: f };
++    if (bad && this.demandMode) return { value: bad };
++    if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
++    if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
++    if (f === BUILTINS.fetch) return { value: this.flight(String(args[0])) };
++    return { value: f.apply(callee.receiver, args) };
++  }
+   private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
+     switch (e.k) {
+       case "lit": return e.v;
+@@ -691,18 +805,19 @@ export class Runtime {
+         }
+         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
+         if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+-        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
++        if ("context" in b) throw new RuleError("RG-7", `context ${e.name} used as a value: read it with use`);
++        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return !this.tracking && b.question && !b.keyBy && isObj(v) ? this.storeSnapshot(b, v) : v; }   // R-f-7: a snapshot of an error throws it
+       }
+-      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
+-      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
++      case "member": case "index": case "call": return this.reference(e, region, env).value;
+       case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }
+       case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
+         const b = region.lookup(e.name);
+         if (!b || !(b instanceof Node)) throw new RuleError("C-2", `pre of non-reactive ${e.name}`);
+-        if (this.tracking === b || (b.question && this.tracking === b)) { if (b.hasValue && !(b.value instanceof PendingVal)) return b.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this recompute (the memo's `prev`); no edge
+-        if (this.tracking && this.demandMode) { this.track(b, ""); this.pull(b); }                                    // another node: an input of it
+-        if (b.hasPrev) return b.prev;
+-        return e.init ? this.ev(e.init, region, env) : undefined;
++        if (this.tracking === b) { if (b.selfPre?.hasValue) return b.selfPre.value; return e.init ? this.ev(e.init, region, env) : undefined; }   // own equation: the value before this instant (the memo's `prev`); no edge
++        const current = this.readNode(b);                         // another node: demand the current answer, including errors/pending
++        if (isAbsent(current)) return current;
++        const previous = b.prePacket?.prev;
++        return previous === undefined ? e.init ? this.ev(e.init, region, env) : undefined : previous;
+       }
+       case "peek": return this.demandMode ? this.unsubscribed(() => this.ev(e.e, region, env)) : this.untracked(() => this.ev(e.e, region, env));   // E-5: in reactive scope, the pass's own values with no input; imperative reads see σ (H-10)
+       case "use": return this.readNode(this.provisionOf(e.name, region));   // RG-7b: the nearest provision of the context through the instantiation chain
+@@ -722,6 +837,14 @@ export class Runtime {
+         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
+         this.probing++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; }
+         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
++        if (v instanceof PendingVal && ln?.question && ln.hasCommitted && isObj(ln.committed)) {
++          // A derived store keeps its last landed paths while a new family answer is pending.
++          const path: string[] = []; let x = e.e;
++          while (x.k === "member" || x.k === "index") { path.unshift(x.k === "member" ? x.p : String(this.ev(x.i, region, env))); x = x.o; }
++          let value: unknown = ln.committed;
++          for (const key of path) { if (!isObj(value)) return isAbsent(value) ? value : undefined; this.track(value, key); value = value[key]; }
++          return value;
++        }
+         return v;
+       }
+       case "pending": {                                                // R-9 / H-9 verdict
+@@ -796,24 +919,13 @@ export class Runtime {
+       }
+       case "fn": {
+         const imperative = !this.demandMode;                           // SC-3
+-        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en); }; }
++        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const async = hasAwait(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], async); }; }
+         return (...args: unknown[]) => {
+           const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i]));
+           if (!imperative) return this.ev(e.body, region, en);
+           return this.untracked(() => this.ev(e.body, region, en));
+         };
+       }
+-      case "call": {
+-        let f: unknown, self: unknown;
+-        if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
+-        else f = this.ev(e.f, region, env);
+-        const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
+-        if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
+-        if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
+-        if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");
+-        if (f === BUILTINS.fetch) return this.flight(String(args[0]));
+-        return (f as (...a: unknown[]) => unknown).apply(self, args);
+-      }
+     }
+   }
+   /** RG-7: a context by its name in scope (lexical) — its identity is the declaration. */
+@@ -835,13 +947,16 @@ export class Runtime {
+    *  the arguments and the result (SF-6a) and lets only declared failures through (SF-6b). A `server fn` is a loader: one
+    *  flight per arguments, as a JS import's (re-asked by `refresh`); a `server action` call is a new request each time. */
+   private serverSeq = 0;
++  private serverFactorySeq = 0;
+   private serverFn(d: ServerDecl, home: Region) {
++    const factory = `server:${this.serverFactorySeq++}:${d.name}`;
+     return (...args: unknown[]) => {
+-      const key = `${d.name}:${args.map(fmt).join(",")}`;
++      const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
++      const copied = args.map((arg, i) => wireCopy(arg, `argument ${d.params[i] ?? i + 1}`, fail));
++      const key = `${factory}:${wireCacheKey(copied)}`;
+       if (d.kind === "fn" && this.flights.has(key)) return this.flights.get(key)!;
+       const f = d.kind === "fn" ? this.flight(key) : new Flight(`${key}#${this.serverSeq++}`);
+-      const fail = (msg: string): never => { throw new RuleError("WIRE_VALUE", `${d.name}: ${msg}`); };
+-      const env = new Map<string, unknown>(d.params.map((p, i) => [p, wireCopy(args[i], `argument ${p}`, fail)]));
++      const env = new Map<string, unknown>(d.params.map((p, i) => [p, copied[i]]));
+       env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
+       this.resume({ frames: [{ stmts: d.body, i: 0, kind: "block" }], region: home, env, change: null, flight: null, action: false, bind: null, settle: { flight: f, name: d.name } });
+       return f;
+@@ -852,45 +967,76 @@ export class Runtime {
+     f.state = state; f.value = value; f.first ??= { state, value };
+     for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
+     const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
+-    for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
++    for (const r of resumed) {
++      if (r.waiting) {
++        // Resolving a callback's wait queues its continuation instead of running it inside land().
++        const waiting = r.waiting; r.waiting = undefined; r.flight = null;
++        const first = f.first!;
++        if (first.state === "rejected") waiting.reject(first.value); else waiting.resolve(first.value);
++      } else { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
++    }
+   }
+ 
+   // ---- imperative scope (SC-2) ----
+-  runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = []): unknown {
++  runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = [], asyncCallback = false): unknown {
+     params.forEach((p, i) => env.set(`$${i}`, p));
+     env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
+-    return this.startRun(stmts, region, env, false);
++    return this.startRun(stmts, region, env, false, asyncCallback);
+   }
+   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
+-  private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean): unknown {
++  private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean, asyncCallback = false): unknown {
+     const run: Run = { frames: [{ stmts, i: 0, kind: "block" }], region, env, change: null, flight: null, action, bind: null };
+     if (action) { this.openActions.add(run); this.started.push(run); }
++    if (asyncCallback) return new Promise((resolve, reject) => {
++      run.async = { resolve, reject };
++      try { this.resume(run); } catch (error) { reject(error); }
++    });
+     return this.resume(run);
+   }
++  private resumeAsync(run: Run) {
++    try {
++      this.resume(run);
++      // An ordinary async continuation opens a new, non-held instant.
++      const writes = this.pendingWrites; this.pendingWrites = [];
++      this.step(writes);
++    } catch (error) { run.async!.reject(error); }
++  }
+   private resume(run: Run): unknown {
+     return this.untracked(() => {
+       const { region, env } = run;
+       const prev = this.currentRun; this.currentRun = run;
+-      /** AC-7: unwind to the nearest `try` with a catch; none → the run ends rejected (an uncaught throw is the action's rejection, DV-2). */
+-      const raise = (err: unknown): boolean => {
+-        while (run.frames.length) {
+-          const f = run.frames.pop()!;
+-          if (f.kind === "try" && f.handler && isA(err, f.catchClasses)) { if (f.catchName) env.set(f.catchName, err); run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin }); return true; }   // R-f-6: a typed catch takes its classes; others pass
+-          if (f.kind === "try" && f.fin) { run.frames.push({ stmts: f.fin, i: 0, kind: "finally" }); }   // a finally runs on the way out; the error continues after it (approximation: it runs now, then unwinding resumes)
+-        }
+-        this.endRun(run, true, err); return false;
+-      };
++      let completion = run.completion; run.completion = undefined;
+       try {
+         if (run.flight) {                                                  // resuming after `await`
+           const f = run.flight; run.flight = null;
+-          if (f.state === "rejected") { if (!raise(f.value)) return undefined; }
++          if (f.state === "rejected") completion = { kind: "throw", value: f.value };
+           else { if (run.bind) env.set(run.bind, f.value); run.bind = null; }
+         }
+-        while (run.frames.length) {
++        while (run.frames.length || completion) {
++          if (completion) {
++            const f = run.frames.pop();
++            if (!f) {
++              if (completion.kind === "return") { run.result = completion.value; run.returned = true; }
++              this.endRun(run, completion.kind === "throw", completion.value);
++              if (completion.kind === "throw" && !run.action && !run.settle && !run.async) throw completion.value;
++              return completion.kind === "return" ? completion.value : undefined;
++            }
++            if (completion.kind === "throw" && f.kind === "try" && f.handler && isA(completion.value, f.catchClasses)) {
++              if (f.catchName) env.set(f.catchName, completion.value);
++              run.frames.push({ stmts: f.handler, i: 0, kind: "catch", fin: f.fin });
++              completion = undefined;
++            } else if ((f.kind === "try" || f.kind === "catch") && f.fin) {
++              // A normal finalizer resumes this completion; its own return/throw replaces it.
++              run.frames.push({ stmts: f.fin, i: 0, kind: "finally", completion });
++              completion = undefined;
++            }
++            continue;
++          }
+           const f = run.frames[run.frames.length - 1];
+           if (f.i >= f.stmts.length) {                                     // a block ended
+             run.frames.pop();
+             if ((f.kind === "try" || f.kind === "catch") && f.fin) run.frames.push({ stmts: f.fin, i: 0, kind: "finally" });
++            if (f.kind === "finally") completion = f.completion;
+             continue;
+           }
+           const s = f.stmts[f.i++];
+@@ -898,22 +1044,39 @@ export class Runtime {
+             const awaited = s.k === "let" && s.e.k === "await" ? s.e : s.k === "expr" && s.e.k === "await" ? s.e : null;
+             if (awaited) {                                                 // statement-level await: suspend the run on a pending flight
+               const v = this.ev(awaited.e, region, env);
++              if (run.async) {
++                const pending = v instanceof Flight ? new Promise<unknown>((resolve, reject) => {
++                  if (v.first) {
++                    if (v.first.state === "rejected") reject(v.first.value); else resolve(v.first.value);
++                  } else {
++                    run.flight = v; run.waiting = { resolve, reject }; this.suspended.push(run);
++                  }
++                }) : Promise.resolve(v);
++                pending.then(value => {
++                  if (s.k === "let") env.set(s.name, value);
++                  this.resumeAsync(run);
++                }, error => {
++                  run.completion = { kind: "throw", value: error };
++                  this.resumeAsync(run);
++                });
++                return undefined;
++              }
+               if (v instanceof Flight && v.state === "pending") { run.flight = v; run.bind = s.k === "let" ? s.name : null; this.suspended.push(run); return undefined; }
+-              if (v instanceof Flight && v.state === "rejected") { if (!raise(v.value)) return undefined; continue; }
++              if (v instanceof Flight && v.state === "rejected") { completion = { kind: "throw", value: v.value }; continue; }
+               const val = v instanceof Flight ? v.value : v;
+               if (s.k === "let") env.set(s.name, val); else run.result = val;
+               continue;
+             }
+             if (s.k === "let") env.set(s.name, this.ev(s.e, region, env));
+             else if (s.k === "expr") run.result = this.ev(s.e, region, env);
+-            else if (s.k === "return") { run.result = s.e ? this.ev(s.e, region, env) : undefined; run.returned = true; run.frames.length = 0; break; }
++            else if (s.k === "return") completion = { kind: "return", value: s.e ? this.ev(s.e, region, env) : undefined };
+             else if (s.k === "sif") run.frames.push({ stmts: this.ev(s.c, region, env) ? s.t : s.f, i: 0, kind: "block" });
+             else if (s.k === "try") run.frames.push({ stmts: s.body, i: 0, kind: "try", catchName: s.catchName, catchClasses: this.classValues(s.catchClasses, region), handler: s.handler, fin: s.fin });
+-            else if (s.k === "throw") { if (!raise(this.ev(s.e, region, env))) return undefined; }
++            else if (s.k === "throw") completion = { kind: "throw", value: this.ev(s.e, region, env) };
+             else this.resumeStmtOnly(s, region, env);
+           } catch (e) {
+             if (e instanceof RuleError) throw e;
+-            if (!raise(e)) return undefined;                               // a thrown error in imperative code is caught by an enclosing try, else rejects the run
++            completion = { kind: "throw", value: e };
+           }
+         }
+         this.endRun(run, false);
+@@ -947,6 +1110,10 @@ export class Runtime {
+       else this.answer(flight, "resolved", wireCopy(run.returned ? run.result : undefined, "its result", msg => { throw new RuleError("WIRE_VALUE", `${name}: ${msg}`); }));
+       return;
+     }
++    if (run.async) {
++      if (rejected) run.async.reject(err); else run.async.resolve(run.returned ? run.result : undefined);
++      return;
++    }
+     if (!run.action) return;
+     this.openActions.delete(run);
+     if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct
+@@ -1004,13 +1171,11 @@ export class Runtime {
+       case "mif": return { k: "mif", m, cond: this.mkNode("reader", "if", region, rt => { const c = rt.evalExpr(m.c, region); return isAbsent(c) ? c : Boolean(c); }), region, committed: null, inflight: null };
+       case "mfor": return { k: "mfor", m, xs: this.mkNode("reader", "for", region, rt => rt.evalExpr(m.xs, region)), region, committedRows: [], inflightRows: [], rowsOpenedBy: 0 };
+       case "loading": case "errored": {
+-        const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null!, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
++        const item: BoundaryItem = { classes: m.k === "errored" ? this.classValues(m.classes, region) : undefined, k: m.k, m, region, parent: region.boundary, armed: true, onNode: null, fallback: null, errorNode: null, content: null!, showingFallback: false, committedFallback: false, caught: [], stillWaiting: false, armedBy: Math.max(this.instant, 0), laneAttached: false, bornCandidates: 0 };
+         if (m.k === "loading" && m.on) item.onNode = this.mkNode("reader", "on", region, rt => rt.evalExpr(m.on!, region));
+         const cr = new Region(region, this, item); this.declare(m.decls, cr);
+         item.content = this.instantiate(m.body, cr);
+-        const fr = new Region(region, this, region.boundary);
+-        if (m.k === "errored" && m.errName) fr.scope.set(m.errName, this.mkNode("eq", m.errName, fr, () => { const c = item.caught[0]; const v = c?.value; return v instanceof ErrVal ? v.err : undefined; }));   // `fallback(e)`: the caught error, a value
+-        item.fallback = this.instantiate(m.fallback, fr);
++        if (m.k === "loading") item.fallback = this.instantiate(m.fallback, new Region(region, this, region.boundary));
+         return item;
+       }
+     }
+@@ -1018,7 +1183,7 @@ export class Runtime {
+   private allNodes(): Node[] { const out: Node[] = []; const walk = (r: Region) => { out.push(...r.nodes); for (const c of r.children) walk(c); }; walk(this.root); return out; }
+ }
+ 
+-export const fmt = (v: unknown): string => v instanceof ErrVal ? "#error" : v instanceof PendingVal ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
++export const fmt = (v: unknown): string => v === EFFECT_ERROR || v instanceof ErrVal ? "#error" : v instanceof PendingVal ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
+ const BIN: Record<string, (a: any, b: any) => unknown> = {
+   "+": (a, b) => a + b, "-": (a, b) => a - b, "*": (a, b) => a * b, "/": (a, b) => a / b, "%": (a, b) => a % b,
+   "==": (a, b) => a === b, "!=": (a, b) => a !== b, "<": (a, b) => a < b, ">": (a, b) => a > b, "<=": (a, b) => a <= b, ">=": (a, b) => a >= b,
+@@ -1051,7 +1216,7 @@ function freeVars(e: Expr, out: Set<string>) {
+     case "arr": e.items.forEach(a => freeVars(a, out)); break;
+     case "rec": e.fields.forEach(f => freeVars("spread" in f ? f.spread : f.v, out)); break;
+     case "tpl": e.parts.forEach(p => { if (typeof p !== "string") freeVars(p, out); }); break;
+-    case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const st of e.stmts ?? []) if ("e" in st) freeVars(st.e, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
++    case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const st of e.stmts ?? []) if ("e" in st && st.e) freeVars(st.e, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
+     case "spread": freeVars(e.e, out); break;
+     case "use": break;
+     case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }

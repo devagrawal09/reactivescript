@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { transformSync } from "esbuild";
 import { buildTsx } from "./build.ts";
-import { CheckError } from "../src/errors.ts";
+import { CheckError } from "./rx/compiler.ts";
 
 const source = 'import { createSignal } from "solid-js"; export function Counter() { const [n, setN] = createSignal(0); return <button onClick={() => setN(n()+1)}>{n()}</button>; }';
 
@@ -37,7 +37,7 @@ test("shared-checker errors stop emission", () => {
 });
 
 test("CLI checks a TSX entry and writes the selected target's module factories", () => {
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-cli-");
   try {

@@ -4,11 +4,11 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { lowerTsx } from "./lower.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 
 async function compare(source: string, expected: string[]) {
   const native = transform(source, { filename: "Counter.tsx", generate: "universal", moduleName: STRING_RENDERER }).code;
@@ -35,7 +35,7 @@ async function compare(source: string, expected: string[]) {
     interpreted.push(runtime.handler([]).at(-1)!.frame);
   }
   assert.deepEqual(interpreted, expected, "interpreter");
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-semantics-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

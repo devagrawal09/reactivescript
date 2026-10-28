@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { createRxEffect } from "reactivescript-ref/tsx";
+import { createRxEffect } from "reactivescript-tsx";
 export function Counter() {
   const [count, setCount] = createSignal(0);
   const [seen, setSeen] = createSignal(0);

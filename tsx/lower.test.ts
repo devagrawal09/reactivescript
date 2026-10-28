@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { lowerTsx, TsxError } from "./lower.ts";
-import { check } from "../src/check.ts";
+import { check } from "./rx/compiler.ts";
 import { traces } from "./test-utils.ts";
-import { compile } from "../compile/emit.ts";
+import { compile } from "./rx/compiler.ts";
 
 const fixture = (name: string) =>
   readFileSync(new URL("./fixtures/" + name, import.meta.url), "utf8");
@@ -191,7 +191,7 @@ test("only function-form stores retain native standing-question invalidation", (
 
 test("createPrevious lowers non-self history with a lazy matching fallback", () => {
   const source =
-    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>n()+10);return <button onClick={()=>setN(n()+1)}>{previous()}</button>}';
+    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>n()+10);return <button onClick={()=>setN(n()+1)}>{previous()}</button>}';
   const program = lowerTsx(source);
   assert.deepEqual(check(program), []);
   const component = program.decls.find((d) => d.k === "component")!;
@@ -279,7 +279,7 @@ test("createPrevious lowers non-self history with a lazy matching fallback", () 
 
 test("createPrevious cannot construct inherited history in another owned setup", () => {
   const imports =
-    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";';
+    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";';
   const moduleTarget =
     "const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);";
   for (const target of ["n", "double"])
@@ -334,7 +334,7 @@ test("createPrevious refuses imported getters without companion memo ownership",
   assert.throws(
     () =>
       lowerTsx(
-        'import {read} from "./source.tsx";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const previous=createPrevious(read,()=>0);return <span>{previous()}</span>}',
+        'import {read} from "./source.tsx";import {createPrevious} from "reactivescript-tsx";export function Counter(){const previous=createPrevious(read,()=>0);return <span>{previous()}</span>}',
         "main.tsx",
         {
           modules: new Map([

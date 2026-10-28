@@ -1,0 +1,93 @@
+diff --git a/ref/compile/rt-server.ts b/ref/compile/rt-server.ts
+index bd2970c..6f3007e 100644
+--- a/ref/compile/rt-server.ts
++++ b/ref/compile/rt-server.ts
+@@ -49,6 +49,19 @@ function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unkn
+   if (typeof v === "object") { const proto = Object.getPrototypeOf(v); if (proto === Object.prototype || proto === null) { const o: Record<string, unknown> = {}; for (const k of Object.keys(v as object)) o[k] = wireCopy((v as Record<string, unknown>)[k], `${where}.${k}`, fail); return o; } }
+   return fail(`${where} is ${typeof v === "function" ? "a function" : `an instance of ${(v as object).constructor?.name ?? "a class"}`}, which the wire cannot carry: send data`);
+ }
++/** SF-7b: a lossless argument key after wireCopy validation, independent of record insertion order. */
++function wireCacheKey(args: readonly unknown[]): string {
++  const encode = (value: unknown): unknown => {
++    if (value === undefined) return ["undefined"];
++    if (value === null) return ["null"];
++    if (typeof value === "boolean") return ["boolean", value];
++    if (typeof value === "string") return ["string", value];
++    if (typeof value === "number") return ["number", Object.is(value, -0) ? "-0" : String(value)];
++    if (Array.isArray(value)) return ["array", Array.from({ length: value.length }, (_, i) => Object.hasOwn(value, i) ? encode(value[i]) : ["hole"])];
++    return ["record", Object.keys(value as object).sort().map(key => [key, encode((value as Record<string, unknown>)[key])])];
++  };
++  return JSON.stringify(encode(args));
++}
+ const wireFailure = (err: unknown): unknown => err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
+ 
+ // ---------------------------------------------------------------- flights (the harness's async)
+@@ -73,6 +86,7 @@ type Ctx = { name: string; id: symbol; dflt: (() => unknown) | null; owner: Owne
+ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
+   const flights = new Map<string, Flight>();
+   const lastKey = new Map<string, string>();
++  let serverFactorySeq = 0;
+   const registry = new Map<string, Entry[]>();
+   const modules = new Map<string, Record<string, unknown>>();
+   const log: string[] = [];
+@@ -121,7 +135,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
+       const fn = named(name, compute);
+       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
+       if (mode.structured) {
+-        const [store] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
++        const [store] = createStore((draft: Record<string, unknown>) => { const r = fn(draft); return (r instanceof Flight ? r.first : r) as Record<string, unknown> | Promise<Record<string, unknown>> | AsyncIterable<Record<string, unknown>>; }, {});
+         return ro(() => store);
+       }
+       const [get] = createSignal(fn as any, o as any); return ro(get as Acc);
+@@ -134,8 +148,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
+     lv: (f: () => unknown) => ({ loadingValue: untrack(f) }),
+     /** SV-2: the apply half runs on the client, after hydration. The compute half is reactive scope — Solid's server runs it;
+      *  an input's failure is an answer (E-12), not a server error. */
+-    effect(_n: number, inputs: () => unknown[], _apply: (p: unknown[]) => unknown) {
+-      createEffect((() => { try { return inputs(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }) as any, { effect() {}, error() {} } as any);
++    effect(_n: number, inputs: Acc[], _apply: (p: unknown[]) => unknown) {
++      const values = createMemo(() => inputs.map(input => { try { return input(); } catch (e) { if (e instanceof NotReadyError) throw e; return ERR; } }));
++      createEffect(values, { effect() {}, error() {} });
+     },
+     action(_gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) { return onServer("an action"); },
+     aw: (v: unknown) => v instanceof Flight ? v.first : v,
+@@ -143,23 +158,30 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
+     cq: (o?: { loadingValue?: unknown }) => ({ ...(o ?? {}), ssrSource: "client" }),
+     /** 12 SF-7: \`server fn\` / \`server action\` — every call a flight; the body (a generator, as an action's) is driven by promises,
+      *  not by an action (it is no change of the client's), behind a wire that copies arguments and result and lets only declared
+-     *  failures through (SF-6). A loader has one flight per arguments, as a JS import's; an action's call is a new request.
++     *  failures through (SF-6). A loader caches per callable instance and arguments; an action's call is a new request.
+      *  (In the browser the body runs in place, as in every client runner; HTTP to the server is not lowered yet, SF-7b.) */
+     serverFn(name: string, kind: "fn" | "action", gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
++      const factory = `server:${serverFactorySeq++}:${name}`;
++      const detached = <T>(fn: () => T): T => { const was = currentEq; currentEq = null; try { return runWithOwner(null, () => untrack(fn)) as T; } finally { currentEq = was; } };
+       return (...args: unknown[]) => {
+-        const key = `${name}:${args.map(fmt).join(",")}`;
+-        if (kind === "fn" && flights.has(key)) return flights.get(key)!;
++        let wireError: Error | undefined;
++        const fail = (msg: string): never => { throw wireError = new Error(`WIRE_VALUE: ${name}: ${msg}`); };
++        let copied: unknown[], key: string;
++        try { copied = detached(() => args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail))); key = `${factory}:${wireCacheKey(copied)}`; } catch (e) { return Promise.reject(e); }
++        if (kind === "fn" && flights.has(key)) return flight(key).first;
+         const fl = kind === "fn" ? flight(key) : new Flight(`${key}#${serverSeq++}`);
+-        const fail = (msg: string): never => { throw new Error(`WIRE_VALUE: ${name}: ${msg}`); };
+-        const g = gen(...args.map((a, i) => wireCopy(a, `argument ${i + 1}`, fail)));
++        const reject = (error: unknown) => fl.reject(wireError && error === wireError ? error : wireFailure(error));
++        let g: Generator<unknown, unknown, unknown>;
++        try { g = detached(() => gen(...copied)); } catch (e) { reject(e); return fl.first; }
+         const step = (input: unknown, thrown: boolean) => {
+-          const was = currentEq; currentEq = null; let r: IteratorResult<unknown, unknown>;   // the body's flights are not the asking equation's
+-          try { r = untrack(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { fl.reject(wireFailure(e)); return; } finally { currentEq = was; }
+-          if (r.done) { try { fl.resolve(wireCopy(r.value, "its result", fail)); } catch (e) { fl.reject(e); } return; }
++          let r: IteratorResult<unknown, unknown>;
++          try { r = detached(() => thrown ? g.throw(input) : g.next(input)); } catch (e) { reject(e); return; }
++          if (r.done) { try { fl.resolve(detached(() => wireCopy(r.value, "its result", fail))); } catch (e) { reject(e); } return; }
+           Promise.resolve(r.value).then(v => step(v, false), e => step(e, true));
+         };
+         step(undefined, false);
+-        return fl;
++        // Server requests replay one answer; raw JS API flights remain streams.
++        return fl.first;
+       };
+     },
+     hoisted(_name: string, _get: Acc) {},

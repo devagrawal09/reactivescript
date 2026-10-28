@@ -4,9 +4,9 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
 
 type Row = { id: number; name: string };
 type Step = { click: true } | { query: number; rows: Row[] } | { query: number; error: string };
@@ -47,7 +47,7 @@ async function trace(source: string, steps: Step[], engine: "native" | "compiled
     }
     return out;
   }
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url)); mkdirSync(root, { recursive: true });
+  const root = fileURLToPath(new URL("../.out/", import.meta.url)); mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "keyed-async-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
   const requests = new Map<number, { resolve: (rows: Row[]) => void; reject: (error: Error) => void }>();
@@ -82,7 +82,7 @@ async function trace(source: string, steps: Step[], engine: "native" | "compiled
   } finally { delete (globalThis as any).__keyedAsyncFetch; delete (globalThis as any).__keyedAsyncLog; rmSync(dir, { recursive: true, force: true }); }
 }
 
-const imports = 'import { createSignal, createStore, createMemo, createProjection, For, Loading, Errored, isPending, untrack } from "solid-js"; import { createRxEffect } from "reactivescript-ref/tsx"; import { fetchRows, log } from "./api";';
+const imports = 'import { createSignal, createStore, createMemo, createProjection, For, Loading, Errored, isPending, untrack } from "solid-js"; import { createRxEffect } from "reactivescript-tsx"; import { fetchRows, log } from "./api";';
 const rowComponent = 'function Row(props: { row: { id: number; name: string } }) { const id: number = untrack(() => props.row.id); const initial: string = untrack(() => props.row.name); createRxEffect([() => props.row.name], name => { log("run", id, name); return () => { log("cleanup", id, name); }; }); return <i>{id}:{props.row.name}/{initial};</i>; }';
 const syncSource = imports + rowComponent + 'export function Counter() { const [rows, setRows] = createStore([{ id: 1, name: "a" }, { id: 2, name: "b" }]); const [step, setStep] = createSignal(0); const view = createProjection(() => rows.map(row => ({ id: row.id, name: row.name + "!" })), [], { key: "id" }); return <button onClick={() => { if (step() === 0) setRows(() => [{ id: 1, name: "a" }, { id: 2, name: "B" }]); else if (step() === 1) setRows(() => [{ id: 2, name: "B" }, { id: 1, name: "a" }]); else if (step() === 2) setRows(() => [{ id: 2, name: "B" }, { id: 3, name: "c" }]); else if (step() === 3) setRows(() => [{ id: 1, name: "aa" }, { id: 3, name: "c" }, { id: 2, name: "B" }]); else if (step() === 4) setRows(() => []); else if (step() === 5) setRows(() => [{ id: 2, name: "bb" }]); else setRows(() => []); setStep(previous => previous + 1); }}><For each={view}>{row => <Row row={row}/>}</For></button>; }';
 

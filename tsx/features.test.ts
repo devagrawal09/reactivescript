@@ -9,16 +9,16 @@ import {
 } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 import { traces, snapshotSource } from "./test-utils.ts";
 import { lowerTsx, TsxError } from "./lower.ts";
-import { parseProgram } from "../src/parse.ts";
-import { parseDeclarations } from "../src/parse.ts";
+import { parseProgram } from "./rx/compiler.ts";
+import { parseDeclarations } from "./rx/compiler.ts";
 import { buildTsx } from "./build.ts";
 import { loadTsxModules } from "./modules.ts";
-import { Runtime } from "../src/runtime.ts";
-import type { Decl } from "../src/ast.ts";
+import { Runtime } from "./rx/runtime.ts";
+import type { Decl } from "./rx/ast.ts";
 const fixture = (name: string) =>
   readFileSync(new URL("./fixtures/" + name, import.meta.url), "utf8");
 
@@ -30,7 +30,7 @@ test("native and emitted async handlers expose pre-await writes and return their
     (path) => (path === "main.tsx" ? source : undefined),
     { target: "universal", mount: "Counter" },
   );
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "tsx-async-handler-");
   const renderer = fileURLToPath(
@@ -107,7 +107,7 @@ test("structured optimistic roots roll back across suspended actions without sto
     rt.land('"request:"', new Error("offline"), true).at(-1)!.frame,
   );
   assert.deepEqual(interpreted, expected, "interpreter");
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "tsx-optimistic-roots-");
   const renderer = fileURLToPath(
@@ -169,7 +169,7 @@ test("structured optimistic roots roll back across suspended actions without sto
 
 test("authored RX effects use tuple samples and run returned cleanup before replacement", async () => {
   const source =
-    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const [seen,setSeen]=createSignal(0);const [cleanups,setCleanups]=createSignal(0);createRxEffect([()=>n(),()=>n()*2],(first,second)=>{setSeen(first+second);return ()=>{setCleanups(p=>p+1)}});return <button onClick={()=>setN(n()+1)}>{n()}/{seen()}/{cleanups()}</button>}';
+    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const [seen,setSeen]=createSignal(0);const [cleanups,setCleanups]=createSignal(0);createRxEffect([()=>n(),()=>n()*2],(first,second)=>{setSeen(first+second);return ()=>{setCleanups(p=>p+1)}});return <button onClick={()=>setN(n()+1)}>{n()}/{seen()}/{cleanups()}</button>}';
   const rx =
     'export component Counter(){source n := 0;source seen := 0;source cleanups := 0;effect(n,n*2){seen := $0+$1;return ()=>{cleanups := p=>p+1}}<button onClick={()=>{n := n+1}}>{""+n}/{""+seen}/{""+cleanups}</button>}';
   await traces(source, rx, ["0/0/0", "1/3/1", "2/6/2"]);
@@ -177,7 +177,7 @@ test("authored RX effects use tuple samples and run returned cleanup before repl
 
 test("authored RX effects filter equal computed inputs without changing Solid effects", async () => {
   const source =
-    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const [calls,setCalls]=createSignal(0);createRxEffect([()=>n()%2],sample=>{setCalls(p=>p+1)});return <button onClick={()=>setN(n()+2)}>{n()}/{calls()}</button>}';
+    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const [calls,setCalls]=createSignal(0);createRxEffect([()=>n()%2],sample=>{setCalls(p=>p+1)});return <button onClick={()=>setN(n()+2)}>{n()}/{calls()}</button>}';
   const rx =
     'export component Counter(){source n := 0;source calls := 0;effect(n%2){calls := p=>p+1}<button onClick={()=>{n := n+2}}>{""+n}/{""+calls}</button>}';
   await traces(source, rx, ["0/1", "2/1", "4/1"]);
@@ -185,7 +185,7 @@ test("authored RX effects filter equal computed inputs without changing Solid ef
 
 test("RX effects retain tuple samples and default scheduling in the shared AST", () => {
   const source =
-    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const [seen,setSeen]=createSignal(0);createRxEffect([()=>n()%2,()=>n()*2],(parity,total)=>{setSeen(parity+total);return ()=>{setSeen(0)}});return <button onClick={()=>setN(n()+1)}>{seen()}</button>}';
+    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const [seen,setSeen]=createSignal(0);createRxEffect([()=>n()%2,()=>n()*2],(parity,total)=>{setSeen(parity+total);return ()=>{setSeen(0)}});return <button onClick={()=>setN(n()+1)}>{seen()}</button>}';
   const program = lowerTsx(source);
   const counter = program.decls.find((d) => d.k === "component")!;
   assert.equal(counter.k, "component");
@@ -222,16 +222,16 @@ test("RX effects retain tuple samples and default scheduling in the shared AST",
 
 test("non-self previous preserves lazy fallback tracking and distinguishes null from undefined", async () => {
   const source =
-    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const [seed,setSeed]=createSignal(10);const [step,setStep]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>seed());return <button onClick={()=>{if(step()===0)setSeed(20);else if(step()===1)setN(1);else if(step()===2)setSeed(30);else setN(2);setStep(step()+1)}}>{previous()}/{double()}</button>}';
+    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const [seed,setSeed]=createSignal(10);const [step,setStep]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>seed());return <button onClick={()=>{if(step()===0)setSeed(20);else if(step()===1)setN(1);else if(step()===2)setSeed(30);else setN(2);setStep(step()+1)}}>{previous()}/{double()}</button>}';
   await traces(source, lowerTsx(source), ["10/0", "20/0", "0/2", "0/2", "2/4"]);
   const nullable =
-    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(0);const current=createMemo(()=>n()===1 ? null : n());const previous=createPrevious(current,()=>-1);return <button onClick={()=>setN(n()+1)}>{previous()}/{current()}</button>}';
+    'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const current=createMemo(()=>n()===1 ? null : n());const previous=createPrevious(current,()=>-1);return <button onClick={()=>setN(n()+1)}>{previous()}/{current()}</button>}';
   await traces(nullable, lowerTsx(nullable), ["-1/0", "0/", "/2", "2/3"]);
 });
 
 test("same-setup previous accessors can be passed into later-mounted owners", async () => {
   const source =
-    'import {createSignal,createMemo,Show} from "solid-js";import {createPrevious} from "reactivescript-ref/tsx";function Panel(props:{current:number}){return <span>{props.current}</span>}export function Counter(){const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>-1);return <button onClick={()=>setN(n()+1)}>{n()}/<Show when={n()>=2} fallback={<span>hidden</span>}><Panel current={previous()}/></Show></button>}';
+    'import {createSignal,createMemo,Show} from "solid-js";import {createPrevious} from "reactivescript-tsx";function Panel(props:{current:number}){return <span>{props.current}</span>}export function Counter(){const [n,setN]=createSignal(0);const double=createMemo(()=>n()*2);const previous=createPrevious(double,()=>-1);return <button onClick={()=>setN(n()+1)}>{n()}/<Show when={n()>=2} fallback={<span>hidden</span>}><Panel current={previous()}/></Show></button>}';
   await traces(source, lowerTsx(source), [
     "0/hidden",
     "1/hidden",
@@ -408,7 +408,7 @@ test("exported module signals expose reader and setter aliases through shared mo
 
 test("source context children read and update the original source", async () => {
   const tsx =
-    'import {createSignal} from "solid-js";import {createSourceContext,useSourceContext} from "reactivescript-ref/tsx";const Count=createSourceContext<number>();function Reader(){const [n,setN]=useSourceContext(Count);return <button onClick={()=>setN(p=>p+1)}>{n()}</button>}export function Counter(){const [n,setN]=createSignal(0);return <Count value={[n,setN]}><Reader/></Count>}';
+    'import {createSignal} from "solid-js";import {createSourceContext,useSourceContext} from "reactivescript-tsx";const Count=createSourceContext<number>();function Reader(){const [n,setN]=useSourceContext(Count);return <button onClick={()=>setN(p=>p+1)}>{n()}</button>}export function Counter(){const [n,setN]=createSignal(0);return <Count value={[n,setN]}><Reader/></Count>}';
   const rx = parseProgram(
     'context Count: source number;component Reader(){n = ()=>use Count;<button onClick={()=>{use Count := p => p + 1}}>{"" + n()}</button>}export component Counter(){source n := 0;component Tsx__tsx0(__tsx1){provide Count = n;<Reader/>}<Tsx__tsx0/>}',
   );
@@ -430,7 +430,7 @@ test("source context children read and update the original source", async () => 
 
 test("structured source contexts read value rows and write the original store paths", async () => {
   const source =
-    'import {createStore} from "solid-js";import {createSourceContext,useSourceContext} from "reactivescript-ref/tsx";const Rows=createSourceContext<{value:number}[]>();function Reader(){const [rows,setRows]=useSourceContext(Rows);return <button onClick={()=>setRows(d=>{d[0].value=rows[0]?.value+1})}>{rows[0]?.value+0}</button>}export function Counter(){const [rows,setRows]=createStore([{value:0}]);return <Rows value={[rows,setRows]}><Reader/></Rows>}';
+    'import {createStore} from "solid-js";import {createSourceContext,useSourceContext} from "reactivescript-tsx";const Rows=createSourceContext<{value:number}[]>();function Reader(){const [rows,setRows]=useSourceContext(Rows);return <button onClick={()=>setRows(d=>{d[0].value=rows[0]?.value+1})}>{rows[0]?.value+0}</button>}export function Counter(){const [rows,setRows]=createStore([{value:0}]);return <Rows value={[rows,setRows]}><Reader/></Rows>}';
   const rx = parseProgram(
     'context Rows: source ({ value: number })[];component Reader(){rows = ()=>use Rows;<button onClick={()=>{use Rows[0].value := rows()[0]?.value+1}}>{""+(rows()[0]?.value+0)}</button>}export component Counter(){source rows := [{value:0}];component Tsx__tsx0(__tsx1){provide Rows = rows;<Reader/>}<Tsx__tsx0/>}',
   );
@@ -498,7 +498,7 @@ for (const boundary of [false, true])
       (boundary ? " at boundaries" : " in expressions"),
     async () => {
       const prefix =
-        'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,catchFailure,FailureBoundary} from "reactivescript-ref/tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);export function Counter(){const [n,setN]=createSignal(0);';
+        'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,catchFailure,FailureBoundary} from "reactivescript-tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);export function Counter(){const [n,setN]=createSignal(0);';
       const tsx =
         prefix +
         (boundary
@@ -527,7 +527,7 @@ test("imported failure aliases cannot use reserved Error or Panic identities", (
       const source =
         "import {Missing as " +
         name +
-        ',Other} from "./errors.rx";import {FailureBoundary} from "reactivescript-ref/tsx";export function Counter(){return ' +
+        ',Other} from "./errors.rx";import {FailureBoundary} from "reactivescript-tsx";export function Counter(){return ' +
         (boundary
           ? "<FailureBoundary classes={[" +
             name +
@@ -591,7 +591,7 @@ test("array predicate builtin references reject preceding and later lexical coll
 
 test("authored effect-sample names are reserved in apply scopes and cleanup closures", () => {
   const prefix =
-    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-ref/tsx";export function Counter(){const [n,setN]=createSignal(1);const [seen,setSeen]=createSignal(0);createRxEffect([()=>n()],value=>{';
+    'import {createSignal} from "solid-js";import {createRxEffect} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(1);const [seen,setSeen]=createSignal(0);createRxEffect([()=>n()],value=>{';
   for (const apply of [
     "const $0=99;return ()=>{setSeen($0)}",
     "return ()=>{const $0=99;setSeen(value)}",
@@ -613,7 +613,7 @@ test("failure filters distinguish the global Error from shadowed or reserved nam
     assert.throws(
       () =>
         lowerTsx(
-          'import {defineError} from "reactivescript-ref/tsx";const ' +
+          'import {defineError} from "reactivescript-tsx";const ' +
             name +
             '=defineError("' +
             name +
@@ -624,7 +624,7 @@ test("failure filters distinguish the global Error from shadowed or reserved nam
   assert.throws(
     () =>
       lowerTsx(
-        'import {createMemo} from "solid-js";import {catchFailure} from "reactivescript-ref/tsx";const Error=0;export function Counter(){const result=createMemo(()=>catchFailure(()=>1,[Error],()=>0));return <span>{result()}</span>}',
+        'import {createMemo} from "solid-js";import {catchFailure} from "reactivescript-tsx";const Error=0;export function Counter(){const result=createMemo(()=>catchFailure(()=>1,[Error],()=>0));return <span>{result()}</span>}',
       ),
     /declared failure constructors or the built-in Error/,
   );
@@ -688,7 +688,7 @@ test("optimistic roots refuse projection proxies and mixed replacement element t
 
 test("server cache invalidation refuses ambiguous Solid and ordinary memo getters", () => {
   const prefix =
-    'import {createMemo,refresh} from "solid-js";import {serverFunction} from "reactivescript-ref/tsx";const load=serverFunction("load",function*():Generator<unknown,number,number>{return 1});export function Counter(){const result=createMemo(async ():Promise<number>=>await load());return <button onClick={()=>refresh(result)}>{result()}</button>}';
+    'import {createMemo,refresh} from "solid-js";import {serverFunction} from "reactivescript-tsx";const load=serverFunction("load",function*():Generator<unknown,number,number>{return 1});export function Counter(){const result=createMemo(async ():Promise<number>=>await load());return <button onClick={()=>refresh(result)}>{result()}</button>}';
   assert.throws(
     () => lowerTsx(prefix),
     /Solid refresh cannot invalidate a serverFunction factory cache/,
@@ -746,7 +746,7 @@ test("server cache invalidation refuses ambiguous Solid and ordinary memo getter
 
 test("source context forwarding refuses an unestablished writable capability", () => {
   const source =
-    'import {createSourceContext,useSourceContext} from "reactivescript-ref/tsx";const C=createSourceContext<number>();function Child(){const [read,set]=useSourceContext(C);return <C value={[read,set]}><span>{read()}</span></C>}export function Counter(){return <Child/>}';
+    'import {createSourceContext,useSourceContext} from "reactivescript-tsx";const C=createSourceContext<number>();function Child(){const [read,set]=useSourceContext(C);return <C value={[read,set]}><span>{read()}</span></C>}export function Counter(){return <Child/>}';
   assert.throws(() => lowerTsx(source), /compatible authoritative value/);
 });
 
@@ -764,7 +764,7 @@ test("untyped imperative catch fields do not assume thrown JS values are Errors"
 
 test("selective imperative catches preserve payloads, unmatched failures, and finalizers", async () => {
   const source =
-    'import {createSignal,action} from "solid-js";import {defineError} from "reactivescript-ref/tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Offline=defineError("Offline",[],()=>"offline");export function Counter(){const [n,setN]=createSignal(0);const [status,setStatus]=createSignal("idle");const [count,setCount]=createSignal(0);const run=action(function*(step:number){setN(step);try{try{if(step%3===1)throw Missing(step);if(step%3===2)throw Offline();setStatus("ok")}catch(error){if(error instanceof Missing.cls){setStatus(error.message+"/"+error.id)}else{throw error}}}catch(outer){setStatus("outer")}finally{setCount(p=>p+1)}});return <button onClick={()=>run(n()+1)}>{n()}/{status()}/{count()}</button>}';
+    'import {createSignal,action} from "solid-js";import {defineError} from "reactivescript-tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Offline=defineError("Offline",[],()=>"offline");export function Counter(){const [n,setN]=createSignal(0);const [status,setStatus]=createSignal("idle");const [count,setCount]=createSignal(0);const run=action(function*(step:number){setN(step);try{try{if(step%3===1)throw Missing(step);if(step%3===2)throw Offline();setStatus("ok")}catch(error){if(error instanceof Missing.cls){setStatus(error.message+"/"+error.id)}else{throw error}}}catch(outer){setStatus("outer")}finally{setCount(p=>p+1)}});return <button onClick={()=>run(n()+1)}>{n()}/{status()}/{count()}</button>}';
   const rx =
     'error Missing(id)=>"missing "+id;error Offline()=>"offline";export component Counter(){source n := 0;source status := "idle";source count := 0;action run(step){n := step;try{try{if(step%3==1){throw Missing(step)}if(step%3==2){throw Offline()}status := "ok"}catch(error:Missing){status := error.message+"/"+error.id}}catch(outer){status := "outer"}finally{count := p=>p+1}}<button onClick={()=>{run(n+1)}}>{""+n}/{""+status}/{""+count}</button>}';
   await traces(source, rx, [
@@ -802,7 +802,7 @@ for (const broad of [false, true])
       : "selective imperative union guards leave primitive throws unmatched",
     async () => {
       const source =
-        'import {createSignal,action} from "solid-js";import {defineError} from "reactivescript-ref/tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Offline=defineError("Offline",[],()=>"offline");export function Counter(){const [n,setN]=createSignal(0);const [status,setStatus]=createSignal("idle");const run=action(function*(step:number){setN(step);try{try{if(step%3===1)throw Missing(step);if(step%3===2)throw Offline();throw 7}catch(error){if(' +
+        'import {createSignal,action} from "solid-js";import {defineError} from "reactivescript-tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Offline=defineError("Offline",[],()=>"offline");export function Counter(){const [n,setN]=createSignal(0);const [status,setStatus]=createSignal("idle");const run=action(function*(step:number){setN(step);try{try{if(step%3===1)throw Missing(step);if(step%3===2)throw Offline();throw 7}catch(error){if(' +
         (broad
           ? "error instanceof Error"
           : "error instanceof Missing.cls || error instanceof Offline.cls") +
@@ -825,7 +825,7 @@ for (const broad of [false, true])
 
 test("declared failures preserve fields and filtered catch expressions", async () => {
   const tsx =
-    'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,catchFailure} from "reactivescript-ref/tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);export function Counter(){const [n,setN]=createSignal(0);const result=createMemo(()=>catchFailure(()=>n()%2 ? raiseFailure(Missing(n())) : "ok",[Missing],err=>err.message+"/"+err.id));return <button onClick={()=>setN(n()+1)}>{result()}</button>}';
+    'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,catchFailure} from "reactivescript-tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);export function Counter(){const [n,setN]=createSignal(0);const result=createMemo(()=>catchFailure(()=>n()%2 ? raiseFailure(Missing(n())) : "ok",[Missing],err=>err.message+"/"+err.id));return <button onClick={()=>setN(n()+1)}>{result()}</button>}';
   const rx =
     'error Missing(id) => "missing " + id;export component Counter(){source n := 0;result = (n % 2 ? throw Missing(n) : "ok") catch (err: Missing) => err.message + "/" + err.id;<button onClick={()=>{n := n + 1}}>{"" + result}</button>}';
   await traces(tsx, rx, ["ok", "missing 1/1", "ok", "missing 3/3"]);
@@ -837,7 +837,7 @@ for (const recover of [false, true])
       (recover ? " and recover" : ""),
     async () => {
       const tsx =
-        'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,FailureBoundary} from "reactivescript-ref/tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Other=defineError("Other",[],()=>"other");export function Counter(){const [n,setN]=createSignal(0);const result=createMemo(()=>n() ? raiseFailure(Missing(n())) : "ok");return <button onClick={()=>setN(n()+1)}><FailureBoundary classes={[Missing]} fallback={err=><span>{err().message}/{err().id}</span>}><FailureBoundary classes={[Other]} fallback={other=><span>wrong</span>}>{result()}</FailureBoundary></FailureBoundary></button>}';
+        'import {createSignal,createMemo} from "solid-js";import {defineError,raiseFailure,FailureBoundary} from "reactivescript-tsx";const Missing=defineError("Missing",["id"],(id:number)=>"missing "+id);const Other=defineError("Other",[],()=>"other");export function Counter(){const [n,setN]=createSignal(0);const result=createMemo(()=>n() ? raiseFailure(Missing(n())) : "ok");return <button onClick={()=>setN(n()+1)}><FailureBoundary classes={[Missing]} fallback={err=><span>{err().message}/{err().id}</span>}><FailureBoundary classes={[Other]} fallback={other=><span>wrong</span>}>{result()}</FailureBoundary></FailureBoundary></button>}';
       const rx =
         'error Missing(id) => "missing " + id;error Other() => "other";export component Counter(){source n := 0;result = n ? throw Missing(n) : "ok";<button onClick={()=>{n := n + 1}}>{errored fallback(err: Missing){<span>{"" + err.message}/{"" + err.id}</span>}{errored fallback(other: Other){<span>wrong</span>}{{"" + result}}}}</button>}';
       await traces(

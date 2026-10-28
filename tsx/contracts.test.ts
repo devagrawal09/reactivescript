@@ -1,15 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildTsx } from "./build.ts";
-import { CheckError } from "../src/errors.ts";
+import { CheckError } from "./rx/compiler.ts";
 
 const build = (files: Record<string, string>) => buildTsx("main.tsx", path => files[path], { mount: "Counter" });
 const rejects = (code: string) => (error: unknown) => error instanceof CheckError && error.diagnostics.some(d => d.code === code);
 
 const failures = {
-  "types.tsx": 'import { defineError } from "reactivescript-ref/tsx"; export const Missing = defineError("Missing", ["id"], (id: number) => "missing " + id); export const Offline = defineError("Offline", [], () => "offline");',
+  "types.tsx": 'import { defineError } from "reactivescript-tsx"; export const Missing = defineError("Missing", ["id"], (id: number) => "missing " + id); export const Offline = defineError("Offline", [], () => "offline");',
   "reader.rx": 'import { Missing } from "./types.tsx"; export component Reader() { value = throw Missing(1); <p>{value}</p> }',
-  "main.tsx": 'import { FailureBoundary } from "reactivescript-ref/tsx"; import { Missing as Lost } from "./types.tsx"; import { Reader } from "./reader.rx"; export function Counter() { return <FailureBoundary classes={[Lost]} fallback={error => <p>missing</p>}><Reader/></FailureBoundary>; }',
+  "main.tsx": 'import { FailureBoundary } from "reactivescript-tsx"; import { Missing as Lost } from "./types.tsx"; import { Reader } from "./reader.rx"; export function Counter() { return <FailureBoundary classes={[Lost]} fallback={error => <p>missing</p>}><Reader/></FailureBoundary>; }',
 };
 
 test("typed failure identities cross TSX exports, RX imports, and TSX boundary aliases", () => {
@@ -25,7 +25,7 @@ test("a typed TSX boundary does not discharge a different imported error class",
 test("a caller boundary cannot discharge failures read later by a child action", () => {
   const files = {
     "child.tsx": 'import {action} from "solid-js"; export function Child(props:{value:number}) { const go=action(function*(){const snapshot=props.value;}); return <button onClick={()=>go()}>go</button>; }',
-    "main.tsx": 'import {createMemo,Errored} from "solid-js"; import {defineError,raiseFailure} from "reactivescript-ref/tsx"; import {Child} from "./child.tsx"; const Broken=defineError("Broken",[],()=>"broken"); export function Counter(){const value=createMemo(()=>true?raiseFailure(Broken()):0);return <Errored fallback={<p>failed</p>}><Child value={value()}/></Errored>;}',
+    "main.tsx": 'import {createMemo,Errored} from "solid-js"; import {defineError,raiseFailure} from "reactivescript-tsx"; import {Child} from "./child.tsx"; const Broken=defineError("Broken",[],()=>"broken"); export function Counter(){const value=createMemo(()=>true?raiseFailure(Broken()):0);return <Errored fallback={<p>failed</p>}><Child value={value()}/></Errored>;}',
   };
   assert.throws(() => build(files), rejects("UNCAUGHT_ACTION_FAILURE"));
   assert.ok(build({ ...files, "child.tsx": files["child.tsx"].replace("const snapshot=props.value;", "try {const snapshot=props.value;} catch {}") }));
@@ -49,8 +49,8 @@ test("content-model signatures cross both module frontends before emission", () 
 });
 
 const contexts = {
-  "context.tsx": 'import { createSourceContext } from "reactivescript-ref/tsx"; export const Count = createSourceContext<number>();',
-  "reader.tsx": 'import { useSourceContext } from "reactivescript-ref/tsx"; import { Count as Current } from "./context.tsx"; export function Reader() { const [count,setCount] = useSourceContext(Current); return <button onClick={() => setCount(count()+1)}>{count()}</button>; }',
+  "context.tsx": 'import { createSourceContext } from "reactivescript-tsx"; export const Count = createSourceContext<number>();',
+  "reader.tsx": 'import { useSourceContext } from "reactivescript-tsx"; import { Count as Current } from "./context.tsx"; export function Reader() { const [count,setCount] = useSourceContext(Current); return <button onClick={() => setCount(count()+1)}>{count()}</button>; }',
   "main.tsx": 'import { createSignal } from "solid-js"; import { Count as Current } from "./context.tsx"; import { Reader } from "./reader.tsx"; export function Counter() { const [count,setCount] = createSignal(0); return <Current value={[count,setCount]}><Reader/></Current>; }',
 };
 
@@ -68,7 +68,7 @@ test("a source-context provider cannot combine a reader with a different source'
 });
 
 const server = {
-  "loaders.tsx": 'import { serverFunction } from "reactivescript-ref/tsx"; import { lookup } from "./api"; export const load = serverFunction("load", function* (id: number): Generator<unknown, number, number> { const value: number = yield lookup(id); return value + 1; });',
+  "loaders.tsx": 'import { serverFunction } from "reactivescript-tsx"; import { lookup } from "./api"; export const load = serverFunction("load", function* (id: number): Generator<unknown, number, number> { const value: number = yield lookup(id); return value + 1; });',
   "api.d.rx": 'export server pure fn lookup(id: number): number',
   "main.tsx": 'import { createMemo, Loading, Errored } from "solid-js"; import { load as read } from "./loaders.tsx"; export function Counter() { const value = createMemo(async (): Promise<number> => await read(1)); return <Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}><p>{value()}</p></Loading></Errored>; }',
 };
@@ -83,5 +83,5 @@ test("an IO declaration does not become pure inside a TSX server loader", () => 
 });
 
 test("server generators cannot capture component state", () => {
-  assert.throws(() => build({ "main.tsx": 'import { createSignal } from "solid-js"; import { serverFunction } from "reactivescript-ref/tsx"; export function Counter() { const [count,setCount] = createSignal(0); const load = serverFunction("load", function* (): Generator<unknown, number, unknown> { return count(); }); return <p>blocked</p>; }' }), rejects("SERVER_CAPTURE"));
+  assert.throws(() => build({ "main.tsx": 'import { createSignal } from "solid-js"; import { serverFunction } from "reactivescript-tsx"; export function Counter() { const [count,setCount] = createSignal(0); const load = serverFunction("load", function* (): Generator<unknown, number, unknown> { return count(); }); return <p>blocked</p>; }' }), rejects("SERVER_CAPTURE"));
 });

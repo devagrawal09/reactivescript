@@ -1,17 +1,18 @@
 import { test } from "node:test";
+import { runtimeFiles } from "./rx/runtime.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Decl, Expr, Markup, Program } from "../src/ast.ts";
-import { check, checkModules, checkWithSignature } from "../src/check.ts";
-import { singleModule, type ModuleSet } from "../src/modules.ts";
-import { Runtime, ErrVal, PENDING } from "../src/runtime.ts";
-import { printSignature } from "../src/signature.ts";
-import { compileModules } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import type { Decl, Expr, Markup, Program } from "./rx/ast.ts";
+import { check, checkModules, checkWithSignature } from "./rx/compiler.ts";
+import { singleModule, type ModuleSet } from "./rx/compiler.ts";
+import { Runtime, ErrVal, PENDING } from "./rx/runtime.ts";
+import { printSignature } from "./rx/compiler.ts";
+import { compileModules } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 import { lowerTsx, TsxError } from "./lower.ts";
-import { parseDeclarations } from "../src/parse.ts";
+import { parseDeclarations } from "./rx/compiler.ts";
 
 const id = (name: string): Expr => ({ k: "id", name });
 const lit = (v: unknown): Expr => ({ k: "lit", v });
@@ -35,10 +36,10 @@ async function traces(input: Program | ModuleSet, changes: Change[], expected: s
   }
   assert.deepEqual(frames, expected, "interpreter");
 
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "snapshot-core-");
-  const renderer = fileURLToPath(new URL("../compile/string-renderer.ts", import.meta.url));
+  const renderer = runtimeFiles.stringRenderer;
   try {
     const compiled = compileModules(set);
     for (const [name, code] of lowerViews(compiled.files, "universal"))

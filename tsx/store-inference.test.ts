@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { compile, compileModules } from "../compile/emit.ts";
-import { loadModules } from "../src/modules.ts";
-import { parseProgram } from "../src/parse.ts";
+import { compile, compileModules } from "./rx/compiler.ts";
+import { loadModules } from "./rx/compiler.ts";
+import { parseProgram } from "./rx/compiler.ts";
 
 const question = "source data: { n: number } = { n: 1 }\n";
 

@@ -1,8 +1,8 @@
 // Load TSX and RX into the same dependency-ordered module set and checker.
 import { parseSync } from "oxc-parser/src-js/index";
-import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "../src/parse.ts";
-import { joinPath, type ModuleSet } from "../src/modules.ts";
-import type { Program } from "../src/ast.ts";
+import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./rx/compiler.ts";
+import { joinPath, type ModuleSet } from "./rx/compiler.ts";
+import type { Program } from "./rx/ast.ts";
 import { lowerTsx, TsxError } from "./lower.ts";
 
 /** File extensions are explicit, just as they are for the RX module loader. */

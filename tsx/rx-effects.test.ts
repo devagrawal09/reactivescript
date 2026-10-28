@@ -1,16 +1,17 @@
 import { test } from "node:test";
+import { runtimeFiles } from "./rx/runtime.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createEffect, createMemo, createRoot, createSignal, flush } from "solid-js";
 import { createRxEffect, RX_ERROR } from "./effects.ts";
-import { parseProgram } from "../src/parse.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp } from "../compile/rt.ts";
+import { parseProgram } from "./rx/compiler.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp } from "./rx/runtime.ts";
 
 const settle = async () => {
   await new Promise(resolve => setTimeout(resolve, 0)); flush();
@@ -290,11 +291,11 @@ async function rxTraces(source: string, steps: Step[]) {
     interpreter.push([...rt.log]);
   }
   rt.root.dispose(); rt.step([]); interpreter.push([...rt.log]);
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "rx-effects-");
   try {
-    const renderer = fileURLToPath(new URL("../compile/string-renderer.ts", import.meta.url));
+    const renderer = runtimeFiles.stringRenderer;
     const code = lowerViews(new Map([["main.mjs", compile(program)]]), "universal").get("main.mjs")!;
     const path = dir + "/main.mjs";
     writeFileSync(path, code.replaceAll(STRING_RENDERER, renderer));

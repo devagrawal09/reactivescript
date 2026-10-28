@@ -8,9 +8,10 @@ import {
 import {
   FailureBoundary, catchFailure, createServerMemo, createSourceContext, defineError, raiseFailure,
   refresh, serverAction, serverFunction, useSourceContext, type SourcePair,
-} from "reactivescript-ref/tsx";
-import { isA, PANIC, wireCacheKey, wireCopy } from "../src/failure.ts";
-import { R, serialize } from "../compile/string-renderer.ts";
+} from "reactivescript-tsx";
+import { isA, PANIC, wireCopy } from "./rx/runtime.ts";
+import { wireCacheKey } from "./wire-key.ts";
+import { R, serialize } from "./rx/runtime.ts";
 
 const Missing = defineError("Missing", ["id"], (id: number) => `Missing ${id}`);
 const Denied = defineError("Denied", [], () => "Denied");

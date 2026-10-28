@@ -1,0 +1,216 @@
+diff --git a/ref/compile/emit.ts b/ref/compile/emit.ts
+index 3e3ea9e..c6faa69 100644
+--- a/ref/compile/emit.ts
++++ b/ref/compile/emit.ts
+@@ -3,7 +3,7 @@
+ // Lexical scopes become JS scopes: every region is a JS function, every declaration a `const`. Names are mangled
+ // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
+ // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
+-import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
++import { hasAwait, type Decl, type Expr, type Markup, type Program, type Stmt } from "../src/ast.ts";
+ import { singleModule, type ModuleSet } from "../src/modules.ts";
+ import { nonTailAwaits } from "../src/awaits.ts";
+ 
+@@ -19,7 +19,7 @@ class Env {
+   /** The declaring frame of `n` (for companion `pre` memos). */
+   frame(n: string): Env | undefined { return this.vars.has(n) ? this : this.parent?.frame(n); }
+ }
+-type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
++type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean; eager?: boolean };   // eager: a `source x := e` initializer, run once untracked (not inside its closures)
+ 
+ const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);
+ const isHandler = (a: string) => /^on[A-Z:]/.test(a);
+@@ -29,22 +29,82 @@ const cm = (n: string) => `V$${n}`;   // a component: an uppercase JSX tag
+ const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+ 
+ // ---------------------------------------------------------------- usage analysis (the oracle's walkers, at compile time)
+-type Usage = { optimistic: Set<string>; paths: Set<string>; prevOf: Set<string> };
+-function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
+-  const u: Usage = { optimistic: new Set(), paths: new Set(), prevOf: new Set() };
++type Usage = { optimistic: Set<string>; paths: Set<string>; roots: Set<Decl>; prevOf: Set<string> };
++/** ST-1 from a written type: an object or array type (after any leading row words) is structured. Named types, unions and
++ *  anything else are not decided by the text; they keep the usage inference. */
++function structuredType(type: string | undefined): boolean {
++  if (!type) return false;
++  let t = type.replace(/^((?:io|pending|lane|fails\([^)]*\))\s+)+/, "").trim();
++  const close: Record<string, string> = { "(": ")", "[": "]", "{": "}", "<": ">" };
++  const wraps = (s: string) => { let depth = 0; for (let i = 0; i < s.length; i++) { const c = s[i]; if (c === "=" && s[i + 1] === ">") { i++; continue; } if (c in close) depth++; else if (")]}>".includes(c)) { depth--; if (depth === 0 && i < s.length - 1) return false; } } return true; };
++  while (t.startsWith("(") && t.endsWith(")") && wraps(t)) t = t.slice(1, -1).trim();
++  let depth = 0;
++  for (let i = 0; i < t.length; i++) {
++    const c = t[i];
++    if (c === "=" && t[i + 1] === ">") { if (depth === 0) return false; i++; continue; }   // a function type
++    if (c in close) depth++; else if (")]}>".includes(c)) depth--;
++    else if (depth === 0 && (c === "|" || c === "&" || c === "?")) return false;               // a union, intersection or conditional
++  }
++  if (t.startsWith("{") && t.endsWith("}") && wraps(t)) return true;                          // an object type
++  if (t.startsWith("[") && t.endsWith("]") && wraps(t)) return true;                          // a tuple
++  if (t.endsWith("[]")) return true;                                                          // T[], readonly T[]
++  return /^(?:Readonly)?Array<.*>$|^Record<.*>$/s.test(t);
++}
++function usage(p: Program | Program[], extra: Stmt[][] = [], modules?: ModuleSet): Usage {
++  const u: Usage = { optimistic: new Set(), paths: new Set(), roots: new Set(), prevOf: new Set() };
+   const seen = new WeakSet<object>();
+-  const walk = (x: unknown, selfName?: string): void => {
++  const ctxRoots = new Set<Decl>(); const provides: [Decl, Decl][] = [];   // a root write through `use c` reaches the provided source
++  const frame = (decls: Decl[], parent = new Map<string, Decl | null>()) => {
++    const scope = new Map(parent);
++    for (const d of decls) {
++      if ("name" in d && d.k !== "provide" && d.k !== "typedecl") scope.set(d.name, d);
++      if (d.k === "import") for (const { name, alias } of d.names) {
++        const imported = d.resolved && modules?.programs.get(d.resolved)?.decls.find(x => "name" in x && x.name === name);
++        scope.set(alias, imported || null);
++      }
++    }
++    return scope;
++  };
++  const walk = (x: unknown, selfName?: string, scope = new Map<string, Decl | null>()): void => {
+     if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
+-    if (Array.isArray(x)) { x.forEach(y => walk(y, selfName)); return; }
++    if (Array.isArray(x)) {
++      const inner = new Map(scope);
++      for (const y of x) { walk(y, selfName, inner); if (y?.k === "let") inner.set(y.name, null); }
++      return;
++    }
+     const o = x as Record<string, any>;
++    if (o.k === "mif") {
++      walk(o.c, selfName, scope);
++      walk({ decls: o.tDecls, view: o.t }, selfName, scope);
++      walk({ decls: o.fDecls, view: o.f }, selfName, scope);
++      return;
++    }
++    if (Array.isArray(o.decls)) scope = frame(o.decls, scope);
++    if (Array.isArray(o.params) || o.k === "component" || o.k === "mfor") {
++      scope = new Map(scope);
++      for (const param of o.params ?? []) scope.set(typeof param === "string" ? param : param.name, null);
++      if (o.k === "component") scope.set(o.props, null);
++      if (o.k === "mfor") scope.set(o.name, null);
++    }
+     if (o.k === "optimistic") u.optimistic.add(o.target.name);
+     if ((o.k === "write" || o.k === "optimistic") && o.target.path.length) u.paths.add(o.target.name);
++    if (o.k === "write" && !o.target.path.length) {
++      const target = scope.get(o.target.name);
++      if (target) { if (o.target.ctx) ctxRoots.add(target); else u.roots.add(target); }
++    }
++    if (o.k === "provide" && o.e?.k === "id") {
++      const context = scope.get(o.name), source = scope.get(o.e.name);
++      if (context && source) provides.push([context, source]);
++    }
+     if (o.k === "pending" && (o.e.k === "member" || o.e.k === "index")) { let y = o.e; while (y.k === "member" || y.k === "index") y = y.o; if (y.k === "id") u.paths.add(y.name); }
+     if (o.k === "pre" && o.name !== selfName) u.prevOf.add(o.name);
+     const nextSelf = (o.k === "eq" || o.k === "source") ? o.name : selfName;
+-    for (const v of Object.values(o)) walk(v, nextSelf);
++    for (const v of Object.values(o)) walk(v, nextSelf, scope);
+   };
+-  walk(p); walk(extra);
++  walk(p);
++  const entry = modules?.programs.get(modules.entry) ?? (Array.isArray(p) ? p[0] : p);
++  walk(extra, undefined, frame(entry.decls));
++  for (const [c, s] of provides) if (ctxRoots.has(c)) u.roots.add(s);
+   return u;
+ }
+ /** Free names of an expression, for ordering declarations (JS consts have a temporal dead zone; memos compute eagerly). */
+@@ -66,7 +126,7 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
+  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
+ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string } {
+   const out = (path: string) => path === set.entry ? "main.mjs" : `m${set.order.indexOf(path)}.mjs`;
+-  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
++  const g = new Gen(usage([...set.programs.values()], opts.extraStmts, set), { set, out });
+   const files = new Map<string, string>();
+   for (const path of set.order) {
+     const p = set.programs.get(path)!;
+@@ -144,11 +204,14 @@ ${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind +
+ ${pad}});`);
+     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
+     const vals = decls.filter(d => d.k === "source" || d.k === "eq" || d.k === "provide");
++    // Eager initialization stays lexical even when equations move around it.
++    const eager = vals.filter(d => (d.k === "source" && !d.question) || (d.k === "eq" && d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn"));
+     const key = (d: Decl) => d.k === "provide" ? `provide:${d.name}` : (d as { name: string }).name;
+     const local = new Set(vals.filter(d => d.k !== "provide").map(d => (d as { name: string }).name));
+-    const done = new Set<string>(); const order: Decl[] = []; const busy = new Set<string>();
+-    const visit = (d: Decl) => {
++    const done = new Set<string>(); const order: typeof vals = []; const busy = new Set<string>();
++    const visit = (d: (typeof vals)[number]) => {
+       const k = key(d); if (done.has(k) || busy.has(k)) return; busy.add(k);
++      const at = eager.findIndex(x => x === d); if (at > 0) visit(eager[at - 1]);
+       const self = d.k === "provide" ? "" : (d as { name: string }).name;
+       for (const n of deps(d.k === "eq" ? d.e : d.k === "source" ? d.init : d.e, self)) if (local.has(n) && n !== self) { const t = vals.find(x => x.k !== "provide" && (x as { name: string }).name === n); if (t) visit(t); }
+       busy.delete(k); done.add(k); order.push(d);
+@@ -157,7 +220,8 @@ ${pad}});`);
+     for (const d of order) out.push(this.value(d, env, ind));
+     for (const d of decls) if (d.k === "effect") {
+       const inner = new Env(env);
+-      out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
++      const inputs = d.inputs.map(i => `() => (${this.expr(i, env, { imp: false })})`).join(", ");
++      out.push(`${pad}__rt.effect(${d.inputs.length}, [${inputs}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
+     }
+     out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
+     return out.join("\n");
+@@ -193,9 +257,13 @@ ${pad}});`);
+     const pad = " ".repeat(ind * 2);
+     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.prevOf(${b.js});` : "";
+     if (d.k === "source") {
+-      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
++      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false, eager: true })}));\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+       const lv = this.loadingValue(d.init, env);
+-      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)} }`;
++      // ST-1: written or probed by path, or typed as an object/array. The type alone does not make a store of a question that
++      // is keyed, root-written (directly or through a context), guessed over, or shown through a first paint: the store
++      // lowering supports none of those (rt qsource), so they keep their atomic lowering.
++      const typed = structuredType(d.type) && !d.key && !this.u.roots.has(d) && !this.u.optimistic.has(d.name) && (lv === "undefined" || lv === "__rt.cq(undefined)");
++      const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name) || typed} }`;
+       return `${pad}const [${b.js}, ${b.w}] = __rt.qsource(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+     }
+     if (d.k !== "eq") throw new CompileError("unreachable");
+@@ -251,13 +319,13 @@ ${pad}});`);
+     return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${body}\n${pad}  return ${tail};\n${pad}}`;
+   }
+   private instantiate(call: Extract<Expr, { k: "call" }>, env: Env): string {
+-    const f = env.lookup((call.f as { name: string }).name)!.fn!;
++    const b = env.lookup((call.f as { name: string }).name)!; const f = b.fn!;
+     const args = f.params.map((p, i) => {
+       const a = call.args[i]; if (!a) return "undefined";
+       if (p.ref) { if (a.k === "id") { const b = env.lookup(a.name); if (b && (b.kind === "acc" || b.kind === "src")) return b.js; } return `__rt.memo(null, () => ${this.expr(a, env, { imp: false })})`; }
+       return `__rt.untrack(() => ${this.expr(a, env, { imp: false })})`;
+     });
+-    return `${mg(f.name)}(${args.join(", ")})`;
++    return `${b.js}(${args.join(", ")})`;
+   }
+   private component(d: Extract<Decl, { k: "component" }>, env: Env, ind: number): string {
+     const pad = " ".repeat(ind * 2);
+@@ -290,22 +358,21 @@ ${pad}});`);
+       case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+       case "throw": return `__rt.raise(${go(e.e)})`;                                          // R-f-3
+       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
+-        if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` in imperative scope is not lowered yet: use try/catch");
++        if (ctx.imp && hasAwait(e.e)) throw new CompileError("`await … catch` in imperative scope is not lowered yet: use try/catch");
+         const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
+-        return `__rt.${ctx.imp ? "tryCatch" : "caughtRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
++        return `__rt.${ctx.imp || ctx.eager ? "tryCatch" : "caughtRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
+       }
+       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
+-      case "member": return `${go(e.o)}?.${e.p}`;
+-      case "index": return `${go(e.o)}?.[${go(e.i)}]`;
++      case "member": return `${go(e.o)}${e.opt ? "?." : ""}[${J(e.p)}]`;
++      case "index": return `${go(e.o)}${e.opt ? "?." : ""}[${go(e.i)}]`;
+       case "call": {
+-        if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
+         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+       }
+       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
+       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+       case "fn": {
+         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
+-        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
++        if (e.stmts) { const async = hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
+         return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
+       }
+       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
+@@ -334,7 +401,6 @@ ${pad}});`);
+   }
+   /** R-f-4: error class names → a JS array of their values; `undefined`: every failure. */
+   private classes(names: string[] | undefined, env: Env): string { return names ? `[${names.map(n => n === "Error" ? "Error" : n === "Panic" ? "__rt.PANIC" : this.ref(n, env, { imp: false })).join(", ")}]` : "undefined"; }
+-  private hasAwait(ss: unknown): boolean { const s = JSON.stringify(ss); return s.includes('"k":"await"'); }
+ 
+   // ---- imperative scope ----
+   stmts(ss: Stmt[], env0: Env, ctx: Ctx, ind: number, returnLast = false): string {

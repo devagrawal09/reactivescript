@@ -8,8 +8,8 @@ import {
   type JSXElement,
   type Function as OxcFunction,
 } from "oxc-parser/src-js/index";
-import type { Program, Decl, Expr, Markup, Stmt } from "../src/ast.ts";
-import type { JsDecl } from "../src/parse.ts";
+import { serverDecl, type Program, type Decl, type Expr, type Markup, type Stmt } from "./rx/ast.ts";
+import type { JsDecl } from "./rx/compiler.ts";
 import { decodeHTML } from "entities";
 
 /** E-9: a fn with ref params or declarations is instantiating (an owned region). */
@@ -565,7 +565,7 @@ export function lowerTsx(
           return fail(spec, "Only named value imports are supported");
         const local = bind(spec.local, moduleNames);
         const imported = spec.imported.name;
-        if (item.source.value === "reactivescript-ref/tsx") {
+        if (item.source.value === "reactivescript-tsx") {
           if (
             ![
               "defineError",
@@ -708,11 +708,13 @@ export function lowerTsx(
             actionParams: d.params.map(() => ({ kind: "scalar" })),
           });
         } else if (d.k === "server") {
+          // Upstream infers whether a server fn is io from its body; an imported RX server fn carries no authored
+          // loader/action intent, so it is callable as a loader and the shared checker refuses io in reactive scope.
           moduleScope.bindings.set(local, {
             kind: "value",
             shape: { kind: "callback" },
             server: {
-              kind: d.kind,
+              kind: "fn",
               params: d.params.map(() => ({ kind: "scalar" })),
               result: { kind: "scalar" },
               unknownResult: true,
@@ -3234,14 +3236,14 @@ export function lowerTsx(
           shape: { kind: "callback" },
           server: { kind, params: params.map((param) => param.shape), result },
         });
-        decls.push({
-          k: "server",
-          kind,
-          name,
-          params: params.map((param) => param.name),
-          body: statements(fn.body.body, inner),
-          line: line(node),
-        });
+        decls.push(
+          serverDecl(
+            name,
+            params.map((param) => param.name),
+            statements(fn.body.body, inner),
+            line(node),
+          ),
+        );
         continue;
       }
       if (primitive === "useSourceContext" && call?.type === "CallExpression") {

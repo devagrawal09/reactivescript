@@ -3,13 +3,13 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { lowerTsx } from "./lower.ts";
-import { parseProgram } from "../src/parse.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import type { Decl, Expr, Program } from "../src/ast.ts";
+import { parseProgram } from "./rx/compiler.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import type { Decl, Expr, Program } from "./rx/ast.ts";
 
 const refers = (x: unknown): boolean =>
   Array.isArray(x)
@@ -84,7 +84,7 @@ export async function traces(
     click();
     interpreted.push(rt.handler([]).at(-1)!.frame);
   }
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "tsx-");
   const renderer = fileURLToPath(

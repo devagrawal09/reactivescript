@@ -4,12 +4,12 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
 
 async function compare(t: TestContext, source: string, expected: string[]) {
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-owned-helpers-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
@@ -92,7 +92,7 @@ export function Counter() {
 
 test("accessor-returning helpers retain owned signal and effect state across ref updates", async t => {
   await compare(t, `import { createSignal, createMemo } from "solid-js";
-import { createRxEffect } from "reactivescript-ref/tsx";
+import { createRxEffect } from "reactivescript-tsx";
 function useCounter(base: () => number, seed: number): () => number {
   const [local, setLocal] = createSignal(seed);
   createRxEffect([() => base()], n => { setLocal(p => p + 1); });

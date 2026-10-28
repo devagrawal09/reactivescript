@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { buildTsx } from "./build.ts";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 
 for (const fixture of [
   {
@@ -62,7 +62,7 @@ export function Counter() {
     const native = transform(source, {
       filename: "Counter.tsx", generate: "universal", moduleName: STRING_RENDERER,
     }).code.replaceAll('"./api"', '"./api.mjs"');
-    const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+    const root = fileURLToPath(new URL("../.out/", import.meta.url));
     mkdirSync(root, { recursive: true });
     const dir = mkdtempSync(root + "tsx-async-stream-");
     const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

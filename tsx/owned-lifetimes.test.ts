@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
-import { STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
-import { check } from "../src/check.ts";
-import { parseProgram } from "../src/parse.ts";
+import { STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { check } from "./rx/compiler.ts";
+import { parseProgram } from "./rx/compiler.ts";
 import { buildTsx } from "./build.ts";
 
 const fixtures = [
@@ -17,7 +17,7 @@ const fixtures = [
     mount: "0 valid",
     frames: ["2 invalid", "a2 invalid", "ae2 valid", "a1 valid", "ae2 valid", "e2 invalid", "1 invalid", "1 invalid", "hidden2 invalid"],
     source: `import {createSignal,createStore,createMemo,Show,type Element} from "solid-js";
-import {createSourceContext,useSourceContext,createRxEffect} from "reactivescript-ref/tsx";
+import {createSourceContext,useSourceContext,createRxEffect} from "reactivescript-tsx";
 const Fields=createSourceContext<{ok:boolean}[]>();
 function Form(props:{children:Element}) {
   const initial:{ok:boolean}[]=[];
@@ -58,7 +58,7 @@ export function Counter() {
     name: "Show helper retains live refs, disposes effects, and captures a fresh remount seed",
     frames: ["1/4/1/1/0", "2/6/2/1/1", "2/-/2/0/2", "3/-/2/0/2", "3/10/3/1/2", "4/12/4/1/3", "4/-/4/0/4", "5/-/4/0/4", "5/16/5/1/4"],
     source: `import {createSignal,createMemo,Show,untrack} from "solid-js";
-import {createRxEffect} from "reactivescript-ref/tsx";
+import {createRxEffect} from "reactivescript-tsx";
 const [runs,setRuns]=createSignal(0);
 const [active,setActive]=createSignal(0);
 const [cleanups,setCleanups]=createSignal(0);
@@ -101,7 +101,7 @@ export function Counter() {
     name: "keyed row helpers survive reorder, dispose on removal, and remount after readdition",
     frames: ["1:31;2:61;|2/2/0", "2:61;1:33;|3/2/1", "1:33;2:61;|3/2/1", "2:61;|3/1/2", "2:63;|4/1/3", "|4/0/4", "|4/0/4", "1:50;2:65;|6/2/4", "2:65;1:50;|6/2/4", "2:65;1:52;|7/2/5"],
     source: `import {createSignal,createStore,createMemo,For,untrack} from "solid-js";
-import {createRxEffect} from "reactivescript-ref/tsx";
+import {createRxEffect} from "reactivescript-tsx";
 const [runs,setRuns]=createSignal(0);
 const [active,setActive]=createSignal(0);
 const [cleanups,setCleanups]=createSignal(0);
@@ -168,7 +168,7 @@ test("functional writes discard transient predicates but retain stored closure p
 for (const fixture of fixtures) {
   for (const native of [true, false]) {
     test((native ? "native: " : "compiled/interpreter: ") + fixture.name, async () => {
-      const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+      const out = fileURLToPath(new URL("../.out/", import.meta.url));
       mkdirSync(out, { recursive: true });
       const dir = mkdtempSync(out + "tsx-owned-lifetimes-");
       const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));

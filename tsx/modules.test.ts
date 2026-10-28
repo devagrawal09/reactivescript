@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadTsxModules } from "./modules.ts";
-import { checkModules } from "../src/check.ts";
-import { compileModules } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
-import { Runtime } from "../src/runtime.ts";
-import type { ModuleSet } from "../src/modules.ts";
+import { checkModules } from "./rx/compiler.ts";
+import { compileModules } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
+import { Runtime } from "./rx/runtime.ts";
+import type { ModuleSet } from "./rx/compiler.ts";
 
 const tsxParent = 'import { createSignal } from "solid-js"; import { Button as Child } from "./Button.EXT"; export function Counter() { const [count, setCount] = createSignal(0); return <Child value={count()} onIncrement={() => setCount(count() + 1)} />; }';
 const rxParent = 'import { Button as Child } from "./Button.EXT"; export component Counter() { source count := 0; <Child value={count} onIncrement={() => { count := count + 1 }} /> }';
@@ -45,7 +45,7 @@ async function trace(set: ModuleSet, expected = ["0", "1", "2", "3"]) {
   assert.deepEqual(interpreted, expected, "interpreter");
   const built = compileModules(set);
   const files = lowerViews(built.files, "universal");
-  const root = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-modules-");
   const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
@@ -185,10 +185,10 @@ for (const contextSyntax of ["tsx", "rx"]) for (const readerSyntax of ["tsx", "r
   test(contextSyntax + " source-context writes cross aliases in a " + readerSyntax + " reader", async () => {
     const main = 'import { createSignal } from "solid-js"; import { Count as Current } from "./context.' + contextSyntax + '"; import { Reader } from "./reader.' + readerSyntax + '"; export function Counter() { const [count,setCount] = createSignal(0); return <Current value={[count,setCount]}><Reader/></Current>; }';
     const context = contextSyntax === "tsx"
-      ? 'import { createSourceContext } from "reactivescript-ref/tsx"; export const Count = createSourceContext<number>();'
+      ? 'import { createSourceContext } from "reactivescript-tsx"; export const Count = createSourceContext<number>();'
       : 'export context Count: source number';
     const reader = readerSyntax === "tsx"
-      ? 'import { useSourceContext } from "reactivescript-ref/tsx"; import { Count as Current } from "./context.' + contextSyntax + '"; export function Reader() { const [count,setCount] = useSourceContext(Current); return <button onClick={() => setCount(count()+1)}>{count()}</button>; }'
+      ? 'import { useSourceContext } from "reactivescript-tsx"; import { Count as Current } from "./context.' + contextSyntax + '"; export function Reader() { const [count,setCount] = useSourceContext(Current); return <button onClick={() => setCount(count()+1)}>{count()}</button>; }'
       : 'import { Count as Current } from "./context.' + contextSyntax + '"; export component Reader() { <button onClick={() => { use Current := use Current + 1 }}>{"" + use Current}</button> }';
     await trace(mount(load({ "main.tsx": main, ["context." + contextSyntax]: context, ["reader." + readerSyntax]: reader })));
   });

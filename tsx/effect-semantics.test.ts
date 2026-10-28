@@ -1,14 +1,15 @@
 import { test } from "node:test";
+import { runtimeFiles } from "./rx/runtime.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRoot, createSignal, createMemo, createEffect } from "solid-js";
-import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { check } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import { compile } from "../compile/emit.ts";
-import { lowerViews, STRING_RENDERER } from "../compile/jsx.ts";
-import { createApp, flush } from "../compile/rt.ts";
+import type { Decl, Expr, Markup, Program, Stmt } from "./rx/ast.ts";
+import { check } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import { compile } from "./rx/compiler.ts";
+import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
+import { createApp, flush } from "./rx/runtime.ts";
 
 type Options = { memo?: boolean; cleanup?: boolean; previous?: boolean; pending?: boolean; errors?: boolean; fresh?: boolean; initial?: number; lifecycle?: boolean };
 type Step = { n: number } | { land: boolean };
@@ -134,10 +135,10 @@ async function backends(p: Program, changes = steps): Promise<{ interpreter: Tra
   }
   rt.root.dispose(); rt.step([]);
   const interpreter = { frames: interpreted, log: rt.log, phases };
-  const out = fileURLToPath(new URL("../compile/.out/", import.meta.url));
+  const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
   const dir = mkdtempSync(out + "effect-semantics-");
-  const renderer = fileURLToPath(new URL("../compile/string-renderer.ts", import.meta.url));
+  const renderer = runtimeFiles.stringRenderer;
   try {
     const code = lowerViews(new Map([["main.mjs", compile(p)]]), "universal").get("main.mjs")!;
     const path = dir + "/main.mjs";

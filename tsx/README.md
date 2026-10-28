@@ -27,7 +27,7 @@ No Sound implementation is imported or depended on.
 
 ```ts
 import { lowerTsx } from "./lower.ts";
-import { check } from "../src/check.ts";
+import { check } from "./rx/compiler.ts";
 
 const program = lowerTsx(source, "Counter.tsx", {
   modules: new Map(), // authored source -> { path, program }
@@ -147,7 +147,7 @@ bodies keep their `let` statements.
 Effects: only `createRxEffect` is lowered, to RX's one `effect` form (EF-2
 per-input value comparison). Plain Solid `createEffect` is refused with
 `createEffect is not lowered: ReactiveScript has one effect form with per-input
-value comparison (EF-2). Use createRxEffect from reactivescript-ref/tsx`.
+value comparison (EF-2). Use createRxEffect from reactivescript-tsx`.
 
 Structure is the type (ST-1): function-form `createStore` writes its value
 contract as the source's `type` text, and the emitter lowers a question source
@@ -250,7 +250,7 @@ than resolved by spelling or guessed execution behavior.
   memos, arbitrary async blocks and generator stream bodies remain unsupported.
 - Previous-value memos currently need a primitive parameter or return annotation.
   Their first previous value is undefined; no initial value is invented.
-- `createPrevious(double, () => 0)` from `reactivescript-ref/tsx` lowers to a
+- `createPrevious(double, () => 0)` from `reactivescript-tsx` lowers to a
   separate equation using non-self `pre double` with a matching fallback. The
   synchronous zero-argument expression fallback stays lazy and reactive: it is
   evaluated only when the previous value is undefined, never for null. Without
@@ -291,7 +291,7 @@ than resolved by spelling or guessed execution behavior.
   Arbitrary structured payloads/default evaluation and pure-helper context reads
   are not covered.
 - `createSourceContext<T>()` and `useSourceContext(C)` from the real
-  `reactivescript-ref/tsx` helper module use required source contexts. Provider
+  `reactivescript-tsx` helper module use required source contexts. Provider
   `value={[read, set]}` must name the same compatible authoritative source; mixed
   tuples and missing providers are rejected. Native, compiled and interpreter
   tests cover children updating the original source across module aliases.
@@ -304,7 +304,7 @@ than resolved by spelling or guessed execution behavior.
   accept original accessor/store bindings. Awaited refresh results and
   property-slot marks are not covered by this slice.
   Server-factory cache refresh requires `createServerMemo` and `refresh` from
-  `reactivescript-ref/tsx`. `createServerMemo` accepts the same bounded async/stream
+  `reactivescript-tsx`. `createServerMemo` accepts the same bounded async/stream
   callbacks and loading-value option as `createMemo`. Ordinary Solid refresh of
   a known factory-backed memo is rejected: it does not evict native loader cache
   entries. Extension refresh of an ordinary factory-backed memo or imported async
@@ -329,7 +329,7 @@ than resolved by spelling or guessed execution behavior.
   proxies remain unsupported; ordinary structured `createSignal` is still refused.
   Async arrows/generators, delegated yields and consumed action return values
   remain unsupported.
-- Real `reactivescript-ref/tsx` helpers `defineError`, `raiseFailure`,
+- Real `reactivescript-tsx` helpers `defineError`, `raiseFailure`,
   `catchFailure`, and `FailureBoundary` lower to error declarations, throw/catch
   expressions and class-filtered boundaries. Fields/message parameters are
   explicit, classes are declared constructor arrays, built-in `Error`, or undefined, and boundary

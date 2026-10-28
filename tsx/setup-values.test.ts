@@ -4,9 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { lowerTsx, TsxError } from "./lower.ts";
 import { loadTsxModules } from "./modules.ts";
-import { check, checkModules } from "../src/check.ts";
-import { Runtime } from "../src/runtime.ts";
-import type { Decl, Expr, Program } from "../src/ast.ts";
+import { check, checkModules } from "./rx/compiler.ts";
+import { Runtime } from "./rx/runtime.ts";
+import type { Decl, Expr, Program } from "./rx/ast.ts";
 
 const id = (name: string): Expr => ({ k: "id", name });
 const lit = (v: unknown): Expr => ({ k: "lit", v });
@@ -208,7 +208,7 @@ test("legitimate earlier and imported snapshots are still peeked by binding", ()
 
 // Eager initializers that could fail cannot keep Solid's routing: native throws during setup, before any boundary inside
 // the owner exists, while an RX snapshot holds the failure for its readers. Being read does not authorize them.
-const failHead = 'import { untrack, createSignal, createMemo, Show } from "solid-js";\nimport { defineError, raiseFailure, catchFailure, FailureBoundary } from "reactivescript-ref/tsx";\nconst Oops = defineError("Oops", [], () => "oops");\n';
+const failHead = 'import { untrack, createSignal, createMemo, Show } from "solid-js";\nimport { defineError, raiseFailure, catchFailure, FailureBoundary } from "reactivescript-tsx";\nconst Oops = defineError("Oops", [], () => "oops");\n';
 const canFail = (name: string, why: string, line: number) =>
   new RegExp("main\\.tsx:" + line + ":\\d+: " + name + " can fail at mount \\(" + why + "\\): Solid throws during setup, before any boundary inside this owner exists");
 
