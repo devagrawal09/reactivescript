@@ -72,8 +72,8 @@ characters per token), an estimate.
   no run read the thread, the project chat or any message, so nothing reached the runs. Several runs also called
   `no_reply_needed`, and one small run read a documents guide; neither carries anything about the tasks.
 - **Ryan's one-word "Merge" (about PR #14, sent while the runs were going) was delivered into every run agent's
-  context** as a note from the project owner. It says nothing about the tasks, and no run acted on it (no run made a
-  git or GitHub call).
+  context** as a note from the project owner. It says nothing about the tasks, and no run acted on it (no merge or GitHub call;
+  one run ran `git status` in its own folder after restoring a test file).
 - Six small-model runs needed a reminder to send their report (above).
 - The bases are frontier-model apps; the small model changes code it would not have written.
 - The new tests were written after round 3's results were known, and tuned on the references.
