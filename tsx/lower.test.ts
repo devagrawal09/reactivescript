@@ -346,9 +346,13 @@ test("createPrevious refuses imported getters without companion memo ownership",
   );
 });
 
-test("async block handlers retain sequential writes, direct awaits, and returned values without actions", () => {
-  const source =
+test("async block handlers retain direct awaits, later writes and returned values; pre-await writes are refused (AC-1b)", () => {
+  const held =
     'import {createSignal} from "solid-js";import {request} from "./api";export function Counter(){const [n,setN]=createSignal(0);return <button onClick={async (event:{target:{value:string}}):Promise<number>=>{setN(1);const result:number=await request(event.target.value);setN(result);return result+1}}>{n()}</button>}';
+  // Solid applies setN(1) immediately; the pinned upstream infers this body as an action and would hold it.
+  assert.throws(() => lowerTsx(held), (error: Error & { column?: number }) =>
+    /Solid applies n immediately, before the await/.test(error.message) && held.slice(error.column! - 1).startsWith("async (event"));
+  const source = held.replace("setN(1);", "");
   const program = lowerTsx(source);
   assert.deepEqual(check(program), []);
   const counter = program.decls.find((d) => d.k === "component")!;
@@ -360,9 +364,9 @@ test("async block handlers retain sequential writes, direct awaits, and returned
   assert.deepEqual(fn.params, ["event"]);
   assert.deepEqual(
     fn.stmts?.map((s) => s.k),
-    ["write", "let", "write", "return"],
+    ["let", "write", "return"],
   );
-  assert.equal(fn.stmts?.[1].k === "let" && fn.stmts[1].e.k, "await");
+  assert.equal(fn.stmts?.[0].k === "let" && fn.stmts[0].e.k, "await");
   assert.throws(
     () => lowerTsx(source.replace("Promise<number>", "Promise<string>")),
     /explicit result contract/,
@@ -771,8 +775,9 @@ const rejected: [string, string, string][] = [
     "doubled:",
   ],
   [
-    "default export",
-    counter.replace("export function", "export default function"),
+    // A default component is the module's entry (upstream MO-1c, see paired.test.ts); other default exports are refused.
+    "non-component default export",
+    counter.replace("export function Counter", "export default function counter"),
     "export default",
   ],
   ["object JSX", counter.replace("{doubled()}", "{{ value: 1 }}"), "{ value"],

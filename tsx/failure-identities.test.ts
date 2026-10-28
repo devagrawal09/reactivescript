@@ -41,7 +41,7 @@ test("RX imported component failures and aliased boundaries share declaration id
   const files = {
     "types.rx": types,
     "reader.rx": reader,
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Reader } from "./reader.rx"; errored fallback(e: Lost) { <p>{e.message}</p> } { <Reader/> }',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Reader } from "./reader.rx"; export default component App() { errored fallback(e: Lost) { <p>{e.message}</p> } { <Reader/> } }',
   };
   const { diags, sigs } = checked(files);
   assert.deepEqual(diags, []);
@@ -63,7 +63,7 @@ test("RX expression catches resolve aliases from a value signature", async () =>
   await trace({
     "types.rx": types,
     "reader.rx": reader,
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { value } from "./reader.rx"; <p>{value catch (e: Lost) => "caught"}</p>',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { value } from "./reader.rx"; export default component App() { <p>{value catch (e: Lost) => "caught"}</p> }',
   }, "caught");
 });
 
@@ -71,14 +71,14 @@ test("RX component prop and children catch summaries retain class identity", asy
   const { sigs, diags } = checked({
     "types.rx": types,
     "safe.rx": 'import { Missing as Absent } from "./types.rx"; export component Safe(props) { errored fallback(e: Absent) { <p>safe</p> } { {props.children} } }',
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Safe } from "./safe.rx"; value = throw Lost(1); <Safe><p>{value}</p></Safe>',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Safe } from "./safe.rx"; value = throw Lost(1); export default component App() { <Safe><p>{value}</p></Safe> }',
   });
   assert.deepEqual(diags, []);
   assert.match(printSignature(sigs.get("safe.rx")!), /children: catches\(Missing\)/);
   await trace({
     "types.rx": types,
     "safe.rx": 'import { Missing as Absent } from "./types.rx"; export component Safe(props) { <p>{props.text catch (e: Absent) => "safe"}</p> }',
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Safe } from "./safe.rx"; value = throw Lost(1); <Safe text={value}/>',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { Safe } from "./safe.rx"; value = throw Lost(1); export default component App() { <Safe text={value}/> }',
   }, "safe");
 });
 
@@ -87,13 +87,13 @@ test("same-named classes in separate RX modules do not discharge each other", as
     "types.rx": types,
     "other.rx": types,
     "reader.rx": reader,
-    "main.rx": 'import { Missing } from "./other.rx"; import { Reader } from "./reader.rx"; errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> }',
+    "main.rx": 'import { Missing } from "./other.rx"; import { Reader } from "./reader.rx"; export default component App() { errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> } }',
   };
   const { diags } = checked(files);
   assert.deepEqual(diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
   assert.match(diags[0].msg, /can fail with Missing/);
   assert.doesNotMatch(diags[0].msg, /types\.rx#/);
-  await trace({ ...files, "main.rx": 'import { Missing } from "./other.rx"; import { Reader } from "./reader.rx"; errored fallback(e: Error) { <p>outer</p> } { errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> } }' }, "outer");
+  await trace({ ...files, "main.rx": 'import { Missing } from "./other.rx"; import { Reader } from "./reader.rx"; export default component App() { errored fallback(e: Error) { <p>outer</p> } { errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> } } }' }, "outer");
 });
 
 test("nested shadowed RX error declarations have distinct identities", async () => {
@@ -106,7 +106,7 @@ test("nested shadowed RX error declarations have distinct identities", async () 
 test("same class imported under two aliases matches typed action catches and rethrows", () => {
   const { diags } = checked({
     "types.rx": types,
-    "main.rx": 'import { Missing as First, Missing as Second } from "./types.rx"; action run() { try { try { throw First(1) } catch (e: Second) { throw e } } catch (e: First) { } } <button onClick={() => { run() }}>run</button>',
+    "main.rx": 'import { Missing as First, Missing as Second } from "./types.rx"; action run() { try { try { throw First(1) } catch (e: Second) { throw e } } catch (e: First) { } } export default component App() { <button onClick={() => { run() }}>run</button> }',
   });
   assert.deepEqual(diags, []);
 });
@@ -114,7 +114,7 @@ test("same class imported under two aliases matches typed action catches and ret
 test("RX rethrows retain every identity from a union catch", () => {
   const { diags } = checked({
     "types.rx": types + "; export error Other()",
-    "main.rx": 'import { Missing as Lost, Other as Else } from "./types.rx"; source choose := true; value = choose ? throw Lost(1) : throw Else(); result = value catch (e: Lost | Else) => throw e; <p>{result catch (e: Lost | Else) => "caught"}</p>',
+    "main.rx": 'import { Missing as Lost, Other as Else } from "./types.rx"; source choose := true; value = choose ? throw Lost(1) : throw Else(); result = value catch (e: Lost | Else) => throw e; export default component App() { <p>{result catch (e: Lost | Else) => "caught"}</p> }',
   });
   assert.deepEqual(diags, []);
 });
@@ -123,7 +123,7 @@ test("JS fails clauses and exported fn rejection rows resolve forward RX aliases
   const { diags, sigs } = checked({
     "types.rx": types,
     "request.rx": 'import pure { fetch } from "./api" fails Absent; import { Missing as Absent } from "./types.rx"; export fn request() => fetch("item")',
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { request } from "./request.rx"; value = await request(); <p>{value catch (e: Lost) => "caught"}</p>',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { request } from "./request.rx"; value = await request(); export default component App() { <p>{value catch (e: Lost) => "caught"}</p> }',
   });
   assert.deepEqual(diags, []);
   assert.match(printSignature(sigs.get("request.rx")!), /rejects\(Missing\)/);
@@ -149,22 +149,22 @@ test("declared JS errors match aliases and declaration-local rejects through RX 
   const files = {
     "api.d.rx": "export error Missing\nexport pure fn query() rejects(Missing)\n",
     "request.rx": 'import { query } from "./api.js"; export fn request() => query()',
-    "main.rx": 'import { Missing as Lost } from "./api.js"; import { request } from "./request.rx"; value = await request(); <p>{value catch (e: Lost) => "caught"}</p>',
+    "main.rx": 'import { Missing as Lost } from "./api.js"; import { request } from "./request.rx"; value = await request(); export default component App() { <p>{value catch (e: Lost) => "caught"}</p> }',
   };
   assert.deepEqual(checked(files).diags, []);
-  assert.deepEqual(checked({ ...files, "main.rx": 'import { Missing as First, Missing as Second } from "./api.js"; value = throw First(1); <p>{value catch (e: Second) => "caught"}</p>' }).diags, []);
-  assert.deepEqual(checked({ ...files, "other.d.rx": "export error Missing\n", "main.rx": 'import { Missing } from "./other.js"; import { request } from "./request.rx"; value = await request(); <p>{value catch (e: Missing) => "wrong"}</p>' }).diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
+  assert.deepEqual(checked({ ...files, "main.rx": 'import { Missing as First, Missing as Second } from "./api.js"; value = throw First(1); export default component App() { <p>{value catch (e: Second) => "caught"}</p> }' }).diags, []);
+  assert.deepEqual(checked({ ...files, "other.d.rx": "export error Missing\n", "main.rx": 'import { Missing } from "./other.js"; import { request } from "./request.rx"; value = await request(); export default component App() { <p>{value catch (e: Missing) => "wrong"}</p> }' }).diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
 });
 
 test("unknown JS promise defaults remain Error and declared io calls stay io", () => {
-  const main = 'import { Missing as Lost } from "./types.rx"; import pure { query } from "./unknown.js"; value = await query(); <p>{value catch (e: Lost) => "wrong"}</p>';
+  const main = 'import { Missing as Lost } from "./types.rx"; import pure { query } from "./unknown.js"; value = await query(); export default component App() { <p>{value catch (e: Lost) => "wrong"}</p> }';
   const { diags } = checked({ "types.rx": types, "main.rx": main });
   assert.deepEqual(diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
   assert.match(diags[0].msg, /can fail with Error/);
   assert.deepEqual(checked({ "types.rx": types, "main.rx": main.replace("e: Lost", "e: Error") }).diags, []);
   const io = checked({
     "api.d.rx": "export error Missing\nexport fn query() rejects(Missing)\n",
-    "main.rx": 'import { query, Missing as Lost } from "./api.js"; value = await query(); <p>{value catch (e: Lost) => "caught"}</p>',
+    "main.rx": 'import { query, Missing as Lost } from "./api.js"; value = await query(); export default component App() { <p>{value catch (e: Lost) => "caught"}</p> }',
   }).diags;
   assert.ok(io.some(d => d.code === "IO_IN_REACTIVE"));
   assert.ok(!io.some(d => d.code === "UNHANDLED_FAILURE"));
@@ -174,7 +174,7 @@ test("Panic boundaries do not discharge declared failure identities", () => {
   const { diags } = checked({
     "types.rx": types,
     "reader.rx": reader,
-    "main.rx": 'import { Reader } from "./reader.rx"; errored fallback(e: Panic) { <p>panic</p> } { <Reader/> }',
+    "main.rx": 'import { Reader } from "./reader.rx"; export default component App() { errored fallback(e: Panic) { <p>panic</p> } { <Reader/> } }',
   });
   assert.deepEqual(diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
 });
@@ -183,9 +183,9 @@ test("written fails annotations and context contracts resolve imported class ide
   const files = {
     "types.rx": types,
     "context.rx": 'import { Missing as Absent } from "./types.rx"; export context result: fails(Absent) string',
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { result } from "./context.rx"; value: fails(Lost) string = throw Lost(1); provide result = value; <p>{use result catch (e: Lost) => "caught"}</p>',
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; import { result } from "./context.rx"; value: fails(Lost) string = throw Lost(1); provide result = value; export default component App() { <p>{use result catch (e: Lost) => "caught"}</p> }',
   };
   assert.deepEqual(checked(files).diags, []);
-  const wrong = checked({ ...files, "other.rx": types, "main.rx": 'import { Missing as Lost } from "./other.rx"; import { result } from "./context.rx"; value = throw Lost(1); provide result = value; <p>{use result catch (e: Error) => "caught"}</p>' }).diags;
+  const wrong = checked({ ...files, "other.rx": types, "main.rx": 'import { Missing as Lost } from "./other.rx"; import { result } from "./context.rx"; value = throw Lost(1); provide result = value; export default component App() { <p>{use result catch (e: Error) => "caught"}</p> }' }).diags;
   assert.deepEqual(wrong.map(d => d.code), ["ROW_NARROWER_THAN_INFERRED"]);
 });

@@ -165,7 +165,7 @@ export function Counter() {
   }}>{n()}/{snapshot()}/{finalized()}</button>;
 }`;
 const rx = `import { request } from "./api";
-source n = 0; source snapshot = -1; source finalized = 0;
+source n = 0; source snapshot = -1; source finalized = 0;export default component App() { 
 <button onClick={() => {
   let before = n; n := 1; snapshot := before;
   try {
@@ -173,7 +173,7 @@ source n = 0; source snapshot = -1; source finalized = 0;
     n := result;
     return result + before;
   } finally { finalized := finalized + 1; }
-}}>{n}/{snapshot}/{finalized}</button>`;
+}}>{n}/{snapshot}/{finalized}</button> }`;
 
 test("non-held async callbacks expose fresh and cached before-await frames and return values", t =>
   compare(t, source, rx, "0/-1/0", [

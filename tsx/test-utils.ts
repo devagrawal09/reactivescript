@@ -10,6 +10,9 @@ import { compile } from "./rx/compiler.ts";
 import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
 import { createApp, flush } from "./rx/runtime.ts";
 import type { Decl, Expr, Program } from "./rx/ast.ts";
+import { entryView } from "./rx/ast.ts";
+import { singleModule } from "./rx/compiler.ts";
+import { semanticFacts } from "./rx/facts.ts";
 
 const refers = (x: unknown): boolean =>
   Array.isArray(x)
@@ -25,21 +28,10 @@ export function snapshotSource(d: Extract<Decl, { k: "eq" }>): Decl {
   return { k: "source", name: d.name, init, line: d.line, ...(d.type ? { type: d.type } : {}) };
 }
 
-function canonicalAst(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalAst);
-  if (value && typeof value === "object")
-    // The RX parser writes some absent optional fields as undefined; the adapter omits them.
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key, v]) => key !== "line" && v !== undefined)
-        .map(([key, v]) => [key, canonicalAst(v)]),
-    );
-  return value;
-}
-const mounted = (p: Program): Program => ({
-  ...p,
-  view: [{ k: "el", tag: "Counter", attrs: [], children: [] }],
-});
+/** Paired equivalence is judged on the pinned checker's canonical semantic facts (tsx/rx/facts.ts), not on the raw
+ *  AST shape: upstream's parser representation (for example `legacyView: false`) is not part of the contract. */
+const facts = (p: Program) => semanticFacts(singleModule(p));
+const mounted = (p: Program): Program => ({ ...p, view: entryView("Counter", 1) });
 
 export async function traces(
   tsx: string,
@@ -50,7 +42,7 @@ export async function traces(
   const p = lowerTsx(tsx, "Counter.tsx");
   const handwritten = typeof rx === "string" ? parseProgram(rx) : rx;
   assert.deepEqual(p.view, [], "module exports must not auto-mount");
-  assert.deepEqual(canonicalAst(p), canonicalAst(handwritten));
+  assert.deepEqual(facts(p), facts(handwritten));
   assert.deepEqual(check(p), []);
   assert.deepEqual(check(mounted(p)), []);
   assert.deepEqual(check(mounted(handwritten)), []);

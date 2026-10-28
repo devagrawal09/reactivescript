@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadTsxModules } from "./modules.ts";
 import { selectEntry } from "./rx/ast.ts";
-import { selectEntry } from "./rx/ast.ts";
 import { checkModules } from "./rx/compiler.ts";
 import { CheckError } from "./rx/compiler.ts";
 import { compileModules } from "./rx/compiler.ts";

@@ -10,10 +10,10 @@
     "#rx/*": "./upstream/ref/*"
   },
   "scripts": {
-    "test:contracts": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/contracts.test.ts tsx/boundary.test.ts tsx/paired.test.ts",
+    "test:contracts": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/boundary.test.ts tsx/paired.test.ts tsx/contracts.test.ts",
     "test": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/*.test.ts",
     "test:browser": "node --experimental-strip-types --test tsx/browser.ts",
-    "check": "tsc -p tsconfig.json",
+    "check": "node --experimental-strip-types scripts/check-types.ts",
     "build": "node --experimental-strip-types tsx/build.ts",
     "verify:pinned": "sh scripts/verify-pinned.sh",
     "canary": "sh scripts/canary.sh"

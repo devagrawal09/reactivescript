@@ -76,7 +76,7 @@ for (const [parentExt, childExt] of [["tsx", "tsx"], ["tsx", "rx"], ["rx", "tsx"
 
 test("a diamond reads and lowers each module once", () => {
   const files: Record<string, string> = {
-    "main.rx": 'import { Left } from "./left.rx"; import { Right } from "./right.rx"; <Left/><Right/>',
+    "main.rx": 'import { Left } from "./left.rx"; import { Right } from "./right.rx"; export default component App() { <Left/><Right/> }',
     "left.rx": 'import { Shared } from "./shared.tsx"; export component Left() { <Shared/> }',
     "right.rx": 'import { Shared } from "./shared.tsx"; export component Right() { <Shared/> }',
     "shared.tsx": 'export function Shared() { return <p>shared</p>; }',
@@ -113,7 +113,7 @@ test("mixed-language cycles are rejected before lowering incomplete imports", ()
 
 test("RX declaration files retain JS purity contracts in a mixed graph", () => {
   const set = load({
-    "main.rx": 'import { f } from "./api"; answer = f(1); <p>{answer}</p>',
+    "main.rx": 'import { f } from "./api"; answer = f(1); export default component App() { <p>{answer}</p> }',
     "api.d.rx": 'export pure fn f(value: number): number',
   }, "main.rx");
   assert.equal(set.declarations?.size, 1);
@@ -122,7 +122,7 @@ test("RX declaration files retain JS purity contracts in a mixed graph", () => {
 
 test("module paths normalize without guessing extensions", () => {
   const set = load({
-    "main.rx": 'import { Shared } from "./folder/../shared.tsx"; <Shared/>',
+    "main.rx": 'import { Shared } from "./folder/../shared.tsx"; export default component App() { <Shared/> }',
     "shared.tsx": 'export function Shared() { return <p>ok</p>; }',
   }, "./main.rx");
   assert.equal(set.entry, "main.rx");
@@ -131,7 +131,7 @@ test("module paths normalize without guessing extensions", () => {
 
 test("a shared missing dependency cannot accidentally lower a second incomplete importer", () => {
   const set = load({
-    "main.rx": 'import { Left } from "./left.rx"; import { Right } from "./right.rx"; <Left/><Right/>',
+    "main.rx": 'import { Left } from "./left.rx"; import { Right } from "./right.rx"; export default component App() { <Left/><Right/> }',
     "left.rx": 'import { Shared } from "./shared.rx"; export component Left() { <Shared/> }',
     "right.rx": 'import { Shared } from "./shared.rx"; export component Right() { <Shared/> }',
     "shared.rx": 'import { Missing } from "./missing.rx"; export component Shared() { <Missing/> }',
@@ -142,12 +142,12 @@ test("a shared missing dependency cannot accidentally lower a second incomplete 
 });
 
 test("unknown RX imports are still checked against exported signatures", () => {
-  const set = load({ "main.rx": 'import { Hidden } from "./child.rx"; <p>ok</p>', "child.rx": 'component Hidden() { <p>hidden</p> }' }, "main.rx");
+  const set = load({ "main.rx": 'import { Hidden } from "./child.rx"; export default component App() { <p>ok</p> }', "child.rx": 'component Hidden() { <p>hidden</p> }' }, "main.rx");
   assert.ok(checkModules(set).diags.some(d => d.code === "NOT_EXPORTED"));
 });
 
 test("importing a source does not permit writing through the module boundary", () => {
-  const set = load({ "main.rx": 'import { value } from "./child.rx"; <button onClick={() => { value := 1 }}>{value}</button>', "child.rx": 'export source value := 0' }, "main.rx");
+  const set = load({ "main.rx": 'import { value } from "./child.rx"; export default component App() { <button onClick={() => { value := 1 }}>{value}</button> }', "child.rx": 'export source value := 0' }, "main.rx");
   assert.ok(checkModules(set).diags.some(d => d.code === "WRITE_TO_NON_SOURCE" && d.rule === "MO-2"));
 });
 
