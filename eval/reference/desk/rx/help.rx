@@ -17,10 +17,10 @@ export component HelpPage() {
     <input data-testid="query" value={latest query} onInput={e => { query := e.target.value }} />
     {if query != "" {
       <div data-testid="results">
-        <p>{pending? results ? "searching…" : ""}</p>
         {errored fallback(e) { <p>search failed: {e.message}</p> } {
           errored fallback(e: TooShort) { <p>{e.message}</p> } {
             loading fallback { <p>searching…</p> } {
+              <p>{pending? results ? "searching…" : ""}</p>
               <h2>{results.length} results for {latest query}</h2>
               <ul>
                 {for r in results {
