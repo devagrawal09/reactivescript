@@ -1,6 +1,7 @@
 // The arm's compiler feedback, as the agent runs it.
 //   rx:    rxc check src/main.rx
 //   react: tsc --noEmit -p . and eslint (react-hooks rules)
+//   solid: tsc --noEmit -p . (Solid 2 has no lint plugin yet)
 // Usage: node harness/check.mjs <dir>
 import { execFileSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
@@ -22,6 +23,7 @@ export function check(dir) {
   if (armOf(dir) === "rx") return run(RXC, ["check", "src/main.rx"], dir);
   const bin = n => path.join(evalDir, "node_modules/.bin", n);
   const tsc = run(bin("tsc"), ["--noEmit", "-p", "."], dir);
+  if (armOf(dir) === "solid") return { ok: tsc.ok, out: tsc.out.trim() || "ok" };
   const lint = run(bin("eslint"), ["--no-warn-ignored", "-c", path.join(here, "eslint.config.mjs"), "src"], dir);
   return { ok: tsc.ok && lint.ok, out: `${tsc.out}${lint.out}`.trim() || "ok" };
 }

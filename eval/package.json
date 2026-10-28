@@ -2,7 +2,7 @@
   "name": "rx-eval",
   "private": true,
   "type": "module",
-  "description": "The .rx vs React benchmark harness (eval/README.md)",
+  "description": "The .rx vs React (and Solid 2 TSX) benchmark harness (eval/README.md)",
   "dependencies": {
     "solid-js": "file:../../solid-next/packages/solid",
     "@solidjs/web": "file:../../solid-next/packages/web",
@@ -17,6 +17,7 @@
     "eslint-plugin-react-hooks": "7.0.0",
     "typescript-eslint": "8.46.0",
     "typescript": "5.9.3",
-    "vite": "7.1.9"
+    "vite": "7.1.9",
+    "@solidjs/compiler": "file:../../solid-next/packages/compiler"
   }
 }

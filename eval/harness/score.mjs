@@ -20,7 +20,7 @@ const alongside = new Set(["a post on one issue does not show on another"]);
 const rows = [];
 for (const name of readdirSync(runs).sort()) {
   const dir = path.join(runs, name);
-  const m = name.match(/^(\w+)-(rx|react)-(\d+)$/);
+  const m = name.match(/^(\w+)-(rx|react|solid)-(\d+)$/);
   if (!m) continue;
   const [, task, arm, n] = m;
   const log = existsSync(path.join(dir, ".runlog")) ? readFileSync(path.join(dir, ".runlog"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];

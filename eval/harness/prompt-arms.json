@@ -7,14 +7,26 @@
   },
   "rx": {
     "DOCS_RULE": ", except that you may read the language documentation in {{DIR}}/docs",
-    "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. Read `docs/guide/async.md` first: one page on reading from and writing to a server. Its specification is in `docs/spec/` (the concrete syntax is `docs/spec/07-surface.md`; modules and imports are `docs/spec/09-modules.md`). `src/main.rx` must be the program's entry, `export default component App() { … }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { … } from \"./api\"`, functions that write with `import { … } from \"./api\"`. The prelude gives `import pure { len, str, map, filter, sum, every, indexOf } from \"./prelude\"`. Give an element a test id with `data-testid=\"…\"`.",
+    "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. Read `docs/guide/async.md` first: one page on reading from and writing to a server. Its specification is in `docs/spec/` (the concrete syntax is `docs/spec/07-surface.md`; modules and imports are `docs/spec/09-modules.md`). `src/main.rx` must be the program's entry, `export default component App() { \u2026 }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { \u2026 } from \"./api\"`, functions that write with `import { \u2026 } from \"./api\"`. The prelude gives `import pure { len, str, map, filter, sum, every, indexOf } from \"./prelude\"`. Give an element a test id with `data-testid=\"\u2026\"`.",
     "API_TYPES": "`src/api.d.rx`",
     "CHECKER": "the ReactiveScript compiler's checker (`rxc check src/main.rx`)"
   },
   "rx-inline": {
     "DOCS_RULE": ", except that you may read the language documentation in {{DIR}}/docs",
-    "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. The two pages at the end of this message are the language and how it talks to a server; they are enough to write the change. The full specification is in `docs/spec/` if you need a detail they don't cover. `src/main.rx` must be the program's entry, `export default component App() { … }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { … } from \"./api\"`, functions that write with `import { … } from \"./api\"`. Give an element a test id with `data-testid=\"…\"`.",
+    "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. The two pages at the end of this message are the language and how it talks to a server; they are enough to write the change. The full specification is in `docs/spec/` if you need a detail they don't cover. `src/main.rx` must be the program's entry, `export default component App() { \u2026 }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { \u2026 } from \"./api\"`, functions that write with `import { \u2026 } from \"./api\"`. Give an element a test id with `data-testid=\"\u2026\"`.",
     "API_TYPES": "`src/api.d.rx`",
     "CHECKER": "the ReactiveScript compiler's checker (`rxc check src/main.rx`)"
+  },
+  "solid": {
+    "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
+    "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React; its own documentation is in `node_modules/solid-js/CHEATSHEET.md` and `node_modules/solid-js/skills/`.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict)"
+  },
+  "solid-inline": {
+    "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
+    "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React. The page at the end of this message is Solid's own primer for coding agents; the full API cheatsheet is `node_modules/solid-js/CHEATSHEET.md`.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict)"
   }
 }

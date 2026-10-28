@@ -45,17 +45,21 @@ export function permutation(a, b, n = 100000, seed = 5) {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [list, dir, out] = process.argv.slice(2);
   const runs = readFileSync(list, "utf8").trim().split("\n").map(l => l.trim().split(/\s+/)).map(([run, id]) => {
-    const [, task, arm, n] = run.match(/^(\w+)-(rx|react)-(\d+)$/);
+    const [, task, arm, n] = run.match(/^(\w+)-(rx|react|solid)-(\d+)$/);
     return { run, task, arm, n: Number(n), ...usage(path.join(dir, `agent-${id}.jsonl`)) };
   });
   for (const r of runs) console.log(`${r.run.padEnd(16)} billed ${Math.round(r.billed).toString().padStart(7)}  calls ${r.calls}  out ${r.output}  cacheRead ${r.cacheRead}  cacheWrite ${r.cacheWrite}`);
   const by = arm => runs.filter(r => r.arm === arm).map(r => r.billed);
-  const react = by("react"), rx = by("rx");
-  for (const [arm, xs] of [["react", react], ["rx", rx]]) if (xs.length) console.log(`${arm.padEnd(6)} n ${xs.length}  mean ${Math.round(mean(xs))}  sd ${Math.round(sd(xs))}`);
+  const react = by("react"), rx = by("rx"), solid = by("solid");
+  for (const [arm, xs] of [["react", react], ["rx", rx], ["solid", solid]]) if (xs.length) console.log(`${arm.padEnd(6)} n ${xs.length}  mean ${Math.round(mean(xs))}  sd ${Math.round(sd(xs))}`);
   const summary = { weights: WEIGHTS, runs };
   if (react.length && rx.length) {
     summary.diff = mean(react) - mean(rx); summary.ratio = mean(rx) / mean(react); summary.p = permutation(react, rx);
     console.log(`React - .rx = ${Math.round(summary.diff)} (.rx/React ${summary.ratio.toFixed(3)}), one-sided permutation p = ${summary.p.toFixed(4)}`);
+  }
+  if (solid.length && rx.length) {
+    summary.solid = { diff: mean(solid) - mean(rx), ratio: mean(rx) / mean(solid), p: permutation(solid, rx) };
+    console.log(`Solid - .rx = ${Math.round(summary.solid.diff)} (.rx/Solid ${summary.solid.ratio.toFixed(3)}), one-sided permutation p = ${summary.solid.p.toFixed(4)}`);
   }
   if (out) writeFileSync(out, JSON.stringify(summary, null, 2) + "\n");
 }
