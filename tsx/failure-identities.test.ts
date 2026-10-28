@@ -98,7 +98,7 @@ test("same-named classes in separate RX modules do not discharge each other", as
 
 test("nested shadowed RX error declarations have distinct identities", async () => {
   const decls = 'error Missing(); component Reader() { error Missing(); value = throw Missing(); <p>{value}</p> }';
-  const body = 'errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> }';
+  const body = 'export default component App() { errored fallback(e: Missing) { <p>wrong</p> } { <Reader/> } }';
   assert.deepEqual(checked({ "main.rx": decls + body }).diags.map(d => d.code), ["UNHANDLED_FAILURE"]);
   await trace({ "main.rx": decls + 'errored fallback(e: Error) { <p>outer</p> } { ' + body + " }" }, "outer");
 });

@@ -203,12 +203,12 @@ export function Counter() {
 source state = { a: id, b: id * 10, nested: { value: id } };
 alias = state;
 nested = state.nested;
-<div><p>{state.a}/{state.b}|{alias.a}/{alias.b}|{state.nested.value}/{nested.value}|{tick}</p>
+export default component App() { <div><p>{state.a}/{state.b}|{alias.a}/{alias.b}|{state.nested.value}/{nested.value}|{tick}</p>
   <button onClick={() => { state.a := 5; }}></button>
   <button onClick={() => { tick := tick + 1; }}></button>
   <button onClick={() => { id := id + 1; }}></button>
   <button onClick={() => { state.nested.value := 9; }}></button>
-</div>`, [
+</div> }`, [
     { click: 0 }, { click: 1 }, { click: 2 }, { click: 3 }, { click: 1 }, { click: 2 },
   ], [
     "1/10|1/10|1/1|0", "5/10|5/10|1/1|0", "5/10|5/10|1/1|1", "2/20|2/20|2/2|1",
@@ -227,9 +227,9 @@ export function Counter() {
 }`, `source id := 1;
 source state = { a: id, b: id * 10 };
 alias = state;
-<div><p>{state.a}/{state.b}|{alias.a}/{alias.b}</p>
+export default component App() { <div><p>{state.a}/{state.b}|{alias.a}/{alias.b}</p>
   <button onClick={() => { id := id + 1; }}></button>
-</div>`, [{ click: 0 }, { click: 0 }], [
+</div> }`, [{ click: 0 }, { click: 0 }], [
     "1/10|1/10", "2/20|2/20", "3/30|3/30",
   ]));
 

@@ -2,6 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadTsxModules } from "./modules.ts";
+import { selectEntry } from "./rx/ast.ts";
+import { selectEntry } from "./rx/ast.ts";
 import { checkModules } from "./rx/compiler.ts";
 import { CheckError } from "./rx/compiler.ts";
 import { compileModules } from "./rx/compiler.ts";
@@ -12,13 +14,8 @@ export function buildTsx(entry: string, read: (path: string) => string | undefin
   options: { target?: Target; mount?: string } = {}) {
   const set = loadTsxModules(entry, read);
   if (set.diags.length) throw new CheckError(set.diags);
-  if (options.mount) {
-    const p = set.programs.get(set.entry)!;
-    const component = p.decls.find(d => d.k === "component" && d.name === options.mount && d.exported);
-    if (!component) throw new Error("No exported component " + options.mount + " in " + set.entry);
-    if (p.view.length) throw new Error("Cannot select a component in a module that already has a mount");
-    p.view = [{ k: "el", tag: options.mount, attrs: [], children: [] }];
-  }
+  // The entry is the entry module's default component (MO-1c); --mount selects an exported component as that entry.
+  if (options.mount) selectEntry(set.programs.get(set.entry)!, options.mount);
   const checked = checkModules(set);
   if (checked.diags.length) throw new CheckError(checked.diags);
   const compiled = compileModules(set);

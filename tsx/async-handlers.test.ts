@@ -239,11 +239,11 @@ export function Counter() {
     }
   }}>{stage()}</button>;
 }`, `source stage = "idle";
-<button onClick={() => {
+export default component App() { <button onClick={() => {
   stage := "before";
   try { let result = await 8; stage := "body"; return result; }
   finally { let done = await 9; stage := "finally"; return done; }
-}}>{stage}</button>`, "idle", [
+}}>{stage}</button> }`, "idle", [
     { before: "before", microtasks: ["body"], after: "finally", result: 9 },
   ]));
 
@@ -258,11 +258,11 @@ export function Counter() {
     return answer;
   }}>ready</button>;
 }`, `error Early() => "early";
-<button onClick={(mode) => {
+export default component App() { <button onClick={(mode) => {
   if (mode == 0) return 7;
   if (mode == 1) throw Early();
   let answer = await 8; return answer;
-}}>ready</button>`, "ready", [
+}}>ready</button> }`, "ready", [
     { args: [0], before: "ready", after: "ready", result: 7 },
     { args: [1], before: "ready", after: "ready", failure: "early" },
     { args: [2], before: "ready", after: "ready", result: 8 },
@@ -279,7 +279,7 @@ export function Counter() {
     return answer;
   }}>{n()}</button>;
 }`, `source n = 0;
-<button onClick={(answer) => { n := 1; let result = await answer; n := result; return answer; }}>{n}</button>`,
+export default component App() { <button onClick={(answer) => { n := 1; let result = await answer; n := result; return answer; }}>{n}</button> }`,
   "0", [{ args: [Promise.resolve(8)], before: "1", after: "8", result: 8 }], { authored: false }));
 
 test("awaits in nested RX closures do not turn their outer callback async", t =>

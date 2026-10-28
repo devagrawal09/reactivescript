@@ -19,7 +19,7 @@ test("typed read-only questions stay structured across shadowed component writes
       action change() { data := 1 }
       <button onClick={() => change()}>change</button>
     }
-    <p>{data.n}</p>
+    export default component App() { <p>{data.n}</p> }
   `;
   assert.equal(structured(compile(parseProgram(source))), true);
 });
@@ -27,11 +27,11 @@ test("typed read-only questions stay structured across shadowed component writes
 test("typed read-only questions stay structured across shadowed branch writes", () => {
   const source = question + `
     source show := true
-    <div>{if show {
+    export default component App() { <div>{if show {
       source data := 0
       action change() { data := 1 }
       <button onClick={() => change()}>change</button>
-    } else { <p>{data.n}</p> }}</div>
+    } else { <p>{data.n}</p> }}</div> }
   `;
   assert.equal(structured(compile(parseProgram(source))), true);
 });
@@ -39,7 +39,7 @@ test("typed read-only questions stay structured across shadowed branch writes", 
 test("root-written questions retain the supported atomic lowering", () => {
   const source = question + `
     action change() { data := { n: 2 } }
-    <p>{data.n}</p>
+    export default component App() { <p>{data.n}</p> }
   `;
   assert.equal(structured(compile(parseProgram(source))), false);
 });
@@ -55,7 +55,7 @@ test("a shadowed context root write does not reach another provision", () => {
       action change() { use current := 1 }
       <button onClick={() => change()}>change</button>
     }
-    <p>{data.n}</p>
+    export default component App() { <p>{data.n}</p> }
   `;
   assert.equal(structured(compile(parseProgram(source))), true);
 });

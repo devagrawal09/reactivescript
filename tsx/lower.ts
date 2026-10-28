@@ -8,7 +8,8 @@ import {
   type JSXElement,
   type Function as OxcFunction,
 } from "oxc-parser/src-js/index";
-import { serverDecl, type Program, type Decl, type Expr, type Markup, type Stmt } from "./rx/ast.ts";
+import { entryView, serverDecl, type Program, type Decl, type Expr, type Markup, type Stmt } from "./rx/ast.ts";
+import { actionInference } from "./rx/infer.ts";
 import type { JsDecl } from "./rx/compiler.ts";
 import { decodeHTML } from "entities";
 
@@ -394,6 +395,8 @@ export function lowerTsx(
     exported: boolean;
   }[] = [];
   let declarationsStarted = false;
+  /** The module's `export default function Name` component: its entry (upstream MO-1c). */
+  let defaultComponent: string | undefined;
   const collectFunction = (
     fn: OxcFunction,
     exported: boolean,
@@ -786,6 +789,18 @@ export function lowerTsx(
       continue;
     }
     declarationsStarted = true;
+    if (item.type === "ExportDefaultDeclaration") {
+      const dd = item.declaration;
+      if (dd.type !== "FunctionDeclaration" || !dd.id || !/^[A-Z]/.test(dd.id.name))
+        return fail(
+          item,
+          "export default: only a named uppercase component function is a module's default export (the app's entry, MO-1c)",
+        );
+      if (defaultComponent) return fail(item, "A module has one default component");
+      defaultComponent = dd.id.name;
+      collectFunction(dd, true, moduleNames);
+      continue;
+    }
     const exported = item.type === "ExportNamedDeclaration";
     const d = exported ? item.declaration : item;
     if (
@@ -2311,14 +2326,29 @@ export function lowerTsx(
       inner.bindings.set(name, { kind: "value", shape: type });
       return name;
     });
+    const stmts =
+      fn.body.type === "BlockStatement"
+        ? statements(fn.body.body, inner)
+        : actionExpr(fn.body, inner);
+    // Inferred actions (pinned upstream AC-1b): a plain Solid callback is never an action. Upstream makes this body
+    // one, so only spellings whose observable behavior does not depend on that are accepted; the differential tests
+    // cover the accepted await-then-write form.
+    const inferred = actionInference(stmts);
+    if (inferred.trigger && inferred.trigger !== "write+await")
+      return fail(
+        fn,
+        "Plain callbacks cannot guess or declare affects: ReactiveScript would infer an action (" + inferred.why + "); wrap the callback in action(...)",
+      );
+    if (inferred.held.length)
+      return fail(
+        fn,
+        "Solid applies " + inferred.held.join(", ") + " immediately, before the await, but ReactiveScript infers this callback as an action (AC-1b: " + inferred.why + ") and holds that write until the body ends (AC-1c); write after the await, or wrap the callback in action(...) to hold it deliberately",
+      );
     return {
       k: "fn",
       params,
       body: { k: "lit", v: undefined },
-      stmts:
-        fn.body.type === "BlockStatement"
-          ? statements(fn.body.body, inner)
-          : actionExpr(fn.body, inner),
+      stmts,
     };
   };
   const display = (v: Value, at: Span): Markup[] => {
@@ -4163,6 +4193,7 @@ export function lowerTsx(
       view: markup(ret.argument, scope, meta),
       line: line(fn),
       ...(meta.exported ? { exported: true } : {}),
+      ...(name === defaultComponent ? { isDefault: true } : {}),
     });
   }
   const visiting = new Set<string>(),
@@ -4547,6 +4578,12 @@ export function lowerTsx(
       (constSpans.has(d) ? "Setup const " + d.name : "The eager initializer of " + d.name + " (a signal, store, projection or provider seed)") +
         " can fail at mount (" + (r.why ?? "a failure") + "): Solid throws during setup, before any boundary inside this owner exists, but an RX snapshot source holds the failure and raises it at its readers (possibly inside an inner boundary, an untaken branch or a closure). Catch every failure in the initializer with catchFailure, or read it in JSX or a memo",
     );
+  }
+  if (defaultComponent) {
+    const entry = result.decls.find((d) => d.k === "component" && d.name === defaultComponent);
+    if (!entry)
+      return fail(parsed.program, "export default " + defaultComponent + " must be a component (a function returning JSX)");
+    result.view = entryView(defaultComponent, entry.line);
   }
   return result;
 }

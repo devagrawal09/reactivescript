@@ -18,6 +18,9 @@
     "tsx/effects.ts",
     "tsx/rx/ast.ts",
     "tsx/rx/compiler.ts",
-    "tsx/rx/runtime.ts"
+    "tsx/rx/runtime.ts",
+    "tsx/rx/infer.ts",
+    "tsx/rx/string-renderer.ts",
+    "tsx/wire-key.ts"
   ]
 }

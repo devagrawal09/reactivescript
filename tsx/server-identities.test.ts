@@ -124,7 +124,7 @@ test("server loader keys preserve wire argument types, delimiters and numeric ed
     assert.equal(load({ b: 2, a: 1 }), requests.at(-1), "record insertion order is not request identity");
     await assert.rejects(load(() => 1), /WIRE_VALUE/, "validation must precede the cache lookup");
   }
-  const program = parseProgram('server fn load(x) { return x === 1 ? "number" : "string" } server fn first(x, y) { return x } a = await load(1); b = await load("1"); c = await first("a,b", "c"); d = await first("a", "b,c"); errored fallback(e) { <p>failed</p> } { <p>{a}/{b}/{c}/{d}</p> }');
+  const program = parseProgram('server fn load(x) { return x === 1 ? "number" : "string" } server fn first(x, y) { return x } a = await load(1); b = await load("1"); c = await first("a,b", "c"); d = await first("a", "b,c"); export default component App() { errored fallback(e) { <p>failed</p> } { <p>{a}/{b}/{c}/{d}</p> } }');
   assert.equal(new Runtime(program).step([]).at(-1)!.frame, "number/string/a,b/a", "interpreter server-only keying");
 });
 
