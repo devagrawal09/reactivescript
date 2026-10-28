@@ -1,0 +1,6 @@
+{"at":"2026-10-27T20:40:29.372Z","cmd":"check","ok":false,"out":"src/main.rx: parse error: /home/claude/runs/overlap-small/settings-rx-2/src/main.rx: line 9: expected '{' near 'source draftTheme :='"}
+{"at":"2026-10-27T20:40:49.576Z","cmd":"check","ok":false,"out":"src/main.rx: parse error: /home/claude/runs/overlap-small/settings-rx-2/src/main.rx: line 33: W-2: write in reactive scope (no statement position) near '\n        source draf'"}
+{"at":"2026-10-27T20:40:59.963Z","cmd":"check","ok":false,"out":"/home/claude/runs/overlap-small/settings-rx-2/src/main.rx:9: error UNBOUND [SCOPE] Error is not declared here (a component sees its declaration site, not its caller — RG-7a)"}
+{"at":"2026-10-27T20:41:06.292Z","cmd":"check","ok":true,"out":"src/main.rx: ok"}
+{"at":"2026-10-27T20:41:14.529Z","cmd":"test","ok":true,"build":true,"passed":4,"total":4}
+{"at":"2026-10-27T20:41:35.156Z","cmd":"test","ok":true,"build":true,"passed":3,"total":3}

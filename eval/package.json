@@ -4,9 +4,9 @@
   "type": "module",
   "description": "The .rx vs React benchmark harness (eval/README.md)",
   "dependencies": {
-    "solid-js": "2.0.0-rc.19",
-    "@solidjs/web": "2.0.0-rc.19",
-    "@solidjs/signals": "2.0.0-rc.19",
+    "solid-js": "file:../../solid-next/packages/solid",
+    "@solidjs/web": "file:../../solid-next/packages/web",
+    "@solidjs/signals": "file:../../solid-next/packages/signals",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "@tanstack/react-query": "5.90.2",

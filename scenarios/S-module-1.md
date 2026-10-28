@@ -1,6 +1,6 @@
 # S-module-1 — three modules: shared module state, read-only across the boundary, rows and provisions through signatures
 
-Rules: MO-1, MO-2, MO-3, MO-4, MO-5, MO-6, R-f-5, R-f-6, RG-7b.
+Rules: MO-1, MO-1d, MO-2, MO-3, MO-4, MO-5, MO-6, R-f-5, R-f-6, RG-7b.
 
 ## Modules
 
@@ -212,3 +212,16 @@ export default component App() {
 
 `Save`'s action reads `props.v`: an argument that can fail is refused at
 the application, whatever boundary is above it (R-f-6).
+
+```
+-- reject: SHADOWED_IMPORT
+import { initials } from "./store.rx"
+
+export default component App() {
+  source initials := "AB"
+  <p>{initials(initials)}</p>
+}
+```
+
+MO-1d: the component's `initials` would hide the imported function, and the
+call would call a string. Rename one: `import { initials as short }`.

@@ -81,7 +81,7 @@ export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_
 
 // ---------------------------------------------------------------- scopes
 type Binding =
-  | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean; setGuess?: (v: unknown) => void }
+  | { k: "sig"; get: () => unknown; set: (v: unknown) => void; question: boolean; optimistic: boolean; setGuess?: (v: unknown) => void; truth?: () => unknown }
   | { k: "store"; get: () => any; set: (v: unknown) => void; setPath: (f: (d: any) => any) => void; question: boolean; setGuess?: (f: (d: any) => any) => void }
   | { k: "memo"; get: () => unknown }
   | { k: "const"; value: unknown }
@@ -246,7 +246,7 @@ export class Oracle {
             else if (this.optimisticTargets.has(d.name)) {                   // AC-3 over ST-5: the truth is a signal with a question, written plainly; the guess layer is createOptimistic over it
               const [truth, setTruth] = createSignal(compute as any, this.loadingValue(d.init, scope) as any);
               const [get, setGuess] = createOptimistic(() => truth());
-              scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true });
+              scope.vars.set(d.name, { k: "sig", get, set: setTruth as any, setGuess: setGuess as any, question: true, optimistic: true, truth });   // AC-4: `refresh` re-asks `truth`, not the guess layer
             }
             else if (this.isStructuredAwait(d.init, d.name)) { const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = compute(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}); /* ST-5 structured: the derive writes its draft (Solid's createStore(fn, seed) idiom) */ scope.vars.set(d.name, { k: "store", get: () => store, set: () => { throw new Unsupported("root write to a derived store"); }, setPath: setStore, question: true }); }
             else { const [get, set] = createSignal(compute as any, this.loadingValue(d.init, scope) as any); scope.vars.set(d.name, { k: "sig", get, set: set as any, question: true, optimistic: false }); }
@@ -449,7 +449,7 @@ export class Oracle {
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
       case "action": this.lowerAction([], s.body, scope, env)(); return;
-      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); for (const h of this.hoistedByName.get(s.name) ?? []) refresh(h as any); refresh((b.k === "store" ? b.get() : b.get) as any); return; }
+      case "refresh": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_REFRESH_TARGET"); const key = this.lastKey.get(s.name); if (key) this.forget(key); for (const h of this.hoistedByName.get(s.name) ?? []) refresh(h as any); refresh((b.k === "store" ? b.get() : (b.k === "sig" && b.truth) || b.get) as any); return; }
       case "affects": { const b = scope.lookup(s.name); if (!b || !("get" in b)) throw new Error("INVALID_AFFECTS_TARGET"); affects(b.get as any); return; }
       case "optimistic": case "write": {
         const b = s.target.ctx ? this.provision(s.target.name, scope) : scope.lookup(s.target.name);

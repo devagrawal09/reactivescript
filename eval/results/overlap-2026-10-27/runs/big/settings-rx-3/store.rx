@@ -1,0 +1,25 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import { Settings } from "./api"
+
+export source settings: Settings = await loadSettings()
+export source saveError: string = ""
+
+export action save(next: Settings) {
+  optimistic settings := next
+  optimistic saveError := ""
+  affects settings
+  try {
+    let answer = await saveSettings(next)
+    settings := answer
+  } catch (e) {
+    saveError := e.message
+  }
+}
+
+export action retryLoad() {
+  try {
+    refresh settings
+  } catch (e) {
+  }
+}

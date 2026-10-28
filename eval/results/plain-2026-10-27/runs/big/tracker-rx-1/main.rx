@@ -1,0 +1,67 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+import pure { map } from "./prelude"
+
+error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id: number) => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source issues key id = await fetchIssues(filter)
+  source assignError: { id: number; msg: string } | null = null
+
+  action assignTo(id: number, who: string) {
+    optimistic issues := xs => map(xs, i => i.id == id ? { ...i, assignee: who } : i)
+    optimistic assignError := null
+    try {
+      let r = await assign(id, who)
+      issues := xs => map(xs, i => i.id == r.id ? { ...i, assignee: r.assignee } : i)
+    } catch (e) {
+      assignError := { id: id, msg: e.message }
+    }
+  }
+
+  <div>
+    <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.currentTarget.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <ul data-testid="list">
+      {loading on(filter) fallback { <li>loading {filter} issues</li> } {
+        {errored fallback(e) { <li>list error: {e.message}</li> } {
+          {for it in issues {
+            <li data-testid="issue" onClick={() => { selected := it.id; onFlush(() => { assignError := null }) }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</li>
+          }}
+        }}
+      }}
+    </ul>
+    <div data-testid="detail">
+      {if selected == null {
+        <p>select an issue</p>
+      } else {
+        <Detail id={selected} />
+        <button data-testid="assign" onClick={() => { assignTo(selected, user) }}>assign to {user}</button>
+        {if assignError != null && assignError.id == selected {
+          <p>{assignError.msg}</p>
+        }}
+      }}
+    </div>
+  </div>
+}
+
+component Detail(props: { id: number }) {
+  detail = found(await fetchIssue(props.id), props.id)
+  <div>
+    {loading on(props.id) fallback { <p>loading #{props.id}</p> } {
+      {errored fallback(e) { <p>detail error: {e.message}</p> } {
+        <h2>#{detail.id} {detail.title}</h2>
+        <p>{detail.body}</p>
+      }}
+    }}
+    <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+  </div>
+}

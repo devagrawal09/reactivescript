@@ -21,7 +21,7 @@ fn fail<T>(msg: impl Into<String>) -> R<T> {
     Err(CompileError(msg.into()))
 }
 
-const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every"];
+const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
 fn builtin(n: &str) -> bool {
     BUILTINS.contains(&n)
 }

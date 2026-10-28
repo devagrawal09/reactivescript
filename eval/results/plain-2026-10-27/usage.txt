@@ -1,0 +1,36 @@
+big settings-react-1 tokens=45967 tools=6 ms=58975
+big search-react-1 tokens=47038 tools=5 ms=69406
+big tracker-rx-1 tokens=73739 tools=8 ms=74537
+big tracker-react-1 tokens=49648 tools=6 ms=85684
+big search-rx-1 tokens=65179 tools=12 ms=96791 note=added+removed own tests
+small settings-react-1 tokens=52909 tools=8 ms=83865
+small search-react-1 tokens=52436 tools=7 ms=87818
+big search-react-2 tokens=44579 tools=5 ms=46022
+big settings-react-2 tokens=46860 tools=6 ms=59418
+big settings-rx-1 tokens=74744 tools=15 ms=127689 note=added+removed own tests
+small tracker-react-1 tokens=61146 tools=6 ms=103307
+small search-rx-1 tokens=92463 tools=13 ms=116380
+small tracker-rx-1 tokens=80897 tools=15 ms=131973 note=added+restored own tests
+small settings-rx-1 tokens=86026 tools=14 ms=133066 note=added+restored own tests
+big search-rx-2 tokens=63588 tools=7 ms=61352
+big tracker-rx-2 tokens=72882 tools=9 ms=84209
+big search-react-3 tokens=44926 tools=5 ms=46655
+small settings-react-2 tokens=51418 tools=6 ms=60808
+big tracker-react-2 tokens=50827 tools=6 ms=98047
+big settings-react-3 tokens=45920 tools=4 ms=50061
+small search-react-2 tokens=53355 tools=7 ms=71989
+big settings-rx-2 tokens=59795 tools=12 ms=81565 note=added+restored own tests
+small tracker-react-2 tokens=63215 tools=7 ms=107948
+small search-rx-2 tokens=93453 tools=15 ms=127191 note=scratch tests in temp copy
+big tracker-react-3 tokens=48180 tools=5 ms=67411
+big settings-rx-3 tokens=67813 tools=11 ms=72389
+small search-react-3 tokens=54202 tools=7 ms=73965
+small settings-react-3 tokens=50491 tools=5 ms=53528
+big tracker-rx-3 tokens=72259 tools=12 ms=91342
+big search-rx-3 tokens=66374 tools=12 ms=97834
+small tracker-react-3 tokens=56175 tools=6 ms=78610
+small search-rx-3 tokens=84251 tools=12 ms=122248
+small settings-rx-3 tokens=89407 tools=14 ms=141156
+small tracker-rx-2 tokens=107704 tools=20 ms=256828
+small settings-rx-2 tokens=91014 tools=22 ms=313319
+small tracker-rx-3 tokens=96051 tools=22 ms=753028

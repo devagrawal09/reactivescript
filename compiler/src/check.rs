@@ -40,7 +40,7 @@ impl Diagnostic {
     }
 }
 
-const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every"];
+const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
     fn in_stmts(ss: &[Stmt]) -> bool {
@@ -765,6 +765,8 @@ pub struct Checker<'a> {
     apps: Vec<AppRec<'a>>,
     actions: Vec<ActionRec<'a>>,
     provisions: Vec<Provision<'a>>,
+    /// MO-1d: the symbols import declarations bound, which no declaration in a nested block may shadow.
+    import_syms: HashSet<SId>,
     later: Vec<Later<'a>>,
     comp_syms: HashMap<RId, SId>,
     rows_busy: HashSet<String>,
@@ -838,6 +840,7 @@ impl<'a> Checker<'a> {
             apps: vec![],
             actions: vec![],
             provisions: vec![],
+            import_syms: HashSet::new(),
             later: vec![],
             comp_syms: HashMap::new(),
             rows_busy: HashSet::new(),
@@ -1007,13 +1010,20 @@ impl<'a> Checker<'a> {
         // 1. names (E-7: one declaration per name in a block)
         for d in decls {
             self.line = d.line() as i64;
-            if let Decl::Import { resolved: Some(_), .. } = d {
-                self.import_rx(d, env);
-                continue;
-            }
-            if let Decl::Import { declared: Some(_), .. } = d {
-                self.import_declared(d, env);
-                continue;
+            if let Decl::Import { names, .. } = d {
+                if matches!(d, Decl::Import { resolved: Some(_), .. }) {
+                    self.import_rx(d, env);
+                } else if matches!(d, Decl::Import { declared: Some(_), .. }) {
+                    self.import_declared(d, env);
+                }
+                if matches!(d, Decl::Import { resolved: Some(_), .. } | Decl::Import { declared: Some(_), .. }) {
+                    for n in names {
+                        if let Some(&s) = self.envs[env].vars.get(&n.alias) {
+                            self.import_syms.insert(s);
+                        }
+                    }
+                    continue;
+                }
             }
             match d {
                 Decl::Import { names, pure, fails, side, line, .. } => {
@@ -1022,7 +1032,8 @@ impl<'a> Checker<'a> {
                         s.io = !pure;
                         s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
                         s.side = *side;
-                        self.bind(env, &n.alias, s);
+                        let s = self.bind(env, &n.alias, s);
+                        self.import_syms.insert(s);
                     }
                     continue;
                 }
@@ -1057,6 +1068,11 @@ impl<'a> Checker<'a> {
             if let Some(&prev) = self.envs[env].vars.get(name) {
                 if self.syms[prev].kind != SymKind::Import {
                     self.err("DUPLICATE_DECLARATION", "E-7", format!("{} is declared twice in one block", name));
+                }
+            }
+            if let Some(shadowed) = self.envs[env].parent.and_then(|p| self.lookup(p, name)) {
+                if self.import_syms.contains(&shadowed) {
+                    self.err("SHADOWED_IMPORT", "MO-1d", format!("{} shadows the imported {}: rename one (`import {{ {} as … }}`)", name, name, name));
                 }
             }
             let kind = match d {

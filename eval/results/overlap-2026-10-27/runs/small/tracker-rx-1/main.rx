@@ -1,0 +1,83 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, IssueDetail } from "./api"
+
+error IssueNotFound(id: number) => `issue #${id} not found`
+
+fn found(it: IssueDetail | null, id: number) => it == null ? throw IssueNotFound(id) : it
+
+// a guessed or accepted assignee for one issue, kept as a list of overrides
+fn withOverride(list: { id: number; assignee: string | null }[], id: number, who: string | null) =>
+  [...list.filter(o => o.id != id), { id: id, assignee: who }]
+
+fn assigned(list: { id: number; assignee: string | null }[], id: number, own: string | null) =>
+  list.filter(o => o.id == id).length > 0 ? list.filter(o => o.id == id)[0].assignee : own
+
+export default component App() {
+  source user: string := "guest"
+  source status: string := "open"
+  source selected: number | null := null
+
+  // the rows for the current filter, from the server
+  issues = await fetchIssues(status)
+
+  // the detail of the selected issue; `null` selects nothing
+  detail = selected == null ? null : found(await fetchIssue(selected), selected)
+
+  // assignments made in this session: the guess until the server answers, then the server's answer
+  source overrides: { id: number; assignee: string | null }[] = []
+  source assignError: string = ""
+
+  action assignIssue(id: number, who: string) {
+    try {
+      optimistic assignError := ""
+      optimistic overrides := withOverride(overrides, id, who)
+      let answer = await assign(id, who)
+      overrides := withOverride(overrides, id, answer.assignee)
+    } catch (e) {
+      assignError := e.message
+    }
+  }
+
+  <main>
+    <h1>Issue tracker</h1>
+    <label>user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { status := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { status := "closed" }}>closed</button>
+    </div>
+    <div class="panes">
+      <section data-testid="list">
+        {loading on(status) fallback { <p>loading {status} issues</p> } {
+          {errored fallback(e) { <p>list error: {e.message}</p> } {
+            <ul>
+              {for i in issues {
+                <li data-testid="issue" onClick={() => { selected := i.id; assignError := "" }}>
+                  #{i.id} {i.title} ({assigned(overrides, i.id, i.assignee) ?? "unassigned"})
+                </li>
+              }}
+            </ul>
+          }}
+        }}
+      </section>
+      <section data-testid="detail">
+        {if selected == null {
+          <p>select an issue</p>
+        } else {
+          <div>
+            {loading on(selected) fallback { <p>loading #{selected}</p> } {
+              {errored fallback(e) { <p>detail error: {e.message}</p> } {
+                {if detail != null {
+                  <h2>#{detail.id} {detail.title}</h2>
+                  <p>{detail.body}</p>
+                }}
+              }}
+            }}
+            <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+            <button data-testid="assign" onClick={() => { assignIssue(selected, user) }}>assign to {user}</button>
+            <p>{assignError}</p>
+          </div>
+        }}
+      </section>
+    </div>
+  </main>
+}

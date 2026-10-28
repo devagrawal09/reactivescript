@@ -13,15 +13,15 @@ want one of the moves below.
 ## 1. Reading from the server: an equation
 
 ```
-results = query == "" ? [] : len(query) < 2 ? throw TooShort(query) : await search(query)
+forecast = city == "" ? null : len(city) < 3 ? throw TooShort(city) : await fetchForecast(city)
 ```
 
 - It is asked again whenever its inputs change. An answer to an older question is thrown away when it lands
   (R-4), so a stale answer can never show. Nothing to guard.
-- An arm that isn't taken asks nothing (E-11): the empty and the too-short query send no request.
-- While a new answer is on its way, everything that reads `results` keeps showing the last one (the change is held,
-  H-2). To show that work is going on, read ahead: `pending? results` is `true` while it's in flight, and
-  `latest query` is what was typed.
+- An arm that isn't taken asks nothing (E-11): the empty and the too-short city send no request.
+- While a new answer is on its way, everything that reads `forecast` keeps showing the last one (the change is held,
+  H-2). To show that work is going on, read ahead: `pending? forecast` is `true` while it's in flight, and
+  `latest city` is what was typed.
 - The first load has nothing to show yet: wrap the readers in `loading fallback { <p>loading…</p> } { … }`. To
   show the fallback again each time a key changes (a new selection, not a refinement), use `loading on(selected)`.
 
@@ -31,22 +31,22 @@ results = query == "" ? [] : len(query) < 2 ? throw TooShort(query) : await sear
   Give each pane its own, so one pane's failure never touches another.
 - `x catch (e) => e.message` turns a failure into a value, for showing it inline.
 - An answer that means "missing" (`null`) is a failure you declare: `export error NotFound(id: number) => …`, and
-  `found(await fetchItem(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
+  `found(await fetchUser(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
 - Retry is `refresh x`. It is quiet (AC-4): the failure stays on screen until the new answer replaces it (H-12).
 
 ## 3. Writing to the server: an action
 
 ```
-export source saved: Settings = await loadSettings()   // a source with a question: it can take a guess
+export source profile: Profile = await loadProfile()   // a source with a question: it can take a guess
 export source saveError: string = ""
 
-export action save(next: Settings) {
-  optimistic saved := next          // shows now; reverts by itself if the save fails
+export action save(next: Profile) {
+  optimistic profile := next        // shows now; reverts by itself if the save fails
   optimistic saveError := ""        // the old error goes now
-  affects saved                     // `pending? saved` is true until the save ends
+  affects profile                   // `pending? profile` is true until the save ends
   try {
-    let answer = await saveSettings(next)
-    saved := answer                 // the truth
+    let answer = await saveProfile(next)
+    profile := answer               // the truth
   } catch (e) {
     saveError := e.message          // lands in the same frame as the revert
   }
@@ -68,14 +68,37 @@ by what the screen should do:
 | Record the server's answer | `x := answer` after the `await` |
 | Handle a failure | `try { … } catch (e) { … }`: the catch's writes and the revert are one frame (AC-7) |
 
+### Writing one row of a list
+
+When several actions can each change a different row of one list, guess the row, not the list:
+
+```
+export source todos: Todo[] key id = await loadTodos()
+
+export action markDone(id: number) {
+  try {
+    let i = indexOf(todos, t => t.id == id)   // from the prelude; -1 when absent
+    optimistic todos[i].done := true          // this row only
+    await saveDone(id)
+    refresh todos                             // the server's list confirms the guess
+  } catch (e) { … }
+}
+```
+
+A guess on `todos[i].done` belongs to its own action: another action's guess on another row reverts on its own
+(AC-3). A guess on the whole list (`optimistic todos := …`) makes every action on the list one change, so a
+declined one stays on screen until the others end. After the `await`, re-ask the list (`refresh todos`) rather than
+writing the row: a plain write to a list that is guessed by row is not supported yet.
+
 ## 4. Things that look like bugs and aren't
 
 - **A plain write in an action doesn't show until the server answers.** That's the hold. Use `optimistic` or
   `onFlush` (the table above). Don't move the code into a plain handler to escape it.
 - **Two actions guessing the same source revert together.** Their guesses are one change (H-11): a declined one
-  goes back when the other ends. Don't rebuild guesses by hand to separate them.
+  goes back when the other ends. For a list, guess the row instead (above). Don't rebuild guesses by hand to
+  separate them.
 - **A click waits for an action it has nothing to do with.** A plain write to a source an action in flight has
-  written or guessed joins that action's hold (H-2): a `select` that clears the action's error waits for the
+  written or guessed joins that action's hold (H-2): a click that clears the action's error waits for the
   server. Keep such a write off the action's sources, or make it an `onFlush` run.
 - **A failure stays up while its retry is in flight.** That's H-12. To show `loading…` instead, put
   `loading on(k)` above the `errored`.

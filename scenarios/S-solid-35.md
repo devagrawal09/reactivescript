@@ -59,3 +59,30 @@ the body's end corrects the guess — `derived` re-asks from the truth
 (`x:1`), so instant 5's `resolve derived` lands that flight while the
 obsolete `x:5` (instant 4) is inert; `latest guess` is the truth from
 instant 3, and untracked `pending? guess` is `true` until the commit.
+
+## Variant: the guess's own question re-asked holds the change
+
+```
+export default component App() {
+  source list = await fetch("list")
+  action add() { try { optimistic list := list + "+mine"; await fetch("save"); refresh list } catch {} }
+
+  errored fallback(e) { <p>error: {e.message}</p> } {
+    <p>{list}</p>
+  }
+}
+```
+
+| instant | action                   | frame       |
+| ------- | ------------------------ | ----------- |
+| 0       | mount                    | ``          |
+| 1       | resolve list "a"         | `a`         |
+| 2       | handler `add()`          | `a+mine`    |
+| 3       | resolve "save" 0         | `a+mine`    |
+| 4       | resolve list "a,mine"    | `a,mine`    |
+
+The other side of D-35, for a guess over a whole value (`createOptimistic`,
+not a store): instant 3, `refresh list` re-asks the guess's own question,
+so the body's end does not correct the guess; the change commits when the
+new answer lands (instant 4). Lowered, `refresh` must re-ask the question
+under the guess, not the guess's layer.

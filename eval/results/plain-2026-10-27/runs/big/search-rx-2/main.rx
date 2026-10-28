@@ -1,0 +1,61 @@
+import pure { search, fetchItem } from "./api"
+import { Hit, Item } from "./api"
+import pure { len } from "./prelude"
+
+error NotFound(id: number) => `item ${id} not found`
+
+fn found(it: Item | null, id: number): Item => it == null ? throw NotFound(id) : it
+
+type Outcome = { ok: boolean; hits: Hit[]; message: string }
+
+export default component App() {
+  source query: string := ""
+  source selected: Hit | null := null
+
+  outcome: Outcome = (len(query) < 2 ? { ok: true, hits: [], message: "" } : { ok: true, hits: await search(query), message: "" }) catch (e) => ({ ok: false, hits: [], message: e.message })
+  typed = latest query
+
+  <main>
+    <input data-testid="query" value={typed} onInput={(ev) => { query := ev.target.value }} />
+    <div data-testid="results">
+      {if len(typed) == 1 {
+        <p>too short: {typed}</p>
+      } else {
+        {if len(typed) > 1 {
+          {loading fallback { <p>searching…</p> } {
+            {if pending? outcome { <p>searching…</p> }}
+            {if outcome.ok {
+              <p>{outcome.hits.length} results for {query}</p>
+              <ul>
+                {for h in outcome.hits {
+                  <li data-testid="hit" onClick={() => { selected := h }}>{selected?.id == h.id ? "> " : ""}{h.name}</li>
+                }}
+              </ul>
+            } else {
+              <p>search failed: {outcome.message}</p>
+            }}
+          }}
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected {
+        item = found(await fetchItem(selected.id), selected.id)
+        action retry() { refresh item }
+        {loading on(selected) fallback { <p>loading…</p> } {
+          {errored fallback(e) {
+            <p>failed: {e.message}</p>
+            <button data-testid="retry" onClick={() => { retry() }}>retry</button>
+          } {
+            {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+              <h2>{item.name}</h2>
+              <p>{item.blurb}</p>
+            }}
+          }}
+        }}
+      } else {
+        <p>pick a result</p>
+      }}
+    </div>
+  </main>
+}

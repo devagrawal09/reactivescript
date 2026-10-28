@@ -1,0 +1,61 @@
+import pure { loadSettings } from "./api"
+import { saveSettings } from "./api"
+import pure { len } from "./prelude"
+
+type Settings = { name: string; theme: string; density: string }
+
+source saved: Settings = await loadSettings()
+source saveError = ""
+
+action retry() { refresh saved }
+
+action save(next: Settings) {
+  optimistic saved := next
+  optimistic saveError := ""
+  affects saved
+  try {
+    let answer = await saveSettings(next)
+    saved := answer
+  } catch (e) {
+    saveError := e.message
+  }
+}
+
+component Editor(props: { initial: Settings }) {
+  source draftName := peek(props.initial.name)
+  source draftTheme := peek(props.initial.theme)
+  source draftDensity := peek(props.initial.density)
+  nameError = len(draftName) == 0 ? "Display name is required" : len(draftName) > 20 ? `Display name must be at most 20 characters, not ${len(draftName)}` : ""
+
+  <div>
+    <label>Display name <input data-testid="name" value={draftName} onInput={(e) => { draftName := e.target.value }} /></label>
+    <span data-testid="name-count">{`${len(draftName)}/20`}</span>
+    {if nameError != "" {
+      <p data-testid="name-error">{nameError}</p>
+    }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { draftTheme := "light" }}>Light</button>
+      <button data-testid="theme-dark" onClick={() => { draftTheme := "dark" }}>Dark</button>
+      <button data-testid="density-toggle" onClick={() => { draftDensity := draftDensity == "compact" ? "comfortable" : "compact" }}>Density</button>
+    </div>
+    <p data-testid="preview">{`Preview: ${draftTheme} / ${draftDensity}`}</p>
+    <button data-testid="save" onClick={() => { if (nameError == "") { save({ name: draftName, theme: draftTheme, density: draftDensity }) } }}>Save</button>
+  </div>
+}
+
+export default component App() {
+  <main>
+    {errored fallback(e) {
+      <p data-testid="load">{`Could not load settings: ${e.message}`}</p>
+      <button data-testid="retry-load" onClick={() => { retry() }}>Retry</button>
+    } {
+      {loading fallback { <p data-testid="load">Loading settings…</p> } {
+        <p data-testid="saved">{`Saved: ${saved.name} · ${saved.theme} · ${saved.density}${(pending? saved) ? " (saving…)" : ""}`}</p>
+        {if saveError != "" {
+          <p data-testid="save-error">{`Save failed: ${saveError}`}</p>
+        }}
+        <Editor initial={saved} />
+      }}
+    }}
+  </main>
+}

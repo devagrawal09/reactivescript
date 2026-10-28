@@ -84,6 +84,7 @@ named.
 | Code                              | Bin | Rule  | Scenario |
 | --------------------------------- | --- | ----- | -------- |
 | `DUPLICATE_DECLARATION`           | S   | E-7   | S-check-1 |
+| `SHADOWED_IMPORT` (new)           | S   | MO-1d | S-module-1 |
 | `CYCLE`                           | S   | C-1 (CN-3a: union of branches; only an equation's own `pre` breaks it) | S-check-1, S-core-1 |
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a) | S-check-1 |

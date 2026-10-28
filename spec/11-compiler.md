@@ -147,7 +147,7 @@ record argued each way; this is the decision.
   | `serverRef(name, fn)`, `serverCall(name, gen, args)` | a server fn as the client calls it, and its body (12 SF-2, SF-6, SF-7) | Solid's `"use server"` functions |
   | `show(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted), a dynamic class with the view's scope (CSS-2) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
-  | `B` | the language's built-in functions (`len`, `str`, `map`, `filter`, `sum`, `every`) and `log` | — |
+  | `B` | the language's built-in functions (`len`, `str`, `map`, `filter`, `sum`, `every`, `indexOf`) and `log` | — |
 
   The app itself: `mount(view, hydrating)` in the client build, `stream(view,
   sink)` in the server's.

@@ -1,0 +1,81 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign } from "./api"
+
+type Issue = { id: number; title: string; assignee: string | null }
+type IssueDetail = { id: number; title: string; body: string }
+
+error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it: IssueDetail | null, id: number): IssueDetail => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user := "guest"
+  source filterName := "open"
+  source issues: Issue[] key id = await fetchIssues(filterName)
+  source selectedId: number | null := null
+  source assignError: string := ""
+  source overlay: { id: number; user: string } | null := null
+
+  detailIssue = selectedId == null ? null : found(await fetchIssue(selectedId), selectedId)
+
+  action assignSelected(id: number, who: string) {
+    try {
+      await assign(id, who)
+    } catch (e) {
+      if (overlay != null && overlay.id == id) { overlay := null }
+      assignError := e.message
+    }
+  }
+
+  <main>
+    <label>current user <input data-testid="user" value={user} onInput={(e) => { user := e.target.value }} /></label>
+
+    <div>
+      <button data-testid="filter-open" onClick={() => { filterName := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filterName := "closed" }}>closed</button>
+    </div>
+
+    <div data-testid="list">
+      {loading on(filterName) fallback { <p>loading {filterName} issues</p> } {
+        errored fallback(e) { <p>list error: {e.message}</p> } {
+          {for i in issues {
+            <button data-testid="issue" onClick={() => {
+              selectedId := i.id
+              onFlush(() => { assignError := "" })
+            }}>#{i.id} {i.title} ({(overlay != null && overlay.id == i.id ? overlay.user : i.assignee) ?? "unassigned"})</button>
+          }}
+        }
+      }}
+    </div>
+
+    <section data-testid="detail">
+      {if selectedId == null {
+        <p>select an issue</p>
+      } else {
+        <div>
+          {loading on(selectedId) fallback { <p>loading #{selectedId}</p> } {
+            errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{detailIssue.id} {detailIssue.title}</h2>
+              <p>{detailIssue.body}</p>
+            }
+          }}
+          <button data-testid="retry" onClick={() => { refresh detailIssue }}>retry</button>
+          <button data-testid="assign" onClick={() => {
+            let id = selectedId
+            let who = user
+            if (id != null) {
+              onFlush(() => {
+                assignError := ""
+                overlay := { id: id, user: who }
+              })
+              assignSelected(id, who)
+            }
+          }}>assign to {user}</button>
+          {if assignError != "" {
+            <p data-testid="assign-error">{assignError}</p>
+          }}
+        </div>
+      }}
+    </section>
+  </main>
+}

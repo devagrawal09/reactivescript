@@ -24,7 +24,7 @@ class Env {
 }
 type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
 
-const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every"]);
+const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
 const isHandler = (a: string) => /^on[A-Z:]/.test(a);
 const J = (v: unknown) => v === undefined ? "undefined" : JSON.stringify(v);
 const mg = (n: string) => `v$${n}`;

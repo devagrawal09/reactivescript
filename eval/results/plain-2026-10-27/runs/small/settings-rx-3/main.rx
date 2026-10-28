@@ -1,0 +1,47 @@
+import { saved, saveError, save, Settings } from "./store.rx"
+
+component Editor(props: { initial: Settings }) {
+  source draftName := peek(props.initial.name)
+  source draftTheme := peek(props.initial.theme)
+  source draftDensity := peek(props.initial.density)
+
+  nameLen = draftName.length
+  nameError = nameLen == 0 ? "Display name is required" : nameLen > 20 ? `Display name must be at most 20 characters, not ${nameLen}` : ""
+  invalid = nameError != ""
+
+  <div>
+    <label>
+      Name
+      <input data-testid="name" value={draftName} onInput={(e) => { draftName := e.target.value }} />
+    </label>
+    <p data-testid="name-count">{`${nameLen}/20`}</p>
+    {if invalid { <p data-testid="name-error">{nameError}</p> }}
+    <div>
+      <button data-testid="theme-light" onClick={() => { draftTheme := "light" }}>Light</button>
+      <button data-testid="theme-dark" onClick={() => { draftTheme := "dark" }}>Dark</button>
+      <button data-testid="density-toggle" onClick={() => { draftDensity := draftDensity == "comfortable" ? "compact" : "comfortable" }}>Density</button>
+    </div>
+    <p data-testid="preview">{`Preview: ${draftTheme} / ${draftDensity}`}</p>
+    <button data-testid="save" onClick={() => { if (!invalid) { save({ name: draftName, theme: draftTheme, density: draftDensity }) } }}>Save</button>
+  </div>
+}
+
+export default component App() {
+  savingNow = pending? saved
+  savedLine = `Saved: ${saved.name} · ${saved.theme} · ${saved.density}${savingNow ? " (saving…)" : ""}`
+
+  <main>
+    {errored fallback(e) {
+      <div>
+        <p data-testid="load">{`Could not load settings: ${e.message}`}</p>
+        <button data-testid="retry-load" onClick={() => { refresh saved }}>Retry</button>
+      </div>
+    } {
+      {loading fallback { <p data-testid="load">Loading settings…</p> } {
+        <p data-testid="saved">{savedLine}</p>
+        {if saveError != "" { <p data-testid="save-error">{`Save failed: ${saveError}`}</p> }}
+        <Editor initial={saved} />
+      }}
+    }}
+  </main>
+}
