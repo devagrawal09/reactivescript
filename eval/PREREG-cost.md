@@ -37,7 +37,7 @@ smaller source should count.
   `guide/async.md` (about 3k tokens) at the end of its prompt; the Solid arm gets Solid's own agent primer,
   `solid-js/skills/solid-2.0/SKILL.md` (about 2.4k tokens), with the full cheatsheet and skills readable in
   `node_modules/solid-js`; React gets nothing (it needs nothing). Checkers: `rxc check`; tsc strict plus ESLint
-  react-hooks for React; tsc strict for Solid (eslint-plugin-solid has no Solid 2 config on npm yet). Each run keeps scratch files in its own
+  react-hooks for React; tsc strict plus eslint-plugin-solid's `v2` config for Solid. Each run keeps scratch files in its own
   `.scratch` folder and uses no messaging tools.
 - **Model**: the frontier model only, at the agent harness's default effort; the model id and effort are recorded with
   the results (cost is the question; round 4's small-model runs add variance, not an answer).

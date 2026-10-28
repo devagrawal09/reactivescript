@@ -21,12 +21,12 @@
     "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
     "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React; its own documentation is in `node_modules/solid-js/CHEATSHEET.md` and `node_modules/solid-js/skills/`.",
     "API_TYPES": "`src/api.d.ts`",
-    "CHECKER": "the TypeScript compiler (strict)"
+    "CHECKER": "the TypeScript compiler (strict) and ESLint with eslint-plugin-solid's Solid 2 rules (`v2` config)"
   },
   "solid-inline": {
     "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
     "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React. The page at the end of this message is Solid's own primer for coding agents; the full API cheatsheet is `node_modules/solid-js/CHEATSHEET.md`.",
     "API_TYPES": "`src/api.d.ts`",
-    "CHECKER": "the TypeScript compiler (strict)"
+    "CHECKER": "the TypeScript compiler (strict) and ESLint with eslint-plugin-solid's Solid 2 rules (`v2` config)"
   }
 }
