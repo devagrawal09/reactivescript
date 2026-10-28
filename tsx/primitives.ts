@@ -2,7 +2,7 @@ import {
   Errored, NotReadyError, createContext, createMemo, getOwner, refresh as solidRefresh, runWithOwner, untrack, useContext,
   type Accessor, type Context, type Element, type Signal, type Store, type StoreSetter,
 } from "solid-js";
-import { caughtValue, isA, makeErrorClass, wireCopy, wireFailure } from "./rx/runtime.ts";
+import { caughtValue, isA, makeErrorClass, wireCopy, wireFailure } from "./rx/failure.ts";
 import { wireCacheKey } from "./wire-key.ts";
 export { createRxEffect } from "./effects.ts";
 export { createPrevious } from "./previous.ts";

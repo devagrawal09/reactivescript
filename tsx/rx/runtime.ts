@@ -4,7 +4,7 @@
 import { fileURLToPath } from "node:url";
 export { Runtime } from "#rx/src/runtime.ts";
 export { createApp, flush } from "#rx/compile/rt.ts";
-export { caughtValue, isA, makeErrorClass, wireCopy, wireFailure, PANIC } from "#rx/src/failure.ts";
+export { caughtValue, isA, makeErrorClass, wireCopy, wireFailure, PANIC } from "./failure.ts";
 export { R, serialize, createElement, setProp } from "#rx/compile/string-renderer.ts";
 
 /** Absolute paths of upstream runtime files that tests hand to bundlers or Solid's compiler as module specifiers. */
