@@ -185,10 +185,17 @@ impl<'a> Cursor<'a> {
 }
 
 /// A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `brace_stops`). 07 §2.
-fn parse_type(c: &mut Cursor, brace_stops: bool) -> R<String> {
+/// A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in
+/// a type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`).
+fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
     let start = c.i;
     let mut depth: i64 = 0;
     while !c.eof() {
+        if c.starts_with("=>") && (depth > 0 || arrows) {
+            c.bump();
+            c.bump();
+            continue;
+        }
         let ch = c.peek();
         if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
             break;
@@ -223,7 +230,7 @@ fn opt_type(c: &mut Cursor, brace_stops: bool) -> R<Option<String>> {
     if c.peek() == ':' && c.peek_at(1) != '=' {
         c.bump();
         c.ws(true);
-        return Ok(Some(parse_type(c, brace_stops)?));
+        return Ok(Some(parse_type(c, brace_stops, false)?));
     }
     Ok(None)
 }
@@ -377,7 +384,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             if c.eat("=") {
                 c.ws(true);
-                parse_type(&mut c, false)?;
+                parse_type(&mut c, false, true)?;
             } else if c.starts_with("{") {
                 let mut depth = 0;
                 loop {
@@ -605,7 +612,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.ws(true);
         if c.eat("=") {
             c.ws(true);
-            parse_type(c, false)?;
+            parse_type(c, false, true)?;
         } else {
             c.expect("{")?;
             let mut depth = 1;
@@ -712,7 +719,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
             c.ws(true);
             source = c.keyword("source");
             c.ws(true);
-            ty = Some(parse_type(c, false)?);
+            ty = Some(parse_type(c, false, false)?);
         }
         let save = c.i;
         c.ws(false);
@@ -1813,5 +1820,12 @@ mod recovering {
         assert_eq!(names(&p), ["a", "b", "App"]);
         assert_eq!(errs.len(), 2);
         assert!(parse_program(src).is_err());
+    }
+
+    #[test]
+    fn function_types_in_props_and_type_aliases() {
+        let src = "type Pick = (id: number) => void\ncomponent Row(props: { id: number; onPick: (id: number) => void; onDrop: Pick }) {\n  source n: number := peek(props.id)\n  <li onClick={() => { props.onPick(n) }}>{n}</li>\n}\nfn twice(x: number): number => x * 2\nexport default component App() {\n  <Row id={twice(1)} onPick={id => { log(id) }} onDrop={id => { log(id) }} />\n}\n";
+        let p = parse_program(src).expect("parses");
+        assert_eq!(names(&p), ["Pick", "Row", "twice", "App"]);
     }
 }
