@@ -40,8 +40,9 @@ it shipped is the same Solid runtime bug.
 `optimistic issues[i].assignee := who`, `await assign(…)`, `refresh issues`. By the spec the guess holds until the
 action ends (AC-3, D-34; Ryan's ruling of 2026-10-27). In rc.19, a list answer that lands while the action is
 pending drops a per-key guess from the screen (solidjs/solid#4329). The failure message matches the issue's repro
-(the row shows the server's old assignee). This is an attribution by mechanism, not by rerunning on a fixed runtime:
-no fix exists yet.
+(the row shows the server's old assignee). Confirmed on 2026-10-28: with Solid next @ ac28157a (the #4329 fix,
+solidjs/solid#4330), all four runs pass that test, and small tracker-2 still fails its two hidden tests. The
+pre-registered result stands as above; the recount without #4329 is what the fixed runtime gives.
 
 **The same race, both arms.** "A list that loads while an assignment is out" is the one case both arms failed.
 3 of 3 small-model React apps failed it in their own code (the refetch overwrote the optimistic cache). 0 of 3

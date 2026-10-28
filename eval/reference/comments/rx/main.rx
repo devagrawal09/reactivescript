@@ -1,6 +1,6 @@
 import pure { fetchIssues, fetchIssue, fetchComments } from "./api"
 import { assign, addComment } from "./api"
-import pure { indexOf, filter as keep } from "./prelude"
+import pure { indexOf } from "./prelude"
 
 export error NotFound(id: number) => `issue #${id} not found`
 
@@ -16,19 +16,17 @@ export default component App() {
   source commentInput: string := ""
   source comments = selected == null ? [] : await fetchComments(selected)
 
-  // posts in the air: shown under the selected issue's comments until their action ends
-  source sending: { id: number; author: string; text: string }[] := []
-
   action postComment(id: number, author: string, text: string) {
     optimistic postError := ""
     try {
+      optimistic comments := [...comments, { author: author, text: `${text} (sending…)` }]
       await addComment(id, author, text)
       refresh comments
     } catch (e) {
       postError := e.message
     }
-    sending := keep(sending, p => !(p.id == id && p.author == author && p.text == text))
   }
+
 
   action assignTo(id: number, who: string) {
     optimistic assignError := ""
@@ -91,11 +89,6 @@ export default component App() {
                 {for c in comments {
                   <li data-testid="comment">{c.author}: {c.text}</li>
                 }}
-                {for p in sending {
-                  {if p.id == selected {
-                    <li data-testid="comment">{p.author}: {p.text} (sending…)</li>
-                  }}
-                }}
               </ul>
             }}
           }}
@@ -103,12 +96,9 @@ export default component App() {
         <input data-testid="comment-input" value={commentInput} onInput={e => { commentInput := e.target.value }} />
         <button data-testid="post" onClick={() => {
           if (commentInput != "") {
-            let p = { id: selected, author: user, text: commentInput }
-            onFlush(() => {
-              sending := [...sending, p]
-              commentInput := ""
-            })
-            postComment(p.id, p.author, p.text)
+            let text = commentInput
+            onFlush(() => { commentInput := "" })
+            postComment(selected, user, text)
           }
         }}>post</button>
         {if postError != "" {

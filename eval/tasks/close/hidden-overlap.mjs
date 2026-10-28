@@ -12,7 +12,8 @@ export default [
     await app.clickText("issue", "#1 "); await app.land("fetchIssue:1", D1);
     await app.click("assign");
     await app.fail("closeIssue:3", "declined");
-    await app.rows("issue", ["#1 Login fails (ann)", "#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);
+    // the declined close may stay until the assignment settles (one change, H-11); the assignment must not go
+    await app.see("list", "#1 Login fails (ann)");
     await app.land("assign:1,ann", { id: 1, assignee: "ann" });
     await app.landIfAsked("fetchIssues:open", OPEN.map(i => i.id === 1 ? { ...i, assignee: "ann" } : i));
     await app.rows("issue", ["#1 Login fails (ann)", "#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);
@@ -24,7 +25,8 @@ export default [
     await app.clickText("issue", "#1 "); await app.land("fetchIssue:1", D1);
     await app.click("close");
     await app.fail("assign:3,ann", "declined");
-    await app.rows("issue", ["#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);
+    // the declined assignment may stay until the close settles (one change, H-11); the close must not undo
+    await app.notSee("list", "#1 Login fails");
     await app.land("closeIssue:1", { id: 1 });
     await app.landIfAsked("fetchIssues:open", openWithout(1));
     await app.rows("issue", ["#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);
@@ -41,13 +43,14 @@ export default [
     await app.landIfAsked("fetchIssues:open", openWithout(3));
     await app.rows("issue", rowsWithout(3));
   } },
-  { name: "two closes at once: declining one brings back only that row", async run(app) {
+  { name: "two closes at once: a declined one does not undo the other", async run(app) {
     await selected(app);
     await app.click("close");
     await app.clickText("issue", "#1 "); await app.land("fetchIssue:1", D1);
     await app.click("close");
     await app.fail("closeIssue:3", "declined");
-    await app.rows("issue", ["#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);
+    // the declined close may stay until the other settles (one change, H-11); the other close must not undo
+    await app.notSee("list", "#1 Login fails");
     await app.land("closeIssue:1", { id: 1 });
     await app.landIfAsked("fetchIssues:open", openWithout(1));
     await app.rows("issue", ["#3 Crash on save (unassigned)", "#4 Typo in footer (dana)"]);

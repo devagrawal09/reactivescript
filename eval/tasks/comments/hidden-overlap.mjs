@@ -7,13 +7,15 @@ const after = (...more) => [...C3, ...more];
 
 export default [
   ...base.map(t => ({ ...t, name: `base: ${t.name}` })),
-  { name: "two posts at once: declining the first keeps the second", async run(app) {
+  { name: "two posts at once: a declined one does not take the other with it", async run(app) {
     await withComments(app);
     await app.type("user", "ann");
     await post(app, "first");
     await post(app, "second");
     await app.fail("addComment:3,ann,first", "declined");
-    await app.rows("comment", ["dana: seen it too", "ann: second (sending…)"]);
+    // the declined post may stay until the other settles (two guesses on one list are one change, H-11); the one
+    // still out must not go
+    await app.see("comments", "ann: second (sending…)");
     await app.land("addComment:3,ann,second", { author: "ann", text: "second" });
     await app.landIfAsked("fetchComments:3", after({ author: "ann", text: "second" }));
     await app.rows("comment", ["dana: seen it too", "ann: second"]);

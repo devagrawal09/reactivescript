@@ -1,6 +1,6 @@
 import pure { fetchIssues, fetchIssue } from "./api"
 import { assign, closeIssue } from "./api"
-import pure { indexOf, map } from "./prelude"
+import pure { indexOf, filter as keep } from "./prelude"
 
 export error NotFound(id: number) => `issue #${id} not found`
 
@@ -13,24 +13,16 @@ export default component App() {
   source issues key id = await fetchIssues(filter)
   source assignError: string = ""
   source closeError: string = ""
-  // one flag per listed issue: a close guesses its own row's flag
-  source closing key id = map(issues, t => { id: t.id, on: false })
-
   action closeOne(id: number) {
     optimistic closeError := ""
     try {
-      let i = indexOf(closing, c => c.id == id)
-      if (i >= 0) {
-        optimistic closing[i].on := true
-      }
+      optimistic issues := keep(issues, t => t.id != id)
       await closeIssue(id)
       refresh issues
     } catch (e) {
       closeError := e.message
     }
   }
-
-  fn isClosing(id: number) => filter == "open" && indexOf(closing, c => c.id == id && c.on) >= 0
 
   action assignTo(id: number, who: string) {
     optimistic assignError := ""
@@ -60,7 +52,6 @@ export default component App() {
         {errored fallback(e) { <p>list error: {e.message}</p> } {
           <ul>
             {for it in issues {
-              {if !isClosing(it.id) {
               <li data-testid="issue" onClick={() => {
                 selected := it.id
                 onFlush(() => {
@@ -68,7 +59,6 @@ export default component App() {
                   closeError := ""
                 })
               }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</li>
-              }}
             }}
           </ul>
         }}
