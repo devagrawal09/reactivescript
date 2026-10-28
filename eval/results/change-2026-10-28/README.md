@@ -47,6 +47,13 @@ posts in a list of their own (`sending`, `outbox`) beside the fetched comments.
 | --- | --- | --- | --- | --- |
 | Agent tokens | 47.8k | 56.0k | 56.7k | 68.8k |
 | `./check` + `./test` cycles | 2.2 | 3.6 | 2.2 | 2.7 |
+| Context above the shared start (agent tokens minus ~37k of system prompt and tools) | 10.8k | 18.7k | 19.7k | 31.6k |
+| ... of which reading `docs/` | 0 | 7.6k | 0 | 8.6k |
+| ... the rest | 10.8k | 11.1k | 19.7k | 23.0k |
+
+Agent tokens are the agent's context at its end, so every run carries the same ~37k start. Reading the docs is
+measured from the transcripts as the size of tool results whose call names `docs/`, `guide` or `spec/` (3.5
+characters per token), an estimate.
 
 - **PR #17 (inferred actions, AC-1b/1c/1d)** was merged after the runs' toolchain was frozen. Rechecked on main
   (e25b81b + #14): all 18 .rx apps pass the new checker, and rescoring them with main's compiler and runtime gives the
@@ -64,6 +71,9 @@ posts in a list of their own (`sending`, `outbox`) beside the fetched comments.
   posted a short version of their final report into the thread with them. Their tool calls were checked:
   no run read the thread, the project chat or any message, so nothing reached the runs. Several runs also called
   `no_reply_needed`, and one small run read a documents guide; neither carries anything about the tasks.
+- **Ryan's one-word "Merge" (about PR #14, sent while the runs were going) was delivered into every run agent's
+  context** as a note from the project owner. It says nothing about the tasks, and no run acted on it (no run made a
+  git or GitHub call).
 - Six small-model runs needed a reminder to send their report (above).
 - The bases are frontier-model apps; the small model changes code it would not have written.
 - The new tests were written after round 3's results were known, and tuned on the references.
