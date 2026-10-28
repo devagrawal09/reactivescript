@@ -4,7 +4,7 @@
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
-AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1.
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1. AC-1b…AC-1d (inferred actions, held writes, stale own reads): S-infer-1…5.
 
 ---
 
@@ -122,7 +122,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   writes — before or after the call — are the action's and are held with it
   (D-7's same-tick adoption); to land something now, make it a guess, a
   separate event, or an `onFlush` run (02 EF-8).
-  `action { … }` inline in a handler is the same for one run. There is no
+  `action { … }` inline in a handler is the same for one run, and so is an
+  arrow whose body guesses, declares `affects`, or writes and awaits
+  (AC-1b). There is no
   escape: a write after an `await` is still the action's (the language has
   the scope, so none of 2.0's generator plumbing — S-9's "fresh write
   escapes" is unwritable; S-solid-9 is the inverted port). A rejection
@@ -138,11 +140,66 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   handler is launched, not awaited: the handler continues, and the
   handler's own writes are the same instant's change (D-7's same-tick
   adoption).
+- **AC-1b (Inferred action).** [ruled 2026-10-28] An arrow function in
+  imperative scope, including an element's event handler (02 SC-4), is an
+  action when its own statements include `optimistic x := e` (AC-3),
+  `affects x` (AC-5), or both a write to a source (W-1) and a
+  statement-level `await` (07 decision 16). It is then `(ps) => action { B }`
+  with every consequence of AC-1: one change across its awaited work, its
+  writes held with it, its guesses living over that hold, and every failure
+  it can produce caught (R-f-6). "Own statements" excludes the bodies of
+  closures inside it, each inferred on its own, and an inline `action { … }`,
+  which is its own run; it includes the statements of a local closure the
+  body calls by name (`let f = () => { … }; f()`), whose writes are this
+  run's. Calling an inferred arrow launches the action, as calling a
+  declared one does. A body that awaits and writes nothing is a plain run.
+  An `effect`'s apply block is never inferred: its return is the effect's
+  cleanup (EF-5), which an action's body cannot give, and the next run's
+  cleanup could not cancel an action in flight. A server function's body is
+  never inferred. A guess in either stays `OPTIMISTIC_OUTSIDE_HOLD`.
+  Lowers to Solid's `action` exactly as `action { … }` does, nothing added
+  (11). Solid: a TypeScript function's promises are invisible to the
+  transition, so its author writes `action(function* () { … })`; here every
+  suspension is a statement the compiler sees, so the keyword is needed only
+  to hold a write on purpose (AC-1c) or to name an action (S-infer-1, 3, 4).
+- **AC-1c (Held write).** [ruled 2026-10-28] In an inferred action (AC-1b),
+  a plain write from which some path of the body reaches an `await` is a
+  compile error (`HELD_WRITE`): it would be held until the work ends (AC-1),
+  so a later write in the body hides it and otherwise it lands late, and
+  nothing in the text says so. The fix names what the write is for:
+  ephemeral state that shows while the work runs ("saving", a spinner, a
+  pending row) is a guess, `optimistic x := v` on a source with a question
+  (ST-5c; often a constant one, `source status = ""`); a reset that lands
+  now and stays (clear an error, clear an input, close a menu) is
+  `onFlush(() => { x := v })` (02 EF-8). A write meant to be held — a
+  transition: `action go() { id := 2; await prefetch() }` (S-solid-20) — is
+  written in a declared action, which this check does not cover: `action`
+  is the author saying "hold it". Guesses and `affects` are not plain writes
+  (S-infer-2). The check is the language's, not Solid's (Solid cannot see a
+  body): it adds nothing at run time.
+- **AC-1d (Stale own read).** [ruled 2026-10-28] In any imperative run — a
+  handler, an apply block, an action body, declared or inferred — reading a
+  source that the same change has already written, on some path before the
+  read, is a compile error (`STALE_OWN_READ`). The read gets the committed
+  value, not the write (02 W-4, 05 H-10, SC-2). Solid agrees: in 2.0.0-rc.19
+  an `action()` that writes a signal, yields, and reads it again gets the
+  old value until the action commits. "The same change" is the whole body
+  for an action (AC-1) and the stretch up to the next `await` for a plain
+  run, where the `await` ends the change (07 §5). Keys count: after
+  `x.a := v`, reading `x.a` or `x` is stale and reading `x.b` is not. A
+  guess is a write the run does not see either (H-10). A functional write
+  (`x := v => …`, W-6) reads nothing now; a closure's body runs later,
+  except a local closure the run calls, whose reads are the run's;
+  `pending?` and `latest` are probes, not snapshots. Every other read is
+  the committed snapshot it always was, with no error. The fix is the local
+  the value came from (`let n = seq + 1; seq := n; … n`) or a functional
+  write (S-infer-5).
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.
 - **AC-3 (optimistic).** `optimistic x := e`, legal only inside an action
-  body (`OPTIMISTIC_OUTSIDE_HOLD`, unwritable) and only on a source with a
+  body, declared or inferred (AC-1b); in an `effect`'s apply block, which
+  is never an action, it is `OPTIMISTIC_OUTSIDE_HOLD`, and only on a source with a
   question (ST-5; `OPTIMISTIC_NO_QUESTION`): writes a guess that is the
   graph's and the screen's value for `x` from the instant's settle,
   display-ahead and verdict-inert, until the hold it was made over commits
@@ -171,7 +228,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   An awaited `refresh x` resolves when the re-ask lands (not in `ref/`).
 - **AC-5 (affects).** `affects x`, in imperative scope anywhere, declares
   that work now in flight will change `x`: `pending? x` is `true` until
-  the change it was declared in commits (S-solid-26 instants 6–8).
+  the change it was declared in commits (S-solid-26 instants 6–8). In an
+  arrow it makes the arrow an action (AC-1b), since only an action's change
+  lasts across the work (S-infer-4); in an apply block it lasts one instant.
 - **AC-7 (try/catch).** [ruled 2026-10-23] Actions are imperative code,
   so they fail the way imperative code does: `try { … } catch (e) { … }
   finally { … }` and `throw e` are statements of imperative scope. A
@@ -215,7 +274,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 | `ACTION_CALLED_IN_OWNED_SCOPE`  | U   | AC-1: an action is `io` (IO-2)                   |
 | `INVALID_REFRESH_TARGET`        | S   | AC-4: not a source with a question / await eq    |
 | `INVALID_AFFECTS_TARGET`        | S   | AC-5                                             |
-| `OPTIMISTIC_OUTSIDE_HOLD` (new) | U   | AC-3: no open change                             |
+| `OPTIMISTIC_OUTSIDE_HOLD` (new) | S   | AC-3: an apply block (never an action, AC-1b)    |
+| `HELD_WRITE` (new)              | S   | AC-1c: an early write in an inferred action      |
+| `STALE_OWN_READ` (new)          | S   | AC-1d: a read of the change's own write          |
 | `OPTIMISTIC_NO_QUESTION` (new)  | S   | AC-3 / ST-5c                                     |
 
 ## Scenarios

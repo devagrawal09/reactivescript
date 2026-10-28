@@ -79,7 +79,8 @@ Function application `f(e…)` covers both language functions and FFI imports;
 - **SC-4 Handler positions.** An event attribute in a view (`on*={…}`) takes an
   imperative function. An arrow literal written there is imperative scope
   regardless of the enclosing view; a named function there must be `io` or
-  pure. The event is the function's parameter.
+  pure. The event is the function's parameter. An arrow there, as anywhere
+  in imperative scope, is a plain run or an action by its body (06 AC-1b).
 
 ---
 
@@ -179,14 +180,17 @@ Function application `f(e…)` covers both language functions and FFI imports;
   semantic one.
 - **W-3 (Instant).** All writes performed by one imperative run — one handler
   invocation, one apply block, one resumed continuation — form one instant
-  (V-6). There is no API to split or merge instants from inside a run:
+  (V-6). An action's body, declared or inferred (06 AC-1b), is one change
+  across its continuations (AC-1). There is no API to split or merge instants from inside a run:
   `onFlush` (EF-8) does not split one, it schedules another run. A
   run whose writes all equal their slots' values (E-6) changes nothing and
   opens no instant (ruled with DV-5, 2026-10-23: the earlier "an equal
   write still opens an instant" existed only for the frame-indexed `pre`).
 - **W-4 (Visibility).** A write is not visible to any read, in any scope, until
   its instant commits. Within the run that wrote it, `x` still reads the
-  committed value. (Restates Solid F-10 for the synchronous case.)
+  committed value. (Restates Solid F-10 for the synchronous case.) So a
+  read of a source the run's own change has written is a compile error
+  (`STALE_OWN_READ`, 06 AC-1d): it could only mean the write.
 - **W-5 (Writer scope).** A source may be written only by imperative code in
   its declaring region or a region nested in it, or by a handler that was
   handed the source explicitly. Exported sources export a reader; the writer is

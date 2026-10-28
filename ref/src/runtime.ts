@@ -1,6 +1,7 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { classMap } from "./style.ts";
+import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
@@ -856,7 +857,7 @@ export class Runtime {
       }
       case "fn": {
         const imperative = !this.demandMode;                           // SC-3
-        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en); }; }
+        if (e.stmts) { if (!imperative) throw new RuleError("W-2", "a statement-bodied arrow in reactive scope"); const act = !!inferredAction(e.stmts); return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return this.runStmts(e.stmts!, region, en, [], act); }; }   // AC-1b: an inferred action
         return (...args: unknown[]) => {
           const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i]));
           if (!imperative) return this.ev(e.body, region, en);
@@ -970,10 +971,10 @@ export class Runtime {
   }
 
   // ---- imperative scope (SC-2) ----
-  runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = []): unknown {
+  runStmts(stmts: Stmt[], region: Region, env: Map<string, unknown>, params: unknown[] = [], action = false): unknown {
     params.forEach((p, i) => env.set(`$${i}`, p));
     env.set("log", Object.assign((...a: unknown[]) => { this.log.push(`log(${a.map(fmt).join(", ")})`); }, { io: true }));
-    return this.startRun(stmts, region, env, false);
+    return this.startRun(stmts, region, env, action);
   }
   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
   private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean): unknown {
@@ -1099,7 +1100,7 @@ export class Runtime {
     for (const r of all) for (const [k, v] of r.scope) if (!scope.has(k)) scope.set(k, v);
     const virt = new Region(null, this, null); virt.scope = scope; return virt;
   }
-  handler(stmts: Stmt[]) { this.runStmts(stmts, this.virtualScope(), new Map()); const w = this.pendingWrites; this.pendingWrites = []; return this.step(w); }
+  handler(stmts: Stmt[]) { this.runStmts(stmts, this.virtualScope(), new Map(), [], !!inferredAction(stmts)); const w = this.pendingWrites; this.pendingWrites = []; return this.step(w); }
   /** Scenario helper: land the flight an action run is suspended on. */
   awaitedFlights(): Flight[] { return this.suspended.map(r => r.flight!).filter(Boolean); }
   findNode(name: string): Node | null { const b = this.virtualScope().lookup(name); return b instanceof Node ? b : null; }

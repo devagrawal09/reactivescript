@@ -6,6 +6,7 @@
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
+import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 
@@ -86,7 +87,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   return { files, entry: out(set.entry), css: g.css.join("\n") };   // CSS-4: the modules' stylesheets, beside their JavaScript
 }
 /** Handler rows and resolve values in scenarios: statements over names looked up at run time (rt.lookup). */
-export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return g.stmts(stmts, env, { imp: true, dyn: true }, 0); }
+export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return inferredAction(stmts) ? g.stmts([{ k: "action", body: stmts }], env, { imp: true, dyn: true }, 0) : g.stmts(stmts, env, { imp: true, dyn: true }, 0); }   // AC-1b: a handler row is a handler's body
 export function compileDynamicExpr(e: Expr): string { const g = new Gen(usage({ decls: [], view: [] })); return g.expr(e, new Env(null), { imp: true, dyn: true }); }
 
 class Gen {
@@ -431,6 +432,7 @@ class Gen {
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
+        if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
         if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
         return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
       }

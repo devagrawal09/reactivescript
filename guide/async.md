@@ -53,6 +53,9 @@ export action save(next: Settings) {
 }
 ```
 
+A handler can be the action itself, with no keyword: an arrow that writes `optimistic`, declares `affects`, or both
+writes and awaits is an action (AC-1b). Declare a named `action` when you call it from more than one place.
+
 An action's body is **one change**: every plain write in it, before or after an `await`, is held until the body
 returns (AC-1). That is what makes it safe, and it is why a plain write there doesn't show at once. Pick the write
 by what the screen should do:
@@ -79,9 +82,13 @@ by what the screen should do:
 
 ## 5. Plain handlers
 
-A handler that awaits outside an action has no hold: each write lands when its line runs, in whatever order the
-answers come back, and ordering is then your problem (AC-7). Use plain handlers for local state only: typing,
-toggles, selection. Anything that waits on the server is an equation (reads) or an action (writes).
+A handler that writes and awaits is an action (AC-1b), so it never lands a write early by accident. A write before
+its `await` is a compile error (`HELD_WRITE`), because it would wait for the server: make it `optimistic` if it shows
+while the work runs, `onFlush` if it is a reset, or declare the action if it should wait. Plain handlers are for
+local state: typing, toggles, selection.
+
+A run never sees its own writes: after `x := v`, reading `x` in the same run gives the old value (W-4), and the
+compiler refuses it (`STALE_OWN_READ`). Keep the value in a local: `let n = count + 1; count := n; log(n)`.
 
 ## 6. Forms
 

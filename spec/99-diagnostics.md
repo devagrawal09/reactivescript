@@ -98,7 +98,9 @@ named.
 | `WRITE_TO_NON_SOURCE`             | S   | W-1   | S-core-1, S-check-1 |
 | `DRAFT_WRITE_OUTSIDE_DRAFT`       | S   | ST-3a | S-store-2 |
 | `ASYNC_STORE_SETTER`              | S   | ST-3b | S-check-1 |
-| `OPTIMISTIC_OUTSIDE_HOLD`         | S   | AC-3  | S-check-1 |
+| `OPTIMISTIC_OUTSIDE_HOLD`         | S   | AC-3 (an `effect`'s apply block: never an action, AC-1b) | S-check-1, S-infer-1 |
+| `HELD_WRITE`                      | S   | AC-1c | S-infer-2 |
+| `STALE_OWN_READ`                  | S   | AC-1d | S-infer-5 |
 | `OPTIMISTIC_NO_QUESTION`          | S   | AC-3 / ST-5c | S-check-1, S-solid-32 |
 | `INVALID_REFRESH_TARGET`, `INVALID_AFFECTS_TARGET` | S | AC-4, AC-5 | S-check-1 |
 | `REGION_ESCAPE`                   | S   | O-3, O-3a, O-3b | S-check-1 (seven shapes), S-module-1 |

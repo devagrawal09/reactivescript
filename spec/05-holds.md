@@ -183,7 +183,7 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   (W-3); from then `v` is in `σ′` (probes see it) and in `σ` at commit.
 
 - **H-11 (Optimistic).** [F-11, D-32…D-35] `optimistic x := e`, legal only
-  inside an action body (AC-3) and only on a source with a question (ST-5),
+  inside an action body, declared or inferred (AC-3, AC-1b), and only on a source with a question (ST-5),
   writes a *guess* for `x`: from the instant's settle it is the graph's
   value (equations derive from it — S-solid-33: `related` re-asks from the
   guess) and the screen's, display-ahead — its readers are in a lane whose

@@ -37,7 +37,7 @@ export default component App() {
     <Panel label="P"><Badge n={twice(1)} /></Panel>
     {for i in items {
       source hits := 0
-      <i onClick={() => { hits := hits + 1; note(hits); handlers := [...handlers, () => total] }}>{i}:{hits}</i>
+      <i onClick={() => { let h = hits + 1; hits := h; note(h); handlers := [...handlers, () => total] }}>{i}:{hits}</i>
     }}
     <p>{a} {cb()} {len(notes)}</p>
   </div>
