@@ -13,7 +13,7 @@ want one of the moves below.
 ## 1. Reading from the server: an equation
 
 ```
-forecast = city == "" ? null : len(city) < 3 ? throw TooShort(city) : await fetchForecast(city)
+forecast = city == "" ? null : city.length < 3 ? throw TooShort(city) : await fetchForecast(city)
 ```
 
 - It is asked again whenever its inputs change. An answer to an older question is thrown away when it lands
@@ -100,7 +100,7 @@ pending items in a source of their own, with a constant question, and show them 
 source photo: number := 1
 tags = await loadTags(photo)
 source adding: { photo: number; tag: string }[] = []
-shownAdding = keep(adding, a => a.photo == photo)    // shown after `tags`
+shownAdding = adding.filter(a => a.photo == photo)   // shown after `tags`
 
 export action addTag(p: number, tag: string) {
   try {
