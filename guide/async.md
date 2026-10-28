@@ -90,6 +90,30 @@ A guess on `todos[i].done` belongs to its own action: another action's guess on 
 declined one stays on screen until the others end. After the `await`, re-ask the list (`refresh todos`) rather than
 writing the row: a plain write to a list that is guessed by row is not supported yet.
 
+### Guessing data that depends on a selection
+
+A guess on a value whose question reads a selection holds the selection with it: while the action runs, choosing
+something else waits for the server, and the screen stays on the old choice until the action ends (F-1). Keep the
+pending items in a source of their own, with a constant question, and show them beside the loaded ones:
+
+```
+source photo: number := 1
+tags = await loadTags(photo)
+source adding: { photo: number; tag: string }[] = []
+shownAdding = keep(adding, a => a.photo == photo)    // shown after `tags`
+
+export action addTag(p: number, tag: string) {
+  try {
+    optimistic adding := [...adding, { photo: p, tag: tag }]
+    await saveTag(p, tag)
+    refresh tags                              // the server's list now has the tag; the guess goes with the action
+  } catch (e) { … }
+}
+```
+
+Changing `photo` while a tag is saving shows the new photo's tags at once, and the pending tag only under its own
+photo.
+
 ## 4. Things that look like bugs and aren't
 
 - **A plain write in an action doesn't show until the server answers.** That's the hold. Use `optimistic` or

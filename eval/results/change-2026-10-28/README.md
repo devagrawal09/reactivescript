@@ -93,6 +93,14 @@ A rule for the third defect (a guess with no `refresh` of its source) was drafte
 by a write to anything its question reads, and a guess meant to revert is legitimate, so it would reject correct
 programs.
 
+## Changed after the round
+
+Ryan ruled on 2026-10-28, with solidjs/solid#4337, that a selection change made while a whole-list guess is out
+holds with the guess's action. The alongside test ("a post on one issue does not show on another") now accepts the
+screen staying on #3 until the post settles. It still fails if the post shows under #1. The round above used the
+frozen file (SHA in the pre-registration), and its count does not change. `guide/async.md` now teaches keeping the
+pending items in a source of their own when the data depends on a selection.
+
 ## What this means
 
 Changing an app did not separate the arms either. The frontier model made all three changes correctly in both

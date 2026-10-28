@@ -24,10 +24,14 @@ export default [
     await withComments(app);
     await app.type("user", "ann");
     await post(app, "on it");
-    await app.clickText("issue", "#1 "); await app.land("fetchIssue:1", D1); await app.land("fetchComments:1", C1);
-    await app.notSee("comments", "on it");
+    await app.clickText("issue", "#1 "); await app.landIfAsked("fetchIssue:1", D1); await app.landIfAsked("fetchComments:1", C1);
+    // a whole-list guess may hold the switch until the post settles (solidjs/solid#4337: the selection change joins
+    // the guess's action); what must not show is the post under #1
+    if ((await app.text("comments") ?? "").includes("on it")) await app.see("detail", "Crash on save");
     await app.land("addComment:3,ann,on it", { author: "ann", text: "on it" });
+    await app.landIfAsked("fetchIssue:1", D1); await app.landIfAsked("fetchComments:1", C1);
     await app.landIfAsked("fetchComments:3", after({ author: "ann", text: "on it" }));
+    await app.see("detail", "Login fails");
     await app.notSee("comments", "on it");
   } },
   { name: "comments that load while a post is out keep the post", async run(app) {
