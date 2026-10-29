@@ -10,6 +10,7 @@ import { parseProgram, parseStmts, singleModule } from "./rx/compiler.ts";
 import { entryView, serverDecl, selectEntry } from "./rx/ast.ts";
 import { semanticFacts } from "./rx/facts.ts";
 import { actionInference } from "./rx/infer.ts";
+import { lowerTsx } from "./lower.ts";
 
 const here = new URL(".", import.meta.url);
 const root = new URL("..", import.meta.url);
@@ -76,4 +77,15 @@ test("inferred-action contract: upstream AC-1b/AC-1c facts the frontend refuses 
   assert.deepEqual(actionInference(parseStmts("n := 1; let v = await f(); n := v")), { trigger: "write+await", why: "it writes and awaits", held: ["n"] });
   assert.deepEqual(actionInference(parseStmts("let v = await f(); n := v")).held, []);
   assert.equal(actionInference(parseStmts("n := 1")).trigger, null);
+  const source = `import { createSignal } from "solid-js";
+import { request } from "./api";
+export default function Counter() {
+  const [n, setN] = createSignal(0);
+  return <button onClick={async () => {
+    setN(1);
+    const result: number = await request();
+    setN(result);
+  }}>{n()}</button>;
+}`;
+  assert.throws(() => lowerTsx(source), /Solid applies n immediately, before the await/);
 });

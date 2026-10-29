@@ -16,41 +16,6 @@ test("counter: existing AST, checker, compiler and native Solid agree through fo
   await traces(counter, rxCounter, ["0", "2", "4", "6", "8"]);
 });
 
-test("later-declared children receive live direct and memo props and forward callbacks upward", async () => {
-  await traces(composition, fixture("composition.rx"), [
-    "0/0/10",
-    "1/4/10",
-    "2/8/10",
-    "3/12/10",
-    "4/16/10",
-  ]);
-});
-
-test("callback props can attach directly to onClick or forward through a zero-argument arrow", async () => {
-  await traces(
-    composition.replace(
-      "onClick={() => props.onIncrement()}",
-      "onClick={props.onIncrement}",
-    ),
-    fixture("composition.rx").replace(
-      "onClick={() => { props.onIncrement(); }}",
-      "onClick={props.onIncrement}",
-    ),
-    ["0/0/10", "1/4/10", "2/8/10", "3/12/10"],
-  );
-  await traces(
-    composition.replace(
-      "onIncrement={incoming.onIncrement}",
-      "onIncrement={() => incoming.onIncrement()}",
-    ),
-    fixture("composition.rx").replace(
-      "onIncrement={incoming.onIncrement}",
-      "onIncrement={() => { incoming.onIncrement(); }}",
-    ),
-    ["0/0/10", "1/4/10", "2/8/10", "3/12/10"],
-  );
-});
-
 test("declaration and JSX lines remain authored, and non-exported components stay non-exported", () => {
   const component = lowerTsx(counter).decls[0];
   assert.equal(component.k, "component");

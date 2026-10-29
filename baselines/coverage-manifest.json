@@ -1,6 +1,8 @@
 {
   "note": "Coverage manifest: every listed test must run. Built from the original suite (513 tests) with renames, plus tests added in tsx/boundary.test.ts, tsx/paired.test.ts, tsx/verifier.test.ts and the browser suite.",
   "renames": {
+    "tsx/lower.test.ts :: later-declared children receive live direct and memo props and forward callbacks upward": "tsx/composition.test.ts :: later-declared children receive live direct and memo props and forward callbacks upward",
+    "tsx/lower.test.ts :: callback props can attach directly to onClick or forward through a zero-argument arrow": "tsx/composition.test.ts :: callback props can attach directly to onClick or forward through a zero-argument arrow",
     "tsx/lower.test.ts :: rejects default export at an authored location": "tsx/lower.test.ts :: rejects non-component default export at an authored location",
     "tsx/lower.test.ts :: async block handlers retain sequential writes, direct awaits, and returned values without actions": "tsx/lower.test.ts :: async block handlers retain direct awaits, later writes and returned values; pre-await writes are refused (AC-1b)",
     "tsx/server-identities.test.ts :: server factory namespaces leave shared raw JS API flight keys unchanged": "tsx/server-identities.test.ts :: server fns with the same name in distinct modules keep distinct question identities"
@@ -274,8 +276,8 @@
     "tsx/keyed-async.test.ts :: async keyed row retention is isolated per projection with overlapping keys",
     "tsx/keyed-async.test.ts :: DV-8 baseline: a projection-only reader retains rows and swallows later pending and failure",
     "tsx/lower.test.ts :: counter: existing AST, checker, compiler and native Solid agree through four clicks",
-    "tsx/lower.test.ts :: later-declared children receive live direct and memo props and forward callbacks upward",
-    "tsx/lower.test.ts :: callback props can attach directly to onClick or forward through a zero-argument arrow",
+    "tsx/composition.test.ts :: later-declared children receive live direct and memo props and forward callbacks upward",
+    "tsx/composition.test.ts :: callback props can attach directly to onClick or forward through a zero-argument arrow",
     "tsx/lower.test.ts :: declaration and JSX lines remain authored, and non-exported components stay non-exported",
     "tsx/lower.test.ts :: import aliases, chained memos, signed initialization, nested text, and block handler",
     "tsx/lower.test.ts :: numeric JSX conversion preserves Infinity, NaN, negative Infinity, and signed zero",

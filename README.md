@@ -1,5 +1,9 @@
 # reactivescript-tsx: moving-foundation TSX frontend for ReactiveScript
 
+Current direction: **Solid parity, subset first**. Run `npm run verify:subset` for the
+counter and component-composition checkpoint. Its scope is in [docs/SUBSET.md](docs/SUBSET.md).
+A passing subset is not full-port readiness; `npm run verify:pinned` remains the full gate.
+
 Experimental Oxc TSX frontend that lowers authored Solid-style TSX onto the pinned ReactiveScript `Program` and checker.
 Moved out of the original worktree (`/Users/devagr/reactivescript`, `proto/sound-tsx-frontend` @ f3c6771) into its own
 package so that upstream can move underneath it. Not a parity claim, not a shared IR, not a Rust frontend.
