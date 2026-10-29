@@ -81,6 +81,16 @@ knowledge recorded there. They are a triage, not proofs: "UNREVIEWED" and "cause
 
 ## Not run / not covered
 
+## Canary rehearsal (executed)
+
+`sh scripts/canary.sh main` (full mode; `main` = aa85cbde at the time, 0 commits past the pin) ran in a fresh temp
+directory (`$TMPDIR/rx-canary.Pkx1kk`): cloned reactivescript, cloned and built Solid ac28157 with upstream's script
+(Rust compiler included), `npm ci` in ref and in an export of this package's committed HEAD, then verify-pinned in
+canary mode. Exit 0. Report: suite 500/391/109, browser 31/25/6, strict types 0 package diagnostics; upstream
+interpreter 104/0, oracle 104/0, compiled 104/0, types 144/0, SSR 97/0/7 (all matching pins); 0 new failures, 0 known
+failures passing, 0 not run. The pinned workspace, pins and baselines were not modified. `--rust` was not used for
+this canary run (the Rust checks ran in verify-pinned-3). `canary.sh main --dry-run` also ran and reported no change.
+
 - No Rust route for TSX: the crate consumes RX source, and the frontend produces `Program` objects (there is no RX
   printer), so crate parity covers upstream only. No reference-only fix is claimed as Rust coverage.
 - The 12 upstream strict-mode type errors are reported, not fixed.
