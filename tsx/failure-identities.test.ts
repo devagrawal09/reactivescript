@@ -133,14 +133,16 @@ test("JS fails clauses and exported fn rejection rows resolve forward RX aliases
 test("server function and action signatures print parameters and readable rejection identities", () => {
   const { diags, sigs } = checked({
     "types.rx": types,
-    "main.rx": 'import { Missing as Lost } from "./types.rx"; export server fn read(id) { throw Lost(id) } export server action save(id, next) { throw Lost(next) } export server fn ping() { return 1 }',
+    // Pinned SF-1: one `server fn` form (the old `server action` spelling is gone); the printer marks purity itself.
+    "main.rx": 'import { Missing as Lost } from "./types.rx"; export server fn read(id) { throw Lost(id) } export server fn save(id, next) { throw Lost(next) } export server fn ping() { return 1 }',
   });
   assert.deepEqual(diags, []);
   const text = printSignature(sigs.get("main.rx")!);
   assert.deepEqual(text.trimEnd().split("\n").slice(1), [
-    "export server fn read(id) rejects(Missing | Error)",
-    "export server action save(id, next) rejects(Missing | Error)",
-    "export server fn ping() rejects(Error)",
+    // Readable identities name the declared class (Missing), never the importer's local alias (Lost).
+    "export server pure fn read(id) rejects(Error | Missing)",
+    "export server pure fn save(id, next) rejects(Error | Missing)",
+    "export server pure fn ping() rejects(Error)",
   ]);
   assert.doesNotMatch(text, /types\.rx#|Lost|undefined/);
 });

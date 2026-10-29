@@ -75,11 +75,14 @@ const server = {
 
 test("TSX server loaders retain side contracts and imported aliases in the shared compiler", () => {
   const result = build(server);
-  assert.ok(result.set.programs.get("loaders.tsx")!.decls.some(d => d.k === "server" && d.kind === "fn" && d.exported));
+  // Upstream SF-1 has one server declaration (no fn/action kind); whether it is io is inferred from its body.
+  assert.ok(result.set.programs.get("loaders.tsx")!.decls.some(d => d.k === "server" && d.exported && !("kind" in d)));
 });
 
 test("an IO declaration does not become pure inside a TSX server loader", () => {
-  assert.throws(() => build({ ...server, "api.d.rx": 'export server fn lookup(id: number): number' }), rejects("SERVER_FN_IO"));
+  // Pinned upstream SF-1: a server fn is io when its body calls io, and an io call in reactive scope is refused
+  // (IO-2 IO_IN_REACTIVE); the old pin refused the loader body itself (SERVER_FN_IO). Either way it is not pure.
+  assert.throws(() => build({ ...server, "api.d.rx": 'export server fn lookup(id: number): number' }), rejects("IO_IN_REACTIVE"));
 });
 
 test("server generators cannot capture component state", () => {

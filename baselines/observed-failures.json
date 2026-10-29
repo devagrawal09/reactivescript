@@ -1,376 +1,332 @@
 {
   "status": "OBSERVATION ONLY, NOT APPROVED. The migration's failures and coverage gaps as last measured; used by verify-pinned.sh --compare to detect change. It does not make any of them acceptable, and readiness ignores it.",
-  "observed": "2026-10-29 at reactivescript aa85cbde / solid ac28157",
+  "observed": "2026-10-29 at reactivescript aa85cbde + patches/0001 / solid ac28157",
   "counts": {
-    "upstream semantic change (AC-1b/AC-1c)": 9,
-    "upstream behavior change (cause unconfirmed)": 8,
-    "parent of failing subtests": 14,
-    "UNREVIEWED": 22,
-    "reference interpreter divergence": 19,
-    "upstream defect (not patched)": 11,
-    "upstream rule change": 6,
-    "paired behavior mismatch": 3,
-    "legacy core regression (patch not carried)": 18,
+    "upstream interpreter divergence": 9,
+    "upstream behavior (handwritten RX reproduces)": 20,
+    "UNREVIEWED": 7,
+    "parent of failing subtests": 4,
+    "upstream defect": 16,
+    "legacy core regression (patch not carried)": 23,
+    "upstream semantic change (AC-1b/AC-1c)": 2,
+    "upstream interpreter divergence (single test)": 11,
+    "upstream rule change": 4,
     "native behavior change": 2,
-    "upstream defect candidate": 2,
+    "paired behavior mismatch": 2,
     "upstream behavior difference": 1
   },
   "failures": {
-    "tsx/async-handlers.test.ts :: non-held async callbacks expose fresh and cached before-await frames and return values": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
+    "tsx/async-handlers.test.ts :: interpreted handwritten RX #5": {
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: fresh and cached callback rejections reject their promises after finally without throwing from land": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/async-handlers.test.ts :: async callback return survives an awaited finalizer": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/async-handlers.test.ts :: async callback catch recovery survives an awaited finalizer": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/async-handlers.test.ts :: plain-value awaits suspend and an awaited finalizer can override the return": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
-    },
-    "tsx/async-handlers.test.ts :: interpreted authored TSX": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: interpreted authored TSX #5": {
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/async-handlers.test.ts :: lexically async callbacks return promises even when returning or throwing before the await": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: handwritten RX callbacks assimilate native promise arguments and returned promises": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #1": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #7": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled)"
     },
     "tsx/async-handlers.test.ts :: awaits in nested RX closures do not turn their outer callback async": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled)"
     },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #2": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #8": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled)"
     },
     "tsx/async-handlers.test.ts :: an RX callback launching an inline held action stays synchronous": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled)"
     },
-    "tsx/async-handlers.test.ts :: the direct scenario handler API retains synchronous frame arrays across flights": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #9": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #3": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: interpreted handwritten RX #9": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #3": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
-    },
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #1": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted authored TSX #6": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/async-handlers.test.ts :: synchronous callback pre-writes join an inline held action through success": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #4": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #10": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #4": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted handwritten RX #10": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #2": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted authored TSX #7": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/async-handlers.test.ts :: synchronous callback pre-writes join an inline held action through failure": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #5": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #11": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #5": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted handwritten RX #11": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #3": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted authored TSX #8": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/async-handlers.test.ts :: synchronous callback pre-writes join an inline held action through success with an optimistic overlay": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #6": {
-      "category": "upstream behavior change (cause unconfirmed)",
-      "note": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    "tsx/async-handlers.test.ts :: compiled handwritten RX #12": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #6": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted handwritten RX #12": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #4": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: before-await writes must form their own frame"
+    "tsx/async-handlers.test.ts :: interpreted authored TSX #9": {
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/async-handlers.test.ts :: synchronous callback pre-writes join an inline held action through failure with an optimistic overlay": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream behavior (handwritten RX reproduces)",
+      "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: interpreter #3": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Expected values to be strictly deep-equal:"
     },
     "tsx/callbacks.test.ts :: ordinary callback try catch finally handles success, failure, and early return": {
       "category": "parent of failing subtests",
       "note": "fails only because a listed subtest fails"
     },
     "tsx/callbacks.test.ts :: interpreter #4": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Expected values to be strictly deep-equal:"
     },
     "tsx/callbacks.test.ts :: a child catches its parent callback failure and still runs finally": {
       "category": "parent of failing subtests",
       "note": "fails only because a listed subtest fails"
     },
     "tsx/callbacks.test.ts :: interpreter #5": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Missing expected exception (Broken)."
     },
     "tsx/callbacks.test.ts :: callback rethrows reach the event caller with their payload after both finalizers": {
       "category": "parent of failing subtests",
       "note": "fails only because a listed subtest fails"
     },
     "tsx/callbacks.test.ts :: interpreter #6": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Expected values to be strictly equal:"
     },
     "tsx/callbacks.test.ts :: nested finalizers preserve completions unless their own return or throw overrides them": {
       "category": "parent of failing subtests",
       "note": "fails only because a listed subtest fails"
     },
     "tsx/contracts.test.ts :: typed failure identities cross TSX exports, RX imports, and TSX boundary aliases": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
-    },
-    "tsx/contracts.test.ts :: TSX server loaders retain side contracts and imported aliases in the shared compiler": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: The expression evaluated to a falsy value:"
-    },
-    "tsx/contracts.test.ts :: an IO declaration does not become pure inside a TSX server loader": {
-      "category": "upstream rule change",
-      "note": "IO-2: a server fn whose body is io is refused in reactive scope (io is inferred from the body)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/derived-stores.test.ts :: interpreted handwritten RX": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: handwritten RX instant 2"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/derived-stores.test.ts :: interpreted authored TSX": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: authored TSX instant 2"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/derived-stores.test.ts :: S-solid-37 seedless derived stores suspend initially, re-ask by id and refresh quietly": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/derived-stores.test.ts :: interpreted handwritten RX #1": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: handwritten RX instant 5"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/derived-stores.test.ts :: interpreted authored TSX #1": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: authored TSX instant 5"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/derived-stores.test.ts :: S-solid-37 held path writes pend only their key and latest sees the uncommitted path": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
-    },
-    "tsx/derived-stores.test.ts :: compiled authored TSX #2": {
-      "category": "paired behavior mismatch",
-      "note": "compiled frames differ from the recorded expectation"
-    },
-    "tsx/derived-stores.test.ts :: interpreted authored TSX #2": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: authored TSX instant 3"
-    },
-    "tsx/derived-stores.test.ts :: sync derived stores retain manual paths until an input changes, with stable root and captured nested aliases": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (rx-interpreted, tsx-interpreted)"
     },
     "tsx/effect-semantics.test.ts :: RX effect disposal follows Solid's reverse ownership order across sibling and nested effects": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/effect-semantics.test.ts :: a compute previous parameter uses a named packet equation, not the previous apply result": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/effect-semantics.test.ts :: matching boundary payloads update without remounting fallback snapshots and state": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/effect-semantics.test.ts :: nested filtered boundary payloads update without remounting fallback snapshots and state": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/failure-identities.test.ts :: RX imported component failures and aliased boundaries share declaration identity": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: RX expression catches resolve aliases from a value signature": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: RX component prop and children catch summaries retain class identity": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: same-named classes in separate RX modules do not discharge each other": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: The input did not match the regular expression /can fail with Missing/. Input:"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: nested shadowed RX error declarations have distinct identities": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: same class imported under two aliases matches typed action catches and rethrows": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: RX rethrows retain every identity from a union catch": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: JS fails clauses and exported fn rejection rows resolve forward RX aliases": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: server function and action signatures print parameters and readable rejection identities": {
-      "category": "upstream rule change",
-      "note": "RX text uses `server action`; upstream SF-1 has one `server fn` form"
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: main.rx: line 1: `server fn` (SF-1: one form — it is io when its body is; there is no `server action`) near ' save(id, next) { th'"
     },
     "tsx/failure-identities.test.ts :: declared JS errors match aliases and declaration-local rejects through RX signatures": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: unknown JS promise defaults remain Error and declared io calls stay io": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: written fails annotations and context contracts resolve imported class identities": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/features.test.ts :: native and emitted async handlers expose pre-await writes and return their Promise result": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
+      "note": "a plain callback that writes and awaits is an inferred action upstream"
     },
     "tsx/features.test.ts :: same-setup previous accessors can be passed into later-mounted owners": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
-    },
-    "tsx/features.test.ts :: built-in Error filters catch declared failures at boundaries": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: handwritten.mjs"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/features.test.ts :: failure boundaries update filtered error accessors": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/features.test.ts :: typed memo previous values use pre and recompute in the caller's reactive instant": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/features.test.ts :: derived scalar signals retain manual overrides until their input changes": {
       "category": "upstream rule change",
       "note": "AC-1d STALE_OWN_READ refuses a read after the same change's write (Solid lets the stale read through)"
     },
+    "tsx/features.test.ts :: store root aliases remain live while captured nested objects survive path replacement": {
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Counter.tsx:1:136: untrack of a structured store value is unsupported: Solid returns the live store proxy (later reads through it still track and see reconciled updates), but the RX spelling, peek, sn"
+    },
+    "tsx/features.test.ts :: projection aliases and nested captures preserve native replacement identity": {
+      "category": "UNREVIEWED",
+      "note": "not yet investigated: Counter.tsx:1:226: untrack of a structured store value is unsupported: Solid returns the live store proxy (later reads through it still track and see reconciled updates), but the RX spelling, peek, sn"
+    },
     "tsx/features.test.ts :: synchronous projection drafts start from an eager seed and retain their previous draft": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/keyed-async.test.ts :: async structured keyed replacements retain matching rows and suppress obsolete answers": {
       "category": "native behavior change",
-      "note": "native Solid leg differs at Solid ac28157 (or was not reached); see the test output"
+      "note": "native Solid leg differs at Solid ac28157"
     },
     "tsx/keyed-async.test.ts :: async keyed row retention is isolated per projection with overlapping keys": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/keyed-async.test.ts :: DV-8 baseline: a projection-only reader retains rows and swallows later pending and failure": {
       "category": "native behavior change",
-      "note": "native Solid leg differs at Solid ac28157 (or was not reached); see the test output"
+      "note": "native Solid leg differs at Solid ac28157"
     },
     "tsx/lower.test.ts :: typed function-form stores retain structured question-source semantics": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: The input did not match the regular expression /__rt\\.qsource\\(\"state\",[^\\n]*structured: true/. Input:"
+      "category": "legacy core regression (patch not carried)",
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/lower.test.ts :: async block handlers retain direct awaits, later writes and returned values; pre-await writes are refused (AC-1b)": {
-      "category": "upstream defect (not patched)",
-      "note": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
+      "category": "upstream defect",
+      "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/owned-lifetimes.test.ts :: compiled/interpreter: keyed row helpers survive reorder, dispose on removal, and remount after readdition": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/previous.test.ts :: seeded previous falls back on undefined history values, but never on null": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/previous.test.ts :: source previous coalesces multiple writes in one handler": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/previous.test.ts :: authored and raw RX previous recover from failed current inputs with native packet history": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/rx-effects.test.ts :: RX effects isolate synchronous and upstream errors per input and recover": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: RX input equations are cached independently, including function and array allocations": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: RX effect cleanup follows reverse sibling and nested ownership, even after equal inputs": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: authored RX and native RX effects retain cleanup on equal direct computes": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: authored RX effects deliver per-input error answers and filter consecutive errors": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: RX effect errors are opaque answers for string coercion and equality": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/rx-effects.test.ts :: authored RX pending then reject preserves the native RX lifecycle": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/semantics.test.ts :: handler writes preserve native Solid committed-read ordering": {
       "category": "upstream rule change",
@@ -381,12 +337,12 @@
       "note": "AC-1d STALE_OWN_READ refuses a read after the same change's write (Solid lets the stale read through)"
     },
     "tsx/semantics.test.ts :: a memo's previous-value parameter follows the node's latest change": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/server-identities.test.ts :: same-named server factories in distinct components do not share loader answers": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "upstream interpreter divergence (single test)",
+      "note": "the test's interpreter assertion fails; its compiled/native assertions come later in the same test"
     },
     "tsx/server-identities.test.ts :: refresh uses the actual getter after argument changes and cached argument reuse": {
       "category": "paired behavior mismatch",
@@ -396,61 +352,57 @@
       "category": "paired behavior mismatch",
       "note": "compiled frames differ from the recorded expectation"
     },
-    "tsx/server-identities.test.ts :: server loader keys preserve wire argument types, delimiters and numeric edge cases": {
-      "category": "upstream defect candidate",
-      "note": "compiled server fn questions are keyed by bare name + fmt(args): distinct wire arguments and same-named server fns in different modules share one flight (rt.ts serverRef)"
-    },
     "tsx/server-identities.test.ts :: server fns with the same name in distinct modules keep distinct question identities": {
-      "category": "upstream defect candidate",
-      "note": "compiled server fn questions are keyed by bare name + fmt(args): distinct wire arguments and same-named server fns in different modules share one flight (rt.ts serverRef)"
+      "category": "upstream defect",
+      "note": "same-named server fns in different components/modules share one question key (bare declaration name); fix needs emitter identity + Rust emit.rs (docs/UPSTREAM-ISSUES.md)"
     },
     "tsx/server-identities.test.ts :: server setup is detached too; loaders reuse and actions never reuse requests": {
       "category": "upstream behavior difference",
-      "note": "an in-place server body runs its generator setup inside the calling client owner (the old prototype detached it)"
+      "note": "an in-place server body runs its generator setup inside the calling client owner"
     },
     "tsx/snapshot-core.test.ts :: own-pre memo accumulation advances once per reactive instant": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "legacy core regression (patch not carried)",
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/snapshot-core.test.ts :: own-pre draft seeds retain the previous instant rather than a settle-pass result": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "legacy core regression (patch not carried)",
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/snapshot-core.test.ts :: equation dependencies do not reorder eager snapshot and source initialization": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/snapshot-core.test.ts :: snapshot failures surface at readers, and TSX refuses unused eager consts whose initializer could throw": {
       "category": "legacy core regression (patch not carried)",
-      "note": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/snapshot-core.test.ts :: ordinary missing-row access panics while optional member and index access return undefined": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "legacy core regression (patch not carried)",
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/snapshot-core.test.ts :: optional access boxes primitives and skips computed keys, arguments and chain continuations": {
-      "category": "reference interpreter divergence",
-      "note": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+      "category": "legacy core regression (patch not carried)",
+      "note": "raw-AST/RX core regression for the old runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation"
     },
     "tsx/store-inference.test.ts :: typed read-only questions stay structured across shadowed component writes": {
       "category": "legacy core regression (patch not carried)",
-      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/store-inference.test.ts :: typed read-only questions stay structured across shadowed branch writes": {
       "category": "legacy core regression (patch not carried)",
-      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/store-inference.test.ts :: root-written questions retain the supported atomic lowering": {
       "category": "legacy core regression (patch not carried)",
-      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/store-inference.test.ts :: a shadowed context root write does not reach another provision": {
       "category": "legacy core regression (patch not carried)",
-      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/store-inference.test.ts :: root writes through an imported context alias reach the provided question": {
       "category": "legacy core regression (patch not carried)",
-      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
+      "note": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written type"
     },
     "tsx/browser.ts :: rx async-handler streams HTML, adopts the same DOM on hydration, then updates on clicks": {
       "category": "upstream rule change",
@@ -458,47 +410,16 @@
     },
     "tsx/browser.ts :: tsx async-handler streams HTML, adopts the same DOM on hydration, then updates on clicks": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "note": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
-    },
-    "tsx/browser.ts :: rx server-loader streams HTML, adopts the same DOM on hydration, then updates on clicks": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: TSX must retain the RX hydration baseline"
-    },
-    "tsx/browser.ts :: tsx server-loader streams HTML, adopts the same DOM on hydration, then updates on clicks": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: TSX must retain the RX hydration baseline"
+      "note": "a plain callback that writes and awaits is an inferred action upstream"
     },
     "tsx/browser.ts :: rx server-factories streams HTML, adopts the same DOM on hydration, then updates on clicks": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly equal:"
+      "category": "upstream defect",
+      "note": "same-named server fns in different components/modules share one question key (bare declaration name); fix needs emitter identity + Rust emit.rs (docs/UPSTREAM-ISSUES.md)"
     },
     "tsx/browser.ts :: tsx server-factories streams HTML, adopts the same DOM on hydration, then updates on clicks": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly equal:"
+      "category": "upstream defect",
+      "note": "same-named server fns in different components/modules share one question key (bare declaration name); fix needs emitter identity + Rust emit.rs (docs/UPSTREAM-ISSUES.md)"
     }
   },
-  "missing": [
-    "tsx/async-handlers.test.ts :: compiled authored TSX #5",
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #5",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #7",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #7",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #8",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #8",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #9",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #9",
-    "tsx/async-handlers.test.ts :: compiled authored TSX #6",
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #6",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #10",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #10",
-    "tsx/async-handlers.test.ts :: compiled authored TSX #7",
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #7",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #11",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #11",
-    "tsx/async-handlers.test.ts :: compiled authored TSX #8",
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #8",
-    "tsx/async-handlers.test.ts :: compiled handwritten RX #12",
-    "tsx/async-handlers.test.ts :: interpreted handwritten RX #12",
-    "tsx/async-handlers.test.ts :: compiled authored TSX #9",
-    "tsx/async-handlers.test.ts :: interpreted authored TSX #9"
-  ]
+  "missing": []
 }

@@ -397,6 +397,9 @@ export function lowerTsx(
   let declarationsStarted = false;
   /** The module's `export default function Name` component: its entry (upstream MO-1c). */
   let defaultComponent: string | undefined;
+  /** Untracked captures of structured store objects. RX has only a value snapshot (peek); Solid returns the live
+   *  proxy. They agree only while nothing updates the captured object in place, which is checked after lowering. */
+  const structuredCaptures: { store: string; path: string[]; at: Span }[] = [];
   const collectFunction = (
     fn: OxcFunction,
     exported: boolean,
@@ -1394,6 +1397,29 @@ export function lowerTsx(
         ) {
           const fn = arrow(n.arguments[0]);
           const v = value(fn.body, scope);
+          const readsStore = (x: unknown): boolean =>
+            Array.isArray(x)
+              ? x.some(readsStore)
+              : !!x &&
+                typeof x === "object" &&
+                (((x as { k?: string }).k === "id" &&
+                  scope.bindings.get((x as { name: string }).name)?.kind === "store") ||
+                  Object.values(x).some(readsStore));
+          if (primitive === "untrack" && !scalar(v.shape) && readsStore(v.e)) {
+            const path: string[] = [];
+            let root: Expr = v.e;
+            while (root.k === "member" && !root.opt) {
+              path.unshift(root.p);
+              root = root.o;
+            }
+            const store = root.k === "id" ? scope.bindings.get(root.name) : undefined;
+            if (root.k !== "id" || store?.kind !== "store" || store.derivedStore)
+              return fail(
+                n,
+                "untrack of a structured value of a derived or computed store is unsupported: Solid returns the live store proxy, which shows answers reconciled into it in place, but the RX spelling, peek, snapshots the value at this instant; untrack a primitive field, or read the store path where it is used",
+              );
+            structuredCaptures.push({ store: root.name, path, at: n });
+          }
           return {
             e: {
               k:
@@ -4574,6 +4600,31 @@ export function lowerTsx(
       (constSpans.has(d) ? "Setup const " + d.name : "The eager initializer of " + d.name + " (a signal, store, projection or provider seed)") +
         " can fail at mount (" + (r.why ?? "a failure") + "): Solid throws during setup, before any boundary inside this owner exists, but an RX snapshot source holds the failure and raises it at its readers (possibly inside an inner boundary, an untaken branch or a closure). Catch every failure in the initializer with catchFailure, or read it in JSX or a memo",
     );
+  }
+  for (const capture of structuredCaptures) {
+    let inside = false;
+    const walk = (x: unknown, draft?: string): void => {
+      if (inside || !x || typeof x !== "object") return;
+      if (Array.isArray(x)) return x.forEach((y) => walk(y, draft));
+      const o = x as { k?: string; name?: string; e?: { k?: string; body?: unknown; seed?: unknown }; target?: { name: string; path: unknown[] } };
+      if (o.k === "eq" && o.name === capture.store && o.e?.k === "draft") {
+        walk(o.e.seed, draft);
+        return walk(o.e.body, "d");
+      }
+      const t = o.target;
+      if (t && (t.name === capture.store || (draft && t.name === draft)) && t.path.length > capture.path.length &&
+          capture.path.every((p, i) => t.path[i] === p)) {
+        inside = true;
+        return;
+      }
+      for (const y of Object.values(x)) walk(y, draft);
+    };
+    walk(result.decls);
+    if (inside)
+      return fail(
+        capture.at,
+        "untrack of a structured store value that is later written inside is unsupported: the write updates the captured object in place, which Solid's live proxy shows, but the RX spelling, peek, snapshots the value at this instant; untrack a primitive field, or read the store path where it is used",
+      );
   }
   if (defaultComponent) {
     const entry = result.decls.find((d) => d.k === "component" && d.name === defaultComponent);

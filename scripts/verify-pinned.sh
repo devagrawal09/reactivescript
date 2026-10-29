@@ -27,7 +27,13 @@ RX_HEAD=$(git -C "$RX" rev-parse HEAD); SOLID_HEAD=$(git -C "$SOLID" rev-parse H
   echo "node $(node --version); rustc $(RUSTUP_TOOLCHAIN=$(pin .toolchain.rust) rustc --version 2>/dev/null)"
 } | tee "$OUT/pins.txt"
 pins=0
-[ -z "$(git -C "$RX" status --porcelain)" ] || { echo "upstream checkout has local changes"; pins=1; }
+# The upstream tree may differ from its commit only by exactly the declared patch queue (patches/README.md).
+QUEUE=$(cat "$HERE"/patches/[0-9][0-9][0-9][0-9]-*.patch 2>/dev/null || true)
+if [ "$(git -C "$RX" diff)" != "$QUEUE" ] || [ -n "$(git -C "$RX" status --porcelain --untracked-files=normal | grep -v '^ M ' || true)" ]; then
+  echo "MISMATCH: upstream tree differs from its commit by more or less than the patch queue"; pins=1
+else
+  echo "upstream tree = commit + patch queue ($(ls "$HERE"/patches/[0-9][0-9][0-9][0-9]-*.patch 2>/dev/null | wc -l | tr -d ' ') patches)"
+fi
 [ "$SOLID_HEAD" = "$SOLID_NEXT" ] || { echo "MISMATCH: solid checkout is not ref/SOLID_NEXT"; pins=1; }
 if [ $CANARY = 0 ]; then
   [ "$RX_HEAD" = "$(pin .reactivescript.commit)" ] || { echo "MISMATCH: reactivescript is not the pinned commit"; pins=1; }

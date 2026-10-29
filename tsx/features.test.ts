@@ -511,7 +511,7 @@ for (const boundary of [false, true])
           : '(n % 2 ? throw Missing(n) : "ok") catch (err: Error) => err.message + "/";') +
         "<button onClick={()=>{n := n + 1}}>" +
         (boundary
-      ? 'export default component App() { errored fallback(err: Error){<span>{"" + (err.message + "/")}</span>}{{"" + result}} }'
+          ? '{errored fallback(err: Error){<span>{"" + (err.message + "/")}</span>}{{"" + result}}}'
           : '{"" + result}') +
         "</button>}";
       await traces(tsx, rx, ["ok", "missing 1/", "ok", "missing 3/"]);

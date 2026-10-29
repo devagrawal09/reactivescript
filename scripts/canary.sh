@@ -44,13 +44,16 @@ if [ $DRY = 1 ]; then
 fi
 
 git -C "$TMP/reactivescript" checkout -q "$COMMIT"
+if ! sh "$HERE/scripts/apply-patches.sh" "$TMP/reactivescript" "$TMP/reactivescript-patched" > "$TMP/patch-queue.log" 2>&1; then
+  cat "$TMP/patch-queue.log"; echo "PATCH QUEUE BREAKAGE: the temporary upstream patches no longer apply to $COMMIT (review each patch's removal condition)"; exit 1
+fi
 git clone -q --no-checkout "$WS/solid-next" "$TMP/solid-next"
 git -C "$TMP/solid-next" remote set-url origin "$(pin .solid.repo)"
 git -C "$TMP/solid-next" remote set-url --push origin NO_PUSH
 # upstream's own build script: checks out ref/SOLID_NEXT in $TMP/solid-next and builds it (Rust for the compiler)
 (cd "$TMP/reactivescript" && RUSTUP_TOOLCHAIN=$(pin .toolchain.rust) SOLID_NEXT="$TMP/solid-next" sh ref/scripts/solid-next.sh) > "$TMP/solid-build.log" 2>&1 \
   || { echo "UPSTREAM BASELINE FAILURE: Solid build failed (see $TMP/solid-build.log)"; exit 1; }
-(cd "$TMP/reactivescript/ref" && npm ci) > "$TMP/upstream-install.log" 2>&1 || { echo "UPSTREAM BASELINE FAILURE: npm ci in ref failed"; exit 1; }
+(cd "$TMP/reactivescript-patched/ref" && npm ci) > "$TMP/upstream-install.log" 2>&1 || { echo "UPSTREAM BASELINE FAILURE: npm ci in ref failed"; exit 1; }
 mkdir -p "$TMP/frontend"
 git -C "$HERE" archive HEAD | tar -x -C "$TMP/frontend"
 (cd "$TMP/frontend" && npm ci) > "$TMP/frontend-install.log" 2>&1 || { echo "ADAPTER/API BREAKAGE: npm ci of the frontend failed (see $TMP/frontend-install.log)"; exit 1; }

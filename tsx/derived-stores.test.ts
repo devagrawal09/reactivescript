@@ -33,7 +33,7 @@ function interpretedButtons(items: any[]): any[] {
 }
 
 async function differential(t: TestContext, source: string, rx: string, steps: Step[], expected: string[],
-  calls: Record<string, number> = {}, nativeAlternatives: [string, string][] = []) {
+  calls: Record<string, number> = {}, nativeAlternatives: [string, string][] = [], refusedTsx?: RegExp) {
   const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-derived-stores-");
@@ -122,10 +122,13 @@ export const gate = key => globalThis.__tsxDerivedStoreApi("gate", key);`);
     });
     await t.test("interpreted handwritten RX", () => interpreted("handwritten RX", handwritten));
     await t.test("compiled authored TSX", async () => {
+      // A TSX spelling with no faithful RX lowering at the pin must be refused, while native and RX legs still run.
+      if (refusedTsx) return assert.throws(() => buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" }), refusedTsx);
       const built = buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" });
       await rendered("authored", built.entry, built.files);
     });
     await t.test("interpreted authored TSX", () => {
+      if (refusedTsx) return assert.throws(() => buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" }), refusedTsx);
       const built = buildTsx("main.tsx", path => inputs[path], { target: "universal", mount: "Counter" });
       interpreted("authored TSX", built.set);
     });
@@ -213,7 +216,9 @@ export default component App() { <div><p>{state.a}/{state.b}|{alias.a}/{alias.b}
   ], [
     "1/10|1/10|1/1|0", "5/10|5/10|1/1|0", "5/10|5/10|1/1|1", "2/20|2/20|2/2|1",
     "2/20|2/20|9/9|1", "2/20|2/20|9/9|2", "3/30|3/30|3/3|2",
-  ]));
+    // `untrack(() => state.nested)` returns Solid's live nested proxy; the pinned RX has only a value snapshot (peek),
+    // so the authored TSX is refused (README: semantic limits). The handwritten RX spells the alias as an equation.
+  ], {}, [], /untrack of a structured (value of a derived or computed store|store value that is later written inside) is unsupported/));
 
 test("read-only derived stores keep a live root alias without path writers or pending probes", t =>
   differential(t, `import { createSignal, createStore } from "solid-js";
