@@ -4,9 +4,8 @@
   "counts": {
     "upstream interpreter divergence": 17,
     "upstream behavior (handwritten RX reproduces)": 20,
-    "upstream defect": 16,
+    "upstream defect": 17,
     "legacy core regression (patch not carried)": 23,
-    "UNREVIEWED": 2,
     "upstream semantic change (AC-1b/AC-1c)": 2,
     "upstream interpreter divergence (single test)": 11,
     "upstream rule change": 4,
@@ -216,8 +215,8 @@
       "note": "aliased error-class imports lose declaration identity in both the reference and Rust checkers (docs/UPSTREAM-ISSUES.md #1)"
     },
     "tsx/failure-identities.test.ts :: server function and action signatures print parameters and readable rejection identities": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "upstream defect",
+      "note": "signatures print the importer's alias (Lost) instead of the declared class (Missing): the aliased identity defect (docs/UPSTREAM-ISSUES.md #2)"
     },
     "tsx/failure-identities.test.ts :: declared JS errors match aliases and declaration-local rejects through RX signatures": {
       "category": "upstream defect",
@@ -250,10 +249,6 @@
     "tsx/features.test.ts :: derived scalar signals retain manual overrides until their input changes": {
       "category": "upstream rule change",
       "note": "AC-1d STALE_OWN_READ refuses a read after the same change's write (Solid lets the stale read through)"
-    },
-    "tsx/features.test.ts :: projection aliases and nested captures preserve native replacement identity": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Counter.tsx:1:226: untrack of a structured value of a derived or computed store is unsupported: Solid returns the live store proxy, which shows answers reconciled into it in place, but the RX spelling"
     },
     "tsx/features.test.ts :: synchronous projection drafts start from an eager seed and retain their previous draft": {
       "category": "upstream interpreter divergence (single test)",
