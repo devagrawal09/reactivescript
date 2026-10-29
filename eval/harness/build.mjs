@@ -3,6 +3,8 @@
 //   react arm: `src/App.tsx` (default export) mounted with createRoot under StrictMode, as Vite's React template does
 //   solid arm: `src/App.tsx` (default export) compiled by @solidjs/compiler (Solid 2's JSX compiler) and mounted with
 //              @solidjs/web's `render`
+//   foldkit arm: `src/main.ts` exports Model, init, update and view; booted with Runtime.makeApplication and
+//              Runtime.run, as Foldkit's own `src/entry.ts` does
 // The app's API is `src/api.js` over `src/flights.js`: every call is a flight the test lands or fails.
 // Usage: node harness/build.mjs <dir> [rx|react]   (the arm defaults to what `<dir>/arm` says)
 import { execFileSync } from "node:child_process";
@@ -44,6 +46,8 @@ export async function build(dir, arm = armOf(dir)) {
     entry = `import { createApp } from ${JSON.stringify(RT_WEB)};\nimport main from "./rx/main.mjs";\nimport * as api from ${JSON.stringify(path.join(dir, "src/api.js"))};\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`;
   } else if (arm === "solid") {
     entry = `import { render } from "@solidjs/web";\nimport { createComponent } from "solid-js";\nimport App from ${JSON.stringify(path.join(dir, "src/App.tsx"))};\nrender(() => createComponent(App, {}), document.getElementById("app"));\n`;
+  } else if (arm === "foldkit") {
+    entry = `import { Runtime } from "foldkit";\nimport { Model, init, update, view } from ${JSON.stringify(path.join(dir, "src/main.ts"))};\nRuntime.run(Runtime.makeApplication({ Model, init, update, view, container: document.getElementById("app") }));\n`;
   } else {
     entry = `import { StrictMode, createElement } from "react";\nimport { createRoot } from "react-dom/client";\nimport App from ${JSON.stringify(path.join(dir, "src/App.tsx"))};\ncreateRoot(document.getElementById("app")).render(createElement(StrictMode, null, createElement(App)));\n`;
   }
@@ -55,7 +59,7 @@ export async function build(dir, arm = armOf(dir)) {
   try {
     await vite.build({
       root: work, configFile: false, logLevel: "silent", base: "./", plugins, cacheDir: path.join(work, ".vite"),
-      resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "react", "react-dom"] },
+      resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "react", "react-dom", "effect", "foldkit"] },
       build: { outDir: "dist", emptyOutDir: true, minify: false },
     });
   } catch (e) { return { ok: false, stage: "bundle", output: String(e.message ?? e) }; }

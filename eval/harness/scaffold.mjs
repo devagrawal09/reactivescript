@@ -7,14 +7,18 @@
 // --inline-docs (round 5) puts the .rx guide's two pages (guide/language.md, guide/async.md) at the end of the .rx
 // prompt, so reading them costs no tool calls, and Solid's own agent primer (solid-js/skills/solid-2.0/SKILL.md) at
 // the end of the Solid prompt; the React prompt is unchanged.
-// Arms: rx, react, solid (Solid 2 TSX, round 5).
-// Usage: node harness/scaffold.mjs <task> <rx|react|solid> <dir> [--reference] [--brief <name>] [--base <dir>] [--inline-docs]
+// For foldkit, the docs are Foldkit's own FOLDKIT.md (create-foldkit-app's template) at the end of the prompt, and the
+// Foldkit repository at the installed release's tag readable in docs/foldkit, as Foldkit tells agents to vendor it
+// (examples, skills, AGENTS.md, the framework source); FOLDKIT_REPO names the checkout (default ../../foldkit).
+// Arms: rx, react, solid (Solid 2 TSX, round 5), foldkit (round 6).
+// Usage: node harness/scaffold.mjs <task> <rx|react|solid|foldkit> <dir> [--reference] [--brief <name>] [--base <dir>] [--inline-docs]
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const evalDir = path.resolve(here, "..");
+const foldkitRepo = process.env.FOLDKIT_REPO ?? path.resolve(evalDir, "../../foldkit");
 
 export function scaffold(task, arm, dir, { reference = false, brief = null, base = null, inline = false } = {}) {
   const t = path.join(evalDir, "tasks", task);
@@ -27,6 +31,10 @@ export function scaffold(task, arm, dir, { reference = false, brief = null, base
   const flights = readFileSync(path.join(here, "flights.js"), "utf8");
   writeFileSync(path.join(dir, "src/flights.js"), brief === "plain" ? flights.replace(/^(\/\/.*\n)+\n/, "") : flights);
   cpSync(path.join(t, arm === "rx" ? "api.d.rx" : "api.d.ts"), path.join(dir, `src/${arm === "rx" ? "api.d.rx" : "api.d.ts"}`));
+  if (arm === "foldkit") writeFileSync(path.join(dir, "tsconfig.json"), JSON.stringify({
+    compilerOptions: { target: "ES2022", module: "ESNext", lib: ["ES2022", "DOM"], moduleResolution: "bundler", strict: true, noUncheckedIndexedAccess: true, skipLibCheck: true, esModuleInterop: true, exactOptionalPropertyTypes: true, isolatedModules: true, noEmit: true, allowJs: true, checkJs: false },
+    include: ["src/**/*"],
+  }, null, 2) + "\n");
   cpSync(path.join(t, "visible.mjs"), path.join(dir, "tests/visible.mjs"));
   cpSync(path.join(t, "fixtures.mjs"), path.join(dir, "tests/fixtures.mjs"));
   if (arm === "react" || arm === "solid") {
@@ -42,6 +50,11 @@ export function scaffold(task, arm, dir, { reference = false, brief = null, base
   if (arm === "rx") {
     cpSync(path.join(evalDir, "../spec"), path.join(dir, "docs/spec"), { recursive: true });
     cpSync(path.join(evalDir, "../guide"), path.join(dir, "docs/guide"), { recursive: true });
+  }
+  if (arm === "foldkit") {
+    for (const p of ["README.md", "AGENTS.md", "examples", "skills", "packages/foldkit/src", "packages/create-foldkit-app/templates/base/FOLDKIT.md"])
+      cpSync(path.join(foldkitRepo, p), path.join(dir, "docs/foldkit", p), { recursive: true });
+    if (!existsSync(path.join(dir, "node_modules"))) symlinkSync(path.join(evalDir, "node_modules"), path.join(dir, "node_modules"));
   }
   // Solid's own docs ship in its package: the agent can read them there before its first build
   if (arm === "solid" && !existsSync(path.join(dir, "node_modules"))) symlinkSync(path.join(evalDir, "node_modules"), path.join(dir, "node_modules"));
@@ -62,6 +75,7 @@ export function prompt(arm, dir, { plain = false, change = false, inline = false
   let text = readFileSync(path.join(here, change ? "prompt-change.md" : "prompt.md"), "utf8");
   for (let i = 0; i < 2; i++) for (const k of [...Object.keys(fill), "DIR"]) text = text.replaceAll(`{{${k}}}`, k === "DIR" ? dir : fill[k]);
   if (docs && arm === "rx") for (const f of ["language.md", "async.md"]) text += `\n---\n\n${readFileSync(path.join(evalDir, "../guide", f), "utf8")}`;
+  if (docs && arm === "foldkit") text += `\n---\n\n${readFileSync(path.join(foldkitRepo, "packages/create-foldkit-app/templates/base/FOLDKIT.md"), "utf8")}`;
   if (docs && arm === "solid") text += `\n---\n\n${readFileSync(path.join(evalDir, "node_modules/solid-js/skills/solid-2.0/SKILL.md"), "utf8").replace(/^---\n[\s\S]*?\n---\n+/, "")}`;
   return text;
 }
