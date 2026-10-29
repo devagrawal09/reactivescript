@@ -87,7 +87,7 @@ Handlers, `action` bodies and `effect` apply blocks:
 ```
 <button onClick={() => { count := count + 1 }}>+</button>
 
-effect (count) { log($0) }   // runs after `count` changes; `$0` is its value
+effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (async.md §6)
 ```
 
 - A write is `x := v`, `x.field := v`, `xs[i].done := v`, or functional `x := old => …` (applied to the slot as it

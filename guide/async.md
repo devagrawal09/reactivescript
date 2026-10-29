@@ -137,7 +137,26 @@ local state: typing, toggles, selection.
 A run never sees its own writes: after `x := v`, reading `x` in the same run gives the old value (W-4), and the
 compiler refuses it (`STALE_OWN_READ`). Keep the value in a local: `let n = count + 1; count := n; log(n)`.
 
-## 6. Forms
+## 6. Effects: acting on a value as it changes
+
+`effect (a, b) { … }` runs its block with the inputs' values as `$0`, `$1`. Prefer an equation for anything that is
+a value; an effect is for sending a value somewhere else (a parent's `on…` handler, `log`, a JS module).
+
+- **When it runs**: once when its component appears, then after any change in which an input's value differs from
+  the value the block last received (EF-2). The same value again is not a change. It runs after everything has
+  settled, against what is on screen, and its writes are a new change of their own.
+- **Loading inputs**: an input that is loading (a first load, or a re-ask after its inputs changed) is pending, and
+  the block does not run until the answer lands (R-2). The effect doesn't hold the screen while it waits.
+- **Failing inputs**: give an input that can fail a `catch` (`effect (x catch (e) => fallback) { … }`), so the block
+  gets a plain value it can test for.
+- **Guesses**: an input computed from an `optimistic` write fires as soon as the guess shows, and again with the old
+  value if the guess reverts (EF-2). It doesn't wait for the action to end.
+- **Lifetime**: an effect lives as long as its component. When the component goes away the effect stops, and its
+  cleanup (a function the block returns) runs; nothing it would have seen later reaches it. State that must outlive
+  a page belongs in a component that stays (pass it down, report changes up with an `on…` handler).
+- **Order**: two effects that fire in the same change run in no promised order (EF-6).
+
+## 7. Forms
 
 A draft seeded once from loaded data is a source in the form's component, seeded with `peek`:
 `source name := peek(props.initial.name)`. It belongs to the user from then on; a save never resets it.
