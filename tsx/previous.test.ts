@@ -96,7 +96,7 @@ test("native S-core-1 previous values survive equal writes, batching, and hiding
       assert.deepEqual(log, withEffect ? effects : []);
     } finally { app.dispose(); }
     await assertCore('source count := 0; source show := true; double = count * 2; label = "prev " + pre double -> 0; ' +
-      (withEffect ? 'effect (double) {log(double)} ' : '') + '<p>{show ? double : "-"} {label}</p>', writes, expected, withEffect ? effects : []);
+      (withEffect ? 'effect (double) {log(double)} ' : '') + 'export default component App() { <p>{show ? double : "-"} {label}</p> }', writes, expected, withEffect ? effects : []);
   }
 });
 
@@ -157,8 +157,8 @@ test("same-owner Show demand preserves warm history and records the existing col
     } finally { dispose(); }
     const interpreted = displayCurrent ? expected : ["-|-", "-|-", "-|-", "-|-1"];
     if (!displayCurrent) t.diagnostic("Existing cold-target demand divergence: native/compiled reveal previous 2; interpreter first demands input on reveal and uses fallback -1.");
-    await assertCore('source n := 0; source shown := false; double = n * 2; previous = pre double -> -1; <p>' +
-      (displayCurrent ? '{double}' : '-') + '|{shown ? previous : "-"}</p>',
+    await assertCore('source n := 0; source shown := false; double = n * 2; previous = pre double -> -1; export default component App() { <p>' +
+      (displayCurrent ? '{double}' : '-') + '|{shown ? previous : "-"}</p> }',
       [[["n", 1]], [["n", 2]], [["shown", true]]], expected, [], interpreted);
   }
 });
@@ -205,7 +205,7 @@ test("seeded previous falls back on undefined history values, but never on null"
     const expected = initial === "undefined" ? ["undefined/99", "1/99", "2/1"] : ["null/99", "1/null", "2/1"];
     const source = 'import {createSignal,createMemo} from "solid-js";import {createPrevious} from "reactivescript-tsx";export function Counter(){const [n,setN]=createSignal(0);const current=createMemo(()=>n()===0?' + initial + ':n());const previous=createPrevious(current,()=>99);return <button onClick={()=>setN(n()+1)}>{current()===' + initial + '?"' + initial + '":current()}/{previous()===' + initial + '?"' + initial + '":previous()}</button>}';
     await traces(source, lowerTsx(source), expected);
-    await assertCore('source x := ' + initial + '; previous = pre x -> 99; <p>{x == ' + initial + ' ? "' + initial + '" : x}/{previous == ' + initial + ' ? "' + initial + '" : previous}</p>',
+    await assertCore('source x := ' + initial + '; previous = pre x -> 99; export default component App() { <p>{x == ' + initial + ' ? "' + initial + '" : x}/{previous == ' + initial + ' ? "' + initial + '" : previous}</p> }',
       [[["x", 1]], [["x", 2]]], expected);
   }
 });
@@ -398,5 +398,5 @@ test("native S-store-2 projection uses cross-node previous id while untouched pa
   } finally { app.dispose(); }
   await assertCore('source id := 1; selected = draft(pre selected -> {}) {d[str(pre id -> 0)] := false; d[str(id)] := true} ' +
     'effect (selected["1"]) {log("one", $0)} effect (selected["2"]) {log("two", $0)} ' +
-    '<p>{selected["1"] ? "1" : "-"} {selected["2"] ? "2" : "-"}</p>', [[["id", 2]], [["id", 2]], [["id", 3]]], expected, effects);
+    'export default component App() { <p>{selected["1"] ? "1" : "-"} {selected["2"] ? "2" : "-"}</p> }', [[["id", 2]], [["id", 2]], [["id", 3]]], expected, effects);
 });

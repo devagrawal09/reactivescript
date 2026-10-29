@@ -378,16 +378,17 @@ checking or full DOM/SSR/hydration parity for every accepted HTML content model.
 
 ## Verification
 
-From the repository root:
+From the package root (`frontend/`; see ../README.md for the pinned and canary workflows):
 
 ```sh
-npm --prefix ref run check:tsx
-npm --prefix ref run test:tsx
-npm --prefix ref run test:tsx:browser
+npm run check
+npm test
+npm run test:browser
 ```
 
-The paired counter, composition, values, store and effect fixtures compare ASTs
-against handwritten RX, run the shared checker, drive actual interpreter button
+The paired counter, composition, values, store and effect fixtures compare the
+pinned checker's canonical semantic facts (tsx/rx/facts.ts) against handwritten
+RX, run the shared checker, drive actual interpreter button
 handlers, compile both ASTs, and compare multiple-click frames with native TSX
 compiled by the pinned Solid compiler. Eager nodes currently have no RX surface
 spelling, so snapshot fixtures replace designated parsed equations with explicit
@@ -396,5 +397,5 @@ spelling, so snapshot fixtures replace designated parsed equations with explicit
 Additional tests cover modules/builds, snapshots, helper recalculation, JSX text,
 async JS declarations and boundaries, and browser target integration. Native
 artifacts use `.mts` because Solid preserves inline TS types. Each test removes
-only its own unique `ref/compile/.out/tsx-*` artifacts. `test-renderer.ts` applies
+only its own unique `frontend/.out/*` artifacts. `test-renderer.ts` applies
 static element props through the existing renderer equally for all compared paths.

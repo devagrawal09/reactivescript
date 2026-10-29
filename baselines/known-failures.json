@@ -1,45 +1,47 @@
 {
   "reviewed": "2026-10-28 at reactivescript aa85cbde / solid ac28157 by tools/classify-baseline.cjs rules (see docs/RESULTS.md). UNREVIEWED entries are failures not yet investigated; they are listed, not accepted.",
   "counts": {
-    "upstream semantic change (AC-1b/AC-1c)": 8,
-    "test migration incomplete (MO-1c)": 16,
-    "parent of failing subtests": 6,
-    "UNREVIEWED": 29,
-    "reference interpreter divergence": 15,
+    "upstream semantic change (AC-1b/AC-1c)": 9,
+    "upstream behavior change (cause unconfirmed)": 8,
+    "parent of failing subtests": 12,
+    "UNREVIEWED": 23,
+    "reference interpreter divergence": 19,
     "upstream defect (not patched)": 11,
     "upstream rule change": 6,
+    "test migration incomplete (MO-1c)": 8,
     "paired behavior mismatch": 3,
+    "legacy core regression (patch not carried)": 12,
     "native behavior change": 2,
     "adapter/API breakage": 3
   },
   "failures": {
     "tsx/async-handlers.test.ts:178:1 non-held async callbacks expose fresh and cached before-await frames and return values": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/async-handlers.test.ts:184:1 fresh and cached callback rejections reject their promises after finally without throwing from land": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/async-handlers.test.ts:191:3 async callback return survives an awaited finalizer": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "upstream semantic change (AC-1b/AC-1c)",
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/async-handlers.test.ts:191:3 async callback catch recovery survives an awaited finalizer": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "upstream semantic change (AC-1b/AC-1c)",
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/async-handlers.test.ts:225:1 plain-value awaits suspend and an awaited finalizer can override the return": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/async-handlers.test.ts:132:13 interpreted handwritten RX": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
     },
     "tsx/async-handlers.test.ts:140:15 interpreted authored TSX": {
-      "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
     },
     "tsx/async-handlers.test.ts:250:1 lexically async callbacks return promises even when returning or throwing before the await": {
       "category": "parent of failing subtests",
@@ -47,35 +49,91 @@
     },
     "tsx/async-handlers.test.ts:271:1 handwritten RX callbacks assimilate native promise arguments and returned promises": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
+    },
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #1": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
     },
     "tsx/async-handlers.test.ts:285:1 awaits in nested RX closures do not turn their outer callback async": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
+    },
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #2": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
     },
     "tsx/async-handlers.test.ts:296:1 an RX callback launching an inline held action stays synchronous": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
     },
     "tsx/async-handlers.test.ts:312:1 the direct scenario handler API retains synchronous frame arrays across flights": {
+      "category": "upstream semantic change (AC-1b/AC-1c)",
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
+    },
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #3": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    },
+    "tsx/async-handlers.test.ts:132:13 interpreted handwritten RX #3": {
       "category": "UNREVIEWED",
-      "reason": "not yet investigated: Cannot read properties of undefined (reading 'e')"
+      "reason": "not yet investigated: before-await writes must form their own frame"
     },
-    "tsx/async-handlers.test.ts:373:5 synchronous callback pre-writes join an inline held action through success": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+    "tsx/async-handlers.test.ts:140:15 interpreted authored TSX #1": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
     },
-    "tsx/async-handlers.test.ts:373:5 synchronous callback pre-writes join an inline held action through failure": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+    "tsx/async-handlers.test.ts:375:5 synchronous callback pre-writes join an inline held action through success": {
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
     },
-    "tsx/async-handlers.test.ts:373:5 synchronous callback pre-writes join an inline held action through success with an optimistic overlay": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #4": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
     },
-    "tsx/async-handlers.test.ts:373:5 synchronous callback pre-writes join an inline held action through failure with an optimistic overlay": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+    "tsx/async-handlers.test.ts:132:13 interpreted handwritten RX #4": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:140:15 interpreted authored TSX #2": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:375:5 synchronous callback pre-writes join an inline held action through failure": {
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
+    },
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #5": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    },
+    "tsx/async-handlers.test.ts:132:13 interpreted handwritten RX #5": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:140:15 interpreted authored TSX #3": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:375:5 synchronous callback pre-writes join an inline held action through success with an optimistic overlay": {
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
+    },
+    "tsx/async-handlers.test.ts:128:13 compiled handwritten RX #6": {
+      "category": "upstream behavior change (cause unconfirmed)",
+      "reason": "an interpreted/compiled RX callback now returns a Promise where the old runtime and native Solid return synchronously (callbacks launching inline actions or nested async closures); not yet traced to a specific upstream rule"
+    },
+    "tsx/async-handlers.test.ts:132:13 interpreted handwritten RX #6": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:140:15 interpreted authored TSX #4": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: before-await writes must form their own frame"
+    },
+    "tsx/async-handlers.test.ts:375:5 synchronous callback pre-writes join an inline held action through failure with an optimistic overlay": {
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
     },
     "tsx/callbacks.test.ts:73:13 interpreter #3": {
       "category": "reference interpreter divergence",
@@ -142,20 +200,20 @@
       "reason": "fails only because a listed subtest fails"
     },
     "tsx/effect-semantics.test.ts:175:1 RX effect disposal follows Solid's reverse ownership order across sibling and nested effects": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/effect-semantics.test.ts:186:1 a compute previous parameter uses a named packet equation, not the previous apply result": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/effect-semantics.test.ts:229:37 matching boundary payloads update without remounting fallback snapshots and state": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/effect-semantics.test.ts:229:37 nested filtered boundary payloads update without remounting fallback snapshots and state": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/failure-identities.test.ts:40:1 RX imported component failures and aliased boundaries share declaration identity": {
       "category": "upstream defect (not patched)",
@@ -207,7 +265,7 @@
     },
     "tsx/features.test.ts:25:1 native and emitted async handlers expose pre-await writes and return their Promise result": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/features.test.ts:232:1 same-setup previous accessors can be passed into later-mounted owners": {
       "category": "reference interpreter divergence",
@@ -215,7 +273,7 @@
     },
     "tsx/features.test.ts:496:3 built-in Error filters catch declared failures at boundaries": {
       "category": "UNREVIEWED",
-      "reason": "not yet investigated: line 1: expected '}' near 'fallback(err: Error)'"
+      "reason": "not yet investigated: handwritten.mjs"
     },
     "tsx/features.test.ts:835:3 failure boundaries update filtered error accessors": {
       "category": "reference interpreter divergence",
@@ -228,10 +286,6 @@
     "tsx/features.test.ts:937:1 derived scalar signals retain manual overrides until their input changes": {
       "category": "upstream rule change",
       "reason": "AC-1d STALE_OWN_READ refuses a read after the same change's write (Solid lets the stale read through)"
-    },
-    "tsx/features.test.ts:1136:3 fire-and-forget memo refresh with ambient affects": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Counter.tsx:1:182: Plain callbacks cannot guess or declare affects: ReactiveScript would infer an action (it has `affects`); wrap the callback in action(...)"
     },
     "tsx/features.test.ts:1151:1 synchronous projection drafts start from an eager seed and retain their previous draft": {
       "category": "reference interpreter divergence",
@@ -252,10 +306,6 @@
     "tsx/lower.test.ts:124:1 typed function-form stores retain structured question-source semantics": {
       "category": "UNREVIEWED",
       "reason": "not yet investigated: The input did not match the regular expression /__rt\\.qsource\\(\"state\",[^\\n]*structured: true/. Input:"
-    },
-    "tsx/lower.test.ts:175:1 only function-form stores retain native standing-question invalidation": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: input.tsx:1:155: Plain callbacks cannot guess or declare affects: ReactiveScript would infer an action (it has `affects`); wrap the callback in action(...)"
     },
     "tsx/lower.test.ts:349:1 async block handlers retain direct awaits, later writes and returned values; pre-await writes are refused (AC-1b)": {
       "category": "upstream defect (not patched)",
@@ -294,32 +344,32 @@
       "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
     },
     "tsx/rx-effects.test.ts:42:1 RX effects isolate synchronous and upstream errors per input and recover": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:152:1 RX input equations are cached independently, including function and array allocations": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:256:1 RX effect cleanup follows reverse sibling and nested ownership, even after equal inputs": {
       "category": "test migration incomplete (MO-1c)",
       "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
     },
     "tsx/rx-effects.test.ts:322:1 authored RX and native RX effects retain cleanup on equal direct computes": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:330:1 authored RX effects deliver per-input error answers and filter consecutive errors": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:343:1 RX effect errors are opaque answers for string coercion and equality": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:360:56 authored RX pending then reject preserves the native RX lifecycle": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/semantics.test.ts:79:1 handler writes preserve native Solid committed-read ordering": {
       "category": "upstream rule change",
@@ -361,9 +411,29 @@
       "category": "test migration incomplete (MO-1c)",
       "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
     },
-    "tsx/snapshot-core.test.ts:1:1 tsx/snapshot-core.test.ts": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: test failed"
+    "tsx/snapshot-core.test.ts:142:1 own-pre memo accumulation advances once per reactive instant": {
+      "category": "reference interpreter divergence",
+      "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+    },
+    "tsx/snapshot-core.test.ts:149:1 own-pre draft seeds retain the previous instant rather than a settle-pass result": {
+      "category": "reference interpreter divergence",
+      "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+    },
+    "tsx/snapshot-core.test.ts:188:1 equation dependencies do not reorder eager snapshot and source initialization": {
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+    },
+    "tsx/snapshot-core.test.ts:240:1 snapshot failures surface at readers, and TSX refuses unused eager consts whose initializer could throw": {
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
+    },
+    "tsx/snapshot-core.test.ts:266:1 ordinary missing-row access panics while optional member and index access return undefined": {
+      "category": "reference interpreter divergence",
+      "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
+    },
+    "tsx/snapshot-core.test.ts:279:1 optional access boxes primitives and skips computed keys, arguments and chain continuations": {
+      "category": "reference interpreter divergence",
+      "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:15:1 typed read-only questions stay structured across shadowed component writes": {
       "category": "UNREVIEWED",
@@ -391,7 +461,7 @@
     },
     "tsx/browser.ts:87:207 tsx async-handler streams HTML, adopts the same DOM on hydration, then updates on clicks": {
       "category": "upstream semantic change (AC-1b/AC-1c)",
-      "reason": "plain callbacks that write and await are inferred actions upstream; TSX refuses pre-await writes by decision (README: inferred actions)"
+      "reason": "plain callbacks that write and await are inferred actions upstream (writes before await are held); TSX refuses pre-await writes by decision (README: inferred actions)"
     },
     "tsx/browser.ts:87:207 rx server-loader streams HTML, adopts the same DOM on hydration, then updates on clicks": {
       "category": "UNREVIEWED",

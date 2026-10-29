@@ -155,7 +155,7 @@ const asyncRx = `import { fetchState, gate } from "./api";
 source id := 1;
 source state = await fetchState(id);
 action patch() { try { state.a := 5; await gate("w"); } catch {} }
-errored fallback(error) { <p>failed</p> } {
+export default component App() { errored fallback(error) { <p>failed</p> } {
   {loading fallback { <p>loading</p> } { <div>
     <p>{state.a} {state.b} {pending? state.a ? "a!" : "-"} {pending? state.b ? "b!" : "-"}|{latest state.a}/{latest state.b}</p>
     <button onClick={() => { id := id + 1; }}></button>
@@ -163,7 +163,7 @@ errored fallback(error) { <p>failed</p> } {
     <button onClick={() => { patch(); }}></button>
     <button onClick={() => { state.b := 8; }}></button>
   </div> }}
-}`;
+} }`;
 
 test("S-solid-37 seedless derived stores suspend initially, re-ask by id and refresh quietly", t =>
   differential(t, asyncSource, asyncRx, [

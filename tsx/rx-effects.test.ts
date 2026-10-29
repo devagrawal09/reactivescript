@@ -272,7 +272,7 @@ test("RX effect cleanup follows reverse sibling and nested ownership, even after
   const effect = (label: string) => `effect(n > 2) { let value = $0; log("apply", "${label}", value); return () => { log("cleanup", "${label}", value); }; }`;
   const actual = await rxTraces(`source n := 0;
     component Child() { ${effect("child-a")} ${effect("child-b")} }
-    ${effect("first")} ${effect("second")} <Child/>`, [1]);
+    ${effect("first")} ${effect("second")} export default component App() { <Child/> }`, [1]);
   assert.deepEqual(actual.compiled, phases);
   assert.deepEqual(actual.interpreter, phases);
 });

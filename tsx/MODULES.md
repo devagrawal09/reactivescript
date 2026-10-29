@@ -17,7 +17,7 @@ root or path write is `WRITE_TO_NON_SOURCE (MO-2)` (see `setup-values.test.ts`).
 From ref/:
 
 ~~~sh
-npm run build:tsx -- tsx/fixtures/counter.tsx --mount Counter --target dom --out compile/.out/tsx-counter
+npm run build -- tsx/fixtures/counter.tsx --mount Counter --target dom --out .out/tsx-counter
 ~~~
 
 The command checks before emitting. It writes one ES module per input module and
@@ -45,7 +45,7 @@ hydration adopts their existing button nodes, and clicks them after takeover:
 
 ~~~sh
 npx playwright install chromium
-npm run test:tsx:browser
+npm run test:browser
 ~~~
 
 The paired cases cover synchronous counters, typed input callbacks, branch
@@ -56,10 +56,10 @@ The direct JS API and server-loader cases currently invoke the API once again
 during hydration in both syntaxes;
 the test records that shared limitation, rather than claiming request reuse.
 This tests full hydration, not resumability or server-only components. Fast
-module, checker, and compiler tests run with npm run test:tsx without a browser.
+module, checker, and compiler tests run with npm test without a browser.
 
 The setup script builds Solid's generated declaration files as well as its JS
-packages. These declarations are required by npm run check:tsx, which also checks
+packages. These declarations are required by npm run check, which also checks
 the shared interpreter and emitter; ambient any-type stubs are not used to hide
 missing dependencies. The native Solid compiler at
 the current pin requires Rust 1.95 or later.

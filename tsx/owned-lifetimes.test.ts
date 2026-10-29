@@ -156,9 +156,9 @@ test("functional writes discard transient predicates but retain stored closure p
     { value: "previous => filter(previous, entry => local)", escape: true, shadow: true },
   ];
   for (const { value, escape, shadow } of cases) {
-    const source = "source rows := [1]; source saved := []; {for item in rows {source local := 1; " +
+    const source = "source rows := [1]; source saved := []; export default component App() { {for item in rows {source local := 1; " +
       (shadow ? "fn filter(items, predicate) => predicate; " : "") +
-      "<button onClick={() => {saved := " + value + "}}>x</button>}}";
+      "<button onClick={() => {saved := " + value + "}}>x</button>}} }";
     const diagnostics = check(parseProgram(source));
     assert.equal(diagnostics.some(d => d.code === "REGION_ESCAPE"), escape, value);
     if (!escape) assert.deepEqual(diagnostics, [], value);

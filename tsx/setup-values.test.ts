@@ -88,12 +88,12 @@ test("setup consts are immutable to authored TSX, in their module and through im
 test("an RX importer reads exported TSX consts but cannot write them (MO-2)", () => {
   const state = "export const limit: number = 1; export const config: { a: number } = { a: 1 };";
   const files = (main: string): Record<string, string> => ({ "state.tsx": state, "main.rx": main });
-  const reader = files('import { limit, config } from "./state.tsx"\n<p>{"" + limit}/{"" + config.a}</p>');
+  const reader = files('import { limit, config } from "./state.tsx"\nexport default component App() { <p>{"" + limit}/{"" + config.a}</p> }');
   const set = loadTsxModules("main.rx", path => reader[path]);
   assert.deepEqual(checkModules(set).diags, []);
   assert.equal(new Runtime(set).step([]).at(-1)!.frame, "1/1");
   for (const write of ["limit := 3", "config.a := 2", "config := { a: 5 }"]) {
-    const writer = files('import { limit, config } from "./state.tsx"\naction bump() { ' + write + ' }\n<button onClick={() => { bump() }}>{"" + limit}</button>');
+    const writer = files('import { limit, config } from "./state.tsx"\naction bump() { ' + write + ' }\nexport default component App() { <button onClick={() => { bump() }}>{"" + limit}</button> }');
     const diags = checkModules(loadTsxModules("main.rx", path => writer[path])).diags;
     assert.ok(diags.some(d => d.code === "WRITE_TO_NON_SOURCE" && d.rule === "MO-2"), write + ": " + JSON.stringify(diags));
   }
