@@ -3,14 +3,13 @@
   "counts": {
     "upstream semantic change (AC-1b/AC-1c)": 9,
     "upstream behavior change (cause unconfirmed)": 8,
-    "parent of failing subtests": 12,
-    "UNREVIEWED": 23,
+    "parent of failing subtests": 14,
+    "UNREVIEWED": 22,
     "reference interpreter divergence": 19,
     "upstream defect (not patched)": 11,
     "upstream rule change": 6,
-    "test migration incomplete (MO-1c)": 8,
     "paired behavior mismatch": 3,
-    "legacy core regression (patch not carried)": 12,
+    "legacy core regression (patch not carried)": 18,
     "native behavior change": 2,
     "adapter/API breakage": 3
   },
@@ -179,19 +178,35 @@
       "category": "upstream rule change",
       "reason": "IO-2: a server fn whose body is io is refused in reactive scope (io is inferred from the body)"
     },
+    "tsx/derived-stores.test.ts:123:13 interpreted handwritten RX": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: handwritten RX instant 2"
+    },
+    "tsx/derived-stores.test.ts:128:13 interpreted authored TSX": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: authored TSX instant 2"
+    },
     "tsx/derived-stores.test.ts:168:1 S-solid-37 seedless derived stores suspend initially, re-ask by id and refresh quietly": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
+    },
+    "tsx/derived-stores.test.ts:123:13 interpreted handwritten RX #1": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: handwritten RX instant 5"
+    },
+    "tsx/derived-stores.test.ts:128:13 interpreted authored TSX #1": {
+      "category": "UNREVIEWED",
+      "reason": "not yet investigated: authored TSX instant 5"
     },
     "tsx/derived-stores.test.ts:179:1 S-solid-37 held path writes pend only their key and latest sees the uncommitted path": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "parent of failing subtests",
+      "reason": "fails only because a listed subtest fails"
     },
-    "tsx/derived-stores.test.ts:124:13 compiled authored TSX": {
+    "tsx/derived-stores.test.ts:124:13 compiled authored TSX #2": {
       "category": "paired behavior mismatch",
       "reason": "compiled frames differ from the recorded expectation"
     },
-    "tsx/derived-stores.test.ts:128:13 interpreted authored TSX": {
+    "tsx/derived-stores.test.ts:128:13 interpreted authored TSX #2": {
       "category": "UNREVIEWED",
       "reason": "not yet investigated: authored TSX instant 3"
     },
@@ -311,21 +326,9 @@
       "category": "upstream defect (not patched)",
       "reason": "aliased error-class imports lose declaration identity in the reference checker (docs/UPSTREAM-ISSUES.md #1)"
     },
-    "tsx/owned-lifetimes.test.ts:147:1 functional writes discard transient predicates but retain stored closure provenance": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
-    },
     "tsx/owned-lifetimes.test.ts:170:5 compiled/interpreter: keyed row helpers survive reorder, dispose on removal, and remount after readdition": {
       "category": "reference interpreter divergence",
       "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
-    },
-    "tsx/previous.test.ts:72:1 native S-core-1 previous values survive equal writes, batching, and hiding the current reader": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
-    },
-    "tsx/previous.test.ts:137:1 same-owner Show demand preserves warm history and records the existing cold-target baseline divergence": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
     },
     "tsx/previous.test.ts:203:1 seeded previous falls back on undefined history values, but never on null": {
       "category": "reference interpreter divergence",
@@ -339,10 +342,6 @@
       "category": "reference interpreter divergence",
       "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
     },
-    "tsx/previous.test.ts:379:1 native S-store-2 projection uses cross-node previous id while untouched paths stay quiet": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
-    },
     "tsx/rx-effects.test.ts:42:1 RX effects isolate synchronous and upstream errors per input and recover": {
       "category": "legacy core regression (patch not carried)",
       "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
@@ -352,8 +351,8 @@
       "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:256:1 RX effect cleanup follows reverse sibling and nested ownership, even after equal inputs": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "raw-AST/RX core regression written for the old prototype's runtime.ts/rt.ts fixes; unmodified upstream differs from the recorded Solid-aligned expectation (docs/PATCHES.md)"
     },
     "tsx/rx-effects.test.ts:322:1 authored RX and native RX effects retain cleanup on equal direct computes": {
       "category": "legacy core regression (patch not carried)",
@@ -407,10 +406,6 @@
       "category": "adapter/API breakage",
       "reason": "test drives the old patched compiled-runtime app.serverFn; upstream replaced it with serverRef/serverCall (SF-2/SF-6); test not ported"
     },
-    "tsx/setup-values.test.ts:88:1 an RX importer reads exported TSX consts but cannot write them (MO-2)": {
-      "category": "test migration incomplete (MO-1c)",
-      "reason": "handwritten RX in this test still writes top-level markup; upstream now requires an `export default component` entry"
-    },
     "tsx/snapshot-core.test.ts:142:1 own-pre memo accumulation advances once per reactive instant": {
       "category": "reference interpreter divergence",
       "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
@@ -436,24 +431,24 @@
       "reason": "interpreter frames differ from compiled/native; the old prototype's runtime.ts interpreter fixes are not carried (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:15:1 typed read-only questions stay structured across shadowed component writes": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:27:1 typed read-only questions stay structured across shadowed branch writes": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:39:1 root-written questions retain the supported atomic lowering": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:47:1 a shadowed context root write does not reach another provision": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
     },
     "tsx/store-inference.test.ts:63:1 root writes through an imported context alias reach the provided question": {
-      "category": "UNREVIEWED",
-      "reason": "not yet investigated: Expected values to be strictly equal:"
+      "category": "legacy core regression (patch not carried)",
+      "reason": "emitter-output regression for the old emit.ts patch that inferred structured question sources from a written object/array type; upstream infers structure from path writes only (docs/PATCHES.md)"
     },
     "tsx/browser.ts:87:207 rx async-handler streams HTML, adopts the same DOM on hydration, then updates on clicks": {
       "category": "upstream rule change",
