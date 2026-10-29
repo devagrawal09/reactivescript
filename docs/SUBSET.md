@@ -6,10 +6,10 @@ forms that cannot be represented faithfully instead of silently changing meaning
 ## Current Checkpoint
 
 Run `npm run verify:subset`. It runs the package typecheck, all boundary contracts,
-paired-counter tests, and component-composition tests without test-name filtering.
-Any failed command fails the checkpoint. The behavioral scope is deliberately
-narrow: the authored counter and composition fixtures and their handwritten RX
-counterparts.
+paired-counter tests, component-composition tests, and the issue-tracker demo
+without test-name filtering. Any failed command fails the checkpoint. The
+behavioral scope is deliberately narrow: the authored counter, composition and
+tracker fixtures and their handwritten RX counterparts.
 
 ```tsx
 import { createSignal, createMemo } from "solid-js";
@@ -76,13 +76,34 @@ claimed by these examples.
 
 These are the two existing composition tests moved unchanged from
 `lower.test.ts`, not replacement assertions. The full suite still discovers them,
-and the coverage manifest records their new paths. `npm run verify:subset` passes
-14 tests with no skips or TODOs; the package typecheck is clean. Upstream's 12
+and the coverage manifest records their new paths.
+
+## Demo: Issue Tracker
+
+`tsx/demo.test.ts` uses `fixtures/demo/tracker.tsx` and its handwritten RX
+counterpart `tracker.rx`: a demo for review, not a broader parity claim. It
+combines a `createStore` issue list with a draft path write, a filter signal with
+`createMemo` views (visible rows, open count), `<For>` rows inside a `<Show>`
+with an empty-state fallback, a later-declared `IssueRow` child with props and an
+`onAssign` callback, and an explicit generator action whose `createOptimistic`
+claim shows at once, commits the yielded `assignIssue(id)` answer on success, and
+rolls back with a status message on failure. The tests require equal canonical
+checker facts (and that snapshotting the filter in the RX is detected), and the
+same eight exact frames from native Solid's universal renderer, the RX compiler for
+both programs, and the RX interpreter for both programs, across a scripted session:
+initial render, a failed assignment with rollback, a filter change, two successful
+assignments, and the empty-state fallback. Requests are controllable flights; a
+repeated request for the same issue would reuse its cached answer on every backend,
+so the script never retries one issue. Async list loading, async memos and server
+functions are deliberately left out.
+
+`npm run verify:subset` passes 21 tests with no skips or TODOs; the package
+typecheck is clean. Upstream's 12
 strict-mode diagnostics remain the separately recorded baseline.
 
 ## Exclusions
 
-Async behavior, server functions, cross-module error identity, previous values,
+Async behavior beyond the demo's scripted action flights, server functions, cross-module error identity, previous values,
 stores, owner lifetimes, SSR, and hydration are not certified by this command.
 Their existing tests and native assertions remain in the full suites. The full
 migration remains NOT READY while those suites fail.

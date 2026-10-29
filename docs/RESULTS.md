@@ -1,4 +1,46 @@
-# Measured results (2026-10-28)
+# Measured results
+
+## Current state (2026-10-29)
+
+Stack: reactivescript aa85cbde + patches/0001-server-question-keys (worktree `reactivescript-patched`), Solid
+ac28157 (= ref/SOLID_NEXT), Node 24.18.0. Run: `frontend/.out/demo-1`
+(`OUT=.out/demo-1 sh scripts/verify-pinned.sh --skip-upstream`, READINESS mode). Upstream runners were skipped in
+this run; their last measured numbers are in the history below.
+
+**Verdict: NOT READY (8 blockers: 5 skipped upstream runners, suite exit 1, browser exit 1, 96 failing tests).**
+
+| | Now |
+| --- | --- |
+| All tests | 568 tests, 472 pass, 96 fail |
+| Ported suite | 537 tests, 444 pass, 93 fail |
+| Browser (Chromium) | 31 tests, 28 pass, 3 fail |
+| Coverage manifest (568) | 568 ran, 0 missing, 0 unlisted |
+| Skip / todo | 0 |
+| Strict types | 0 package diagnostics; upstream's 12 strict errors baselined |
+| `npm run verify:subset` | 21/21 (boundary 9, paired counter 3, composition 2, tracker demo 7) |
+
+Comparison with `baselines/observed-failures.json` (an unapproved observation, unchanged): 0 new failures, 0 new
+coverage gaps. Three observed entries no longer fail under their recorded identity, all because of the async-callback
+policy below, not because a backend was fixed: `async-handlers :: interpreted authored TSX #5` now passes as a
+refusal, and the `lower.test.ts` async block handler test and the browser `tsx async-handler` test were renamed to
+refusal tests. Every other failure is still classified as in the history below; none is approved.
+
+Changes since the 2026-10-28 measurement:
+
+- **Async-callback policy (temporary, [issue #20](https://github.com/ryansolid/reactivescript/issues/20)).** Every
+  authored ordinary async callback (event handlers, contextual callback props, forwarded and stored callbacks,
+  `createRxEffect` apply callbacks and cleanups) is refused at its `async` node with guidance to write
+  `action(function* () { ... yield request(); ... })`, which opts into held action semantics and is not a
+  semantics-preserving rewrite. `action(async ...)` is refused too. Async memo/store/server computations and
+  explicit generator actions are unaffected. Native and handwritten RX legs of the async-handler suites still run.
+- **Subset checkpoint.** `npm run verify:subset` (typecheck, boundary, paired counter, composition, demo); see
+  `docs/SUBSET.md`.
+- **Tracker demo.** `tsx/demo.test.ts` with `tsx/fixtures/demo/tracker.{tsx,rx}`: store list with a draft path write,
+  filter signal and memos, `For`/`Show` with fallback, a later-declared child with a callback prop, and an explicit
+  generator action with an optimistic claim, success commit and failure rollback. Equal checker facts and identical
+  frames across native Solid, both compiled programs and both interpreted programs.
+
+## History: measurement of 2026-10-28
 
 Stack: reactivescript aa85cbde + patches/0001-server-question-keys (worktree `reactivescript-patched`), Solid
 ac28157 (= ref/SOLID_NEXT, Rust 1.97.1), Node 24.18.0, this package at commit 31ca133. Final run:
@@ -6,13 +48,13 @@ ac28157 (= ref/SOLID_NEXT, Rust 1.97.1), Node 24.18.0, this package at commit 31
 
 **Verdict: NOT READY.** The port is not complete; the failures below are classified, not accepted.
 
-## Upstream at the pins (unmodified runners, on pin + patch 0001; identical to the clean pin)
+### Upstream at the pins (unmodified runners, on pin + patch 0001; identical to the clean pin)
 
 interpreter 104 PASS / 0 FAIL; oracle 104/0 (0 divergences); compiled 104/0 (0 divergences); types 144/0; SSR 97/0
 with upstream's 7 skips; crate parity 305/305; `crate --lower` 176/176; `crate --project` 176/176. The same numbers
 were measured on the clean pin before the patch (verify-pinned-3) and in the full canary of `main` (= pin).
 
-## This package
+### This package
 
 | | Original worktree (old pin, reproduced from archive) | Now (pin + 0001) |
 | --- | --- | --- |
@@ -26,14 +68,14 @@ were measured on the clean pin before the patch (verify-pinned-3) and in the ful
 Original known failures: structured optimistic rollback now **passes**; same-setup previous accessor still fails
 (interpreter leg); async structured keyed replacement still fails (native leg).
 
-## Coverage reconciliation
+### Coverage reconciliation
 
 The manifest is the original 513 identities (file + name + occurrence) with 3 recorded renames (two lower.test.ts
 decisions, the ported server namespace test), plus 14 added tests and the 31 browser tests. All 558 ran. The 22
 async-handlers subtests that had stopped registering now always register; where upstream refuses the form, each leg
 asserts that refusal.
 
-## The 99 failures (baselines/observed-failures.json; unapproved observation)
+### The 99 failures (baselines/observed-failures.json; unapproved observation)
 
 Triage is leg-based where tests have backend legs (every leg runs the same lowered program).
 
@@ -55,7 +97,7 @@ No failure is classified as an adapter (TSX-only) failure. Adapter defects found
 (features), `untrack(() => store.path)` silently changing meaning when the captured object is updated in place (now
 refused at the authored span; accepted where nothing can update it in place).
 
-## Not run / not covered
+### Not run / not covered
 
 - No Rust route for TSX lowering (the crate consumes RX source; the frontend produces `Program` objects).
 - The alias-identity and same-name server key defects need fixes in both the reference and Rust implementations; not

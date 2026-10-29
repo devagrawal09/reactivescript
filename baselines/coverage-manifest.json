@@ -13,6 +13,7 @@
   },
   "added": [
     "tsx/boundary.test.ts",
+    "tsx/demo.test.ts",
     "tsx/paired.test.ts",
     "tsx/verifier.test.ts"
   ],
@@ -282,6 +283,13 @@
     "tsx/lower.test.ts :: counter: existing AST, checker, compiler and native Solid agree through four clicks",
     "tsx/composition.test.ts :: later-declared children receive live direct and memo props and forward callbacks upward",
     "tsx/composition.test.ts :: callback props can attach directly to onClick or forward through a zero-argument arrow",
+    "tsx/demo.test.ts :: demo tracker: TSX and handwritten RX have the same canonical checker facts",
+    "tsx/demo.test.ts :: demo tracker: snapshotting the filter in the handwritten RX is a fact difference, not normalized away",
+    "tsx/demo.test.ts :: demo tracker frames: native Solid",
+    "tsx/demo.test.ts :: demo tracker frames: compiled TSX",
+    "tsx/demo.test.ts :: demo tracker frames: compiled handwritten RX",
+    "tsx/demo.test.ts :: demo tracker frames: interpreted TSX",
+    "tsx/demo.test.ts :: demo tracker frames: interpreted handwritten RX",
     "tsx/lower.test.ts :: declaration and JSX lines remain authored, and non-exported components stay non-exported",
     "tsx/lower.test.ts :: import aliases, chained memos, signed initialization, nested text, and block handler",
     "tsx/lower.test.ts :: numeric JSX conversion preserves Infinity, NaN, negative Infinity, and signed zero",
