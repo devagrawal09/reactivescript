@@ -73,7 +73,9 @@ const scenarios = [
     tsx: 'import { createSignal, createMemo } from "solid-js"; import { defineError, raiseFailure, FailureBoundary } from "reactivescript-tsx"; const Missing = defineError("Missing", ["id"], (id: number) => "missing " + id); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo((): string => n() < 2 ? "ok" : raiseFailure(Missing(n()))); return <button onClick={() => setN(n()+1)}>{n()}/<FailureBoundary classes={[Missing]} fallback={error => <span>{error().message}</span>}><span>{value()}</span></FailureBoundary></button>; }',
   },
   {
-    name: "server-loader", frames: ["4", "14", "24", "34"], hydrationCalls: 1,
+    // hydrationCalls records a shared limitation, not a goal: on the old pin both syntaxes re-invoked the loader's JS
+    // API once during hydration. At reactivescript aa85cbde both syntaxes reuse the streamed server answer (0 calls).
+    name: "server-loader", frames: ["4", "14", "24", "34"], hydrationCalls: 0,
     rx: 'import pure { fetchValue } from "./api"; server fn load(n) { let value = await fetchValue(n); return value } export component Counter() { source n := 0; value = await load(n); errored fallback { <p>failed</p> } { loading fallback { <p>waiting</p> } { <button onClick={() => { n := n + 1 }}>{"" + value}</button> } } }',
     tsx: 'import { createSignal, createMemo, Loading, Errored } from "solid-js"; import { serverFunction } from "reactivescript-tsx"; import { fetchValue } from "./api"; const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { const value: number = yield fetchValue(n); return value; }); export function Counter() { const [n,setN] = createSignal(0); const value = createMemo(async (): Promise<number> => await load(n())); return <Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}><button onClick={() => setN(n()+1)}>{value()}</button></Loading></Errored>; }',
   },

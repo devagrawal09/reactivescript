@@ -3,11 +3,12 @@
 # temporary directory: a clone of reactivescript at REV, Solid at that revision's ref/SOLID_NEXT, and an export of this
 # package's committed HEAD with its own npm ci. Pins, baselines and working checkouts are never modified.
 #   sh scripts/canary.sh REV --dry-run    cheap: fetch, report pin/schema changes; NO build and NO tests run
-#   sh scripts/canary.sh REV [--rust]     full: build Solid, install, run scripts/verify-pinned.sh --canary
+#   sh scripts/canary.sh REV [--rust]     full READINESS run: build Solid, install, run scripts/verify-pinned.sh --canary
+#   sh scripts/canary.sh REV --compare    full run, COMPARISON ONLY against the unapproved observation (never "ready")
 set -eu
 REV=${1:?usage: canary.sh REV [--dry-run] [--rust]}; shift
 DRY=0; EXTRA=""
-for a in "$@"; do case $a in --dry-run) DRY=1;; --rust) EXTRA="--rust";; *) echo "unknown option $a"; exit 2;; esac; done
+for a in "$@"; do case $a in --dry-run) DRY=1;; --rust) EXTRA="$EXTRA --rust";; --compare) EXTRA="$EXTRA --compare";; *) echo "unknown option $a"; exit 2;; esac; done
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 WS=$(cd "$HERE/.." && pwd)
 pin() { node -e "process.stdout.write(require('$HERE/pins.json')$1)"; }
@@ -56,5 +57,5 @@ git -C "$HERE" archive HEAD | tar -x -C "$TMP/frontend"
 set +e
 (cd "$TMP/frontend" && OUT="$TMP/report" sh scripts/verify-pinned.sh --canary $EXTRA)
 status=$?
-echo "canary report: $TMP/report/REPORT.md (exit $status). Pins and baselines in $HERE were not modified."
+echo "canary $(grep -m1 '^VERDICT' "$TMP/report/REPORT.md" 2>/dev/null || echo 'VERDICT: NOT READY (no report)'); report $TMP/report/REPORT.md, exit $status. Pins, manifest and observations in $HERE were not modified."
 exit $status

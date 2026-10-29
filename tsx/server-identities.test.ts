@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
-import { createRoot, getOwner } from "@solidjs/signals";
+import { createMemo, createRoot, getOwner } from "@solidjs/signals";
 import { serverFunction } from "./primitives.ts";
 import { buildTsx } from "./build.ts";
 import { STRING_RENDERER } from "./rx/compiler.ts";
 import { createApp, flush } from "./rx/runtime.ts";
 import { Runtime } from "./rx/runtime.ts";
-import { parseProgram } from "./rx/compiler.ts";
+import { compile, lowerViews, parseProgram } from "./rx/compiler.ts";
 
 const imports = 'import { createSignal, action, Loading, Errored, untrack } from "solid-js"; import { serverFunction, serverAction, createServerMemo, refresh } from "reactivescript-tsx";';
 const boundary = (body: string) => '<Errored fallback={error => <p>failed</p>}><Loading fallback={<p>waiting</p>}>' + body + "</Loading></Errored>";
@@ -112,33 +112,69 @@ for (const factory of ["serverFunction", "serverAction"]) test(factory + " detac
   });
 });
 
+/** The compiled bridge for `server fn name(…) { body }` exactly as the pinned emitter builds it (emit.ts SF-7a: a
+ *  module-level "use server" function running the body through serverCall, called through serverRef). Called in
+ *  reactive scope a server fn is a question (one flight per argument key); called imperatively, a new request (SF-2). */
+type App = ReturnType<typeof createApp>;
+const compiledServerFn = (app: App, name: string, gen: (...a: any[]) => Generator<unknown, unknown, unknown>) =>
+  app.serverRef(name, (...a: unknown[]) => app.serverCall(name, gen, a)) as (...a: unknown[]) => { first: Promise<unknown> };
+/** Runs f as the body of a computation, so server fn calls in it are questions. */
+function asQuestion<T>(f: () => T): T {
+  return createRoot(() => { let value!: T; const memo = createMemo(() => { value = f(); return 0; }); memo(); return value; });
+}
+async function compiledFrame(source: string): Promise<string> {
+  const root = fileURLToPath(new URL("../.out/", import.meta.url));
+  mkdirSync(root, { recursive: true });
+  const dir = mkdtempSync(root + "server-keys-");
+  const renderer = fileURLToPath(new URL("./test-renderer.ts", import.meta.url));
+  try {
+    const file = lowerViews(new Map([["main.mjs", compile(parseProgram(source))]]), "universal").get("main.mjs")!;
+    writeFileSync(dir + "/main.mjs", file.replaceAll(STRING_RENDERER, renderer));
+    const mod = await import(pathToFileURL(dir + "/main.mjs").href);
+    const app = createApp();
+    const dispose = app.mount(mod.default(app));
+    try { await settle(); return app.frame(); } finally { dispose(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 test("server loader keys preserve wire argument types, delimiters and numeric edge cases", async () => {
   const args: unknown[][] = [[1], ["1"], ["a,b", "c"], ["a", "b,c"], [undefined], ["undefined"], [NaN], [null], [Infinity], [-Infinity], [-0], [0], [{ a: undefined }], [{}], [[undefined]], [[]], [Array(1)], [{ a: 1, b: 2 }]];
-  for (const native of [true, false]) {
+  {
     let calls = 0;
-    const body = function*(..._args: unknown[]) { return calls++; };
-    const load = native ? serverFunction("load", body) : createApp().serverFn("load", "fn", body);
+    const load = serverFunction("load", function*(..._args: unknown[]) { return calls++; });
     const requests = args.map(values => load(...values));
-    assert.deepEqual(await Promise.all(requests), args.map((_, i) => i), native ? "native" : "compiled");
+    assert.deepEqual(await Promise.all(requests), args.map((_, i) => i), "native");
     args.forEach((values, i) => assert.equal(load(...values), requests[i], "equivalent arguments reuse their request"));
     assert.equal(load({ b: 2, a: 1 }), requests.at(-1), "record insertion order is not request identity");
     await assert.rejects(load(() => 1), /WIRE_VALUE/, "validation must precede the cache lookup");
   }
-  const program = parseProgram('server fn load(x) { return x === 1 ? "number" : "string" } server fn first(x, y) { return x } a = await load(1); b = await load("1"); c = await first("a,b", "c"); d = await first("a", "b,c"); export default component App() { errored fallback(e) { <p>failed</p> } { <p>{a}/{b}/{c}/{d}</p> } }');
-  assert.equal(new Runtime(program).step([]).at(-1)!.frame, "number/string/a,b/a", "interpreter server-only keying");
+  {
+    const app = createApp();
+    let calls = 0;
+    const load = compiledServerFn(app, "load", function*(..._args: unknown[]) { return calls++; });
+    const requests = asQuestion(() => args.map(values => load(...values)));
+    assert.deepEqual(await Promise.all(requests.map(r => r.first)), args.map((_, i) => i), "compiled questions: one request per distinct argument list");
+    asQuestion(() => args.forEach((values, i) => assert.equal(load(...values), requests[i], "equivalent arguments reuse their question")));
+    asQuestion(() => assert.equal(load({ b: 2, a: 1 }), requests.at(-1), "record insertion order is not question identity"));
+    await assert.rejects(asQuestion(() => load(() => 1)).first, /WIRE_VALUE/, "validation must precede the cache lookup");
+    assert.notEqual(load(1), load(1), "imperative calls are new requests (SF-2)");
+  }
+  const program = 'server fn load(x) { return x === 1 ? "number" : "string" } server fn first(x, y) { return x } a = await load(1); b = await load("1"); c = await first("a,b", "c"); d = await first("a", "b,c"); export default component App() { errored fallback(e) { <p>failed</p> } { <p>{a}/{b}/{c}/{d}</p> } }';
+  assert.equal(new Runtime(parseProgram(program)).step([]).at(-1)!.frame, "number/string/a,b/a", "interpreter server-only keying");
+  assert.equal(await compiledFrame(program), "number/string/a,b/a", "compiled server-only keying");
 });
 
-test("server factory namespaces leave shared raw JS API flight keys unchanged", async () => {
+test("server fns with the same name in distinct modules keep distinct question identities", async () => {
   const app = createApp();
-  const left = app.serverFn("load", "fn", function*(n) { const value = yield app.aw(app.api("query")(n)); return Number(value) + 1; });
-  const right = app.serverFn("load", "fn", function*(n) { const value = yield app.aw(app.api("query")(n)); return Number(value) + 2; });
-  const first = left(3), second = right(3);
-  assert.notEqual(first, second);
-  assert.equal(left(3), first); assert.equal(right(3), second);
-  assert.ok(app.flights.has("query:3"));
-  assert.equal(app.flights.size, 3, "two server requests share one raw API request");
-  app.flights.get("query:3")!.resolve(7);
-  assert.deepEqual(await Promise.all([first, second]), [8, 9]);
+  const gate: { resolve?: (n: number) => void } = {};
+  const answer = new Promise<number>(resolve => { gate.resolve = resolve; });
+  const left = compiledServerFn(app, "load", function*(n: number) { const value = (yield answer) as number; return value + n + 1; });
+  const right = compiledServerFn(app, "load", function*(n: number) { const value = (yield answer) as number; return value + n + 2; });
+  const [first, second] = asQuestion(() => [left(3), right(3)]);
+  assert.notEqual(first, second, "two server fns named load are two questions");
+  asQuestion(() => { assert.equal(left(3), first); assert.equal(right(3), second); });
+  gate.resolve!(7);
+  assert.deepEqual(await Promise.all([first.first, second.first]), [11, 12]);
 });
 
 test("server setup is detached too; loaders reuse and actions never reuse requests", async () => {
@@ -155,16 +191,23 @@ test("server setup is detached too; loaders reuse and actions never reuse reques
       })();
     };
     const run = createRoot(dispose => {
-      const load = native ? serverFunction("load", body) : app.serverFn("load", "fn", body);
-      const first = load(); assert.equal(load(), first, "a loader reuses its argument flight");
-      return { first: native ? first : app.aw(first), dispose };
+      if (native) {
+        const load = serverFunction("load", body);
+        const first = load(); assert.equal(load(), first, "a loader reuses its argument flight");
+        return { first, dispose };
+      }
+      const load = compiledServerFn(app, "load", body as () => Generator<unknown, unknown, unknown>);
+      const first = asQuestion(() => load());
+      asQuestion(() => assert.equal(load(), first, "a loader question reuses its argument flight"));
+      return { first: first.first, dispose };
     });
     try { assert.equal(await run.first, 7); assert.deepEqual(phases, ["setup", "next", "throw", "resume"]); } finally { run.dispose(); }
     const crashBody = function*() { throw undefined; };
-    const crash = native ? serverFunction("crash", crashBody) : app.serverFn("crash", "fn", crashBody);
-    await assert.rejects(crash(), /Internal Server Error/, "undeclared throws remain transport failures");
+    const crash = native ? serverFunction("crash", crashBody) : compiledServerFn(app, "crash", crashBody);
+    const crashed = crash() as unknown;
+    await assert.rejects(native ? crashed as Promise<unknown> : (crashed as { first: Promise<unknown> }).first, /Internal Server Error/, "undeclared throws remain transport failures");
   }
   const app = createApp();
-  const action = app.serverFn("run", "action", function*() { return 1; });
-  assert.notEqual(action(), action(), "server actions always allocate a new request");
+  const action = compiledServerFn(app, "run", function*() { return 1; });
+  assert.notEqual(action(), action(), "imperative server calls (actions) always allocate a new request");
 });
