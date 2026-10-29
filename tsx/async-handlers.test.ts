@@ -36,7 +36,7 @@ const settle = async () => {
 };
 
 async function compare(t: TestContext, source: string, rx: string, initial: string, steps: Step[],
-  options: { async?: boolean; authored?: boolean } = {}) {
+  options: { async?: boolean; authored?: boolean; refused?: { rx: RegExp; tsx: RegExp } } = {}) {
   const isAsync = options.async ?? true;
   const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
@@ -123,21 +123,29 @@ async function compare(t: TestContext, source: string, rx: string, initial: stri
       nativeProven = true;
     });
     assert.equal(nativeProven, true, "prove native expectations before compiling RX or TSX");
-    const program = parseProgram(rx);
-    assert.deepEqual(check(program), []);
+    // Every backend leg is registered whatever the pinned checker answers, so coverage stays accountable. With
+    // `refused`, the pinned upstream cannot express the native behavior proven above (AC-1b/AC-1c: a plain callback
+    // that writes and awaits is an inferred action whose pre-await writes are held): each leg then proves that exact
+    // refusal (RX: the shared checker's diagnostics; TSX: the frontend's refusal at the authored callback).
+    const refusedRx = () => assert.match(check(parseProgram(rx)).map(d => d.code).join(" "), options.refused!.rx,
+      "the pinned checker refuses the handwritten RX spelling of this behavior");
+    const checkedRx = () => { const program = parseProgram(rx); assert.deepEqual(check(program), []); return program; };
     await t.test("compiled handwritten RX", async () => {
-      const code = lowerViews(new Map([["handwritten.mjs", compile(program)]]), "universal").get("handwritten.mjs")!;
+      if (options.refused) return refusedRx();
+      const code = lowerViews(new Map([["handwritten.mjs", compile(checkedRx())]]), "universal").get("handwritten.mjs")!;
       await exercise(await rendered("handwritten.mjs", code));
     });
-    await t.test("interpreted handwritten RX", () => exercise(interpreted(program)));
+    await t.test("interpreted handwritten RX", () => options.refused ? refusedRx() : exercise(interpreted(checkedRx())));
     if (options.authored !== false) {
       const build = () => buildTsx("main.tsx", path => path === "main.tsx" ? source
         : path === "api.d.rx" ? "export fn request(key: string): number" : undefined, { mount: "Counter" });
+      const refusedTsx = () => assert.throws(build, options.refused!.tsx, "the frontend refuses the authored TSX");
       await t.test("compiled authored TSX", async () => {
+        if (options.refused) return refusedTsx();
         const built = build();
         await exercise(await rendered(built.entry, built.files.get(built.entry)!));
       });
-      await t.test("interpreted authored TSX", () => exercise(interpreted(build().set)));
+      await t.test("interpreted authored TSX", () => options.refused ? refusedTsx() : exercise(interpreted(build().set)));
     }
   } finally {
     delete (globalThis as any).__tsxAsyncHandlerRequest;
@@ -145,6 +153,9 @@ async function compare(t: TestContext, source: string, rx: string, initial: stri
   }
 }
 
+/** Unsupported at the pin (README: inferred actions): Solid applies a plain async callback's pre-await writes at once;
+ *  upstream AC-1b infers the RX spelling as an action and refuses the held write (AC-1c); the frontend refuses the TSX. */
+const PRE_AWAIT_WRITE = { rx: /HELD_WRITE/, tsx: /Solid applies [\w, ]+ immediately, before the await/ };
 const source = `import { createSignal } from "solid-js";
 import { request } from "./api";
 export function Counter() {
@@ -179,13 +190,13 @@ test("non-held async callbacks expose fresh and cached before-await frames and r
   compare(t, source, rx, "0/-1/0", [
     { before: "1/0/0", after: "42/0/1", result: 42, land: { value: 42 } },
     { before: "1/42/1", after: "42/42/2", result: 84 },
-  ]));
+  ], { refused: PRE_AWAIT_WRITE }));
 
 test("fresh and cached callback rejections reject their promises after finally without throwing from land", t =>
   compare(t, source, rx, "0/-1/0", [
     { before: "1/0/0", after: "1/0/1", failure: "offline", land: { failure: "offline" } },
     { before: "1/1/1", after: "1/1/2", failure: "offline" },
-  ]));
+  ], { refused: PRE_AWAIT_WRITE }));
 
 for (const failed of [false, true]) {
   test("async callback " + (failed ? "catch recovery" : "return") + " survives an awaited finalizer", t =>
@@ -219,7 +230,7 @@ export default component App() { <button onClick={() => {
       { before: "1/0", after: (failed ? "-1" : "42") + "/1", result: failed ? 7 : 42,
         land: failed ? { failure: "offline" } : { value: 42 } },
       { before: "1/1", after: (failed ? "-1" : "42") + "/2", result: failed ? 7 : 42 },
-    ]));
+    ], { refused: PRE_AWAIT_WRITE }));
 }
 
 test("plain-value awaits suspend and an awaited finalizer can override the return", t =>
@@ -245,7 +256,7 @@ export default component App() { <button onClick={() => {
   finally { let done = await 9; stage := "finally"; return done; }
 }}>{stage}</button> }`, "idle", [
     { before: "before", microtasks: ["body"], after: "finally", result: 9 },
-  ]));
+  ], { refused: PRE_AWAIT_WRITE }));
 
 test("lexically async callbacks return promises even when returning or throwing before the await", t =>
   compare(t, `import { defineError } from "reactivescript-tsx";
@@ -280,7 +291,7 @@ export function Counter() {
   }}>{n()}</button>;
 }`, `source n = 0;
 export default component App() { <button onClick={(answer) => { n := 1; let result = await answer; n := result; return answer; }}>{n}</button> }`,
-  "0", [{ args: [Promise.resolve(8)], before: "1", after: "8", result: 8 }], { authored: false }));
+  "0", [{ args: [Promise.resolve(8)], before: "1", after: "8", result: 8 }], { authored: false, refused: PRE_AWAIT_WRITE }));
 
 test("awaits in nested RX closures do not turn their outer callback async", t =>
   compare(t, `import { request } from "./api";
@@ -310,7 +321,15 @@ export default component App() { <button onClick={() => { action {
 } }}>{n}</button> }`, "0", [{ before: "0", after: "42", land: { value: 42 } }], { async: false, authored: false }));
 
 test("the direct scenario handler API retains synchronous frame arrays across flights", () => {
-  const program = parseProgram(rx);
+  // The control program writes before its await, which the pinned checker refuses (PRE_AWAIT_WRITE); the scenario
+  // handler API is exercised on the supported spelling, which writes only after the await and catches the failure.
+  assert.match(check(parseProgram(rx)).map(d => d.code).join(" "), PRE_AWAIT_WRITE.rx);
+  const program = parseProgram(`import { request } from "./api";
+source n = 0; source finalized = 0;
+export default component App() { <button onClick={() => {
+  try { let result = await request("value"); n := result; } catch (error) { n := -1; } finally { finalized := finalized + 1; }
+}}>{n}/{finalized}</button> }`);
+  assert.deepEqual(check(program), []);
   const app = program.decls.find(d => d.k === "component" && d.isDefault);
   if (!app || app.k !== "component") throw new Error("the RX program's entry is its default component (MO-1c)");
   const button = app.view[0];
@@ -321,12 +340,13 @@ test("the direct scenario handler API retains synchronous frame arrays across fl
   if (callback.k !== "fn") return;
   const rt = new Runtime(program);
   try {
-    assert.equal(rt.step([]).at(-1)!.frame, "0/-1/0");
+    assert.equal(rt.step([]).at(-1)!.frame, "0/0");
     const frames = rt.handler(callback.stmts!);
     assert.ok(Array.isArray(frames));
-    assert.equal(frames.at(-1)!.frame, "1/0/0");
-    assert.equal(rt.holdOpen, false);
-    assert.equal(rt.land('"request:value"', 42).at(-1)!.frame, "42/0/1");
+    assert.equal(frames.at(-1)!.frame, "0/0", "nothing is written before the await");
+    assert.equal(rt.holdOpen, true, "the body writes and awaits, so it is an inferred action (AC-1b) holding while its flight is out");
+    assert.equal(rt.land('"request:value"', 42).at(-1)!.frame, "42/1");
+    assert.equal(rt.holdOpen, false, "the action's hold ends with its body");
   } finally { rt.root.dispose(); }
 });
 
