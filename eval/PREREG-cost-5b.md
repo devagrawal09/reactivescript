@@ -20,7 +20,7 @@ The guide covered the second and third already. It said nothing on the first bey
 
 One change between round 5 and 5b: `guide/async.md` gains section 6, "Effects: acting on a value as it changes"
 (when an effect runs, loading and failing inputs, guesses, lifetime, order), and `guide/language.md`'s effect line
-points to it. About 330 extra tokens in the prompt. The section states language rules; it has no task code and
+points to it. About 400 extra tokens in the prompt. The section states language rules; it has no task code and
 names no task's elements. Everything else is round 5's: bases, briefs, tests (same SHA-256 as listed there),
 prompt template, toolchain (Solid next 5e68925c), checker, model at default effort, the one-line start pointing to
 `.prompt`.
