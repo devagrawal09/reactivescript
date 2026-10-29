@@ -134,9 +134,6 @@ export function lowerTsx(
     returnShape?: Shape;
     effect?: boolean;
     serverCall?: Node;
-    asyncHandler?: boolean;
-    awaitSite?: Node;
-    discardAwait?: boolean;
   };
   type Fn = {
     fn?: OxcFunction;
@@ -377,6 +374,24 @@ export function lowerTsx(
       n.type === "AwaitExpression" || Object.values(node).some(hasLexicalAwait)
     );
   };
+  // Temporary TSX boundary while https://github.com/ryansolid/reactivescript/issues/20 is open: an authored ordinary
+  // async callback is refused at its async node, never lowered or silently converted to an action. This covers
+  // callbacks only; async memo, function-form store and server computations keep their own routes.
+  const asyncIssue = "https://github.com/ryansolid/reactivescript/issues/20";
+  const asyncCallback = (n: Span): never =>
+    fail(
+      n,
+      "Ordinary async callbacks are refused for now (" +
+        asyncIssue +
+        "): wrap the work in action(function* () { ... yield request(); ... }) and use yield instead of await. This opts into action semantics, which hold the action's writes until it completes; it is not a semantics-preserving rewrite of the async callback",
+    );
+  const asyncAction = (n: Span): never =>
+    fail(
+      n,
+      "Actions take a synchronous generator, not an async function or async generator (" +
+        asyncIssue +
+        "): write action(function* () { ... yield request(); ... }) and use yield instead of await",
+    );
   const functions = new Map<string, Fn>();
   const primitives = new Map<string, string>();
   const jsFunctions = new Map<string, number | undefined>();
@@ -406,6 +421,9 @@ export function lowerTsx(
     names: Set<string>,
     into = functions,
   ) => {
+    // A named async function inside a component is a stored callback, refused with the same guidance.
+    if (fn.async && into !== functions && fn.id && !/^[A-Z]/.test(fn.id.name))
+      return asyncCallback(fn);
     if (
       !fn.id ||
       !fn.body ||
@@ -839,9 +857,6 @@ export function lowerTsx(
     returnShape: s.returnShape,
     effect: s.effect,
     serverCall: s.serverCall,
-    asyncHandler: s.asyncHandler,
-    awaitSite: s.awaitSite,
-    discardAwait: s.discardAwait,
   });
   const serverQuestion = (expression: unknown, scope: Scope): boolean => {
     if (!expression || typeof expression !== "object") return false;
@@ -939,11 +954,6 @@ export function lowerTsx(
       return value(n.expression, inner, expected);
     }
     if (n.type === "AwaitExpression") {
-      if (scope.asyncHandler && scope.awaitSite !== n)
-        return fail(
-          n,
-          "Async handler awaits must be standalone statements or direct local initializers; use a const-await local before setters, conditions, or returns",
-        );
       const inner = copy(scope);
       inner.serverCall = n.argument;
       const v = value(n.argument, inner, expected);
@@ -1478,28 +1488,17 @@ export function lowerTsx(
           };
         }
       }
-      if (
-        scope.asyncHandler &&
-        scope.serverCall === n &&
-        ["Identifier", "MemberExpression"].includes(n.callee.type)
-      ) {
-        const callback = value(n.callee, scope);
-        if (callback.shape.kind === "callback") {
-          if (!scope.discardAwait)
-            return fail(
-              n,
-              "Awaited void callback results cannot be consumed; use a standalone await",
-            );
-          const call = actionExpr(n, scope)[0];
-          if (call?.k === "expr")
-            return { e: call.e, shape: { kind: "undefined" } };
-        }
-      }
       return fail(
         n,
         "Only known zero-argument accessors, supported Solid probes, and explicitly typed pure helpers may be called here",
       );
     }
+    if (
+      (n.type === "ArrowFunctionExpression" ||
+        n.type === "FunctionExpression") &&
+      n.async
+    )
+      return asyncCallback(n);
     return fail(n, "Unsupported value expression: " + n.type);
   };
   /** A read Solid tracks (an accessor, a store, props) outside untrack; closures read nothing now. */
@@ -1684,12 +1683,11 @@ export function lowerTsx(
       if (n.type === "VariableDeclaration") {
         if (
           n.declarations.length !== 1 ||
-          n.declare ||
-          (scope.asyncHandler && !["const", "let"].includes(n.kind))
+          n.declare
         )
           return fail(
             n,
-            "Use one imperative local binding per declaration; async locals require const or let",
+            "Use one imperative local binding per declaration",
           );
         const d = n.declarations[0];
         if (!d.init || d.id.type !== "Identifier")
@@ -1698,11 +1696,6 @@ export function lowerTsx(
           ? readType(d.id.typeAnnotation.typeAnnotation)
           : undefined;
         const local = copy(scope);
-        let initializer = d.init;
-        while (initializer.type === "ParenthesizedExpression")
-          initializer = initializer.expression;
-        if (scope.asyncHandler && initializer.type === "AwaitExpression")
-          local.awaitSite = initializer;
         const v = value(d.init, local, expected);
         if (expected && !matches(v.shape, expected))
           return fail(
@@ -1738,6 +1731,7 @@ export function lowerTsx(
         ];
       if (n.type === "ReturnStatement") {
         if (n.argument?.type === "ArrowFunctionExpression") {
+          if (n.argument.async) return asyncCallback(n.argument);
           arrow(n.argument);
           if (scope.returnShape && scope.returnShape.kind !== "callback")
             return fail(
@@ -1869,12 +1863,6 @@ export function lowerTsx(
     scope: Scope,
     drafts = new Map<string, string>(),
   ): Stmt[] => {
-    if (n.type === "AwaitExpression" && scope.asyncHandler) {
-      const inner = copy(scope);
-      inner.awaitSite = n;
-      inner.discardAwait = true;
-      return [{ k: "expr", e: value(n, inner, { kind: "undefined" }).e }];
-    }
     if (n.type === "YieldExpression")
       return [{ k: "expr", e: value(n, scope, { kind: "undefined" }).e }];
     if (
@@ -1918,6 +1906,12 @@ export function lowerTsx(
       ) {
         const fn = factory.arguments[0];
         if (
+          (fn?.type === "FunctionExpression" ||
+            fn?.type === "ArrowFunctionExpression") &&
+          fn.async
+        )
+          return asyncAction(fn);
+        if (
           factory.optional ||
           factory.typeArguments ||
           factory.arguments.length !== 1 ||
@@ -1937,8 +1931,6 @@ export function lowerTsx(
         inner.action = true;
         inner.effect = false;
         inner.returnShape = undefined;
-        inner.asyncHandler = false;
-        inner.awaitSite = undefined;
         return [{ k: "action", body: statements(fn.body!.body, inner) }];
       }
       if (
@@ -2021,11 +2013,6 @@ export function lowerTsx(
       if (n.callee.type === "Identifier" && scope.setters.has(n.callee.name)) {
         const name = scope.setters.get(n.callee.name)!;
         const b = scope.bindings.get(name)!;
-        if (b.optimistic && scope.asyncHandler && !scope.action)
-          return fail(
-            n,
-            "Optimistic writes require a true action, not an ordinary async handler",
-          );
         if (n.arguments.length !== 1)
           return fail(n, "Setters take exactly one value or supported updater");
         const argument = n.arguments[0];
@@ -2284,27 +2271,21 @@ export function lowerTsx(
       return fail(n, "Only callback members can be forwarded as handlers");
     }
     if (
+      (n.type === "ArrowFunctionExpression" ||
+        n.type === "FunctionExpression") &&
+      n.async
+    )
+      return asyncCallback(n);
+    if (
       n.type !== "ArrowFunctionExpression" ||
       n.typeParameters ||
-      (!n.async &&
-        n.returnType &&
-        n.returnType.typeAnnotation.type !== "TSVoidKeyword")
+      (n.returnType && n.returnType.typeAnnotation.type !== "TSVoidKeyword")
     )
       return fail(
         n,
         "Handlers require supported typed arrow parameters; synchronous result annotations must be void",
       );
     const fn = n;
-    if (fn.async && fn.body.type !== "BlockStatement")
-      return fail(
-        fn,
-        "Async handlers require an explicit block with direct await statements or local initializers",
-      );
-    if (fn.async && !hasLexicalAwait(fn.body))
-      return fail(
-        fn,
-        "Async handlers currently require a lexical await; async blocks without awaits need an explicit Promise-function contract",
-      );
     if (expected && fn.params.length > (expected.params?.length ?? 0))
       return fail(fn, "Callback parameters exceed its declared contract");
     if (!expected && fn.params.length > 1)
@@ -2313,25 +2294,9 @@ export function lowerTsx(
         "Intrinsic handlers currently support one typed event parameter",
       );
     const inner = copy(scope);
-    inner.asyncHandler = fn.async;
-    inner.awaitSite = undefined;
     inner.action = false;
     inner.effect = false;
     inner.returnShape = undefined;
-    if (fn.async && fn.returnType) {
-      const annotation = fn.returnType.typeAnnotation;
-      if (
-        annotation.type !== "TSTypeReference" ||
-        annotation.typeName.type !== "Identifier" ||
-        annotation.typeName.name !== "Promise" ||
-        annotation.typeArguments?.params.length !== 1
-      )
-        return fail(
-          annotation,
-          "Async handler result annotations must be Promise<T>",
-        );
-      inner.returnShape = readType(annotation.typeArguments.params[0]);
-    }
     const params = fn.params.map((param, i) => {
       if (param.type !== "Identifier")
         return fail(param, "Handler parameters require identifier bindings");
@@ -2357,9 +2322,9 @@ export function lowerTsx(
         ? statements(fn.body.body, inner)
         : actionExpr(fn.body, inner);
     // Inferred actions (pinned upstream AC-1b): a plain Solid callback is never an action, but upstream infers one
-    // from the lowered body. Refused here only where the meaning provably differs: a write before an await, which
-    // Solid applies at once and upstream holds (AC-1c). Other inferred actions (await-then-write, refresh/affects) are
-    // left to the shared checker and are covered by the differential suites.
+    // from the lowered body. Ordinary async callbacks are refused above (issue #20); this guard still refuses any
+    // lowered body whose writes upstream would hold (AC-1c) while Solid applies them at once. Other inferred actions
+    // (refresh/affects) are left to the shared checker and are covered by the differential suites.
     const inferred = actionInference(stmts);
     if (inferred.held.length)
       return fail(
@@ -3115,7 +3080,10 @@ export function lowerTsx(
         const values = input.elements.map((input) =>
           value(arrow(input!).body, scope),
         );
-        const apply = arrow(call.arguments[1], values.length);
+        const applyNode = call.arguments[1];
+        if (applyNode.type === "ArrowFunctionExpression" && applyNode.async)
+          return asyncCallback(applyNode);
+        const apply = arrow(applyNode, values.length);
         if (apply.body.type !== "BlockStatement")
           return fail(
             apply.body,
@@ -3511,6 +3479,12 @@ export function lowerTsx(
       }
       if (primitive === "action") {
         const fn = call.arguments[0];
+        if (
+          (fn.type === "FunctionExpression" ||
+            fn.type === "ArrowFunctionExpression") &&
+          fn.async
+        )
+          return asyncAction(fn);
         if (
           fn.type !== "FunctionExpression" ||
           !fn.generator ||

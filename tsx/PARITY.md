@@ -19,7 +19,8 @@ limits. Nor does RX parity imply compatibility with arbitrary JavaScript.
 - Components, reactive props, callback contracts, children, ownership and cleanup.
 - Conditional regions and loops, including stateful branch and row bodies.
 - Split effects, imperative locals, writes, branches, return, throw and try/catch,
-  including non-held async callbacks and their Promise completion semantics.
+  including non-held async callbacks and their Promise completion semantics
+  (authored TSX async callbacks are refused for now: [issue #20](https://github.com/ryansolid/reactivescript/issues/20)).
 - Async equations, initial values, streams, loading/error boundaries and probes.
 - Actions, optimistic writes, refresh and affects, within RX's implemented limits.
 - Typed failures and error classes, retaining checking across module boundaries.
@@ -44,7 +45,7 @@ useful additional evidence, but are not substitutes for these tests.
 | Atomic/structured sources and previous answers | `createSignal`, `createStore`, memo previous-value parameter, `createProjection` | `semantics.test.ts`, `features.test.ts` |
 | Deferred answers, pending probes, independent landings | Async `createDeferred`, `isPending`, `latest` | `async-control.test.ts` |
 | Components, props, events, callback failures and finally | Typed props/handlers, forwarding, ordinary `try`/`catch`/`finally` | `lower.test.ts`, `callbacks.test.ts`, `contracts.test.ts` |
-| Non-held async callbacks and microtask ordering | Explicit async block handlers with direct await statements | `async-handlers.test.ts`, `browser.ts` |
+| Non-held async callbacks and microtask ordering (native and handwritten RX legs) | None for now: authored `async` callbacks are refused at their `async` node ([issue #20](https://github.com/ryansolid/reactivescript/issues/20)); an explicit `action(function* ...)` opts into held semantics instead | `async-handlers.test.ts`, `boundary.test.ts`, `browser.ts` |
 | Branch and row ownership, removal and fresh remounts | `Show`, `For`, keyed projections, owned helper calls | `features.test.ts`, `owned-lifetimes.test.ts`, `browser.ts` |
 | RX effects (EF-2), error answers and cleanup; plain `createEffect` refused | Extension `createRxEffect` | `features.test.ts`, `effect-semantics.test.ts`, `rx-effects.test.ts`, `owned-lifetimes.test.ts`, `browser.ts` |
 | Async values, seeded answers, streams and boundaries | Async/iterable memos, `Loading`, `Errored`, probes | `async-bridge.test.ts`, `async-stream.test.ts`, `browser.ts` |
@@ -67,7 +68,7 @@ object-valued Solid signal must not silently become a fine-grained store. JSX
 booleans/null/undefined must be omitted rather than formatted as RX text.
 Ordinary function calls must retain value-versus-accessor parameter behavior.
 Providers must not leak to sibling owners. Import aliases must preserve binding
-and context identity. Async handlers must not silently become hold-safe actions.
+and context identity. Async handlers must not silently become hold-safe actions; for now TSX refuses them outright.
 
 The frontend targets only ReactiveScript's existing AST; it adds no shared AST
 constructs, flags, or fields, and there is no shared IR. Where a Solid behavior

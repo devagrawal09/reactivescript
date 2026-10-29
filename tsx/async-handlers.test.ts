@@ -36,7 +36,7 @@ const settle = async () => {
 };
 
 async function compare(t: TestContext, source: string, rx: string, initial: string, steps: Step[],
-  options: { async?: boolean; authored?: boolean; refused?: { rx: RegExp; tsx: RegExp } } = {}) {
+  options: { async?: boolean; authored?: boolean; refused?: { rx: RegExp; tsx: RegExp }; tsxRefused?: RegExp } = {}) {
   const isAsync = options.async ?? true;
   const out = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(out, { recursive: true });
@@ -127,6 +127,8 @@ async function compare(t: TestContext, source: string, rx: string, initial: stri
     // `refused`, the pinned upstream cannot express the native behavior proven above (AC-1b/AC-1c: a plain callback
     // that writes and awaits is an inferred action whose pre-await writes are held): each leg then proves that exact
     // refusal (RX: the shared checker's diagnostics; TSX: the frontend's refusal at the authored callback).
+    // `tsxRefused` refuses only the authored TSX (the temporary async-callback boundary, issue #20): the handwritten
+    // RX legs still execute against the native behavior, so their results stay visible.
     const refusedRx = () => assert.match(check(parseProgram(rx)).map(d => d.code).join(" "), options.refused!.rx,
       "the pinned checker refuses the handwritten RX spelling of this behavior");
     const checkedRx = () => { const program = parseProgram(rx); assert.deepEqual(check(program), []); return program; };
@@ -139,13 +141,14 @@ async function compare(t: TestContext, source: string, rx: string, initial: stri
     if (options.authored !== false) {
       const build = () => buildTsx("main.tsx", path => path === "main.tsx" ? source
         : path === "api.d.rx" ? "export fn request(key: string): number" : undefined, { mount: "Counter" });
-      const refusedTsx = () => assert.throws(build, options.refused!.tsx, "the frontend refuses the authored TSX");
+      const tsxRefusal = options.refused?.tsx ?? options.tsxRefused;
+      const refusedTsx = () => assert.throws(build, tsxRefusal!, "the frontend refuses the authored TSX");
       await t.test("compiled authored TSX", async () => {
-        if (options.refused) return refusedTsx();
+        if (tsxRefusal) return refusedTsx();
         const built = build();
         await exercise(await rendered(built.entry, built.files.get(built.entry)!));
       });
-      await t.test("interpreted authored TSX", () => options.refused ? refusedTsx() : exercise(interpreted(build().set)));
+      await t.test("interpreted authored TSX", () => tsxRefusal ? refusedTsx() : exercise(interpreted(build().set)));
     }
   } finally {
     delete (globalThis as any).__tsxAsyncHandlerRequest;
@@ -153,9 +156,13 @@ async function compare(t: TestContext, source: string, rx: string, initial: stri
   }
 }
 
+/** The temporary TSX boundary (https://github.com/ryansolid/reactivescript/issues/20): every authored ordinary async
+ *  callback is refused at its async node with explicit generator-action guidance, whatever its body does. */
+const ASYNC_CALLBACK = /Ordinary async callbacks are refused for now \(https:\/\/github\.com\/ryansolid\/reactivescript\/issues\/20\): wrap the work in action\(function\* \(\) \{ \.\.\. yield request\(\); \.\.\. \}\) and use yield instead of await/;
 /** Unsupported at the pin (README: inferred actions): Solid applies a plain async callback's pre-await writes at once;
- *  upstream AC-1b infers the RX spelling as an action and refuses the held write (AC-1c); the frontend refuses the TSX. */
-const PRE_AWAIT_WRITE = { rx: /HELD_WRITE/, tsx: /Solid applies [\w, ]+ immediately, before the await/ };
+ *  upstream AC-1b infers the RX spelling as an action and refuses the held write (AC-1c); the frontend refuses the
+ *  TSX as an ordinary async callback (ASYNC_CALLBACK). */
+const PRE_AWAIT_WRITE = { rx: /HELD_WRITE/, tsx: ASYNC_CALLBACK };
 const source = `import { createSignal } from "solid-js";
 import { request } from "./api";
 export function Counter() {
@@ -277,7 +284,7 @@ export default component App() { <button onClick={(mode) => {
     { args: [0], before: "ready", after: "ready", result: 7 },
     { args: [1], before: "ready", after: "ready", failure: "early" },
     { args: [2], before: "ready", after: "ready", result: 8 },
-  ]));
+  ], { tsxRefused: ASYNC_CALLBACK }));
 
 test("handwritten RX callbacks assimilate native promise arguments and returned promises", t =>
   compare(t, `import { createSignal } from "solid-js";

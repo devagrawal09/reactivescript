@@ -6,11 +6,11 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseProgram, parseStmts, singleModule } from "./rx/compiler.ts";
+import { check, parseProgram, parseStmts, singleModule } from "./rx/compiler.ts";
 import { entryView, serverDecl, selectEntry } from "./rx/ast.ts";
 import { semanticFacts } from "./rx/facts.ts";
 import { actionInference } from "./rx/infer.ts";
-import { lowerTsx } from "./lower.ts";
+import { lowerTsx, TsxError } from "./lower.ts";
 
 const here = new URL(".", import.meta.url);
 const root = new URL("..", import.meta.url);
@@ -71,7 +71,22 @@ test("model contract: canonical facts keep read modes, writes and region nesting
   assert.ok(m.computations.some(c => c.kind === "handler" && c.writes.some(w => w.endsWith("::source:n write"))));
 });
 
-test("inferred-action contract: upstream AC-1b/AC-1c facts the frontend refuses on", () => {
+// Temporary TSX boundary while https://github.com/ryansolid/reactivescript/issues/20 is open: every authored ordinary
+// async callback is refused at its async node, never lowered or converted to an action, with explicit guidance.
+const ASYNC_ISSUE = "https://github.com/ryansolid/reactivescript/issues/20";
+const ASYNC_CALLBACK = "Ordinary async callbacks are refused for now (" + ASYNC_ISSUE + "): wrap the work in action(function* () { ... yield request(); ... }) and use yield instead of await. This opts into action semantics, which hold the action's writes until it completes; it is not a semantics-preserving rewrite of the async callback";
+const ASYNC_ACTION = "Actions take a synchronous generator, not an async function or async generator (" + ASYNC_ISSUE + "): write action(function* () { ... yield request(); ... }) and use yield instead of await";
+const refusedAt = (source: string, at: string, message: string) => {
+  assert.ok(source.includes(at), "the authored refusal site exists: " + at);
+  assert.throws(() => lowerTsx(source, "authored.tsx"), (error: unknown) => {
+    assert.ok(error instanceof TsxError);
+    assert.equal(error.start, source.indexOf(at), "refused at the authored async node");
+    assert.equal(error.message.slice(error.message.indexOf(": ") + 2), message);
+    return true;
+  });
+};
+
+test("inferred-action contract: upstream AC-1b/AC-1c facts; the frontend refuses that callback as ordinary async (issue #20)", () => {
   const [decl] = parseProgram("source n := 0").decls;
   assert.equal(decl.k, "source");
   assert.deepEqual(actionInference(parseStmts("n := 1; let v = await f(); n := v")), { trigger: "write+await", why: "it writes and awaits", held: ["n"] });
@@ -87,5 +102,68 @@ export default function Counter() {
     setN(result);
   }}>{n()}</button>;
 }`;
-  assert.throws(() => lowerTsx(source), /Solid applies n immediately, before the await/);
+  // Formerly refused only for its held pre-await write; now refused for being an ordinary async callback.
+  refusedAt(source, "async () =>", ASYNC_CALLBACK);
+});
+
+const asyncHead = 'import { createSignal, createMemo, action } from "solid-js";\nimport { createRxEffect } from "reactivescript-tsx";\nimport { request } from "./api";\n';
+const asyncCounter = (setup: string, view: string, child = "() => props.onChange(2)") => asyncHead +
+  "function Child(props: { onChange: (value: number) => void }) { return <button onClick={" + child + "}/>; }\n" +
+  "export function Counter() {\n  const [n, setN] = createSignal(0);\n  " + setup + "\n  return " + view + ";\n}";
+const onClick = (handler: string) => asyncCounter("", "<button onClick={" + handler + "}>{n()}</button>");
+const untouched = "<button onClick={() => setN(1)}>{n()}</button>";
+
+test("ordinary async callbacks are refused at their authored async node on every resolved callback route (issue #20)", () => {
+  const routes: [string, string][] = [
+    [onClick("async () => { setN(1); const result: number = await request(); setN(result); }"), "async () =>"],
+    [onClick("async () => { const result: number = await request(); setN(result); }"), "async () =>"],
+    [onClick("async () => { await request(); }"), "async () =>"],
+    [onClick("async () => { setN(1); }"), "async () =>"],
+    [onClick("async () => setN(1)"), "async () =>"],
+    [onClick("async () => await request()"), "async () =>"],
+    [onClick("async (mode: number) => { if (mode === 0) return 7; if (mode === 1) throw 1; const answer: number = await 8; return answer; }"), "async (mode"],
+    [onClick("async (): Promise<number> => { const result: number = await request(); return result; }"), "async ():"],
+    // Contextual void callback prop, and a child forwarding its callback prop through an async arrow.
+    [asyncCounter("", "<Child onChange={async (next: number) => { const result: number = await request(next); }}/>"), "async (next"],
+    [asyncCounter("", "<Child onChange={(next: number) => setN(next)}/>", "async () => { await props.onChange(2); }"), "async () =>"],
+    // Stored callbacks: a const arrow, a nested function declaration, and an async closure inside a sync handler.
+    [asyncCounter("const save = async () => { const result: number = await request(); setN(result); };", "<button onClick={() => save()}>{n()}</button>"), "async () =>"],
+    [asyncCounter("async function save() { const result: number = await request(); setN(result); }", untouched), "async function save"],
+    [onClick("() => { const later = async () => { const result: number = await request(); return result; }; return 7; }"), "async () =>"],
+    // Setup callbacks: an effect apply callback and its returned cleanup.
+    [asyncCounter("createRxEffect([() => n()], async (value: number) => { await request(); });", untouched), "async (value"],
+    [asyncCounter("createRxEffect([() => n()], (value: number) => { return async () => { await request(); }; });", untouched), "async () =>"],
+  ];
+  for (const [source, at] of routes) refusedAt(source, at, ASYNC_CALLBACK);
+});
+
+test("actions refuse async functions and async generators with synchronous-generator guidance (issue #20)", () => {
+  const body = "{ const result: number = yield request(); setN(result); }";
+  refusedAt(onClick("() => { action(async function* () " + body + ")(); }"), "async function*", ASYNC_ACTION);
+  refusedAt(onClick("() => { action(async () => { const result: number = await request(); setN(result); })(); }"), "async () =>", ASYNC_ACTION);
+  const declared = (fn: string) => asyncCounter("const save = action(" + fn + ");", "<button onClick={() => save()}>{n()}</button>");
+  refusedAt(declared("async function* () " + body), "async function*", ASYNC_ACTION);
+  refusedAt(declared("async function () { const result: number = await request(); setN(result); }"), "async function (", ASYNC_ACTION);
+  refusedAt(declared("async () => { const result: number = await request(); setN(result); }"), "async () =>", ASYNC_ACTION);
+});
+
+test("explicit generator actions and async memo/server computations stay accepted beside the refusal (issue #20)", () => {
+  const body = "{ try { const result: number = yield request(); setN(result); } catch (error) { setN(-1); } }";
+  const declared = asyncCounter("const save = action(function* () " + body + ");", "<button onClick={() => save()}>{n()}</button>");
+  const inline = onClick("() => { action(function* () " + body + ")(); }");
+  for (const source of [declared, inline]) {
+    const program = lowerTsx(source);
+    assert.deepEqual(check(program), []);
+    const counter = program.decls.find(d => d.k === "component" && d.name === "Counter");
+    assert.ok(counter?.k === "component");
+    const handler = counter.view[0].k === "el" ? counter.view[0].attrs.find(a => a.name === "onClick")?.e : undefined;
+    const action = source === declared ? counter.decls.find(d => d.k === "action") : handler?.k === "fn" ? handler.stmts?.[0] : undefined;
+    assert.ok(action?.k === "action", "the explicit generator lowers to an action");
+    const attempt = action.body[0];
+    assert.ok(attempt.k === "try" && attempt.body[0].k === "let");
+    assert.equal(attempt.body[0].e.k, "await", "yield lowers to the action body's await");
+  }
+  // Async computations are not callbacks: they keep their own routes and are not swept up by the refusal.
+  assert.doesNotThrow(() => lowerTsx(asyncCounter("const value = createMemo(async (): Promise<number> => await request(n()));", "<button onClick={() => setN(1)}>{value()}</button>")));
+  assert.doesNotThrow(() => lowerTsx('import { serverFunction, createServerMemo } from "reactivescript-tsx";\nexport function Counter() {\n  const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { return n + 1; });\n  const value = createServerMemo(async () => await load(0));\n  return <span>{value()}</span>;\n}'));
 });

@@ -33,7 +33,8 @@ decision about the supported boundary.
    interpreter differs on the same program (callbacks.test.ts four cases). Upstream's own comment in runtime.ts calls
    its finally handling an approximation.
 6. **Interpreter handler returns.** A suspended interpreted handler returns its run's value, never a Promise; compiled
-   and native return Promises (async-handlers "lexically async callbacks…", RX and TSX interpreted legs).
+   and native return Promises (async-handlers "lexically async callbacks…", RX interpreted leg; its authored TSX legs
+   are refused for now, issue #20).
 7. **Compiled callbacks become async when an await is only nested.** A callback whose only await sits inside a nested
    closure or an inline `action { }` compiles to an async function; native returns synchronously (async-handlers,
    handwritten RX compiled legs).

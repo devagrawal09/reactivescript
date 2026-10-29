@@ -162,34 +162,50 @@ previous-draft accumulation. These are tested subsets, not all ownership cases.
 
 Handlers support setter/callback/JS-call statements, initialized locals, bounded
 conditionals, return, throw and try/catch/finally using existing imperative nodes.
-Explicit async block handlers use ordinary function statements with lexical
-awaits, not actions: writes before the await are visible while its Promise is
-pending, and callers receive the returned Promise/value or rejection. Typed
-event parameters and contextual void callback props work with async bodies.
-Await is limited to direct initialized locals or standalone statements:
+
+Ordinary async callbacks are refused for now, pending
+[issue #20](https://github.com/ryansolid/reactivescript/issues/20). Every authored `async` callback is rejected at its `async`
+node, whatever its body does: event handlers and contextual callback props (with
+or without writes before the `await`, without an `await`, expression bodies,
+early return or throw), a child forwarding its callback prop through an async
+arrow, stored async arrows, nested `async function` declarations, async closures
+inside synchronous handlers, and `createRxEffect` apply callbacks and returned
+cleanups. Nothing is lowered or silently converted to an action. This is refused:
 
 ```tsx
 <button
-  onClick={async (event: { target: { value: string } }): Promise<number> => {
+  onClick={async () => {
     setN(1);
-    const result: number = await request(event.target.value);
+    const result: number = await request();
     setN(result);
-    return result;
   }}
 >
   Save
 </button>
 ```
 
-Consumed JS results still require supported annotations. Void callback props
-can be awaited as statements, but their runtime results cannot be consumed
-without a result contract. Await in setter
-arguments, conditions, arithmetic, throw, nested await operands, or returns is
-refused; use a const-await local first. Async expression arrows and async blocks
-without a lexical await remain unsupported because the shared function AST
-infers async behavior from lexical awaits. Await inside an inline action is not
-an await of its surrounding callback. Ordinary async handlers do not hold writes
-or gain optimistic action semantics; explicit actions remain separate.
+The diagnostic points to an explicit generator action, which is supported:
+
+```tsx
+const save = action(function* () {
+  try {
+    const result: number = yield request();
+    setN(result);
+  } catch (error) {
+    setN(-1);
+  }
+});
+// ...
+<button onClick={() => save()}>Save</button>
+```
+
+Writing it this way opts into action semantics: the action's writes are held until
+it completes. It is not a semantics-preserving rewrite of the async callback,
+whose writes before the `await` Solid applies immediately. `action(async function* ...)`,
+`action(async function ...)` and `action(async () => ...)` are refused too: actions
+take a synchronous generator and use `yield` instead of `await`. Async computations
+are not callbacks and keep their own rules (`createMemo(async ...)`, async
+function-form stores, `createServerMemo` and server functions).
 
 Effects and ordinary imperative returns accept synchronous zero-argument cleanup
 closures. Authored `$<digits>` bindings are reserved globally so that effect
@@ -225,9 +241,10 @@ than resolved by spelling or guessed execution behavior.
   staged mutations while ordinary RX handler reads see committed values.
   Projection draft statements use actual RX draft semantics instead.
 - Function-form `createStore((): { a: number } => ({ a: input() }))` uses a
-  structured standing-question source with no invented seed. An async callback
-  requires a single returned await and an explicit `Promise<T>` record/array
-  contract. Synchronous callbacks require a supported result annotation or
+  structured standing-question source with no invented seed. An async initializer
+  (a computation, not an event callback) requires a single returned await and an
+  explicit `Promise<T>` record/array contract. Synchronous initializers require a
+  supported result annotation or
   explicit store type argument. Existing path writes remain store writes;
   `refresh(state)` and `affects(state)` target the original standing question.
   Static object/array stores are not invalidation targets. Imported JS purity

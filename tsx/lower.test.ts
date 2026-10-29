@@ -311,119 +311,104 @@ test("createPrevious refuses imported getters without companion memo ownership",
   );
 });
 
-test("async block handlers retain direct awaits, later writes and returned values; pre-await writes are refused (AC-1b)", () => {
+// Temporary TSX boundary (https://github.com/ryansolid/reactivescript/issues/20): an authored ordinary async callback
+// is refused at its async node with guidance to opt into an explicit generator action; it is never lowered or
+// silently converted to an action.
+const asyncCallbackRefused = (source: string, at: string) => (error: unknown) => {
+  assert.ok(error instanceof TsxError);
+  assert.equal(error.start, source.indexOf(at));
+  assert.match(error.message, /Ordinary async callbacks are refused for now \(https:\/\/github\.com\/ryansolid\/reactivescript\/issues\/20\)/);
+  assert.match(error.message, /wrap the work in action\(function\* \(\) \{ \.\.\. yield request\(\); \.\.\. \}\) and use yield instead of await/);
+  assert.match(error.message, /opts into action semantics, which hold the action's writes until it completes; it is not a semantics-preserving rewrite/);
+  return true;
+};
+
+test("ordinary async block handlers are refused at the async arrow with or without pre-await writes; explicit generator actions lower (issue #20)", () => {
   const held =
     'import {createSignal} from "solid-js";import {request} from "./api";export function Counter(){const [n,setN]=createSignal(0);return <button onClick={async (event:{target:{value:string}}):Promise<number>=>{setN(1);const result:number=await request(event.target.value);setN(result);return result+1}}>{n()}</button>}';
-  // Solid applies setN(1) immediately; the pinned upstream infers this body as an action and would hold it.
-  assert.throws(() => lowerTsx(held), (error: Error & { column?: number }) =>
-    /Solid applies n immediately, before the await/.test(error.message) && held.slice(error.column! - 1).startsWith("async (event"));
+  assert.throws(() => lowerTsx(held), asyncCallbackRefused(held, "async (event"));
+  // Without the pre-await write this body used to lower and was then inferred as an action upstream (AC-1b); it is
+  // refused the same way now instead of gaining held action semantics.
   const source = held.replace("setN(1);", "");
-  const program = lowerTsx(source);
+  for (const variant of [
+    source,
+    source.replace("Promise<number>", "Promise<string>"),
+    source.replace(
+      "const result:number=await request(event.target.value)",
+      "let result:number=(await request(event.target.value))",
+    ),
+    source.replace(
+      "const result:number=await request(event.target.value);setN(result);return result+1",
+      "await request(event.target.value);return 2",
+    ),
+  ])
+    assert.throws(() => lowerTsx(variant), asyncCallbackRefused(variant, "async (event"));
+  // The suggested opt-in: an explicit generator action, whose yield lowers to the action body's await.
+  const explicit =
+    'import {createSignal, action} from "solid-js";import {request} from "./api";export function Counter(){const [n,setN]=createSignal(0);const save=action(function*(value:string){try{const result:number=yield request(value);setN(result)}catch(error){setN(-1)}});return <button onClick={(event:{target:{value:string}})=>save(event.target.value)}>{n()}</button>}';
+  const program = lowerTsx(explicit);
   assert.deepEqual(check(program), []);
   const counter = program.decls.find((d) => d.k === "component")!;
   assert.equal(counter.k, "component");
-  if (counter.k !== "component" || counter.view[0].k !== "el") return;
-  const fn = counter.view[0].attrs.find((a) => a.name === "onClick")!.e;
-  assert.equal(fn.k, "fn");
-  if (fn.k !== "fn") return;
-  assert.deepEqual(fn.params, ["event"]);
-  assert.deepEqual(
-    fn.stmts?.map((s) => s.k),
-    ["let", "write", "return"],
-  );
-  assert.equal(fn.stmts?.[0].k === "let" && fn.stmts[0].e.k, "await");
-  assert.throws(
-    () => lowerTsx(source.replace("Promise<number>", "Promise<string>")),
-    /explicit result contract/,
-  );
-  assert.doesNotThrow(() =>
-    lowerTsx(
-      source.replace(
-        "const result:number=await request(event.target.value)",
-        "let result:number=(await request(event.target.value))",
-      ),
-    ),
-  );
-  assert.doesNotThrow(() =>
-    lowerTsx(
-      source.replace(
-        "const result:number=await request(event.target.value);setN(result);return result+1",
-        "await request(event.target.value);return 2",
-      ),
-    ),
-  );
+  if (counter.k !== "component") return;
+  const save = counter.decls.find((d) => d.k === "action")!;
+  assert.equal(save.k, "action");
+  if (save.k !== "action") return;
+  assert.deepEqual(save.params, ["value"]);
+  const attempt = save.body[0];
+  assert.equal(attempt.k, "try");
+  if (attempt.k !== "try") return;
+  assert.deepEqual(attempt.body.map((s) => s.k), ["let", "write"]);
+  assert.equal(attempt.body[0].k === "let" && attempt.body[0].e.k, "await");
 });
 
-test("async implementations are allowed for contextual void callback props", () => {
+test("async implementations of contextual void callback props are refused at the async arrow (issue #20)", () => {
   const source =
     'import {request} from "./api";function Child(props:{onChange:(value:number)=>void}){return <button onClick={()=>props.onChange(2)}/>}export function Counter(){return <Child onChange={async next=>{const result:number=await request(next);return result}}/>}';
-  assert.doesNotThrow(() => lowerTsx(source));
-  assert.doesNotThrow(() =>
-    lowerTsx(
-      source.replace(
-        "onClick={()=>props.onChange(2)}",
-        "onClick={async ()=>{await props.onChange(2)}}",
-      ),
-    ),
+  assert.throws(() => lowerTsx(source), asyncCallbackRefused(source, "async next"));
+  const sync = source.replace(
+    "async next=>{const result:number=await request(next);return result}",
+    "(next:number)=>{}",
   );
-  assert.throws(
-    () =>
-      lowerTsx(
-        source.replace(
-          "onClick={()=>props.onChange(2)}",
-          "onClick={async ()=>{const result:number=await props.onChange(2)}}",
-        ),
-      ),
-    /Awaited void callback results cannot be consumed/,
-  );
-  assert.throws(
-    () =>
-      lowerTsx(
-        source.replace(
-          "onClick={()=>props.onChange(2)}",
-          "onClick={async ()=>{const result=await props.onChange(2);return result}}",
-        ),
-      ),
-    /Awaited void callback results cannot be consumed/,
-  );
+  assert.doesNotThrow(() => lowerTsx(sync));
+  for (const forward of [
+    "onClick={async ()=>{await props.onChange(2)}}",
+    "onClick={async ()=>{const result:number=await props.onChange(2)}}",
+    "onClick={async ()=>{const result=await props.onChange(2);return result}}",
+    "onClick={async ()=>props.onChange(2)}",
+  ]) {
+    const variant = sync.replace("onClick={()=>props.onChange(2)}", forward);
+    assert.throws(() => lowerTsx(variant), asyncCallbackRefused(variant, "async ()"));
+  }
 });
 
-test("async handlers refuse await positions requiring expression normalization", () => {
-  const wrap = (body: string) =>
-    'import {createSignal} from "solid-js";import {request} from "./api";export function Counter(){const [n,setN]=createSignal(0);return <button onClick={async ()=>{' +
-    body +
-    "}}>{n()}</button>}";
-  for (const body of [
-    "setN(await request())",
-    "if(await request())setN(1)",
-    "return await request()",
-    "const result:number=1+(await request())",
-    "const result:number=await request(await request())",
-    "throw await request()",
+test("async handlers are refused before any await-position or body rule, for every body shape (issue #20)", () => {
+  const wrap = (handler: string) =>
+    'import {createSignal} from "solid-js";import {request} from "./api";export function Counter(){const [n,setN]=createSignal(0);return <button onClick={' +
+    handler +
+    "}>{n()}</button>}";
+  for (const handler of [
+    // Formerly lowered shapes, including await-then-write, awaits without writes, and early return/throw.
+    "async ()=>{const result:number=await request();setN(result)}",
+    "async ()=>{await request()}",
+    "async (mode:number)=>{if(mode===0)return 7;if(mode===1)throw 1;const answer:number=await 8;return answer}",
+    // Formerly refused by narrower rules, which no longer apply.
+    "async ()=>{setN(await request())}",
+    "async ()=>{if(await request())setN(1)}",
+    "async ()=>{return await request()}",
+    "async ()=>{const result:number=1+(await request())}",
+    "async ()=>{throw await request()}",
+    "async ()=>{setN(1);return 2}",
+    "async ()=>{var result:number=await request()}",
+    "async ()=>{const result=await request()}",
+    "async ()=>setN(1)",
+    "async ()=>await request()",
   ]) {
-    assert.throws(() => lowerTsx(wrap(body)), /direct local initializers/);
+    const source = wrap(handler);
+    assert.throws(() => lowerTsx(source), asyncCallbackRefused(source, "async ("));
   }
-  assert.throws(
-    () => lowerTsx(wrap("setN(1);return 2")),
-    /require a lexical await/,
-  );
-  assert.throws(
-    () => lowerTsx(wrap("var result:number=await request()")),
-    /const or let/,
-  );
-  assert.throws(
-    () =>
-      lowerTsx(
-        wrap("await request()")
-          .replaceAll("createSignal", "createOptimistic")
-          .replace("await request()", "setN(1);await request()"),
-      ),
-    /Optimistic writes require a true action/,
-  );
-  assert.throws(
-    () => lowerTsx(wrap("const result=await request()")),
-    /result|annotation|contract/,
-  );
+  const optimistic = wrap("async ()=>{setN(1);await request()}").replaceAll("createSignal", "createOptimistic");
+  assert.throws(() => lowerTsx(optimistic), asyncCallbackRefused(optimistic, "async ("));
 });
 
 const rejected: [string, string, string][] = [

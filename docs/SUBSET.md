@@ -26,9 +26,17 @@ across the RX interpreter, RX compiler, and native Solid universal renderer.
 Changed tracked/snapshot reads must remain detectable. This is not a browser DOM
 or hydration claim, or proof for every combination of these primitives.
 
-Boundary tests check pins and adapter API contracts. An authored async handler
-that writes before awaiting must be rejected: Solid applies that write immediately,
-but RX would infer an action that holds it. This does not certify other async forms.
+Boundary tests check pins and adapter API contracts, and the temporary async
+callback boundary ([issue #20](https://github.com/ryansolid/reactivescript/issues/20)). Every authored ordinary async callback
+must be refused at its `async` node: event handlers and contextual callback props
+with any body, forwarded and stored callbacks, and `createRxEffect` apply callbacks
+and cleanups. The message must point to `action(function* () { ... yield request(); ... })`
+and say this opts into held action semantics rather than preserving meaning.
+`action(async ...)` and async generator actions are refused too. Explicit generator
+actions, `createMemo(async ...)` and `createServerMemo` must still lower. Before
+this boundary only a write before an `await` was refused (Solid applies it
+immediately; RX infers an action that holds it). This is a refusal contract, not
+async parity.
 
 ## Component Props And Callbacks
 
@@ -69,7 +77,7 @@ claimed by these examples.
 These are the two existing composition tests moved unchanged from
 `lower.test.ts`, not replacement assertions. The full suite still discovers them,
 and the coverage manifest records their new paths. `npm run verify:subset` passes
-11 tests with no skips or TODOs; the package typecheck is clean. Upstream's 12
+14 tests with no skips or TODOs; the package typecheck is clean. Upstream's 12
 strict-mode diagnostics remain the separately recorded baseline.
 
 ## Exclusions

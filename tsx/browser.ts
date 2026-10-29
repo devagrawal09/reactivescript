@@ -13,6 +13,9 @@ import { buildTsx } from "./build.ts";
 const scenarios = [
   {
     name: "async-handler", frames: ["0/0", "4/1", "44/2", "444/3"], hydrationCalls: 0,
+    // Temporary TSX boundary (https://github.com/ryansolid/reactivescript/issues/20): the authored TSX leg proves the
+    // refusal of its ordinary async callback instead of building; the native and RX legs still stream, hydrate, click.
+    tsxRefused: /Ordinary async callbacks are refused for now \(https:\/\/github\.com\/ryansolid\/reactivescript\/issues\/20\): wrap the work in action\(function\* \(\) \{ \.\.\. yield request\(\); \.\.\. \}\)/,
     rx: 'import pure {fetchValue} from "./api"; export component Counter() { source n := 0; source runs := 0; <button onClick={() => { n := 1; let result = await fetchValue(n); n := result; runs := previous => previous + 1 }}>{"" + n}/{"" + runs}</button> }',
     tsx: 'import {createSignal} from "solid-js"; import {fetchValue} from "./api"; export function Counter() { const [n,setN]=createSignal(0); const [runs,setRuns]=createSignal(0); return <button onClick={async()=>{setN(1); const result:number=await fetchValue(n()); setN(result); setRuns(previous=>previous+1);}}>{n()}/{runs()}</button>; }',
   },
@@ -86,8 +89,13 @@ const scenarios = [
   },
 ];
 
-for (const scenario of scenarios) for (const syntax of (["rx-effect", "server-factories", "async-handler"].includes(scenario.name) ? ["rx", "tsx", "native"] : ["rx", "tsx"]) as ("rx" | "tsx" | "native")[]) test(syntax + " " + scenario.name + " streams HTML, adopts the same DOM on hydration, then updates on clicks", async () => {
+for (const scenario of scenarios) for (const syntax of (["rx-effect", "server-factories", "async-handler"].includes(scenario.name) ? ["rx", "tsx", "native"] : ["rx", "tsx"]) as ("rx" | "tsx" | "native")[]) test(syntax + " " + scenario.name + (syntax === "tsx" && scenario.tsxRefused ? " is refused at its authored async callback (issue #20)" : " streams HTML, adopts the same DOM on hydration, then updates on clicks"), async () => {
   const source = syntax === "native" ? scenario.tsx : scenario[syntax], expectedFrames = scenario.frames;
+  if (syntax === "tsx" && scenario.tsxRefused) {
+    for (const target of ["ssr", "dom"] as const)
+      assert.throws(() => buildTsx("Counter.tsx", path => path === "Counter.tsx" ? source : path === "api.d.rx" ? "export pure fn fetchValue(n: number): number" : undefined, { target, mount: "Counter" }), scenario.tsxRefused);
+    return;
+  }
   const root = fileURLToPath(new URL("../.out/", import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(root + "tsx-browser-");

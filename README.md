@@ -51,9 +51,11 @@ Playwright 1.59.1 (Chromium). `boundary.test.ts` fails if the checkouts drift fr
 - **Server functions:** `serverFunction`/`serverAction` both lower to the single `server` declaration; the authored
   loader/action intent stays frontend bookkeeping and upstream infers io (refusing io in reactive scope).
 - **Inferred actions:** upstream infers a plain arrow that writes and awaits as an action and holds writes made
-  before an `await`. Solid applies them immediately, so a plain TSX callback with a write before an `await` is refused
-  at its authored location. Await-then-write and refresh callbacks are accepted and left to the checker and the
-  differential suites. Wrap a callback in `action(...)` for held semantics.
+  before an `await`, which Solid applies immediately. Until [issue #20](https://github.com/ryansolid/reactivescript/issues/20) is decided, the TSX frontend
+  refuses every ordinary async callback at its `async` node, not only one that writes before an `await`, and points
+  to an explicit `action(function* () { ... yield request(); ... })`. That opts into held action semantics; it is not
+  a semantics-preserving rewrite. Synchronous refresh/affects callbacks are left to the checker and the differential
+  suites.
 - **Structured `untrack` captures:** `untrack(() => store.path)` returning an object/array lowers to an RX snapshot
   (`peek`), which copies the value; Solid returns the live proxy. Accepted only when nothing can update the captured
   object in place (not a derived store, no write inside the captured path); otherwise refused at the `untrack`.
