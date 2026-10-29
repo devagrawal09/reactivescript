@@ -37,7 +37,9 @@ smaller source should count.
   `solid-js/skills/solid-2.0/SKILL.md` (about 2.4k tokens), with the full cheatsheet and skills readable in
   `node_modules/solid-js`; React gets nothing (it needs nothing). Checkers: `rxc check`; tsc strict plus ESLint
   react-hooks for React; tsc strict plus eslint-plugin-solid's `v2` config for Solid. Each run keeps scratch files in its own
-  `.scratch` folder and uses no messaging tools.
+  `.scratch` folder and uses no messaging tools. Each run's agent is started with one line that points it to its
+  `.prompt` file, which it reads first: one extra call, the same in every arm (the prompts are too long to relay
+  by hand 54 times).
 - **Model**: the frontier model only, at the agent harness's default effort; the model id and effort are recorded with
   the results (cost is the question; round 4's small-model runs add variance, not an answer).
 - **Runs**: 3 tasks × 3 arms × 6 runs = 54. Run k of a task starts from the same base in its arm.
