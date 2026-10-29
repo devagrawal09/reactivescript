@@ -399,7 +399,7 @@ export function lowerTsx(
   let defaultComponent: string | undefined;
   /** Untracked captures of structured store objects. RX has only a value snapshot (peek); Solid returns the live
    *  proxy. They agree only while nothing updates the captured object in place, which is checked after lowering. */
-  const structuredCaptures: { store: string; path: string[]; at: Span }[] = [];
+  const structuredCaptures: { store: string; path: string[]; at: Span; derived: boolean }[] = [];
   const collectFunction = (
     fn: OxcFunction,
     exported: boolean,
@@ -1413,12 +1413,12 @@ export function lowerTsx(
               root = root.o;
             }
             const store = root.k === "id" ? scope.bindings.get(root.name) : undefined;
-            if (root.k !== "id" || store?.kind !== "store" || store.derivedStore)
+            if (root.k !== "id" || store?.kind !== "store")
               return fail(
                 n,
                 "untrack of a structured value of a derived or computed store is unsupported: Solid returns the live store proxy, which shows answers reconciled into it in place, but the RX spelling, peek, snapshots the value at this instant; untrack a primitive field, or read the store path where it is used",
               );
-            structuredCaptures.push({ store: root.name, path, at: n });
+            structuredCaptures.push({ store: root.name, path, at: n, derived: !!store.derivedStore });
           }
           return {
             e: {
@@ -4603,11 +4603,13 @@ export function lowerTsx(
   }
   for (const capture of structuredCaptures) {
     let inside = false;
+    let projection = false;
     const walk = (x: unknown, draft?: string): void => {
       if (inside || !x || typeof x !== "object") return;
       if (Array.isArray(x)) return x.forEach((y) => walk(y, draft));
       const o = x as { k?: string; name?: string; e?: { k?: string; body?: unknown; seed?: unknown }; target?: { name: string; path: unknown[] } };
       if (o.k === "eq" && o.name === capture.store && o.e?.k === "draft") {
+        projection = true;
         walk(o.e.seed, draft);
         return walk(o.e.body, "d");
       }
@@ -4620,6 +4622,13 @@ export function lowerTsx(
       for (const y of Object.values(x)) walk(y, draft);
     };
     walk(result.decls);
+    // A derived store other than a projection reconciles each new answer into the existing objects (in place); a
+    // projection's recomputation is its draft statements, which the scan above already checked.
+    if (capture.derived && !projection)
+      return fail(
+        capture.at,
+        "untrack of a structured value of a derived or computed store is unsupported: Solid returns the live store proxy, which shows answers reconciled into it in place, but the RX spelling, peek, snapshots the value at this instant; untrack a primitive field, or read the store path where it is used",
+      );
     if (inside)
       return fail(
         capture.at,

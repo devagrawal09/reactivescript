@@ -2,12 +2,11 @@
   "status": "OBSERVATION ONLY, NOT APPROVED. The migration's failures and coverage gaps as last measured; used by verify-pinned.sh --compare to detect change. It does not make any of them acceptable, and readiness ignores it.",
   "observed": "2026-10-29 at reactivescript aa85cbde + patches/0001 / solid ac28157",
   "counts": {
-    "upstream interpreter divergence": 9,
+    "upstream interpreter divergence": 17,
     "upstream behavior (handwritten RX reproduces)": 20,
-    "UNREVIEWED": 7,
-    "parent of failing subtests": 4,
     "upstream defect": 16,
     "legacy core regression (patch not carried)": 23,
+    "UNREVIEWED": 2,
     "upstream semantic change (AC-1b/AC-1c)": 2,
     "upstream interpreter divergence (single test)": 11,
     "upstream rule change": 4,
@@ -109,36 +108,36 @@
       "note": "handwritten RX legs fail too (rx-compiled, rx-interpreted, tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: interpreter #3": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: ordinary callback try catch finally handles success, failure, and early return": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: interpreter #4": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly deep-equal:"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: a child catches its parent callback failure and still runs finally": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: interpreter #5": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Missing expected exception (Broken)."
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: callback rethrows reach the event caller with their payload after both finalizers": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: interpreter #6": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Expected values to be strictly equal:"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/callbacks.test.ts :: nested finalizers preserve completions unless their own return or throw overrides them": {
-      "category": "parent of failing subtests",
-      "note": "fails only because a listed subtest fails"
+      "category": "upstream interpreter divergence",
+      "note": "only interpreted legs fail; the compiled legs of the same program match native (tsx-interpreted)"
     },
     "tsx/contracts.test.ts :: typed failure identities cross TSX exports, RX imports, and TSX boundary aliases": {
       "category": "upstream defect",
@@ -218,7 +217,7 @@
     },
     "tsx/failure-identities.test.ts :: server function and action signatures print parameters and readable rejection identities": {
       "category": "UNREVIEWED",
-      "note": "not yet investigated: main.rx: line 1: `server fn` (SF-1: one form — it is io when its body is; there is no `server action`) near ' save(id, next) { th'"
+      "note": "not yet investigated: Expected values to be strictly deep-equal:"
     },
     "tsx/failure-identities.test.ts :: declared JS errors match aliases and declaration-local rejects through RX signatures": {
       "category": "upstream defect",
@@ -252,13 +251,9 @@
       "category": "upstream rule change",
       "note": "AC-1d STALE_OWN_READ refuses a read after the same change's write (Solid lets the stale read through)"
     },
-    "tsx/features.test.ts :: store root aliases remain live while captured nested objects survive path replacement": {
-      "category": "UNREVIEWED",
-      "note": "not yet investigated: Counter.tsx:1:136: untrack of a structured store value is unsupported: Solid returns the live store proxy (later reads through it still track and see reconciled updates), but the RX spelling, peek, sn"
-    },
     "tsx/features.test.ts :: projection aliases and nested captures preserve native replacement identity": {
       "category": "UNREVIEWED",
-      "note": "not yet investigated: Counter.tsx:1:226: untrack of a structured store value is unsupported: Solid returns the live store proxy (later reads through it still track and see reconciled updates), but the RX spelling, peek, sn"
+      "note": "not yet investigated: Counter.tsx:1:226: untrack of a structured value of a derived or computed store is unsupported: Solid returns the live store proxy, which shows answers reconciled into it in place, but the RX spelling"
     },
     "tsx/features.test.ts :: synchronous projection drafts start from an eager seed and retain their previous draft": {
       "category": "upstream interpreter divergence (single test)",
