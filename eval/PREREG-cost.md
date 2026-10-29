@@ -1,7 +1,6 @@
 # Round 5: what a change costs
 
-Draft pre-registration. It is frozen (hidden test hashes, toolchain pin) in the commit before the round's first
-counted run.
+Pre-registration. Everything in this file was fixed and committed before the round's first agent run.
 
 ## Why this round
 
@@ -42,9 +41,39 @@ smaller source should count.
 - **Model**: the frontier model only, at the agent harness's default effort; the model id and effort are recorded with
   the results (cost is the question; round 4's small-model runs add variance, not an answer).
 - **Runs**: 3 tasks × 3 arms × 6 runs = 54. Run k of a task starts from the same base in its arm.
-- **Toolchain**: Solid next at the pin in `ref/SOLID_NEXT` at freezing (must include the solidjs/solid#4379 fix: on
-  6b792a9 the .rx and Solid bases fail one desk test, "a list that loads while an assignment is out keeps the new
-  assignee").
+- **Toolchain**: Solid next @ 5e68925c (2.0.0-rc.20, `ref/SOLID_NEXT`) in all three arms, through
+  `eval/package.json`; the .rx compiler and runtime from this branch at the freezing commit. All references pass all
+  tests on it but one, below.
+- **Not waited on**: runtime bugs. Each round so far found Solid bugs, and fixing them before each round would mean
+  no round. A bug found before freezing is named here and its test sits outside the defect count; one found during
+  the round is listed, and the defect results are given with and without it. Neither changes the primary measure:
+  the hidden tests are never shown to the agent, so they cannot change what a run costs.
+
+Hidden test files (round 5's and the earlier ones they import), SHA-256 at freezing:
+
+```
+bdb6830b286c16c5d28e9b7789c138954465c15a1fd37c3b9422efb02434573e  tasks/desk/hidden-overlap.mjs
+fa881652fa8ea2dcd3dc9ca0edbb33c705374a4f625670c043c07d29f63da0b8  tasks/desk/hidden.mjs
+cf1c1eb9e58cf2aae31a74125c4eab0edb7d8d67134a7cd74dc5a0ebe32e2fa5  tasks/labels/hidden-overlap.mjs
+89be40f794261e4b42090fdabdb38c1e48a32e1dbd811ec25ae3b285cac26cf2  tasks/labels/hidden.mjs
+546ac1ee33c81f2909a23cc6e2ae4de3588678318ce6aa01be987519e160733f  tasks/related/hidden-overlap.mjs
+bd714cbb344aae7a6aa3a52132bd4b61fc860729d2e96e64ed8b11b69230144d  tasks/related/hidden.mjs
+9dc4b040fa5e5b7c971aa1d9954d194d6dde09c1ec69f71fd872e990ad91c9ef  tasks/count/hidden-overlap.mjs
+1270f72e51d84409cc83fc76299ba5d9621600312dc71c2b9664bbbf6289e42e  tasks/count/hidden.mjs
+84ecb6574905d44ccdf9b4f3b68cb4be29769b32f5a6415b16307da15f695e93  tasks/desk/pages.mjs
+5d3e09edb9f0c2845aba82fc43b9689c8fe1066167fefa2dd04cbb93f4711b3e  tasks/tracker/hidden-overlap.mjs
+c02e80f9b64e44dd843b601713ddc67553a5f85835e36ee5d13c35fb4121d09e  tasks/tracker/hidden.mjs
+532e2caf837f3effaf77c5979af2651ed4d0ec2973b496d76846035d45831403  tasks/rename/hidden-overlap.mjs
+869e02eceb679c5907a67571a26f061157eefd86e8e38a1a7aec8db7d9e65fc0  tasks/rename/hidden.mjs
+669c606395e539e031ca7f376304a42607d15ffccb823b291b5d616f30ddce42  tasks/close/hidden-overlap.mjs
+86aebac10d51c9244504e5da3b368c356e6b8c65dfab5d9dbc35b03adb66604d  tasks/close/hidden.mjs
+11dd32de3c947f059b2a84216b1ac579e84666ecaba50d8cef44a23d2d09e249  tasks/comments/hidden-overlap.mjs
+25d241a2309310943ed24d72d26c2a7e638a6feecbd3397b39123ebf5e956dab  tasks/comments/hidden.mjs
+5776f8888055c4f5c13261b8637e048ebbb4f919602afb6f294a78ae4339b4d2  tasks/search/hidden-overlap.mjs
+1d77a1daa81d15d40045d1f4665f9fdcebbe9abb6356db5b3a6eb8b29d30d0ae  tasks/search/hidden.mjs
+aa1d42209d188ea4c54220c816d0ffe718e7ebe65c2d9b9d3fbf5fa23949aade  tasks/settings/hidden-overlap.mjs
+58d2a1daa4a1b8d2ea559ab56bb37ee9193dcf3d31d03e362107e25ee3b106b6  tasks/settings/hidden.mjs
+```
 
 ## Hypothesis and test
 
@@ -58,6 +87,10 @@ smaller source should count.
   same way (Solid − .rx) and reported as secondary, with React − Solid beside it, descriptive only.
 - **Power**: the pilot's per-run sd was 6.8k (React) and 18.2k (.rx), on means near 85k; with 18 runs per arm the
   test has about 80% power for a difference of 14%. A smaller true difference can be missed.
+- **Outside the defect count, reported alongside**: "base: retry after not found shows the issue" (related task):
+  solidjs/solid#4425, filed 2026-10-29: on rc.20 an `<Errored>` recovering after a retry waits for async under a
+  nested `<Loading>`. The .rx and Solid references of the related task fail it; React's passes. Also round 4's
+  "a post on one issue does not show on another" (solidjs/solid#4336, fixed; kept outside for comparability).
 - **Secondary, reported alongside**:
   - defects shipped (round 4's measure: build, visible, hidden and overlap tests at "done"), per arm, Fisher's exact
     test two-sided; cost per run that shipped no defect;
