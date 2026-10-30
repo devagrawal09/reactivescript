@@ -76,7 +76,7 @@ async function session(browser, url, seed, steps, log) {
   const ui = { page: "issues", filter: "open", selected: null };
   // writes in flight (key -> { issue, field, value }); declined values per issue/field during the busy period;
   // accepted writes per field in this busy period, in start order
-  const writes = new Map(); let declined = []; let started = []; let seq = 0; let gen = 0; let stale = []; let held = {}; const settledCount = new Map();
+  const writes = new Map(); let declined = []; let started = []; let seq = 0; let gen = 0; let stale = []; let held = { filters: new Set(), selections: new Set(), rows: new Set() }; const settledCount = new Map();
   const trail = []; const found = [];
   const pending = () => page.evaluate(() => globalThis.__flights.pending());
   const texts = async id => (await page.locator(sel(id)).allTextContents()).map(norm);
@@ -133,13 +133,13 @@ async function session(browser, url, seed, steps, log) {
     if (parsed.length && listText && !/loading/.test(listText)) {
       const v = listViolations(parsed, ui.filter);
       // A5: a filter switch made while work is in flight may hold the previous filter's list (Ryan, 2026-10-28)
-      if (v.length && !(held.filter && !listViolations(parsed, held.filter, false).length)) for (const [k, d] of v) note(k, d);
+      if (v.length && !(held.filters.size && parsed.every(p => held.rows.has(p.id))) && ![...held.filters].some(f => !listViolations(parsed, f, false).length)) for (const [k, d] of v) note(k, d);
     }
     const detail = await text("detail");
     if (detail && ui.selected != null && !/loading #|detail error|select an issue/.test(detail)) {
       const m = detail.match(/#(\d+) /);
       const shownId = m ? Number(m[1]) : null;
-      if (m && shownId !== ui.selected && shownId !== held.selected) note("wrong detail", `selected #${ui.selected}, detail shows #${m[1]}`);   // A5
+      if (m && shownId !== ui.selected && !held.selections.has(shownId)) note("wrong detail", `selected #${ui.selected}, detail shows #${m[1]}`);   // A5
       else if (m && ![...allowed(shownId, "title")].some(t => detail.includes(`#${shownId} ${t}`))) note("detail title", `"${detail.slice(0, 60)}", server "${srv.issues.find(i => i.id === shownId).title}"`);
     }
   }
@@ -196,7 +196,7 @@ async function session(browser, url, seed, steps, log) {
     await page.evaluate(([k, a]) => a.fail ? globalThis.__flights.fail(k, "declined") : globalThis.__flights.land(k, a.value), [key, a]);
     await settle();
     if (!(await pending()).length) declined = [];
-    if (!(await pending()).length) held = {};
+    if (!(await pending()).length) held = { filters: new Set(), selections: new Set(), rows: new Set() };
   }
 
   async function move() {
@@ -218,7 +218,7 @@ async function session(browser, url, seed, steps, log) {
     for (const [k, w] of opts) { if ((x -= w) < 0) { m = k; break; } }
     const click = async (id, nth = 0) => { await page.locator(sel(id)).nth(nth).click({ timeout: 2000 }); };
     switch (m) {
-      case "select": { const t = pick(rows); const id = Number(t.match(/^#(\d+)/)?.[1]); if (!id) return; trail.push(`select #${id}`); await page.locator(sel("issue"), { hasText: `#${id} ` }).first().click({ timeout: 2000 }); if ((await pending()).length && ui.selected !== id && !("selected" in held)) held.selected = ui.selected; ui.selected = id; break; }
+      case "select": { const t = pick(rows); const id = Number(t.match(/^#(\d+)/)?.[1]); if (!id) return; trail.push(`select #${id}`); await page.locator(sel("issue"), { hasText: `#${id} ` }).first().click({ timeout: 2000 }); if ((await pending()).length && ui.selected !== id) held.selections.add(ui.selected); ui.selected = id; break; }
       case "user": { const u = pick(USERS); trail.push(`user ${u}`); await page.locator(sel("user")).first().fill(u); break; }
       case "assign": trail.push("assign"); await click("assign"); break;
       case "rename": { const t = pick(TITLES); trail.push(`rename ${t}`); await page.locator(sel("title-input")).first().fill(t); await click("rename"); break; }
@@ -228,9 +228,9 @@ async function session(browser, url, seed, steps, log) {
       case "add-label": { const l = pick(LABELS); trail.push(`add-label ${l}`); await page.locator(sel("label-input")).first().fill(l); await click("add-label"); break; }
       case "remove-label": { const n = Math.floor(r() * (await page.locator(sel("remove-label")).count())); trail.push(`remove-label ${n}`); await click("remove-label", n); break; }
       case "post": { const t = pick(TEXTS); trail.push(`post ${t}`); await page.locator(sel("comment-input")).first().fill(t); await click("post"); break; }
-      case "filter": { const f = ui.filter === "open" ? "closed" : "open"; trail.push(`filter ${f}`); if ((await pending()).length && !("filter" in held)) held.filter = ui.filter; await click(`filter-${f}`); ui.filter = f; break; }
+      case "filter": { const f = ui.filter === "open" ? "closed" : "open"; trail.push(`filter ${f}`); if ((await pending()).length) { held.filters.add(ui.filter); for (const t of await texts("issue")) { const m = t.match(/^#(\d+)/); if (m) held.rows.add(Number(m[1])); } } await click(`filter-${f}`); ui.filter = f; break; }
       case "leave": trail.push("tab help"); await click("tab-help"); ui.page = "help"; gen++; break;
-      case "back": trail.push("tab issues"); await click("tab-issues"); ui.page = "issues"; ui.filter = "open"; ui.selected = null; gen++; stale = []; held = {}; break;
+      case "back": trail.push("tab issues"); await click("tab-issues"); ui.page = "issues"; ui.filter = "open"; ui.selected = null; gen++; stale = []; held = { filters: new Set(), selections: new Set(), rows: new Set() }; break;
     }
     await settle();
   }

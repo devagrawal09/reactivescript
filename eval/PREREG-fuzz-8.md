@@ -78,3 +78,9 @@ every arm:
 Replays confirmed two kinds the partial run found in the .rx apps are real and stay counted: switching the filter
 back to open shows the closed rows with no `loading open issues` while the open list reloads, and an accepted rename's
 title flashes back to the old one until its refresh answers. Results come from a full rerun with the fixed fuzzer.
+
+A second full run was also discarded, because A5 was implemented more narrowly than written: it allowed only the
+view from before the first click of a busy period. It now allows any filter or selection the user left during the
+busy period, and a held list may keep rows that were on screen when the switch was made (values in a held view are not
+checked). This only removes holes, and only from apps that hold views (the .rx and Solid apps). Final results come
+from a third run with this fuzzer.
