@@ -27,7 +27,7 @@ const TITLES = ["Alpha", "Bravo", "Delta"];
 const LABELS = ["bug", "ui", "p1"];
 const TEXTS = ["me too", "fixed?", "ping"];
 
-function freshServer() {
+export function freshServer() {
   return {
     issues: [
       { id: 1, title: "Login fails", assignee: null, open: true, body: "on Safari only" },
@@ -43,7 +43,7 @@ const row = i => ({ id: i.id, title: i.title, assignee: i.assignee });
 const WRITES = new Set(["assign", "renameIssue", "closeIssue", "addComment", "addLabel", "removeLabel", "saveSettings"]);
 
 /** the answer the server gives `key` now, applying a write; `fail` = the server declines / the read fails */
-function answer(srv, key, fail) {
+export function answer(srv, key, fail) {
   const i = key.indexOf(":"); const name = key.slice(0, i); const args = key.slice(i + 1).split(",");
   const issue = id => srv.issues.find(x => x.id === Number(id));
   if (fail) return { fail: true };
@@ -90,7 +90,17 @@ async function session(browser, url, seed, steps, log) {
     if (name === "closeIssue") return { issue: Number(a[0]), field: "open", value: false };
     return { issue: Number(a[0]), field: name, value: a.slice(1).join(",") };
   };
-  const track = async () => { for (const k of await pending()) if (WRITES.has(k.slice(0, k.indexOf(":"))) && !writes.has(k)) { if (!writes.size) started = []; const w = { ...writeOf(k), seq: seq++, gen }; writes.set(k, w); started.push(w); } };
+  // a write asked again while its first ask is in the air (one key to the test) is started again: it moves to the newest
+  const askCount = new Map();
+  const track = async () => {
+    const asked = await page.evaluate(() => globalThis.__flights.asked()); const count = k => asked.filter(x => x === k).length;
+    for (const k of await pending()) {
+      if (!WRITES.has(k.slice(0, k.indexOf(":")))) continue;
+      if (!writes.has(k)) { if (!writes.size) started = []; const w = { ...writeOf(k), seq: seq++, gen }; writes.set(k, w); started.push(w); }
+      else if (count(k) > askCount.get(k)) { const w = writes.get(k); started.splice(started.indexOf(w), 1); w.seq = seq++; started.push(w); }
+      askCount.set(k, count(k));
+    }
+  };
   const busy = () => writes.size > 0;
   let inFlight = false;   // anything in the air at this frame (A1: an action runs until its refresh answers)
   const allowed = (id, field) => {
@@ -262,9 +272,15 @@ async function session(browser, url, seed, steps, log) {
 export async function fuzz(dir, { seeds = 40, steps = 30, from = 1, log = false } = {}) {
   const b = await build(dir);
   if (!b.ok) return { dir, build: false, seeds, violations: [] };
-  const server = await serve(b.dist); const browser = await launch();
+  const server = await serve(b.dist); let browser = await launch();
   const violations = [];
-  try { for (let s = from; s < from + seeds; s++) violations.push(...await session(browser, server.url, s, steps, log)); }
+  try {
+    for (let s = from; s < from + seeds; s++) {
+      // a page that crashes or hangs the browser is a hole of its own; the next seed gets a fresh browser
+      try { let t; violations.push(...await Promise.race([session(browser, server.url, s, steps, log), new Promise((_, rej) => { t = setTimeout(() => rej(new Error("session timed out (120 s): the page hangs")), 120000); })]).finally(() => clearTimeout(t))); }
+      catch (e) { violations.push({ seed: s, step: -1, kind: "page crash", detail: e.message.split("\n")[0].slice(0, 120), trail: [] }); await browser.close().catch(() => {}); browser = await launch(); }
+    }
+  }
   finally { await browser.close(); server.close(); }
   return { dir, build: true, seeds, violations };
 }

@@ -84,3 +84,18 @@ view from before the first click of a busy period. It now allows any filter or s
 busy period, and a held list may keep rows that were on screen when the switch was made (values in a held view are not
 checked). This only removes holes, and only from apps that hold views (the .rx and Solid apps). Final results come
 from a third run with this fuzzer.
+
+## Addendum 3 (after the final run, before reading per-arm results into anything)
+
+Replaying holes to classify them found two fuzzer faults, both fixed for every arm:
+
+- A2 tracked a write by its request key, so a second identical write asked while the first was in the air (rename
+  Bravo, rename Alpha, rename Bravo) kept its first start position: the oracle took Alpha as the newest started and
+  flagged a detail showing Bravo. A re-asked write now moves to the newest started. This produced all 5 React
+  `detail title` holes (chain 3).
+- A page that crashed or hung the browser stopped the whole run for that app (chain4-rx-2 never finished). A crash
+  or a session over 120 s is now a hole of its own (`page crash`) and the next seed gets a fresh browser.
+
+Both changes only remove holes or turn a crash into one, so an app with no hole in the final run cannot change.
+The 101 apps with at least one hole, and chain4-rx-2, were run again with the fixed fuzzer (same seeds, the
+compiler as committed at 1246c76); the results report that run, and the final run's numbers beside it.
