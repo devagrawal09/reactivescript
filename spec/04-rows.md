@@ -78,11 +78,49 @@ and where they may not go.
   first answer lands: the equation is never pending on its first flight and
   `pending?` of it is `false` until then. Later questions follow R-4 and the
   hold rules. (Solid: `loadingValue`.)
-- **R-8 (Imperative scope).** A pending value cannot be read as a snapshot;
-  in imperative scope, reading a pending equation is a type error unless
-  through `latest` or `peek`-with-a-default (05 decides the forms). A
-  handler that needs "the value when it lands" uses `await` in its own body,
-  which is ordinary JS asynchrony (SC-3: the continuation stays imperative).
+- **R-8 (Imperative scope).** [taken by default 2026-10-30; replaces the
+  unenforced draft "reading a pending equation is a type error"] A snapshot
+  reads `σ` (H-10): an equation with a new question out reads its committed
+  value, which is the value the screen shows. What a snapshot cannot give is a
+  value that is not there: an equation whose row has `pending` with no
+  committed value yet (a first load without `-> v`, R-7), or whose row
+  `fails` (R-f-7: the snapshot throws). A handler (a plain arrow, an action,
+  an apply block) that snapshots such an equation `x` must either **handle**
+  it or be **covered**:
+  - handled: for the absent half, the equation has a first-paint default
+    (`await f() -> v`, R-7), so it always has a value (a probe does not
+    help: on a first load `pending? x` is `false` and `latest x` throws,
+    R-12); for the failure half, the read is inside a `try` or a `catch`
+    expression that takes its failures (`x.some(…) catch (e) => false`,
+    R-f-7). In an action, R-f-6 already requires the second;
+  - covered: the handler is on an element whose `disabled` reads `x` (the
+    usual form is `disabled={pending? x}`), or the element sits inside a
+    `loading` and an `errored` region whose content reads `x`. A covered
+    element is not there, or not enabled, while `x` has no value, a new
+    question out, or an error, so the handler never runs then: the element's
+    attributes are the handler's compute half, with the same separated
+    inputs an effect has (EF-1).
+
+  Neither is `UNGUARDED_SNAPSHOT` (static). The check adds nothing at run
+  time and Solid has no equivalent: `untrack` of a pending node throws there
+  too, but nothing says so before it runs. A handler that needs "the value
+  when it lands" uses `await` in its own body, which is ordinary JS
+  asynchrony (SC-3: the continuation stays imperative). Found by the AI
+  eval's round 8 timing fuzzer (eval/results/fuzz-2026-10-30): in every
+  labels app, `add label` reads `shown.some(…)` from a button outside the
+  labels' `loading` region; clicking it before the labels' first answer
+  throws `snapshot(...).some is not a function`, and after a failed load it
+  throws the load's error out of the click (scenario S-guard-1 below).
+
+  **S-guard-1** (handler over a first load). Program: `source labels = await
+  fetchLabels(id)`, `shown = labels.filter(…)`, a `loading`/`errored` region
+  listing `shown`, and outside it `<button onClick={() => { if
+  (!shown.some(l => l == input)) { addOne(input) } }}>`. Actions: mount;
+  click. Frames: `loading labels | [add]`, then a run-time `TypeError` (no
+  value). With `reject labels e` before the click: `labels error | [add]`,
+  then the click throws `e`. Both are `UNGUARDED_SNAPSHOT` at compile time.
+  Fixes: `disabled={pending? shown}` plus the read under `catch`, or the
+  button moved inside the region. Not yet checked by `rxc` or `ref/`.
 
 ## R-lane — display-ahead
 
@@ -241,8 +279,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
 | code                             | bin | rule  |
 | -------------------------------- | --- | ----- |
 | `UNTRACKED_READ_AFTER_AWAIT`     | U   | R-5   |
-| `PENDING_ASYNC_UNTRACKED_READ`   | U   | R-8   |
-| `PENDING_ASYNC_FORBIDDEN_SCOPE`  | U   | R-8   |
+| `PENDING_ASYNC_UNTRACKED_READ`   | S   | R-8: `UNGUARDED_SNAPSHOT` (new), a handler's snapshot of a value that may be absent or failing, neither handled nor covered |
+| `PENDING_ASYNC_FORBIDDEN_SCOPE`  | S   | same  |
 | `SYNC_NODE_RECEIVED_ASYNC`       | U   | R-1   |
 | `ASYNC_WATERFALL`                | S   | an `await` whose inputs depend on another `await` (R-2) |
 | `UNTRACKED_ASYNC_HANDLER` (structural half) | S | a handler that awaits with no write before and no `action` |
