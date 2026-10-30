@@ -1,0 +1,5 @@
+{"at":"2026-10-28T05:27:51.988Z","cmd":"check","ok":false,"out":"/home/claude/runs/change-big/close-rx-2/src/main.rx:13: error SHADOWED_IMPORT [MO-1d] filter shadows the imported filter: rename one (`import { filter as … }`)\n/home/claude/runs/change-big/close-rx-2/src/main.rx:19: error REACTIVE_WRITE_IN_OWNED_SCOPE [W-2] a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)"}
+{"at":"2026-10-28T05:27:58.148Z","cmd":"check","ok":true,"out":"src/main.rx: ok"}
+{"at":"2026-10-28T05:28:19.010Z","cmd":"test","ok":true,"build":true,"passed":6,"total":6}
+{"at":"2026-10-28T05:28:42.093Z","cmd":"test","ok":true,"build":true,"passed":8,"total":8}
+{"at":"2026-10-28T05:28:45.787Z","cmd":"check","ok":true,"out":"src/main.rx: ok"}

@@ -15,14 +15,19 @@ const overlap = process.argv.includes("--overlap");
 const [runsArg, outArg] = process.argv.slice(2).filter(a => a !== "--overlap");
 const runs = path.resolve(runsArg);
 // solidjs/solid#4336: the .rx idiom for this case shows the bug in the runtime, not in the app's code.
-const alongside = new Set(["a post on one issue does not show on another"]);
+const round4Alongside = new Set(["a post on one issue does not show on another"]);
+// solidjs/solid#4425 (round 5, rc.20): an Errored recovering after a retry waits for async under a nested Loading;
+// it shows in the related task's .rx and Solid references alike.
+const round5Alongside = new Set(["a post on one issue does not show on another", "base: retry after not found shows the issue"]);
+const round5 = new Set(["desk", "labels", "related", "count", "chain1", "chain2", "chain3", "chain4"]);
 
 const rows = [];
 for (const name of readdirSync(runs).sort()) {
   const dir = path.join(runs, name);
-  const m = name.match(/^(\w+)-(rx|react)-(\d+)$/);
+  const m = name.match(/^(\w+)-(rx|react|solid|foldkit)-(\d+)$/);
   if (!m) continue;
   const [, task, arm, n] = m;
+  const alongside = round5.has(task) ? round5Alongside : round4Alongside;
   const log = existsSync(path.join(dir, ".runlog")) ? readFileSync(path.join(dir, ".runlog"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];
   const firstGreen = log.findIndex(e => e.cmd === "test" && e.ok);
   const checked = check(dir);

@@ -1,0 +1,23 @@
+// src/api.js, as .rx sees it. fetchIssues, fetchIssue, fetchComments, fetchLabels, search, fetchItem and loadSettings
+// are loaders (safe to ask from an equation); assign, renameIssue, closeIssue, addComment, addLabel, removeLabel and
+// saveSettings write.
+export type Issue = { id: number; title: string; assignee: string | null }
+export type IssueDetail = { id: number; title: string; body: string }
+export pure fn fetchIssues(filter: string): Promise<Issue[]>
+export pure fn fetchIssue(id: number): Promise<IssueDetail | null>
+export fn assign(id: number, user: string): Promise<{ id: number; assignee: string }>
+export fn renameIssue(id: number, title: string): Promise<{ id: number; title: string }>
+export fn closeIssue(id: number): Promise<{ id: number }>
+export type Comment = { author: string; text: string }
+export pure fn fetchComments(id: number): Promise<Comment[]>
+export fn addComment(id: number, author: string, text: string): Promise<Comment>
+export type Hit = { id: number; name: string }
+export type Item = { id: number; name: string; blurb: string }
+export pure fn search(q: string): Promise<Hit[]>
+export pure fn fetchItem(id: number): Promise<Item | null>
+export type Settings = { name: string; theme: string; density: string }
+export pure fn loadSettings(): Promise<Settings>
+export fn saveSettings(s: Settings): Promise<Settings>
+export pure fn fetchLabels(id: number): Promise<string[]>
+export fn addLabel(id: number, label: string): Promise<string[]>
+export fn removeLabel(id: number, label: string): Promise<string[]>

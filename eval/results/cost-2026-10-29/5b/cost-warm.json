@@ -1,0 +1,546 @@
+{
+  "runs": [
+    {
+      "run": "labels-rx5-1",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 91999.3
+    },
+    {
+      "run": "labels-rx5-2",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 71208.85
+    },
+    {
+      "run": "labels-rx5-3",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 89230.44999999998
+    },
+    {
+      "run": "labels-rx5-4",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 96483.8
+    },
+    {
+      "run": "labels-rx5-5",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 72843.35
+    },
+    {
+      "run": "labels-rx5-6",
+      "task": "labels",
+      "arm": "rx5",
+      "first": 45864.5,
+      "rest": 256963.79999999996
+    },
+    {
+      "run": "labels-react-1",
+      "task": "labels",
+      "arm": "react",
+      "first": 46123.25,
+      "rest": 87825.85
+    },
+    {
+      "run": "labels-react-2",
+      "task": "labels",
+      "arm": "react",
+      "first": 45858.25,
+      "rest": 67807.05
+    },
+    {
+      "run": "labels-react-3",
+      "task": "labels",
+      "arm": "react",
+      "first": 45858.25,
+      "rest": 78040.25
+    },
+    {
+      "run": "labels-react-4",
+      "task": "labels",
+      "arm": "react",
+      "first": 45858.25,
+      "rest": 77020.20000000001
+    },
+    {
+      "run": "labels-react-5",
+      "task": "labels",
+      "arm": "react",
+      "first": 45858.25,
+      "rest": 76917.85
+    },
+    {
+      "run": "labels-react-6",
+      "task": "labels",
+      "arm": "react",
+      "first": 45858.25,
+      "rest": 79938.85000000002
+    },
+    {
+      "run": "labels-solid-1",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 79828.5
+    },
+    {
+      "run": "labels-solid-2",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 145814
+    },
+    {
+      "run": "labels-solid-3",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 128603.95000000001
+    },
+    {
+      "run": "labels-solid-4",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 108886.35
+    },
+    {
+      "run": "labels-solid-5",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 137785.15
+    },
+    {
+      "run": "labels-solid-6",
+      "task": "labels",
+      "arm": "solid",
+      "first": 45864.5,
+      "rest": 147785.7
+    },
+    {
+      "run": "related-rx5-1",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 138308.1
+    },
+    {
+      "run": "related-rx5-2",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 78196.05
+    },
+    {
+      "run": "related-rx5-3",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 70269.85
+    },
+    {
+      "run": "related-rx5-4",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 75300.95000000001
+    },
+    {
+      "run": "related-rx5-5",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 73101
+    },
+    {
+      "run": "related-rx5-6",
+      "task": "related",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 76070.5
+    },
+    {
+      "run": "related-react-1",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 90833.90000000001
+    },
+    {
+      "run": "related-react-2",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 83632.6
+    },
+    {
+      "run": "related-react-3",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 75966.84999999999
+    },
+    {
+      "run": "related-react-4",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 82079.25
+    },
+    {
+      "run": "related-react-5",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 66299
+    },
+    {
+      "run": "related-react-6",
+      "task": "related",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 94903.3
+    },
+    {
+      "run": "related-solid-1",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 78462.35
+    },
+    {
+      "run": "related-solid-2",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 111899.5
+    },
+    {
+      "run": "related-solid-3",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 81628.45
+    },
+    {
+      "run": "related-solid-4",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 85238.65000000001
+    },
+    {
+      "run": "related-solid-5",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 123229.2
+    },
+    {
+      "run": "related-solid-6",
+      "task": "related",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 82657.9
+    },
+    {
+      "run": "count-rx5-1",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 209298.15
+    },
+    {
+      "run": "count-rx5-2",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 110782.1
+    },
+    {
+      "run": "count-rx5-3",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 93737.8
+    },
+    {
+      "run": "count-rx5-4",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 115176.95000000001
+    },
+    {
+      "run": "count-rx5-5",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 88502.25
+    },
+    {
+      "run": "count-rx5-6",
+      "task": "count",
+      "arm": "rx5",
+      "first": 14450.6,
+      "rest": 105742.25
+    },
+    {
+      "run": "count-react-1",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 58194.55
+    },
+    {
+      "run": "count-react-2",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 58718.3
+    },
+    {
+      "run": "count-react-3",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 53021.2
+    },
+    {
+      "run": "count-react-4",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 114939.55000000002
+    },
+    {
+      "run": "count-react-5",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 64708.8
+    },
+    {
+      "run": "count-react-6",
+      "task": "count",
+      "arm": "react",
+      "first": 14444.35,
+      "rest": 62355.9
+    },
+    {
+      "run": "count-solid-1",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 95240.90000000001
+    },
+    {
+      "run": "count-solid-2",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 147433.35
+    },
+    {
+      "run": "count-solid-3",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 111489.35
+    },
+    {
+      "run": "count-solid-4",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 97693.15
+    },
+    {
+      "run": "count-solid-5",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 104428.74999999999
+    },
+    {
+      "run": "count-solid-6",
+      "task": "count",
+      "arm": "solid",
+      "first": 14450.6,
+      "rest": 112458.79999999999
+    },
+    {
+      "run": "labels-rx5b-1",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 45874.5,
+      "rest": 303977.85000000003
+    },
+    {
+      "run": "labels-rx5b-2",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 45874.5,
+      "rest": 99303.05
+    },
+    {
+      "run": "labels-rx5b-3",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 45874.5,
+      "rest": 105863.29999999999
+    },
+    {
+      "run": "labels-rx5b-4",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 46149.5,
+      "rest": 104448.34999999999
+    },
+    {
+      "run": "labels-rx5b-5",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 45874.5,
+      "rest": 158867.80000000002
+    },
+    {
+      "run": "labels-rx5b-6",
+      "task": "labels",
+      "arm": "rx5b",
+      "first": 45874.5,
+      "rest": 143014.19999999998
+    },
+    {
+      "run": "related-rx5b-1",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 66240.75
+    },
+    {
+      "run": "related-rx5b-2",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 69364.9
+    },
+    {
+      "run": "related-rx5b-3",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 76968.45000000001
+    },
+    {
+      "run": "related-rx5b-4",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 86584.84999999999
+    },
+    {
+      "run": "related-rx5b-5",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 80905
+    },
+    {
+      "run": "related-rx5b-6",
+      "task": "related",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 73331.25
+    },
+    {
+      "run": "count-rx5b-1",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 61239.3
+    },
+    {
+      "run": "count-rx5b-2",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 62244.9
+    },
+    {
+      "run": "count-rx5b-3",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 105797.45000000001
+    },
+    {
+      "run": "count-rx5b-4",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 63528.50000000001
+    },
+    {
+      "run": "count-rx5b-5",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 79235.8
+    },
+    {
+      "run": "count-rx5b-6",
+      "task": "count",
+      "arm": "rx5b",
+      "first": 45868.25,
+      "rest": 65247.950000000004
+    }
+  ],
+  "tests": [
+    {
+      "higher": "rx5",
+      "lower": "react",
+      "diff": 30000.680555555562,
+      "p": 0.0015499845001549985
+    },
+    {
+      "higher": "rx5",
+      "lower": "rx5b",
+      "diff": 5947.325000000012,
+      "p": 0.38862611373886263
+    },
+    {
+      "higher": "solid",
+      "lower": "rx5",
+      "diff": 3741.5833333333285,
+      "p": 0.4015659843401566
+    },
+    {
+      "higher": "solid",
+      "lower": "react",
+      "diff": 33742.26388888889,
+      "p": 0.00000999990000099999
+    },
+    {
+      "higher": "solid",
+      "lower": "rx5b",
+      "diff": 9688.90833333334,
+      "p": 0.3030569694303057
+    },
+    {
+      "higher": "rx5b",
+      "lower": "react",
+      "diff": 24053.35555555555,
+      "p": 0.02754972450275497
+    }
+  ]
+}

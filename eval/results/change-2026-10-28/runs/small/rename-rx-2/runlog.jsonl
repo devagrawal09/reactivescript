@@ -1,0 +1,2 @@
+{"at":"2026-10-28T05:35:09.015Z","cmd":"check","ok":true,"out":"src/main.rx: ok"}
+{"at":"2026-10-28T05:35:25.741Z","cmd":"test","ok":true,"build":true,"passed":6,"total":6}

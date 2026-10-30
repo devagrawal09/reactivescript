@@ -4,7 +4,7 @@
 question, drafts, keys, streams, and the imperative forms that tie writes to
 async work: `action`, `optimistic`, `refresh`, `affects`. Rules cite Solid's
 F-9, F-11 and the derived rules they restate. In `ref/`: ST-1…ST-6,
-AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1. AC-1b…AC-1d (inferred actions, held writes, stale own reads): S-infer-1…5.
+AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path writes: S-store-6. AC-6 `until`: S-action-2. AC-7 try/catch: S-action-1. AC-1b…AC-1d (inferred actions, held writes, stale own reads): S-infer-1…5. AC-1e (stale write-back): S-infer-6.
 
 ---
 
@@ -194,6 +194,26 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   the committed snapshot it always was, with no error. The fix is the local
   the value came from (`let n = seq + 1; seq := n; … n`) or a functional
   write (S-infer-5).
+- **AC-1e (Stale write-back).** [taken by default 2026-10-28] In any
+  imperative run, a plain value write `x := e` after an `await`, where `e`
+  is computed from a read of `x` taken before that `await` — directly, or
+  through locals bound from it — is a compile error (`STALE_WRITE_BACK`).
+  The read is `x` as the run started; whatever changed `x` while the run
+  waited (another action, a reload, a click) is erased by the write: a
+  lost update. Keys count as in AC-1d: a read of `x.a` or `x` and a write
+  of `x.a` or `x` overlap; a read of `x.b` and a write of `x.a` do not; an
+  index computed from `x` (`let i = indexOf(x, …); … x[i].f := v`) is not
+  the written value and does not count. The fix is the functional write
+  (`x := v => …`, W-6), which applies to `x` as it stands at the write, or
+  a guess (`optimistic`, AC-3) that the answer replaces. A guess or a write
+  before the `await` is the change's own and is not checked; nor is an
+  awaited answer (`let r = await …`), which is the server's, not a
+  snapshot of `x`. The check is the language's (Solid cannot see the read,
+  the suspension and the write in one body): it adds nothing at run time.
+  Found by the AI eval's round 4 (eval/results/change-2026-10-28): 2 of
+  its 3 .rx defects, and a latent one in a run that passed every test; on
+  all 76 eval .rx apps and the repository's examples it fires on those 3
+  runs only (S-infer-6).
 - **AC-2 (Not special).** An action is only a way to tie writes to async
   work; the hold is the thing (H-2). `refresh`, `affects` and probes behave
   the same inside and outside one.
@@ -277,6 +297,7 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
 | `OPTIMISTIC_OUTSIDE_HOLD` (new) | S   | AC-3: an apply block (never an action, AC-1b)    |
 | `HELD_WRITE` (new)              | S   | AC-1c: an early write in an inferred action      |
 | `STALE_OWN_READ` (new)          | S   | AC-1d: a read of the change's own write          |
+| `STALE_WRITE_BACK` (new)        | S   | AC-1e: a pre-`await` read written back after it  |
 | `OPTIMISTIC_NO_QUESTION` (new)  | S   | AC-3 / ST-5c                                     |
 
 ## Scenarios

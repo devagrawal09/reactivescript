@@ -1,0 +1,59 @@
+labels-rx-1      billed  137864  calls 9  out 4781  cacheRead 406583  cacheWrite 58626
+labels-rx-2      billed  117073  calls 7  out 3465  cacheRead 292356  cacheWrite 56399
+labels-rx-3      billed  135095  calls 9  out 4018  cacheRead 409582  cacheWrite 59223
+labels-rx-4      billed  142348  calls 8  out 4469  cacheRead 382298  cacheWrite 65406
+labels-rx-5      billed  118708  calls 7  out 3293  cacheRead 296776  cacheWrite 58041
+labels-rx-6      billed  302828  calls 22  out 14407  cacheRead 1329643  cacheWrite 78228
+labels-react-1   billed  133949  calls 7  out 6138  cacheRead 285026  cacheWrite 59794
+labels-react-2   billed  113665  calls 6  out 4564  cacheRead 220808  cacheWrite 55002
+labels-react-3   billed  123899  calls 7  out 4473  cacheRead 285995  cacheWrite 58336
+labels-react-4   billed  122878  calls 7  out 5171  cacheRead 275432  cacheWrite 55573
+labels-react-5   billed  122776  calls 7  out 4598  cacheRead 281596  cacheWrite 57290
+labels-react-6   billed  125797  calls 7  out 4908  cacheRead 283831  cacheWrite 58288
+labels-solid-1   billed  125693  calls 8  out 4108  cacheRead 341170  cacheWrite 56816
+labels-solid-2   billed  191679  calls 13  out 8531  cacheRead 662275  cacheWrite 66216
+labels-solid-3   billed  174468  calls 12  out 6361  cacheRead 612657  cacheWrite 65099
+labels-solid-4   billed  154751  calls 11  out 5375  cacheRead 518376  cacheWrite 60813
+labels-solid-5   billed  183650  calls 12  out 7884  cacheRead 609919  cacheWrite 66571
+labels-solid-6   billed  193650  calls 12  out 9331  cacheRead 613887  cacheWrite 68466
+related-rx-1     billed  152759  calls 15  out 4983  cacheRead 811212  cacheWrite 37354
+related-rx-2     billed   92647  calls 7  out 3080  cacheRead 340664  cacheWrite 34533
+related-rx-3     billed   84720  calls 7  out 2825  cacheRead 329327  cacheWrite 30119
+related-rx-4     billed   89752  calls 8  out 3237  cacheRead 371443  cacheWrite 29125
+related-rx-5     billed   87552  calls 7  out 2792  cacheRead 335326  cacheWrite 32036
+related-rx-6     billed   90521  calls 8  out 2677  cacheRead 378376  cacheWrite 31426
+related-react-1  billed  105278  calls 9  out 4900  cacheRead 419465  cacheWrite 31051
+related-react-2  billed   98077  calls 8  out 4798  cacheRead 359747  cacheWrite 30477
+related-react-3  billed   90411  calls 8  out 3742  cacheRead 357477  cacheWrite 28750
+related-react-4  billed   96524  calls 8  out 4686  cacheRead 359151  cacheWrite 29730
+related-react-5  billed   80743  calls 7  out 3639  cacheRead 299006  cacheWrite 26107
+related-react-6  billed  109348  calls 8  out 6479  cacheRead 365829  cacheWrite 32283
+related-solid-1  billed   92913  calls 8  out 3540  cacheRead 372807  cacheWrite 30333
+related-solid-2  billed  126350  calls 10  out 5746  cacheRead 506301  cacheWrite 37576
+related-solid-3  billed   96079  calls 8  out 3859  cacheRead 372893  cacheWrite 31583
+related-solid-4  billed   99689  calls 8  out 4436  cacheRead 375920  cacheWrite 31921
+related-solid-5  billed  137680  calls 10  out 7833  cacheRead 505798  cacheWrite 38332
+related-solid-6  billed   97109  calls 8  out 3720  cacheRead 379075  cacheWrite 32468
+count-rx-1       billed  223749  calls 14  out 10960  cacheRead 923045  cacheWrite 61293
+count-rx-2       billed  125233  calls 9  out 3743  cacheRead 498947  cacheWrite 45284
+count-rx-3       billed  108188  calls 9  out 3350  cacheRead 460704  cacheWrite 36280
+count-rx-4       billed  129628  calls 11  out 3978  cacheRead 601818  cacheWrite 39627
+count-rx-5       billed  102953  calls 8  out 3415  cacheRead 404706  cacheWrite 36313
+count-rx-6       billed  120193  calls 10  out 3913  cacheRead 530691  cacheWrite 38031
+count-react-1    billed   72639  calls 5  out 4294  cacheRead 194339  cacheWrite 25380
+count-react-2    billed   73163  calls 6  out 3069  cacheRead 247919  cacheWrite 26411
+count-react-3    billed   67466  calls 6  out 2344  cacheRead 247848  cacheWrite 24759
+count-react-4    billed  129384  calls 8  out 9974  cacheRead 371904  cacheWrite 33846
+count-react-5    billed   79153  calls 6  out 3247  cacheRead 260999  cacheWrite 29445
+count-react-6    billed   76800  calls 7  out 2812  cacheRead 300300  cacheWrite 26157
+count-solid-1    billed  109692  calls 8  out 4529  cacheRead 407205  cacheWrite 37048
+count-solid-2    billed  161884  calls 13  out 5967  cacheRead 726542  cacheWrite 47495
+count-solid-3    billed  125940  calls 11  out 5043  cacheRead 559917  cacheWrite 35769
+count-solid-4    billed  112144  calls 10  out 4346  cacheRead 490300  cacheWrite 33091
+count-solid-5    billed  118879  calls 11  out 4645  cacheRead 543861  cacheWrite 32997
+count-solid-6    billed  126909  calls 12  out 4890  cacheRead 606354  cacheWrite 33440
+react  n 18  mean 101219  sd 22425
+rx     n 18  mean 131212  sd 53926
+solid  n 18  mean 134953  sd 33779
+React - .rx = -29992 (.rx/React 1.296), one-sided permutation p = 0.9890
+Solid - .rx = 3742 (.rx/Solid 0.972), one-sided permutation p = 0.4168

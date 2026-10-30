@@ -291,6 +291,47 @@ impl Ctx {
     }
 }
 
+/// R-8: the names a handler reads as snapshots (not under `pending?` or `peek`), each with whether a `try` or a `catch`
+/// expression around it takes its failure; `locals`: the names the handler binds itself (parameters, `let`s).
+fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, out: &mut Vec<(String, bool)>) {
+    match n {
+        Node::E(e) => match &e.k {
+            ExprKind::Id(name) => {
+                out.push((name.clone(), caught));
+                return;
+            }
+            ExprKind::Pending(_) | ExprKind::Peek(_) => return,
+            ExprKind::Fn { params, .. } => locals.extend(params.iter().cloned()),
+            ExprKind::Catch { e: inner, alt, .. } => {
+                snapshot_reads(Node::E(inner), true, locals, out);
+                snapshot_reads(Node::E(alt), caught, locals, out);
+                return;
+            }
+            _ => {}
+        },
+        Node::S(st) => match &st.k {
+            StmtKind::Let { name, .. } => {
+                locals.insert(name.clone());
+            }
+            StmtKind::Try { body, handler, fin, catch_name, .. } => {
+                for x in body {
+                    snapshot_reads(Node::S(x), caught || handler.is_some(), locals, out);
+                }
+                if let Some(n) = catch_name {
+                    locals.insert(n.clone());
+                }
+                for x in handler.iter().chain(fin.iter()).flatten() {
+                    snapshot_reads(Node::S(x), caught, locals, out);
+                }
+                return;
+            }
+            _ => {}
+        },
+    }
+    for c in children(n, false) {
+        snapshot_reads(c, caught, locals, out);
+    }
+}
 /// A node the reference walks generically (`Object.values`): an expression, or a statement inside one.
 #[derive(Clone, Copy)]
 pub(crate) enum Node<'a> {
@@ -720,6 +761,15 @@ struct ReaderRec<'a> {
     env: EId,
     line: i64,
 }
+/// R-8: an event handler on an element, with the element's attributes (its `disabled` covers the handler).
+struct HandlerRec<'a> {
+    attrs: &'a [Attr],
+    h: &'a Expr,
+    env: EId,
+    region: RId,
+    line: i64,
+    what: String,
+}
 struct AppRec<'a> {
     comp: RId,
     site: RId,
@@ -762,6 +812,7 @@ pub struct Checker<'a> {
     seq: usize,
     uses: Vec<UseRec>,
     readers: Vec<ReaderRec<'a>>,
+    handlers: Vec<HandlerRec<'a>>,
     apps: Vec<AppRec<'a>>,
     actions: Vec<ActionRec<'a>>,
     provisions: Vec<Provision<'a>>,
@@ -837,6 +888,7 @@ impl<'a> Checker<'a> {
             seq: 0,
             uses: vec![],
             readers: vec![],
+            handlers: vec![],
             apps: vec![],
             actions: vec![],
             provisions: vec![],
@@ -960,6 +1012,7 @@ impl<'a> Checker<'a> {
         }
         self.retained();
         self.resolve_tree();
+        self.snapshot_guards();
     }
     fn run_later(&mut self, job: Later<'a>) {
         match job {
@@ -2191,13 +2244,14 @@ impl<'a> Checker<'a> {
     }
 
     // ---- imperative scope (SC-2) ----
-    /// AC-1c, AC-1d over one imperative run (`crate::infer`).
+    /// AC-1c, AC-1d, AC-1e over one imperative run (`crate::infer`).
     fn run_checks(&mut self, stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) {
         for f in run_findings(stmts, action, bound, inferred) {
             let n = &f.name;
             match f.code {
                 Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `optimistic {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
+                Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`optimistic`, AC-3) and let the answer replace the guess")),
             }
         }
     }
@@ -2687,6 +2741,8 @@ impl<'a> Checker<'a> {
                         self.comp(if h { "handler" } else { "reader" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
                         if !h {
                             self.readers.push(ReaderRec { region, e: &a.e, env, line: self.line });
+                        } else {
+                            self.handlers.push(HandlerRec { attrs, h: &a.e, env, region, line: self.line, what: format!("<{}> {}", tag, a.name) });
                         }
                     }
                     self.markup(children, env, false);
@@ -2922,6 +2978,162 @@ impl<'a> Checker<'a> {
         if let Some(why) = why {
             self.err("CONTENT_MODEL", "SV-7d", format!("{} inside <{}>: the browser's HTML parser {}, so the served page is not the tree the client builds", what, anc.last().map(|s| s.as_str()).unwrap_or("undefined"), why));
         }
+    }
+
+    // ---- R-8: a handler's snapshot of a value that may be absent or failing ----
+    /// R-8: every element handler's snapshot reads of an equation that can have no value yet (a first load with no `-> v`)
+    /// or can fail, unless handled (`-> v`; a `try` or `catch` for the failure) or covered (the element's `disabled` reads
+    /// it, or the element sits in a `loading` / `errored` region whose content reads it).
+    fn snapshot_guards(&mut self) {
+        let hs: Vec<(&'a [Attr], &'a Expr, EId, RId, i64, String)> = self.handlers.iter().map(|h| (h.attrs, h.h, h.env, h.region, h.line, h.what.clone())).collect();
+        let mut absent_memo: HashMap<SId, bool> = HashMap::new();
+        let mut done: HashSet<*const Expr> = HashSet::new();
+        for (attrs, h, env, region, line, what) in hs {
+            if !done.insert(h as *const Expr) {
+                continue;
+            }
+            let mut locals: HashSet<String> = HashSet::new();
+            let mut reads: Vec<(String, bool)> = vec![];
+            snapshot_reads(Node::E(h), false, &mut locals, &mut reads);
+            let mut seen: HashSet<SId> = HashSet::new();
+            for (n, caught) in reads {
+                if locals.contains(&n) {
+                    continue;
+                }
+                let Some(s) = self.lookup(env, &n) else { continue };
+                if !matches!(self.syms[s].kind, SymKind::Eq | SymKind::Source) || seen.contains(&s) {
+                    continue;
+                }
+                let absent = self.absent(s, &mut absent_memo, &mut HashSet::new());
+                let failing = !caught && self.syms[s].fails_t.is_some() && !self.sym_fails(s).cls.is_empty();
+                if !absent && !failing {
+                    continue;
+                }
+                seen.insert(s);
+                if attrs.iter().any(|a| a.name == "disabled" && self.depends(&a.e, env, s, &mut HashSet::new())) {
+                    continue;
+                }
+                let need_hold = absent && !self.region_reads(region, s, |r| r.provides.contains(HOLD));
+                let need_catch = failing && !self.region_reads(region, s, |r| r.catches.is_some());
+                if !need_hold && !need_catch {
+                    continue;
+                }
+                let why = match (need_hold, need_catch) {
+                    (true, true) => "can have no value yet (a first load) and can fail",
+                    (true, false) => "can have no value yet (a first load)",
+                    _ => "can fail",
+                };
+                self.line = line;
+                self.err(
+                    "UNGUARDED_SNAPSHOT",
+                    "R-8",
+                    format!(
+                        "{} reads {} as a snapshot, and {} {}: the click then {} — move the element inside a `loading` / `errored` region whose content reads {} (with `disabled={{pending? {}}}` for a new question){}",
+                        what,
+                        n,
+                        n,
+                        why,
+                        if need_hold { "sees no value" } else { "throws its error" },
+                        n,
+                        n,
+                        if need_catch { format!(", or catch the failure (`… catch (e) => …`)") } else { String::new() }
+                    ),
+                );
+            }
+        }
+    }
+    /// R-8: `s` can be read before its first answer: an `await` with no first paint (`-> v`, R-7) in it or what it reads.
+    fn absent(&self, s: SId, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
+        if let Some(&b) = memo.get(&s) {
+            return b;
+        }
+        let Some((e, env)) = self.syms[s].expr else { return false };
+        if !busy.insert(s) {
+            return false;
+        }
+        let mut stack = vec![Node::E(e)];
+        let mut out = false;
+        while let Some(n) = stack.pop() {
+            if let Node::E(x) = n {
+                match &x.k {
+                    ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Peek(_) => continue,
+                    ExprKind::Await { init: None, .. } => {
+                        out = true;
+                        break;
+                    }
+                    ExprKind::Await { init: Some(_), .. } => continue,
+                    ExprKind::Id(name) => {
+                        if let Some(t) = self.lookup(env, name) {
+                            if t != s && matches!(self.syms[t].kind, SymKind::Eq | SymKind::Source) && self.absent(t, memo, busy) {
+                                out = true;
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            stack.extend(children(n, false));
+        }
+        busy.remove(&s);
+        memo.insert(s, out);
+        out
+    }
+    /// R-8: `e` reads `s`, directly or through the equations it reads.
+    fn depends(&self, e: &Expr, env: EId, s: SId, busy: &mut HashSet<SId>) -> bool {
+        let mut stack = vec![Node::E(e)];
+        while let Some(n) = stack.pop() {
+            if let Node::E(x) = n {
+                match &x.k {
+                    ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => continue,
+                    ExprKind::Id(name) => {
+                        if let Some(t) = self.lookup(env, name) {
+                            if t == s {
+                                return true;
+                            }
+                            if let Some((te, tenv)) = self.syms[t].expr {
+                                if busy.insert(t) && self.depends(te, tenv, s, busy) {
+                                    return true;
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            stack.extend(children(n, false));
+        }
+        false
+    }
+    /// R-8: some region around `r` that is `kind` has a reader of `s` in it.
+    fn region_reads(&self, r: RId, s: SId, kind: impl Fn(&Region) -> bool) -> bool {
+        let mut cur = Some(r);
+        while let Some(c) = cur {
+            if kind(&self.regions[c]) {
+                for rd in &self.readers {
+                    if self.inside(rd.region, c) && self.depends(rd.e, rd.env, s, &mut HashSet::new()) {
+                        return true;
+                    }
+                }
+            }
+            if self.regions[c].is_component_root {
+                break;
+            }
+            cur = self.regions[c].parent;
+        }
+        false
+    }
+    fn inside(&self, r: RId, anc: RId) -> bool {
+        let mut cur = Some(r);
+        while let Some(c) = cur {
+            if c == anc {
+                return true;
+            }
+            cur = self.regions[c].parent;
+        }
+        false
     }
 
     // ---- R-f: failures ----

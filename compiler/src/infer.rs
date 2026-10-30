@@ -1,8 +1,9 @@
-//! 06 AC-1b…AC-1d (`ref/src/infer.ts`): what the compiler reads off an imperative body. Which arrows are actions without
-//! the keyword (AC-1b), and the two checks every imperative run gets: a plain write an inferred action holds across an
-//! `await` (HELD_WRITE, AC-1c), and a read of a source the same change already wrote (STALE_OWN_READ, AC-1d). Solid sees
-//! neither: a TypeScript body's promises and reads are not visible to it, which is why it asks for `action(function* …)`
-//! and lets a stale read through.
+//! 06 AC-1b…AC-1e (`ref/src/infer.ts`): what the compiler reads off an imperative body. Which arrows are actions without
+//! the keyword (AC-1b), and the checks every imperative run gets: a plain write an inferred action holds across an
+//! `await` (HELD_WRITE, AC-1c), a read of a source the same change already wrote (STALE_OWN_READ, AC-1d), and a write
+//! after an `await` computed from the same source as read before it (STALE_WRITE_BACK, AC-1e). Solid sees none of them:
+//! a TypeScript body's promises and reads are not visible to it, which is why it asks for `action(function* …)` and lets
+//! a stale read or a lost update through.
 
 use crate::ast::{Expr, ExprKind, Field, Lit, PathSeg, Stmt, StmtKind, TplPart};
 use indexmap::{IndexMap, IndexSet};
@@ -135,6 +136,7 @@ pub fn inferred_action(stmts: &[Stmt]) -> Option<Trigger> {
 pub enum Code {
     HeldWrite,
     StaleOwnRead,
+    StaleWriteBack,
 }
 pub struct Finding {
     pub code: Code,
@@ -143,11 +145,17 @@ pub struct Finding {
 
 /// keys from the source; "*" a computed key
 type Path = Vec<String>;
+/// a read of a source: its key, the path read, and how many `await`s the run had passed when it read (AC-1e)
+type Dep = (String, Path, u32);
 #[derive(Clone)]
 struct State {
     written: IndexMap<String, Vec<Path>>,
     held: IndexSet<String>,
     dead: bool,
+    /// AC-1e: the source reads each local's value was computed from
+    taint: IndexMap<String, Vec<Dep>>,
+    /// AC-1e: the `await`s passed so far on this path (the most of any path into a merge)
+    epoch: u32,
 }
 fn merge(ss: &[&State]) -> State {
     let live: Vec<&&State> = ss.iter().filter(|s| !s.dead).collect();
@@ -156,8 +164,12 @@ fn merge(ss: &[&State]) -> State {
         s.dead = true;
         return s;
     }
-    let mut out = State { written: IndexMap::new(), held: IndexSet::new(), dead: false };
+    let mut out = State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint: IndexMap::new(), epoch: 0 };
     for s in live {
+        out.epoch = out.epoch.max(s.epoch);
+        for (k, v) in &s.taint {
+            out.taint.entry(k.clone()).or_default().extend(v.iter().cloned());
+        }
         for (k, v) in &s.written {
             out.written.entry(k.clone()).or_default().extend(v.iter().cloned());
         }
@@ -248,6 +260,7 @@ impl Walker {
                         let after = self.walk(body, alive(st), &inner, local, &d);
                         st.written = after.written;
                         st.held = after.held;
+                        st.epoch = after.epoch;
                     }
                     return;
                 }
@@ -296,6 +309,91 @@ impl Walker {
             }
         }
     }
+    /// AC-1e: the source reads a value is computed from now — read directly (at this epoch) or through a local's taint.
+    /// A closure's body runs later; an awaited answer is the server's, not a snapshot of a source.
+    fn deps(&self, e: &Expr, st: &State, sh: &IndexSet<String>, out: &mut Vec<Dep>) {
+        let mut path: Path = vec![];
+        let mut x = e;
+        loop {
+            match &x.k {
+                ExprKind::Member { o, p, .. } => {
+                    path.insert(0, p.clone());
+                    x = o;
+                }
+                ExprKind::Index { o, i, .. } => {
+                    path.insert(0, lit_key(i));
+                    self.deps(i, st, sh, out);
+                    x = o;
+                }
+                _ => break,
+            }
+        }
+        match &x.k {
+            ExprKind::Id(n) if sh.contains(n) => {
+                if let Some(t) = st.taint.get(n) {
+                    out.extend(t.iter().cloned());
+                }
+                return;
+            }
+            ExprKind::Id(n) => {
+                out.push((key(n, false), path, st.epoch));
+                return;
+            }
+            ExprKind::Use(n) => {
+                out.push((key(n, true), path, st.epoch));
+                return;
+            }
+            _ => {}
+        }
+        if !std::ptr::eq(x, e) {
+            self.deps(x, st, sh, out);
+            return;
+        }
+        match &x.k {
+            ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } | ExprKind::Pending(_) | ExprKind::Latest(_) | ExprKind::Lit(_) | ExprKind::Pre { .. } | ExprKind::Peek(_) | ExprKind::StyleMap { .. } | ExprKind::Await { .. } => {}
+            ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::Member { .. } | ExprKind::Index { .. } => {}
+            ExprKind::Call { f, args } => {
+                self.deps(f, st, sh, out);
+                for a in args {
+                    self.deps(a, st, sh, out);
+                }
+            }
+            ExprKind::Bin { l, r, .. } => {
+                self.deps(l, st, sh, out);
+                self.deps(r, st, sh, out);
+            }
+            ExprKind::Un { e, .. } | ExprKind::Spread(e) | ExprKind::Throw(e) => self.deps(e, st, sh, out),
+            ExprKind::If { c, t, f } => {
+                self.deps(c, st, sh, out);
+                self.deps(t, st, sh, out);
+                self.deps(f, st, sh, out);
+            }
+            ExprKind::Tpl(parts) => {
+                for p in parts {
+                    if let TplPart::Expr(e) = p {
+                        self.deps(e, st, sh, out);
+                    }
+                }
+            }
+            ExprKind::Arr(items) => {
+                for i in items {
+                    self.deps(i, st, sh, out);
+                }
+            }
+            ExprKind::Rec(fields) => {
+                for f in fields {
+                    match f {
+                        Field::Kv { v, .. } => self.deps(v, st, sh, out),
+                        Field::Spread(e) => self.deps(e, st, sh, out),
+                    }
+                }
+            }
+            ExprKind::Catch { e, alt, .. } => {
+                self.deps(e, st, sh, out);
+                self.deps(alt, st, sh, out);
+            }
+        }
+    }
     fn walk<'a>(&mut self, ss: &'a [Stmt], mut st: State, shadow: &IndexSet<String>, cl: &Closures<'a>, depth: &[*const Expr]) -> State {
         let mut sh = shadow.clone();
         let mut local = cl.clone();
@@ -306,7 +404,12 @@ impl Walker {
             match &s.k {
                 StmtKind::Let { e, .. } | StmtKind::Expr(e) => {
                     self.read(e, &mut st, &sh, &local, depth);
+                    let mut d = vec![];
+                    if !stmt_await(s) {
+                        self.deps(e, &st, &sh, &mut d);
+                    }
                     if stmt_await(s) {
+                        st.epoch += 1;
                         if self.action {
                             for h in std::mem::take(&mut st.held) {
                                 self.report(Code::HeldWrite, h);
@@ -317,6 +420,7 @@ impl Walker {
                     }
                     if let StmtKind::Let { name, .. } = &s.k {
                         sh.insert(name.clone());
+                        st.taint.insert(name.clone(), d);
                         match closure_of(s) {
                             Some(c) => {
                                 local.insert(name.clone(), c);
@@ -338,6 +442,13 @@ impl Walker {
                     }
                     let k = key(&target.name, target.is_ctx());
                     let path: Path = target.path.iter().map(|p| match p { PathSeg::Name(n) => n.clone(), PathSeg::Expr(e) => lit_key(e) }).collect();
+                    if matches!(s.k, StmtKind::Write { .. }) && !matches!(e.k, ExprKind::Fn { .. }) {
+                        let mut d = vec![];
+                        self.deps(e, &st, &sh, &mut d);
+                        if d.iter().any(|(dk, dp, ep)| *dk == k && *ep < st.epoch && overlaps(dp, &path)) {
+                            self.report(Code::StaleWriteBack, k.clone());
+                        }
+                    }
                     st.written.entry(k.clone()).or_default().push(path);
                     if matches!(s.k, StmtKind::Write { .. }) && self.inferred {
                         st.held.insert(k);
@@ -389,12 +500,12 @@ impl Walker {
     }
 }
 
-/// AC-1c and AC-1d over one imperative run (`runFindings` in `ref/src/infer.ts`). `action`: the body is one change across
+/// AC-1c, AC-1d and AC-1e over one imperative run (`runFindings` in `ref/src/infer.ts`). `action`: the body is one change across
 /// its awaits (AC-1); a plain run's change ends at each `await`. `inferred`: an action by AC-1b, the only kind HELD_WRITE
 /// applies to. `bound`: the run's parameters. Each finding once per name, in source order.
 pub fn run_findings(stmts: &[Stmt], action: bool, bound: &[String], inferred: bool) -> Vec<Finding> {
     let mut w = Walker { out: vec![], said: HashSet::new(), action, inferred };
     let sh: IndexSet<String> = bound.iter().cloned().collect();
-    w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false }, &sh, &IndexMap::new(), &[]);
+    w.walk(stmts, State { written: IndexMap::new(), held: IndexSet::new(), dead: false, taint: IndexMap::new(), epoch: 0 }, &sh, &IndexMap::new(), &[]);
     w.out
 }

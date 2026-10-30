@@ -48,10 +48,13 @@ class Cursor {
 }
 
 /** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
-function parseType(c: Cursor, braceStops = false): string {
+/** A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in a
+ *  type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`). */
+function parseType(c: Cursor, braceStops = false, arrows = false): string {
   const start = c.i; let depth = 0;
   while (!c.eof()) {
     const ch = c.peek();
+    if (c.startsWith("=>") && (depth > 0 || arrows)) { c.i += 2; continue; }
     if (depth === 0) {
       if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
     }
@@ -102,7 +105,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     const line = c.line;
     if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
     c.ws();
-    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
+    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
@@ -151,7 +154,7 @@ function parseDecl(c: Cursor): Decl {
   if (/^(type|interface)\b/.test(c.src.slice(c.i))) {                // a TS type declaration: kept as text, not a binding
     const t0 = c.i; c.keyword("type") || c.keyword("interface");
     c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws();
-    if (c.eat("=")) { c.ws(); parseType(c); } else { c.expect("{"); let depth = 1; while (!c.eof() && depth) { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } }
+    if (c.eat("=")) { c.ws(); parseType(c, false, true); } else { c.expect("{"); let depth = 1; while (!c.eof() && depth) { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } }
     return { k: "typedecl", name, line, text: c.src.slice(t0, c.i) };
   }
   if (c.keyword("source")) {

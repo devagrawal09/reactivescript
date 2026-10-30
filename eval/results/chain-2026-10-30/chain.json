@@ -1,0 +1,654 @@
+{
+  "last": 4,
+  "arms": {
+    "react": {
+      "chains": 6,
+      "endDefect": 0,
+      "runs": 24,
+      "runsWithNew": 0,
+      "runsWithRegression": 0,
+      "perStep": {
+        "1": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 76281
+        },
+        "2": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 60440
+        },
+        "3": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 86469
+        },
+        "4": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 82437
+        }
+      },
+      "chainCost": [
+        290380,
+        290644,
+        319790,
+        320138,
+        312382,
+        300426
+      ]
+    },
+    "rx": {
+      "chains": 6,
+      "endDefect": 4,
+      "runs": 24,
+      "runsWithNew": 4,
+      "runsWithRegression": 4,
+      "perStep": {
+        "1": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 98802
+        },
+        "2": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 71399
+        },
+        "3": {
+          "defect": 0,
+          "new": 0,
+          "meanCost": 78497
+        },
+        "4": {
+          "defect": 4,
+          "new": 4,
+          "meanCost": 255190
+        }
+      },
+      "chainCost": [
+        466455,
+        474531,
+        529070,
+        519128,
+        531448,
+        502695
+      ]
+    }
+  },
+  "H7a": {
+    "react": "0/6",
+    "rx": "4/6",
+    "p": 0.9999999999999991
+  },
+  "H7b": {
+    "react": "0/24",
+    "rx": "4/24",
+    "p": 0.9999999999999943
+  },
+  "H7c": {
+    "react": "0/24",
+    "rx": "4/24",
+    "p": 0.9999999999999943
+  },
+  "cost": {
+    "reactMinusRx": 1,
+    "rxMinusReact": 0.0005899941000589994
+  },
+  "runs": [
+    {
+      "run": "chain1-react-1",
+      "step": 1,
+      "arm": "react",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 86467.65
+    },
+    {
+      "run": "chain2-react-1",
+      "step": 2,
+      "arm": "react",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 56876.649999999994
+    },
+    {
+      "run": "chain3-react-1",
+      "step": 3,
+      "arm": "react",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 83842.15000000002
+    },
+    {
+      "run": "chain4-react-1",
+      "step": 4,
+      "arm": "react",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 63193.6
+    },
+    {
+      "run": "chain1-react-2",
+      "step": 1,
+      "arm": "react",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 71761.05
+    },
+    {
+      "run": "chain2-react-2",
+      "step": 2,
+      "arm": "react",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 55516.2
+    },
+    {
+      "run": "chain3-react-2",
+      "step": 3,
+      "arm": "react",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 75503.05
+    },
+    {
+      "run": "chain4-react-2",
+      "step": 4,
+      "arm": "react",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 87864.05
+    },
+    {
+      "run": "chain1-react-3",
+      "step": 1,
+      "arm": "react",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 75822.95
+    },
+    {
+      "run": "chain2-react-3",
+      "step": 2,
+      "arm": "react",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 53321.950000000004
+    },
+    {
+      "run": "chain3-react-3",
+      "step": 3,
+      "arm": "react",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 106048.5
+    },
+    {
+      "run": "chain4-react-3",
+      "step": 4,
+      "arm": "react",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 84596.90000000001
+    },
+    {
+      "run": "chain1-react-4",
+      "step": 1,
+      "arm": "react",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 74378.95000000001
+    },
+    {
+      "run": "chain2-react-4",
+      "step": 2,
+      "arm": "react",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 77609.79999999999
+    },
+    {
+      "run": "chain3-react-4",
+      "step": 3,
+      "arm": "react",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 82390.6
+    },
+    {
+      "run": "chain4-react-4",
+      "step": 4,
+      "arm": "react",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 85758.5
+    },
+    {
+      "run": "chain1-react-5",
+      "step": 1,
+      "arm": "react",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 73997.45
+    },
+    {
+      "run": "chain2-react-5",
+      "step": 2,
+      "arm": "react",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 62244.74999999999
+    },
+    {
+      "run": "chain3-react-5",
+      "step": 3,
+      "arm": "react",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 84657.95000000001
+    },
+    {
+      "run": "chain4-react-5",
+      "step": 4,
+      "arm": "react",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 91481.7
+    },
+    {
+      "run": "chain1-react-6",
+      "step": 1,
+      "arm": "react",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 75256.3
+    },
+    {
+      "run": "chain2-react-6",
+      "step": 2,
+      "arm": "react",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 57070.1
+    },
+    {
+      "run": "chain3-react-6",
+      "step": 3,
+      "arm": "react",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 86372.54999999999
+    },
+    {
+      "run": "chain4-react-6",
+      "step": 4,
+      "arm": "react",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 81727.25
+    },
+    {
+      "run": "chain1-rx-1",
+      "step": 1,
+      "arm": "rx",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 83305.30000000002
+    },
+    {
+      "run": "chain2-rx-1",
+      "step": 2,
+      "arm": "rx",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 63771.40000000001
+    },
+    {
+      "run": "chain3-rx-1",
+      "step": 3,
+      "arm": "rx",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 84735.84999999999
+    },
+    {
+      "run": "chain4-rx-1",
+      "step": 4,
+      "arm": "rx",
+      "chain": 1,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 234642.25000000003
+    },
+    {
+      "run": "chain1-rx-2",
+      "step": 1,
+      "arm": "rx",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 78992.99999999999
+    },
+    {
+      "run": "chain2-rx-2",
+      "step": 2,
+      "arm": "rx",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 84954.9
+    },
+    {
+      "run": "chain3-rx-2",
+      "step": 3,
+      "arm": "rx",
+      "chain": 2,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 78729.8
+    },
+    {
+      "run": "chain4-rx-2",
+      "step": 4,
+      "arm": "rx",
+      "chain": 2,
+      "defect": true,
+      "failing": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "new": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "regressions": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "cost": 231853.40000000002
+    },
+    {
+      "run": "chain1-rx-3",
+      "step": 1,
+      "arm": "rx",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 114184.44999999998
+    },
+    {
+      "run": "chain2-rx-3",
+      "step": 2,
+      "arm": "rx",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 72047.90000000001
+    },
+    {
+      "run": "chain3-rx-3",
+      "step": 3,
+      "arm": "rx",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 77088.55000000002
+    },
+    {
+      "run": "chain4-rx-3",
+      "step": 4,
+      "arm": "rx",
+      "chain": 3,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 265749.45
+    },
+    {
+      "run": "chain1-rx-4",
+      "step": 1,
+      "arm": "rx",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 99611.75
+    },
+    {
+      "run": "chain2-rx-4",
+      "step": 2,
+      "arm": "rx",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 57092.45
+    },
+    {
+      "run": "chain3-rx-4",
+      "step": 3,
+      "arm": "rx",
+      "chain": 4,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 64070.95
+    },
+    {
+      "run": "chain4-rx-4",
+      "step": 4,
+      "arm": "rx",
+      "chain": 4,
+      "defect": true,
+      "failing": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "new": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "regressions": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "cost": 298352.35
+    },
+    {
+      "run": "chain1-rx-5",
+      "step": 1,
+      "arm": "rx",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 114088.4
+    },
+    {
+      "run": "chain2-rx-5",
+      "step": 2,
+      "arm": "rx",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 69701.3
+    },
+    {
+      "run": "chain3-rx-5",
+      "step": 3,
+      "arm": "rx",
+      "chain": 5,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 85121.7
+    },
+    {
+      "run": "chain4-rx-5",
+      "step": 4,
+      "arm": "rx",
+      "chain": 5,
+      "defect": true,
+      "failing": [
+        "hidden: base: a list that loads while a close is out keeps the row out",
+        "hidden: rows: open issues that load while a row close is out keep the row out"
+      ],
+      "new": [
+        "hidden: base: a list that loads while a close is out keeps the row out",
+        "hidden: rows: open issues that load while a row close is out keep the row out"
+      ],
+      "regressions": [
+        "hidden: base: a list that loads while a close is out keeps the row out"
+      ],
+      "cost": 262537.05
+    },
+    {
+      "run": "chain1-rx-6",
+      "step": 1,
+      "arm": "rx",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 102626.40000000002
+    },
+    {
+      "run": "chain2-rx-6",
+      "step": 2,
+      "arm": "rx",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 80826.15
+    },
+    {
+      "run": "chain3-rx-6",
+      "step": 3,
+      "arm": "rx",
+      "chain": 6,
+      "defect": false,
+      "failing": [],
+      "new": [],
+      "regressions": [],
+      "cost": 81237.75000000001
+    },
+    {
+      "run": "chain4-rx-6",
+      "step": 4,
+      "arm": "rx",
+      "chain": 6,
+      "defect": true,
+      "failing": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "new": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "regressions": [
+        "hidden: base: a failing list leaves the detail alone"
+      ],
+      "cost": 238005.15000000002
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, closeIssue } from "./api"
+import pure { indexOf, filter as keep } from "./prelude"
+
+export error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id) => it == null ? throw NotFound(id) : it
+
+fn without(xs: number[], id: number) => keep(xs, c => c != id)
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source issues key id = await fetchIssues(filter)
+  source assignError: { id: number; message: string } | null := null
+  source closedIds: number[] := []
+  source closeError: { id: number; message: string } | null := null
+
+  detail = selected == null ? null : found(await fetchIssue(selected), selected)
+  shownError = assignError != null && assignError.id == selected ? assignError.message : ""
+  shownCloseError = closeError != null && closeError.id == selected ? closeError.message : ""
+
+  action assignTo(id: number, who: string) {
+    try {
+      let i = indexOf(issues, t => t.id == id)
+      if (i >= 0) {
+        optimistic issues[i].assignee := who
+      }
+      await assign(id, who)
+      refresh issues
+    } catch (e) {
+      assignError := { id: id, message: e.message }
+    }
+  }
+
+  action closeOne(id: number) {
+    try {
+      await closeIssue(id)
+    } catch (e) {
+      closedIds := without(closedIds, id)
+      closeError := { id: id, message: e.message }
+    }
+  }
+
+  <div>
+    <label>user <input data-testid="user" value={user} onInput={(ev) => { user := ev.target.value }} /></label>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <div style="display: flex; gap: 2em">
+      <ul data-testid="list">
+        {loading on(filter) fallback { <li>loading {filter} issues</li> } {
+          {errored fallback(e) { <li>list error: {e.message}</li> } {
+            {for it in issues {
+              {if filter != "open" || indexOf(closedIds, c => c == it.id) < 0 {
+                <li data-testid="issue" onClick={() => {
+                  selected := it.id
+                  onFlush(() => { assignError := null; closeError := null })
+                }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</li>
+              }}
+            }}
+          }}
+        }}
+      </ul>
+      <div data-testid="detail">
+        {if selected == null {
+          <p>select an issue</p>
+        } else {
+          {loading on(selected) fallback { <p>loading #{selected}</p> } {
+            {errored fallback(e) { <p>detail error: {e.message}</p> } {
+              <h2>#{detail.id} {detail.title}</h2>
+              <p>{detail.body}</p>
+            }}
+          }}
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+          <button data-testid="close" onClick={() => {
+            onFlush(() => { closeError := null; closedIds := [...closedIds, selected] })
+            closeOne(selected)
+          }}>close</button>
+          <button data-testid="assign" onClick={() => {
+            onFlush(() => { assignError := null })
+            assignTo(selected, user)
+          }}>assign to {user}</button>
+          {if shownError != "" { <p data-testid="assign-error">{shownError}</p> }}
+          {if shownCloseError != "" { <p data-testid="close-error">close error: {shownCloseError}</p> }}
+        }}
+      </div>
+    </div>
+  </div>
+}

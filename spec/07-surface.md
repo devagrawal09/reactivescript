@@ -235,6 +235,8 @@ action { refresh user; affects user }   // inline, one run (AC-1)
   `onFlush(() => { … })` if it is a reset that lands now, or declare the
   action to hold it on purpose. In every run, reading a source the run's
   own change wrote is `STALE_OWN_READ` (AC-1d): keep the value in a local.
+  A plain write after an `await` computed from the same source as read
+  before it is `STALE_WRITE_BACK` (AC-1e): write functionally, `x := v => …`.
 - `await` in an action body suspends the run and keeps its change open; in
   a plain run it ends the change (the continuation is a new one). A plain
   run that awaits writes nothing, or it would be an action.

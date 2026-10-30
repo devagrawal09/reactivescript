@@ -1,0 +1,97 @@
+import pure { fetchIssues, fetchIssue } from "./api"
+import { assign, renameIssue } from "./api"
+import pure { indexOf } from "./prelude"
+
+export error NotFound(id: number) => `issue #${id} not found`
+
+fn found(it, id: number) => it == null ? throw NotFound(id) : it
+
+export default component App() {
+  source user: string := "guest"
+  source filter: string := "open"
+  source selected: number | null := null
+  source issues key id = await fetchIssues(filter)
+  source assignError: string = ""
+  source detail = selected == null ? null : found(await fetchIssue(selected), selected)
+  source draftTitle: string = ""
+  source renameError: string = ""
+
+  action assignTo(id: number, who: string) {
+    optimistic assignError := ""
+    try {
+      let i = indexOf(issues, t => t.id == id)
+      optimistic issues[i].assignee := who
+      await assign(id, who)
+      refresh issues
+    } catch (e) {
+      assignError := e.message
+    }
+  }
+
+  action renameTo(id: number, title: string) {
+    try {
+      let i = indexOf(issues, t => t.id == id)
+      let cur = detail
+      if (i >= 0) { optimistic issues[i].title := title }
+      optimistic detail := { id: cur.id, title: title, body: cur.body }
+      await renameIssue(id, title)
+      refresh issues
+    } catch (e) {
+      renameError := e.message
+    }
+  }
+
+  <main>
+    <div>
+      <label>
+        user{" "}
+        <input data-testid="user" value={user} onInput={e => { user := e.target.value }} />
+      </label>
+    </div>
+    <div>
+      <button data-testid="filter-open" onClick={() => { filter := "open" }}>open</button>
+      <button data-testid="filter-closed" onClick={() => { filter := "closed" }}>closed</button>
+    </div>
+    <div data-testid="list">
+      {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+        {errored fallback(e) { <p>list error: {e.message}</p> } {
+          <ul>
+            {for it in issues {
+              <li data-testid="issue" onClick={() => {
+                selected := it.id
+                onFlush(() => { assignError := ""; renameError := ""; draftTitle := "" })
+              }}>#{it.id} {it.title} ({it.assignee ?? "unassigned"})</li>
+            }}
+          </ul>
+        }}
+      }}
+    </div>
+    <div data-testid="detail">
+      {if selected != null {
+        {loading on(selected) fallback { <p>loading #{latest selected}</p> } {
+          {errored fallback(e) { <p>detail error: {e.message}</p> } {
+            <h2>#{detail.id} {detail.title}</h2>
+            <p>{detail.body}</p>
+          }}
+          <button data-testid="retry" onClick={() => { refresh detail }}>retry</button>
+        }}
+        <button data-testid="assign" onClick={() => { assignTo(selected, user) }}>assign to {user}</button>
+        {if assignError != "" {
+          <p data-testid="assign-error">{assignError}</p>
+        }}
+        <input data-testid="title-input" value={draftTitle} onInput={e => { draftTitle := e.target.value }} />
+        <button data-testid="rename" onClick={() => {
+          if (draftTitle != "") {
+            onFlush(() => { renameError := "" })
+            renameTo(selected, draftTitle)
+          }
+        }}>rename</button>
+        {if renameError != "" {
+          <p data-testid="rename-error">rename error: {renameError}</p>
+        }}
+      } else {
+        <p>select an issue</p>
+      }}
+    </div>
+  </main>
+}

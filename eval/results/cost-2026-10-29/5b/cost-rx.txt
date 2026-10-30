@@ -1,0 +1,19 @@
+labels-rx-1      billed  349852  calls 25  out 17986  cacheRead 1560186  cacheWrite 83083
+labels-rx-2      billed  145178  calls 10  out 4145  cacheRead 479613  cacheWrite 61177
+labels-rx-3      billed  151738  calls 10  out 4967  cacheRead 480728  cacheWrite 63048
+labels-rx-4      billed  150598  calls 10  out 4114  cacheRead 489866  cacheWrite 64817
+labels-rx-5      billed  204742  calls 15  out 7139  cacheRead 825198  cacheWrite 69198
+labels-rx-6      billed  188889  calls 13  out 6854  cacheRead 690977  cacheWrite 68396
+related-rx-1     billed  112109  calls 7  out 2478  cacheRead 292800  cacheWrite 56340
+related-rx-2     billed  115233  calls 7  out 2586  cacheRead 303054  cacheWrite 57587
+related-rx-3     billed  122837  calls 7  out 3034  cacheRead 312177  cacheWrite 61148
+related-rx-4     billed  132453  calls 9  out 3475  cacheRead 413951  cacheWrite 58932
+related-rx-5     billed  126773  calls 8  out 3405  cacheRead 355985  cacheWrite 59307
+related-rx-6     billed  119200  calls 7  out 2760  cacheRead 303405  cacheWrite 60036
+count-rx-1       billed  107108  calls 6  out 2166  cacheRead 248043  cacheWrite 57169
+count-rx-2       billed  108113  calls 6  out 2483  cacheRead 247274  cacheWrite 56767
+count-rx-3       billed  151666  calls 11  out 4071  cacheRead 544187  cacheWrite 61496
+count-rx-4       billed  109397  calls 6  out 2109  cacheRead 251810  cacheWrite 58927
+count-rx-5       billed  125104  calls 7  out 3157  cacheRead 321863  cacheWrite 61695
+count-rx-6       billed  111116  calls 6  out 2453  cacheRead 251642  cacheWrite 58940
+rx     n 18  mean 146228  sd 57791

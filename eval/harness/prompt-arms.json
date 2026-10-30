@@ -10,5 +10,35 @@
     "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. Read `docs/guide/async.md` first: one page on reading from and writing to a server. Its specification is in `docs/spec/` (the concrete syntax is `docs/spec/07-surface.md`; modules and imports are `docs/spec/09-modules.md`). `src/main.rx` must be the program's entry, `export default component App() { … }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { … } from \"./api\"`, functions that write with `import { … } from \"./api\"`. The prelude gives `import pure { len, str, map, filter, sum, every, indexOf } from \"./prelude\"`. Give an element a test id with `data-testid=\"…\"`.",
     "API_TYPES": "`src/api.d.rx`",
     "CHECKER": "the ReactiveScript compiler's checker (`rxc check src/main.rx`)"
+  },
+  "rx-inline": {
+    "DOCS_RULE": ", except that you may read the language documentation in {{DIR}}/docs",
+    "LANG_RULE": "ReactiveScript (`.rx`), a new language that compiles to Solid 2.0. Nothing about it is online. The two pages at the end of this message are the language and how it talks to a server; they are enough to write the change. The full specification is in `docs/spec/` if you need a detail they don't cover. `src/main.rx` must be the program's entry, `export default component App() { … }`; you may add `.rx` modules under `src/`. Import the backend from \"./api\": loaders with `import pure { … } from \"./api\"`, functions that write with `import { … } from \"./api\"`. Give an element a test id with `data-testid=\"…\"`.",
+    "API_TYPES": "`src/api.d.rx`",
+    "CHECKER": "the ReactiveScript compiler's checker (`rxc check src/main.rx`)"
+  },
+  "solid": {
+    "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
+    "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React; its own documentation is in `node_modules/solid-js/CHEATSHEET.md` and `node_modules/solid-js/skills/`.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict) and ESLint with eslint-plugin-solid's Solid 2 rules (`v2` config)"
+  },
+  "solid-inline": {
+    "DOCS_RULE": ", except that you may read Solid's own documentation in {{DIR}}/node_modules/solid-js (`CHEATSHEET.md`, `skills/`)",
+    "LANG_RULE": "Solid 2.0 (release candidate) with TypeScript: `src/App.tsx` must default-export the root component (it is mounted with `render` from `@solidjs/web`). You may add files under `src/`. Installed packages you may use: solid-js, @solidjs/web. Solid 2.0 is newer than most training data and differs from Solid 1.x and from React. The page at the end of this message is Solid's own primer for coding agents; the full API cheatsheet is `node_modules/solid-js/CHEATSHEET.md`.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict) and ESLint with eslint-plugin-solid's Solid 2 rules (`v2` config)"
+  },
+  "foldkit": {
+    "DOCS_RULE": ", except that you may read Foldkit's repository, vendored at the installed release in {{DIR}}/docs/foldkit (examples, skills, the framework source), and the packages in {{DIR}}/node_modules",
+    "LANG_RULE": "Foldkit 0.170 (The Elm Architecture in TypeScript, on Effect 4): `src/main.ts` must export `Model`, `init`, `update` and `view`; the harness boots them with `Runtime.makeApplication` and `Runtime.run` into a `#app` container, as Foldkit's `src/entry.ts` does. You may add files under `src/`. Installed packages you may use: foldkit, effect, @effect/platform-browser. Foldkit is newer than most training data. Foldkit's own conventions file for coding agents is `docs/foldkit/packages/create-foldkit-app/templates/base/FOLDKIT.md`.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict, with Foldkit's template settings)"
+  },
+  "foldkit-inline": {
+    "DOCS_RULE": ", except that you may read Foldkit's repository, vendored at the installed release in {{DIR}}/docs/foldkit (examples, skills, the framework source), and the packages in {{DIR}}/node_modules",
+    "LANG_RULE": "Foldkit 0.170 (The Elm Architecture in TypeScript, on Effect 4): `src/main.ts` must export `Model`, `init`, `update` and `view`; the harness boots them with `Runtime.makeApplication` and `Runtime.run` into a `#app` container, as Foldkit's `src/entry.ts` does. You may add files under `src/`. Installed packages you may use: foldkit, effect, @effect/platform-browser. Foldkit is newer than most training data. The page at the end of this message is Foldkit's own conventions file for coding agents (`FOLDKIT.md`); the repository it refers to as `repos/foldkit` is `docs/foldkit` here.",
+    "API_TYPES": "`src/api.d.ts`",
+    "CHECKER": "the TypeScript compiler (strict, with Foldkit's template settings)"
   }
 }

@@ -1,0 +1,2597 @@
+{
+  "apps": [
+    {
+      "round": "r5",
+      "name": "count-react-1",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-react-2",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-react-3",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-react-4",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-react-5",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-react-6",
+      "arm": "react",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-1",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-2",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "closed row shown",
+        "at rest: rows",
+        "row title",
+        "closed row shown",
+        "detail title",
+        "at rest: detail"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-3",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "closed row shown",
+        "at rest: rows",
+        "row title",
+        "closed row shown",
+        "detail title",
+        "at rest: detail"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-4",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "closed row shown",
+        "at rest: rows",
+        "row title",
+        "closed row shown",
+        "detail title",
+        "at rest: detail"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-5",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "closed row shown",
+        "at rest: rows",
+        "row title",
+        "closed row shown",
+        "detail title",
+        "at rest: detail"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "count-rx-6",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "closed row shown",
+        "at rest: rows",
+        "row title",
+        "closed row shown",
+        "detail title",
+        "at rest: detail"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-1",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-2",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-3",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-4",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-5",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "count-solid-6",
+      "arm": "solid",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 2,
+      "kinds": [
+        "row title",
+        "detail title"
+      ],
+      "rate": 0.04
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-1",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-2",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-3",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-4",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-5",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r5",
+      "name": "labels-react-6",
+      "arm": "react",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-1",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-2",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-3",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-4",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-5",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5",
+      "name": "labels-rx-6",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-1",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 8,
+      "kinds": [
+        "row assignee",
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.16
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-2",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "detail title"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-3",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 8,
+      "kinds": [
+        "row assignee",
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.16
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-4",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 8,
+      "kinds": [
+        "row assignee",
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.16
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-5",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 8,
+      "kinds": [
+        "row assignee",
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "detail title"
+      ],
+      "rate": 0.16
+    },
+    {
+      "round": "r5",
+      "name": "labels-solid-6",
+      "arm": "solid",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 8,
+      "kinds": [
+        "row assignee",
+        "detail title",
+        "open row missing",
+        "open row in closed list",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "detail title"
+      ],
+      "rate": 0.16
+    },
+    {
+      "round": "r5",
+      "name": "related-react-1",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-react-2",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-react-3",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-react-4",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-react-5",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-react-6",
+      "arm": "react",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-1",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 10,
+      "kinds": [
+        "row title",
+        "detail title",
+        "detail title",
+        "detail title",
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list",
+        "detail title"
+      ],
+      "rate": 0.2
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-2",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-3",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-4",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-5",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-rx-6",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-1",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 7,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "detail title",
+        "detail title",
+        "detail title",
+        "row title",
+        "open row in closed list"
+      ],
+      "rate": 0.14
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-2",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "row title",
+        "open row in closed list",
+        "row assignee"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-3",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "row title",
+        "open row in closed list",
+        "row assignee"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-4",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 6,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "row title",
+        "detail title",
+        "row title",
+        "open row in closed list"
+      ],
+      "rate": 0.12
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-5",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "row title",
+        "open row in closed list",
+        "row assignee"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5",
+      "name": "related-solid-6",
+      "arm": "solid",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "page error",
+        "row assignee",
+        "row title",
+        "open row in closed list",
+        "row assignee"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-1",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-2",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-3",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-4",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-5",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "count-rx-6",
+      "arm": "rx",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "closed row shown",
+        "closed row shown",
+        "at rest: rows",
+        "closed row shown",
+        "closed row shown",
+        "closed row shown",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "at rest: detail",
+        "closed row shown",
+        "closed row shown"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-1",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-2",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-3",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-4",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-5",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r5b",
+      "name": "labels-rx-6",
+      "arm": "rx",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-1",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-2",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-3",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-4",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-5",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r5b",
+      "name": "related-rx-6",
+      "arm": "rx",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 5,
+      "kinds": [
+        "row title",
+        "at rest: detail",
+        "open row missing",
+        "open row in closed list",
+        "open row in closed list"
+      ],
+      "rate": 0.1
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-1",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-2",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-3",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-4",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-5",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "count-foldkit-6",
+      "arm": "foldkit",
+      "task": "count",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-1",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-2",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-3",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-4",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-5",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r6",
+      "name": "labels-foldkit-6",
+      "arm": "foldkit",
+      "task": "labels",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-1",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-2",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-3",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-4",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-5",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r6",
+      "name": "related-foldkit-6",
+      "arm": "foldkit",
+      "task": "related",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-1",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-2",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-3",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-4",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-5",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain1-react-6",
+      "arm": "react",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-1",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-2",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-3",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-4",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-5",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "page error",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r7",
+      "name": "chain1-rx-6",
+      "arm": "rx",
+      "task": "chain1",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-1",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-2",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-3",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-4",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-5",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain2-react-6",
+      "arm": "react",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-1",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "detail title",
+        "open row in closed list",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-2",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "detail title",
+        "detail title",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-3",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 10,
+      "kinds": [
+        "page error",
+        "detail title",
+        "open row in closed list",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.2
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-4",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 13,
+      "kinds": [
+        "closed row shown",
+        "page error",
+        "at rest: rows",
+        "detail title",
+        "closed row shown",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "closed row shown",
+        "closed row shown",
+        "open row in closed list",
+        "row title"
+      ],
+      "rate": 0.26
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-5",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 9,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "page error",
+        "open row missing",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.18
+    },
+    {
+      "round": "r7",
+      "name": "chain2-rx-6",
+      "arm": "rx",
+      "task": "chain2",
+      "build": true,
+      "seeds": 50,
+      "holes": 15,
+      "kinds": [
+        "closed row shown",
+        "page error",
+        "at rest: rows",
+        "detail title",
+        "closed row shown",
+        "open row in closed list",
+        "page error",
+        "at rest: detail",
+        "open row missing",
+        "page error",
+        "closed row shown",
+        "closed row shown",
+        "open row in closed list",
+        "page error",
+        "page error"
+      ],
+      "rate": 0.3
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-1",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-2",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-3",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-4",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-5",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain3-react-6",
+      "arm": "react",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 1,
+      "kinds": [
+        "at rest: labels"
+      ],
+      "rate": 0.02
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-1",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "row title",
+        "page error",
+        "at rest: detail",
+        "open row in closed list",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-2",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 14,
+      "kinds": [
+        "row title",
+        "page error",
+        "at rest: detail",
+        "open row in closed list",
+        "at rest: count",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "at rest: count",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.28
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-3",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 12,
+      "kinds": [
+        "row title",
+        "page error",
+        "at rest: detail",
+        "open row in closed list",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.24
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-4",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 15,
+      "kinds": [
+        "closed row shown",
+        "row title",
+        "at rest: rows",
+        "page error",
+        "at rest: detail",
+        "closed row shown",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "closed row shown",
+        "closed row shown",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.3
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-5",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 11,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "open row in closed list"
+      ],
+      "rate": 0.22
+    },
+    {
+      "round": "r7",
+      "name": "chain3-rx-6",
+      "arm": "rx",
+      "task": "chain3",
+      "build": true,
+      "seeds": 50,
+      "holes": 16,
+      "kinds": [
+        "closed row shown",
+        "row title",
+        "at rest: rows",
+        "page error",
+        "at rest: detail",
+        "closed row shown",
+        "open row in closed list",
+        "page error",
+        "open row missing",
+        "page error",
+        "closed row shown",
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "open row in closed list"
+      ],
+      "rate": 0.32
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-1",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-2",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-3",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-4",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-5",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-react-6",
+      "arm": "react",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 0,
+      "kinds": [],
+      "rate": 0
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-1",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 14,
+      "kinds": [
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "row assignee",
+        "page error",
+        "detail title",
+        "closed row shown",
+        "closed row shown",
+        "page error",
+        "page error",
+        "detail title",
+        "closed row shown",
+        "open row in closed list"
+      ],
+      "rate": 0.28
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-2",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 15,
+      "kinds": [
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "page crash",
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "row assignee",
+        "open row missing",
+        "page error"
+      ],
+      "rate": 0.3
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-3",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 10,
+      "kinds": [
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "row title",
+        "page error",
+        "page error",
+        "detail title",
+        "page error"
+      ],
+      "rate": 0.2
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-4",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 14,
+      "kinds": [
+        "open row missing",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "row assignee",
+        "open row missing",
+        "page error"
+      ],
+      "rate": 0.28
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-5",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 18,
+      "kinds": [
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "closed row shown",
+        "detail title",
+        "detail title",
+        "page error",
+        "page error",
+        "row title",
+        "page error",
+        "page error",
+        "row assignee",
+        "closed row shown",
+        "wrong detail",
+        "page error"
+      ],
+      "rate": 0.36
+    },
+    {
+      "round": "r7",
+      "name": "chain4-rx-6",
+      "arm": "rx",
+      "task": "chain4",
+      "build": true,
+      "seeds": 50,
+      "holes": 15,
+      "kinds": [
+        "open row missing",
+        "page error",
+        "page error",
+        "at rest: detail",
+        "page error",
+        "page error",
+        "detail title",
+        "closed row shown",
+        "page error",
+        "page error",
+        "page error",
+        "detail title",
+        "row assignee",
+        "open row missing",
+        "page error"
+      ],
+      "rate": 0.3
+    }
+  ],
+  "unbuilt": [],
+  "h8a": {
+    "reactMean": 0.008571428571428572,
+    "rxMean": 0.19933333333333328,
+    "observed": -0.19076190476190472,
+    "p": 1,
+    "reverseP": 0
+  },
+  "h8b": {
+    "react": [
+      18,
+      42
+    ],
+    "rx": [
+      60,
+      60
+    ],
+    "p": 0.9999999999999185,
+    "reverseP": 2.584774371773379e-12
+  },
+  "perArm": {
+    "react": {
+      "apps": 42,
+      "meanRate": 0.008571428571428572,
+      "withHole": 18,
+      "seedsWithHole": 18,
+      "seeds": 2100
+    },
+    "rx": {
+      "apps": 60,
+      "meanRate": 0.19933333333333328,
+      "withHole": 60,
+      "seedsWithHole": 598,
+      "seeds": 3000
+    },
+    "solid": {
+      "apps": 18,
+      "meanRate": 0.10111111111111112,
+      "withHole": 18,
+      "seedsWithHole": 91,
+      "seeds": 900
+    },
+    "foldkit": {
+      "apps": 18,
+      "meanRate": 0.003333333333333333,
+      "withHole": 3,
+      "seedsWithHole": 3,
+      "seeds": 900
+    }
+  },
+  "groups": {
+    "r5 count react": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "r5 count rx": [
+      12,
+      6,
+      6,
+      6,
+      6,
+      6
+    ],
+    "r5 count solid": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "r5 labels react": [
+      0,
+      0,
+      1,
+      1,
+      1,
+      1
+    ],
+    "r5 labels rx": [
+      11,
+      11,
+      9,
+      11,
+      11,
+      11
+    ],
+    "r5 labels solid": [
+      8,
+      6,
+      8,
+      8,
+      8,
+      8
+    ],
+    "r5 related react": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "r5 related rx": [
+      10,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "r5 related solid": [
+      7,
+      5,
+      5,
+      6,
+      5,
+      5
+    ],
+    "r5b count rx": [
+      12,
+      12,
+      12,
+      12,
+      12,
+      12
+    ],
+    "r5b labels rx": [
+      9,
+      9,
+      11,
+      9,
+      9,
+      11
+    ],
+    "r5b related rx": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "r6 count foldkit": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "r6 labels foldkit": [
+      1,
+      0,
+      1,
+      0,
+      1,
+      0
+    ],
+    "r6 related foldkit": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "r7 chain1 react": [
+      1,
+      1,
+      0,
+      1,
+      1,
+      1
+    ],
+    "r7 chain1 rx": [
+      11,
+      11,
+      11,
+      9,
+      9,
+      11
+    ],
+    "r7 chain2 react": [
+      1,
+      1,
+      0,
+      1,
+      1,
+      1
+    ],
+    "r7 chain2 rx": [
+      11,
+      11,
+      10,
+      13,
+      9,
+      15
+    ],
+    "r7 chain3 react": [
+      1,
+      1,
+      0,
+      0,
+      1,
+      1
+    ],
+    "r7 chain3 rx": [
+      12,
+      14,
+      12,
+      15,
+      11,
+      16
+    ],
+    "r7 chain4 react": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "r7 chain4 rx": [
+      14,
+      15,
+      10,
+      14,
+      18,
+      15
+    ]
+  },
+  "kinds": {
+    "rx": {
+      "closed row shown": 99,
+      "at rest: rows": 16,
+      "detail title": 54,
+      "at rest: detail": 47,
+      "row title": 34,
+      "page error": 209,
+      "open row in closed list": 82,
+      "open row missing": 48,
+      "at rest: count": 2,
+      "row assignee": 5,
+      "page crash": 1,
+      "wrong detail": 1
+    },
+    "solid": {
+      "row title": 16,
+      "detail title": 31,
+      "row assignee": 15,
+      "open row missing": 6,
+      "open row in closed list": 17,
+      "page error": 6
+    },
+    "react": {
+      "at rest: labels": 18
+    },
+    "foldkit": {
+      "at rest: labels": 3
+    }
+  }
+}

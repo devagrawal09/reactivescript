@@ -1,0 +1,5 @@
+group          n  mean    median  calls  out    fixed  checks tests reads docs mcp secs  usd
+ALL/rx         18  146228  125939   9.4   4410  36411   1.8   1.9   0.9  0.0   0   109 0.73
+count/rx        6  118751  110256   7.0   2740  36411   1.0   1.5   1.0  0.0   0    93 0.59
+labels/rx       6  198499  170313  13.8   7534  36412   3.2   3.2   0.8  0.0   0   165 0.99
+related/rx      6  121434  121018   7.5   2956  36411   1.2   1.0   1.0  0.0   0   101 0.61
