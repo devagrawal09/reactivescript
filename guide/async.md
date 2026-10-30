@@ -114,16 +114,26 @@ export action addTag(p: number, tag: string) {
 Changing `photo` while a tag is saving shows the new photo's tags at once, and the pending tag only under its own
 photo.
 
-### A list the server owns: three layers
+### Data the server owns: three layers
 
-Build the screen from layers, each derived from the one below and each with its own lifetime
-(`examples/todos.rx` is the whole app):
+Every screen over server data is the same stack. Each layer is derived from the one below and has its own lifetime,
+and the screen reads only the top:
+
+1. **The server's truth.** A question: `server = await loadTodos()`. It changes only when it is asked again, so end
+   every write with `refresh server`.
+2. **What the client owns over it.** A source whose question is the layer below: `source todos = shape(server, …)`
+   (ST-5a). The client writes it (an edit, a draft, a flag, a failure to show), and a new answer from below resets
+   it. Anything that must outlive that reset (in the todos app, the failures awaiting a retry) is a plain source
+   this layer is derived from.
+3. **Guesses.** `optimistic` writes on layer 2, made by an action and gone when the action ends.
+
+`examples/todos.rx` is the whole app:
 
 ```
 server = await loadTodos()                                  // 1. what the server has: re-asked after every write
-source failures: Failure[] := []                            // 2. what it declined: kept until a retry is accepted
-source todos: Row[] key id = withFailures(server, failures) // 3. guesses go on this: they last as long as their action
-source adding: Row[] key id = []                            //    adds in flight (a new row has no index to guess)
+source failures: Failure[] := []                            // outlives a reset: kept until a retry is accepted
+source todos: Row[] key id = withFailures(server, failures) // 2. the client's layer; 3. row guesses go on it
+source adding: Row[] key id = []                            // 3. adds in flight (a new row has no index to guess)
 
 export action add(id: string, title: string) {
   try {
@@ -141,8 +151,8 @@ export action add(id: string, title: string) {
   (`posted := [...posted, await addComment(…)]`): when a read and a write cross, the read's answer already has the
   new item and your copy adds it again. End the action with `refresh` on the server's list instead. The action's
   guesses stay up until that answer lands (D-35), so the row never blinks out and never shows twice.
-- **Failures are a layer, not a guess.** A guess reverts when its action ends; a failure must outlast it, so it lives
-  in a plain source that the list is derived from, and a successful retry removes it.
+- **A failure is the client's, not a guess.** A guess reverts when its action ends; a failure must outlast it, so it
+  lives in the client's layer, and a successful retry removes it.
 - **Generate ids on the client** in the handler, before calling the action, so a declined add can be shown again
   with its retry.
 

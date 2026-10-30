@@ -2,7 +2,9 @@
 // derived from the one below it; the screen reads only the top one.
 //
 //   3. guesses   `optimistic` writes on `todos` rows and on `adding`: shown now, gone when their action ends (AC-3)
-//   2. failures  a plain source of what the server declined, laid over (1); kept until a retry is accepted
+//   2. client    `todos`: what the client owns over (1), here the failures awaiting a retry; the client writes it and
+//                a new answer from (1) re-derives it (ST-5a). The failures themselves outlive that, so they are a
+//                plain source `todos` is derived from
 //   1. server    the server's list, a question; every write ends by re-asking it (`refresh server`)
 //
 // Nothing here keeps its own copy of what the server accepted. An accepted add is not appended anywhere: the re-ask
