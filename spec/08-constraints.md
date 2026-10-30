@@ -88,6 +88,25 @@ runtime check.
   false`). (Ryan, 2026-10-30: "The problem with topmost in csr on initial
   load is you see nothing"; "Answer after first paint is fine.. its just a
   transition as normal".) Checked by `rxc`, not yet by `ref/`.
+- **CN-3e (An outside read holds a `loading on`) — Ryan, 2026-10-30.** A
+  `loading on(k)` region re-arms when `k` changes, to show its fallback
+  while what it waits on loads again. A reader outside that region of a
+  question the region waits on, and that `k` re-asks (directly or through
+  the equations it reads), holds the same change: nothing above it shows a
+  fallback, so the change is held, the region's fallback is never seen, and
+  the old content stays up with no sign of the wait (S-solid-16's rejected
+  variant, S-solid-19). That is `LOADING_ON_OUTSIDE_HOLD` (bin S). Readers
+  are views and effect inputs; a read under `latest`, `pending?` or `peek`
+  holds nothing, and neither does a reader under another region that
+  re-arms on the same change (it shows that region's fallback). Keys are
+  the names `on` reads, and for a prop the field (`on(props.selected)` keys
+  on `selected`). Checked within a component: a read through a prop in
+  another component is left to Solid's run-time report. The fix is
+  structural: move the read under the region, or read `latest x` outside
+  it. (Ryan: "if you can make a reasonable static check we should do it";
+  found by the round 9 eval, where a tab count's effect outside the list's
+  `loading on(filter)` froze the old list on a filter switch in 39 of 82
+  `.rx` apps.) Checked by `rxc` and `ref/`.
 
 ## CN-4 — Rows in signatures
 
@@ -148,6 +167,7 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | `UNCAUGHT_ACTION_FAILURE` (new) | S | CN-6a, R-f-6 |
 | `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
 | `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R; S in a client-only build | CN-3c: a runtime report, not a constraint; CN-3d: a first load nothing holds in a client-only build |
+| `LOADING_ON_OUTSIDE_HOLD` | S | CN-3e: a reader outside a `loading on(k)` region of what it waits on |
 
 ---
 
