@@ -134,6 +134,7 @@ named.
 | `CONTENT_MODEL`                   | S   | 10 SV-7d: nesting the HTML parser restructures, across templates (component roots, branches, placed children) | S-server-4 |
 | `IMPORT_ROW_MISMATCH` (SF-5)      | S   | `server`/`client` on an import that a `.d.rx` declares otherwise | S-sf-1 |
 | `WIRE_VALUE`                      | S/R | 12 SF-6a: at compile time where the types are known (13 TY-5a), else at run time | S-sf-1, S-types-1 |
+| `MISSING_AWAIT` (new)             | S   | 04 R-1a: an equation whose value may be a promise or a stream, which Solid's memo would consume; write `await e` (13 TY-5b) | S-types-1 |
 | `TSnnnn`                          | S   | 13 TY-1: TypeScript's errors over the projection, on `.rx` lines | S-types-1 |
 
 ## The advisory rows (ruled 2026-10-23, in part)

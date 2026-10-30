@@ -1,6 +1,6 @@
 # S-types-1 — Types: the program as TypeScript sees it
 
-Rules exercised: TY-1–TY-4 (08 §TY), 07 §2.
+Rules exercised: TY-1–TY-5 (08 §TY), 07 §2, 04 R-1a.
 
 ## Modules
 
@@ -170,3 +170,32 @@ export default component App() {
 
 SF-6a, statically: a `Date` is an instance of a class, so the result is
 not data. (Untyped, the check is the run time's, S-sf-1.)
+
+```
+-- types: MISSING_AWAIT
+import { fetchUser } from "./api"
+export default component App() {
+  source id := 1
+  user = fetchUser(id)
+
+  <p>{id}</p>
+}
+```
+
+R-1: the equation lowers to a memo, and Solid's memo consumes the promise
+its function returns, so `user` would be pending at run time while the
+source says it is a value. The value is never a promise: write
+`await fetchUser(id)`.
+
+```
+-- types: MISSING_AWAIT
+import { fetchUser } from "./api"
+export default component App() {
+  source id := 1
+  user = id > 0 ? fetchUser(id) : null
+
+  <p>{id}</p>
+}
+```
+
+A promise on one branch is enough: on that branch Solid consumes it.

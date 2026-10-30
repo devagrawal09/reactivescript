@@ -2,7 +2,7 @@
 // `projectTsrxForTypecheck` does for `.tsrx` — and TypeScript's diagnostics are reported on `.rx` lines. Types stay
 // TypeScript's (07 §2); the projection only says what each form is, as a value, to TypeScript:
 //   a source or an equation is a `const` of its value's type (reads are values, 02 V-1); a write is `__.set(target, v)`,
-//   which checks `v` against the target; an equation's `await` is `__.await(e)`, its answer's type; a view is JSX over
+//   which checks `v` against the target; an equation's `await` is `__.await(e)`, its answer's type, and an equation is `__.eq(e)`, never a promise (R-1); a view is JSX over
 //   Solid's JSX types, so a component's props and what a reader may insert are checked where they are written.
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
@@ -25,6 +25,10 @@ export const PRELUDE = `// ReactiveScript's forms, as TypeScript sees them (type
 import type { JSX } from "@solidjs/web/jsx-runtime";
 export declare function await_<T>(v: T): Awaited<T>;
 export declare function awaitS<T>(v: T): T extends AsyncIterable<infer U> ? U : Awaited<T>;
+/** R-1: Solid's memo consumes a promise or a stream its function returns, so an equation's value is never one — \`await\` says
+ *  where it enters (\`any\`: not known here; Solid still consumes it). */
+type Async<T> = 0 extends (1 & T) ? false : true extends (T extends PromiseLike<any> | AsyncIterable<any> ? true : false) ? true : false;
+export declare function eq<T>(v: T, ok: Async<T> extends true ? "MISSING_AWAIT: an equation's value is a promise or a stream, which Solid consumes; write await e (or await* e for a stream)" : true): T;
 export declare function first<T, I>(v: T, init: I): T | I;
 export declare function pre<T>(init?: T): T;
 export declare function pending(v: unknown): boolean;
@@ -161,7 +165,7 @@ class Proj {
     }
     for (const d of this.order(ds)) {
       if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
-      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${this.expr(d.e, false, d.name)};`, d.line);
+      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line);   // R-1: no promise without `await`
       if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {

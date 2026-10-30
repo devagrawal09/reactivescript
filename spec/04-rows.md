@@ -43,9 +43,21 @@ and where they may not go.
 - **R-1 (Entry).** `pending` enters only through `await e` in reactive scope.
   `await` is the row marker, not a scheduler: if `e` is already a value,
   `await e` is `e` in the same instant with no tick; if `e` is a promise or an
-  async iterable, the equation is pending until the first answer lands. A
-  Promise-valued expression without `await` is an ordinary value of type
-  Promise and is never pending.
+  async iterable, the equation is pending until the first answer lands.
+- **R-1a (No promise without `await`).** [ruled 2026-10-28] An equation's
+  value is never a promise or an async iterable. It lowers to a memo, and
+  Solid's memo consumes one its function returns, so `x = fetchUser(id)`
+  would be pending at run time while the source says it is a value. Where
+  the type is known, an equation whose value may be a promise or a stream
+  (on any branch) is `MISSING_AWAIT`, checked by the type layer (13 TY-5b):
+  write `await e` or `await* e`. A promise inside a value
+  (`{ p: fetchUser(id) }`, `[a, b]`) is not consumed and is passed as one.
+  Where the type is `any`, the check cannot see it and Solid still consumes
+  the promise; the rows (R-3) and the AC checks then miss that entry. Where
+  more could be done: refuse an `any`-typed call into a JS import in an
+  equation without `await`; noted, not adopted. (Replaces "a Promise-valued
+  expression without `await` is an ordinary value of type Promise and is
+  never pending", which the lowering contradicted.)
 - **R-2 (Flow).** An equation that reads a pending value is pending. A reader
   of a pending value is a pending reader (05 decides what that does to the
   screen). An effect whose compute half is pending does not run its apply
@@ -282,6 +294,7 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
 | `PENDING_ASYNC_UNTRACKED_READ`   | S   | R-8: `UNGUARDED_SNAPSHOT` (new), a handler's snapshot of a value that may be absent or failing, neither handled nor covered |
 | `PENDING_ASYNC_FORBIDDEN_SCOPE`  | S   | same  |
 | `SYNC_NODE_RECEIVED_ASYNC`       | U   | R-1   |
+| `MISSING_AWAIT` (new)            | S   | R-1a: an equation whose value may be a promise or a stream (13 TY-5b) |
 | `ASYNC_WATERFALL`                | S   | an `await` whose inputs depend on another `await` (R-2) |
 | `UNTRACKED_ASYNC_HANDLER` (structural half) | S | a handler that awaits with no write before and no `action` |
 | `UNHANDLED_FAILURE` (new)        | S   | R-f-5 |
