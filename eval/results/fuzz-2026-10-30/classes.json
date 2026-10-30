@@ -1,0 +1,22 @@
+{
+  "rx": {
+    "silent hold": 65,
+    "flickered reversion": 127,
+    "tear (solid#4440)": 16,
+    "never settles (solid#4437)": 47,
+    "crash (handler read (R-8))": 209,
+    "tear": 133,
+    "crash": 1
+  },
+  "solid": {
+    "flickered reversion": 62,
+    "tear": 23,
+    "crash (unhandled rejection)": 6
+  },
+  "react": {
+    "tear": 18
+  },
+  "foldkit": {
+    "tear": 3
+  }
+}

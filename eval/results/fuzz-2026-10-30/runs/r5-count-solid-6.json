@@ -1,0 +1,56 @@
+{
+  "dir": "/home/claude/runs/r5/count-solid-6",
+  "build": true,
+  "seeds": 50,
+  "violations": [
+    {
+      "seed": 21,
+      "step": 23,
+      "kind": "row title",
+      "detail": "#2 shows \"Old bug\", server \"Delta\"",
+      "trail": [
+        "land fetchIssues:open",
+        "select #3",
+        "filter closed",
+        "land fetchComments:3",
+        "land fetchIssue:3",
+        "land fetchIssues:closed",
+        "select #2",
+        "select #2",
+        "land fetchComments:2",
+        "land fetchIssue:2",
+        "filter open",
+        "close",
+        "land fetchIssues:open",
+        "land closeIssue:2",
+        "land fetchIssues:open",
+        "post me too",
+        "filter closed",
+        "post me too",
+        "fail addComment:2,guest,me too",
+        "rename Delta",
+        "land fetchIssues:closed",
+        "select #2",
+        "land renameIssue:2,Delta"
+      ]
+    },
+    {
+      "seed": 23,
+      "step": 10,
+      "kind": "detail title",
+      "detail": "\"#4 Typo in footerfooter says 2019retryassign to guestrenamec\", server \"Delta\"",
+      "trail": [
+        "land fetchIssues:open",
+        "select #1",
+        "land fetchComments:1",
+        "select #4",
+        "land fetchIssue:1",
+        "rename Delta",
+        "land fetchComments:4",
+        "select #4",
+        "land fetchIssue:4",
+        "land renameIssue:4,Delta"
+      ]
+    }
+  ]
+}
