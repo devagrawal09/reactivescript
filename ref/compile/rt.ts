@@ -166,7 +166,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined);
+        const [store, setStore] = (createOptimisticStore as any)((draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => assignDraft(draft, r instanceof Flight ? await r.first : await r))(); assignDraft(draft, r); }, key ? [] : {}, key ? { key } : undefined);
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an optimistic store is not lowered yet"); };
         return [get, { set: plain, path: plain, guess: (v, keys = []) => setStore((d: any) => { if (keys.length === 0) { assignDraft(d, typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v); return; } let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; }) }];

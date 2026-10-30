@@ -1,0 +1,127 @@
+// TodoMVC against a server, built in layers (solid next's examples/todos). Each layer has its own lifetime and is
+// derived from the one below it; the screen reads only the top one.
+//
+//   3. guesses   `optimistic` writes on `todos` rows and on `adding`: shown now, gone when their action ends (AC-3)
+//   2. failures  a plain source of what the server declined, laid over (1); kept until a retry is accepted
+//   1. server    the server's list, a question; every write ends by re-asking it (`refresh server`)
+//
+// Nothing here keeps its own copy of what the server accepted. An accepted add is not appended anywhere: the re-ask
+// brings it, and until it lands the add's guess shows it.
+import pure { loadTodos, addTodo, removeTodo, toggleTodo, removeTodos } from "./api"
+import pure { str } from "./prelude"
+
+type Todo = { id: string; title: string; done: boolean }
+type Failure = { id: string; kind: "add" | "remove" | "toggle"; title: string; done: boolean }   // `done`: what was asked for
+type Row = { id: string; title: string; done: boolean; gone: boolean; saving: boolean; failure: Failure | null }
+
+fn row(t: Todo, fs: Failure[]): Row =>
+  ({ id: t.id, title: t.title, done: t.done, gone: false, saving: false, failure: fs.find(f => f.id === t.id) || null })
+fn declinedAdds(ts: Todo[], fs: Failure[]): Row[] =>
+  fs.filter(f => f.kind === "add" && !ts.some(t => t.id === f.id)).map(f => row({ id: f.id, title: f.title, done: f.done }, fs))
+fn without(fs: Failure[], id: string): Failure[] => fs.filter(f => f.id !== id)
+fn removeFailed(id: string): Failure => ({ id: id, kind: "remove", title: "", done: false })
+
+server = await loadTodos()                                                               // 1
+source failures: Failure[] := []                                                         // 2
+source todos: Row[] key id = [...server.map(t => row(t, failures)), ...declinedAdds(server, failures)]   // 3 goes on its rows
+source adding: Row[] key id = []                                                         // 3: adds in flight
+
+source filter: "all" | "active" | "done" := "all"
+filters: ("all" | "active" | "done")[] = ["all", "active", "done"]
+source draft: string := ""
+source nextId := 1
+
+live = [...todos.filter(t => !t.gone), ...adding.filter(a => !todos.some(t => t.id === a.id))]
+shown = live.filter(t => filter === "all" || (filter === "done") === t.done)
+remaining = live.filter(t => !t.done).length
+anyDone = live.some(t => t.done)
+
+// A guess on `todos[i]` is its action's own, so a declined toggle reverts without waiting for the others (AC-3). A
+// new row has no index yet, so an add guesses `adding`, a list of its own: adds in flight together end together
+// (H-11), but they never hold a toggle. A guess on all of `todos` (clearDone) is one change with every row guess.
+action add(id: string, title: string) {
+  try {
+    optimistic adding := as => [...as, { id: id, title: title, done: false, gone: false, saving: true, failure: null }]
+    await addTodo(id, title)
+    failures := fs => without(fs, id)
+  } catch (e) {
+    failures := fs => [...without(fs, id), { id: id, kind: "add", title: title, done: false }]
+  }
+  refresh server
+}
+action toggle(id: string, done: boolean) {
+  try {
+    let i = todos.findIndex(t => t.id === id)
+    optimistic todos[i].done := done
+    optimistic todos[i].saving := true
+    await toggleTodo(id, done)
+    failures := fs => without(fs, id)
+  } catch (e) {
+    failures := fs => [...without(fs, id), { id: id, kind: "toggle", title: "", done: done }]
+  }
+  refresh server
+}
+action remove(id: string) {
+  try {
+    let i = todos.findIndex(t => t.id === id)
+    optimistic todos[i].gone := true
+    await removeTodo(id)
+    failures := fs => without(fs, id)
+  } catch (e) {
+    failures := fs => [...without(fs, id), removeFailed(id)]
+  }
+  refresh server
+}
+// A bulk write that fails fans out to one failure per row, so each row gets its own retry.
+action clearDone(ids: string[]) {
+  try {
+    optimistic todos := ts => ts.map(t => t.done ? { ...t, gone: true } : t)
+    await removeTodos(ids)
+    failures := fs => fs.filter(f => !ids.includes(f.id))
+  } catch (e) {
+    failures := fs => [...fs.filter(f => !ids.includes(f.id)), ...ids.map(id => removeFailed(id))]
+  }
+  refresh server
+}
+
+component Item(props: { todo: Row }) {
+  <li class={props.todo.done ? "done" : ""}>
+    <input type="checkbox" checked={props.todo.done} onChange={() => { toggle(props.todo.id, !props.todo.done) }} />
+    <span>{props.todo.title}</span>
+    {if props.todo.saving { <i>…</i> }}
+    {if props.todo.failure != null {
+      <button onClick={() => {
+        let f = props.todo.failure
+        if (f == null) return
+        if (f.kind === "add") { add(f.id, f.title) } else if (f.kind === "toggle") { toggle(f.id, f.done) } else { remove(f.id) }
+      }}>retry {props.todo.failure.kind}</button>
+    }}
+    <button onClick={() => { remove(props.todo.id) }}>×</button>
+  </li>
+}
+
+export default component App() {
+  errored fallback(e) { <p class="error">Could not load the list: {e.message}</p> } {
+    <main>
+      <form onSubmit={e => {
+        e.preventDefault()
+        let title = draft.trim()
+        if (title === "") return
+        let id = "t" + str(nextId)
+        nextId := nextId + 1
+        draft := ""
+        add(id, title)
+      }}>
+        <input value={draft} onInput={e => { draft := e.target.value }} placeholder="What needs to be done?" />
+      </form>
+      {loading fallback { <p>loading…</p> } {
+        <ul>{for t in shown { <Item todo={t} /> }}</ul>
+        <footer>
+          <span>{remaining} left</span>
+          {for f in filters { <button class={filter === f ? "selected" : ""} onClick={() => { filter := f }}>{f}</button> }}
+          {if anyDone { <button onClick={() => { clearDone(live.filter(t => t.done).map(t => t.id)) }}>clear done</button> }}
+        </footer>
+      }}
+    </main>
+  }
+}

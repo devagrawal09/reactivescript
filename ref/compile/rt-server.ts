@@ -129,7 +129,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     },
     question(name: string, compute: (prev: unknown) => unknown, o: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean }, key?: string): [Acc, Writer] {
       const fn = named(name, compute);
-      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)(async (draft: any) => { const r = fn(draft); assignDraft(draft, r instanceof Flight ? await r.first : await r); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
+      if (mode.optimistic && mode.structured) { const [store] = (createOptimisticStore as any)((draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => assignDraft(draft, r instanceof Flight ? await r.first : await r))(); assignDraft(draft, r); }, key ? [] : {}, key ? { key } : undefined); return ro(() => store); }
       if (mode.optimistic) { const [truth] = createSignal(fn as any, o as any); const [get] = createOptimistic(() => (truth as Acc)()); return ro(get as Acc); }
       if (mode.structured) {
         const [store] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});

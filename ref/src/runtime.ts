@@ -330,7 +330,7 @@ export class Runtime {
       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
       for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
       for (const a of this.openActions) if (a.change !== null) heldRoots.add(this.find(a.change));          // AC-1: an action holds its change until its body returns
-      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === this.find(n.refreshBy)) heldRoots.add(this.find(n.refreshBy));   // D-35: a guess's own question, re-asked by its action, is authoritative work in flight — the change waits for the answer that confirms or corrects the guess
+      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && this.allNodes().some(m => m.hasGuess && m.guessBy !== null && this.find(m.guessBy) === this.find(n.refreshBy!))) heldRoots.add(this.find(n.refreshBy));   // D-35, AC-4: a re-ask issued by an action that guessed is authoritative work in flight — the change waits for its answer, so every guess of the action (on that source or another) stays until the truth that confirms or corrects it lands
       for (const l of this.heldLanes) { if (l.heldBy !== null) heldRoots.add(this.find(l.heldBy)); for (const t of l.taint) heldRoots.add(this.find(t)); }   // H-7: a held lane keeps its change staged (S-solid-33: the landing stays uncommitted)
       let any = false;
       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
@@ -1085,12 +1085,14 @@ export class Runtime {
     for (const g0 of this.pendingBodyEnds) { const g = this.find(g0);
       for (const n of this.allNodes()) if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) {
         const truth = n.demanded ? n.value : this.pull(n);
-        if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending")) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`): that answer corrects (D-34, D-35)
+        if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending") || this.refreshPending(g)) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`) — or the action re-asked a question the guess's truth may follow: that answer corrects (D-34, D-35, AC-4)
         const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg); if (dg.size) { n.guess = truth; n.corrected = true; any = true; }
       }
     }
     this.pendingBodyEnds = []; return any;
   }
+  /** AC-4, D-35: a re-ask issued by the action of change `g` is still answering. */
+  private refreshPending(g: number) { return this.allNodes().some(n => n.quiet && n.refreshInAction && n.refreshBy !== null && this.find(n.refreshBy) === g && n.flight?.state === "pending"); }
   /** D-34: a corrected guess's readers keep what they showed until the hold commits (the lane is frozen, not held). */
   private frozen(n: Node) { return n.hasGuess && n.corrected && n.guessBy !== null && (n.guessBy === this.instant || this.groupOpen(n.guessBy)); }
   private nodeNamed(name: string, region: Region): Node | null { const b = region.lookup(name); return b instanceof Node ? b : null; }
