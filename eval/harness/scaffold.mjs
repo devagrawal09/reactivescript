@@ -4,6 +4,7 @@
 // <dir>/.prompt.
 // --base <dir> makes a change task (round 4): it copies an existing app's source files from <dir> into src/, and the
 // task's BASE.md (the brief that app was built to) next to BRIEF.md, and the prompt asks for a change, not a new app.
+// Round 7's chain steps (tasks/chain1..4, harness/make-chain.mjs) take the previous step's run's src/ as the base.
 // --inline-docs (round 5) puts the .rx guide's two pages (guide/language.md, guide/async.md) at the end of the .rx
 // prompt, so reading them costs no tool calls, and Solid's own agent primer (solid-js/skills/solid-2.0/SKILL.md) at
 // the end of the Solid prompt; the React prompt is unchanged.
@@ -61,7 +62,10 @@ export function scaffold(task, arm, dir, { reference = false, brief = null, base
   if (reference) cpSync(path.join(evalDir, "reference", task, arm), path.join(dir, "src"), { recursive: true });
   if (base) {
     cpSync(path.join(t, "BASE.md"), path.join(dir, "BASE.md"));
-    for (const f of readdirSync(base)) if (/\.(rx|tsx?)$/.test(f)) cpSync(path.join(base, f), path.join(dir, "src", f));
+    // everything the earlier app had (a chain step's base is the previous agent's src/, which may hold more than
+    // .rx and .ts files), except the plumbing written above
+    const given = new Set(["api.js", "flights.js", "api.d.ts", "api.d.rx"]);
+    for (const f of readdirSync(base)) if (!given.has(f) && !f.startsWith(".")) cpSync(path.join(base, f), path.join(dir, "src", f), { recursive: true });
     mkdirSync(path.join(dir, ".scratch"));
   }
   writeFileSync(path.join(dir, ".prompt"), prompt(arm, dir, { plain: brief === "plain", change: !!base, inline }));

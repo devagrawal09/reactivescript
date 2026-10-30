@@ -19,7 +19,7 @@ const round4Alongside = new Set(["a post on one issue does not show on another"]
 // solidjs/solid#4425 (round 5, rc.20): an Errored recovering after a retry waits for async under a nested Loading;
 // it shows in the related task's .rx and Solid references alike.
 const round5Alongside = new Set(["a post on one issue does not show on another", "base: retry after not found shows the issue"]);
-const round5 = new Set(["desk", "labels", "related", "count"]);
+const round5 = new Set(["desk", "labels", "related", "count", "chain1", "chain2", "chain3", "chain4"]);
 
 const rows = [];
 for (const name of readdirSync(runs).sort()) {

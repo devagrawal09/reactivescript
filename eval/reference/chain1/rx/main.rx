@@ -1,0 +1,26 @@
+// The desk: three pages behind tabs. Only the open page is mounted, so leaving one discards its state.
+
+import { IssuesPage } from "./issues.rx"
+import { HelpPage } from "./help.rx"
+import { SettingsPage } from "./settings.rx"
+
+export default component App() {
+  source page: string := "issues"
+
+  <div>
+    <nav>
+      <button data-testid="tab-issues" onClick={() => { page := "issues" }}>Issues</button>{" "}
+      <button data-testid="tab-help" onClick={() => { page := "help" }}>Help</button>{" "}
+      <button data-testid="tab-settings" onClick={() => { page := "settings" }}>Settings</button>
+    </nav>
+    {if page == "issues" {
+      <IssuesPage />
+    } else {
+      {if page == "help" {
+        <HelpPage />
+      } else {
+        <SettingsPage />
+      }}
+    }}
+  </div>
+}
