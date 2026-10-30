@@ -153,7 +153,9 @@ async function session(browser, url, seed, steps, log) {
     const newest = (id, field) => { const ws = started.filter(w => w.issue === id && w.field === field && w.accepted); return ws.length ? ws.at(-1).value : undefined; };
     const ok = (id, field, v) => { const x = srv.issues.find(i => i.id === id); return v === x[field] || v === newest(id, field) || stale.some(t => t.issue === id && t.field === field && t.before === v); };   // A2, A4
     const ids = parsed.map(p => p.id).join(",");
-    if (ids !== want.map(i => i.id).join(",")) note("at rest: rows", `shows [${ids}], server [${want.map(i => i.id)}]`);
+    // the closed list need not gain an issue closed after it loaded (no brief asks for it): it must hold no open issue
+    const closedOk = ui.filter === "closed" && parsed.every(p => want.some(i => i.id === p.id));
+    if (ids !== want.map(i => i.id).join(",") && !closedOk) note("at rest: rows", `shows [${ids}], server [${want.map(i => i.id)}]`);
     for (const p of parsed) {
       if (!want.some(i => i.id === p.id)) continue;
       if (!ok(p.id, "title", p.title)) note("at rest: row title", `#${p.id} "${p.title}"`);
@@ -216,7 +218,7 @@ async function session(browser, url, seed, steps, log) {
     for (const [k, w] of opts) { if ((x -= w) < 0) { m = k; break; } }
     const click = async (id, nth = 0) => { await page.locator(sel(id)).nth(nth).click({ timeout: 2000 }); };
     switch (m) {
-      case "select": { const t = pick(rows); const id = Number(t.match(/^#(\d+)/)?.[1]); if (!id) return; trail.push(`select #${id}`); await page.locator(sel("issue"), { hasText: `#${id} ` }).first().click({ timeout: 2000 }); if ((await pending()).length && ui.selected !== id) held.selected = ui.selected; ui.selected = id; break; }
+      case "select": { const t = pick(rows); const id = Number(t.match(/^#(\d+)/)?.[1]); if (!id) return; trail.push(`select #${id}`); await page.locator(sel("issue"), { hasText: `#${id} ` }).first().click({ timeout: 2000 }); if ((await pending()).length && ui.selected !== id && !("selected" in held)) held.selected = ui.selected; ui.selected = id; break; }
       case "user": { const u = pick(USERS); trail.push(`user ${u}`); await page.locator(sel("user")).first().fill(u); break; }
       case "assign": trail.push("assign"); await click("assign"); break;
       case "rename": { const t = pick(TITLES); trail.push(`rename ${t}`); await page.locator(sel("title-input")).first().fill(t); await click("rename"); break; }
@@ -226,7 +228,7 @@ async function session(browser, url, seed, steps, log) {
       case "add-label": { const l = pick(LABELS); trail.push(`add-label ${l}`); await page.locator(sel("label-input")).first().fill(l); await click("add-label"); break; }
       case "remove-label": { const n = Math.floor(r() * (await page.locator(sel("remove-label")).count())); trail.push(`remove-label ${n}`); await click("remove-label", n); break; }
       case "post": { const t = pick(TEXTS); trail.push(`post ${t}`); await page.locator(sel("comment-input")).first().fill(t); await click("post"); break; }
-      case "filter": { const f = ui.filter === "open" ? "closed" : "open"; trail.push(`filter ${f}`); if ((await pending()).length) held.filter = ui.filter; await click(`filter-${f}`); ui.filter = f; break; }
+      case "filter": { const f = ui.filter === "open" ? "closed" : "open"; trail.push(`filter ${f}`); if ((await pending()).length && !("filter" in held)) held.filter = ui.filter; await click(`filter-${f}`); ui.filter = f; break; }
       case "leave": trail.push("tab help"); await click("tab-help"); ui.page = "help"; gen++; break;
       case "back": trail.push("tab issues"); await click("tab-issues"); ui.page = "issues"; ui.filter = "open"; ui.selected = null; gen++; stale = []; held = {}; break;
     }

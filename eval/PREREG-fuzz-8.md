@@ -65,3 +65,16 @@ The direction is the claim being tested. A null or reversed result is reported a
   rates are compared within the same task family as well as overall.
 - Sessions are random, not exhaustive; 50 seeds per app.
 - Published as is, whatever the outcome.
+
+## Addendum (before any final run, after a partial first run)
+
+A first run over 59 round 5 apps was stopped and discarded. Two oracle errors it exposed were fixed, both applying to
+every arm:
+
+- at rest, the closed list need not gain an issue closed after it loaded (no brief asks for it); it must still hold no
+  open issue. This was the only kind of hole found in React apps;
+- A5 kept the selection or filter from before the latest click instead of the one before the busy period began.
+
+Replays confirmed two kinds the partial run found in the .rx apps are real and stay counted: switching the filter
+back to open shows the closed rows with no `loading open issues` while the open list reloads, and an accepted rename's
+title flashes back to the old one until its refresh answers. Results come from a full rerun with the fixed fuzzer.
