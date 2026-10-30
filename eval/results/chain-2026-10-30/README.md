@@ -55,7 +55,7 @@ boundary: the list keeps showing `loading closed issues` (test "a failing list l
 `source issues key id = await fetchIssues(filter)` passes the same test (checked by editing one step-3 app both ways).
 In Solid at the pinned next (5e68925c), `createOptimisticStore(fn)` whose `fn` reads a failed `createMemo` swallows
 the error, where `createStore(fn)` delivers it: repro `solid-optimistic-store-error.test.ts` here (runs in solid `packages/signals/tests`)
-(not yet filed). rx-3, which kept the flag on the plain source, passed.
+(filed as solidjs/solid#4437). rx-3, which kept the flag on the plain source, passed.
 
 **The fourth (rx-5)** kept a separate `closing` source derived from `issues` and guessed on it; after a filter switch
 and reload the list shows empty rows (`# ()`) or none. Not yet reduced; it may be the agent's design or another runtime
