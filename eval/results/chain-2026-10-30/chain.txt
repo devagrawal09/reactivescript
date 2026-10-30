@@ -1,0 +1,151 @@
+chain1-react-1   ok     new 0  regressions 0  cost 86468
+chain2-react-1   ok     new 0  regressions 0  cost 56877
+chain3-react-1   ok     new 0  regressions 0  cost 83842
+chain4-react-1   ok     new 0  regressions 0  cost 63194
+chain1-react-2   ok     new 0  regressions 0  cost 71761
+chain2-react-2   ok     new 0  regressions 0  cost 55516
+chain3-react-2   ok     new 0  regressions 0  cost 75503
+chain4-react-2   ok     new 0  regressions 0  cost 87864
+chain1-react-3   ok     new 0  regressions 0  cost 75823
+chain2-react-3   ok     new 0  regressions 0  cost 53322
+chain3-react-3   ok     new 0  regressions 0  cost 106049
+chain4-react-3   ok     new 0  regressions 0  cost 84597
+chain1-react-4   ok     new 0  regressions 0  cost 74379
+chain2-react-4   ok     new 0  regressions 0  cost 77610
+chain3-react-4   ok     new 0  regressions 0  cost 82391
+chain4-react-4   ok     new 0  regressions 0  cost 85759
+chain1-react-5   ok     new 0  regressions 0  cost 73997
+chain2-react-5   ok     new 0  regressions 0  cost 62245
+chain3-react-5   ok     new 0  regressions 0  cost 84658
+chain4-react-5   ok     new 0  regressions 0  cost 91482
+chain1-react-6   ok     new 0  regressions 0  cost 75256
+chain2-react-6   ok     new 0  regressions 0  cost 57070
+chain3-react-6   ok     new 0  regressions 0  cost 86373
+chain4-react-6   ok     new 0  regressions 0  cost 81727
+chain1-rx-1      ok     new 0  regressions 0  cost 83305
+chain2-rx-1      ok     new 0  regressions 0  cost 63771
+chain3-rx-1      ok     new 0  regressions 0  cost 84736
+chain4-rx-1      ok     new 0  regressions 0  cost 234642
+chain1-rx-2      ok     new 0  regressions 0  cost 78993
+chain2-rx-2      ok     new 0  regressions 0  cost 84955
+chain3-rx-2      ok     new 0  regressions 0  cost 78730
+chain4-rx-2      DEFECT new 1  regressions 1  cost 231853
+    hidden: base: a failing list leaves the detail alone
+chain1-rx-3      ok     new 0  regressions 0  cost 114184
+chain2-rx-3      ok     new 0  regressions 0  cost 72048
+chain3-rx-3      ok     new 0  regressions 0  cost 77089
+chain4-rx-3      ok     new 0  regressions 0  cost 265749
+chain1-rx-4      ok     new 0  regressions 0  cost 99612
+chain2-rx-4      ok     new 0  regressions 0  cost 57092
+chain3-rx-4      ok     new 0  regressions 0  cost 64071
+chain4-rx-4      DEFECT new 1  regressions 1  cost 298352
+    hidden: base: a failing list leaves the detail alone
+chain1-rx-5      ok     new 0  regressions 0  cost 114088
+chain2-rx-5      ok     new 0  regressions 0  cost 69701
+chain3-rx-5      ok     new 0  regressions 0  cost 85122
+chain4-rx-5      DEFECT new 2  regressions 1  cost 262537
+    hidden: base: a list that loads while a close is out keeps the row out
+    hidden: rows: open issues that load while a row close is out keep the row out
+chain1-rx-6      ok     new 0  regressions 0  cost 102626
+chain2-rx-6      ok     new 0  regressions 0  cost 80826
+chain3-rx-6      ok     new 0  regressions 0  cost 81238
+chain4-rx-6      DEFECT new 1  regressions 1  cost 238005
+    hidden: base: a failing list leaves the detail alone
+{
+ "last": 4,
+ "arms": {
+  "react": {
+   "chains": 6,
+   "endDefect": 0,
+   "runs": 24,
+   "runsWithNew": 0,
+   "runsWithRegression": 0,
+   "perStep": {
+    "1": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 76281
+    },
+    "2": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 60440
+    },
+    "3": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 86469
+    },
+    "4": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 82437
+    }
+   },
+   "chainCost": [
+    290380,
+    290644,
+    319790,
+    320138,
+    312382,
+    300426
+   ]
+  },
+  "rx": {
+   "chains": 6,
+   "endDefect": 4,
+   "runs": 24,
+   "runsWithNew": 4,
+   "runsWithRegression": 4,
+   "perStep": {
+    "1": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 98802
+    },
+    "2": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 71399
+    },
+    "3": {
+     "defect": 0,
+     "new": 0,
+     "meanCost": 78497
+    },
+    "4": {
+     "defect": 4,
+     "new": 4,
+     "meanCost": 255190
+    }
+   },
+   "chainCost": [
+    466455,
+    474531,
+    529070,
+    519128,
+    531448,
+    502695
+   ]
+  }
+ },
+ "H7a": {
+  "react": "0/6",
+  "rx": "4/6",
+  "p": 0.9999999999999991
+ },
+ "H7b": {
+  "react": "0/24",
+  "rx": "4/24",
+  "p": 0.9999999999999943
+ },
+ "H7c": {
+  "react": "0/24",
+  "rx": "4/24",
+  "p": 0.9999999999999943
+ },
+ "cost": {
+  "reactMinusRx": 1,
+  "rxMinusReact": 0.0005899941000589994
+ }
+}
