@@ -69,7 +69,7 @@ and where they may not go.
 - **R-4 (Flights).** The in-flight work of a pending equation belongs to its
   question (V-9), and the question belongs to the change whose pass asked it:
   a pending pass triggered by change `d` is `d`'s, whether or not a new
-  request was issued (S-solid-16 variant: `page` re-asks `details` through
+  request was issued (S-solid-16: `page` re-asks `details` through
   `pageData` without a new fetch). An input change asks a new question: the old flight is
   abandoned (its answer, if it lands, is discarded), the body restarts from
   the top, and the old body's `finally` runs. A re-ask (`refresh`) restarts
@@ -79,7 +79,7 @@ and where they may not go.
   window; `UNTRACKED_READ_AFTER_AWAIT` is unwritable. Likewise an absent
   operand (pending or error) does not erase the equation's other inputs:
   `"d:" + pageData + ":" + count` depends on `count` even while `pageData` is
-  pending (found by `ref/`: S-solid-16 variant — a dynamic-tracking
+  pending (found by `ref/`: S-solid-16 — a dynamic-tracking
   evaluator that short-circuits on absence drops `count` and lets its hold
   commit).
 - **R-6 (Errors).** A rejected `await` is an error value (E-12): it ends the

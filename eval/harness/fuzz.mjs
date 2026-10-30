@@ -12,7 +12,14 @@
 // - A2 (newest wins): with several writes to one field accepted in one busy period, at rest the field may show the
 //   newest one started instead of the one the server took last.
 // - A3: the count is checked only at rest, on the issues page, with the open list on screen.
-// Usage: node harness/fuzz.mjs <dir> [--seeds N] [--steps N] [--from S] [--json out.json] [--log]
+// Round 9 (`--r9`, PREREG-fuzz-9.md) adds a move and three oracles every frame, the same for every arm:
+// - focus: the window is hidden and shown again (a user switching tabs);
+// - dropped guess: a write's value, once shown, stays while the write is in flight and no newer write to that field
+//   started (Ryan, 2026-10-27: a guess holds until the server answers it); a closed row stays out the same way;
+// - two views: an issue's row and the detail heading show the same title;
+// - count: with the open list on screen, the tab count equals its rows.
+// Writes weigh twice as much among the moves and answers come a little less often (0.4), so writes overlap.
+// Usage: node harness/fuzz.mjs <dir> [--seeds N] [--steps N] [--from S] [--r9] [--json out.json] [--log]
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -66,10 +73,10 @@ export function answer(srv, key, fail) {
 }
 
 /** one session; returns the violations it found (each with the step and the log so far) */
-async function session(browser, url, seed, steps, log) {
+async function session(browser, url, seed, steps, log, r9 = false) {
   const r = rng(seed); const pick = xs => xs[Math.floor(r() * xs.length)];
   const page = await browser.newPage();
-  const errors = []; page.on("pageerror", e => errors.push(e.message));
+  const errors = []; page.on("pageerror", e => { errors.push(e.message); if (process.env.FUZZ_STACK) console.log("PAGEERROR after", trail.at(-1), trail.length, e.message); });
   const settle = () => page.waitForTimeout(60);
   const sel = id => `[data-testid="${id}"]`;
   const srv = freshServer();
@@ -134,12 +141,47 @@ async function session(browser, url, seed, steps, log) {
     return out;
   }
 
+  // round 9: what each field of an issue shows this frame, where it is on screen (undefined: not on screen)
+  function shownValue(parsed, listShown, detail, id, field) {
+    const p = listShown ? parsed.find(x => x.id === id) : undefined;
+    if (field === "open") return listShown && ui.filter === "open" ? (p ? true : false) : undefined;
+    if (p) return p[field];
+    if (field === "title" && detail && ui.selected === id) { const m = detail.match(new RegExp(`^#${id} `)); if (m) for (const t of allowed(id, "title")) if (detail.startsWith(`#${id} ${t}`)) return t; }
+    return undefined;
+  }
+  function round9(parsed, listShown, detail, tab) {
+    // A5: a held list or detail is not judged
+    if (held.filters.size) listShown = false;
+    if (held.selections.size) detail = null;
+    for (const w of writes.values()) {
+      if (w.gen !== gen || !["title", "assignee", "open"].includes(w.field)) continue;
+      const v = shownValue(parsed, listShown, detail, w.issue, w.field);
+      if (v === undefined) continue;
+      if (v === w.value) { w.shown = true; continue; }
+      const newer = [...writes.values()].some(o => o !== w && o.issue === w.issue && o.field === w.field && o.seq > w.seq);
+      if (w.shown && !newer) return note("dropped guess", `#${w.issue} ${w.field}: showed ${JSON.stringify(w.value)} while it was in flight, now ${JSON.stringify(v)}`);
+    }
+    if (listShown && detail && ui.selected != null) {
+      const p = parsed.find(x => x.id === ui.selected);
+      const m = detail.match(/^#(\d+) /);
+      if (p && m && Number(m[1]) === p.id && !detail.startsWith(`#${p.id} ${p.title}`)) return note("two views", `row "#${p.id} ${p.title}", detail "${detail.slice(0, 40)}"`);
+    }
+    const cm = tab && tab.match(/\((\d+)\)/);
+    if (listShown && ui.filter === "open" && cm && Number(cm[1]) !== parsed.length) note("count", `tab ${tab}, ${parsed.length} open rows shown`);
+  }
+
   async function everyFrame() {
     inFlight = (await pending()).length > 0;
     if (ui.page !== "issues") return;
     const rows = await texts("issue");
     const listText = await text("list");
     const parsed = rows.map(t => t.match(/^#(\d+) (.*) \((.*)\)$/)).filter(Boolean).map(m => ({ id: Number(m[1]), title: m[2], assignee: m[3] === "unassigned" ? null : m[3] }));
+    if (r9) {
+      const listShown = !!listText && !/loading|error/.test(listText);
+      const d = await text("detail"); const detail = d && !/loading #|detail error|select an issue/.test(d) ? d : null;
+      round9(parsed, listShown, detail, await text("tab-issues"));
+      if (found.length) return;
+    }
     if (parsed.length && listText && !/loading/.test(listText)) {
       const v = listViolations(parsed, ui.filter);
       // A5: a filter switch made while work is in flight may hold the previous filter's list (Ryan, 2026-10-28)
@@ -214,15 +256,16 @@ async function session(browser, url, seed, steps, log) {
     const rows = await texts("issue");
     if (ui.page === "issues") {
       if (rows.length) opts.push(["select", 3]);
-      if (await exists("assign")) opts.push(["assign", 2]);
-      if (await exists("rename")) opts.push(["rename", 2]);
-      if (await exists("close")) opts.push(["close", 2]);
-      if (await exists("row-assign")) opts.push(["row-assign", 2]);
-      if (await exists("row-close")) opts.push(["row-close", 2]);
-      if (await exists("add-label")) opts.push(["add-label", 1]);
-      if (await exists("remove-label")) opts.push(["remove-label", 1]);
-      if (await exists("post")) opts.push(["post", 1]);
+      if (await exists("assign")) opts.push(["assign", r9 ? 4 : 2]);
+      if (await exists("rename")) opts.push(["rename", r9 ? 4 : 2]);
+      if (await exists("close")) opts.push(["close", r9 ? 4 : 2]);
+      if (await exists("row-assign")) opts.push(["row-assign", r9 ? 4 : 2]);
+      if (await exists("row-close")) opts.push(["row-close", r9 ? 4 : 2]);
+      if (await exists("add-label")) opts.push(["add-label", r9 ? 2 : 1]);
+      if (await exists("remove-label")) opts.push(["remove-label", r9 ? 2 : 1]);
+      if (await exists("post")) opts.push(["post", r9 ? 2 : 1]);
       opts.push(["user", 1], ["filter", 1], ["leave", 1]);
+      if (r9) opts.push(["focus", 1]);
     } else opts.push(["back", 3]);
     const total = opts.reduce((s, o) => s + o[1], 0); let x = r() * total; let m = opts[0][0];
     for (const [k, w] of opts) { if ((x -= w) < 0) { m = k; break; } }
@@ -239,6 +282,7 @@ async function session(browser, url, seed, steps, log) {
       case "remove-label": { const n = Math.floor(r() * (await page.locator(sel("remove-label")).count())); trail.push(`remove-label ${n}`); await click("remove-label", n); break; }
       case "post": { const t = pick(TEXTS); trail.push(`post ${t}`); await page.locator(sel("comment-input")).first().fill(t); await click("post"); break; }
       case "filter": { const f = ui.filter === "open" ? "closed" : "open"; trail.push(`filter ${f}`); if ((await pending()).length) { held.filters.add(ui.filter); for (const t of await texts("issue")) { const m = t.match(/^#(\d+)/); if (m) held.rows.add(Number(m[1])); } } await click(`filter-${f}`); ui.filter = f; break; }
+      case "focus": trail.push("focus"); await page.evaluate(() => { Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true }); for (const t of [document, window]) t.dispatchEvent(new Event("visibilitychange")); window.dispatchEvent(new Event("blur")); Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true }); for (const t of [document, window]) t.dispatchEvent(new Event("visibilitychange")); window.dispatchEvent(new Event("focus")); }); break;
       case "leave": trail.push("tab help"); await click("tab-help"); ui.page = "help"; gen++; break;
       case "back": trail.push("tab issues"); await click("tab-issues"); ui.page = "issues"; ui.filter = "open"; ui.selected = null; gen++; stale = []; held = { filters: new Set(), selections: new Set(), rows: new Set() }; break;
     }
@@ -251,7 +295,7 @@ async function session(browser, url, seed, steps, log) {
     for (let s = 0; s < steps; s++) {
       await track();
       const keys = await pending();
-      if (keys.length && r() < 0.5) await answerOne(keys); else await move().catch(e => { trail.push(`(move failed: ${e.message.split("\n")[0].slice(0, 80)})`); });
+      if (keys.length && r() < (r9 ? 0.4 : 0.5)) await answerOne(keys); else await move().catch(e => { trail.push(`(move failed: ${e.message.split("\n")[0].slice(0, 80)})`); });
       await track();
       await everyFrame();
       if (found.length) break;
@@ -269,7 +313,7 @@ async function session(browser, url, seed, steps, log) {
   return found.slice(0, 1);
 }
 
-export async function fuzz(dir, { seeds = 40, steps = 30, from = 1, log = false } = {}) {
+export async function fuzz(dir, { seeds = 40, steps = 30, from = 1, log = false, r9 = false } = {}) {
   const b = await build(dir);
   if (!b.ok) return { dir, build: false, seeds, violations: [] };
   const server = await serve(b.dist); let browser = await launch();
@@ -277,7 +321,7 @@ export async function fuzz(dir, { seeds = 40, steps = 30, from = 1, log = false 
   try {
     for (let s = from; s < from + seeds; s++) {
       // a page that crashes or hangs the browser is a hole of its own; the next seed gets a fresh browser
-      try { let t; violations.push(...await Promise.race([session(browser, server.url, s, steps, log), new Promise((_, rej) => { t = setTimeout(() => rej(new Error("session timed out (120 s): the page hangs")), 120000); })]).finally(() => clearTimeout(t))); }
+      try { let t; violations.push(...await Promise.race([session(browser, server.url, s, steps, log, r9), new Promise((_, rej) => { t = setTimeout(() => rej(new Error("session timed out (120 s): the page hangs")), 120000); })]).finally(() => clearTimeout(t))); }
       catch (e) { violations.push({ seed: s, step: -1, kind: "page crash", detail: e.message.split("\n")[0].slice(0, 120), trail: [] }); await browser.close().catch(() => {}); browser = await launch(); }
     }
   }
@@ -287,7 +331,7 @@ export async function fuzz(dir, { seeds = 40, steps = 30, from = 1, log = false 
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const a = process.argv.slice(2); const opt = (k, d) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : d; };
-  const res = await fuzz(path.resolve(a[0]), { seeds: Number(opt("--seeds", 40)), steps: Number(opt("--steps", 30)), from: Number(opt("--from", 1)), log: a.includes("--log") });
+  const res = await fuzz(path.resolve(a[0]), { seeds: Number(opt("--seeds", 40)), steps: Number(opt("--steps", 30)), from: Number(opt("--from", 1)), log: a.includes("--log"), r9: a.includes("--r9") });
   console.log(`${path.basename(res.dir)}: ${res.build ? `${res.violations.length}/${res.seeds} seeds found a hole` : "build failed"}`);
   for (const v of res.violations) console.log(`  seed ${v.seed} step ${v.step}: ${v.kind}: ${v.detail}\n    ${v.trail.join(" ; ")}`);
   if (opt("--json")) writeFileSync(opt("--json"), JSON.stringify(res, null, 2) + "\n");

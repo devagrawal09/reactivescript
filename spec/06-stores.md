@@ -230,9 +230,14 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   (`optimistic x.a := v`, `optimistic todos[i].done := true`) guess per key,
   as Solid's per-node override: the rest of `x` is the truth beneath the
   guess, a new answer corrects only where it differs at a guessed key, and
-  equal there it confirms silently (S-store-6). A guess's own question
-  re-asked by its action (`refresh x`) is authoritative work in flight: the
-  change waits for that answer before the body-end correction (D-35).
+  equal there it confirms silently (S-store-6). A question re-asked by an
+  action that guessed (`refresh x`) is authoritative work in flight: the
+  change waits for that answer before the body-end correction (D-35) — for
+  a guess on `x` itself, and for a guess on another source whose truth may
+  follow `x` (S-app-todos: an add guessed in its own list stays until the
+  re-asked server list brings the row; a declined toggle's revert and its
+  recorded failure land with that list, in one frame). Solid does the same:
+  the action's transition holds until the refresh it started lands.
   Lowers to `createOptimisticStore(fn, seed)`; a plain write to a source
   that is also guessed by path is not lowered yet. A guess is verdict-inert: an
   action that wants `pending? x` true while its guess stands declares

@@ -59,7 +59,8 @@ export async function build(dir, arm = armOf(dir)) {
   try {
     await vite.build({
       root: work, configFile: false, logLevel: "silent", base: "./", plugins, cacheDir: path.join(work, ".vite"),
-      resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "react", "react-dom", "effect", "foldkit"] },
+      resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "react", "react-dom", "effect", "foldkit"], ...(process.env.DEV_BUILD ? { conditions: ["development", "browser", "module", "import", "default"] } : {}) },
+      ...(process.env.DEV_BUILD ? { mode: "development", define: { "process.env.NODE_ENV": '"development"' } } : {}),
       build: { outDir: "dist", emptyOutDir: true, minify: false },
     });
   } catch (e) { return { ok: false, stage: "bundle", output: String(e.message ?? e) }; }

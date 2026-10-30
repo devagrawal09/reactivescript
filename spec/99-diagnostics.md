@@ -43,8 +43,8 @@ Bins:
 | `SNAPSHOT_INITIALIZER` (new)      | S   | E-4 / DV-6: a source initializer reads a reactive value outside `peek(…)` |
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
-| `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary                  |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path             |
+| `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary; S within a component (08 CN-3e), R through a prop |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path; S only in a client-only build, for a first load (08 CN-3d) |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3: an error (ruled 2026-10-23); closures the apply creates are exempt |
 | `EFFECT_RELAY_TEAR`               | S   | C-3 generalised: an effect relaying a source to a source           |
 | `ASYNC_WATERFALL`                 | S   | R-pending: `await` whose inputs depend on another `await`          |
@@ -141,15 +141,14 @@ named.
 
 Under CN-1a there is no warning tier, so an S row is a compile error or it
 is not a diagnostic. `ASYNC_WATERFALL`, `HUGE_FAN_IN`, `HUGE_FAN_OUT`,
-`WIDE_SCOPE_DEPS`, `SILENT_HOLD` (structural), `LOADING_ON_OUTSIDE_HOLD`
-and `UNTRACKED_ASYNC_HANDLER` (structural half) are **not errors** — they
+`WIDE_SCOPE_DEPS`, `SILENT_HOLD` (structural) and `UNTRACKED_ASYNC_HANDLER` (structural half) are **not errors** — they
 are performance and shape advice about correct programs — and move to a
 separate advisory tool that reads the same static graph and never fails a
 build (the rustc/clippy split). `EFFECT_WRITES_OWN_SOURCE` is an error
 (C-3); `EFFECT_RELAY_TEAR` (an effect copying one source into another — an
 equation written the long way, with a one-instant tear, but also how a
 source is synced into a JS-owned one) stays advisory. `DYNAMIC_ASYNC_COMPONENT` is a type question for the type layer (13);
-`UNRECOGNIZED_INSERT_VALUE` stays Solid's, at run time (13 TY-3b). (`SERVER_WRITE` was one; 12 SF-4 makes it a row rule.)
+`UNRECOGNIZED_INSERT_VALUE` stays Solid's, at run time (13 TY-3b). `LOADING_ON_OUTSIDE_HOLD` was one; since 2026-10-30 (Ryan) it is an error, 08 CN-3e: the old content stays up with no sign of the wait, a silent hold, which is a defect, not advice. (`SERVER_WRITE` was one; 12 SF-4 makes it a row rule.)
 
 ## Counting
 

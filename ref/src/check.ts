@@ -161,6 +161,15 @@ function readsOutsidePeek(e: Expr, out: Set<string>): void {
     }
   }
 }
+/** The expressions directly under `e` (a record's field values and spreads included). */
+function subExprs(e: Expr): Expr[] {
+  const out: Expr[] = [];
+  for (const v of Object.values(e as object)) {
+    if (Array.isArray(v)) { for (const x of v) if (x && typeof x === "object") { if ("k" in x) out.push(x as Expr); else if ("v" in x) out.push((x as { v: Expr }).v); else if ("spread" in x) out.push((x as { spread: Expr }).spread); } }
+    else if (v && typeof v === "object" && "k" in (v as object)) out.push(v as Expr);
+  }
+  return out;
+}
 const mapsIntoRecords = (e: Expr): boolean => {                         // `map(xs, x => ({…}))` / `xs.map(x => ({…}))`
   if (e.k !== "call") return false;
   const fnArg = e.f.k === "id" && e.f.name === "map" ? e.args[1] : e.f.k === "member" && e.f.p === "map" ? e.args[0] : undefined;
@@ -212,6 +221,9 @@ class Checker {
   private uses: { region: Region; name: string; line: number; display: string }[] = [];   // name: the context's key
   // R-f: recorded during the walk, resolved after it (every symbol's thunks exist by then)
   private readers: { region: Region; e: Expr; env: Env; line: number }[] = [];
+  // CN-3e: `loading on(…)` regions (the region made, its `on`) and effect inputs, by where they are
+  private loadOns: { region: Region; e: Expr; env: Env; line: number }[] = [];
+  private effectIns: { region: Region; e: Expr; env: Env; line: number }[] = [];
   private apps: { comp: Region; site: Region; line: number; tag: string; args: { field: string; e: Expr; env: Env }[]; passed: { field: string; e: Expr; env: Env }[] }[] = [];   // passed: every attribute, handlers too (O-3)
   private actions: { name: string; body: Stmt[]; env: Env; line: number }[] = [];
   private provisions: { key: string; e: Expr; env: Env }[] = [];
@@ -240,6 +252,98 @@ class Checker {
     for (const f of this.later) f();
     this.retained();
     this.resolveTree();
+    this.loadingOnOutside();
+  }
+
+  // ---- CN-3e: an outside read holds a `loading on(…)` region's change ----
+  /** A `loading on(k)` region re-arms when `k` changes, to show its fallback while what it waits on loads again. A reader
+   *  outside the region of an equation that region waits on, and that `k` re-asks, holds the same change (nothing above it
+   *  shows a fallback), so the region's fallback can never show: the change waits silently. Solid's dev build warns this at
+   *  run time (LOADING_ON_OUTSIDE_HOLD); the checker sees it when both reads are in one component. A reader inside another
+   *  region that re-arms on the same change shows that region's fallback and holds nothing. `latest`, `pending?` and
+   *  `peek` reads hold nothing. */
+  private loadingOnOutside() {
+    const inside = (r: Region | null, anc: Region) => { for (let c = r; c; c = c.parent) if (c === anc) return true; return false; };
+    type Key = { s: Sym; f?: string };
+    const keysOf = (lo: { e: Expr; env: Env }): Key[] => {
+      const out: Key[] = [];
+      const go = (x: Expr): void => {
+        if (x.k === "member" && x.o.k === "id") { const t = lo.env.lookup(x.o.name); if (t?.kind === "props") { out.push({ s: t, f: x.p }); return; } }
+        if (x.k === "id") { const t = lo.env.lookup(x.name); if (t) out.push({ s: t }); return; }
+        if (x.k === "fn") return;
+        subExprs(x).forEach(go);
+      };
+      go(lo.e);
+      return out;
+    };
+    const sameKey = (a: Key, b: Key) => a.s === b.s && a.f === b.f;
+    const readsKey = (e: Expr, env: Env, k: Key, busy: Set<Sym>): boolean => {
+      const go = (x: Expr): boolean => {
+        if (x.k === "fn") return false;
+        if (k.f !== undefined && x.k === "member" && x.p === k.f && x.o.k === "id" && env.lookup(x.o.name) === k.s) return true;
+        if (x.k === "id") {
+          const t = env.lookup(x.name); if (!t) return false;
+          if (k.f === undefined && t === k.s) return true;
+          return !!(t.expr && t.env && !busy.has(t) && (busy.add(t), readsKey(t.expr, t.env, k, busy)));
+        }
+        return subExprs(x).some(go);
+      };
+      return go(e);
+    };
+    const absentMemo = new Map<Sym, boolean>();
+    const absent = (t: Sym, busy: Set<Sym>): boolean => {
+      if (absentMemo.has(t)) return absentMemo.get(t)!;
+      if (!t.expr || !t.env || busy.has(t)) return false;
+      busy.add(t);
+      const env = t.env;
+      const go = (x: Expr): boolean => {
+        if (x.k === "fn" || x.k === "peek") return false;
+        if (x.k === "await") return !x.init;
+        if (x.k === "id") { const u = env.lookup(x.name); return !!u && u !== t && (u.kind === "eq" || u.kind === "source") && absent(u, busy); }
+        return subExprs(x).some(go);
+      };
+      const out = go(t.expr);
+      busy.delete(t); absentMemo.set(t, out);
+      return out;
+    };
+    const heldReads = (e0: Expr, env0: Env): Sym[] => {
+      const out: Sym[] = []; const busy = new Set<Sym>(); const stack: [Expr, Env][] = [[e0, env0]];
+      while (stack.length) {
+        const [e, env] = stack.pop()!;
+        const go = (x: Expr): void => {
+          if (x.k === "fn" || x.k === "peek" || x.k === "latest" || x.k === "pending") return;
+          if (x.k === "id") {
+            const t = env.lookup(x.name);
+            if (t && (t.kind === "eq" || t.kind === "source") && !busy.has(t)) { busy.add(t); if (absent(t, new Set())) out.push(t); if (t.expr && t.env) stack.push([t.expr, t.env]); }
+            return;
+          }
+          subExprs(x).forEach(go);
+        };
+        go(e);
+      }
+      return out;
+    };
+    const allKeys = this.loadOns.map(keysOf);
+    const found: { line: number; name: string; on: string }[] = [];
+    this.loadOns.forEach((lo, li) => {
+      const keys = allKeys[li];
+      const rearmed = (r: Region) => this.loadOns.some((o, oi) => oi !== li && inside(r, o.region) && allKeys[oi].some(k => keys.some(q => sameKey(k, q))));
+      const waits: Sym[] = [];
+      for (const rd of this.readers) {
+        if (!inside(rd.region, lo.region)) continue;
+        for (const t of heldReads(rd.e, rd.env)) if (!waits.includes(t) && keys.some(k => (k.f === undefined && t === k.s) || (!!t.expr && !!t.env && readsKey(t.expr, t.env, k, new Set())))) waits.push(t);
+      }
+      for (const rd of [...this.readers, ...this.effectIns]) {
+        if (inside(rd.region, lo.region) || rd.e === lo.e || rd.region.component !== lo.region.component || rearmed(rd.region)) continue;
+        const held = heldReads(rd.e, rd.env);
+        const t = waits.find(w => held.includes(w));
+        if (t) found.push({ line: rd.line, name: t.name, on: show(lo.e) });
+      }
+    });
+    for (const f of found) {
+      this.line = f.line;
+      this.err("LOADING_ON_OUTSIDE_HOLD", "CN-3e", `\`${f.name}\` is read here, outside the \`loading on(${f.on})\` region that waits on it: when \`${f.on}\` changes this read holds the change, so the region's fallback never shows and the old content stays up with no sign of the wait — move the read under the region, or read \`latest ${f.name}\` here`);
+    }
   }
 
   // ---- blocks: declarations, then a view (02 §1, 03) ----
@@ -466,6 +570,7 @@ class Checker {
       }
       case "context": if (d.dflt) { const dflt = d.dflt; this.comp("default", env, { name: d.name }, () => this.expr(dflt, env, reactive)); } return;
       case "effect": {
+        for (const i of d.inputs) this.effectIns.push({ region: env.region, e: i, env, line: d.line });
         this.comp("effect", env, {}, () => {
           for (const i of d.inputs) this.expr(i, env, reactive);                             // EF-1: the compute half is reactive scope
           this.comp("apply", env, {}, () => this.stmts(d.body, new Env(env, env.region), { scope: "imperative" }));
@@ -907,6 +1012,7 @@ class Checker {
           if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
+          if (m.on) this.loadOns.push({ region: body, e: m.on, env, line: this.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }

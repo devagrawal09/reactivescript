@@ -26,33 +26,35 @@ const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(
 
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx() {
-  const builds = new Map();   // entry\0target\0moduleName → { entry, target, moduleName, out, stamps }
+  const builds = new Map();   // entry\0target\0moduleName\0spa → { entry, target, moduleName, spa, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
-  function build(entry, target, moduleName) {
-    const key = `${entry}\0${target}\0${moduleName}`;
+  function build(entry, target, moduleName, spa) {
+    const key = `${entry}\0${target}\0${moduleName}\0${spa}`;
     const prior = builds.get(key);
     if (prior && fresh(prior)) return prior;
-    const out = JSON.parse(app(entry, target, moduleName));
+    const out = JSON.parse(app(entry, target, moduleName, spa));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
-    const b = { entry, target, moduleName, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
+    const b = { entry, target, moduleName, spa, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     builds.set(key, b);
     return b;
   }
   /** A dependency: from a build of a program that has it, rebuilt if that program changed. */
-  function containing(file, target, moduleName) {
-    const has = [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.out.modules?.[file]);
+  function containing(file, target, moduleName, spa) {
+    const has = [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
     const b = has.find(fresh) ?? has[0];
     if (!b) throw new Error(`${file} is imported as an .rx dependency, but no program built so far contains it`);
-    return build(b.entry, target, moduleName);
+    return build(b.entry, target, moduleName, spa);
   }
   return {
     compile(_source, { id, moduleId, solid, addWatchFile }) {
       const file = path.resolve(id);
       const target = solid.generate === "ssr" ? "ssr" : solid.generate === "universal" ? "universal" : "dom";
       const moduleName = solid.moduleName ?? "@solidjs/web";
+      // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
+      const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
-      const { entry, out } = dep ? containing(file, target, moduleName) : build(file, target, moduleName);
+      const { entry, out } = dep ? containing(file, target, moduleName, spa) : build(file, target, moduleName, spa);
       if (out.diagnostics) throw new Error(out.diagnostics.map(d => `${d.file}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`).join("\n"));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];

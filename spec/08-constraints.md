@@ -60,7 +60,53 @@ runtime check.
   held mount is the correct behaviour and only an SPA would want to know.
   Uncaught `pending` at the mount stays a runtime diagnostic
   (`ASYNC_OUTSIDE_LOADING_BOUNDARY`) and the mount is held (H-2). The row
-  is still inferred and displayed. (Ruled 2026-10-22.)
+  is still inferred and displayed. (Ruled 2026-10-22.) A client-only build
+  is the SPA case: CN-3d.
+- **CN-3d (First load in a client-only build) — taken by default
+  2026-10-30.** In a build with no SSR (Solid's `dom` target, not
+  hydratable: a plain SPA), a reader that the first load surely waits on
+  and that no `loading` region holds, on some path that renders it, is
+  `ASYNC_OUTSIDE_LOADING_BOUNDARY` (bin S): nothing would be on screen until
+  it answers, since there is no server-rendered page to keep. It is the
+  same check as SV-7b's client question, over every question: readers
+  across the static application tree (CN-3a), a prop checked where the
+  component reads it. Surely waits: the reader's expression, or an
+  equation it reads, has an `await` with no first paint (`-> v`, R-7) that
+  is not behind a condition (`c ? null : await f()`, `c && await f()`, a
+  `catch`'s alternative): whether such a question is asked on the first
+  load depends on `c`'s first value, which the checker does not know, and
+  the common case (a search that asks nothing until typed) never holds the
+  first load. A probe waits like a read (R-9). Only the first load is
+  checked: an answer that lands after the first paint is a transition
+  (H-2), legal anywhere. Whether a later hold shows on screen is the
+  affordances' business (`pending?`, `latest`, an `optimistic` guess; a
+  `loading` region is an escape, not an affordance), and a hold that shows
+  none is Solid's run-time `SILENT_HOLD` report; the static form stays
+  advice (99, the advisory rows). With SSR the held mount stays correct
+  (CN-3c, SV-1d), so the check is off: `rxc --spa`, and the Vite front end
+  turns it on from Solid's options (`generate: "dom"`, `hydratable:
+  false`). (Ryan, 2026-10-30: "The problem with topmost in csr on initial
+  load is you see nothing"; "Answer after first paint is fine.. its just a
+  transition as normal".) Checked by `rxc`, not yet by `ref/`.
+- **CN-3e (An outside read holds a `loading on`) — Ryan, 2026-10-30.** A
+  `loading on(k)` region re-arms when `k` changes, to show its fallback
+  while what it waits on loads again. A reader outside that region of a
+  question the region waits on, and that `k` re-asks (directly or through
+  the equations it reads), holds the same change: nothing above it shows a
+  fallback, so the change is held, the region's fallback is never seen, and
+  the old content stays up with no sign of the wait (S-solid-16's rejected
+  variant, S-solid-19). That is `LOADING_ON_OUTSIDE_HOLD` (bin S). Readers
+  are views and effect inputs; a read under `latest`, `pending?` or `peek`
+  holds nothing, and neither does a reader under another region that
+  re-arms on the same change (it shows that region's fallback). Keys are
+  the names `on` reads, and for a prop the field (`on(props.selected)` keys
+  on `selected`). Checked within a component: a read through a prop in
+  another component is left to Solid's run-time report. The fix is
+  structural: move the read under the region, or read `latest x` outside
+  it. (Ryan: "if you can make a reasonable static check we should do it";
+  found by the round 9 eval, where a tab count's effect outside the list's
+  `loading on(filter)` froze the old list on a filter switch in 39 of 82
+  `.rx` apps.) Checked by `rxc` and `ref/`.
 
 ## CN-4 — Rows in signatures
 
@@ -120,7 +166,8 @@ and no `dynamic` marker: the static graph's checks are sound over `.rx`
 | `UNHANDLED_FAILURE` (new) | S | CN-6a, R-f-5 |
 | `UNCAUGHT_ACTION_FAILURE` (new) | S | CN-6a, R-f-6 |
 | `NOT_AN_ERROR_CLASS` (new) | S | R-f-1 |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R | CN-3c: a runtime report, not a constraint |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY` | R; S in a client-only build | CN-3c: a runtime report, not a constraint; CN-3d: a first load nothing holds in a client-only build |
+| `LOADING_ON_OUTSIDE_HOLD` | S | CN-3e: a reader outside a `loading on(k)` region of what it waits on |
 
 ---
 

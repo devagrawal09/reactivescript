@@ -44,7 +44,8 @@ by default — see the list at the end.
 - **SV-1d (Held mount).** A reader whose `pending` no `loading` region
   catches holds the mount (H-2, CN-3c): the shell waits for it. On the
   server that is the right behaviour — the page arrives complete, with no
-  skeleton — which is why CN-3c does not make it an error.
+  skeleton — which is why CN-3c does not make it an error. Without a server
+  (a client-only build) it is one: CN-3d.
 - **SV-1e (Streams).** A question over a stream (`await*`, ST-6b) is served
   with its first landing; the response stays open, and its later landings
   travel to the client as data, which applies them as landings once it has
