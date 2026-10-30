@@ -34,6 +34,7 @@ target/release/rxc serve                         # a language server's requests,
 cargo build --lib --release --target wasm32-unknown-unknown   # … the same requests as WebAssembly (src/wasm.rs), what the server loads
 target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 target/release/rxc app ../examples/todo.rx       # the same as JSON, imports by .rx path: what the Vite front end gets
+target/release/rxc check --spa ../examples/todo.rx   # a client-only build: a first load nothing holds is an error (08 CN-3d); also compile, app
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program
 npm --prefix ../ref run crate -- --project       # … and the TSX projection, text for text, every mapping checked
 RX_CRATE=1 npm --prefix ../ref run types         # the types scenarios, on the crate's projection

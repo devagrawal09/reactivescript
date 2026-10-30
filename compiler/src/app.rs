@@ -24,7 +24,8 @@ pub fn target(name: &str) -> Target {
 }
 
 /// `{entry, css, modules: {path: {code, map}}}`, or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
-pub fn app(entry: &str, target: Target, module_name: &str) -> Value {
+/// `spa`: a client-only build, checked under 08 CN-3d.
+pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     (|| {
@@ -32,7 +33,7 @@ pub fn app(entry: &str, target: Target, module_name: &str) -> Value {
             return Err(json!({ "error": format!("{entry}: no such file") }));
         }
         let set = load_modules(entry, &read_disk).map_err(|e| json!({ "error": format!("{entry}: {}", e.0) }))?;
-        let checked = check_modules(&set);
+        let checked = check_modules(&set, spa);
         if !checked.diags.is_empty() {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }

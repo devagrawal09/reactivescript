@@ -80,7 +80,7 @@ pub fn analyze(params: &Value, disk: &dyn Fn(&str) -> Option<String>) -> Value {
     let own: Vec<Value> = if set.parse_errors.iter().any(|e| e.2.as_deref() == Some(file.as_str())) {
         set.parse_errors.iter().filter(|e| e.2.as_deref() == Some(file.as_str())).map(|e| parse_error_in(&file, e, Some(&src))).collect()
     } else {
-        crate::check::check_modules(&set).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| d["file"] == json!(file)).collect()
+        crate::check::check_modules(&set, params["spa"].as_bool().unwrap_or(false)).diags.iter().map(|d| diagnostic_json(&set, d)).filter(|d| d["file"] == json!(file)).collect()
     };
     out["diagnostics"] = json!(own);
     out

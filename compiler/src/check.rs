@@ -801,6 +801,9 @@ pub struct Opts<'a> {
     pub sigs: &'a IndexMap<String, ModSig>,
     pub file: Option<String>,
     pub declarations: &'a IndexMap<String, Vec<JsDecl>>,
+    /// CN-3d: a client-only build (no SSR): a first load nothing holds shows nothing, so every reader that can have
+    /// no value yet needs a `loading` region above it, as a client question's reader does (SV-7b).
+    pub spa: bool,
 }
 
 pub struct Checker<'a> {
@@ -864,12 +867,12 @@ pub struct Checked {
     pub models: IndexMap<String, serde_json::Value>,
 }
 /// CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only.
-pub fn check_modules(set: &ModuleSet) -> Checked {
+pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa });
         diags.extend(r.diags);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
@@ -3044,6 +3047,10 @@ impl<'a> Checker<'a> {
     }
     /// R-8: `s` can be read before its first answer: an `await` with no first paint (`-> v`, R-7) in it or what it reads.
     fn absent(&self, s: SId, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
+        self.sym_absent(s, false, memo, busy)
+    }
+    /// `first`: on the first load (CN-3d) rather than at any time (R-8). `memo` is per mode.
+    fn sym_absent(&self, s: SId, first: bool, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
         if let Some(&b) = memo.get(&s) {
             return b;
         }
@@ -3051,22 +3058,41 @@ impl<'a> Checker<'a> {
         if !busy.insert(s) {
             return false;
         }
+        let out = self.expr_absent(e, env, Some(s), first, memo, busy);
+        busy.remove(&s);
+        memo.insert(s, out);
+        out
+    }
+    /// `e` can have no value yet: it awaits without a first paint (`-> v`), here or in an equation it reads (a probe
+    /// too: R-9, no verdict before a first answer). R-8 (a handler's snapshot, at any time): `peek` is the snapshot's own read, and
+    /// every branch counts. CN-3d (`first`): only what the first load surely asks: a question behind a condition
+    /// (`c ? null : await f()`, `c && await f()`, a `catch`'s alternative) waits only if `c` lets it, which the
+    /// checker cannot know.
+    fn expr_absent(&self, e: &Expr, env: EId, own: Option<SId>, first: bool, memo: &mut HashMap<SId, bool>, busy: &mut HashSet<SId>) -> bool {
         let mut stack = vec![Node::E(e)];
-        let mut out = false;
         while let Some(n) = stack.pop() {
             if let Node::E(x) = n {
                 match &x.k {
-                    ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Peek(_) => continue,
-                    ExprKind::Await { init: None, .. } => {
-                        out = true;
-                        break;
-                    }
+                    ExprKind::Fn { .. } | ExprKind::ServerFn { .. } => continue,
+                    ExprKind::Peek(_) if !first => continue,
+                    ExprKind::Await { init: None, .. } => return true,
                     ExprKind::Await { init: Some(_), .. } => continue,
+                    ExprKind::If { c, .. } if first => {
+                        stack.push(Node::E(c));
+                        continue;
+                    }
+                    ExprKind::Bin { op, l, .. } if first && matches!(op.as_str(), "&&" | "||" | "??") => {
+                        stack.push(Node::E(l));
+                        continue;
+                    }
+                    ExprKind::Catch { e: inner, .. } if first => {
+                        stack.push(Node::E(inner));
+                        continue;
+                    }
                     ExprKind::Id(name) => {
                         if let Some(t) = self.lookup(env, name) {
-                            if t != s && matches!(self.syms[t].kind, SymKind::Eq | SymKind::Source) && self.absent(t, memo, busy) {
-                                out = true;
-                                break;
+                            if Some(t) != own && matches!(self.syms[t].kind, SymKind::Eq | SymKind::Source) && self.sym_absent(t, first, memo, busy) {
+                                return true;
                             }
                         }
                         continue;
@@ -3076,9 +3102,7 @@ impl<'a> Checker<'a> {
             }
             stack.extend(children(n, false));
         }
-        busy.remove(&s);
-        memo.insert(s, out);
-        out
+        false
     }
     /// R-8: `e` reads `s`, directly or through the equations it reads.
     fn depends(&self, e: &Expr, env: EId, s: SId, busy: &mut HashSet<SId>) -> bool {
@@ -3531,8 +3555,9 @@ impl<'a> Checker<'a> {
             let f = self.fails_of(e, env, false, &HashMap::new());
             reader_f.push((region, e, line, f));
         }
+        let mut memo = HashMap::new();
         for &(region, e, env, line) in &readers {
-            if self.rows_of(e, env).contains("client") {
+            if self.rows_of(e, env).contains("client") || (self.opts.spa && self.expr_absent(e, env, None, true, &mut memo, &mut HashSet::new())) {
                 self.uses.push(UseRec { region, name: HOLD.into(), line, display: show(e) });
             }
         }
@@ -3540,7 +3565,7 @@ impl<'a> Checker<'a> {
         let mut arg_r = vec![];
         for (i, args) in &apps {
             for (field, e, env) in args {
-                if self.rows_of(e, *env).contains("client") {
+                if self.rows_of(e, *env).contains("client") || (self.opts.spa && self.expr_absent(e, *env, None, true, &mut memo, &mut HashSet::new())) {
                     arg_r.push((*i, field.clone()));
                 }
             }
@@ -3596,6 +3621,17 @@ impl<'a> Checker<'a> {
         }
         for it in top.reqs {
             self.line = it.line;
+            if it.name == HOLD && self.opts.spa {
+                self.err(
+                    "ASYNC_OUTSIDE_LOADING_BOUNDARY",
+                    "CN-3d",
+                    format!(
+                        "{} can have no value yet, and no `loading` region above it holds it on some path that renders it: in a client-only build the first load would show nothing until it answers — put it under `loading fallback {{ … }} {{ … }}`, or give the await a first paint (`await f() -> v`). Later answers are transitions and need no region",
+                        it.what
+                    ),
+                );
+                continue;
+            }
             if it.name == HOLD {
                 self.err(
                     "CLIENT_QUESTION_UNHELD",
@@ -3920,4 +3956,49 @@ fn contract_of(ty: Option<&str>) -> (IndexSet<String>, IndexSet<String>) {
         }
     }
     (rows, fails)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::load_modules;
+
+    fn codes(src: &str, spa: bool) -> Vec<(i64, String)> {
+        let read = |p: &str| if p == "/app.rx" { Some(src.to_string()) } else { None };
+        let set = load_modules("/app.rx", &read).unwrap();
+        check_modules(&set, spa).diags.iter().map(|d| (d.line, d.code.clone())).collect()
+    }
+
+    /// 08 CN-3d: in a client-only build, a reader the first load surely waits on needs a `loading` above it.
+    #[test]
+    fn first_load_unheld_in_client_only_builds() {
+        let src = r#"import pure { get } from "./api"
+source q: string := ""
+users = await get(1)
+found = q == "" ? null : await get(2)
+shown = await get(3) -> []
+component Panel() {
+  <p>{users}</p>
+}
+export default component App() {
+  errored fallback(e) { <p>failed</p> } {
+    <p>{users}</p>
+    <p>{pending? users}</p>
+    <p>{found}</p>
+    <p>{shown}</p>
+    <Panel />
+    loading fallback { <p>…</p> } {
+      <p>{users}</p>
+      <Panel />
+    }
+  }
+}
+"#;
+        assert_eq!(codes(src, false), vec![]);
+        let spa = codes(src, true);
+        let mut lines: Vec<i64> = spa.iter().filter(|(_, c)| c == "ASYNC_OUTSIDE_LOADING_BOUNDARY").map(|(l, _)| *l).collect();
+        lines.sort();
+        assert_eq!(lines, vec![7, 11, 12], "{spa:?}");
+        assert_eq!(spa.len(), 3, "{spa:?}");
+    }
 }

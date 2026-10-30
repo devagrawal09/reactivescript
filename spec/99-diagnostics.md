@@ -44,7 +44,7 @@ Bins:
 | `INVALID_REFRESH_TARGET`          | S   | `refresh` requires a source with a question (V-9)                  |
 | `INVALID_AFFECTS_TARGET`          | S   | same                                                               |
 | `LOADING_ON_OUTSIDE_HOLD`         | S/R | H: a reader of the `on` data outside the boundary                  |
-| `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path             |
+| `ASYNC_OUTSIDE_LOADING_BOUNDARY`  | S/R | H: a pending reader with no armed boundary on its path; S only in a client-only build, for a first load (08 CN-3d) |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3: an error (ruled 2026-10-23); closures the apply creates are exempt |
 | `EFFECT_RELAY_TEAR`               | S   | C-3 generalised: an effect relaying a source to a source           |
 | `ASYNC_WATERFALL`                 | S   | R-pending: `await` whose inputs depend on another `await`          |

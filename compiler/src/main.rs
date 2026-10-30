@@ -1,6 +1,6 @@
 //! `rxc`: the crate's command line.
 //!
-//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them
+//!   rxc check file.rx...   diagnostics, as `ref/check.ts` prints them (`--spa`: see below)
 //!   rxc check --json file.rx...
 //!                          the same as `{diagnostics: [{file, line, range, code, rule, message}]}`, ranges per CP-8
 //!   rxc project app.rx     TY-1c: the program's TSX projection, each file with its mappings onto the `.rx`
@@ -17,12 +17,14 @@
 //!                          each compiled module through Solid's compiler for the universal (over `renderer`), dom and ssr
 //!                          targets, and the stylesheet: what `ref/crate.ts --lower` compares and `ref/compile/run.ts`
 //!                          runs with `RX_CRATE=1`. With `maps: true`, also each module's source maps onto its `.rx`.
-//!   rxc compile app.rx --out dir [--target dom|ssr|universal] [--module-name name]
+//!   rxc compile app.rx --out dir [--target dom|ssr|universal] [--module-name name] [--spa]
 //!                          checks the program and writes each module's JavaScript for `target` (default dom) with its
 //!                          source map, and the stylesheet (`style.css`), into `dir`.
-//!   rxc app app.rx [--target dom|ssr|universal] [--module-name name]
+//!   rxc app app.rx [--target dom|ssr|universal] [--module-name name] [--spa]
 //!                          for a bundler plugin: prints `{entry, css, modules: {path: {code, map}}}`, each module importing
 //!                          its dependencies by `.rx` path, or `{diagnostics: [...]}` / `{error}`.
+//!   --spa                  (check, compile, app) a client-only build: a reader with no `loading` above it that can
+//!                          have no value yet is an error, as its first load would show nothing (08 CN-3d).
 
 use reactivescript::app::{self, read_disk};
 use reactivescript::check::check_modules;
@@ -53,7 +55,7 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
     for p in &set.order {
         asts.insert(p.clone(), set.programs[p].to_json());
     }
-    let checked = check_modules(&set);
+    let checked = check_modules(&set, false);
     let mut sigs = Map::new();
     for p in &set.order {
         sigs.insert(p.clone(), json!(print_signature(&checked.sigs[p])));
@@ -114,7 +116,7 @@ fn lower_one(r: &Value) -> Value {
         Ok(s) => s,
         Err(e) => return json!({ "error": e.0 }),
     };
-    if !check_modules(&set).diags.is_empty() {
+    if !check_modules(&set, false).diags.is_empty() {
         return json!({ "refused": true });
     }
     // a handler row that does not parse runs nothing (ref/compile/run.ts)
@@ -159,6 +161,8 @@ fn parse_error_json(f: &str, e: &reactivescript::parse::ParseError) -> Value {
 }
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // 08 CN-3d: a client-only build (dom, not hydratable)
+    let spa = args.iter().any(|a| a == "--spa");
     let Some(cmd) = args.first() else {
         eprintln!("usage: rxc check|model file.rx... | rxc conform < request.json");
         std::process::exit(2);
@@ -264,7 +268,7 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            let checked = check_modules(&set);
+            let checked = check_modules(&set, spa);
             for d in &checked.diags {
                 eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(file), d.line, d.code, d.rule, d.msg);
             }
@@ -300,7 +304,7 @@ fn main() {
             };
             let target = app::target(opt("--target").as_deref().unwrap_or("dom"));
             let module_name = opt("--module-name").unwrap_or_else(|| "@solidjs/web".into());
-            println!("{}", serde_json::to_string(&app::app(&abs(file), target, &module_name)).unwrap());
+            println!("{}", serde_json::to_string(&app::app(&abs(file), target, &module_name, spa)).unwrap());
         }
         "check" | "model" => {
             let mut bad = 0;
@@ -319,7 +323,7 @@ fn main() {
                         continue;
                     }
                 };
-                let checked = check_modules(&set);
+                let checked = check_modules(&set, spa);
                 for d in &checked.diags {
                     bad += 1;
                     if as_json {
