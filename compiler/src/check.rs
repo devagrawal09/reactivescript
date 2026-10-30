@@ -3028,7 +3028,7 @@ impl<'a> Checker<'a> {
                     "UNGUARDED_SNAPSHOT",
                     "R-8",
                     format!(
-                        "{} reads {} as a snapshot, and {} {}: the click then {} — cover the element (`disabled={{pending? {}}}`, or move it inside the `loading` / `errored` region that shows {}){}",
+                        "{} reads {} as a snapshot, and {} {}: the click then {} — move the element inside a `loading` / `errored` region whose content reads {} (with `disabled={{pending? {}}}` for a new question){}",
                         what,
                         n,
                         n,

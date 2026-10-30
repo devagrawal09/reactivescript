@@ -72,8 +72,11 @@ What each one is:
   (`snapshot(...).some is not a function`). After a failed load it throws the load's error out of the click. New rule
   R-8 (`spec/04-rows.md`, taken by default, 064513d) makes this a compile error, `UNGUARDED_SNAPSHOT`. On the eval
   apps it fires on exactly these 36 apps and the labels and chain references, and on nothing else.
-  `disabled={pending? shown}` plus a `catch` on the read clears it. With that fix labels-rx-1 drops from 11 seeds
-  with a hole to 5, and none of the 5 is a page error.
+  `disabled={pending? shown}` plus a `catch` on the read passes the check. With that fix labels-rx-1 drops from 11
+  seeds with a hole to 5, and none of the 5 is a page error. But a bare `disabled` outside any region holds the
+  detail on the labels' first load, and that breaks the desk's tests. The labels and chain references now put the
+  button in its own `loading on(id)` and `errored` region, with `disabled={pending? shown}`, and pass every suite
+  (#4425 aside, as before).
 - **never settles, 47:** a failed load of the selected issue leaves `loading #n` up for good. The detail's source
   `found(await fetchIssue(selected), selected)` hoists its `await` into a memo, which the optimistic store reads, and
   solid#4437 swallows the error.

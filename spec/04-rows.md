@@ -105,9 +105,12 @@ and where they may not go.
     R-12); for the failure half, the read is inside a `try` or a `catch`
     expression that takes its failures (`x.some(…) catch (e) => false`,
     R-f-7). In an action, R-f-6 already requires the second;
-  - covered: the handler is on an element whose `disabled` reads `x` (the
-    usual form is `disabled={pending? x}`), or the element sits inside a
-    `loading` and an `errored` region whose content reads `x`. A covered
+  - covered: the element sits inside a `loading` and an `errored` region
+    whose content reads `x` (the usual form: the control lives in the region
+    that shows `x`, with `disabled={pending? x}` for a new question), or the
+    handler is on an element whose `disabled` reads `x`. The second form
+    holds on `x`'s first load like any reader: with no `loading` above it,
+    that is the page (H-5), so it fits an `x` that already has a value. A covered
     element is not there, or not enabled, while `x` has no value, a new
     question out, or an error, so the handler never runs then: the element's
     attributes are the handler's compute half, with the same separated
@@ -131,8 +134,11 @@ and where they may not go.
   click. Frames: `loading labels | [add]`, then a run-time `TypeError` (no
   value). With `reject labels e` before the click: `labels error | [add]`,
   then the click throws `e`. Both are `UNGUARDED_SNAPSHOT` at compile time.
-  Fixes: `disabled={pending? shown}` plus the read under `catch`, or the
-  button moved inside the region. Not yet checked by `rxc` or `ref/`.
+  Fix (the eval references): the button inside a `loading on(id)` and an
+  `errored` region of its own, with `disabled={pending? shown}`. A bare
+  `disabled={pending? shown}` on the button outside any region also passes
+  the check, but holds the detail on the labels' first load (the eval's tests
+  then fail). Checked by `rxc` (`UNGUARDED_SNAPSHOT`), not yet by `ref/`.
 
 ## R-lane — display-ahead
 

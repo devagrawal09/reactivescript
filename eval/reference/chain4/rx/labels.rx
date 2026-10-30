@@ -53,13 +53,17 @@ export component Labels(props: { id: number }) {
       }}
     </div>
     <input data-testid="label-input" value={labelInput} onInput={e => { labelInput := e.target.value }} />
-    <button data-testid="add-label" onClick={() => {
-      if (labelInput != "" && !shown.includes(labelInput)) {
-        let label = labelInput
-        onFlush(() => { labelInput := "" })
-        add(props.id, label)
-      }
-    }}>add label</button>
+    {loading on(props.id) fallback { <button data-testid="add-label" disabled>add label</button> } {
+      {errored fallback(e) { <button data-testid="add-label" disabled>add label</button> } {
+        <button data-testid="add-label" disabled={pending? shown} onClick={() => {
+          if (labelInput != "" && !shown.includes(labelInput)) {
+            let label = labelInput
+            onFlush(() => { labelInput := "" })
+            add(props.id, label)
+          }
+        }}>add label</button>
+      }}
+    }}
     {if labelError != "" {
       <p>label error: {labelError}</p>
     }}
