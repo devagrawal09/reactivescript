@@ -552,6 +552,7 @@
     "tsx/boundary.test.ts :: ordinary async callbacks are refused at their authored async node on every resolved callback route (issue #20)",
     "tsx/boundary.test.ts :: actions refuse async functions and async generators with synchronous-generator guidance (issue #20)",
     "tsx/boundary.test.ts :: explicit generator actions and async memo/server computations stay accepted beside the refusal (issue #20)",
+    "tsx/boundary.test.ts :: async callbacks are refused whatever their name; nested synchronous components keep their own refusal (issue #20)",
     "tsx/paired.test.ts :: paired counter: TSX and RX have the same canonical semantic facts",
     "tsx/paired.test.ts :: paired counter: a different read mode is a fact difference, not normalized away",
     "tsx/paired.test.ts :: paired counter: interpreter, compiled and native frames agree",
