@@ -112,7 +112,14 @@ checker refuses the handwritten RX. The functional setter `setLikes((n) => n + 1
 canonical facts as its RX, and keeps the concurrent like on native Solid, both compiled programs and both
 interpreted programs.
 
-`npm run verify:subset` passes 25 tests with no skips or TODOs; the package
+## Fuzz Smoke Test
+
+`tsx/fuzz.test.ts` runs the differential fuzzer (docs/FUZZ.md) on seeds 0..19: every generated program must be
+accepted, TSX and RX must have equal canonical facts and equal frames on each backend, and the compiled handwritten
+RX must match native Solid. The two seeds whose interpreter diverges from the compiled RX (upstream, docs/FUZZ.md
+U1/U2) are asserted exactly. Generation is checked to be deterministic.
+
+`npm run verify:subset` passes 28 tests with no skips or TODOs; the package
 typecheck is clean. Upstream's 12
 strict-mode diagnostics remain the separately recorded baseline.
 

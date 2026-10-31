@@ -23,6 +23,8 @@
     "tsx/rx/failure.ts",
     "tsx/rx/facts.ts",
     "tsx/rx/string-renderer.ts",
-    "tsx/wire-key.ts"
+    "tsx/wire-key.ts",
+    "tsx/fuzz/gen.ts",
+    "tsx/fuzz/run.ts"
   ]
 }
