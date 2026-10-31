@@ -34,7 +34,7 @@ sh ref/scripts/solid-next.sh   # repository root: clone and build Solid at ref/S
 (cd ref && npm install)        # upstream's own dependencies, used through #rx/*
 cd tsx-frontend
 npm install
-npm run verify:subset          # typecheck, boundary, paired counter, composition, tracker demo, stale write-back: 25 tests
+npm run verify:subset          # typecheck, boundary, paired counter, composition, tracker demo, stale write-back: 26 tests
 ```
 
 ## Layout (workspace `/Users/devagr/rx-tsx-refresh`)

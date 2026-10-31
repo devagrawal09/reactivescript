@@ -82,20 +82,25 @@ and the coverage manifest records their new paths.
 
 `tsx/demo.test.ts` uses `fixtures/demo/tracker.tsx` and its handwritten RX
 counterpart `tracker.rx`: a demo for review, not a broader parity claim. It
-combines a `createStore` issue list with a draft path write, a filter signal with
-`createMemo` views (visible rows, open count), `<For>` rows inside a `<Show>`
-with an empty-state fallback, a later-declared `IssueRow` child with props and an
-`onAssign` callback, and an explicit generator action whose `createOptimistic`
-claim shows at once, commits the yielded `assignIssue(id)` answer on success, and
-rolls back with a status message on failure. The tests require equal canonical
-checker facts (and that snapshotting the filter in the RX is detected), and the
-same eight exact frames from native Solid's universal renderer, the RX compiler for
-both programs, and the RX interpreter for both programs, across a scripted session:
-initial render, a failed assignment with rollback, a filter change, two successful
-assignments, and the empty-state fallback. Requests are controllable flights; a
-repeated request for the same issue would reuse its cached answer on every backend,
-so the script never retries one issue. Async list loading, async memos and server
-functions are deliberately left out.
+combines a `createStore` issue list with a draft path write located by
+`findIndex` (lowered to RX's predicate `indexOf`, which both RX runtimes define as
+`findIndex`), a filter signal with `createMemo` views (visible rows, open count),
+`<For>` rows inside a `<Show>` with an empty-state fallback, a later-declared
+`IssueRow` child with props and an `onAssign` callback, and an explicit generator
+action that writes the claim into an optimistic copy of the list
+(`createOptimistic(() => issues.list)`), commits the yielded `assignIssue(id)`
+answer to the store on success, and rolls back with a status message on failure.
+The tests require equal canonical checker facts (and that snapshotting the filter
+in the RX is detected), and the same eight exact frames from native Solid's
+universal renderer, the RX compiler for both programs, and the RX interpreter for
+both programs: a successful claim shown at once and committed, a failed claim
+rolled back, a filter change, and a claim that empties the open view into its
+fallback. The script never repeats a request with the same arguments. Each such
+call is a new request in Solid and in RX (SF-2c: "two calls with the same arguments
+are two requests"), but the RX interpreter's scenario model makes every `./api`
+function "a flight keyed by its arguments" (ref/src/runtime.ts), so a retry would
+reuse the first answer there for a harness reason. Async list loading, async memos
+and server functions are deliberately left out.
 
 ## Stale Write-Back (AC-1e)
 

@@ -176,3 +176,12 @@ test("explicit generator actions and async memo/server computations stay accepte
   assert.doesNotThrow(() => lowerTsx(asyncCounter("const value = createMemo(async (): Promise<number> => await request(n()));", "<button onClick={() => setN(1)}>{value()}</button>")));
   assert.doesNotThrow(() => lowerTsx('import { serverFunction, createServerMemo } from "reactivescript-tsx";\nexport function Counter() {\n  const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { return n + 1; });\n  const value = createServerMemo(async () => await load(0));\n  return <span>{value()}</span>;\n}'));
 });
+
+test("async callbacks are refused whatever their name; nested synchronous components keep their own refusal (issue #20)", () => {
+  const asyncSave = "async function Save() { const result: number = await request(); setN(result); }";
+  refusedAt(asyncCounter(asyncSave, "<button onClick={() => Save()}>{n()}</button>"), "async function Save", ASYNC_CALLBACK);
+  refusedAt(asyncCounter("async function Save() { await request(); }", "<button onClick={Save}>{n()}</button>"), "async function Save", ASYNC_CALLBACK);
+  refusedAt(asyncCounter("const Save = async () => { await request(); };", "<button onClick={() => Save()}>{n()}</button>"), "async () =>", ASYNC_CALLBACK);
+  refusedAt(asyncCounter("function Badge() { return <i>x</i>; }", untouched), "function Badge",
+    "Nested component declarations are unsupported; use module components");
+});

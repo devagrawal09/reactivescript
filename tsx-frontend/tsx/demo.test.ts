@@ -29,22 +29,22 @@ type Answer = Extract<Step, { answer: number }>;
 type Driver = { frame: () => string; click: (n: number) => void; answer: (step: Answer) => void; settle: () => Promise<void>; dispose: () => void };
 
 const SCRIPT: Step[] = [
-  { click: 2 },                            // take "Slow search": the claim shows at once
+  { click: 1 },                            // take "Crash on save": the claim shows at once as "me"
+  { answer: 1, owner: "dev" },             // success commits the server's owner
+  { click: 2 },                            // take "Slow search"
   { answer: 2, failure: "offline" },       // the request fails: roll back to "ana" and explain
   { click: 0 },                            // filter to open issues
-  { click: 1 },                            // take "Crash on save"
-  { answer: 1, owner: "dev" },             // success commits the owner; the row leaves the open view
-  { click: 1 },                            // take "Typo in footer"
-  { answer: 3, owner: "dev" },             // success: nothing open, so the fallback shows
+  { click: 1 },                            // take "Typo in footer": it leaves the open view at once
+  { answer: 3, owner: "dev" },             // success: nothing open, so the fallback stays
 ];
 const EXPECTED = [
   "Filter: all2 openCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake",
-  "Filter: all2 openCrash on save: nobodytakeSlow search: metakeTypo in footer: nobodytake",
-  "Filter: all2 openCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytakeCould not assign #2",
-  "Filter: open2 openCrash on save: nobodytakeTypo in footer: nobodytakeCould not assign #2",
-  "Filter: open2 openCrash on save: metakeTypo in footer: nobodytakeCould not assign #2",
-  "Filter: open1 openTypo in footer: nobodytake",
-  "Filter: open1 openTypo in footer: metake",
+  "Filter: all1 openCrash on save: metakeSlow search: anatakeTypo in footer: nobodytake",
+  "Filter: all1 openCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytake",
+  "Filter: all1 openCrash on save: devtakeSlow search: metakeTypo in footer: nobodytake",
+  "Filter: all1 openCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeCould not assign #2",
+  "Filter: open1 openTypo in footer: nobodytakeCould not assign #2",
+  "Filter: open0 openNothing to triageCould not assign #2",
   "Filter: open0 openNothing to triage",
 ];
 
@@ -136,7 +136,7 @@ test("demo tracker: TSX and handwritten RX have the same canonical checker facts
   assert.ok(memo.some(c => c.reads.some(r => r.endsWith("::source:mode tracked"))), "the visible rows track the filter");
   const claim = computations.find(c => c.kind === "action");
   assert.ok(claim, "claim is an explicit action");
-  assert.ok(claim.writes.some(w => w.endsWith("::source:claiming? optimistic")), "the claim is an optimistic write");
+  assert.ok(claim.writes.some(w => w.endsWith("::source:shown? optimistic")), "the claim is an optimistic write to the shown list");
   assert.ok(claim.writes.some(w => w.endsWith("::source:issues write path")), "success writes the store path");
   assert.ok(claim.calls.some(c => c.endsWith("::import:assignIssue!io")), "the action calls the request");
   assert.ok(computations.some(c => c.kind === "handler" && c.at === "IssueRow onAssign" && c.calls.some(x => x.endsWith("::action:claim!io"))),

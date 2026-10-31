@@ -8,18 +8,18 @@ export default component Tracker() {
       { id: 3, title: "Typo in footer", assignee: "" },
     ],
   };
+  source shown = issues.list;
   source mode := "all";
-  source claiming = 0;
   source status := "";
 
-  visible = filter(issues.list, issue => mode == "all" || issue.assignee == "");
-  unassigned = filter(issues.list, issue => issue.assignee == "").length;
+  visible = filter(shown, issue => mode == "all" || issue.assignee == "");
+  unassigned = filter(shown, issue => issue.assignee == "").length;
 
   action claim(id: number) {
-    optimistic claiming := id;
+    optimistic shown := list => map(list, issue => issue.id == id ? { id: issue.id, title: issue.title, assignee: "me" } : issue);
     try {
       let owner = await assignIssue(id);
-      issues.list[id - 1].assignee := owner;
+      issues.list[indexOf(issues.list, issue => issue.id == id)].assignee := owner;
       status := "";
     } catch (error) {
       status := "Could not assign #" + id;
@@ -30,12 +30,12 @@ export default component Tracker() {
     <button onClick={() => { mode := mode == "all" ? "open" : "all" }}>Filter: {mode}</button>
     <b>{"" + unassigned} open</b>
     {if visible.length > 0 {
-      for issue in visible { <IssueRow issue={issue} claiming={claiming == issue.id} onAssign={() => { claim(issue.id) }}/> }
+      for issue in visible { <IssueRow issue={issue} onAssign={() => { claim(issue.id) }}/> }
     } else { <i>Nothing to triage</i> }}
     <em>{status}</em>
   </section>
 }
 
-component IssueRow(props: { issue: { id: number; title: string; assignee: string }; claiming: boolean; onAssign: action catches(nothing) }) {
-  <p>{props.issue.title}: {if props.claiming { {"me"} } else { {props.issue.assignee || "nobody"} }}<button onClick={() => { props.onAssign() }}>take</button></p>
+component IssueRow(props: { issue: { id: number; title: string; assignee: string }; onAssign: action catches(nothing) }) {
+  <p>{props.issue.title}: {props.issue.assignee || "nobody"}<button onClick={() => { props.onAssign() }}>take</button></p>
 }

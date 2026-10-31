@@ -421,8 +421,8 @@ export function lowerTsx(
     names: Set<string>,
     into = functions,
   ) => {
-    // A named async function inside a component is a stored callback, refused with the same guidance.
-    if (fn.async && into !== functions && fn.id && !/^[A-Z]/.test(fn.id.name))
+    // A named async function inside a component is a stored callback, refused with the same guidance whatever its name.
+    if (fn.async && into !== functions)
       return asyncCallback(fn);
     if (
       !fn.id ||
@@ -1193,9 +1193,13 @@ export function lowerTsx(
         !n.callee.computed &&
         !n.callee.optional &&
         n.callee.property.type === "Identifier" &&
-        ["filter", "every", "map"].includes(n.callee.property.name)
+        ["filter", "every", "map", "findIndex"].includes(n.callee.property.name)
       ) {
-        const method = n.callee.property.name;
+        // findIndex lowers to RX's predicate indexOf(xs, f), which both RX runtimes define as xs.findIndex(f).
+        const method =
+          n.callee.property.name === "findIndex"
+            ? "indexOf"
+            : n.callee.property.name;
         const array = value(n.callee.object, scope);
         if (array.shape.kind !== "array" || n.arguments.length !== 1)
           return fail(
@@ -1259,6 +1263,8 @@ export function lowerTsx(
           shape:
             method === "every"
               ? { kind: "boolean" }
+              : method === "indexOf"
+                ? { kind: "number" }
               : method === "map"
                 ? { kind: "array", item: predicate.shape }
                 : array.shape,
@@ -4166,6 +4172,8 @@ export function lowerTsx(
       return fail(fn, "Functions must end with one value/JSX return");
     for (const node of nodes.slice(0, -1))
       if (node.type === "FunctionDeclaration") {
+        // An async declaration is a callback, refused as one before the nested-component check (issue #20).
+        if (node.async) return asyncCallback(node);
         if (!node.id || /^[A-Z]/.test(node.id.name))
           return fail(
             node,
