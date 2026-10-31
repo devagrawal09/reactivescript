@@ -1,6 +1,7 @@
 // Round 8: replay one fuzz trail ("step ; step ; …", as `fuzz.mjs` prints it) against an app and print, after each step,
 // the rows, the start of the detail and the requests in the air. DUMP=1 also prints the issues store (when the page
-// exposes it as globalThis.__stores); DIST=<dir> serves a prebuilt dist instead of building <dir>.
+// exposes it as globalThis.__stores); DIST=<dir> serves a prebuilt dist instead of building <dir>; TAB=1 adds the issues
+// tab's label; EFFLOG=1 prints and clears globalThis.__efflog (for a dist patched to push to it).
 // Usage: node harness/replay.mjs <dir> "<trail>"
 import { build } from "./build.mjs"; import { launch, serve, runTest } from "./driver.mjs"; import { freshServer, answer } from "./fuzz.mjs";
 const [dir, trail] = process.argv.slice(2);
@@ -20,7 +21,8 @@ const r = await runTest(br, srv.url, { run: async app => {
     else if (["row-close", "row-assign", "remove-label"].includes(op)) await app.click(op, Number(arg));
     else await app.click(op);
     if (process.env.DUMP) console.log("   store:", await app.page.evaluate(() => { const s = globalThis.__stores?.issues; if (!s) return ""; return JSON.stringify([...s].map(x => ({ keys: Object.keys(x), id: x.id, t: x.title, a: x.assignee }))); }));
-    console.log(s.slice(0, 32).padEnd(32), "|", JSON.stringify(await app.items("issue")), "|", (await app.text("detail") ?? "").slice(0, 30), "| air", JSON.stringify(await app.pending()));
+    if (process.env.EFFLOG) console.log("   fx:", await app.page.evaluate(() => { const l = globalThis.__efflog ?? []; globalThis.__efflog = []; return l.join(" | "); }));
+    console.log(s.slice(0, 32).padEnd(32), ...(process.env.TAB ? [`[${await app.text("tab-issues")}]`] : []), "|", JSON.stringify(await app.items("issue")), "|", (await app.text("detail") ?? "").slice(0, 30), "| air", JSON.stringify(await app.pending()));
   }
 } });
 console.log(r.ok ? "ok" : r.error); await br.close(); srv.close();
