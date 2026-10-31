@@ -1193,9 +1193,13 @@ export function lowerTsx(
         !n.callee.computed &&
         !n.callee.optional &&
         n.callee.property.type === "Identifier" &&
-        ["filter", "every", "map"].includes(n.callee.property.name)
+        ["filter", "every", "map", "findIndex"].includes(n.callee.property.name)
       ) {
-        const method = n.callee.property.name;
+        // findIndex lowers to RX's predicate indexOf(xs, f), which both RX runtimes define as xs.findIndex(f).
+        const method =
+          n.callee.property.name === "findIndex"
+            ? "indexOf"
+            : n.callee.property.name;
         const array = value(n.callee.object, scope);
         if (array.shape.kind !== "array" || n.arguments.length !== 1)
           return fail(
@@ -1259,6 +1263,8 @@ export function lowerTsx(
           shape:
             method === "every"
               ? { kind: "boolean" }
+              : method === "indexOf"
+                ? { kind: "number" }
               : method === "map"
                 ? { kind: "array", item: predicate.shape }
                 : array.shape,
