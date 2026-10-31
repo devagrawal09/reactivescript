@@ -97,7 +97,17 @@ repeated request for the same issue would reuse its cached answer on every backe
 so the script never retries one issue. Async list loading, async memos and server
 functions are deliberately left out.
 
-`npm run verify:subset` passes 21 tests with no skips or TODOs; the package
+## Stale Write-Back (AC-1e)
+
+`tsx/stale-write.test.ts` shows upstream's `STALE_WRITE_BACK` through authored TSX. An explicit generator action reads
+`likes()`, yields `save()`, then writes `setLikes(before + 1)`; a like made while the save was in flight is lost.
+Native Solid runs that TSX and shows the lost update (frames end at 1, not 2). The frontend refuses it through its
+normal checker route (`buildTsx` throws `CheckError`: `AC-1e: STALE_WRITE_BACK (AC-1e) likes.tsx:6: …`), as the
+checker refuses the handwritten RX. The functional setter `setLikes((n) => n + 1)` is accepted, has the same
+canonical facts as its RX, and keeps the concurrent like on native Solid, both compiled programs and both
+interpreted programs.
+
+`npm run verify:subset` passes 25 tests with no skips or TODOs; the package
 typecheck is clean. Upstream's 12
 strict-mode diagnostics remain the separately recorded baseline.
 

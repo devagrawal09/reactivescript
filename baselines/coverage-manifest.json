@@ -14,6 +14,7 @@
   "added": [
     "tsx/boundary.test.ts",
     "tsx/demo.test.ts",
+    "tsx/stale-write.test.ts",
     "tsx/paired.test.ts",
     "tsx/verifier.test.ts"
   ],
@@ -290,6 +291,10 @@
     "tsx/demo.test.ts :: demo tracker frames: compiled handwritten RX",
     "tsx/demo.test.ts :: demo tracker frames: interpreted TSX",
     "tsx/demo.test.ts :: demo tracker frames: interpreted handwritten RX",
+    "tsx/stale-write.test.ts :: stale write-back: native Solid runs the buggy TSX and loses the like made while the save was in flight",
+    "tsx/stale-write.test.ts :: stale write-back: the frontend refuses the authored TSX with upstream's STALE_WRITE_BACK, as the checker refuses the RX",
+    "tsx/stale-write.test.ts :: stale write-back: the functional setter is accepted and has the same facts as the fixed RX",
+    "tsx/stale-write.test.ts :: stale write-back: the fixed version keeps the concurrent like on native, compiled and interpreted backends",
     "tsx/lower.test.ts :: declaration and JSX lines remain authored, and non-exported components stay non-exported",
     "tsx/lower.test.ts :: import aliases, chained memos, signed initialization, nested text, and block handler",
     "tsx/lower.test.ts :: numeric JSX conversion preserves Infinity, NaN, negative Infinity, and signed zero",
