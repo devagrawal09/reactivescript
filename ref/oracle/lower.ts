@@ -43,6 +43,15 @@ function assignDraft(draft: any, v: unknown) {
   Object.assign(draft, v);
 }
 
+/** EF-2: effect inputs compare as values: arrays and plain objects (a store's snapshot) by their contents. */
+const sameInput = (a: unknown, b: unknown): boolean => {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  const pa = Object.getPrototypeOf(a), plain = (p: unknown) => p === Object.prototype || p === null || p === Array.prototype;
+  if (pa !== Object.getPrototypeOf(b) || !plain(pa)) return false;
+  const ka = Object.keys(a), kb = Object.keys(b);
+  return ka.length === kb.length && ka.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameInput((a as any)[k], (b as any)[k]));
+};
 export class Unsupported extends Error { name = "Unsupported"; static last = ""; constructor(m: string) { super(m); Unsupported.last = m; } }
 
 // ---------------------------------------------------------------- string-tree renderer
@@ -296,8 +305,8 @@ export class Oracle {
           const inputs = d.inputs; for (const e of inputs) this.hoistAwaits(null, e, scope, false);
           const apply = (vals: unknown[]) => { const env = new Map<string, unknown>(); vals.forEach((v, i) => env.set(`$${i}`, v)); const r = this.runStmts(d.body, scope, env); return typeof r === "function" ? (r as () => void) : undefined; };
           let last: unknown[] | null = null;
-          createEffect(() => inputs.map(e => this.ev(e, scope)), {
-            effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => Object.is(v, last![i]))) return; last = vals; return apply(vals); },   // EF-3: fires when an input changed (an error in between is a change)
+          createEffect(() => inputs.map(e => { const v = this.ev(e, scope); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? deep(v) : v; }), {   // a store enters whole, as a snapshot
+            effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return apply(vals); },   // EF-3: fires when an input changed (an error in between is a change)
             error: () => { last = null; return apply(inputs.map(() => ERR)); },   // E-12: an error is an answer the apply receives
           } as any);
           break;
