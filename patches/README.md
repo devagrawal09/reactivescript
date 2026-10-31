@@ -11,5 +11,6 @@ worktree at the same commit plus the queue); `frontend/upstream` points at it. v
 patched tree equals its commit plus exactly the queue, and canary.sh reports a queue that no longer applies as its own
 category. Patches are never committed to any upstream checkout and never applied to the original worktree.
 
-Queue at aa85cbde: **0001-server-question-keys** (docs/UPSTREAM-ISSUES.md #1). Legacy prototype patches in
+Queue at 8518fa1e: **0001-server-question-keys** (docs/UPSTREAM-ISSUES.md #1; rebased from aa85cbde, same changes).
+Legacy prototype patches in
 `legacy-f3c6771/` are evidence only (docs/PATCHES.md).

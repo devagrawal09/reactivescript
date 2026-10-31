@@ -1,6 +1,7 @@
 # 0001 server-question-keys (temporary upstream patch)
 
-- **Applies to:** reactivescript aa85cbde21fc81991aa1fbfab8092b4bffd24ddf (the pin). Files: ref/compile/rt.ts,
+- **Applies to:** reactivescript 8518fa1ee28b135cabc8c6c151e3e7d9ef589070 (the pin; rebased from aa85cbde with the same
+  changes, only blob ids and hunk offsets differ). Files: ref/compile/rt.ts,
   ref/compile/rt-web.ts, ref/compile/rt-server.ts, ref/src/failure.ts, ref/src/runtime.ts (5 files, +53/-5).
 - **Defect:** a server fn asked in reactive scope is a question with one flight per argument list (SF-2), but every
   runtime keyed that flight as `name + ":" + args.map(fmt).join(",")`, where `fmt` leaves strings bare and

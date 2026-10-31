@@ -1,4 +1,6 @@
-# Upstream issues found while migrating (pin: reactivescript aa85cbde, Solid ac28157)
+# Upstream issues found while migrating (found at reactivescript aa85cbde, Solid ac28157)
+
+The frontend's failing set is unchanged at the current pin (reactivescript 8518fa1e, Solid 5e68925c).
 
 Every item is reproduced on the pinned upstream without this package's lowering: by handwritten RX (repro directory or
 the handwritten-RX leg of a differential test), or by two upstream backends disagreeing on the same program. Nothing

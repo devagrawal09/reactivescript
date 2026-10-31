@@ -29,7 +29,7 @@ code that imports upstream, via the package `imports` map `#rx/* -> ./upstream/r
 
 ## Pins (support only these; no version detection)
 
-`pins.json`: reactivescript `aa85cbde21fc81991aa1fbfab8092b4bffd24ddf`, Solid `ac28157aba6d03b806f0043bce70a87d515e953e`
+`pins.json`: reactivescript `8518fa1ee28b135cabc8c6c151e3e7d9ef589070`, Solid `5e68925cc2fd216a9fb06345019e66d5da5c523c`
 (= upstream ref/SOLID_NEXT), Node 24.18.0, pnpm 11.20.0, Rust 1.97.1, oxc-parser 0.155.0, TypeScript 6.0.3,
 Playwright 1.59.1 (Chromium). `boundary.test.ts` fails if the checkouts drift from the pins.
 

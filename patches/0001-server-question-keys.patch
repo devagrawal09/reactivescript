@@ -1,8 +1,8 @@
 diff --git a/ref/compile/rt-server.ts b/ref/compile/rt-server.ts
-index e68c65b..da37280 100644
+index 107e064..7cebd14 100644
 --- a/ref/compile/rt-server.ts
 +++ b/ref/compile/rt-server.ts
-@@ -49,6 +49,18 @@ function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
+@@ -53,6 +53,18 @@ function tryCatch(f: () => unknown, match: (err: unknown) => boolean, alt: (err:
  }
  
  // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
@@ -21,7 +21,7 @@ index e68c65b..da37280 100644
  function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
    if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
    if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
-@@ -162,7 +174,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
+@@ -166,7 +178,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       *  — a request to the server. */
      serverRef(name: string, fn: (...a: unknown[]) => Promise<unknown>) {
        return (...args: unknown[]) => {
@@ -31,10 +31,10 @@ index e68c65b..da37280 100644
          if (question && flights.has(key)) return flights.get(key)!;
          const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
 diff --git a/ref/compile/rt-web.ts b/ref/compile/rt-web.ts
-index 2db9769..20a65ac 100644
+index b4a4c61..ee94872 100644
 --- a/ref/compile/rt-web.ts
 +++ b/ref/compile/rt-web.ts
-@@ -62,6 +62,18 @@ const NO_PROVISION: Entry = {};
+@@ -74,6 +74,18 @@ const NO_PROVISION: Entry = {};
  class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
  
  // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
@@ -53,7 +53,7 @@ index 2db9769..20a65ac 100644
  function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
    if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
    if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
-@@ -208,7 +220,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[])
+@@ -220,7 +232,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[])
       *  — a request to the server. */
      serverRef(name: string, fn: (...a: unknown[]) => Promise<unknown>) {
        return (...args: unknown[]) => {
@@ -63,10 +63,10 @@ index 2db9769..20a65ac 100644
          if (question && flights.has(key)) return flights.get(key)!;
          const fl = question ? flight(key) : new Flight(`${key}#${serverSeq++}`);
 diff --git a/ref/compile/rt.ts b/ref/compile/rt.ts
-index d2dd861..c62e543 100644
+index 6cdd55c..662d418 100644
 --- a/ref/compile/rt.ts
 +++ b/ref/compile/rt.ts
-@@ -53,6 +53,18 @@ const NO_PROVISION: Entry = {};
+@@ -65,6 +65,18 @@ const NO_PROVISION: Entry = {};
  class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
  
  // ---------------------------------------------------------------- the wire (12 SF-6; a copy of ref/src/failure.ts's)
@@ -85,7 +85,7 @@ index d2dd861..c62e543 100644
  function wireCopy(v: unknown, where: string, fail: (msg: string) => never): unknown {
    if (v === null || v === undefined || typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
    if (Array.isArray(v)) return v.map((x, i) => wireCopy(x, `${where}[${i}]`, fail));
-@@ -216,7 +228,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
+@@ -228,7 +240,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       *  — a request to the server. */
      serverRef(name: string, fn: (...a: unknown[]) => Promise<unknown>) {
        return (...args: unknown[]) => {
@@ -118,7 +118,7 @@ index b00ff35..089c7f6 100644
  export function wireFailure(err: unknown): unknown {
    return err instanceof Error && (err.constructor as { declared?: boolean }).declared ? err : new Error("Internal Server Error");
 diff --git a/ref/src/runtime.ts b/ref/src/runtime.ts
-index efa58d8..4e720e0 100644
+index cd3da47..f47a4ad 100644
 --- a/ref/src/runtime.ts
 +++ b/ref/src/runtime.ts
 @@ -8,7 +8,7 @@ type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "co

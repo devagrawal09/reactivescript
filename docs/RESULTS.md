@@ -1,13 +1,22 @@
 # Measured results
 
-## Current state (2026-10-29)
+## Current state (2026-10-31, pin 8518fa1e)
 
-Stack: reactivescript aa85cbde + patches/0001-server-question-keys (worktree `reactivescript-patched`), Solid
-ac28157 (= ref/SOLID_NEXT), Node 24.18.0. Run: `frontend/.out/demo-1`
-(`OUT=.out/demo-1 sh scripts/verify-pinned.sh --skip-upstream`, READINESS mode). Upstream runners were skipped in
-this run; their last measured numbers are in the history below.
+Stack: reactivescript 8518fa1e + patches/0001-server-question-keys (rebased; worktree `reactivescript-patched`),
+Solid 5e68925c (= ref/SOLID_NEXT, solid-js 2.0.0-rc.20), Node 24.18.0, Rust 1.97.1. Run: `frontend/.out/repin-8518`
+(`OUT=.out/repin-8518 sh scripts/verify-pinned.sh --rust`, READINESS mode).
 
-**Verdict: NOT READY (8 blockers: 5 skipped upstream runners, suite exit 1, browser exit 1, 96 failing tests).**
+**Verdict: NOT READY (3 blockers: suite exit 1, browser exit 1, 96 failing tests).** Integrity problems: 0.
+
+Upstream at the pin (unmodified runners on pin + 0001, the new `pins.json` baseline): interpreter 109/0, oracle
+109/0/0, compiled 109/0/0, types 149/0, SSR 102/0 with 7 skips; crate parity 317/317, `crate --lower` 181/181,
+`crate --project` 182/182; `cargo test --release` in `compiler/` 6 passed, 0 failed. The frontend numbers below are
+unchanged from aa85cbde (demo-1, same failing set): moving the pin added no failure and fixed none. Patch 0001 still
+applies (rebased, same changes); the defect is not fixed upstream at 8518fa1e. Upstream's new AC-1e finding
+(`STALE_WRITE_BACK`) needed no adapter change.
+
+Previous state (2026-10-29, aa85cbde, `frontend/.out/demo-1`, `--skip-upstream`): the same frontend counts, with
+the upstream runners skipped.
 
 | | Now |
 | --- | --- |

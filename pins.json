@@ -1,11 +1,11 @@
 {
   "reactivescript": {
     "repo": "https://github.com/ryansolid/reactivescript",
-    "commit": "aa85cbde21fc81991aa1fbfab8092b4bffd24ddf"
+    "commit": "8518fa1ee28b135cabc8c6c151e3e7d9ef589070"
   },
   "solid": {
     "repo": "https://github.com/solidjs/solid",
-    "commit": "ac28157aba6d03b806f0043bce70a87d515e953e",
+    "commit": "5e68925cc2fd216a9fb06345019e66d5da5c523c",
     "source": "reactivescript ref/SOLID_NEXT at the pinned commit"
   },
   "toolchain": {
@@ -17,10 +17,10 @@
     "playwright": "1.59.1"
   },
   "upstreamBaseline": {
-    "test": "104 pass, 0 fail",
-    "oracle": "104 pass, 0 fail, 0 skip",
-    "compiled": "104 pass, 0 fail, 0 skip",
-    "types": "144 pass, 0 fail",
-    "ssr": "97 pass, 0 fail, 7 skip"
+    "test": "109 pass, 0 fail",
+    "oracle": "109 pass, 0 fail, 0 skip",
+    "compiled": "109 pass, 0 fail, 0 skip",
+    "types": "149 pass, 0 fail",
+    "ssr": "102 pass, 0 fail, 7 skip"
   }
 }
