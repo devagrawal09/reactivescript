@@ -31,8 +31,10 @@ test("only tsx/rx/ imports the upstream checkout", () => {
   for (const f of yieldFiles) {
     const text = readFileSync(new URL(f, yieldDir), "utf8");
     for (const b of banned) assert.ok(!text.includes(b), "yield/" + f + " reaches upstream directly (" + b + ")");
+    // It is self-contained: the lowering uses only tsx/rx/; the tests also load the TSX twins through tsx/modules.ts.
+    const allowed = f.endsWith(".test.ts") ? ["../tsx/rx/", "../tsx/modules.ts"] : ["../tsx/rx/"];
     for (const m of text.matchAll(/from "(\.\.\/tsx\/[^"]+)"/g))
-      assert.ok(["../tsx/rx/", "../tsx/modules.ts", "../tsx/lower.ts"].some(p => m[1].startsWith(p)), "yield/" + f + " imports " + m[1]);
+      assert.ok(allowed.some(p => m[1].startsWith(p)), "yield/" + f + " imports " + m[1]);
   }
 });
 

@@ -1,16 +1,14 @@
-// The solid-yield explicit generator dialect as a third frontend (spike; docs/YIELD.md). The counter and the issue
-// tracker are written in idiomatic solid-yield (yield/fixtures/*.yield.tsx), translated by yield/lower.ts into the
-// Solid TSX that solid-yield itself maps them to, and lowered onto the pinned RX AST. Evidence: canonical facts equal
-// to the handwritten RX and to the Solid TSX twin, a detected fact change, and identical exact frames on solid-yield's
-// own runtime (the reference: its yield rule, Solid's DOM compiler, solid-yield's render, in jsdom), the compiled and
-// interpreted RX lowered from yield, and the compiled and interpreted handwritten RX.
+// solid-yield's explicit generator dialect, as a syntax, as a third frontend (spike; docs/YIELD.md). The counter and
+// the issue tracker are written in that dialect (yield/fixtures/*.yield.tsx) and lowered by yield/lower.ts directly
+// onto the pinned RX AST. The reference is the same as the TSX frontend's: the handwritten RX and its backends, and
+// native Solid running the paired TSX fixture. A yield fixture is accepted only if its canonical facts equal the
+// handwritten RX's and the TSX twin's, a fact change is detected, and its exact frames match on compiled and
+// interpreted RX (from yield and handwritten) and on native Solid (the TSX twin).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { JSDOM } from "jsdom";
 import { transform } from "@solidjs/compiler";
-import { transform as yieldRule } from "vite-plugin-solid-yield";
 import { loadTsxModules } from "../tsx/modules.ts";
 import { semanticFacts } from "../tsx/rx/facts.ts";
 import { checkModules, compileModules, lowerViews, STRING_RENDERER, type ModuleSet } from "../tsx/rx/compiler.ts";
@@ -43,52 +41,16 @@ const answer = (app: ReturnType<typeof createApp>, s: Extract<Step, { answer: nu
   if (s.failure) f.reject(new Error(s.failure)); else f.resolve(s.owner);
 };
 
-/** The reference: solid-yield's yield rule, then Solid's DOM compiler, mounted by solid-yield's render in jsdom. */
-async function solidYield(name: string, script: Step[]): Promise<string[]> {
-  const dom = new JSDOM("<!doctype html><div id=root></div>");
-  const keys = ["window", "document", "Node", "Element", "HTMLElement", "Text", "Event", "MouseEvent", "DocumentFragment", "Comment", "SVGElement", "MutationObserver"];
-  for (const k of keys) (globalThis as any)[k] = (dom.window as any)[k];
+async function rendered(files: Map<string, string>, entry: string, native: boolean, script: Step[]): Promise<string[]> {
   mkdirSync(outRoot, { recursive: true });
   const dir = mkdtempSync(outRoot + "yield-");
   const app = createApp();
+  // Native Solid imports ./api as plain JS; it reaches the same controllable flights as the compiled RX.
   (globalThis as any).__yieldAssignIssue = (...args: unknown[]) => (app.api("assignIssue")(...args) as any).first;
   try {
-    const source = fixture(name + ".yield.tsx");
-    const ruled = yieldRule(source, { filename: name + ".tsx", sourceMap: false });
-    assert.ok(ruled, "the yield rule rewrites the holes");
-    const code = transform(ruled.code, { filename: name + ".tsx", generate: "dom", moduleName: "@solidjs/web" }).code
-      .replaceAll('"./api"', '"data:text/javascript,export const assignIssue=(...args)=>globalThis.__yieldAssignIssue(...args)"');
-    writeFileSync(dir + "/main.mts", code);
-    const mod = await import(pathToFileURL(dir + "/main.mts").href);
-    const { render } = await import("solid-yield");
-    const root = document.getElementById("root")!;
-    const dispose = render(mod.default, root);
-    try {
-      await settle();
-      const frames = [root.textContent!];
-      for (const s of script) {
-        if ("click" in s) (root.querySelectorAll("button")[s.click] as HTMLElement).click(); else answer(app, s);
-        await settle();
-        frames.push(root.textContent!);
-      }
-      return frames;
-    } finally { (dispose as () => void)?.(); }
-  } finally {
-    delete (globalThis as any).__yieldAssignIssue;
-    for (const k of keys) delete (globalThis as any)[k];
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-async function compiled(set: ModuleSet, script: Step[]): Promise<string[]> {
-  mkdirSync(outRoot, { recursive: true });
-  const dir = mkdtempSync(outRoot + "yield-rx-");
-  try {
-    const built = compileModules(set);
-    for (const [n, c] of lowerViews(built.files, "universal")) writeFileSync(dir + "/" + n, c.replaceAll(STRING_RENDERER, renderer));
-    const mod = await import(pathToFileURL(dir + "/" + built.entry).href);
-    const app = createApp();
-    const dispose = app.mount(mod.default(app));
+    for (const [n, c] of files) writeFileSync(dir + "/" + n, c.replaceAll(STRING_RENDERER, renderer));
+    const mod = await import(pathToFileURL(dir + "/" + entry).href);
+    const dispose = app.mount(native ? () => mod.default() : mod.default(app));
     const buttons = (node: any): any[] => node?.tag === "button" ? [node] : (node?.children ?? []).flatMap(buttons);
     try {
       await settle();
@@ -100,8 +62,19 @@ async function compiled(set: ModuleSet, script: Step[]): Promise<string[]> {
       }
       return frames;
     } finally { dispose(); }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    delete (globalThis as any).__yieldAssignIssue;
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
+const compiled = (set: ModuleSet, script: Step[]) => {
+  const built = compileModules(set);
+  return rendered(lowerViews(built.files, "universal"), built.entry, false, script);
+};
+const native = (name: string, script: Step[]) => rendered(new Map([["native.mts",
+  transform(fixture(name + ".tsx"), { filename: name + ".tsx", generate: "universal", moduleName: STRING_RENDERER }).code
+    .replaceAll('"./api"', '"data:text/javascript,export const assignIssue=(...args)=>globalThis.__yieldAssignIssue(...args)"')]]),
+  "native.mts", true, script);
 
 function interpreted(set: ModuleSet, script: Step[]): string[] {
   const rt = new Runtime(set);
@@ -146,8 +119,8 @@ for (const [name, script, expected] of [
     assert.notEqual(changed, rx);
     assert.notDeepEqual(semanticFacts(fromYield(name)), semanticFacts(load(name + ".rx", changed)));
   });
-  test("yield " + name + " frames: solid-yield runtime", async () => {
-    assert.deepEqual(await solidYield(name, script), expected);
+  test("yield " + name + " frames: native Solid (the TSX twin)", async () => {
+    assert.deepEqual(await native(name, script), expected);
   });
   test("yield " + name + " frames: compiled RX from yield", async () => {
     assert.deepEqual(await compiled(fromYield(name), script), expected);
@@ -190,6 +163,6 @@ test("yield refusals: forms outside the subset, or that would behave differently
   const tracker = fixture("tracker.yield.tsx");
   refused(tracker.replace("function* () {\n        yield* setStatus", "(cause) => new Error(String(cause)), function* () {\n        yield* setStatus"), "(cause) =>", /only an absorbing handler/);
   refused(tracker.replace("import { $event,", "import { $optimisticStore, $event,"), "$optimisticStore", /createOptimisticStore/);
-  refused(tracker.replace("const owner: string | undefined =", "const owner ="), "owner = yield*", /annotate the attempt's result/);
+  refused(tracker.replace("    if (owner !== undefined) {", "    {"), "const owner = yield*", /continues only inside if \(owner !== undefined\)/);
   refused(tracker.replace('yield* setStatus("");', 'yield* setStatus(yield* mode);'), "yield* mode);", /read before the attempt/);
 });

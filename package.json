@@ -33,14 +33,7 @@
   "devDependencies": {
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
-    "jsdom": "^25.0.1",
     "playwright": "1.59.1",
-    "solid-yield": "file:../solid-yield-packs/solid-yield-0.0.0.tgz",
-    "typescript": "6.0.3",
-    "vite-plugin-solid-yield": "file:../solid-yield-packs/vite-plugin-solid-yield-0.0.0.tgz"
-  },
-  "overrides": {
-    "solid-yield": "file:../solid-yield-packs/solid-yield-0.0.0.tgz",
-    "compiler-yield": "file:../solid-yield-packs/compiler-yield-0.0.0.tgz"
+    "typescript": "6.0.3"
   }
 }

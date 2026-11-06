@@ -1,13 +1,14 @@
-// solid-yield's explicit generator dialect as a third ReactiveScript frontend (spike). A yield module is translated
-// into the Solid 2 TSX that solid-yield itself maps it to ($signal is createSignal, $memo createMemo, $event an action,
-// $optimistic createOptimistic, $store createStore, view holes reads, For/Show Solid's own), and that TSX is lowered by
-// the existing TSX frontend onto the pinned RX AST. Only a small subset is accepted; every other form is refused here
-// with its own diagnostic, located in the yield source. See docs/YIELD.md.
-// Explicit Node entry, as tsx/lower.ts: the browser condition the Solid tests use would select Oxc's WASM build.
+// solid-yield's explicit generator dialect (as a syntax design only) as a third ReactiveScript frontend, spike. A
+// yield module is lowered directly onto the pinned RX AST: component(function*) is a component, $signal / $store a
+// source, $optimistic an optimistic question source, $memo an equation, $event an action, view(function*) the
+// component's markup with each yield* hole a read, For / Show regions. Only a small subset is accepted; every other
+// form is refused with its own diagnostic at its yield source. It reaches upstream only through tsx/rx/ and keeps
+// its own small helpers, so it does not depend on the TSX lowering. See docs/YIELD.md.
+// Explicit Node entry, as elsewhere: the browser condition the Solid tests use would select Oxc's WASM build.
 import { parseSync } from "oxc-parser/src-js/index";
-import { loadTsxModules } from "../tsx/modules.ts";
-import { lowerTsx, TsxError } from "../tsx/lower.ts";
-import type { ModuleSet } from "../tsx/rx/compiler.ts";
+import { decodeHTML } from "entities";
+import { entryView, type Decl, type Expr, type Markup, type Program, type Stmt } from "../tsx/rx/ast.ts";
+import { joinPath, parseDeclarations, parseProgram, type JsDecl, type ModuleSet } from "../tsx/rx/compiler.ts";
 
 type N = any;
 export class YieldError extends Error {
@@ -20,31 +21,11 @@ export class YieldError extends Error {
   }
 }
 
-/** A piece of generated TSX: verbatim pieces map offset for offset, generated ones to their construct's start. */
-type Piece = { text: string; src: number; verbatim: boolean };
-class Out {
-  pieces: Piece[] = [];
-  gen(text: string, src: number) { this.pieces.push({ text, src, verbatim: false }); return this; }
-  copy(source: string, start: number, end: number) { if (end > start) this.pieces.push({ text: source.slice(start, end), src: start, verbatim: true }); return this; }
-  add(o: Out) { this.pieces.push(...o.pieces); return this; }
-  get text() { return this.pieces.map(p => p.text).join(""); }
-  /** The yield offset an offset of the generated text came from. */
-  origin(offset: number): number {
-    let at = 0;
-    for (const p of this.pieces) {
-      if (offset < at + p.text.length) return p.verbatim ? p.src + (offset - at) : p.src;
-      at += p.text.length;
-    }
-    return this.pieces.at(-1)?.src ?? 0;
-  }
-}
-
 const SUBSET = new Set(["component", "view", "$signal", "$memo", "$event", "$optimistic", "$store", "attempt", "For", "Show"]);
-const TYPES = new Set(["Props", "Source", "Handler"]);
 const LATER: Record<string, string> = {
   $effect: "effects are not in the yield subset yet",
   $cleanup: "cleanups are not in the yield subset yet",
-  $optimisticStore: "$optimisticStore is Solid's createOptimisticStore, which the RX frontends do not lower",
+  $optimisticStore: "an optimistic store (Solid's createOptimisticStore) has no RX lowering here",
   $projection: "projections are not in the yield subset yet",
   createContext: "contexts are not in the yield subset yet",
   Loading: "Loading needs async sources, which the yield subset does not lower",
@@ -55,11 +36,30 @@ const LATER: Record<string, string> = {
   raise: "raise and typed failures are not in the yield subset yet", Failure: "typed failures are not in the yield subset yet",
   until: "until is not in the yield subset", foreign: "foreign hand-offs are not in the yield subset",
 };
+const BUILTIN: Record<string, string> = { filter: "filter", map: "map", every: "every", findIndex: "indexOf" };
+const OPS: Record<string, string> = { "===": "==", "!==": "!=", "+": "+", "-": "-", "*": "*", "/": "/", "%": "%", "<": "<", ">": ">", "<=": "<=", ">=": ">=", "&&": "&&", "||": "||" };
 
-type Kind = { k: "accessor" } | { k: "path" } | { k: "setter" } | { k: "event"; params: { name: string; type: string }[] } | { k: "waited" };
-type Scope = Map<string, Kind | { k: "local"; out: Out }>;
+/** What a name is bound to. A read (yield*) of an accessor is its id; of a store, a prop or a row item, a path. */
+type B =
+  | { k: "accessor" } | { k: "path" } | { k: "value" } | { k: "js" }
+  | { k: "setter"; target: string; optimistic: boolean; store: boolean }
+  | { k: "event"; params: string[] }
+  | { k: "local"; e: Expr }
+  | { k: "draft"; store: string }
+  | { k: "waited" };
+type Scope = Map<string, B>;
 
-export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string; out: Out } {
+/** Solid's JSX text rule (trim_jsx_text; Rust char::is_whitespace, not JS \s), so frames match native Solid. */
+const WHITESPACE = /[\u0009-\u000d \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
+const jsxText = (raw: string): string => {
+  let s = raw.replace(/\r/g, "");
+  if (s.includes("\n"))
+    s = s.split("\n").map((line, i) => (i ? line.replace(new RegExp("^" + WHITESPACE.source + "+"), "") : line))
+      .filter(line => [...line].some(c => !WHITESPACE.test(c))).join(" ");
+  return s.replace(new RegExp(WHITESPACE.source + "+", "g"), " ");
+};
+
+export function lowerYield(source: string, filename = "main.tsx"): Program {
   const parsed = parseSync(filename, source, { sourceType: "module", lang: "tsx" });
   const fail = (n: { start: number; end: number }, message: string): never => { throw new YieldError(filename, source, n, message); };
   if (parsed.errors.length) {
@@ -67,122 +67,125 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
     fail({ start: e.labels?.[0]?.start ?? 0, end: e.labels?.[0]?.end ?? 0 }, e.message);
   }
   const program = parsed.program as N;
-  const aliases = new Map<string, N>();
-  const solid = new Set<string>();
-  const out = new Out();
+  const line = (n: N) => source.slice(0, n.start).split("\n").length;
   const text = (n: N) => source.slice(n.start, n.end);
-
-  // ---------------------------------------------------------------- types
-  const type = (t: N): string => {
-    if (t.type === "TSTypeReference" && t.typeName.type === "Identifier") {
-      const name = t.typeName.name, args = t.typeArguments?.params ?? [];
-      if (name === "Source") return type(args[0]);
-      if (name === "Handler") {
-        const tuple = args[0];
-        if (tuple?.type !== "TSTupleType") fail(t, "Handler takes a tuple of argument types, Handler<[T]>");
-        return "(" + tuple.elementTypes.map((e: N, i: number) => "arg" + i + ": " + type(e)).join(", ") + ") => void";
-      }
-      if (aliases.has(name)) return type(aliases.get(name));
-      if (TYPES.has(name)) fail(t, "Props<…> is only the component's parameter type");
-    }
-    if (t.type === "TSTypeLiteral")
-      return "{ " + t.members.map((m: N) => {
-        if (m.type !== "TSPropertySignature" || m.key.type !== "Identifier" || m.optional || !m.typeAnnotation)
-          return fail(m, "Props members must be required named properties with a type");
-        return m.key.name + ": " + type(m.typeAnnotation.typeAnnotation);
-      }).join("; ") + " }";
-    return text(t);
-  };
-
-  // ---------------------------------------------------------------- reads and expressions
+  const callee = (n: N): string | undefined => (n?.type === "CallExpression" && n.callee.type === "Identifier" ? n.callee.name : undefined);
   const isYield = (n: N) => n?.type === "YieldExpression" && n.delegate;
-  const read = (n: N, scope: Scope): Out => {
-    // yield* x: an accessor is called, a store / props / row path is read as a path.
-    const arg = n.argument;
-    let root = arg;
-    while (root.type === "MemberExpression" && !root.computed) root = root.object;
-    if (root.type !== "Identifier") return fail(n, "yield* reads a source, a store path, a prop or a row: unsupported operand");
-    const kind = scope.get(root.name);
-    if (!kind) return fail(n, "yield* of an unknown source: " + root.name);
-    if (kind.k === "accessor" && root === arg) return new Out().copy(source, arg.start, arg.end).gen("()", arg.end);
-    if (kind.k === "path") return new Out().copy(source, arg.start, arg.end);
-    if (kind.k === "local") return kind.out;
-    if (kind.k === "waited")
-      return fail(n, "after an attempt an event's read may see the value from before the call (solid-yield's transaction), where RX reads it as it stands after the wait: read before the attempt");
-    return fail(n, kind.k === "event" ? "an event is bound in a view or called with yield* evt(…) in an event, not read"
-      : "a setter is delegated to in an event, yield* set(v), not read");
-  };
-  /** Copy an expression, replacing every yield* read in it. */
-  const expr = (n: N, scope: Scope): Out => {
-    const o = new Out();
-    let at = n.start;
-    const visit = (x: N) => {
-      if (!x || typeof x !== "object") return;
-      if (Array.isArray(x)) { x.forEach(visit); return; }
-      if (typeof x.type !== "string") return;
-      if (x.type === "YieldExpression") {
-        if (!x.delegate) fail(x, "a plain yield is not a yield-dialect read; use yield*");
-        o.copy(source, at, x.start).add(read(x, scope)); at = x.end; return;
-      }
-      if (x.type === "Identifier" && scope.get(x.name)?.k === "local" && x !== n.__skip) {
-        o.copy(source, at, x.start).add((scope.get(x.name) as { out: Out }).out); at = x.end; return;
-      }
-      if (["FunctionExpression", "ArrowFunctionExpression"].includes(x.type) && (x.generator || x.async))
-        fail(x, "nested routines are not in the yield subset here");
-      if (x.type === "JSXElement" || x.type === "JSXFragment") fail(x, "JSX belongs to a view");
-      for (const [k, v] of Object.entries(x)) if (k !== "start" && k !== "end" && k !== "type") visit(v);
-    };
-    visit(n);
-    return o.copy(source, at, n.end);
-  };
-
-  // ---------------------------------------------------------------- setup
-  const callee = (n: N): string | undefined => n?.type === "CallExpression" && n.callee.type === "Identifier" ? n.callee.name : undefined;
+  const strip = (n: N): N => (n?.type === "ParenthesizedExpression" ? strip(n.expression) : n);
   const routine = (n: N, what: string): N => {
     if (n?.type !== "FunctionExpression" || !n.generator) fail(n ?? program, what + " takes a function* routine");
     if (n.async) fail(n, "routines are function*, never async (solid-yield refuses async routines too)");
     return n;
   };
-  /** A memo body: const locals bound to reads, then one return; the locals are substituted into the return. */
-  const memoBody = (fn: N, scope: Scope): Out => {
-    const inner: Scope = new Map(scope);
+  const only = (fn: N, what: string): N => {
     const body = fn.body.body;
-    for (const s of body.slice(0, -1)) {
-      if (s.type !== "VariableDeclaration" || s.kind !== "const" || s.declarations.length !== 1 || s.declarations[0].id.type !== "Identifier" || !isYield(s.declarations[0].init))
-        fail(s, "a memo body binds reads (const x = yield* source) and returns one expression");
-      inner.set(s.declarations[0].id.name, { k: "local", out: read(s.declarations[0].init, scope) });
-    }
-    const ret = body.at(-1);
-    if (ret?.type !== "ReturnStatement" || !ret.argument) fail(fn, "a memo body ends with one return");
-    if (body.some((s: N) => s.type === "VariableDeclaration" && s.declarations[0].init?.argument && callee(s.declarations[0].init.argument) === "attempt"))
-      fail(fn, "async memos (attempt in $memo) are not in the yield subset");
-    return expr(ret.argument, inner);
+    if (body.length !== 1 || body[0].type !== "ReturnStatement" || !body[0].argument) fail(fn, what);
+    return body[0].argument;
   };
-  const eventStatements = (ss: N[], scope: Scope): Out => {
-    const o = new Out();
+
+  // ---------------------------------------------------------------- expressions
+  const read = (n: N, scope: Scope): Expr => {
+    const arg = strip(n.argument);
+    let root = arg;
+    while (root.type === "MemberExpression" && !root.computed) root = root.object;
+    if (root.type !== "Identifier") return fail(n, "yield* reads a source, a store path, a prop or a row: unsupported operand");
+    const b = scope.get(root.name);
+    if (!b) return fail(n, "yield* of an unknown source: " + root.name);
+    if (b.k === "waited")
+      return fail(n, "after an attempt an event's read may see the value from before the call (solid-yield's transaction), where RX reads it as it stands after the wait: read before the attempt");
+    if (b.k === "accessor" && root === arg) return { k: "id", name: root.name };
+    if (b.k === "path") return expr(arg, scope, true);
+    if (b.k === "local" && root === arg) return b.e;
+    return fail(n, b.k === "event" ? "an event is bound in a view or called with yield* evt(…) in an event, not read"
+      : b.k === "setter" ? "a setter is delegated to in an event, yield* set(v), not read" : "yield* of a plain value: " + root.name);
+  };
+  const fn1 = (n: N, scope: Scope): Expr => {
+    // an array builtin's callback: (x) => e
+    if (n?.type !== "ArrowFunctionExpression" || n.async || n.params.length !== 1 || n.params[0].type !== "Identifier" || n.body.type === "BlockStatement")
+      return fail(n ?? program, "an array builtin takes one (item) => expression callback");
+    const inner: Scope = new Map(scope); inner.set(n.params[0].name, { k: "value" });
+    return { k: "fn", params: [n.params[0].name], body: expr(n.body, inner) };
+  };
+  const expr = (raw: N, scope: Scope, inPath = false): Expr => {
+    const n = strip(raw);
+    switch (n.type) {
+      case "YieldExpression":
+        if (!n.delegate) return fail(n, "a plain yield is not a yield-dialect read; use yield*");
+        return read(n, scope);
+      case "Literal":
+        if (n.regex || typeof n.value === "bigint") return fail(n, "unsupported literal");
+        return { k: "lit", v: n.value };
+      case "Identifier": {
+        if (n.name === "undefined") return { k: "lit", v: undefined };
+        const b = scope.get(n.name);
+        if (!b) return fail(n, "unknown name: " + n.name);
+        if (b.k === "local") return b.e;
+        if (b.k === "draft") return { k: "id", name: b.store };
+        if (b.k === "value" || b.k === "js" || (inPath && b.k === "path")) return { k: "id", name: n.name };
+        if (b.k === "waited") return fail(n, "after an attempt, read sources before the attempt");
+        return fail(n, b.k === "accessor" || b.k === "path" ? "a source is read with yield*: yield* " + n.name : "not a value here: " + n.name);
+      }
+      case "MemberExpression": {
+        if (n.optional) return fail(n, "optional chaining is not in the yield subset");
+        const o = expr(n.object, scope, inPath);
+        if (n.computed) return { k: "index", o, i: expr(n.property, scope) };
+        return { k: "member", o, p: n.property.name };
+      }
+      case "BinaryExpression": case "LogicalExpression":
+        if (!OPS[n.operator]) return fail(n, "operator " + n.operator + " is not in the yield subset");
+        return { k: "bin", op: OPS[n.operator], l: expr(n.left, scope), r: expr(n.right, scope) };
+      case "UnaryExpression":
+        if (!["!", "-"].includes(n.operator)) return fail(n, "operator " + n.operator + " is not in the yield subset");
+        if (n.operator === "-" && n.argument.type === "Literal" && typeof n.argument.value === "number") return { k: "lit", v: -n.argument.value };
+        return { k: "un", op: n.operator, e: expr(n.argument, scope) };
+      case "ConditionalExpression":
+        return { k: "if", c: expr(n.test, scope), t: expr(n.consequent, scope), f: expr(n.alternate, scope) };
+      case "ArrayExpression":
+        return { k: "arr", items: n.elements.map((e: N) => (e && e.type !== "SpreadElement" ? expr(e, scope) : fail(e ?? n, "holes and spreads are not in the yield subset"))) };
+      case "ObjectExpression":
+        return { k: "rec", fields: n.properties.map((p: N) => (p.type === "Property" && !p.computed && !p.method && p.key.type === "Identifier"
+          ? { key: p.key.name, v: expr(p.value, scope) } : fail(p, "object literals take plain named properties here"))) };
+      case "CallExpression": {
+        const c = n.callee;
+        if (c.type === "MemberExpression" && !c.computed && BUILTIN[c.property.name] && n.arguments.length === 1)
+          return { k: "call", f: { k: "id", name: BUILTIN[c.property.name] }, args: [expr(c.object, scope, inPath), fn1(n.arguments[0], scope)] };
+        if (c.type === "Identifier" && scope.get(c.name)?.k === "js") return { k: "call", f: { k: "id", name: c.name }, args: n.arguments.map((a: N) => expr(a, scope)) };
+        if (c.type === "Identifier" && LATER[c.name]) return fail(n, LATER[c.name]);
+        return fail(n, "only array builtins (filter, map, every, findIndex) and imported functions are called in expressions here");
+      }
+      case "FunctionExpression": case "ArrowFunctionExpression":
+        return fail(n, n.generator || n.async ? "nested routines are not in the yield subset here" : "functions are values only as array-builtin callbacks here");
+      case "JSXElement": case "JSXFragment": return fail(n, "JSX belongs to a view");
+      case "TemplateLiteral": return fail(n, "template literals are not in the yield subset yet");
+      default: return fail(n, "unsupported expression: " + n.type);
+    }
+  };
+
+  // ---------------------------------------------------------------- events
+  const events = (ss: N[], scope: Scope): Stmt[] => {
+    const out: Stmt[] = [];
     for (let i = 0; i < ss.length; i++) {
       const s = ss[i];
       if (s.type === "ExpressionStatement" && isYield(s.expression)) {
-        const call = s.expression.argument;
+        const call = strip(s.expression.argument);
         if (call.type !== "CallExpression") fail(s, "an event statement delegates to a write or an event call: yield* set(v) or yield* evt(x)");
-        const name = call.callee.type === "Identifier" ? call.callee.name : undefined;
-        const kind = name ? scope.get(name) : undefined;
-        const handlerProp = call.callee.type === "MemberExpression" && call.callee.object.type === "Identifier" && call.callee.object.name === "props";
-        if (!(kind?.k === "setter" || kind?.k === "event" || handlerProp)) fail(call, "only a setter, a local $event or a Handler prop is called from an event");
-        o.add(expr(call, scope)).gen(";", s.end);
-        continue;
+        const c = call.callee;
+        const b = c.type === "Identifier" ? scope.get(c.name) : undefined;
+        if (b?.k === "setter") { out.push(...write(call, b, scope)); continue; }
+        if (b?.k === "event" || (c.type === "MemberExpression" && !c.computed && c.object.type === "Identifier" && c.object.name === "props")) {
+          out.push({ k: "expr", e: { k: "call", f: c.type === "Identifier" ? { k: "id", name: c.name } : { k: "member", o: { k: "id", name: "props" }, p: c.property.name }, args: call.arguments.map((a: N) => expr(a, scope)) } });
+          continue;
+        }
+        fail(call, "only a setter, a local $event or a Handler prop is called from an event");
       }
-      if (s.type === "ExpressionStatement" && s.expression.type === "CallExpression" && scope.get(callee(s.expression) ?? "")?.k === "setter")
+      if (s.type === "ExpressionStatement" && scope.get(callee(s.expression) ?? "")?.k === "setter")
         fail(s, "a setter returns a receipt: the write happens only at yield* set(v) (solid-yield's UNYIELDED_WRITE); a bare call writes nothing there, so it is refused rather than lowered as a write");
-      if (s.type === "VariableDeclaration" && s.declarations.length === 1 && isYield(s.declarations[0].init) && callee(s.declarations[0].init.argument) === "attempt") {
-        // const r: T | undefined = yield* attempt(() => call(…), function* () { absorbing handler });
-        // if (r !== undefined) { … }   ⇒   try { const r: T = yield call(…); … } catch (error) { handler }
-        const d = s.declarations[0], att = d.init.argument, [thunk, handler] = att.arguments;
-        if (d.id.type !== "Identifier" || !d.id.typeAnnotation) fail(d, "annotate the attempt's result, const r: T | undefined = yield* attempt(…); a consumed JS result needs a type");
-        const ann = d.id.typeAnnotation.typeAnnotation;
-        if (ann.type !== "TSUnionType" || ann.types.length !== 2 || ann.types[1].type !== "TSUndefinedKeyword")
-          fail(ann, "the attempt's result is T | undefined: undefined is the absorbed failure");
-        if (thunk?.type !== "ArrowFunctionExpression" || thunk.body.type !== "CallExpression" || thunk.params.length) fail(thunk ?? att, "attempt(() => call(…), …) takes a thunk that makes one call");
+      if (s.type === "VariableDeclaration" && s.declarations.length === 1 && isYield(s.declarations[0].init) && callee(strip(s.declarations[0].init.argument)) === "attempt") {
+        // const r = yield* attempt(() => call(…), function* () { absorbing handler }); if (r !== undefined) { … }
+        //   ⇒ try { let r = await call(…); … } catch (error) { handler }
+        const d = s.declarations[0], att = strip(d.init.argument), [thunk, handler] = att.arguments;
+        if (d.id.type !== "Identifier") fail(d.id, "bind the attempt's result to a name");
+        if (thunk?.type !== "ArrowFunctionExpression" || thunk.params.length || thunk.body.type !== "CallExpression") fail(thunk ?? att, "attempt(() => call(…), …) takes a thunk that makes one call");
         if (handler?.type !== "FunctionExpression" || !handler.generator || handler.params.length)
           fail(handler ?? att, "only an absorbing handler, function* () { … }, is in the yield subset: typed failures are not");
         const next = ss[i + 1];
@@ -190,14 +193,15 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
           next.test.left.type === "Identifier" && next.test.left.name === d.id.name && next.test.right.type === "Identifier" && next.test.right.name === "undefined";
         if (!guarded || i + 2 !== ss.length)
           fail(s, "after the attempt, the event continues only inside if (" + d.id.name + " !== undefined) { … }, as its last statement");
-        const success: N[] = next.consequent.type === "BlockStatement" ? next.consequent.body : [next.consequent];
-        // After the wait, reading a source could differ between the two (see read): only the result, the event's
-        // parameters and writes are allowed there.
-        const waited: Scope = new Map([...scope].map(([k, v]) => [k, v.k === "accessor" || (v.k === "path" && k !== "props") ? { k: "waited" } : v] as [string, Kind]));
-        const inner: Scope = new Map(waited);
-        inner.set(d.id.name, { k: "path" });
-        o.gen("try { const " + d.id.name + ": " + text(ann.types[0]) + " = yield ", s.start).add(expr(thunk.body, scope)).gen("; ", s.start)
-          .add(eventStatements(success, inner)).gen(" } catch (error) { ", handler.start).add(eventStatements(handler.body.body, waited)).gen(" }", handler.end);
+        const waited: Scope = new Map([...scope].map(([k, v]) => [k, v.k === "accessor" || (v.k === "path" && k !== "props") ? { k: "waited" } : v] as [string, B]));
+        const success: Scope = new Map(waited); success.set(d.id.name, { k: "value" });
+        out.push({
+          k: "try",
+          body: [{ k: "let", name: d.id.name, e: { k: "await", e: expr(thunk.body, scope) } },
+            ...events(next.consequent.type === "BlockStatement" ? next.consequent.body : [next.consequent], success)],
+          catchName: "error",
+          handler: events(handler.body.body, waited),
+        });
         i++;
         continue;
       }
@@ -205,176 +209,189 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
       if (s.type === "ThrowStatement") fail(s, "throw is not a yield routine form (solid-yield's UNTYPED_THROW)");
       fail(s, "this statement form is not in the yield event subset");
     }
-    return o;
+    return out;
+  };
+  const write = (call: N, b: Extract<B, { k: "setter" }>, scope: Scope): Stmt[] => {
+    if (call.arguments.length !== 1) fail(call, "a setter takes one value or updater");
+    const arg = strip(call.arguments[0]);
+    const target = (path: (string | Expr)[]) => ({ name: b.target, path, ctx: false });
+    if (b.store) {
+      // yield* setStore((draft) => { draft.a.b = e; … }): straight-line path writes
+      if (arg.type !== "ArrowFunctionExpression" || arg.params.length !== 1 || arg.params[0].type !== "Identifier" || arg.body.type !== "BlockStatement")
+        return fail(arg, "a store is written through a draft: yield* setStore((draft) => { draft.path = value; })");
+      const inner: Scope = new Map(scope); inner.set(arg.params[0].name, { k: "draft", store: b.target });
+      return arg.body.body.map((s: N): Stmt => {
+        const a = s.type === "ExpressionStatement" ? s.expression : undefined;
+        if (a?.type !== "AssignmentExpression" || a.operator !== "=") return fail(s, "draft blocks hold straight-line assignments");
+        const path: (string | Expr)[] = [];
+        let x = a.left;
+        while (x.type === "MemberExpression") { path.unshift(x.computed ? expr(x.property, inner) : x.property.name); x = x.object; }
+        if (x.type !== "Identifier" || x.name !== arg.params[0].name) return fail(a.left, "a draft assignment writes a path of the draft");
+        return { k: "write", target: target(path), e: expr(a.right, inner) };
+      });
+    }
+    if (arg.type === "ArrowFunctionExpression") {
+      // a functional write: yield* setX((v) => e)
+      if (arg.params.length !== 1 || arg.params[0].type !== "Identifier" || arg.body.type === "BlockStatement" || arg.async) return fail(arg, "a functional write is (v) => expression");
+      const inner: Scope = new Map(scope); inner.set(arg.params[0].name, { k: "value" });
+      return [{ k: b.optimistic ? "optimistic" : "write", target: target([]), e: { k: "fn", params: [arg.params[0].name], body: expr(arg.body, inner) } }];
+    }
+    return [{ k: b.optimistic ? "optimistic" : "write", target: target([]), e: expr(arg, scope) }];
   };
 
   // ---------------------------------------------------------------- views
-  const child = (n: N, scope: Scope): Out => {
-    // a lazy view, function* () { return <…/>; }, or a fragment returned from it, as JSX children
-    const fn = routine(n, "a lazy view");
-    const ret = fn.body.body.length === 1 ? fn.body.body[0] : undefined;
-    if (ret?.type !== "ReturnStatement" || !ret.argument) fail(fn, "a lazy view has no body: function* () { return <…/>; }");
-    return jsx(ret.argument, scope, true);
-  };
   const props = (n: N): Map<string, N> => {
     if (n?.type !== "ObjectExpression") fail(n ?? program, "a call takes an object of props");
     const m = new Map<string, N>();
     for (const p of n.properties) {
-      if (p.type !== "Property" || p.computed || p.key.type !== "Identifier" || p.method || p.kind !== "init") fail(p, "props are plain named properties");
+      if (p.type !== "Property" || p.computed || p.key.type !== "Identifier" || p.method) fail(p, "props are plain named properties");
       m.set(p.key.name, p.value);
     }
     return m;
   };
-  const source_ = (v: N, scope: Scope): Out => {
-    // a prop or control input: a source or path (read where it is used), a hole function* () { return e; }, or a value
-    if (v.type === "FunctionExpression" && v.generator) {
-      const body = v.body.body;
-      if (body.length !== 1 || body[0].type !== "ReturnStatement") fail(v, "a hole is function* () { return e; }");
-      return expr(body[0].argument, scope);
-    }
-    if (isYield(v)) fail(v, "a yield* in a call's arguments reads in the caller and re-creates the child (solid-yield's no-read-in-prop)");
-    if (v.type === "Identifier" && scope.has(v.name)) {
-      const kind = scope.get(v.name)!;
-      if (kind.k === "accessor") return new Out().copy(source, v.start, v.end).gen("()", v.end);
-      if (kind.k === "path" || kind.k === "local") return expr(v, scope);
-    }
+  const input = (v: N, scope: Scope): Expr => {
+    // a control or prop input: a source or path, a hole function* () { return e; }, or a value
+    if (v.type === "FunctionExpression" && v.generator) return expr(only(v, "a hole is function* () { return e; }"), scope);
+    if (isYield(v)) return fail(v, "a yield* in a call's arguments reads in the caller and re-creates the child (solid-yield's no-read-in-prop)");
+    if (v.type === "Identifier" && scope.get(v.name)?.k === "accessor") return { k: "id", name: v.name };
+    if (v.type === "Identifier" && scope.get(v.name)?.k === "path") return { k: "id", name: v.name };
     return expr(v, scope);
   };
-  const hole = (n: N, scope: Scope): Out => {
-    const arg = n.argument;
-    const name = callee(arg);
+  const lazy = (n: N, scope: Scope): Markup[] => markup(only(routine(n, "a lazy view"), "a lazy view has no body: function* () { return <…/>; }"), scope);
+  const bind = (name: string, args: Expr[], params: string[]): Expr =>
+    ({ k: "fn", params, body: { k: "lit" } as Expr, stmts: [{ k: "expr", e: { k: "call", f: { k: "id", name }, args } }] });
+  const hole = (n: N, scope: Scope): Markup[] => {
+    const arg = strip(n.argument), name = callee(arg), at = line(n);
     if (name && LATER[name]) fail(arg, LATER[name]);
     if (name === "Show") {
       const p = props(arg.arguments[0]);
       for (const k of p.keys()) if (!["when", "fallback", "children"].includes(k)) fail(p.get(k), "Show takes when, fallback and children here");
       if (!p.has("when") || !p.has("children")) fail(arg, "Show needs when and children");
+      if (p.get("children").params?.length) fail(p.get("children"), "Show's row form (a child taking the value) is not in the yield subset");
       const fb = p.get("fallback");
-      const o = new Out().gen("<Show when={", arg.start).add(source_(p.get("when"), scope)).gen("}", arg.start);
-      if (fb) {
-        o.gen(" fallback={", fb.start);
-        if (fb.type === "StringLiteral" || (fb.type === "Literal" && typeof fb.value === "string")) o.copy(source, fb.start, fb.end);
-        else o.gen("<>", fb.start).add(child(fb, scope)).gen("</>", fb.end);
-        o.gen("}", fb.end);
-      }
-      const ch = p.get("children");
-      if (ch.params?.length) fail(ch, "Show's row form (a child taking the value) is not in the yield subset");
-      return o.gen(">", ch.start).add(child(ch, scope)).gen("</Show>", arg.end);
+      const fallback: Markup[] = !fb ? [] : fb.type === "Literal" && typeof fb.value === "string" ? [{ k: "text", s: fb.value, line: line(fb) }] : lazy(fb, scope);
+      return [{ k: "mif", c: input(p.get("when"), scope), t: lazy(p.get("children"), scope), tDecls: [], f: fallback, fDecls: [], line: at } as Markup];
     }
     if (name === "For") {
       const p = props(arg.arguments[0]);
       for (const k of p.keys()) if (!["each", "children"].includes(k)) fail(p.get(k), "For takes each and children here");
-      const ch = routine(p.get("children"), "For's row");
-      if (ch.params.length !== 1 || ch.params[0].type !== "Identifier") fail(ch, "a For row takes its item: function* (item) { … } (the index is not in the subset)");
-      const ret = ch.body.body.length === 1 ? ch.body.body[0] : undefined;
-      if (ret?.type !== "ReturnStatement" || callee(ret.argument) !== "view") fail(ch, "a row returns its view, with no row-owned state in the yield subset");
-      const inner: Scope = new Map(scope); inner.set(ch.params[0].name, { k: "path" });
-      const view = routine(ret.argument.arguments[0], "view");
-      const vret = view.body.body.length === 1 ? view.body.body[0] : undefined;
-      if (vret?.type !== "ReturnStatement") fail(view, "a view has no body: return <…/>");
-      return new Out().gen("<For each={", arg.start).add(source_(p.get("each"), scope)).gen("}>{(" + ch.params[0].name + ") => ", ch.start)
-        .add(jsx(vret.argument, inner, false)).gen("}</For>", arg.end);
+      const row = routine(p.get("children"), "For's row");
+      if (row.params.length !== 1 || row.params[0].type !== "Identifier") fail(row, "a For row takes its item: function* (item) { … } (the index is not in the subset)");
+      const ret = only(row, "a row returns its view, with no row-owned state in the yield subset");
+      if (callee(ret) !== "view") fail(ret, "a row returns its view: return view(function* () { return <…/>; })");
+      const inner: Scope = new Map(scope); inner.set(row.params[0].name, { k: "path" });
+      const body = markup(only(routine(ret.arguments[0], "view"), "a view has no body: return <…/>"), inner);
+      return [{ k: "mfor", name: row.params[0].name, xs: input(p.get("each"), scope), decls: [], body, line: at } as Markup];
     }
     if (name && components.has(name)) {
-      const p = arg.arguments.length ? props(arg.arguments[0]) : new Map();
-      const o = new Out().gen("<" + name, arg.start);
-      for (const [k, v] of p) {
+      const p = arg.arguments.length ? props(arg.arguments[0]) : new Map<string, N>();
+      const attrs = [...p].map(([k, v]) => {
         if (k === "children") fail(v, "children of yield components are not in the subset");
         const ev = v.type === "Identifier" ? scope.get(v.name) : undefined;
-        if (ev?.k === "event") {
-          o.gen(" " + k + "={(" + ev.params.map(q => q.name + ": " + q.type).join(", ") + ") => " + v.name + "(" + ev.params.map(q => q.name).join(", ") + ")}", v.start);
-          continue;
-        }
-        o.gen(" " + k + "={", v.start).add(source_(v, scope)).gen("}", v.end);
-      }
-      return o.gen(" />", arg.end);
+        if (ev?.k === "event") return { name: k, e: bind(v.name, ev.params.map(q => ({ k: "id", name: q }) as Expr), ev.params) };
+        return { name: k, e: input(v, scope) };
+      });
+      return [{ k: "el", tag: name, attrs, children: [], line: at } as Markup];
     }
-    if (name && /^[A-Z]/.test(name)) fail(arg, "unknown component or flow control: " + name);
-    return new Out().gen("{", n.start).add(expr(n, scope)).gen("}", n.end);
+    if (name && /^[A-Z]/.test(name)) return fail(arg, "unknown component or flow control: " + name);
+    return display(n, scope);
   };
-  const jsx = (n: N, scope: Scope, unwrap: boolean): Out => {
-    if (n.type === "ParenthesizedExpression") return jsx(n.expression, scope, unwrap);
-    if (n.type === "JSXFragment" && unwrap) {
-      const kids = n.children.filter((c: N) => !(c.type === "JSXText" && !c.value.trim()));
-      if (kids.length === 1 && kids[0].type === "JSXExpressionContainer" && isYield(kids[0].expression)) return hole(kids[0].expression, scope);
+  const display = (n: N, scope: Scope): Markup[] => {
+    // a hole showing a value; a conditional hole is a region with a branch each, as JSX's ternary child is
+    const e = strip(n);
+    if (e.type === "ConditionalExpression")
+      return [{ k: "mif", c: expr(e.test, scope), t: display(e.consequent, scope), tDecls: [], f: display(e.alternate, scope), fDecls: [], line: line(e) } as Markup];
+    return [{ k: "read", e: { k: "bin", op: "+", l: { k: "lit", v: "" }, r: expr(e, scope) }, line: line(e) }];
+  };
+  const markup = (raw: N, scope: Scope): Markup[] => {
+    const n = strip(raw);
+    if (n.type === "JSXFragment") return n.children.flatMap((c: N) => markup(c, scope));
+    if (n.type === "JSXText") { const s = decodeHTML(jsxText(n.value)); return s ? [{ k: "text", s, line: line(n) }] : []; }
+    if (n.type === "JSXExpressionContainer") {
+      const e = n.expression;
+      if (e.type === "JSXEmptyExpression") return [];
+      if (isYield(e) && callee(strip(e.argument))) return hole(e, scope);
+      return display(e, scope);
     }
-    if (n.type !== "JSXElement" && n.type !== "JSXFragment") fail(n, "a view returns JSX");
-    const o = new Out();
-    let at = n.start;
-    const visit = (x: N) => {
-      if (!x || typeof x !== "object") return;
-      if (Array.isArray(x)) { x.forEach(visit); return; }
-      if (typeof x.type !== "string") return;
-      if (x.type === "JSXOpeningElement" && x.name.type === "JSXIdentifier" && /^[A-Z]/.test(x.name.name))
-        fail(x, "a yield component is called in a hole, {yield* " + x.name.name + "({ … })}, never tagged (solid-yield's no-component-tag)");
-      if (x.type === "JSXSpreadAttribute") fail(x, "spread props are not in the yield subset");
-      if (x.type === "JSXAttribute" && x.value?.type === "JSXExpressionContainer" && isYield(x.value.expression) && x.name.type === "JSXIdentifier" && /^on[A-Z]/.test(x.name.name)) {
-        // onClick={yield* evt}: bind the event, un-called
-        const target = x.value.expression.argument;
-        const kind = target.type === "Identifier" ? scope.get(target.name) : undefined;
-        if (kind?.k !== "event") fail(target, "an event prop binds a local $event: onClick={yield* evt}");
-        if ((kind as { params: unknown[] }).params.length) fail(target, "a bound event receives the DOM event; events with parameters are only called from events in the yield subset");
-        o.copy(source, at, x.value.start).gen("{() => " + target.name + "()}", x.value.start); at = x.value.end; return;
+    if (n.type !== "JSXElement") return fail(n, "a view returns JSX");
+    const open = n.openingElement;
+    if (open.name.type !== "JSXIdentifier") fail(open, "namespaced and member tags are not in the yield subset");
+    if (/^[A-Z]/.test(open.name.name)) fail(open, "a yield component is called in a hole, {yield* " + open.name.name + "({ … })}, never tagged (solid-yield's no-component-tag)");
+    const attrs = open.attributes.map((a: N) => {
+      if (a.type !== "JSXAttribute") return fail(a, "spread props are not in the yield subset");
+      const key = a.name.type === "JSXIdentifier" ? a.name.name : "";
+      const v = a.value?.type === "JSXExpressionContainer" ? a.value.expression : undefined;
+      if (!/^on[A-Z]/.test(key) || !isYield(v)) return fail(a, "only event bindings, onX={yield* evt}, are in the yield subset's attributes");
+      const target = strip(v.argument);
+      const b = target.type === "Identifier" ? scope.get(target.name) : undefined;
+      if (b?.k !== "event") return fail(target, "an event prop binds a local $event: onClick={yield* evt}");
+      if (b.params.length) return fail(target, "a bound event receives the DOM event; events with parameters are only called from events in the yield subset");
+      return { name: key, e: bind(target.name, [], []) };
+    });
+    return [{ k: "el", tag: open.name.name, attrs, children: n.children.flatMap((c: N) => markup(c, scope)), line: line(n) }];
+  };
+
+  // ---------------------------------------------------------------- types
+  const aliases = new Map<string, N>();
+  const type = (t: N): string => {
+    if (t.type === "TSTypeReference" && t.typeName.type === "Identifier") {
+      const name = t.typeName.name, args = t.typeArguments?.params ?? [];
+      if (name === "Source") return type(args[0]);
+      if (name === "Handler") {
+        if (args[0]?.type !== "TSTupleType") fail(t, "Handler takes a tuple of argument types, Handler<[T]>");
+        return "(" + args[0].elementTypes.map((e: N, i: number) => "arg" + i + ": " + type(e)).join(", ") + ") => void";
       }
-      if (x.type === "JSXExpressionContainer" && x.expression.type !== "JSXEmptyExpression") {
-        const e = x.expression;
-        const yields = isYield(e) && (callee(e.argument) !== undefined && /^[A-Z]/.test(callee(e.argument)!));
-        o.copy(source, at, x.start);
-        if (yields) o.add(hole(e, scope)); else o.gen("{", x.start).add(expr(e, scope)).gen("}", x.end);
-        at = x.end; return;
-      }
-      for (const [k, v] of Object.entries(x)) if (k !== "start" && k !== "end" && k !== "type") visit(v);
-    };
-    visit(n.type === "JSXElement" ? [n.openingElement, n.children, n.closingElement] : n.children);
-    return o.copy(source, at, n.end);
+      if (aliases.has(name)) return type(aliases.get(name));
+    }
+    if (t.type === "TSTypeLiteral")
+      return "{ " + t.members.map((m: N) => (m.type === "TSPropertySignature" && m.key.type === "Identifier" && !m.optional && m.typeAnnotation
+        ? m.key.name + ": " + type(m.typeAnnotation.typeAnnotation) : fail(m, "Props members are required named properties with a type"))).join("; ") + " }";
+    if (["TSNumberKeyword", "TSStringKeyword", "TSBooleanKeyword"].includes(t.type)) return text(t);
+    return fail(t, "unsupported prop type: " + text(t));
   };
 
   // ---------------------------------------------------------------- components
   const components = new Map<string, N>();
   const componentOf = (init: N): N | undefined => (callee(init) === "component" ? init.arguments[0] : undefined);
+  const module: Scope = new Map();
   for (const s of program.body) {
-    const decl = s.type === "ExportNamedDeclaration" ? s.declaration : s.type === "ExportDefaultDeclaration" ? null : s;
-    if (s.type === "ExportDefaultDeclaration" && componentOf(s.declaration)) {
-      const fn = componentOf(s.declaration);
-      if (fn?.id) components.set(fn.id.name, fn);
-    }
+    const decl = s.type === "ExportNamedDeclaration" ? s.declaration : s;
+    if (s.type === "ExportDefaultDeclaration" && componentOf(s.declaration)?.id) components.set(componentOf(s.declaration).id.name, componentOf(s.declaration));
     if (decl?.type === "VariableDeclaration")
-      for (const d of decl.declarations) { const fn = componentOf(d.init); if (fn && d.id.type === "Identifier") components.set(d.id.name, fn); }
+      for (const d of decl.declarations) if (componentOf(d.init) && d.id.type === "Identifier") components.set(d.id.name, componentOf(d.init));
     if (decl?.type === "TSTypeAliasDeclaration") aliases.set(decl.id.name, decl.typeAnnotation);
   }
-  const component = (fn: N, name: string, exported: string): Out => {
+  const component = (fn: N, name: string, exported: boolean, isDefault: boolean): Decl => {
     routine(fn, "component");
     if (fn.id?.name !== name) fail(fn, "a component's routine is named after it: component(function* " + name + "(…) { … })");
     if (fn.params.length > 1) fail(fn.params[1], "a component takes one props parameter");
-    const scope: Scope = new Map();
-    let params = "";
+    const scope: Scope = new Map(module);
+    let propsType: string | undefined;
     if (fn.params.length) {
       const p = fn.params[0];
       if (p.type !== "Identifier" || p.name !== "props" || !p.typeAnnotation) fail(p, "the props parameter is props: Props<{ … }>");
       const t = p.typeAnnotation.typeAnnotation;
       if (t.type !== "TSTypeReference" || t.typeName.name !== "Props") fail(t, "the props parameter's type is Props<{ … }>");
-      params = "props: " + type(t.typeArguments.params[0]);
+      propsType = type(t.typeArguments.params[0]);
       scope.set("props", { k: "path" });
     }
-    const o = new Out().gen(exported + "function " + name + "(" + params + ") {\n", fn.start);
+    const decls: Decl[] = [];
     const body = fn.body.body;
     for (const s of body.slice(0, -1)) {
       if (s.type !== "VariableDeclaration" || s.kind !== "const" || s.declarations.length !== 1) fail(s, "a setup only creates: const … = yield* $signal(…), $memo(…), $event(…), …");
       const d = s.declarations[0];
-      const init = isYield(d.init) ? d.init.argument : d.init;
+      const init = isYield(d.init) ? strip(d.init.argument) : d.init;
       const what = callee(init);
       if (what && LATER[what]) fail(init, LATER[what]);
       if (what === "$event") {
         if (isYield(d.init)) fail(d.init, "an $event is created without yield*: const evt = $event(function* (…) { … })");
         if (d.id.type !== "Identifier") fail(d.id, "an $event is bound to a name");
         const ev = routine(init.arguments[0], "$event");
-        const params = ev.params.map((q: N) => {
-          if (q.type !== "Identifier" || !q.typeAnnotation) fail(q, "event parameters need explicit types");
-          return { name: q.name, type: text(q.typeAnnotation.typeAnnotation) };
-        });
+        const params = ev.params.map((q: N) => (q.type === "Identifier" && q.typeAnnotation ? q.name : fail(q, "event parameters need explicit types")));
+        const inner: Scope = new Map(scope);
+        for (const q of params) inner.set(q, { k: "value" });
         scope.set(d.id.name, { k: "event", params });
-        o.gen("  const " + d.id.name + " = action(function* (" + params.map((q: { name: string; type: string }) => q.name + ": " + q.type).join(", ") + ") {\n    ", s.start)
-          .add(eventStatements(ev.body.body, scope)).gen("\n  });\n", s.end);
-        solid.add("action");
+        decls.push({ k: "action", name: d.id.name, params, body: events(ev.body.body, inner), line: line(s) } as Decl);
         continue;
       }
       if (!isYield(d.init)) fail(d.init ?? d, "a setup creates with yield*: const … = yield* $signal(…)");
@@ -386,19 +403,31 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
         const v = init.arguments[0];
         if (v.type === "FunctionExpression" || v.type === "ArrowFunctionExpression") fail(v, what + " with a derived body is not in the yield subset");
         const [get, set] = d.id.elements.map((e: N) => e.name);
+        const value = expr(v, new Map());
         scope.set(get, what === "$store" ? { k: "path" } : { k: "accessor" });
-        scope.set(set, { k: "setter" });
-        const solidName = what === "$signal" ? "createSignal" : what === "$optimistic" ? "createOptimistic" : "createStore";
-        solid.add(solidName);
-        o.gen("  const [" + get + ", " + set + "] = " + solidName + "(", s.start).add(expr(v, scope)).gen(");\n", s.end);
+        scope.set(set, { k: "setter", target: get, optimistic: what === "$optimistic", store: what === "$store" });
+        decls.push(what === "$optimistic"
+          ? ({ k: "source", name: get, init: { k: "peek", e: value }, question: true, line: line(s) } as Decl)
+          : ({ k: "source", name: get, init: value, line: line(s) } as Decl));
         continue;
       }
       if (what === "$memo") {
         if (d.id.type !== "Identifier" || init.arguments.length !== 1) fail(d, "const m = yield* $memo(function* () { … }) (options are not in the subset)");
-        const body = memoBody(routine(init.arguments[0], "$memo"), scope);
+        const memo = routine(init.arguments[0], "$memo");
+        // const locals bound to reads, then one return; the locals are substituted into the return
+        const inner: Scope = new Map(scope);
+        const ss = memo.body.body;
+        for (const x of ss.slice(0, -1)) {
+          const v = x.type === "VariableDeclaration" && x.kind === "const" && x.declarations.length === 1 ? x.declarations[0] : undefined;
+          if (!v || v.id.type !== "Identifier" || !isYield(v.init)) fail(x, "a memo body binds reads (const x = yield* source) and returns one expression");
+          if (callee(strip(v.init.argument)) === "attempt") fail(v.init, "async memos (attempt in $memo) are not in the yield subset");
+          inner.set(v.id.name, { k: "local", e: read(v.init, scope) });
+        }
+        const ret = ss.at(-1);
+        if (ret?.type !== "ReturnStatement" || !ret.argument) fail(memo, "a memo body ends with one return");
+        if (isYield(ret.argument) && callee(strip(ret.argument.argument)) === "attempt") fail(ret.argument, "async memos (attempt in $memo) are not in the yield subset");
         scope.set(d.id.name, { k: "accessor" });
-        solid.add("createMemo");
-        o.gen("  const " + d.id.name + " = createMemo(() => ", s.start).add(body).gen(");\n", s.end);
+        decls.push({ k: "eq", name: d.id.name, e: expr(ret.argument, inner), line: line(s) } as Decl);
         continue;
       }
       fail(init, "not a setup operation in the yield subset: " + what);
@@ -406,65 +435,80 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
     const ret = body.at(-1);
     if (ret?.type !== "ReturnStatement" || callee(ret.argument) !== "view") fail(ret ?? fn, "a setup returns its view: return view(function* () { return <…/>; })");
     const view = routine(ret.argument.arguments[0], "view");
-    const vret = view.body.body.length === 1 ? view.body.body[0] : undefined;
-    if (vret?.type !== "ReturnStatement" || !vret.argument)
-      fail(view, "a view has no body: return <…/>; no if, no early return, no local computation (solid-yield's READ_IN_VIEW)");
-    return o.gen("  return ", ret.start).add(jsx(vret.argument, scope, false)).gen(";\n}\n", ret.end);
+    const vret = only(view, "a view has no body: return <…/>; no if, no early return, no local computation (solid-yield's READ_IN_VIEW)");
+    return { k: "component", name, props: "props", ...(propsType ? { propsType } : {}), decls, view: markup(vret, scope), line: line(fn), exported, ...(isDefault ? { isDefault } : {}) } as Decl;
   };
 
   // ---------------------------------------------------------------- module
-  const body = new Out();
+  const decls: Decl[] = [];
+  let entry: { name: string; line: number } | undefined;
   for (const s of program.body) {
     if (s.type === "ImportDeclaration") {
       if (s.source.value === "solid-yield") {
         if (s.importKind === "type") continue;
         for (const spec of s.specifiers) {
-          const name = spec.imported?.name ?? spec.local.name;
           if (spec.importKind === "type") continue;
+          const name = spec.imported?.name ?? spec.local.name;
           if (LATER[name]) fail(spec, LATER[name]);
           if (!SUBSET.has(name)) fail(spec, "not in the yield subset: " + name);
           if (spec.local.name !== name) fail(spec, "aliased solid-yield imports are not in the subset");
         }
         continue;
       }
-      body.copy(source, s.start, s.end).gen("\n", s.end);
+      if (s.importKind === "type" || s.specifiers.some((x: N) => x.type !== "ImportSpecifier" || x.importKind === "type"))
+        fail(s, "imports of other modules are named value imports here");
+      const names = s.specifiers.map((x: N) => ({ name: x.imported.name, alias: x.local.name }));
+      for (const x of names) module.set(x.alias, { k: "js" });
+      decls.push({ k: "import", names, from: s.source.value, pure: false, line: line(s) } as Decl);
       continue;
     }
     if (s.type === "TSTypeAliasDeclaration") continue;
     if (s.type === "ExportDefaultDeclaration") {
       const fn = componentOf(s.declaration);
       if (!fn?.id) fail(s, "export default component(function* Name() { … })");
-      body.add(component(fn, fn.id.name, "export default "));
+      decls.push(component(fn, fn.id.name, true, true));
+      entry = { name: fn.id.name, line: line(fn) };
       continue;
     }
     const decl = s.type === "ExportNamedDeclaration" ? s.declaration : s;
     if (decl?.type === "VariableDeclaration" && decl.declarations.length === 1 && componentOf(decl.declarations[0].init)) {
       const d = decl.declarations[0];
-      body.add(component(componentOf(d.init), d.id.name, s.type === "ExportNamedDeclaration" ? "export " : ""));
+      decls.push(component(componentOf(d.init), d.id.name, s.type === "ExportNamedDeclaration", false));
       continue;
     }
     fail(s, "module statements are imports, type aliases and components in the yield subset");
   }
-  out.gen("import { " + [...solid, "Show", "For"].filter(n => n !== "Show" && n !== "For" || body.text.includes("<" + n + " ")).join(", ") + ' } from "solid-js";\n', 0).add(body);
-  return { tsx: out.text, out };
+  return { decls, view: entry ? entryView(entry.name, entry.line) : [] } as Program;
 }
 
-/** Translate, then lower with the TSX frontend; its diagnostics are relocated to the yield source. */
-export function lowerYield(source: string, filename = "main.tsx", options?: Parameters<typeof lowerTsx>[2]) {
-  const { tsx, out } = yieldToTsx(source, filename);
-  try { return lowerTsx(tsx, filename, options); } catch (e) { throw relocate(e, source, filename, out); }
-}
-
-/** A yield entry module as a checked RX module set (other modules, e.g. ./api's .d.rx, load as before). */
+/** A yield entry and its .rx / .d.rx dependencies as one checked RX module set (no TSX lowering involved). */
 export function loadYieldModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
-  const text = read(entry);
-  if (text === undefined) throw new Error("no yield module " + entry);
-  const { tsx, out } = yieldToTsx(text, entry);
-  try { return loadTsxModules(entry, path => (path === entry ? tsx : read(path))); } catch (e) { throw relocate(e, text, entry, out); }
-}
-
-function relocate(e: unknown, source: string, filename: string, out: Out): unknown {
-  if (!(e instanceof TsxError)) return e;
-  const start = out.origin(e.start);
-  return new YieldError(filename, source, { start, end: Math.max(start, out.origin(e.end)) }, "(through the TSX frontend) " + e.message.replace(/^.*?:\d+:\d+: /, ""));
+  entry = joinPath("", entry);
+  const programs = new Map<string, Program>();
+  const order: string[] = [];
+  const diags: ModuleSet["diags"] = [];
+  const declarations = new Map<string, JsDecl[]>();
+  const visit = (path: string): void => {
+    if (programs.has(path)) return;
+    const source = read(path);
+    if (source === undefined) { diags.push({ code: "MODULE_NOT_FOUND", rule: "MO-6", file: path, line: 1, msg: "no module " + path }); return; }
+    const program = path.endsWith(".rx") ? parseProgram(source) : lowerYield(source, path);
+    for (const d of program.decls) {
+      if (d.k !== "import") continue;
+      if (/\.(rx|tsx)$/.test(d.from)) { d.resolved = joinPath(path, d.from); visit(d.resolved); continue; }
+      const key = joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
+      const text = read(key);
+      if (text === undefined) continue;
+      if (!declarations.has(key)) declarations.set(key, parseDeclarations(text));
+      const ds = declarations.get(key)!;
+      d.declared = key;
+      d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name);
+      d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name);
+      d.declaredSide = Object.fromEntries(ds.flatMap(x => (x.kind === "fn" && x.side ? [[x.name, x.side]] : [])));
+    }
+    programs.set(path, program);
+    order.push(path);
+  };
+  visit(entry);
+  return { entry, programs, order, diags, declarations };
 }

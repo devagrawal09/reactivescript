@@ -30,7 +30,7 @@ export default component(function* Tracker() {
   // Show the claim at once; commit the server's answer, or roll back and explain.
   const claim = $event(function* (id: number) {
     yield* setClaiming(id);
-    const owner: string | undefined = yield* attempt(
+    const owner = yield* attempt(
       () => assignIssue(id),
       function* () {
         yield* setStatus("Could not assign #" + id);
