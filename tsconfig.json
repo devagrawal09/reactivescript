@@ -25,6 +25,7 @@
     "tsx/rx/string-renderer.ts",
     "tsx/wire-key.ts",
     "tsx/fuzz/gen.ts",
-    "tsx/fuzz/run.ts"
+    "tsx/fuzz/run.ts",
+    "yield/lower.ts"
   ]
 }

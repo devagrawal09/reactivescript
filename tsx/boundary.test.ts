@@ -24,6 +24,16 @@ test("only tsx/rx/ imports the upstream checkout", () => {
     const text = readFileSync(new URL(f, here), "utf8");
     for (const b of banned) assert.ok(!text.includes(b), f + " reaches upstream directly (" + b + ")");
   }
+  // The yield frontend (yield/) reaches upstream only through tsx/rx/ as well.
+  const yieldDir = new URL("../yield/", here);
+  const yieldFiles = (readdirSync(yieldDir, { recursive: true }) as string[]).filter(f => /\.(ts|tsx|mjs)$/.test(f) && !f.startsWith("fixtures/"));
+  assert.ok(yieldFiles.length >= 2);
+  for (const f of yieldFiles) {
+    const text = readFileSync(new URL(f, yieldDir), "utf8");
+    for (const b of banned) assert.ok(!text.includes(b), "yield/" + f + " reaches upstream directly (" + b + ")");
+    for (const m of text.matchAll(/from "(\.\.\/tsx\/[^"]+)"/g))
+      assert.ok(["../tsx/rx/", "../tsx/modules.ts", "../tsx/lower.ts"].some(p => m[1].startsWith(p)), "yield/" + f + " imports " + m[1]);
+  }
 });
 
 test("pinned stack: reactivescript, its ref/SOLID_NEXT and the Solid checkout agree" + (process.env.RX_CANARY ? " (canary: pins not enforced)" : " with pins.json"), () => {
