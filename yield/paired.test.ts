@@ -191,4 +191,5 @@ test("yield refusals: forms outside the subset, or that would behave differently
   refused(tracker.replace("function* () {\n        yield* setStatus", "(cause) => new Error(String(cause)), function* () {\n        yield* setStatus"), "(cause) =>", /only an absorbing handler/);
   refused(tracker.replace("import { $event,", "import { $optimisticStore, $event,"), "$optimisticStore", /createOptimisticStore/);
   refused(tracker.replace("const owner: string | undefined =", "const owner ="), "owner = yield*", /annotate the attempt's result/);
+  refused(tracker.replace('yield* setStatus("");', 'yield* setStatus(yield* mode);'), "yield* mode);", /read before the attempt/);
 });

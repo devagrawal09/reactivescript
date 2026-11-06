@@ -56,7 +56,7 @@ const LATER: Record<string, string> = {
   until: "until is not in the yield subset", foreign: "foreign hand-offs are not in the yield subset",
 };
 
-type Kind = { k: "accessor" } | { k: "path" } | { k: "setter" } | { k: "event"; params: { name: string; type: string }[] };
+type Kind = { k: "accessor" } | { k: "path" } | { k: "setter" } | { k: "event"; params: { name: string; type: string }[] } | { k: "waited" };
 type Scope = Map<string, Kind | { k: "local"; out: Out }>;
 
 export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string; out: Out } {
@@ -107,6 +107,8 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
     if (kind.k === "accessor" && root === arg) return new Out().copy(source, arg.start, arg.end).gen("()", arg.end);
     if (kind.k === "path") return new Out().copy(source, arg.start, arg.end);
     if (kind.k === "local") return kind.out;
+    if (kind.k === "waited")
+      return fail(n, "after an attempt an event's read may see the value from before the call (solid-yield's transaction), where RX reads it as it stands after the wait: read before the attempt");
     return fail(n, kind.k === "event" ? "an event is bound in a view or called with yield* evt(…) in an event, not read"
       : "a setter is delegated to in an event, yield* set(v), not read");
   };
@@ -189,10 +191,13 @@ export function yieldToTsx(source: string, filename = "main.tsx"): { tsx: string
         if (!guarded || i + 2 !== ss.length)
           fail(s, "after the attempt, the event continues only inside if (" + d.id.name + " !== undefined) { … }, as its last statement");
         const success: N[] = next.consequent.type === "BlockStatement" ? next.consequent.body : [next.consequent];
-        const inner: Scope = new Map(scope);
+        // After the wait, reading a source could differ between the two (see read): only the result, the event's
+        // parameters and writes are allowed there.
+        const waited: Scope = new Map([...scope].map(([k, v]) => [k, v.k === "accessor" || (v.k === "path" && k !== "props") ? { k: "waited" } : v] as [string, Kind]));
+        const inner: Scope = new Map(waited);
         inner.set(d.id.name, { k: "path" });
         o.gen("try { const " + d.id.name + ": " + text(ann.types[0]) + " = yield ", s.start).add(expr(thunk.body, scope)).gen("; ", s.start)
-          .add(eventStatements(success, inner)).gen(" } catch (error) { ", handler.start).add(eventStatements(handler.body.body, scope)).gen(" }", handler.end);
+          .add(eventStatements(success, inner)).gen(" } catch (error) { ", handler.start).add(eventStatements(handler.body.body, waited)).gen(" }", handler.end);
         i++;
         continue;
       }
