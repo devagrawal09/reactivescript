@@ -119,7 +119,15 @@ accepted, TSX and RX must have equal canonical facts and equal frames on each ba
 RX must match native Solid. The two seeds whose interpreter diverges from the compiled RX (upstream, docs/FUZZ.md
 U1/U2) are asserted exactly. Generation is checked to be deterministic.
 
-`npm run verify:subset` passes 28 tests with no skips or TODOs; the package
+## Yield Frontend (spike)
+
+`yield/paired.test.ts` runs the counter and the issue tracker written in solid-yield's explicit generator dialect
+(`yield/fixtures/*.yield.tsx`) through `yield/lower.ts`: canonical facts equal to the handwritten RX and to the Solid
+TSX twin, a detected fact change, identical exact frames on solid-yield's own runtime (jsdom, pinned Solid), the
+compiled and interpreted RX lowered from yield and the compiled and interpreted handwritten RX, and a matrix of
+refused forms. See docs/YIELD.md.
+
+`npm run verify:subset` passes 44 tests with no skips or TODOs; the package
 typecheck is clean. Upstream's 12
 strict-mode diagnostics remain the separately recorded baseline.
 

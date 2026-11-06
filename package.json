@@ -10,9 +10,9 @@
     "#rx/*": "./upstream/ref/*"
   },
   "scripts": {
-    "verify:subset": "npm run check && node --experimental-strip-types --conditions=browser --conditions=development --test tsx/boundary.test.ts tsx/paired.test.ts tsx/composition.test.ts tsx/demo.test.ts tsx/stale-write.test.ts tsx/fuzz.test.ts",
+    "verify:subset": "npm run check && node --experimental-strip-types --conditions=browser --conditions=development --test tsx/boundary.test.ts tsx/paired.test.ts tsx/composition.test.ts tsx/demo.test.ts tsx/stale-write.test.ts tsx/fuzz.test.ts yield/paired.test.ts",
     "test:contracts": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/boundary.test.ts tsx/verifier.test.ts tsx/paired.test.ts tsx/contracts.test.ts",
-    "test": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/*.test.ts",
+    "test": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/*.test.ts yield/*.test.ts",
     "test:browser": "node --experimental-strip-types --test tsx/browser.ts",
     "check": "node --experimental-strip-types scripts/check-types.ts",
     "fuzz": "node --experimental-strip-types --conditions=browser --conditions=development scripts/fuzz.ts",

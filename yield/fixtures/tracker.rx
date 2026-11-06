@@ -1,0 +1,47 @@
+import { assignIssue } from "./api";
+
+export default component Tracker() {
+  source issues := {
+    list: [
+      { id: 1, title: "Crash on save", assignee: "" },
+      { id: 2, title: "Slow search", assignee: "ana" },
+      { id: 3, title: "Typo in footer", assignee: "" },
+    ],
+  };
+  source mode := "all";
+  source claiming = peek(0);
+  source status := "";
+
+  visible = filter(issues.list, issue => mode == "all" || issue.assignee == "");
+  unassigned = filter(issues.list, issue => issue.assignee == "").length;
+
+  action toggle() {
+    mode := mode == "all" ? "open" : "all";
+  }
+  action claim(id: number) {
+    optimistic claiming := id;
+    try {
+      let owner = await assignIssue(id);
+      issues.list[indexOf(issues.list, issue => issue.id == id)].assignee := owner;
+      status := "";
+    } catch (error) {
+      status := "Could not assign #" + id;
+    }
+  }
+
+  <section>
+    <button onClick={() => { toggle() }}>Filter: {mode}</button>
+    <b>{"" + unassigned} open</b>
+    {if visible.length > 0 {
+      for issue in visible { <IssueRow issue={issue} claiming={claiming == issue.id} onAssign={(id) => { claim(id) }}/> }
+    } else { <i>Nothing to triage</i> }}
+    <em>{status}</em>
+  </section>
+}
+
+component IssueRow(props: { issue: { id: number; title: string; assignee: string }; claiming: boolean; onAssign: (arg0: number) => void }) {
+  action take() {
+    props.onAssign(props.issue.id);
+  }
+  <p>{props.issue.title}: {if props.claiming { {"me"} } else { {props.issue.assignee || "nobody"} }}<button onClick={() => { take() }}>take</button></p>
+}

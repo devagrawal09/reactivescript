@@ -45,7 +45,7 @@ cd "$HERE"
 node --experimental-strip-types scripts/check-types.ts --out "$OUT"; record types $?
 node --experimental-strip-types --conditions=browser --conditions=development --test \
   --test-reporter=spec --test-reporter-destination="$OUT/suite.spec.txt" \
-  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts
+  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts yield/*.test.ts
 record suite $?
 node --experimental-strip-types --test \
   --test-reporter=spec --test-reporter-destination="$OUT/browser.spec.txt" \
