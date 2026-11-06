@@ -122,10 +122,9 @@ U1/U2) are asserted exactly. Generation is checked to be deterministic.
 ## Yield Frontend (spike)
 
 `yield/paired.test.ts` runs the counter and the issue tracker written in solid-yield's explicit generator dialect
-(`yield/fixtures/*.yield.tsx`) through `yield/lower.ts`: canonical facts equal to the handwritten RX and to the Solid
-TSX twin, a detected fact change, identical exact frames on solid-yield's own runtime (jsdom, pinned Solid), the
-compiled and interpreted RX lowered from yield and the compiled and interpreted handwritten RX, and a matrix of
-refused forms. See docs/YIELD.md.
+(`yield/fixtures/*.yield.tsx`, a syntax only) through `yield/lower.ts`: canonical facts equal to the handwritten RX
+and to the TSX twin, a detected fact change, identical exact frames on native Solid (the TSX twin) and on the compiled
+and interpreted RX, lowered from yield and handwritten, and a matrix of refused forms. See docs/YIELD.md.
 
 `npm run verify:subset` passes 44 tests with no skips or TODOs; the package
 typecheck is clean. Upstream's 12
