@@ -12,6 +12,51 @@ fn scenario() -> Scenario {
     serde_json::from_str(include_str!("fixtures/like.scenario.json")).unwrap()
 }
 #[test]
+fn equal_write_to_a_held_source_still_joins_the_hold() {
+    let r = Runtime::default();
+    let s = r.signal(0);
+    let a = r.begin_action();
+    r.write(s, 1);
+    r.flush();
+    let b = r.begin_action();
+    r.write(s, 1);
+    r.flush();
+    r.join_future(a);
+    r.finish_action(a);
+    r.flush();
+    assert_eq!(r.read(s).unwrap(), 0);
+    r.join_future(b);
+    r.finish_action(b);
+    r.flush();
+    assert_eq!(r.read(s).unwrap(), 1);
+}
+#[test]
+fn no_op_write_does_not_hold_an_unrelated_source() {
+    let r = Runtime::default();
+    let s = r.signal(1);
+    let o = r.optimistic_value(0);
+    r.write(s, 1);
+    let t = r.begin_action();
+    r.optimistic_write(o, 6);
+    r.flush();
+    r.write(s, 3);
+    r.flush();
+    assert_eq!(r.read(s).unwrap(), 3);
+    assert_eq!(r.read(o).unwrap(), 6);
+    r.join_future(t);
+    r.finish_action(t);
+    r.flush();
+}
+#[test]
+fn render_expression_errors_fail_the_run() {
+    let mut p: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/like.plan.json")).unwrap();
+    p["markup"][0]["children"][0]["value"] = serde_json::json!({"op":"read","source":"missing"});
+    assert!(run(serde_json::from_value(p).unwrap(), scenario())
+        .unwrap_err()
+        .contains("unknown source"));
+}
+#[test]
 fn native_like_scenario() {
     assert_eq!(
         run(plan(), scenario()).unwrap(),

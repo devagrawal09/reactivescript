@@ -124,6 +124,19 @@ impl Renderer for TextRenderer {
 mod tests {
     use super::*;
     #[test]
+    fn frames_are_exact_text_not_html() {
+        let mut r = TextRenderer::default();
+        let root = r.create_element("#root");
+        let b = r.create_element("button");
+        let text = r.create_text(" <&>\n");
+        r.set_prop(b, "title", "not rendered");
+        r.event(b, "onClick", "h");
+        r.insert(root, b, None);
+        r.insert(b, text, None);
+        assert_eq!(r.frame(root), " <&>\n");
+        assert_eq!(r.clickable(root), vec![b]);
+    }
+    #[test]
     fn moves_and_anchors() {
         let mut r = TextRenderer::default();
         let root = r.create_element("#root");

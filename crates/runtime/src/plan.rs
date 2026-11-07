@@ -227,7 +227,7 @@ impl App {
         for view in plan.markup {
             app.mount_view(root, view)?;
         }
-        app.runtime.flush();
+        app.flush_checked()?;
         Ok(app)
     }
     fn mount_view(&mut self, parent: Node, view: View) -> Result<(), String> {
@@ -277,6 +277,15 @@ impl App {
         }
         Ok(())
     }
+    fn flush_checked(&self) -> Result<(), String> {
+        self.runtime.flush();
+        let errors = self.runtime.graph.take_errors();
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
     pub fn frame(&self) -> String {
         self.renderer.borrow().frame(self.root)
     }
@@ -303,8 +312,7 @@ impl App {
             }],
             locals: BTreeMap::new(),
         })?;
-        self.runtime.flush();
-        Ok(())
+        self.flush_checked()
     }
     fn eval_action(&self, e: &Expr, locals: &BTreeMap<String, i64>) -> Result<i64, String> {
         match e {
@@ -394,8 +402,7 @@ impl App {
             },
         }
         self.run(e)?;
-        self.runtime.flush();
-        Ok(())
+        self.flush_checked()
     }
     pub fn pending(&self) -> usize {
         self.waiting.len()

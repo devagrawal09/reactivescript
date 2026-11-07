@@ -111,6 +111,17 @@ impl Runtime {
         self.read(id)
     }
     pub fn write(&self, id: SourceId, value: i64) {
+        // setSignal joins an existing hold BEFORE its equality gate (core.ts:2727).
+        let held = self.state.borrow().nodes[id].transaction;
+        if let Some(t) = held {
+            if !self.state.borrow().transactions[t].lane {
+                self.join_future(t);
+            }
+        }
+        // A fresh no-op does not queue a node or acquire a hold.
+        if self.current(id).ok() == Some(value) {
+            return;
+        }
         let mut s = self.state.borrow_mut();
         s.nodes[id].pending_value = Some(value);
         if !s.pending.contains(&id) {
