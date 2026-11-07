@@ -1,58 +1,37 @@
-# Upstream issues found while migrating (found at reactivescript aa85cbde, Solid ac28157)
+# Upstream issues relevant to the kept subset
 
-The frontend's failing set is unchanged at the current pin (reactivescript 8518fa1e, Solid 5e68925c).
+Pin: clean ReactiveScript fdbcad921c6bc1cae59cbebe9905eeabc480e88f, Solid 2105ffb8 (2.0.0-rc.21).
+These are observations, not waived frontend failures. Nothing was filed upstream by this work.
 
-Every item is reproduced on the pinned upstream without this package's lowering: by handwritten RX (repro directory or
-the handwritten-RX leg of a differential test), or by two upstream backends disagreeing on the same program. Nothing
-here has been filed upstream (filing needs the user's approval). "Decision needed" marks items that are not adapter
-work: they need an upstream fix (in both the reference and Rust implementations where the crate mirrors it) or a user
-decision about the supported boundary.
+## S-store-8: upstream's interpreter fails its own scenario
 
-## Patched (patches/0001-server-question-keys)
+The upstream test runner reports 111 pass, 1 fail. S-store-8 instant 4 expects Z-B- but gets Z+B-:
+the pending marker remains after the store-path write. The oracle and compiled runners pass all 112 scenarios.
+The full pinned gate records test exit 1 and fails; pins.json records the actual 111/1 baseline, not a clean result.
+No scenario is excluded and no exit code is ignored.
 
-1. **Server questions keyed lossily.** Reference interpreter and all three compiled runtimes keyed a server-fn
-   question as `name:` + `args.map(fmt).join(",")`. Repro: `upstream-repros/server-question-keys`; pin: interpreter
-   and compiled `number/number/a,b/a,b`; expected and patched: `number/string/a,b/a`. Rust: none needed (runtime/
-   interpreter only; crate parity re-run on the patched tree: 305/305, 176/176, 176/176).
+## Held writes: interpreter differs from compiled RX and native Solid
 
-## Not patched (decision needed)
+The fixed 200-seed run has 179 matching cases and 21 interpreter-only differences. In those cases, TSX and RX agree
+on each backend and compiled RX agrees with native Solid. The interpreter exposes writes the other backends hold:
 
-2. **Aliased error-class imports lose declaration identity** (reference checker AND Rust checker). Repro:
-   `upstream-repros/alias-failure-identity`. `scripts/run-rx-repro.ts` and `rxc conform` (the crate binary) both report
-   `UNHANDLED_FAILURE main.rx:4 … can fail with Absent and no catch or errored boundary above it discharges Absent`
-   although `Absent` and the boundary's `Lost` alias one `Missing`. Signatures also print the importer's alias
-   (`rejects(Error | Lost)`). The fix is declaration-keyed failure identity in check.ts, signature.ts and the crate's
-   checker together; the old prototype's reference-only refactor is not narrow and would break ref/Rust parity, so it
-   is not carried. Affects failure-identities, contracts typed-failure tests.
-3. **Same-named server fns in different components/modules share a question.** The key's name is the bare
-   declaration name (interpreter `d.name`; emitter `serverRef(J(d.name), …)`). Handwritten RX leg reproduces
-   (browser server-factories `4/4` vs `4/5`; server-identities "same-named server factories…"). Needs per-declaration
-   identity from the emitter, i.e. emit.ts and the crate's emit.rs (crate --lower parity), so not a runtime patch.
-4. **In-place server bodies run inside the client owner.** `serverCall` drives the body under `untrack` but not
-   detached from the calling owner (server-identities owner tests). Only observable when bodies run in place (tests,
-   local mode); needs an upstream decision whether in-place execution must mimic the server's ownerless context.
-5. **Interpreter try/catch/finally approximation.** Callback finalizers: native and compiled TSX agree, the reference
-   interpreter differs on the same program (callbacks.test.ts four cases). Upstream's own comment in runtime.ts calls
-   its finally handling an approximation.
-6. **Interpreter handler returns.** A suspended interpreted handler returns its run's value, never a Promise; compiled
-   and native return Promises (async-handlers "lexically async callbacks…", RX interpreted leg; its authored TSX legs
-   are refused for now, issue #20).
-7. **Compiled callbacks become async when an await is only nested.** A callback whose only await sits inside a nested
-   closure or an inline `action { }` compiles to an async function; native returns synchronously (async-handlers,
-   handwritten RX compiled legs).
-8. **Interpreter shows a pre-action question write early.** In `n := 1; draft := 1; action { … }`, the interpreter
-   commits `draft` before the frame native and compiled show (`0/1/…` vs `0/0/…`; RX and TSX interpreted legs).
-9. **Reference interpreter vs compiled differences from the old prototype's runtime patches** (own/non-self `pre`
-   history, keyed row retention, effect ordering, optional chaining, derived-store pending probes): the
-   "legacy core regression" and "upstream interpreter divergence" categories in baselines/observed-failures.json. In
-   each, the compiled legs (or the handwritten RX legs) show the same behavior with no TSX involved.
-10. **Parser does not terminate** on some non-program inputs, e.g. `parseProgram("<p>x</p>}")` (killed after 10 s).
+- U1: calling-handler writes before a pending action.
+- U2: writes while another action is already pending.
 
-## Semantic boundaries decided in this package (not defects)
+See docs/FUZZ.md and docs/FUZZ-findings.md for the reduced cases. baselines/fuzz-upstream.json names all 21 current
+seeds. The gate reports them; new upstream differences, generator errors, frontend differences or native-versus-
+compiled differences fail. The smoke test still asserts seeds 14 and 17 exactly. No held-write fix is claimed here.
 
-- AC-1b/AC-1c: a plain Solid callback that writes before an await has no RX spelling (upstream holds the write in an
-  inferred action and refuses it as HELD_WRITE); the TSX is refused at the callback. Tests prove the refusal on every
-  leg and keep the native evidence.
-- AC-1d STALE_OWN_READ and IO-2 IO_IN_REACTIVE refuse forms Solid accepts; the refusals are the pinned semantics.
-- `untrack(() => storePath)` returning a structured object: RX has only a value snapshot. Accepted only when nothing
-  can update the captured object in place (no derived store, no write inside the captured path); otherwise refused.
+## Ordinary async callbacks: issue #20
+
+They remain refused, with guidance to use an explicit synchronous generator action only when its held-write
+semantics are wanted. This is not a semantics-preserving rewrite. Explicit generator actions remain tested.
+
+## Removed scope
+
+The old broad port's failures are not part of the kept subset. Its source contexts, server helpers, async stores,
+effects, browser tests and associated issue catalog were removed, not fixed. Upstream withdrew source contexts
+(O-4 / RG-7c, PR #26); use write actions instead. They now receive the general outside-subset refusal.
+
+Patch 0001 (server question keys) still applied at fdbcad92, but was dropped with server-function support.
+Its removal is not evidence of an upstream fix. The package now runs against clean upstream with no patches.

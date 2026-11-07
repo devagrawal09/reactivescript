@@ -34,7 +34,14 @@ Run `npm run fuzz -- --seeds N --start S`. Results go to `.out/fuzz/run-S-N/`: s
 findings.md, and per divergence the generated and reduced TSX/RX, script and traces. `tsx/fuzz.test.ts` is a
 fixed-seed smoke test (seeds 0..19) in `verify:subset`.
 
-## Results: seeds 0..499 (pin 8518fa1e, Solid 5e68925c)
+## Current gate: seeds 0..199 (fdbcad92, Solid 2105ffb8 / rc.21)
+
+200 programs: 179 agree on all five legs; 21 differ only between the interpreter and compiled RX. No generator
+errors, adapter differences or native-versus-compiled differences. The exact upstream seed list is in
+baselines/fuzz-upstream.json. npm run verify:subset runs this fixed sample without reduction and fails on unlisted
+upstream differences as well as adapter/semantics differences. --no-reduce writes original traces, not reduced cases.
+
+## Historical larger run: seeds 0..499 (pin 8518fa1e, Solid 5e68925c)
 
 500 programs, 0 generator bugs, 0 crashes. 454 agree on facts and exact frames on all five legs. 46 diverge, all
 classified **upstream: interpreter vs compiled**. In every one native Solid, compiled TSX and compiled RX agree, and
@@ -46,9 +53,7 @@ the compiled RX hold in a pending action's transition:
 
 - **U1. Writes in the calling handler before the action (26 seeds):** 17 40 44 88 92 103 117 125 149 182 199 201 209
   242 256 258 273 280 306 320 367 419 420 427 444 484. A handler writes a signal or a store path and then calls the
-  action. Native and compiled hold the write until the action settles; the interpreter shows it at once. Same family
-  as docs/UPSTREAM-ISSUES.md #8 and the async-handlers "synchronous callback pre-writes join an inline held action"
-  interpreted-leg failures.
+  action. Native and compiled hold the write until the action settles; the interpreter shows it at once. This remains documented in docs/UPSTREAM-ISSUES.md; the old async-handlers suite was removed with the broad port.
 - **U2. Writes while another action is pending (20 seeds):** 14 42 90 107 145 150 152 164 189 193 220 237 253 262 283
   349 355 413 446 461. With an action in flight, a plain handler's writes, a second optimistic write, or another
   action's commit or failure are held by native and compiled, while the interpreter applies them per action (11 with

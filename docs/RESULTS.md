@@ -1,113 +1,48 @@
 # Measured results
 
-## Current state (2026-10-31, pin 8518fa1e)
+## Shrink and repin: fdbcad92 / Solid rc.21
 
-Stack: reactivescript 8518fa1e + patches/0001-server-question-keys (rebased; worktree `reactivescript-patched`),
-Solid 5e68925c (= ref/SOLID_NEXT, solid-js 2.0.0-rc.20), Node 24.18.0, Rust 1.97.1. Run: `frontend/.out/repin-8518`
-(`OUT=.out/repin-8518 sh scripts/verify-pinned.sh --rust`, READINESS mode).
+Clean ReactiveScript fdbcad921c6bc1cae59cbebe9905eeabc480e88f; Solid
+2105ffb8ca2fced55f5fac0763177fc93f97c2c2, exactly ref/SOLID_NEXT (2.0.0-rc.21).
+Node 24.18.0, Rust 1.97.1. No upstream patches.
 
-**Verdict: NOT READY (3 blockers: suite exit 1, browser exit 1, 96 failing tests).** Integrity problems: 0.
+The gate is now the kept subset, not the old full-port failure catalog. It includes every yield test from frontend
+main 202bf7f. No yield source or fixture was changed by the shrink. V8 coverage of the kept TSX tests and 200 seeds
+was used to find unused branches; removed behavior is refused before lowering.
 
-Upstream at the pin (unmodified runners on pin + 0001, the new `pins.json` baseline): interpreter 109/0, oracle
-109/0/0, compiled 109/0/0, types 149/0, SSR 102/0 with 7 skips; crate parity 317/317, `crate --lower` 181/181,
-`crate --project` 182/182; `cargo test --release` in `compiler/` 6 passed, 0 failed. The frontend numbers below are
-unchanged from aa85cbde (demo-1, same failing set): moving the pin added no failure and fixed none. Patch 0001 still
-applies (rebased, same changes); the defect is not fixed upstream at 8518fa1e. Upstream's new AC-1e finding
-(`STALE_WRITE_BACK`) needed no adapter change.
-
-Previous state (2026-10-29, aa85cbde, `frontend/.out/demo-1`, `--skip-upstream`): the same frontend counts, with
-the upstream runners skipped.
-
-| | Now |
+| Check | Result |
 | --- | --- |
-| All tests | 568 tests, 472 pass, 96 fail |
-| Ported suite | 537 tests, 444 pass, 93 fail |
-| Browser (Chromium) | 31 tests, 28 pass, 3 fail |
-| Coverage manifest (568) | 568 ran, 0 missing, 0 unlisted |
-| Skip / todo | 0 |
-| Strict types | 0 package diagnostics; upstream's 12 strict errors baselined |
-| `npm run verify:subset` | 21/21 (boundary 9, paired counter 3, composition 2, tracker demo 7) |
+| Kept tests | 49 passed (33 TSX/verifier, 16 yield), 0 failed/skipped/todo/cancelled |
+| Fuzz seeds 0–199 | 179 agree; 21 listed interpreter-only differences; no adapter/semantics differences or generator errors |
+| Strict types | 0 package diagnostics; unchanged baseline of 12 upstream diagnostics |
+| Upstream interpreter | 111 pass, 1 fail: S-store-8 |
+| Upstream oracle | 112 pass, 0 fail, 0 skip |
+| Upstream compiled | 112 pass, 0 fail, 0 skip |
+| Upstream types | 152 pass, 0 fail |
+| Upstream SSR / Chromium | 105 pass, 0 fail, 7 upstream skips |
+| Rust AST/check/model parity | 317/317 |
+| Rust lowering | 184/184; 232 modules across 3 targets, 696 source maps |
+| Rust projection | 185/185; 283 files, 11672 mappings |
+| Rust unit tests | 6 passed, 0 failed |
 
-Comparison with `baselines/observed-failures.json` (an unapproved observation, unchanged): 0 new failures, 0 new
-coverage gaps. Three observed entries no longer fail under their recorded identity, all because of the async-callback
-policy below, not because a backend was fixed: `async-handlers :: interpreted authored TSX #5` now passes as a
-refusal, and the `lower.test.ts` async block handler test and the browser `tsx async-handler` test were renamed to
-refusal tests. Every other failure is still classified as in the history below; none is approved.
+Commands: npm run verify:subset; OUT=.out/repin-fdbcad92 sh scripts/verify-pinned.sh --rust; git diff --check.
+The frontend subset is green. The full pinned check is red because upstream's S-store-8 exits 1; its expected
+Z-B- frame is Z+B- at instant 4. The runner and its exit are not hidden. Raw logs and the report are under
+.out/repin-fdbcad92; the fixed fuzz traces are under .out/fuzz/run-0-200.
 
-Changes since the 2026-10-28 measurement:
+The 21 fuzz differences are explicitly listed in baselines/fuzz-upstream.json, not passed off as backend agreement.
+Native Solid and compiled RX agree; TSX and handwritten RX agree within each backend. The interpreter still exposes
+held writes early (docs/FUZZ.md U1/U2). New upstream differences fail the gate until reviewed.
 
-- **Async-callback policy (temporary, [issue #20](https://github.com/ryansolid/reactivescript/issues/20)).** Every
-  authored ordinary async callback (event handlers, contextual callback props, forwarded and stored callbacks,
-  `createRxEffect` apply callbacks and cleanups) is refused at its `async` node with guidance to write
-  `action(function* () { ... yield request(); ... })`, which opts into held action semantics and is not a
-  semantics-preserving rewrite. `action(async ...)` is refused too. Async memo/store/server computations and
-  explicit generator actions are unaffected. Native and handwritten RX legs of the async-handler suites still run.
-- **Subset checkpoint.** `npm run verify:subset` (typecheck, boundary, paired counter, composition, demo); see
-  `docs/SUBSET.md`.
-- **Tracker demo.** `tsx/demo.test.ts` with `tsx/fixtures/demo/tracker.{tsx,rx}`: store list with a draft path write,
-  filter signal and memos, `For`/`Show` with fallback, a later-declared child with a callback prop, and an explicit
-  generator action with an optimistic claim, success commit and failure rollback. Equal checker facts and identical
-  frames across native Solid, both compiled programs and both interpreted programs.
+## What was removed, not fixed
 
-## History: measurement of 2026-10-28
+The old baseline was 573 tests with 96 failures. Legacy tests outside the kept set, browser fixtures, the failure
+catalog, coverage rename/removal machinery, server/context/effect helpers and patch queue were deleted. Source
+contexts were withdrawn upstream (O-4 / RG-7c); they now get the general outside-subset refusal. Async computations,
+derived stores, previous/deferred values, general setup helpers/constants and cross-module components are also out.
+Patch 0001 still applied at this pin; it was dropped because server functions are outside the subset, not because
+upstream fixed the key defect. Old failing tests were not weakened or relabeled as successes.
 
-Stack: reactivescript aa85cbde + patches/0001-server-question-keys (worktree `reactivescript-patched`), Solid
-ac28157 (= ref/SOLID_NEXT, Rust 1.97.1), Node 24.18.0, this package at commit 31ca133. Final run:
-`frontend/.out/verify-8` (`sh scripts/verify-pinned.sh --rust`, READINESS mode).
-
-**Verdict: NOT READY.** The port is not complete; the failures below are classified, not accepted.
-
-### Upstream at the pins (unmodified runners, on pin + patch 0001; identical to the clean pin)
-
-interpreter 104 PASS / 0 FAIL; oracle 104/0 (0 divergences); compiled 104/0 (0 divergences); types 144/0; SSR 97/0
-with upstream's 7 skips; crate parity 305/305; `crate --lower` 176/176; `crate --project` 176/176. The same numbers
-were measured on the clean pin before the patch (verify-pinned-3) and in the full canary of `main` (= pin).
-
-### This package
-
-| | Original worktree (old pin, reproduced from archive) | Now (pin + 0001) |
-| --- | --- | --- |
-| Ported suite | 513 tests, 510 pass, 3 fail | 527 tests, 432 pass, 95 fail |
-| Browser (Chromium) | 31/31 | 31 tests, 27 pass, 4 fail |
-| Coverage manifest (558) | n/a | 558 ran, 0 missing, 0 unlisted |
-| Skip / todo | 0 | 0 |
-| Strict types | clean | 0 package diagnostics; upstream's 12 strict errors baselined |
-| Contracts | n/a | boundary 6/6, verifier 5/5, paired counter 3/3 |
-
-Original known failures: structured optimistic rollback now **passes**; same-setup previous accessor still fails
-(interpreter leg); async structured keyed replacement still fails (native leg).
-
-### Coverage reconciliation
-
-The manifest is the original 513 identities (file + name + occurrence) with 3 recorded renames (two lower.test.ts
-decisions, the ported server namespace test), plus 14 added tests and the 31 browser tests. All 558 ran. The 22
-async-handlers subtests that had stopped registering now always register; where upstream refuses the form, each leg
-asserts that refusal.
-
-### The 99 failures (baselines/observed-failures.json; unapproved observation)
-
-Triage is leg-based where tests have backend legs (every leg runs the same lowered program).
-
-| Category | Count | Evidence |
-| --- | --- | --- |
-| legacy core regression (patch not carried) | 23 | raw-AST/RX core suites (effect-semantics, rx-effects, snapshot-core) and store-inference emitter output written for the old runtime/emit patches |
-| upstream behavior (handwritten RX reproduces) | 20 | the handwritten RX legs fail the same way (async-handlers, derived-stores interpreter frames, …) |
-| upstream interpreter divergence | 17 | only interpreted legs fail; compiled legs of the same program match native (callbacks try/finally, previous, keyed-async, owned-lifetimes, …) |
-| upstream defect | 17 | aliased error identity (reference + Rust checkers), same-named server fn keys (UPSTREAM-ISSUES #2, #3) |
-| upstream interpreter divergence (single test) | 11 | a test's interpreter assertion fails before its compiled/native ones |
-| upstream rule change | 4 | AC-1d STALE_OWN_READ (browser async-handler RX, features) |
-| upstream semantic change (AC-1b/AC-1c) | 2 | inferred-action refusal outside the leg-based suites (features, browser TSX async-handler) |
-| native behavior change | 2 | keyed-async native legs differ at Solid ac28157 |
-| paired behavior mismatch (suspected upstream, unconfirmed) | 2 | server-identities refresh across two instances (compiled refresh is keyed by equation name, `lastKey.get(name)`) and serverFunction owner detachment (compiled shows `failed`); TSX-only tests, no handwritten RX repro yet |
-| upstream behavior difference | 1 | in-place server body runs in the client owner (UPSTREAM-ISSUES #4) |
-
-No failure is classified as an adapter (TSX-only) failure. Adapter defects found and fixed during triage: missing
-`ErrVal`/`PENDING` adapter exports (snapshot-core failed to load), a fragment wrongly migrated by the entry tool
-(features), `untrack(() => store.path)` silently changing meaning when the captured object is updated in place (now
-refused at the authored span; accepted where nothing can update it in place).
-
-### Not run / not covered
-
-- No Rust route for TSX lowering (the crate consumes RX source; the frontend produces `Program` objects).
-- The alias-identity and same-name server key defects need fixes in both the reference and Rust implementations; not
-  patched. Interpreter divergences are reported, not patched.
+DOM/hydration is no longer a frontend claim. Upstream's own SSR runner still runs unfiltered, with its own seven skips.
+The retained frame/fact assertions are unchanged. The default-component entry and plain-value optimistic question
+flag remain required by the paired and yield tests.
