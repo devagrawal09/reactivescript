@@ -3,7 +3,8 @@
 This package lowers a narrow Solid TSX subset onto ReactiveScript. A separate [yield frontend](docs/YIELD.md)
 lowers directly to the same RX AST. This is an experiment, not a full Solid frontend or a browser/SSR parity claim.
 
-The gate keeps the counter, composition, tracker, stale-write checks, boundary checks, fuzzer, verifier and yield tests.
+The gate keeps the counter, composition, tracker, stale-write checks, boundary checks, fuzzer, verifier, yield tests,
+and the [like slice](docs/SCENARIO-FORMAT.md) (native Solid plus all three compiled frontends).
 The old broad port and its known-failure catalog were removed rather than carried forward.
 
 ## Run

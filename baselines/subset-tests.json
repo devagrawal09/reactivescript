@@ -51,5 +51,14 @@
   "yield/paired.test.ts :: yield events: calling a local event calls its handler, not a declared action",
   "yield/paired.test.ts :: yield events: row parameters cannot capture a handler's source reads",
   "yield/paired.test.ts :: TSX inline action callbacks: bodies without an AC-1b trigger still need a named action",
-  "yield/paired.test.ts :: yield refusals: forms outside the subset, or that would behave differently from RX, are refused at their source"
+  "yield/paired.test.ts :: yield refusals: forms outside the subset, or that would behave differently from RX, are refused at their source",
+  "slices/like.test.ts :: like: TSX, RX and yield have equal canonical facts",
+  "slices/like.test.ts :: like: snapshotting the optimistic base is a detected fact change",
+  "slices/like.test.ts :: like frames: native Solid",
+  "slices/like.test.ts :: like frames: compiled TSX",
+  "slices/like.test.ts :: like frames: compiled RX",
+  "slices/like.test.ts :: like frames: compiled yield",
+  "slices/like.test.ts :: upstream S-infer-1 frames: native",
+  "slices/like.test.ts :: upstream S-infer-1 frames: rx",
+  "slices/like.test.ts :: like: optimistic bodies keep unsupported routines outside the subset"
 ]

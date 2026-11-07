@@ -24,6 +24,7 @@
     "tsx/fuzz/gen.ts",
     "tsx/fuzz/run.ts",
     "yield/lower.ts",
+    "slices/run-js.ts",
     "tsx/subset.ts",
     "scripts/report.ts",
     "scripts/fuzz.ts"

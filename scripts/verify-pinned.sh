@@ -28,7 +28,7 @@ cd "$HERE"
 node --experimental-strip-types scripts/check-types.ts --out "$OUT"; record types $?
 node --experimental-strip-types --conditions=browser --conditions=development --test \
   --test-reporter=spec --test-reporter-destination="$OUT/suite.spec.txt" \
-  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts yield/*.test.ts
+  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts yield/*.test.ts slices/*.test.ts
 record suite $?
 node --experimental-strip-types --conditions=browser --conditions=development scripts/fuzz.ts --seeds 200 --start 0 --no-reduce > "$OUT/fuzz.log" 2>&1
 record fuzz $?

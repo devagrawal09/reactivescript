@@ -11,7 +11,7 @@
   },
   "scripts": {
     "verify:subset": "sh scripts/verify-pinned.sh --subset",
-    "test": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/*.test.ts yield/*.test.ts",
+    "test": "node --experimental-strip-types --conditions=browser --conditions=development --test tsx/*.test.ts yield/*.test.ts slices/*.test.ts",
     "check": "node --experimental-strip-types scripts/check-types.ts",
     "fuzz": "node --experimental-strip-types --conditions=browser --conditions=development scripts/fuzz.ts",
     "build": "node --experimental-strip-types tsx/build.ts",

@@ -44,6 +44,7 @@ A frame is the universal test renderer's text, **not HTML**:
 For example, a button containing the number 0 renders `0`, not `<button>0</button>`.
 A paragraph with three text pieces `2`, ` items / `, and ` / 0` renders `2 items /  / 0`.
 A Rust renderer can reproduce a frame by recursively appending text-node bytes in child order.
+Numeric holes in these fixtures are integers, rendered in base ten with no decimal suffix or grouping.
 
 ## Host calls and timing
 
@@ -71,5 +72,19 @@ so it is deliberately not a leg in this slice's gate. This is not a claim of int
 The yield frontend has no declared-action form and expands `$event` at the button. Therefore the TSX
 twin binds an inline generator action, and the RX twin uses the same inferred-action handler. The
 optimistic increment, committed source, tracked optimistic base, catch, and host wait are unchanged.
-Yield uses `attempt` instead of try/catch, as that syntax requires. Its new synchronous optimistic
+TSX requires a `number` annotation on the local host result. Yield uses `attempt` instead of try/catch, as that syntax requires. Its new synchronous optimistic
 body form keeps the tracked dependency on the committed source; a constant seed would not be faithful.
+
+## Second example: upstream S-infer-1
+
+`slices/like/s-infer-1.scenario.json` converts the main confirmation trace from
+`upstream/scenarios/S-infer-1.md` at fdbcad92: mount, click, resolve the first `fetch` call with `"yes"`.
+Its frames are `"no "`, `"yes "`, `"yes "` (including the trailing spaces). The adjacent RX fixture is the
+original Program block, unchanged. The JSON replaces the handler-source row with a click and the
+argument-keyed resolution with call number 1. It runs on compiled RX and a cheap native Solid twin.
+Solid spells the RX question source as a committed signal plus an optimistic accessor; this second
+example checks frames, not equal facts across those different source layouts. Its scalar host signature
+is `fetch(string): string` (async). No server wrapper or browser network is involved.
+
+Luna's initial suggestion, S-action-1, also has an array question source and a finally block. S-infer-1
+fits this slice more closely: scalar values, one optimistic handler, one wait, and one catch.
