@@ -1,0 +1,33 @@
+{
+  "total": 1000,
+  "agreement": 7,
+  "rate": 0.007,
+  "invalid": 0,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 2000,
+    "effect": 1000,
+    "flush": 6040,
+    "action": 3000,
+    "read": 18000,
+    "reject": 1515,
+    "write": 2029,
+    "resolve": 1485
+  },
+  "modes": {
+    "scalar-actions": {
+      "total": 1000,
+      "agreement": 7
+    }
+  },
+  "classes": {
+    "scalar-actions-compute-read": {
+      "count": 105,
+      "seed": 1
+    },
+    "scalar-actions-compute-effect_cleanup": {
+      "count": 888,
+      "seed": 2
+    }
+  }
+}

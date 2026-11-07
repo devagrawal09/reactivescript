@@ -17,6 +17,7 @@ Read-only source: Solid `2105ffb8ca2fced55f5fac0763177fc93f97c2c2`, rc.21, `pack
 | `core/scheduler.ts:260–347`, `Transaction`, `newTransaction` | `Transaction`: nodes, into, parent, lane, open, acted, shown. Lane/effect queues, reruns and verdict links outside this scalar path are **not ported**. |
 | `core/scheduler.ts:414–451`, `resolveTx`, `joinFuture`, `merge` | `resolve_tx`, `join_future`, `merge`: follow merged transaction links, merge same-tick action work, add open counts, append held nodes; lanes do not merge as peers. |
 | `core/scheduler.ts:616–630`, node ownership/listing | `list`: held source records the owning transaction; transaction owns its node list. |
+| `core/core.ts:2693–2742`, `setSignal` | `write`: an existing hold joins before equality; a fresh equal write does not queue a node or acquire a hold. Two regression tests distinguish these cases. |
 | `core/lanes.ts:137–209`, pendingGuesses, `guessedValueOf`, `optimisticWrite` | pending guess triples; updater reads the latest queued guess, then lane, then truth; writes do not overwrite truth. |
 | `core/lanes.ts:220–280`, `applyGuesses` | `apply_guesses`: route guesses to a lane under the action transaction, or discard an unheld guess. Reuse the lane for other guesses in the same pass. |
 | `core/lanes.ts:872–904`, `laneSeam` | scalar lane reveal at flush; no async computed blockers exist in this slice. |
@@ -52,7 +53,13 @@ The Rust fixture is a byte copy of the emitted plan and native scenario. Cargo t
 
 `generate-slice1.mjs` keeps the existing JSON operation protocol and seeded RNG. It generates scalar sources (including optimistic), render effects, ordinary and optimistic writes, reads, action slices, flushes, resolves and rejects. Each seed has three actions, with varied ordinary writes before and during holds. Excluded: stores, lists, async memos, refresh, custom equality, loading/pending probes, owner changes, and nested/overlapping action generation. The original generator/oracle remain available unchanged without `--slice1`. No expected/actual event is dropped.
 
-Full results and reduced repros will be added after the 1,000-seed run completes.
+Final run at runtime commit `2752ca0`: **7/1000 exact traces agree (0.7%), 993 diverge, 0 invalid**. Remaining first-difference classes: compute/read (105) and compute/effect_cleanup (888). Both reduced cases expose missing staged-truth computation/held callback work, not a text-format workaround.
+
+The initial run at `3911d2e` had 5/1000 agreement and four classes. A fresh no-op write acquiring a hold caused the effect/effect value mismatch; the source equality gate fixed that. Historical cases and all final reduced cases plus exact traces are checked in under [slice1-fuzz](slice1-fuzz/README.md). The full local final corpus remains `out/slice1-verified/`. Reducers now retain each first-difference class.
+
+Validation: **26 Rust tests pass** (15 existing, 11 added); **4 frontend integration tests pass**, with none skipped when `RUST_SCENARIO` is set. `cargo fmt --check` and `git diff --check` pass. The fresh three-frontend test uses sol's committed lowering from `694e509` (worktree now at `158bea5`). The plan copies in frontend, scratch and Rust have the same SHA-256: `d5fb8d4bc7794ddeb1a37af8919e310173e63214916155653e15cb4554072403`.
+
+This establishes the end-to-end frame skeleton, **not the requested complete structural scheduler fidelity**. The M1 graph/effect substrate must be replaced or extended with the missing Solid staging passes before claiming that stronger result. Transaction records are also retained for this small run; lifetime/reclamation is not production-ready.
 
 ## Slice 2 risks
 

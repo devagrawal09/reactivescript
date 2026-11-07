@@ -1,0 +1,70 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 1
+  },
+  {
+    "op": "signal",
+    "id": "o",
+    "value": 0,
+    "optimistic": true
+  },
+  {
+    "op": "effect",
+    "id": "view",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "s"
+      },
+      "b": {
+        "op": "read",
+        "id": "o"
+      }
+    },
+    "render": true
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 1
+  },
+  {
+    "op": "action",
+    "id": "a0",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "o",
+            "value": 6
+          }
+        ],
+        "flight": "f0"
+      },
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 2
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 3
+  },
+  {
+    "op": "resolve",
+    "flight": "f0",
+    "value": 3
+  }
+]

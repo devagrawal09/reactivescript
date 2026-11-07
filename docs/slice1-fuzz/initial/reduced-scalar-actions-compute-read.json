@@ -1,0 +1,64 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 2
+  },
+  {
+    "op": "signal",
+    "id": "o",
+    "value": 0,
+    "optimistic": true
+  },
+  {
+    "op": "effect",
+    "id": "view",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "s"
+      },
+      "b": {
+        "op": "read",
+        "id": "o"
+      }
+    },
+    "render": true
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 3
+  },
+  {
+    "op": "action",
+    "id": "a2",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "o",
+            "value": 0
+          }
+        ],
+        "flight": "f2"
+      },
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 6
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "read",
+    "id": "s"
+  }
+]
