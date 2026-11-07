@@ -38,8 +38,8 @@
       "status": "paused"
     },
     {
-      "name": "Slice 1: like button through every layer",
-      "status": "in progress"
+      "name": "Slice 1: like button through every layer (gate passed; Rust fuzz 0.7%)",
+      "status": "done"
     },
     {
       "name": "Slice 2: tracker (lists, stores, per-row optimistic)",
@@ -88,33 +88,27 @@
       {
         "name": "Resolved plan + CP-6 fallback list",
         "owner": "astra",
-        "status": "running"
+        "status": "done"
       },
       {
         "name": "Structural port of Solid's transition path",
         "owner": "astra",
-        "status": "running"
+        "status": "done"
       },
       {
         "name": "Renderer trait + text renderer + plan evaluator",
         "owner": "astra",
-        "status": "running"
+        "status": "done"
       },
       {
         "name": "Subset fuzz vs Solid JS",
         "owner": "astra",
-        "status": "running"
+        "status": "done"
       }
-    ]
+    ],
+    "result": "Gate PASS: identical plans from RX/TSX/yield; Rust frames 0→1→0→1→1 = native. Subset fuzz vs Solid JS: 7/1000 agree (0.7%); first diffs compute/read 105, compute/effect_cleanup 888."
   },
-  "agents": [
-    {
-      "who": "astra",
-      "session": "ses_e4baa49f3ffePwEsafY7JAIBO0",
-      "task": "Slice 1: plan + Rust leg",
-      "status": "running"
-    }
-  ],
+  "agents": [],
   "findings": [
     "Upstream lowering is AST-driven; CP-6 facts are output-only today",
     "Fuzzer: 454/500 agree, 46 interpreter-vs-compiler (#33), 0 frontend bugs",
@@ -122,7 +116,9 @@
     "Solid 2 has server components (Frames, live holes); RX has none",
     "No runtime-neutral conformance kit exists anywhere yet",
     "rune: partial fit (no public mutable tree); Blitz or Masonry fit better",
-    "Solid's async model needs several views per node (_value, _pendingValue, lane, _shown)"
+    "Solid's async model needs several views per node (_value, _pendingValue, lane, _shown)",
+    "Slice 1: plan needs 8 AST fallbacks; CP-6 lacks expressions, control flow, markup, locals, optimistic kind",
+    "Slice 1: a passing frame hides runtime differences; Rust lacks speculative compute passes and held callback queues"
   ],
   "parked": [
     "Generative UI / live evaluator",
@@ -131,10 +127,11 @@
     "Triage of 15 Solid JS hangs in rust-solid fuzz"
   ],
   "decisions": [
-    "Architecture issue scope (hold until slice 1–2)",
     "Pull ~/solid: fork next or official next? (3 untracked dirs)",
     "Back up rust-solid",
-    "Server wire/hydration research pass"
+    "Server wire/hydration research pass",
+    "Slice 2 now, or first raise Rust subset parity (0.7%) with a full structural port of the scheduler?",
+    "Architecture issue scope"
   ],
-  "next": "Review astra's slice 1 result; if the gate passes, start slice 2 (tracker)."
+  "next": "Decide: harden the Rust transition core on slice 1 subset (fuzz parity) before slice 2, or proceed to slice 2."
 }
