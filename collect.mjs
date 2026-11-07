@@ -174,12 +174,12 @@ async function runGate(target){
   if(before.split('\n').some(line=>line&&!line.startsWith('??')))throw new Error('Tracked source changes: cannot label a gate with commit '+target.sha);
   const sandbox='/usr/bin/sandbox-exec';if(!await exists(sandbox))throw new Error('Write sandbox unavailable; gate refused to protect source repos');
   await fs.rm(workspace,{recursive:true,force:true});
-  await fs.cp(target.dir,workspace,{recursive:true,dereference:true,filter:source=>{const parts=path.relative(target.dir,source).split(path.sep);return !parts.includes('.DS_Store')&&!(parts.includes('.out')&&parts.includes('fuzz'));}});
+  await fs.cp(target.dir,workspace,{recursive:true,dereference:false,filter:source=>{const parts=path.relative(target.dir,source).split(path.sep);return !parts.includes('.DS_Store')&&!(parts.includes('.out')&&parts.includes('fuzz'));}});
   if(await git(target.dir,['rev-parse','HEAD'])!==target.sha||await git(target.dir,['status','--porcelain=v1','--untracked-files=all'])!==before)throw new Error('Source changed during copying; gate skipped');
   // Preserve relative source paths expected by the unmodified verification script.
   for(const name of ["solid-next"]){
     const source=path.join(BASE,name),destination=path.join(CACHE,'workspaces',name);
-    if(await exists(source)&&!await exists(destination))await fs.cp(source,destination,{recursive:true,dereference:true,filter:file=>!path.relative(source,file).split(path.sep).includes('.DS_Store')});
+    if(await exists(source)&&!await exists(destination))await fs.cp(source,destination,{recursive:true,dereference:false,filter:file=>!path.relative(source,file).split(path.sep).includes('.DS_Store')});
   }
   const realGit=(await command('/usr/bin/which',['git'])).stdout.trim();
   const wrapper='#!/usr/bin/env node\nconst {spawnSync}=require("node:child_process");const args=process.argv.slice(2);let i=0;while(args[i]==="-C"){i+=2;}const cmd=args[i];const tail=args.slice(i+1);const allowed=["rev-parse","log","status","rev-list"].includes(cmd)||(cmd==="worktree"&&tail[0]==="list")||(cmd==="branch"&&tail.every(a=>a.startsWith("--format=")||["--show-current","-a","--all","--list"].includes(a)));if(!allowed){console.error("Read-only gate: git command refused: "+cmd);process.exit(125);}const r=spawnSync('+JSON.stringify(realGit)+',args,{stdio:"inherit",env:{...process.env,GIT_OPTIONAL_LOCKS:"0"}});process.exit(r.status??1);\n';

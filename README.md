@@ -40,7 +40,7 @@ All dashboard writes stay in this folder. Source git commands are read-only and 
 
 The gate target is frontend main and, if present, slice1-js HEAD. Each SHA runs once, with at most one gate process at a time and a 10-minute process timeout. Results and output are in `cache/gates/<target>/<sha>.json` and `.log`.
 
-Gate source files and dependencies are copied into `cache/workspaces/`. `npm run verify:subset` runs there with a macOS write sandbox, plus HOME, temporary files and npm cache inside this dashboard. A git wrapper also refuses all commands except the allowed read-only commands. If the sandbox is unavailable, the gate records an error rather than running without protection.
+Gate source files are copied into `cache/workspaces/`. Linked dependencies may still be read from their original paths, but the sandbox forbids writes there. Links are not expanded into large duplicate dependency trees. `npm run verify:subset` runs there with a macOS write sandbox, plus HOME, temporary files and npm cache inside this dashboard. A git wrapper also refuses all commands except the allowed read-only commands. If the sandbox is unavailable, the gate records an error rather than running without protection.
 
 Frontend main must already be checked out at main. Tracked changes block a gate rather than label a result with the wrong SHA. Source changes during copying are also detected. Missing worktrees are skipped.
 
