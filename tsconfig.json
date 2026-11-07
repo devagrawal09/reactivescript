@@ -7,25 +7,25 @@
     "target": "esnext",
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "files": [
     "tsx/lower.ts",
     "tsx/modules.ts",
     "tsx/build.ts",
-    "tsx/primitives.ts",
-    "tsx/previous.ts",
-    "tsx/effects.ts",
     "tsx/rx/ast.ts",
     "tsx/rx/compiler.ts",
     "tsx/rx/runtime.ts",
     "tsx/rx/infer.ts",
-    "tsx/rx/failure.ts",
     "tsx/rx/facts.ts",
     "tsx/rx/string-renderer.ts",
-    "tsx/wire-key.ts",
     "tsx/fuzz/gen.ts",
     "tsx/fuzz/run.ts",
-    "yield/lower.ts"
+    "yield/lower.ts",
+    "tsx/subset.ts",
+    "scripts/report.ts",
+    "scripts/fuzz.ts"
   ]
 }

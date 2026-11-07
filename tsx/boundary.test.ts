@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { check, parseProgram, parseStmts, singleModule } from "./rx/compiler.ts";
-import { entryView, serverDecl, selectEntry } from "./rx/ast.ts";
+import { entryView, selectEntry } from "./rx/ast.ts";
 import { semanticFacts } from "./rx/facts.ts";
 import { actionInference } from "./rx/infer.ts";
 import { lowerTsx, TsxError } from "./lower.ts";
@@ -19,7 +19,7 @@ test("only tsx/rx/ imports the upstream checkout", () => {
   const banned = ["#" + "rx/", "../" + "src/", "../" + "compile/", "upstream" + "/ref/"];
   const files = (readdirSync(here, { recursive: true }) as string[])
     .filter(f => /\.(ts|tsx|mjs)$/.test(f) && !f.startsWith("rx/") && !f.startsWith("fixtures/"));
-  assert.ok(files.length > 20);
+  assert.ok(files.includes("lower.ts") && files.includes("subset.ts"));
   for (const f of files) {
     const text = readFileSync(new URL(f, here), "utf8");
     for (const b of banned) assert.ok(!text.includes(b), f + " reaches upstream directly (" + b + ")");
@@ -38,7 +38,7 @@ test("only tsx/rx/ imports the upstream checkout", () => {
   }
 });
 
-test("pinned stack: reactivescript, its ref/SOLID_NEXT and the Solid checkout agree" + (process.env.RX_CANARY ? " (canary: pins not enforced)" : " with pins.json"), () => {
+test("stack commits: Solid matches ref/SOLID_NEXT; pins enforced outside canary", () => {
   const pins = JSON.parse(readFileSync(new URL("pins.json", root), "utf8"));
   const upstream = fileURLToPath(new URL("upstream/", root));
   const head = (dir: string) => execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -60,15 +60,6 @@ test("entry representation: the adapter's default-component entry is what upstre
   selectEntry(selected, "App");
   assert.deepEqual(selected.view, parsed.view);
   assert.deepEqual(selected.decls, parsed.decls);
-});
-
-test("server representation: one server declaration kind, io inferred by the checker (SF-1)", () => {
-  const [parsed] = parseProgram("server fn load(a) { return a }").decls;
-  assert.equal(parsed.k, "server");
-  assert.ok(!("kind" in parsed), "no server fn/action split");
-  const built = serverDecl("load", ["a"], parseStmts("return a"), 1);
-  for (const key of Object.keys(built)) assert.ok(key in parsed, "upstream server decls still carry " + key);
-  assert.deepEqual({ ...built, body: undefined }, { k: parsed.k, name: (parsed as any).name, params: (parsed as any).params, body: undefined, line: parsed.line });
 });
 
 test("model contract: canonical facts keep read modes, writes and region nesting", () => {
@@ -118,7 +109,7 @@ export default function Counter() {
   refusedAt(source, "async () =>", ASYNC_CALLBACK);
 });
 
-const asyncHead = 'import { createSignal, createMemo, action } from "solid-js";\nimport { createRxEffect } from "reactivescript-tsx";\nimport { request } from "./api";\n';
+const asyncHead = 'import { createSignal, createMemo, action } from "solid-js";\nimport { request } from "./api";\n';
 const asyncCounter = (setup: string, view: string, child = "() => props.onChange(2)") => asyncHead +
   "function Child(props: { onChange: (value: number) => void }) { return <button onClick={" + child + "}/>; }\n" +
   "export function Counter() {\n  const [n, setN] = createSignal(0);\n  " + setup + "\n  return " + view + ";\n}";
@@ -159,7 +150,7 @@ test("actions refuse async functions and async generators with synchronous-gener
   refusedAt(declared("async () => { const result: number = await request(); setN(result); }"), "async () =>", ASYNC_ACTION);
 });
 
-test("explicit generator actions and async memo/server computations stay accepted beside the refusal (issue #20)", () => {
+test("explicit generator actions stay accepted; async computations and server helpers are outside the subset", () => {
   const body = "{ try { const result: number = yield request(); setN(result); } catch (error) { setN(-1); } }";
   const declared = asyncCounter("const save = action(function* () " + body + ");", "<button onClick={() => save()}>{n()}</button>");
   const inline = onClick("() => { action(function* () " + body + ")(); }");
@@ -175,9 +166,8 @@ test("explicit generator actions and async memo/server computations stay accepte
     assert.ok(attempt.k === "try" && attempt.body[0].k === "let");
     assert.equal(attempt.body[0].e.k, "await", "yield lowers to the action body's await");
   }
-  // Async computations are not callbacks: they keep their own routes and are not swept up by the refusal.
-  assert.doesNotThrow(() => lowerTsx(asyncCounter("const value = createMemo(async (): Promise<number> => await request(n()));", "<button onClick={() => setN(1)}>{value()}</button>")));
-  assert.doesNotThrow(() => lowerTsx('import { serverFunction, createServerMemo } from "reactivescript-tsx";\nexport function Counter() {\n  const load = serverFunction("load", function* (n: number): Generator<unknown, number, number> { return n + 1; });\n  const value = createServerMemo(async () => await load(0));\n  return <span>{value()}</span>;\n}'));
+  assert.throws(() => lowerTsx(asyncCounter("const value = createMemo(async (): Promise<number> => await request(n()));", "<span/>")), /outside the verified subset: async computations/);
+  assert.throws(() => lowerTsx('import { serverFunction } from "reactivescript-tsx"; export function Counter() { return <span/>; }'), /outside the verified subset: frontend helper/);
 });
 
 test("async callbacks are refused whatever their name; nested synchronous components keep their own refusal (issue #20)", () => {
@@ -186,5 +176,23 @@ test("async callbacks are refused whatever their name; nested synchronous compon
   refusedAt(asyncCounter("async function Save() { await request(); }", "<button onClick={Save}>{n()}</button>"), "async function Save", ASYNC_CALLBACK);
   refusedAt(asyncCounter("const Save = async () => { await request(); };", "<button onClick={() => Save()}>{n()}</button>"), "async () =>", ASYNC_CALLBACK);
   refusedAt(asyncCounter("function Badge() { return <i>x</i>; }", untouched), "function Badge",
-    "Nested component declarations are unsupported; use module components");
+    "outside the verified subset: nested function");
+});
+
+test("subset boundary: removed helpers and control forms are refused, including aliases", () => {
+  for (const helper of ["createContext", "useContext", "createDeferred", "createProjection", "latest", "isPending", "refresh", "affects", "Loading", "Errored"])
+    assert.throws(() => lowerTsx('import { ' + helper + ' as helper } from "solid-js"; export function App() { return <span/>; }'), /outside the verified subset:/);
+  for (const helper of ["createSourceContext", "useSourceContext", "serverFunction", "serverAction", "createServerMemo", "createPrevious", "createRxEffect", "defineError", "FailureBoundary"])
+    assert.throws(() => lowerTsx('import { ' + helper + ' } from "reactivescript-tsx"; export function App() { return <span/>; }'), /outside the verified subset:/);
+  for (const source of [
+    'import { createMemo } from "solid-js"; export function App() { const n = createMemo((previous: number) => previous + 1); return <span/>; }',
+    'import { createStore } from "solid-js"; export function App() { const [s, set] = createStore(() => ({ n: 1 })); return <span/>; }',
+    'export function App() { const n = 1; return <span>{n}</span>; }',
+    'export function App() { return <button onClick={() => { for (;;) {} }}/>; }',
+  ]) assert.throws(() => lowerTsx(source), /outside the verified subset:/);
+});
+
+test("subset boundary: effects and object signals retain their semantic guidance", () => {
+  assert.throws(() => lowerTsx('import { createEffect } from "solid-js"; export function App() { createEffect(() => 1); return <span/>; }'), /createEffect is not lowered:.*EF-2/);
+  assert.throws(() => lowerTsx('import { createSignal } from "solid-js"; export function App() { const [s, set] = createSignal({ n: 1 }); return <span/>; }'), /createSignal with an object.*use createStore/);
 });

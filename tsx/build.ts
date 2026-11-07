@@ -11,6 +11,7 @@ import { lowerViews, type Target } from "./rx/compiler.ts";
 /** The same checked module graph and Solid backends for both authored syntaxes. */
 export function buildTsx(entry: string, read: (path: string) => string | undefined,
   options: { target?: Target; mount?: string } = {}) {
+  if (options.target && options.target !== "universal") throw new Error("outside the verified subset: " + options.target + " rendering");
   const set = loadTsxModules(entry, read);
   if (set.diags.length) throw new CheckError(set.diags);
   // The entry is the entry module's default component (MO-1c); --mount selects an exported component as that entry.
@@ -26,7 +27,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const args = process.argv.slice(2);
     const input = args.shift();
-    if (!input || input.startsWith("--")) throw new Error("Usage: npm run build:tsx -- entry.tsx --out directory [--mount App] [--target universal|dom|ssr]");
+    if (!input || input.startsWith("--")) throw new Error("Usage: npm run build -- entry.tsx --out directory [--mount App] [--target universal]");
     const options: { mount?: string; target?: Target } = {};
     let out: string | undefined;
     while (args.length) {

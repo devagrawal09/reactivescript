@@ -1,3 +1,0 @@
-import { Missing as Absent } from "./types.rx"
-export value = throw Absent(1)
-export component Reader() { <p>{value}</p> }

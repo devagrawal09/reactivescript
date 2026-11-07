@@ -9,24 +9,10 @@ import { Runtime } from "./rx/runtime.ts";
 import { compile } from "./rx/compiler.ts";
 import { lowerViews, STRING_RENDERER } from "./rx/compiler.ts";
 import { createApp, flush } from "./rx/runtime.ts";
-import type { Decl, Expr, Program } from "./rx/ast.ts";
+import type { Program } from "./rx/ast.ts";
 import { entryView } from "./rx/ast.ts";
 import { singleModule } from "./rx/compiler.ts";
 import { semanticFacts } from "./rx/facts.ts";
-
-const refers = (x: unknown): boolean =>
-  Array.isArray(x)
-    ? x.some(refers)
-    : !!x &&
-      typeof x === "object" &&
-      (["id", "use", "pre"].includes((x as { k?: string }).k ?? "") ||
-        Object.values(x).some(refers));
-/** The RX form of a TSX setup const: a never-written snapshot source, `source x := peek(e)` (E-4). Write the
- *  equation `x = e` in RX test text and convert it here. */
-export function snapshotSource(d: Extract<Decl, { k: "eq" }>): Decl {
-  const init: Expr = d.e.k === "peek" || !refers(d.e) ? d.e : { k: "peek", e: d.e };
-  return { k: "source", name: d.name, init, line: d.line, ...(d.type ? { type: d.type } : {}) };
-}
 
 /** Paired equivalence is judged on the pinned checker's canonical semantic facts (tsx/rx/facts.ts), not on the raw
  *  AST shape: upstream's parser representation (for example `legacyView: false`) is not part of the contract. */
