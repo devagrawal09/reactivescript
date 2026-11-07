@@ -415,13 +415,18 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
           fail(d.id, "bind the source and its setter: const [x, setX] = yield* " + what + "(…)");
         if (init.arguments.length !== 1) fail(init, what + " takes one initial value here (options are not in the subset)");
         const v = init.arguments[0];
-        if (v.type === "FunctionExpression" || v.type === "ArrowFunctionExpression") fail(v, what + " with a derived body is not in the yield subset");
+        const derived = v.type === "FunctionExpression" || v.type === "ArrowFunctionExpression";
+        if (derived && what !== "$optimistic") fail(v, what + " with a derived body is not in the yield subset");
+        if (derived) {
+          const fn = routine(v, "$optimistic");
+          if (fn.params.length) fail(fn, "an optimistic body takes no parameters");
+        }
         const [get, set] = d.id.elements.map((e: N) => e.name);
-        const value = expr(v, new Map());
+        const value = derived ? expr(only(v, "an optimistic body returns one synchronous expression"), scope) : expr(v, new Map());
         scope.set(get, what === "$store" ? { k: "path" } : { k: "accessor" });
         scope.set(set, { k: "setter", target: get, optimistic: what === "$optimistic", store: what === "$store" });
         decls.push(what === "$optimistic"
-          ? ({ k: "source", name: get, init: { k: "peek", e: value }, question: true, line: line(s) } as Decl)
+          ? ({ k: "source", name: get, init: derived ? value : { k: "peek", e: value }, question: true, line: line(s) } as Decl)
           : ({ k: "source", name: get, init: value, line: line(s) } as Decl));
         continue;
       }
