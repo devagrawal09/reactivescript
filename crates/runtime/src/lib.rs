@@ -1,7 +1,7 @@
 //! Single-threaded reactive graph. Explicit flush is the host's microtask boundary.
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, VecDeque},
     rc::{Rc, Weak},
 };
 
@@ -78,8 +78,11 @@ struct Node<T> {
     error: Option<ReadError>,
     compute: Option<Compute<T>>,
     equals: Equals<T>,
-    deps: Vec<(NodeId, u64)>,
+    deps: Vec<(NodeId, u64, u64)>,
+    subs: Vec<NodeId>,
     revision: u64,
+    status_revision: u64,
+    propagated: bool,
     initialized: bool,
     dirty: bool,
     running: bool,
@@ -94,6 +97,7 @@ struct Node<T> {
     apply_cleanup: Option<Cleanup>,
     flight: Option<FlightId>,
     optimistic: bool,
+    loading_seed: bool,
     held: Option<usize>,
 }
 struct Transaction<T> {
@@ -122,6 +126,9 @@ struct State<T> {
     reads: Vec<NodeId>,
     flushing: bool,
     writes: BTreeMap<NodeId, T>,
+    queue: VecDeque<NodeId>,
+    queued: BTreeMap<NodeId, bool>,
+    effects: Vec<NodeId>,
     flights: BTreeMap<FlightId, ReadResult<T>>,
     transactions: Vec<Transaction<T>>,
     actions: Vec<Action<T>>,
@@ -146,6 +153,9 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             reads: vec![],
             flushing: false,
             writes: BTreeMap::new(),
+            queue: VecDeque::new(),
+            queued: BTreeMap::new(),
+            effects: vec![],
             flights: BTreeMap::new(),
             transactions: vec![],
             actions: vec![],
@@ -217,14 +227,20 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         self.clear_owner(id);
         if let Some(n) = node {
             let cell = self.node(n);
-            let cleanup = {
-                let mut n = cell.borrow_mut();
-                n.disposed = true;
-                n.compute = None;
-                n.apply = None;
-                n.deps.clear();
-                n.apply_cleanup.take()
+            let (cleanup, deps) = {
+                let mut node = cell.borrow_mut();
+                // Plain sources are not tied to an owner lifetime in Solid.
+                if node.compute.is_none() && node.kind.is_none() {
+                    return;
+                }
+                node.disposed = true;
+                node.compute = None;
+                node.apply = None;
+                (node.apply_cleanup.take(), std::mem::take(&mut node.deps))
             };
+            for (d, _, _) in deps {
+                self.node(d).borrow_mut().subs.retain(|x| *x != n);
+            }
             if let Some(c) = cleanup {
                 c()
             }
@@ -242,13 +258,17 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         let id = s.nodes.len();
         s.owners[owner].node = Some(id);
         let initialized = compute.is_none();
+        let loading_seed = options.loading_value.is_some();
         s.nodes.push(Rc::new(RefCell::new(Node {
             value: value.or(options.loading_value),
             error: None,
             compute,
             equals: options.equals.unwrap_or_else(|| Rc::new(|a, b| a == b)),
             deps: vec![],
+            subs: vec![],
             revision: 0,
+            status_revision: 0,
+            propagated: false,
             initialized,
             dirty: !initialized,
             running: false,
@@ -263,6 +283,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             apply_cleanup: None,
             flight: None,
             optimistic,
+            loading_seed,
             held: None,
         })));
         id
@@ -308,12 +329,12 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             n.kind = Some(kind);
             n.apply = Some(apply);
             n.error_handler = error;
+            n.equals = Rc::new(|_, _| false);
         }
         self.update(id);
         if defer {
             let c = self.node(id);
             let mut n = c.borrow_mut();
-            n.applied = n.value.clone();
             n.modified = false;
         } else if kind == EffectKind::Render {
             self.apply(id)
@@ -373,11 +394,53 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         let n = c.borrow();
         n.value.is_none() && n.error == Some(ReadError::Pending)
     }
+    fn enqueue(&self, id: NodeId, force: bool) {
+        if force && self.0.borrow().flushing {
+            self.node(id).borrow_mut().dirty = true;
+        }
+        let mut s = self.0.borrow_mut();
+        if let Some(old) = s.queued.get_mut(&id) {
+            *old |= force;
+        } else {
+            s.queue.push_back(id);
+            s.queued.insert(id, force);
+        }
+    }
+    fn notify(&self, id: NodeId, force: bool) {
+        let subs = self.node(id).borrow().subs.clone();
+        for sub in subs {
+            self.enqueue(sub, force)
+        }
+    }
     pub fn write(&self, id: NodeId, value: T) {
+        let c = self.node(id);
+        let previous = self
+            .0
+            .borrow()
+            .writes
+            .get(&id)
+            .cloned()
+            .or_else(|| c.borrow().value.clone());
+        if previous
+            .as_ref()
+            .is_some_and(|p| (c.borrow().equals)(p, &value))
+        {
+            return;
+        }
         self.0.borrow_mut().writes.insert(id, value);
+        self.notify(id, true);
     }
     pub fn refresh(&self, id: NodeId) {
-        self.node(id).borrow_mut().dirty = true;
+        self.enqueue(id, true)
+    }
+    fn deps_now(&self, deps: &[(NodeId, u64, u64)]) -> Vec<(NodeId, u64, u64)> {
+        deps.iter()
+            .map(|(d, _, _)| {
+                let c = self.node(*d);
+                let n = c.borrow();
+                (*d, n.revision, n.status_revision)
+            })
+            .collect()
     }
     fn update(&self, id: NodeId) {
         let c = self.node(id);
@@ -393,21 +456,47 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         if skip {
             return;
         }
-        for (d, _) in &deps {
+        for (d, _, _) in &deps {
             self.update(*d)
         }
-        if !dirty
-            && init
-            && deps
-                .iter()
-                .all(|(d, r)| self.node(*d).borrow().revision == *r)
-        {
+        let current = self.deps_now(&deps);
+        if !dirty && init && deps == current {
             return;
+        }
+        let value_changed = deps.iter().zip(&current).any(|(a, b)| a.1 != b.1);
+        let dependency_error = deps
+            .iter()
+            .find_map(|(d, _, _)| self.node(*d).borrow().error.clone());
+        if init && !dirty && !value_changed {
+            if let Some(e) = dependency_error {
+                c.borrow_mut().deps = current;
+                c.borrow_mut().propagated = true;
+                self.publish(id, Err(e));
+                return;
+            }
+            if c.borrow().propagated {
+                let value = c.borrow().value.clone();
+                {
+                    let mut n = c.borrow_mut();
+                    n.deps = current;
+                    n.propagated = false;
+                }
+                if value.is_some() {
+                    {
+                        let mut n = c.borrow_mut();
+                        n.error = None;
+                        n.status_revision += 1;
+                    }
+                    self.notify(id, false);
+                }
+                return;
+            }
         }
         let (compute, previous, owner) = {
             let mut n = c.borrow_mut();
             n.running = true;
             n.dirty = false;
+            n.propagated = false;
             (n.compute.clone().unwrap(), n.value.clone(), n.owner)
         };
         self.clear_owner(owner);
@@ -426,17 +515,27 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             s.observer = old_observer;
             std::mem::replace(&mut s.reads, old_reads)
         };
-        let deps = reads
-            .into_iter()
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .map(|d| (d, self.node(d).borrow().revision))
-            .collect();
+        let mut new_deps = vec![];
+        for d in reads {
+            if !new_deps.iter().any(|(x, _, _)| *x == d) {
+                let node = self.node(d);
+                let mut n = node.borrow_mut();
+                if !n.subs.contains(&id) {
+                    n.subs.push(id)
+                }
+                new_deps.push((d, n.revision, n.status_revision));
+            }
+        }
+        for (d, _, _) in deps {
+            if !new_deps.iter().any(|(x, _, _)| *x == d) {
+                self.node(d).borrow_mut().subs.retain(|x| *x != id)
+            }
+        }
         {
             let mut n = c.borrow_mut();
             n.running = false;
             n.initialized = true;
-            n.deps = deps;
+            n.deps = new_deps;
             n.flight = None;
         }
         match result {
@@ -444,33 +543,58 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             Ok(Computation::Await(f)) => {
                 c.borrow_mut().flight = Some(f.clone());
                 let ready = self.0.borrow().flights.get(&f).cloned();
-                self.publish(id, ready.unwrap_or(Err(ReadError::Pending)));
+                if let Some(result) = ready {
+                    c.borrow_mut().loading_seed = false;
+                    self.publish(id, result);
+                } else if !c.borrow().loading_seed {
+                    self.publish(id, Err(ReadError::Pending));
+                }
             }
             Err(e) => self.publish(id, Err(e)),
         }
     }
     fn publish(&self, id: NodeId, result: ReadResult<T>) {
         let c = self.node(id);
-        let mut n = c.borrow_mut();
-        let changed = match result {
-            Ok(v) => {
-                let changed =
-                    n.error.is_some() || n.value.as_ref().is_none_or(|old| !(n.equals)(old, &v));
-                n.error = None;
-                if changed {
-                    n.value = Some(v)
+        let (changed, status, effect) = {
+            let mut n = c.borrow_mut();
+            let old_error = n.error.clone();
+            let changed = match result {
+                Ok(v) => {
+                    let changed = matches!(old_error, Some(ReadError::Failed(_)))
+                        || n.value.as_ref().is_none_or(|old| !(n.equals)(old, &v));
+                    n.error = None;
+                    if changed {
+                        n.value = Some(v)
+                    }
+                    changed
                 }
-                changed
+                Err(e) => {
+                    n.error = Some(e);
+                    false
+                }
+            };
+            let status = old_error != n.error;
+            if changed {
+                n.revision += 1
             }
-            Err(e) => {
-                let changed = n.error.as_ref() != Some(&e);
-                n.error = Some(e);
-                changed
+            if status {
+                n.status_revision += 1
             }
+            let effect =
+                n.kind.is_some() && (changed || matches!(n.error, Some(ReadError::Failed(_))));
+            if effect {
+                n.modified = true
+            }
+            (changed, status, effect)
         };
-        if changed {
-            n.revision += 1;
-            n.modified = true
+        if changed || status {
+            self.notify(id, false)
+        }
+        if effect {
+            let mut s = self.0.borrow_mut();
+            if !s.effects.contains(&id) {
+                s.effects.push(id)
+            }
         }
     }
     fn apply(&self, id: NodeId) {
@@ -485,7 +609,11 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                 n.apply.clone(),
                 n.value.clone(),
                 n.applied.clone(),
-                n.apply_cleanup.take(),
+                if n.error.is_none() {
+                    n.apply_cleanup.take()
+                } else {
+                    None
+                },
                 n.error.clone(),
                 n.error_handler.clone(),
                 n.owner,
@@ -541,28 +669,59 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         for _ in 0..1000 {
             self.stage_writes();
             self.commit_transactions();
-            let nodes = self.0.borrow().nodes.clone();
-            for (id, c) in nodes.iter().enumerate() {
-                let active = {
-                    let n = c.borrow();
-                    !n.lazy
-                        || nodes
-                            .iter()
-                            .any(|other| other.borrow().deps.iter().any(|(d, _)| *d == id))
-                };
-                if active {
-                    self.update(id)
-                }
+            let forced = self
+                .0
+                .borrow()
+                .queued
+                .iter()
+                .filter(|(_, force)| **force)
+                .map(|(id, _)| *id)
+                .collect::<Vec<_>>();
+            for id in forced {
+                self.node(id).borrow_mut().dirty = true;
             }
+            loop {
+                let item = {
+                    let mut s = self.0.borrow_mut();
+                    s.queue
+                        .pop_front()
+                        .map(|id| (id, s.queued.remove(&id).unwrap_or(false)))
+                };
+                let Some((id, _force)) = item else { break };
+                self.update(id);
+            }
+            let effects = std::mem::take(&mut self.0.borrow_mut().effects);
             for kind in [EffectKind::Render, EffectKind::User] {
-                for (id, c) in nodes.iter().enumerate() {
-                    if c.borrow().kind == Some(kind) {
-                        self.apply(id)
+                for id in &effects {
+                    if self.node(*id).borrow().kind == Some(kind) {
+                        self.apply(*id)
                     }
                 }
             }
             if self.0.borrow().writes.is_empty() {
                 break;
+            }
+        }
+        let nodes = self.0.borrow().nodes.clone();
+        for (id, c) in nodes.iter().enumerate() {
+            let release = {
+                let n = c.borrow();
+                n.lazy && n.initialized && n.subs.is_empty() && !n.disposed
+            };
+            if release {
+                let (owner, deps) = {
+                    let mut n = c.borrow_mut();
+                    n.initialized = false;
+                    n.dirty = true;
+                    // Keep the last committed value for the next compute prev.
+                    n.error = None;
+                    n.flight = None;
+                    (n.owner, std::mem::take(&mut n.deps))
+                };
+                self.clear_owner(owner);
+                for (d, _, _) in deps {
+                    self.node(d).borrow_mut().subs.retain(|x| *x != id)
+                }
             }
         }
         let mut s = self.0.borrow_mut();
@@ -745,6 +904,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         let nodes = self.0.borrow().nodes.clone();
         for (id, n) in nodes.iter().enumerate() {
             if !n.borrow().disposed && n.borrow().flight.as_ref() == Some(&flight) {
+                n.borrow_mut().loading_seed = false;
                 self.publish(id, result.clone())
             }
         }

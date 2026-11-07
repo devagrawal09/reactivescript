@@ -29,5 +29,9 @@ export async function run(ops) {
       default:throw Error('unknown op '+o.op);
     }}
   } finally {owners.get('root').dispose();S.flush()}
-  return log;
+  const result=log.slice();
+  // A reduced program may leave actions open. Close them after recording teardown
+  // so Solid's global queue cannot carry a transaction into the next program.
+  for(let i=0;i<4;i++){for(const f of flights.values())f.resolve(0);await drain()}
+  return result;
 }
