@@ -10,8 +10,8 @@ const timeout=Number(arg('--timeout-ms','1500'));
 execFileSync('cargo',['build','--quiet','--bin','driver'],{cwd:root,stdio:'inherit'});
 let worker,child,lines;
 function startRust(){child=spawn(root+'/target/debug/driver',[],{stdio:['pipe','pipe','inherit']});lines=createInterface({input:child.stdout});}
-function oracle(ops){worker??=new Worker(new URL('./worker.mjs',import.meta.url));const w=worker;let progress;return new Promise(resolve=>{
- const finish=result=>{clearTimeout(timer);w.removeListener('message',onMessage);w.removeListener('error',onError);resolve(result)};
+function oracle(ops){worker=new Worker(new URL('./worker.mjs',import.meta.url));const w=worker;let progress;return new Promise(resolve=>{
+ const finish=result=>{clearTimeout(timer);w.removeListener('message',onMessage);w.removeListener('error',onError);w.terminate();worker=undefined;resolve(result)};
  const onMessage=result=>{if('progress'in result)progress=result.progress;else {if(result.invalid){w.terminate();worker=undefined}finish(result)}},onError=e=>{worker=undefined;finish({invalid:'oracle-error',detail:e.stack})};
  const timer=setTimeout(()=>{w.terminate();worker=undefined;finish({invalid:'oracle-timeout',progress})},timeout);
  w.on('message',onMessage);w.once('error',onError);w.postMessage(ops);

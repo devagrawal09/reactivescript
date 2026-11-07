@@ -29,9 +29,7 @@ export async function run(ops, progress=()=>{}) {
       default:throw Error('unknown op '+o.op);
     }}
   } finally {progress('teardown');owners.get('root').dispose();S.flush()}
-  const result=log.slice();progress('isolation');
-  // A reduced program may leave actions open. Close them after recording teardown
-  // so Solid's global queue cannot carry a transaction into the next program.
-  for(let i=0;i<4;i++){for(const f of flights.values())f.resolve(0);await drain()}
-  return result;
+  // Each program gets a fresh worker. Freeze the trace before any unrequested
+  // promise continuation, then terminate the worker instead of draining orphans.
+  return log.slice();
 }
