@@ -151,7 +151,8 @@ export function parseGate(text){
 async function gateTarget(name,dir){
   if(!await exists(dir))return {name,missing:true};
   const workingSha=await git(dir,['rev-parse','HEAD']);
-  return {name,dir,workingSha,sha:name==='frontend'?await git(dir,['rev-parse','--verify','refs/heads/main']):workingSha,branch:name==='frontend'?'main':await git(dir,['branch','--show-current'])};
+  const status=await git(dir,['status','--porcelain=v1','--untracked-files=all']);
+  return {name,dir,workingSha,dirty:!!status,sha:name==='frontend'?await git(dir,['rev-parse','--verify','refs/heads/main']):workingSha,branch:name==='frontend'?'main':await git(dir,['branch','--show-current'])};
 }
 export async function checkGates(changed=async()=>{}){
   if(stopping)return;await initGates();
@@ -159,6 +160,7 @@ export async function checkGates(changed=async()=>{}){
     const target=await safe(()=>gateTarget(name,dir));
     if(target.error||target.missing){states={...states,[name]:{...target,state:target.missing?'missing':'error',collectedAt:now()}};continue;}
     const key=name+':'+target.sha,cacheFile=path.join(CACHE,'gates',name,target.sha+'.json');
+    if(target.dirty){states={...states,[name]:{...target,state:'skipped',reason:'skipped: worktree dirty',collectedAt:now()}};continue;}
     if(await exists(cacheFile)){states={...states,[name]:await safe(async()=>JSON.parse(await fs.readFile(cacheFile,'utf8')))};continue;}
     if(queued.has(key))continue;
     if(target.sha!==target.workingSha){states={...states,[name]:{...target,state:'blocked',error:'Worktree is not at main; read-only mode cannot check it out.'}};continue;}
@@ -167,43 +169,31 @@ export async function checkGates(changed=async()=>{}){
   await changed();if(!gateBusy)void drain(changed);
 }
 async function runGate(target){
-  const startedAt=now(),workspace=path.join(CACHE,'workspaces',target.name+'-'+target.sha);
-  const home=path.join(CACHE,'home'),tmp=path.join(CACHE,'tmp'),bin=path.join(CACHE,'bin');
-  for(const dir of [home,tmp,bin,path.dirname(target.cacheFile)])await fs.mkdir(dir,{recursive:true});
-  const before=await git(target.dir,['status','--porcelain=v1','--untracked-files=all']);
-  if(before.split('\n').some(line=>line&&!line.startsWith('??')))throw new Error('Tracked source changes: cannot label a gate with commit '+target.sha);
-  const sandbox='/usr/bin/sandbox-exec';if(!await exists(sandbox))throw new Error('Write sandbox unavailable; gate refused to protect source repos');
-  await fs.rm(workspace,{recursive:true,force:true});
-  await fs.cp(target.dir,workspace,{recursive:true,dereference:false,filter:source=>{const parts=path.relative(target.dir,source).split(path.sep);return !parts.includes('.DS_Store')&&!(parts.includes('.out')&&parts.includes('fuzz'));}});
-  // Materialize linked source trees, but do not expand dependency link graphs.
-  for(const entry of await fs.readdir(target.dir,{withFileTypes:true})){
-    if(!entry.isSymbolicLink()||entry.name==='node_modules')continue;
-    const source=path.join(target.dir,entry.name),destination=path.join(workspace,entry.name);
-    if(entry.name==='.out'){await fs.rm(destination,{recursive:true,force:true});await fs.mkdir(destination,{recursive:true});continue;}
-    if((await fs.stat(source)).isDirectory()){await fs.rm(destination,{recursive:true,force:true});await fs.cp(await fs.realpath(source),destination,{recursive:true,dereference:false});}
-  }
-  if(await git(target.dir,['rev-parse','HEAD'])!==target.sha||await git(target.dir,['status','--porcelain=v1','--untracked-files=all'])!==before)throw new Error('Source changed during copying; gate skipped');
-  // Preserve relative source paths expected by the unmodified verification script.
-  for(const name of ["solid-next"]){
-    const source=path.join(BASE,name),destination=path.join(CACHE,'workspaces',name);
-    if(await exists(source)&&!await exists(destination))await fs.cp(source,destination,{recursive:true,dereference:false,filter:file=>!path.relative(source,file).split(path.sep).includes('.DS_Store')});
-  }
-  const realGit=(await command('/usr/bin/which',['git'])).stdout.trim();
-  const wrapper='#!/usr/bin/env node\nconst {spawnSync}=require("node:child_process");const args=process.argv.slice(2);let i=0;while(args[i]==="-C"){i+=2;}const cmd=args[i];const tail=args.slice(i+1);const allowed=["rev-parse","log","status","rev-list"].includes(cmd)||(cmd==="worktree"&&tail[0]==="list")||(cmd==="branch"&&tail.every(a=>a.startsWith("--format=")||["--show-current","-a","--all","--list"].includes(a)));if(!allowed){console.error("Read-only gate: git command refused: "+cmd);process.exit(125);}const r=spawnSync('+JSON.stringify(realGit)+',args,{stdio:"inherit",env:{...process.env,GIT_OPTIONAL_LOCKS:"0"}});process.exit(r.status??1);\n';
-  await fs.writeFile(path.join(bin,'git'),wrapper,{mode:0o755});
-  const profile='(version 1) (allow default) (deny file-write*) (allow file-write* (subpath '+JSON.stringify(ROOT)+'))';
+  const startedAt=now();
+  const cleanStatus=await git(target.dir,['status','--porcelain=v1','--untracked-files=all']);
+  const currentSha=await git(target.dir,['rev-parse','HEAD']);
+  if(cleanStatus)return {name:target.name,sha:target.sha,branch:target.branch,state:'skipped',reason:'skipped: worktree dirty',startedAt,finishedAt:now()};
+  if(currentSha!==target.sha)return {name:target.name,sha:target.sha,branch:target.branch,state:'skipped',reason:'skipped: HEAD changed while queued',startedAt,finishedAt:now()};
+  const outDir=path.join(CACHE,'gates',target.name,target.sha,'verify');
+  const tmp=path.join(CACHE,'tmp');
+  await fs.mkdir(outDir,{recursive:true});await fs.mkdir(tmp,{recursive:true});
   gateController=new AbortController();if(stopping)throw new Error('Server stopped');
   const logFile=path.join(CACHE,'gates',target.name,target.sha+'.log');
-  const result=await command(sandbox,['-p',profile,'npm','run','verify:subset'],{cwd:workspace,timeout:600000,signal:gateController.signal,customEnv:{...env,HOME:home,TMPDIR:tmp+'/',PATH:bin+':'+process.env.PATH,npm_config_cache:path.join(CACHE,'npm'),npm_config_update_notifier:'false'}});
-  gateController=null;const text=result.stdout+'\n'+result.stderr;await fs.writeFile(logFile,text);
-  const parsed=parseGate(text);return {name:target.name,sha:target.sha,branch:target.branch,state:result.code===0&&!parsed.result.some(line=>/\bfail(?:ed|ure)?\b/i.test(line))?'passed':'failed',exitCode:result.code,startedAt,finishedAt:now(),logFile:path.relative(ROOT,logFile),isolatedCopy:true,...parsed};
+  const result=await command('npm',['run','verify:subset'],{cwd:target.dir,timeout:600000,signal:gateController.signal,customEnv:{...env,OUT:outDir,TMPDIR:tmp+'/',npm_config_cache:path.join(CACHE,'npm'),npm_config_update_notifier:'false',npm_config_audit:'false',npm_config_fund:'false'}});
+  gateController=null;
+  const text=result.stdout+'\n'+result.stderr;await fs.writeFile(logFile,text);
+  const parsed=parseGate(text);
+  const afterSha=await git(target.dir,['rev-parse','HEAD']);
+  const afterStatus=await git(target.dir,['status','--porcelain=v1','--untracked-files=all']);
+  const changed=afterSha!==target.sha||!!afterStatus;
+  return {name:target.name,sha:target.sha,branch:target.branch,state:changed?'skipped':result.code===0&&!parsed.result.some(line=>/\bfail(?:ed|ure)?\b/i.test(line))?'passed':'failed',...(changed?{reason:afterStatus?'skipped: worktree dirty':'skipped: HEAD changed during gate'}:{}),exitCode:result.code,startedAt,finishedAt:now(),logFile:path.relative(ROOT,logFile),outDir:path.relative(ROOT,outDir),runLocation:target.dir,isolatedCopy:false,...parsed};
 }
 async function drain(changed){
   if(gateBusy||stopping)return;gateBusy=true;
   try{while(queue.length&&!stopping){
     const target=queue.shift();active={name:target.name,sha:target.sha,startedAt:now()};states={...states,[target.name]:{name:target.name,sha:target.sha,branch:target.branch,state:'running',startedAt:active.startedAt}};await changed();
     let value;try{value=await runGate(target);}catch(error){value={name:target.name,sha:target.sha,branch:target.branch,state:'error',error:message(error),startedAt:active.startedAt,finishedAt:now()};}
-    await atomicJSON(target.cacheFile,value);states={...states,[target.name]:value};queued.delete(target.key);active=null;await changed();console.log('Gate',target.name,target.sha,value.state,value.error||'');
+    if(value.state!=='skipped')await atomicJSON(target.cacheFile,value);states={...states,[target.name]:value};queued.delete(target.key);active=null;await changed();console.log('Gate',target.name,target.sha,value.state,value.error||value.reason||'');
   }}catch(error){console.error('Gate queue:',error);}finally{gateBusy=false;active=null;await changed();}
 }
 export function stop(){stopping=true;gateController?.abort();for(const child of children){try{process.kill(-child.pid,'SIGKILL');}catch{}}}

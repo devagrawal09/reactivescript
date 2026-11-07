@@ -16,4 +16,5 @@ test('page renders safely and shows health and staleness',async()=>{
  assert.equal(element('goal').textContent,'<unsafe>');assert.equal(element('health').textContent,'Healthy');assert.match(element('gate-main').innerHTML,/passed/);
  vm.runInContext('data.originals.ok=false;health()',context);assert.equal(element('health').textContent,'Alert');
  vm.runInContext('data.originals.ok=true;data.notes.collectedAt=new Date(Date.now()-181000).toISOString();health()',context);assert.equal(element('health').textContent,'Needs attention');assert.match(element('updated').textContent,/stale sources/);
+ vm.runInContext("data.notes.collectedAt=new Date().toISOString();data.gates.items.frontend.state='skipped';data.gates.items.frontend.reason='skipped: worktree dirty';renderSources();health()",context);assert.equal(element('health').textContent,'Needs attention');assert.match(element('gate-main').innerHTML,/skipped: worktree dirty/);
 });

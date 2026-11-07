@@ -34,17 +34,17 @@ Edit `notes.json`, keeping valid JSON and the existing keys: `goal`, `milestones
 - Header health uses gate results for the current SHAs, the originals check, PR #21 head sync, errors and freshness. Amber means pending work or data older than 3 times its interval; red means a failed check.
 - Amber GitHub rows show a latest comment not yet marked seen in this browser, excluding comments by `devagrawal09`. **Mark seen** stores only comment IDs in local browser storage.
 
-## Read-only sources and gates
+## Source safety and gates
 
-All dashboard writes stay in this folder. Source git commands are read-only and have optional git locks disabled. GitHub calls use `gh api --method GET` only. Nothing is fetched, checked out, stashed or changed in the source repos.
+Status collection uses only read-only git commands, with optional git locks disabled. GitHub calls use `gh api --method GET`. Nothing is fetched, checked out, stashed or committed in the source repos.
 
-The gate target is frontend main and, if present, slice1-js HEAD. Each SHA runs once, with at most one gate process at a time and a 10-minute process timeout. Results and output are in `cache/gates/<target>/<sha>.json` and `.log`.
+Gates run **in place**, in frontend main and slice1-js HEAD. No copies or worktrees are created. A gate starts only when the target worktree is clean and still at the queued SHA. A dirty tree shows **skipped: worktree dirty**, not failure. Skips are not cached, so a clean tree can run at the same SHA later. If files or HEAD change during a run, that result is also skipped rather than labelled as a valid result for the old SHA.
 
-Gate source files are copied into `cache/workspaces/`. Linked dependencies may still be read from their original paths, but the sandbox forbids writes there. Links are not expanded into large duplicate dependency trees. `npm run verify:subset` runs there with a macOS write sandbox, plus HOME, temporary files and npm cache inside this dashboard. A git wrapper also refuses all commands except the allowed read-only commands. If the sandbox is unavailable, the gate records an error rather than running without protection.
+The verification script supports `OUT`; it is set to `dashboard/cache/gates/<target>/<sha>/verify/`. Its fuzz step also writes the worktree's existing, gitignored `.out/fuzz/` directory. This is the only permitted source-tree output. Temporary files and npm cache are kept inside this dashboard. Source paths must retain their original relative layout.
 
-Frontend main must already be checked out at main. Tracked changes block a gate rather than label a result with the wrong SHA. Source changes during copying are also detected. Missing worktrees are skipped.
+Each completed SHA is cached in `cache/gates/<target>/<sha>.json`, with output in `.log`. There is at most one gate at a time, with a 10-minute process timeout. Frontend main must already be checked out at main; the dashboard never changes branches.
 
-To retry a cached failed/error result for the same SHA, stop the server, remove only that SHA JSON under `dashboard/cache/gates/`, and restart. Never remove or edit anything in a source repo.
+To retry a cached failed/error result for the same SHA, stop the server, remove only that SHA JSON under `dashboard/cache/gates/`, and restart.
 
 The originals check expects ReactiveScript at `f3c6771962a4c98cf76fe528b367806adb83c89f` with 13 porcelain status entries; Solid Next at `2a0da2fc5c53d97f655b6b713bdbb95c5aec1eb5` and clean; Solid Yield clean.
 
