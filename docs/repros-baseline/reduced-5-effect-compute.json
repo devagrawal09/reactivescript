@@ -1,0 +1,51 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 1
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 2,
+    "equals": "parity"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m4",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "s"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": true,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "read",
+    "id": "m4"
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 4
+  },
+  {
+    "op": "flush"
+  }
+]

@@ -1,0 +1,54 @@
+[
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 0,
+    "equals": "parity"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m0",
+    "expr": {
+      "op": "mod",
+      "a": {
+        "op": "read",
+        "id": "t"
+      },
+      "b": 2
+    },
+    "lazy": false,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m2",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "m0"
+      },
+      "b": {
+        "op": "read",
+        "id": "m0"
+      }
+    },
+    "lazy": true,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "write",
+    "id": "t",
+    "value": 3
+  },
+  {
+    "op": "read",
+    "id": "m2"
+  }
+]

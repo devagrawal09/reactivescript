@@ -251,3 +251,66 @@ fn plain_signal_outlives_its_creation_owner() {
     r.flush();
     assert_eq!(s.get(), Ok(2));
 }
+
+#[test]
+fn refresh_of_the_same_resolved_promise_does_not_reenter_pending() {
+    let r = Runtime::<i64>::new();
+    let m = r.memo(
+        Rc::new(|_, _| Ok(Computation::Await("same".into()))),
+        MemoOptions::default(),
+    );
+    r.settle("same".into(), Ok(4));
+    r.drain();
+    r.refresh(m);
+    r.flush();
+    assert_eq!(r.read(m), Ok(4));
+    assert!(!r.is_pending(m));
+}
+#[test]
+fn old_error_stays_visible_while_next_request_is_pending() {
+    let r = Runtime::<i64>::new();
+    let s = r.signal(0);
+    let ss = s.clone();
+    let m = r.memo(
+        Rc::new(move |_, _| Ok(Computation::Await(format!("f{}", ss.get()?)))),
+        MemoOptions::default(),
+    );
+    r.settle("f0".into(), Ok(10));
+    r.drain();
+    s.set(1);
+    r.flush();
+    r.settle("f1".into(), Err(ReadError::Failed("bad".into())));
+    r.drain();
+    s.set(2);
+    r.flush();
+    assert_eq!(r.read(m), Err(ReadError::Failed("bad".into())));
+    assert_eq!(r.latest(m), Ok(10));
+    assert!(r.is_pending(m));
+    r.settle("f2".into(), Ok(20));
+    r.drain();
+    assert_eq!(r.read(m), Ok(20));
+}
+#[test]
+fn idle_lazy_memos_release_before_source_work_runs() {
+    let r = Runtime::<i64>::new();
+    let s = r.signal(0);
+    let ss = s.clone();
+    let calls = Rc::new(RefCell::new(0));
+    let count = calls.clone();
+    let m = r.memo(
+        Rc::new(move |_, _| {
+            *count.borrow_mut() += 1;
+            ss.get().map(Computation::Ready)
+        }),
+        MemoOptions {
+            lazy: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(r.read(m), Ok(0));
+    s.set(1);
+    r.flush();
+    assert_eq!(*calls.borrow(), 1);
+    assert_eq!(r.read(m), Ok(1));
+    assert_eq!(*calls.borrow(), 2);
+}

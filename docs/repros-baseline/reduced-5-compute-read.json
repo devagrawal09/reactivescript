@@ -1,0 +1,95 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 0
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 1,
+    "equals": "parity"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m0",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "t"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": true,
+    "equals": "default",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m2",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "m0"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": false,
+    "equals": "default",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m3",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "m2"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": true,
+    "equals": "parity",
+    "owner": "scope"
+  },
+  {
+    "op": "write",
+    "id": "t",
+    "value": 6
+  },
+  {
+    "op": "read",
+    "id": "m3"
+  },
+  {
+    "op": "flush"
+  }
+]

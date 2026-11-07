@@ -76,6 +76,7 @@ struct Owner {
 struct Node<T> {
     value: Option<T>,
     error: Option<ReadError>,
+    shown_error: Option<String>,
     compute: Option<Compute<T>>,
     equals: Equals<T>,
     deps: Vec<(NodeId, u64, u64)>,
@@ -88,6 +89,8 @@ struct Node<T> {
     dirty: bool,
     running: bool,
     lazy: bool,
+    refresh_watched: bool,
+    pulled_before_flush: bool,
     disposed: bool,
     owner: OwnerId,
     kind: Option<EffectKind>,
@@ -265,6 +268,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         s.nodes.push(Rc::new(RefCell::new(Node {
             value: value.or(options.loading_value),
             error: None,
+            shown_error: None,
             compute,
             equals: options.equals.unwrap_or_else(|| Rc::new(|a, b| a == b)),
             deps: vec![],
@@ -277,6 +281,8 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             dirty: !initialized,
             running: false,
             lazy: options.lazy,
+            refresh_watched: false,
+            pulled_before_flush: false,
             disposed: false,
             owner,
             kind: None,
@@ -352,6 +358,28 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         v
     }
     pub fn read(&self, id: NodeId) -> ReadResult<T> {
+        let pull = {
+            let s = self.0.borrow();
+            s.observer.is_some() && !s.flushing && s.queued.get(&id) == Some(&true)
+        };
+        if pull {
+            let c = self.node(id);
+            let mut n = c.borrow_mut();
+            if !n.pulled_before_flush {
+                n.dirty = true;
+                n.pulled_before_flush = true;
+            }
+        }
+        if self.0.borrow().observer.is_some() {
+            let c = self.node(id);
+            let retry = {
+                let n = c.borrow();
+                n.loading_seed && matches!(n.error, Some(ReadError::Failed(_)))
+            };
+            if retry {
+                c.borrow_mut().dirty = true;
+            }
+        }
         self.update(id);
         let observer = self.0.borrow().observer;
         if observer.is_some() {
@@ -361,6 +389,11 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         let n = c.borrow();
         if n.disposed {
             return Err(ReadError::Disposed);
+        }
+        if observer.is_none() {
+            if let Some(e) = &n.shown_error {
+                return Err(ReadError::Failed(e.clone()));
+            }
         }
         if let Some(e) = &n.error {
             if observer.is_some() || !matches!(e, ReadError::Pending) {
@@ -399,6 +432,9 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         n.value.is_none() && n.error == Some(ReadError::Pending)
     }
     fn enqueue(&self, id: NodeId, force: bool) {
+        if force {
+            self.node(id).borrow_mut().pulled_before_flush = false;
+        }
         if force && self.0.borrow().flushing {
             self.node(id).borrow_mut().dirty = true;
         }
@@ -435,6 +471,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         self.notify(id, true);
     }
     pub fn refresh(&self, id: NodeId) {
+        self.node(id).borrow_mut().refresh_watched = true;
         self.enqueue(id, true)
     }
     fn deps_now(&self, deps: &[(NodeId, u64, u64)]) -> Vec<(NodeId, u64, u64)> {
@@ -496,12 +533,17 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                 return;
             }
         }
-        let (compute, previous, owner) = {
+        let (compute, previous, owner, old_flight) = {
             let mut n = c.borrow_mut();
             n.running = true;
             n.dirty = false;
             n.propagated = false;
-            (n.compute.clone().unwrap(), n.value.clone(), n.owner)
+            (
+                n.compute.clone().unwrap(),
+                n.value.clone(),
+                n.owner,
+                n.flight.clone(),
+            )
         };
         self.clear_owner(owner);
         let (old_owner, old_observer, old_reads) = {
@@ -512,7 +554,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                 std::mem::take(&mut s.reads),
             )
         };
-        let result = compute(self, previous);
+        let result = compute(self, previous.clone());
         let reads = {
             let mut s = self.0.borrow_mut();
             s.owner = old_owner;
@@ -557,11 +599,20 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             Ok(Computation::Await(f)) => {
                 c.borrow_mut().flight = Some(f.clone());
                 let ready = self.0.borrow().flights.get(&f).cloned();
-                if ready.is_some() {
-                    self.0.borrow_mut().memo_ready.push_back((id, f));
-                }
-                if !c.borrow().loading_seed {
-                    self.publish(id, Err(ReadError::Pending));
+                let cached = old_flight.as_ref() == Some(&f)
+                    && ready.is_some()
+                    && (c.borrow().error.is_none() || !c.borrow().loading_seed);
+                if !cached {
+                    if ready.is_some() {
+                        self.0.borrow_mut().memo_ready.push_back((id, f));
+                    }
+                    if c.borrow().loading_seed {
+                        if let Some(value) = previous {
+                            self.publish(id, Ok(value));
+                        }
+                    } else {
+                        self.publish(id, Err(ReadError::Pending));
+                    }
                 }
             }
             Err(e) => self.publish(id, Err(e)),
@@ -577,12 +628,16 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                     let changed = matches!(old_error, Some(ReadError::Failed(_)))
                         || n.value.as_ref().is_none_or(|old| !(n.equals)(old, &v));
                     n.error = None;
+                    n.shown_error = None;
                     if changed {
                         n.value = Some(v)
                     }
                     changed
                 }
                 Err(e) => {
+                    if let ReadError::Failed(message) = &e {
+                        n.shown_error = Some(message.clone());
+                    }
                     n.error = Some(e);
                     false
                 }
@@ -680,6 +735,10 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             }
             s.flushing = true;
         }
+        self.release_idle();
+        for c in self.0.borrow().nodes.iter() {
+            c.borrow_mut().pulled_before_flush = false;
+        }
         for _ in 0..1000 {
             self.stage_writes();
             self.commit_transactions();
@@ -722,11 +781,17 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                 break;
             }
         }
+        self.release_idle();
+        let mut s = self.0.borrow_mut();
+        s.flushing = false;
+        s.tick_tx = None;
+    }
+    fn release_idle(&self) {
         let nodes = self.0.borrow().nodes.clone();
-        for (id, c) in nodes.iter().enumerate() {
+        for (id, c) in nodes.iter().enumerate().rev() {
             let release = {
                 let n = c.borrow();
-                n.lazy && n.initialized && n.subs.is_empty() && !n.disposed
+                n.lazy && n.initialized && n.subs.is_empty() && !n.disposed && !n.refresh_watched
             };
             if release {
                 let (owner, deps) = {
@@ -738,15 +803,17 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                     n.flight = None;
                     (n.owner, std::mem::take(&mut n.deps))
                 };
+                {
+                    let mut s = self.0.borrow_mut();
+                    s.queued.remove(&id);
+                    s.queue.retain(|x| *x != id);
+                }
                 self.clear_owner(owner);
                 for (d, _, _) in deps {
                     self.node(d).borrow_mut().subs.retain(|x| *x != id)
                 }
             }
         }
-        let mut s = self.0.borrow_mut();
-        s.flushing = false;
-        s.tick_tx = None;
     }
     fn tx_root(&self, mut id: usize) -> usize {
         loop {
@@ -933,6 +1000,9 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
     }
     /// Drain controlled promise continuations. A completed flight is still asynchronous.
     pub fn drain(&self) {
+        for c in self.0.borrow().nodes.iter() {
+            c.borrow_mut().refresh_watched = false;
+        }
         self.flush();
         loop {
             let memos = std::mem::take(&mut self.0.borrow_mut().memo_ready);
@@ -944,7 +1014,9 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
                 };
                 if current {
                     let result = self.0.borrow().flights[&flight].clone();
-                    node.borrow_mut().loading_seed = false;
+                    if result.is_ok() {
+                        node.borrow_mut().loading_seed = false;
+                    }
                     self.publish(id, result);
                 }
             }
