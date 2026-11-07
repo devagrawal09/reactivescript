@@ -46,6 +46,10 @@
   "yield/paired.test.ts :: yield tracker frames: interpreted RX from yield",
   "yield/paired.test.ts :: yield tracker frames: compiled handwritten RX",
   "yield/paired.test.ts :: yield tracker frames: interpreted handwritten RX",
-  "yield/paired.test.ts :: yield counter: an $event is an action, so the plain-handler Solid counter is a different program",
+  "yield/paired.test.ts :: yield counter: facts also equal the original plain-handler TSX and handwritten RX counters",
+  "yield/paired.test.ts :: yield callbacks: inferred optimistic and write+await handlers satisfy action catches props",
+  "yield/paired.test.ts :: yield events: calling a local event calls its handler, not a declared action",
+  "yield/paired.test.ts :: yield events: row parameters cannot capture a handler's source reads",
+  "yield/paired.test.ts :: TSX inline action callbacks: bodies without an AC-1b trigger still need a named action",
   "yield/paired.test.ts :: yield refusals: forms outside the subset, or that would behave differently from RX, are refused at their source"
 ]

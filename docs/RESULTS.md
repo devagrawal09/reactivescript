@@ -7,12 +7,12 @@ Clean ReactiveScript fdbcad921c6bc1cae59cbebe9905eeabc480e88f; Solid
 Node 24.18.0, Rust 1.97.1. No upstream patches.
 
 The gate is now the kept subset, not the old full-port failure catalog. It includes every yield test from frontend
-main 202bf7f. No yield source or fixture was changed by the shrink. V8 coverage of the kept TSX tests and 200 seeds
+main 6fb8ea8. No yield source or fixture was changed by the shrink. V8 coverage of the kept TSX tests and 200 seeds
 was used to find unused branches; removed behavior is refused before lowering.
 
 | Check | Result |
 | --- | --- |
-| Kept tests | 49 passed (33 TSX/verifier, 16 yield), 0 failed/skipped/todo/cancelled |
+| Kept tests | 53 passed (33 TSX/verifier, 20 yield), 0 failed/skipped/todo/cancelled |
 | Fuzz seeds 0–199 | 179 agree; 21 listed interpreter-only differences; no adapter/semantics differences or generator errors |
 | Strict types | 0 package diagnostics; unchanged baseline of 12 upstream diagnostics |
 | Upstream interpreter | 111 pass, 1 fail: S-store-8 |

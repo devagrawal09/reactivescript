@@ -1,8 +1,5 @@
 export default component Counter() {
   source count := 0;
   doubled = count * 2;
-  action increment() {
-    count := count + 1;
-  }
-  <button onClick={() => { increment() }}>{"" + doubled}</button>
+  <button onClick={() => { count := count + 1 }}>{"" + doubled}</button>
 }
