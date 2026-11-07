@@ -85,7 +85,9 @@ export function resolvePlan(set: ModuleSet): Plan {
     if (m.k === 'read') {
       // TSX lowering makes numeric text coercion explicit; text holes do it at the renderer boundary.
       const e = m.e.k === 'bin' && m.e.op === '+' && m.e.l.k === 'lit' && m.e.l.v === '' ? m.e.r : m.e;
-      return { kind:'text', value:expression(e,readers[ri++]) };
+      const reader = readers[ri++];
+      if (!reader) throw new Error('text reader absent from CP-6');
+      return { kind:'text', value:expression(e,reader) };
     }
     if (m.k !== 'el' || !/^[a-z]/.test(m.tag)) throw new Error('only host elements supported');
     const events = m.attrs.map(a => {

@@ -37,4 +37,6 @@ YIELD_FRONTEND=../slice1-js RUST_SCENARIO=/Users/devagr/rx-tsx-refresh/rust-soli
 
 After sol's lowering lands, omit `YIELD_FRONTEND`. The override loads only the frontend; checking and plan construction still run here. No implementation is copied or changed in sol's worktree. The integration test freshly emits all three plans, compares their full JSON, checks the saved artifact, and runs each through Rust against the exact native scenario strings. There are also negative tests for checker errors and unsupported expressions.
 
+Type check: `npx tsc -p plan/tsconfig.json` reports no diagnostics in `plan/`, but exits nonzero for three existing diagnostics in the pinned upstream `compile/emit.ts` (273, 393, 479). Those files are read-only and unchanged.
+
 Observed gate: all four tests pass; each frontend produces Rust frames `["0","1","0","1","1"]`, identical to native Solid. The broader scalar signals fuzzer is a separate gate and has known divergences; see rust-solid `docs/SLICE1.md`.
