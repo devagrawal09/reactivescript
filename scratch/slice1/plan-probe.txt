@@ -1,0 +1,18 @@
+file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:28
+  fail(msg        )        { throw new ParseError(`line ${this.line}: ${msg} near '${this.src.slice(this.i, this.i + 20)}'`); }
+                                   ^
+
+ParseError: line 3: declaration or markup near '
+ source shown = lik'
+    at Cursor.fail (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:28:36)
+    at parseMarkup (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:491:9)
+    at parseBlockBody (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:549:25)
+    at parseDecl (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:219:29)
+    at parseDecl (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:129:51)
+    at parseProgram (file:///Users/devagr/rx-tsx-refresh/reactivescript/ref/src/parse.ts:84:53)
+    at file:///Users/devagr/rx-tsx-refresh/slice1-plan/plan/probe.ts:3:9
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.18.0

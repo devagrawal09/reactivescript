@@ -1,0 +1,70 @@
+{
+  "U2-probe": {
+    "interpreter": [
+      {
+        "step": "mount",
+        "frame": "twothree0/0"
+      },
+      {
+        "step": "click 0",
+        "frame": "twothree0/2"
+      },
+      {
+        "step": "click 1",
+        "frame": "twothree0/5"
+      },
+      {
+        "step": "resolve request(2) = 5",
+        "frame": "twothree5/5"
+      },
+      {
+        "step": "resolve request(3) = 0",
+        "frame": "twothree5/5"
+      }
+    ],
+    "compiled": [
+      {
+        "step": "mount",
+        "frame": "twothree0/0"
+      },
+      {
+        "step": "click 0",
+        "frame": "twothree0/2"
+      },
+      {
+        "step": "click 1",
+        "frame": "twothree0/5"
+      },
+      {
+        "step": "resolve request(2) = 5",
+        "frame": "twothree0/5"
+      },
+      {
+        "step": "resolve request(3) = 0",
+        "frame": "twothree5/5"
+      }
+    ],
+    "native": [
+      {
+        "step": "mount",
+        "frame": "twothree0/0"
+      },
+      {
+        "step": "click 0",
+        "frame": "twothree0/2"
+      },
+      {
+        "step": "click 1",
+        "frame": "twothree0/5"
+      },
+      {
+        "step": "resolve request(2) = 5",
+        "frame": "twothree0/5"
+      },
+      {
+        "step": "resolve request(3) = 0",
+        "frame": "twothree5/5"
+      }
+    ]
+  }
+}

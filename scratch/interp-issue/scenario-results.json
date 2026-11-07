@@ -1,0 +1,20 @@
+{
+  "U1": {
+    "ok": false,
+    "lines": [
+      "  ✓ Frames instant 0: save0",
+      "  ✗ Frames instant 1: expected frame 'save1' effects [], got 'save3' effects []",
+      "  ✓ Frames instant 2: save2"
+    ]
+  },
+  "U2": {
+    "ok": false,
+    "lines": [
+      "  ✓ Frames instant 0: twothree0",
+      "  ✓ Frames instant 1: twothree0",
+      "  ✓ Frames instant 2: twothree0",
+      "  ✗ Frames instant 3: expected frame 'twothree0' effects [], got 'twothree5' effects []",
+      "  ✓ Frames instant 4: twothree5"
+    ]
+  }
+}

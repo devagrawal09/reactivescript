@@ -1,0 +1,16 @@
+import { request } from "./api";
+
+export default component App() {
+  source n := 0;
+  source guess = n;
+  action save() {
+    optimistic guess := value => value + 1;
+    try { await request(1); } catch (error) {}
+  }
+  <section>
+    <button onClick={() => { n := 2; save(); }}>save</button>
+    <output>{guess}</output>
+  </section>
+}
+
+// Steps: mount; click save; resolve request(1) with 0.

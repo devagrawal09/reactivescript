@@ -1,0 +1,32 @@
+import { createComponent as _$createComponent } from "/private/var/folders/k4/g2_9q0g52437sbcp5m856r6m0000gn/T/rx-canary.N1oZoN/reactivescript/ref/compile/string-renderer.ts";
+import { insert as _$insert } from "/private/var/folders/k4/g2_9q0g52437sbcp5m856r6m0000gn/T/rx-canary.N1oZoN/reactivescript/ref/compile/string-renderer.ts";
+import { createElement as _$createElement } from "/private/var/folders/k4/g2_9q0g52437sbcp5m856r6m0000gn/T/rx-canary.N1oZoN/reactivescript/ref/compile/string-renderer.ts";
+// compiled by ReactiveScript ref/compile from main.rx — do not edit
+export default function main(__rt) {
+	const __B = __rt.B;
+	return () => {
+		const __o = __rt.owner();
+		function V$App(v$props) {
+			const __o = __rt.owner();
+			const [v$n, w$n] = __rt.source("n", __rt.untrack(() => 0));
+			__rt.reg("n", {
+				get: v$n,
+				w: w$n
+			});
+			__rt.effect(1, () => [v$n()], ($p) => __rt.untrack(() => {
+				__B.log($p[0]);
+				return () => {
+					w$n.set(0);
+				};
+			}));
+			return (() => {
+				var _el$ = _$createElement("p");
+				_$insert(_el$, () => {
+					return __rt.show(v$n());
+				});
+				return _el$;
+			})();
+		}
+		return _$createComponent(V$App, { children: [] });
+	};
+}

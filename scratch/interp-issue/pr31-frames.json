@@ -1,0 +1,38 @@
+{
+  "U1": [
+    {
+      "step": "mount",
+      "frame": "save0"
+    },
+    {
+      "step": "click 0",
+      "frame": "save3"
+    },
+    {
+      "step": "resolve request(1) = 0",
+      "frame": "save2"
+    }
+  ],
+  "U2": [
+    {
+      "step": "mount",
+      "frame": "twothree0"
+    },
+    {
+      "step": "click 0",
+      "frame": "twothree0"
+    },
+    {
+      "step": "click 1",
+      "frame": "twothree0"
+    },
+    {
+      "step": "resolve request(2) = 5",
+      "frame": "twothree5"
+    },
+    {
+      "step": "resolve request(3) = 0",
+      "frame": "twothree5"
+    }
+  ]
+}
