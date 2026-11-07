@@ -1,0 +1,70 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 1
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 2,
+    "equals": "never"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "a",
+    "expr": {
+      "op": "read",
+      "id": "s"
+    },
+    "flight": "flight",
+    "owner": "scope",
+    "loading": 0
+  },
+  {
+    "op": "memo",
+    "id": "m",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "a"
+      },
+      "b": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "owner": "scope"
+  },
+  {
+    "op": "resolve",
+    "flight": "flight:1",
+    "value": 10
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 12
+  },
+  {
+    "op": "write",
+    "id": "t",
+    "value": 1
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "write",
+    "id": "t",
+    "value": 4
+  },
+  {
+    "op": "flush"
+  }
+]

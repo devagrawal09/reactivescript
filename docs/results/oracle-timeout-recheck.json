@@ -1,0 +1,22 @@
+{
+  "invalid": "oracle-timeout",
+  "progress": "teardown",
+  "actual": [
+    [
+      "compute",
+      "m3",
+      null
+    ],
+    [
+      "compute",
+      "m1",
+      null
+    ],
+    [
+      "read",
+      "m3",
+      3
+    ]
+  ],
+  "agree": false
+}

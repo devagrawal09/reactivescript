@@ -1,0 +1,47 @@
+[
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 1,
+    "equals": "default"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "effect",
+    "id": "et",
+    "expr": {
+      "op": "read",
+      "id": "t"
+    },
+    "owner": "scope"
+  },
+  {
+    "op": "action",
+    "id": "b",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "t",
+            "value": 30
+          }
+        ],
+        "flight": "gate-b"
+      },
+      {
+        "writes": [
+          {
+            "id": "t",
+            "value": 40
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "flush"
+  }
+]

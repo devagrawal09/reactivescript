@@ -6,13 +6,11 @@ Single-threaded Rust reactive-runtime spike against Solid 2 rc.21. **Not parity-
 
 Requires Rust (tested 1.88) and Node (tested 24). The JS oracle uses the built, read-only sibling checkout at ../solid-next/packages/signals/dist/prod/index.js. Cargo downloads serde and serde_json; there is no npm install step here.
 
-
-env CARGO_TERM_COLOR=never cargo test
-
+```sh
+cargo test
 node fuzz/run.mjs --seeds 2000 --out out/check
-
-node fuzz/run.mjs --replay docs/repros/PROGRAM.json
-
+node fuzz/run.mjs --replay docs/repros/reduced-2-compute-effect_cleanup.json
+```
 
 The fuzzer exits nonzero for any mismatch or invalid reference program. That is expected while the port is incomplete. It writes coverage, exact expected/actual logs, full failing programs, and reduced programs. No log filtering is used to improve agreement.
 
