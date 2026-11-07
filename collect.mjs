@@ -124,7 +124,7 @@ export async function collectGithub(pinSection,previous={}){
       if(number===21){
         const pr=await api(base+'/pulls/21',signal);
         thread.draft=pr.draft;thread.headSha=pr.head.sha;thread.headBranch=pr.head.ref;thread.headRepo=pr.head.repo?.full_name;
-        const refs=['refs/heads/tsx-frontend-demo-v3','refs/remotes/origin/tsx-frontend-demo-v3','refs/remotes/'+pr.head.user?.login+'/'+pr.head.ref];
+        const refs=[...new Set(['refs/heads/tsx-frontend-demo-v3','refs/remotes/origin/tsx-frontend-demo-v3','refs/heads/'+pr.head.ref,'refs/remotes/origin/'+pr.head.ref,'refs/remotes/'+pr.head.user?.login+'/'+pr.head.ref])];
         thread.localRefs=await Promise.all(refs.map(ref=>safe(async()=>({ref,sha:await git(repos['reactivescript-pr'],['rev-parse','--verify',ref],signal)}))));
         thread.localSha=thread.localRefs.find(item=>item.sha===pr.head.sha)?.sha||thread.localRefs.find(item=>item.sha)?.sha||null;
         thread.inSync=thread.localRefs.some(item=>item.sha===pr.head.sha);
@@ -175,6 +175,13 @@ async function runGate(target){
   const sandbox='/usr/bin/sandbox-exec';if(!await exists(sandbox))throw new Error('Write sandbox unavailable; gate refused to protect source repos');
   await fs.rm(workspace,{recursive:true,force:true});
   await fs.cp(target.dir,workspace,{recursive:true,dereference:false,filter:source=>{const parts=path.relative(target.dir,source).split(path.sep);return !parts.includes('.DS_Store')&&!(parts.includes('.out')&&parts.includes('fuzz'));}});
+  // Materialize linked source trees, but do not expand dependency link graphs.
+  for(const entry of await fs.readdir(target.dir,{withFileTypes:true})){
+    if(!entry.isSymbolicLink()||entry.name==='node_modules')continue;
+    const source=path.join(target.dir,entry.name),destination=path.join(workspace,entry.name);
+    if(entry.name==='.out'){await fs.rm(destination,{recursive:true,force:true});await fs.mkdir(destination,{recursive:true});continue;}
+    if((await fs.stat(source)).isDirectory()){await fs.rm(destination,{recursive:true,force:true});await fs.cp(await fs.realpath(source),destination,{recursive:true,dereference:false});}
+  }
   if(await git(target.dir,['rev-parse','HEAD'])!==target.sha||await git(target.dir,['status','--porcelain=v1','--untracked-files=all'])!==before)throw new Error('Source changed during copying; gate skipped');
   // Preserve relative source paths expected by the unmodified verification script.
   for(const name of ["solid-next"]){
