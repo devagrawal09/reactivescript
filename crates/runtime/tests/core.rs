@@ -1,0 +1,28 @@
+use rust_solid::*;
+use std::{rc::Rc, cell::RefCell};
+#[test]
+fn writes_are_stale_until_flush_and_coalesce() {
+ let r=Runtime::<i64>::new();let s=r.signal(1);s.set(2);assert_eq!(s.get(),Ok(1));s.set(3);r.flush();assert_eq!(s.get(),Ok(3));
+}
+#[test]
+fn split_effects_render_before_user_and_cleanup() {
+ let r=Runtime::<i64>::new();let owner=r.create_owner(None,None);let s=r.signal(0);let logs=Rc::new(RefCell::new(vec![]));
+ r.with_owner(owner,||for (name,kind) in [("user",EffectKind::User),("render",EffectKind::Render)] {let s=s.clone();let l=logs.clone();r.effect(Rc::new(move|_,_|s.get().map(Computation::Ready)),Rc::new(move|v,_|{l.borrow_mut().push((name,v));None}),kind,None,false);});
+ assert_eq!(*logs.borrow(),vec![("render",0)]);r.flush();s.set(1);r.flush();assert_eq!(*logs.borrow(),vec![("render",0),("user",0),("render",1),("user",1)]);r.dispose(owner);s.set(2);r.flush();assert_eq!(logs.borrow().len(),4);
+}
+#[test]
+fn async_is_loading_then_pending_and_old_answers_are_ignored() {
+ let r=Runtime::<i64>::new();let s=r.signal(0);let ss=s.clone();let m=r.memo(Rc::new(move|_,_|Ok(Computation::Await(format!("f{}",ss.get()?)))),MemoOptions::default());
+ assert!(r.is_loading(m));assert!(!r.is_pending(m));r.settle("f0".into(),Ok(10));r.drain();assert_eq!(r.read(m),Ok(10));s.set(1);r.flush();assert!(r.is_pending(m));assert_eq!(r.read(m),Ok(10));s.set(2);r.flush();r.settle("f1".into(),Ok(11));r.drain();assert_eq!(r.read(m),Ok(10));r.settle("f2".into(),Ok(12));r.drain();assert_eq!(r.read(m),Ok(12));
+}
+#[test]
+fn action_failure_commits_intent_and_reverts_guess() {
+ let r=Runtime::<i64>::new();let s=r.signal(0);let o=r.signal_with(0,None,true);let ss=s.clone();let oo=o.clone();let mut first=true;
+ r.action(Box::new(move|_,input|{if first{first=false;ss.set(1);oo.set(9);ActionStep::Yield("save".into())}else{assert!(input.is_err());ActionStep::Fail("no".into())}}));r.flush();assert_eq!(s.get(),Ok(0));assert_eq!(r.latest(s.id()),Ok(1));assert_eq!(o.get(),Ok(9));r.settle("save".into(),Err(ReadError::Failed("no".into())));r.drain();assert_eq!(s.get(),Ok(1));assert_eq!(o.get(),Ok(0));
+}
+#[test]
+fn cleanup_is_children_then_reverse_registration() {
+ let r=Runtime::<i64>::new();let a=r.create_owner(None,None);let b=r.create_owner(Some(a),None);let log=Rc::new(RefCell::new(vec![]));
+ for (o,v) in [(a,1),(a,2),(b,3)] {let log=log.clone();r.with_owner(o,||r.on_cleanup(move||log.borrow_mut().push(v)));}
+ r.dispose(a);r.dispose(a);assert_eq!(*log.borrow(),vec![3,2,1]);
+}
