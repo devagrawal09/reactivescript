@@ -2,7 +2,30 @@
 
 Oracle: sibling `solid-next`, pinned `2105ffb8ca2fced55f5fac0763177fc93f97c2c2`, rc.21 production signals build, through the existing isolated worker oracle. Seeds 1–1000. Default 1500 ms per comparison. Full expected and actual traces are compared without filtering; reducers preserve the first differing event-kind pair.
 
-## Final runtime: 2752ca0
+## Parity runtime: structural scheduler port (`crates/runtime/src/slice1/`)
+
+- Seeds 1–1000: **1000/1000 agree**, 0 diverge, 0 invalid.
+- Held-out seeds 1001–3000: **2000/2000 agree**, 0 invalid.
+
+The generator, worker oracle, comparator and expected logs are unchanged. Exact full traces are compared; nothing is filtered, dropped or reordered.
+
+There are no first-difference classes, so there are no new reduced cases. `parity/` holds:
+
+- `summary-1-1000.json` and `summary-1001-3000.json`: `fuzz/run.mjs` summaries, with coverage counts.
+- `replay-reduced-scalar-actions-compute-read.logs.json` and `replay-reduced-scalar-actions-compute-effect_cleanup.logs.json`: the two reduced cases from `2752ca0`, replayed with exact native/Rust traces. Both now agree. They include the staged-truth compute the old slice lacked.
+- `probe.json`: the private out-of-distribution probe (4600 programs). It is not an official score.
+- `tools/`: the coverage, call-map and probe scripts behind [../SLICE1-PARITY.md](../SLICE1-PARITY.md).
+
+```sh
+node fuzz/run.mjs --slice1 --seeds 1000 --out out/recheck
+node fuzz/run.mjs --slice1 --start 1001 --seeds 2000 --out out/recheck-heldout
+node fuzz/run.mjs --slice1 --replay docs/slice1-fuzz/final/reduced-scalar-actions-compute-read.json
+node fuzz/run.mjs --slice1 --replay docs/slice1-fuzz/final/reduced-scalar-actions-compute-effect_cleanup.json
+```
+
+All four exit 0.
+
+## Previous runtime: 2752ca0 (historical)
 
 **7/1000 agree (0.7%); 993 diverge; 0 invalid or timed-out programs.**
 
@@ -17,13 +40,7 @@ These are first-difference classes, not proof that later trace entries agree. Th
 
 Each reduced file has a `.logs.json` partner with exact native/Rust traces. `fail-1.json` and `fail-2.json` retain full original cases. Every original failure is also retained locally in `out/slice1-verified/`.
 
-```sh
-node fuzz/run.mjs --slice1 --seeds 1000 --out out/recheck
-node fuzz/run.mjs --slice1 --replay docs/slice1-fuzz/final/reduced-scalar-actions-compute-read.json
-node fuzz/run.mjs --slice1 --replay docs/slice1-fuzz/final/reduced-scalar-actions-compute-effect_cleanup.json
-```
-
-The expected exit status remains nonzero for these failures.
+These artifacts describe the `2752ca0` runtime. Against the parity runtime, the replays agree and exit 0.
 
 ## Initial runtime: 3911d2e
 

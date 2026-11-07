@@ -18,6 +18,8 @@ The fuzzer exits nonzero for any mismatch or invalid reference program. That is 
 
 - crates/runtime/src/lib.rs — graph, owners, scheduler, flights, coroutine actions
 - crates/runtime/src/bin/driver.rs — JSON-lines Rust program runner
+- crates/runtime/src/slice1/ — structural port of Solid's scheduler paths for slice 1 (see docs/SLICE1.md, docs/SLICE1-PARITY.md)
+- crates/runtime/src/bin/slice1-driver.rs — the slice-1 fuzz adapter (`node fuzz/run.mjs --slice1`)
 - crates/runtime/tests/core.rs — focused runtime tests
 - fuzz/solid.mjs — rc.21 reference runner
 - fuzz/generate.mjs — deterministic seeded program generation

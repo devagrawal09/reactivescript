@@ -2,69 +2,123 @@
 
 ## Status
 
-The like scenario passes with freshly emitted plans from RX, TSX and yield TSX. Exact native and Rust frames: `0`, `1`, `0`, `1`, `1`. This does **not** establish signals-level parity: the scalar subset fuzzer finds compute/effect trace differences. No logs are filtered and no expectations are changed.
+The slice runtime is now a **structural port of the Solid scheduler paths this slice reaches**: transactions, lanes, pending/held queues, the flush and its seam, the speculative compute passes, the effect queue split, and `setSignal` hold/join/equality. It lives in `crates/runtime/src/slice1/`. The call map is in [SLICE1-PARITY.md](SLICE1-PARITY.md).
 
-## Placement and source correspondence
+Results on the existing exact-trace fuzzer (unchanged worker oracle, generator and comparator; no filtering or normalization):
 
-The port is **beside M1**, in `crates/runtime/src/slice1.rs`. It uses M1's dependency graph, memo computations and effect queue, but not M1's `Transaction`, action execution, guessed-value rollback map, or transaction scheduler. This separation keeps existing M1 tests unchanged and makes the narrow port independently fuzzable through `slice1-driver`. It is not a complete structural port of Solid's graph/effect scheduler.
+- Seeds 1–1000: **1000/1000 exact traces agree**, 0 invalid.
+- Held-out seeds 1001–3000: **2000/2000**, 0 invalid.
 
-Read-only source: Solid `2105ffb8ca2fced55f5fac0763177fc93f97c2c2`, rc.21, `packages/signals/src/`. Source correspondence verified against code (not just the supplied notes):
+The like scenario still gives native frames `0`, `1`, `0`, `1`, `1`. Run summaries are in [slice1-fuzz/parity](slice1-fuzz/parity/).
 
-| Solid | Rust slice |
+## Placement
+
+The port is a separate module, **beside M1**. `crates/runtime/src/slice1/` replaces the earlier `slice1.rs`, which wrapped M1's graph with ad-hoc parking and flush logic. The new module reuses nothing from `lib.rs`: M1's dependency graph, effect queue and scheduler have different semantics (no seam, no stashed queues, no lane passes). M1 and its 15 tests are untouched.
+
+Read-only source: Solid `2105ffb8ca2fced55f5fac0763177fc93f97c2c2`, rc.21, `packages/signals/src/core/`. One Rust file per Solid file. Every ported function has a `// Solid: file.ts:lines` comment, and module-level `let`s become fields of `Runtime` (`mod.rs`).
+
+## Source correspondence
+
+| Solid | Rust (`crates/runtime/src/slice1/`) |
 | --- | --- |
-| `signals.ts:458–475`, `createOptimistic(fn)` creates a computed and binds `optimisticWrite` | `optimistic`: real seed memo; a presentation memo chooses truth or lane. The two graph memos represent the two views; they are not independent committed source values. |
-| `core/action.ts:152–164,188–250`, open/acted transaction, generator `next`/`throw`, resume through `inTransaction` | `begin_action`, `finish_action`, `plan::App::run/settle`: a suspended instruction stack retains its transaction, catch stack and locals; settlement rejoins it and flushes the resumed slice. |
-| `core/scheduler.ts:260–347`, `Transaction`, `newTransaction` | `Transaction`: nodes, into, parent, lane, open, acted, shown. Lane/effect queues, reruns and verdict links outside this scalar path are **not ported**. |
-| `core/scheduler.ts:414–451`, `resolveTx`, `joinFuture`, `merge` | `resolve_tx`, `join_future`, `merge`: follow merged transaction links, merge same-tick action work, add open counts, append held nodes; lanes do not merge as peers. |
-| `core/scheduler.ts:616–630`, node ownership/listing | `list`: held source records the owning transaction; transaction owns its node list. |
-| `core/core.ts:2693–2742`, `setSignal` | `write`: an existing hold joins before equality; a fresh equal write does not queue a node or acquire a hold. Two regression tests distinguish these cases. |
-| `core/lanes.ts:137–209`, pendingGuesses, `guessedValueOf`, `optimisticWrite` | pending guess triples; updater reads the latest queued guess, then lane, then truth; writes do not overwrite truth. |
-| `core/lanes.ts:220–280`, `applyGuesses` | `apply_guesses`: route guesses to a lane under the action transaction, or discard an unheld guess. Reuse the lane for other guesses in the same pass. |
-| `core/lanes.ts:872–904`, `laneSeam` | scalar lane reveal at flush; no async computed blockers exist in this slice. |
-| `core/lanes.ts:554–630,906–942`, `dissolveLane`, `endLanes` | `end_lanes`: clear the guess/override and re-derive from truth; do not restore a captured stale value. |
-| `core/scheduler.ts:1093–1137`, landing and release ordering | `flush`: park ordinary writes while open; publish held writes on closure, end lanes, then run graph effects. **Speculative truth/lane compute passes and separate held callback queues are not yet represented**, which the full-log fuzz comparison exposes. |
+| `types.ts` `Signal`/`Computed`/`Owner`; core.ts:1259-1279 `NodeExtension` | `mod.rs` `Node`. The extension fields are inlined: an absent extension and a default one behave alike on every ported path. |
+| `constants.ts` flag bits | `mod.rs` `REACTIVE_*`, `CONFIG_*`, `STATUS_*` (same values) |
+| scheduler.ts:266-327 `Transaction` | `mod.rs` `Transaction`: nodes, queues, reruns, into, parent, lane, open, acted, shown, held |
+| scheduler.ts:330-449 `newTransaction`, `txOf`, `liveTx`, `resolveTx`, `joinFuture`, `merge` | `scheduler.rs` same names |
+| scheduler.ts:466-568 `blocked`, `ownFlights`, `blockedBy` | `scheduler.rs` (`blocked_by` is constant false: see deviations) |
+| scheduler.ts:599-629 `heldTrim`, `holdNode`, `list` | `scheduler.rs` |
+| scheduler.ts:735-787 `enterAction`/`exitAction`, `setQuestion`/`nextQuestion`, `schedule` | `scheduler.rs`. `schedule` pushes `Microtask::Flush` |
+| scheduler.ts:935-974 `GlobalQueue.flush` | `scheduler.rs` `global_flush` |
+| scheduler.ts:981-1168 `settle` (corrections, guesses, park/commit, lane seams, landings, queue order) | `scheduler.rs` `settle` |
+| scheduler.ts:1169-1184 `run`, `enqueue` (lane work → the lane's queues) | `scheduler.rs` `run`, `enqueue` |
+| scheduler.ts:1235-1332 `reruns`, `land`, `releaseQueues` | `scheduler.rs` |
+| scheduler.ts:1351-1479 `staleReader`, `queuePendingNode`, `insertSubs`, `laneDirty`, `queueEffectRun`, `sameLane` | `scheduler.rs` |
+| scheduler.ts:1482-1571 `applyStaged`, `commitPendingNode(s)` | `scheduler.rs` |
+| scheduler.ts:1608-1707 `flush`, `runQueue` | `scheduler.rs` `flush_all`, `run_queue` |
+| core.ts:201-224 `GlobalQueue._update`; 364-1090 `recompute` (seat, held re-pass, staging/publish/lane slot, effect enqueue, `heldTrim`, pending queue) | `core.rs` `update`, `recompute` |
+| core.ts:1092-1137 `updateIfNecessary`; 2028-2044 `pullComputed` | `core.rs` |
+| core.ts:1144-1253 `computed`; 1452-1566 `createEffectNode`; 1590-1616 `setupComputedNode`; 1618-1662 `signal` | `core.rs` |
+| core.ts:1292-1420 `joinPass`, `frameRead`, `bornInto`, `creatorPass`; scheduler.ts:397-403 `joinPassTx` | `core.rs` |
+| core.ts:1984-2023 `unflushedValue`, `stashFlushed`, `resyncUnflushedCompanions` (A28) | `core.rs` |
+| core.ts:2106-2447 `read`; 2469-2523 `serve`; 2557-2570 `stagedRead` | `core.rs` `read_node`, `serve`, `staged_read` |
+| core.ts:2680-2797 `isSame`, `setSignal` (join a hold before the equality gate; a fresh no-op queues nothing; stash a held rewrite) | `core.rs` `is_same`, `set_signal` |
+| truth.ts:23-29 `laneValueOf` | `lanes.rs` `lane_value_of` |
+| lanes.ts:119-200 `newLane`, `display`, `guessedValueOf`, `pendingGuessOf`, `optimisticWrite` | `lanes.rs` |
+| lanes.ts:220-273 `applyGuesses`; 1049-1052 `applyGuessesAt` | `lanes.rs` |
+| lanes.ts:283-347 `enterLane`, `under` | `lanes.rs` |
+| lanes.ts:408-492 `laneStage`; 510-542 `supersede`; 554-695 `dissolveLane` | `lanes.rs` |
+| lanes.ts:716-832 `laneRead`, `covered`, `guessFlights` | `lanes.rs` |
+| lanes.ts:847-962 `laneCorrections`, `laneSeam`, `endLanes`, `lanesBlocked`, `nestedBlocked` | `lanes.rs` |
+| lanes.ts:969-1042 `laneWrite`, `laneOutcome`, `stale`, `answered` | `lanes.rs` |
+| lanes.ts:1082-1215 `readsHeld`, `laneSeams` | `lanes.rs` |
+| effect.ts:70-121 `effect`; 186-286 `runEffect` | `effect.rs` |
+| action.ts:38-48 `inTransaction`; 127-245 `action` (`done`, `step`, `run`) | `action.rs` `resume_action`, `action`, `action_done`, `step_action` |
+| heap.ts (whole file) | `heap.rs` |
+| graph.ts:23-100 `unlinkSubs`, `trimStaleDeps`, `clearDeps`, `unobserved`; 149-190 `link` | `graph.rs` |
+| owner.ts:95-210 `disposeChildren`, `linkChild`; 366-496 `createRoot`; core.ts:2868 `runWithOwner` | `owner.rs` |
+| signals.ts:413-475, 519, 648 `createSignal`, `createOptimistic` (value and fn), `createMemo`, `createRenderEffect` | `mod.rs` / `effect.rs` public API |
 
-Node state has separate committed truth (M1 graph node), `pending_value`, `lane`, `transaction`, `guess` and question stamp. The graph presentation uses an override flag and lane-value signal to keep dependency tracking real. Optimistic truth is a memo, so a server answer different from the guess corrects the text; an equal answer leaves the text unchanged.
+## Deviations from Solid's structure, and why
 
-Question stamps are currently monotonic at optimistic writes rather than fully restoring the action's question across all nested callbacks. The example has one optimistic write per invocation, so it does not distinguish these. General question provenance, take/revert/rebase, per-row lanes and nested async computations remain outside this port.
+- **Not ported, because the slice keeps them constant.** Each is noted at its site:
+  - flights and STATUS_PENDING (`handleAsync`, pending sources, `blockedBy` candidates, `inFlight`, `guessFlights`);
+  - verdict windows (`_verdict`, CONFIG_VERDICT, `ahead`/`entered`);
+  - linked lanes (`_links`);
+  - `take`/`kept`/`reverted`;
+  - stores and slots, boundaries, `affects()` marks, snapshots;
+  - staged errors (D-41);
+  - parked child frames, zombies and `holdFrame`;
+  - the dev/observe tiers.
+
+  For this graph, Solid's hooks for these are reached but compute nothing (listed in SLICE1-PARITY.md).
+- **Fail-closed panics.** Four reachable-in-principle arms that the slice never enters panic with a "not ported" message, so a fuzz run reports `rust-panic` instead of silently diverging: `joinPassTx`'s pass-scoped transaction, `linkLanes`, `take`, and reawakening a dormant memo. None fired in 3000 fuzz seeds, 4600 probe programs or the like scenario.
+- **Errors are simplified.** A failing computation records the error (`STATUS_ERROR`), leaves the value unpublished and fails the plan run. There are no error boundaries or effect error handlers.
+- **One struct holds all state.** JS module state is the `Runtime` struct. Effect callbacks are data (`QueueCallback::RunEffect`, `::ReleaseQueues`).
+- **Explicit microtasks.** The JS promise layer is an explicit FIFO of `Microtask::{Flush, Resume, Settled}`, so `queueMicrotask(flush)`, flight reactions and the action promise's `.then` keep JS order. The host drains it and then calls `flush()`, as `fuzz/solid.mjs`'s `drain()` does.
+- **Generator bodies.** JS generators are `ActionBody::step(rt, Resume)` returning `Yield(flight)`, `Return` or `Throw`. Async generators are not ported.
+- **Values.** Values are `i64` with `Option` for `undefined`. Equality is the default comparator only (effects use `_equals: false`).
 
 ## Evaluator and host boundary
 
-`plan.rs` deserializes data-only expressions into closures over real runtime nodes. The action interpreter has explicit blocks, local values and catch frames. Await asks a `HostRegistry` function for a flight ID; no source code is executed. Rejection is delivered at that wait point, so an empty catch completes normally while its unconfirmed guess disappears.
+`plan.rs` deserializes data-only expressions into compute closures over runtime nodes. Each action becomes an `ActionBody`: an instruction stack with explicit blocks, locals and catch frames. An await asks a `HostRegistry` function for a flight ID and yields it; no source code is executed. A rejection is thrown in at that yield point, so an empty catch completes normally while its unconfirmed guess is corrected at the body's end (`laneCorrections`). `click` and `settle` drain the microtasks, then flush. Evaluator failures, render errors and uncaught rejections fail the run.
 
-`scenario.rs` registers the declared hosts with call-order IDs (`save:1`, `save:2`), per mount. It validates arity, requires supported numeric signatures/results, rejects duplicate or unknown settlements, and rejects requests still pending at the end. This runtime currently supports integer expressions, not every scalar type allowed by scenario v1; unsupported types fail explicitly.
+`scenario.rs` is unchanged. It registers the declared hosts with call-order IDs (`save:1`, `save:2`) per mount, validates arity and numeric signatures/results, rejects duplicate or unknown settlements, and rejects requests still pending at the end.
 
-`renderer.rs` defines create_element/create_text/replace_text/set_prop/insert/remove/parent/next_sibling/event. `TextRenderer` stores a tree and handler IDs. Frames concatenate text node bytes; tags, attributes and events add no text. No escaping, trimming, separators or hidden frame filtering. Click enumeration is depth-first over live click handlers.
+`renderer.rs` is unchanged. Frames concatenate text node bytes, with no escaping, trimming, separators or hidden frame filtering.
 
 ## Reproduce
 
 ```sh
 cargo test
 cargo run --bin scenario -- crates/runtime/tests/fixtures/like.plan.json crates/runtime/tests/fixtures/like.scenario.json
-# Fresh frontend → checker → plan → Rust gate, from slice1-plan:
-YIELD_FRONTEND=../slice1-js RUST_SCENARIO=/Users/devagr/rx-tsx-refresh/rust-solid/target/debug/scenario node --experimental-strip-types --test plan/plan.test.ts
-# Same existing worker oracle, comparator and reducer; new runtime adapter:
 node fuzz/run.mjs --slice1 --seeds 1000 --out out/slice1-1000
+node fuzz/run.mjs --slice1 --start 1001 --seeds 2000 --out out/slice1-heldout
+node fuzz/run.mjs --slice1 --replay docs/slice1-fuzz/final/reduced-scalar-actions-compute-effect_cleanup.json
 ```
 
-The Rust fixture is a byte copy of the emitted plan and native scenario. Cargo tests cover that scenario, wrong expected frames, duplicate settlement, held writes, a server answer differing from the guess, updater composition, and two same-tick actions. The frontend integration tests verify all three fresh outputs, not just this saved fixture.
+Validation:
+
+- `cargo test`: **27 tests pass**: 2 library tests, M1's 15, and 10 slice tests. The slice tests cover the like scenario, wrong frames, duplicate settlement, render errors, held write vs lane, updater composition, same-tick actions, the equality/join rules, and the staged-truth-then-lane compute order. Their expected values were checked against Solid with `docs/slice1-fuzz/parity/tools/unit-expectations.mjs`.
+- `cargo fmt --check`, `git diff --check` and `cargo clippy` are clean.
+- The frontend integration test in `slice1-plan` (`RUST_SCENARIO=…/scenario`) lives outside this worktree and was not rerun. The `scenario` binary's interface is unchanged.
 
 ## Fuzz scope
 
-`generate-slice1.mjs` keeps the existing JSON operation protocol and seeded RNG. It generates scalar sources (including optimistic), render effects, ordinary and optimistic writes, reads, action slices, flushes, resolves and rejects. Each seed has three actions, with varied ordinary writes before and during holds. Excluded: stores, lists, async memos, refresh, custom equality, loading/pending probes, owner changes, and nested/overlapping action generation. The original generator/oracle remain available unchanged without `--slice1`. No expected/actual event is dropped.
+`generate-slice1.mjs` is unchanged. It generates scalar sources (including optimistic), one render effect, ordinary and optimistic writes, reads, two-slice actions, flushes, resolves and rejects, with three actions per seed. Excluded: stores, lists, async memos, refresh, custom equality, loading/pending probes, owner changes, and overlapping actions.
 
-Final run at runtime commit `2752ca0`: **7/1000 exact traces agree (0.7%), 993 diverge, 0 invalid**. Remaining first-difference classes: compute/read (105) and compute/effect_cleanup (888). Both reduced cases expose missing staged-truth computation/held callback work, not a text-format workaround.
+The private probe in SLICE1-PARITY.md reaches transaction merges, landing reruns, held-lane screen reads, re-guesses, memos, user effects and up to three overlapping actions. It agrees on all 4600 programs. That is evidence, not an official score.
 
-The initial run at `3911d2e` had 5/1000 agreement and four classes. A fresh no-op write acquiring a hold caused the effect/effect value mismatch; the source equality gate fixed that. Historical cases and all final reduced cases plus exact traces are checked in under [slice1-fuzz](slice1-fuzz/README.md). The full local final corpus remains `out/slice1-verified/`. Reducers now retain each first-difference class.
+History:
 
-Validation: **26 Rust tests pass** (15 existing, 11 added); **4 frontend integration tests pass**, with none skipped when `RUST_SCENARIO` is set. `cargo fmt --check` and `git diff --check` pass. The fresh three-frontend test uses sol's committed lowering from `694e509` (worktree now at `158bea5`). The plan copies in frontend, scratch and Rust have the same SHA-256: `d5fb8d4bc7794ddeb1a37af8919e310173e63214916155653e15cb4554072403`.
+- `3911d2e`: 5/1000.
+- `2752ca0` (ad-hoc slice): 7/1000, with classes compute/read 105 and compute/effect_cleanup 888.
 
-This establishes the end-to-end frame skeleton, **not the requested complete structural scheduler fidelity**. The M1 graph/effect substrate must be replaced or extended with the missing Solid staging passes before claiming that stronger result. Transaction records are also retained for this small run; lifetime/reclamation is not production-ready.
+Both old reduced cases now agree. [slice1-fuzz/README.md](slice1-fuzz/README.md) records the historical artifacts.
 
 ## Slice 2 risks
 
-- Preserve speculative compute passes and separate lane/held callback queues before trusting effect-level equivalence. A passing text frame alone hides these differences.
-- Lists need ownership, keyed identity, node moves and disposal, plus lane-aware child frames. The renderer operations exist; list evaluation does not.
-- Stores need per-slot truth/pending/lane state, structural enumeration, and stable identity. Scalar source-wide holds are not a store model.
-- Per-row optimistic writes need question provenance, rebase/take/revert, independent flights and correct transaction entanglement. None can be inferred from the single sequential like scenario.
-- CP-6 still lacks executable expressions, control flow and markup; the frontend's explicit AST fallback list is in `plan/docs/PLAN.md`.
+- Async memos, `refresh`, loading probes, verdict windows (`latest`/`isPending`) and linked lanes are the next Solid paths. Each is cut at a marked site in `slice1/` (STATUS_PENDING, CONFIG_VERDICT, `_links`). They need the same coverage-first method.
+- Lists need ownership, keyed identity, node moves and disposal, plus lane-aware child frames. The parked-frame machinery (`parkChildren`, zombies, `holdFrame`) is not ported.
+- Stores need per-slot truth/pending/lane state and the store hooks that are inert here.
+- Per-row optimistic writes need question provenance across actions, `take`/revert/rebase, and independent flights.
+- Transaction and lane records are never reclaimed (arena indices). This is fine for tests, not for a long-running host.

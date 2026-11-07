@@ -1,0 +1,59 @@
+{
+  "expected": [
+    [
+      "compute",
+      "view",
+      null
+    ],
+    [
+      "effect",
+      "view",
+      2,
+      null
+    ],
+    [
+      "compute",
+      "view",
+      2
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      2
+    ]
+  ],
+  "actual": [
+    [
+      "compute",
+      "view",
+      null
+    ],
+    [
+      "effect",
+      "view",
+      2,
+      null
+    ],
+    [
+      "compute",
+      "view",
+      2
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      2
+    ]
+  ],
+  "agree": true
+}
