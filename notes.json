@@ -1,0 +1,140 @@
+{
+  "goal": "Write Solid-style code in other syntaxes (Solid TSX, solid-yield), lower it onto ReactiveScript's existing AST, and accept a program only if it behaves exactly like native Solid; refuse everything else. Direction: 'Solid' is a semantic model plus a conformance suite; syntaxes, hosts, runtimes, renderers and placement are plugins.",
+  "milestones": [
+    {
+      "name": "TSX frontend, verified subset",
+      "status": "done"
+    },
+    {
+      "name": "Async-callback refusal (#20)",
+      "status": "done"
+    },
+    {
+      "name": "Tracker demo, five legs",
+      "status": "done"
+    },
+    {
+      "name": "STALE_WRITE_BACK through TSX",
+      "status": "done"
+    },
+    {
+      "name": "Differential fuzzer (500 seeds, found #33)",
+      "status": "done"
+    },
+    {
+      "name": "Shrink to verified subset + repin fdbcad92 / rc.21",
+      "status": "done"
+    },
+    {
+      "name": "yield frontend (syntax only, $event -> handler)",
+      "status": "done"
+    },
+    {
+      "name": "PR #21 v3 published",
+      "status": "done"
+    },
+    {
+      "name": "Rust Solid runtime M1 (57.4% of 2000 seeds, 0/667 actions)",
+      "status": "paused"
+    },
+    {
+      "name": "Slice 1: like button through every layer",
+      "status": "in progress"
+    },
+    {
+      "name": "Slice 2: tracker (lists, stores, per-row optimistic)",
+      "status": "next"
+    },
+    {
+      "name": "Slice 3: JS live evaluator",
+      "status": "planned"
+    },
+    {
+      "name": "Slice 4: native window (Blitz or Masonry)",
+      "status": "planned"
+    },
+    {
+      "name": "Slice 5: Rust SSR + Solid JS hydration",
+      "status": "planned"
+    },
+    {
+      "name": "Slice 6: inferred server components (Frames)",
+      "status": "planned"
+    }
+  ],
+  "slice1": {
+    "gate": "like.scenario.json passes unchanged on native Solid, compiled RX and Rust Solid, using the plan from each of the three syntaxes",
+    "parts": [
+      {
+        "name": "Fixtures in TSX/RX/yield, equal facts",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "Runtime-neutral scenario + format doc; frames 0→1→0→1→1",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "S-infer-1 converted",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "Solid action-path traces",
+        "owner": "luna x3",
+        "status": "done"
+      },
+      {
+        "name": "Resolved plan + CP-6 fallback list",
+        "owner": "astra",
+        "status": "running"
+      },
+      {
+        "name": "Structural port of Solid's transition path",
+        "owner": "astra",
+        "status": "running"
+      },
+      {
+        "name": "Renderer trait + text renderer + plan evaluator",
+        "owner": "astra",
+        "status": "running"
+      },
+      {
+        "name": "Subset fuzz vs Solid JS",
+        "owner": "astra",
+        "status": "running"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "who": "astra",
+      "session": "ses_e4baa49f3ffePwEsafY7JAIBO0",
+      "task": "Slice 1: plan + Rust leg",
+      "status": "running"
+    }
+  ],
+  "findings": [
+    "Upstream lowering is AST-driven; CP-6 facts are output-only today",
+    "Fuzzer: 454/500 agree, 46 interpreter-vs-compiler (#33), 0 frontend bugs",
+    "Non-waiting $event: no frame difference vs action; lowered to a plain handler",
+    "Solid 2 has server components (Frames, live holes); RX has none",
+    "No runtime-neutral conformance kit exists anywhere yet",
+    "rune: partial fit (no public mutable tree); Blitz or Masonry fit better",
+    "Solid's async model needs several views per node (_value, _pendingValue, lane, _shown)"
+  ],
+  "parked": [
+    "Generative UI / live evaluator",
+    "Placement inference",
+    "solid-yield P/E/W/R type cross-check",
+    "Triage of 15 Solid JS hangs in rust-solid fuzz"
+  ],
+  "decisions": [
+    "Architecture issue scope (hold until slice 1–2)",
+    "Pull ~/solid: fork next or official next? (3 untracked dirs)",
+    "Back up rust-solid",
+    "Server wire/hydration research pass"
+  ],
+  "next": "Review astra's slice 1 result; if the gate passes, start slice 2 (tracker)."
+}

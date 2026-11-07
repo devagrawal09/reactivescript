@@ -1,0 +1,6 @@
+cache/
+status.json
+status.json.*.tmp
+server.log
+server.pid
+server.port
