@@ -4,12 +4,14 @@ import {createInterface} from 'node:readline';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {generate} from './generate.mjs';
+import {generateSlice1} from './generate-slice1.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const args=process.argv.slice(2),arg=(key,fallback)=>{const i=args.indexOf(key);return i<0?fallback:args[i+1]};
 const timeout=Number(arg('--timeout-ms','1500'));
-execFileSync('cargo',['build','--quiet','--bin','driver'],{cwd:root,stdio:'inherit'});
+const slice1=args.includes('--slice1'),binary=slice1?'slice1-driver':'driver';
+execFileSync('cargo',['build','--quiet','--bin',binary],{cwd:root,stdio:'inherit'});
 let worker,child,lines;
-function startRust(){child=spawn(root+'/target/debug/driver',[],{stdio:['pipe','pipe','inherit']});lines=createInterface({input:child.stdout});}
+function startRust(){child=spawn(root+'/target/debug/'+binary,[],{stdio:['pipe','pipe','inherit']});lines=createInterface({input:child.stdout});}
 function oracle(ops){worker=new Worker(new URL('./worker.mjs',import.meta.url));const w=worker;let progress;return new Promise(resolve=>{
  const finish=result=>{clearTimeout(timer);w.removeListener('message',onMessage);w.removeListener('error',onError);w.terminate();worker=undefined;resolve(result)};
  const onMessage=result=>{if('progress'in result)progress=result.progress;else {if(result.invalid){w.terminate();worker=undefined}finish(result)}},onError=e=>{worker=undefined;finish({invalid:'oracle-error',detail:e.stack})};
@@ -33,8 +35,8 @@ try {
  else {const count=Number(arg('--seeds','2000')),start=Number(arg('--start','1'));
  for(let seed=start;seed<start+count;seed++){
   if(args.includes('--trace'))console.error('seed',seed);
-  const ops=generate(seed);for(const o of ops)coverage[o.op]=(coverage[o.op]??0)+1;
-  const r=await compare(ops);total++;const mode=seed%6;modes[mode]??={total:0,agreement:0};modes[mode].total++;
+  const ops=(slice1?generateSlice1:generate)(seed);for(const o of ops)coverage[o.op]=(coverage[o.op]??0)+1;
+  const r=await compare(ops);total++;const mode=slice1?'scalar-actions':seed%6;modes[mode]??={total:0,agreement:0};modes[mode].total++;
   if(r.agree){agreement++;modes[mode].agreement++;continue}
   if(r.invalid)invalid++;
   const i=Array.isArray(r.actual)&&r.expected?r.expected.findIndex((x,i)=>JSON.stringify(x)!==JSON.stringify(r.actual[i])):0;

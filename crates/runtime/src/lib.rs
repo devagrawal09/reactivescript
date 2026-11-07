@@ -1,4 +1,8 @@
 //! Single-threaded reactive graph. Explicit flush is the host's microtask boundary.
+pub mod plan;
+pub mod renderer;
+pub mod scenario;
+pub mod slice1;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, VecDeque},
