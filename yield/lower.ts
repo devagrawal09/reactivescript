@@ -1,6 +1,6 @@
 // solid-yield's explicit generator dialect (as a syntax design only) as a third ReactiveScript frontend, spike. A
 // yield module is lowered directly onto the pinned RX AST: component(function*) is a component, $signal / $store a
-// source, $optimistic an optimistic question source, $memo an equation, $event an action, view(function*) the
+// source, $optimistic an optimistic question source, $memo an equation, $event a plain handler, view(function*) the
 // component's markup with each yield* hole a read, For / Show regions. Only a small subset is accepted; every other
 // form is refused with its own diagnostic at its yield source. It reaches upstream only through tsx/rx/ and keeps
 // its own small helpers, so it does not depend on the TSX lowering. See docs/YIELD.md.
@@ -41,9 +41,9 @@ const OPS: Record<string, string> = { "===": "==", "!==": "!=", "+": "+", "-": "
 
 /** What a name is bound to. A read (yield*) of an accessor is its id; of a store, a prop or a row item, a path. */
 type B =
-  | { k: "accessor" } | { k: "path" } | { k: "value" } | { k: "js" }
+  | { k: "accessor" } | { k: "path"; name?: string } | { k: "value"; name?: string } | { k: "js" }
   | { k: "setter"; target: string; optimistic: boolean; store: boolean }
-  | { k: "event"; params: string[] }
+  | { k: "event"; params: string[]; handler: Expr }
   | { k: "local"; e: Expr }
   | { k: "draft"; store: string }
   | { k: "waited" };
@@ -69,6 +69,12 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
   const program = parsed.program as N;
   const line = (n: N) => source.slice(0, n.start).split("\n").length;
   const text = (n: N) => source.slice(n.start, n.end);
+  let nextLocal = 0;
+  const fresh = (): string => {
+    let name: string;
+    do { name = "__yieldLocal" + nextLocal++; } while (source.includes(name));
+    return name;
+  };
   const callee = (n: N): string | undefined => (n?.type === "CallExpression" && n.callee.type === "Identifier" ? n.callee.name : undefined);
   const isYield = (n: N) => n?.type === "YieldExpression" && n.delegate;
   const strip = (n: N): N => (n?.type === "ParenthesizedExpression" ? strip(n.expression) : n);
@@ -103,8 +109,9 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
     // an array builtin's callback: (x) => e
     if (n?.type !== "ArrowFunctionExpression" || n.async || n.params.length !== 1 || n.params[0].type !== "Identifier" || n.body.type === "BlockStatement")
       return fail(n ?? program, "an array builtin takes one (item) => expression callback");
-    const inner: Scope = new Map(scope); inner.set(n.params[0].name, { k: "value" });
-    return { k: "fn", params: [n.params[0].name], body: expr(n.body, inner) };
+    const raw = n.params[0].name, name = scope.has(raw) ? fresh() : raw;
+    const inner: Scope = new Map(scope); inner.set(raw, { k: "value", name });
+    return { k: "fn", params: [name], body: expr(n.body, inner) };
   };
   const expr = (raw: N, scope: Scope, inPath = false): Expr => {
     const n = strip(raw);
@@ -121,7 +128,8 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
         if (!b) return fail(n, "unknown name: " + n.name);
         if (b.k === "local") return b.e;
         if (b.k === "draft") return { k: "id", name: b.store };
-        if (b.k === "value" || b.k === "js" || (inPath && b.k === "path")) return { k: "id", name: n.name };
+        if (b.k === "value" || (inPath && b.k === "path")) return { k: "id", name: b.name ?? n.name };
+        if (b.k === "js") return { k: "id", name: n.name };
         if (b.k === "waited") return fail(n, "after an attempt, read sources before the attempt");
         return fail(n, b.k === "accessor" || b.k === "path" ? "a source is read with yield*: yield* " + n.name : "not a value here: " + n.name);
       }
@@ -173,7 +181,11 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
         const b = c.type === "Identifier" ? scope.get(c.name) : undefined;
         if (b?.k === "setter") { out.push(...write(call, b, scope)); continue; }
         if (b?.k === "event" || (c.type === "MemberExpression" && !c.computed && c.object.type === "Identifier" && c.object.name === "props")) {
-          out.push({ k: "expr", e: { k: "call", f: c.type === "Identifier" ? { k: "id", name: c.name } : { k: "member", o: { k: "id", name: "props" }, p: c.property.name }, args: call.arguments.map((a: N) => expr(a, scope)) } });
+          // Name a local arrow before calling it, as a handwritten RX handler would. The emitter expects a callable,
+          // not an unparenthesized arrow in callee position. Fresh names also keep repeated calls distinct.
+          const name = b?.k === "event" ? fresh() : undefined;
+          if (b?.k === "event") out.push({ k: "let", name: name!, e: b.handler });
+          out.push({ k: "expr", e: { k: "call", f: name ? { k: "id", name } : { k: "member", o: { k: "id", name: "props" }, p: c.property.name }, args: call.arguments.map((a: N) => expr(a, scope)) } });
           continue;
         }
         fail(call, "only a setter, a local $event or a Handler prop is called from an event");
@@ -258,8 +270,6 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
     return expr(v, scope);
   };
   const lazy = (n: N, scope: Scope): Markup[] => markup(only(routine(n, "a lazy view"), "a lazy view has no body: function* () { return <…/>; }"), scope);
-  const bind = (name: string, args: Expr[], params: string[]): Expr =>
-    ({ k: "fn", params, body: { k: "lit" } as Expr, stmts: [{ k: "expr", e: { k: "call", f: { k: "id", name }, args } }] });
   const hole = (n: N, scope: Scope): Markup[] => {
     const arg = strip(n.argument), name = callee(arg), at = line(n);
     if (name && LATER[name]) fail(arg, LATER[name]);
@@ -279,16 +289,17 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       if (row.params.length !== 1 || row.params[0].type !== "Identifier") fail(row, "a For row takes its item: function* (item) { … } (the index is not in the subset)");
       const ret = only(row, "a row returns its view, with no row-owned state in the yield subset");
       if (callee(ret) !== "view") fail(ret, "a row returns its view: return view(function* () { return <…/>; })");
-      const inner: Scope = new Map(scope); inner.set(row.params[0].name, { k: "path" });
+      const raw = row.params[0].name, name = scope.has(raw) ? fresh() : raw;
+      const inner: Scope = new Map(scope); inner.set(raw, { k: "path", name });
       const body = markup(only(routine(ret.arguments[0], "view"), "a view has no body: return <…/>"), inner);
-      return [{ k: "mfor", name: row.params[0].name, xs: input(p.get("each"), scope), decls: [], body, line: at } as Markup];
+      return [{ k: "mfor", name, xs: input(p.get("each"), scope), decls: [], body, line: at } as Markup];
     }
     if (name && components.has(name)) {
       const p = arg.arguments.length ? props(arg.arguments[0]) : new Map<string, N>();
       const attrs = [...p].map(([k, v]) => {
         if (k === "children") fail(v, "children of yield components are not in the subset");
         const ev = v.type === "Identifier" ? scope.get(v.name) : undefined;
-        if (ev?.k === "event") return { name: k, e: bind(v.name, ev.params.map(q => ({ k: "id", name: q }) as Expr), ev.params) };
+        if (ev?.k === "event") return { name: k, e: ev.handler };
         return { name: k, e: input(v, scope) };
       });
       return [{ k: "el", tag: name, attrs, children: [], line: at } as Markup];
@@ -326,7 +337,7 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       const b = target.type === "Identifier" ? scope.get(target.name) : undefined;
       if (b?.k !== "event") return fail(target, "an event prop binds a local $event: onClick={yield* evt}");
       if (b.params.length) return fail(target, "a bound event receives the DOM event; events with parameters are only called from events in the yield subset");
-      return { name: key, e: bind(target.name, [], []) };
+      return { name: key, e: b.handler };
     });
     return [{ k: "el", tag: open.name.name, attrs, children: n.children.flatMap((c: N) => markup(c, scope)), line: line(n) }];
   };
@@ -387,11 +398,14 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
         if (isYield(d.init)) fail(d.init, "an $event is created without yield*: const evt = $event(function* (…) { … })");
         if (d.id.type !== "Identifier") fail(d.id, "an $event is bound to a name");
         const ev = routine(init.arguments[0], "$event");
-        const params = ev.params.map((q: N) => (q.type === "Identifier" && q.typeAnnotation ? q.name : fail(q, "event parameters need explicit types")));
+        const names: string[] = ev.params.map((q: N) => (q.type === "Identifier" && q.typeAnnotation ? q.name : fail(q, "event parameters need explicit types")));
+        // The handler may be used inside another event or a row. Do not let their parameters capture its reads.
+        const params = names.map(q => scope.has(q) ? fresh() : q);
         const inner: Scope = new Map(scope);
-        for (const q of params) inner.set(q, { k: "value" });
-        scope.set(d.id.name, { k: "event", params });
-        decls.push({ k: "action", name: d.id.name, params, body: events(ev.body.body, inner), line: line(s) } as Decl);
+        names.forEach((q, i) => inner.set(q, { k: "value", name: params[i] }));
+        // Keep the body in the handler: RX alone infers actions (AC-1b). Forwarding to a child passes this same arrow.
+        const handler: Expr = { k: "fn", params, body: { k: "lit", v: undefined }, stmts: events(ev.body.body, inner) };
+        scope.set(d.id.name, { k: "event", params, handler });
         continue;
       }
       if (!isYield(d.init)) fail(d.init ?? d, "a setup creates with yield*: const … = yield* $signal(…)");

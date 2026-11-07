@@ -38,7 +38,7 @@ export default component(function* Tracker() {
     );
     if (owner !== undefined) {
       yield* setIssues((draft) => {
-        draft.list[draft.list.findIndex((issue) => issue.id === id)].assignee = owner;
+        draft.list[draft.list.findIndex((candidate) => candidate.id === id)].assignee = owner;
       });
       yield* setStatus("");
     }

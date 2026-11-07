@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { transform } from "@solidjs/compiler";
 import { loadTsxModules } from "../tsx/modules.ts";
 import { semanticFacts } from "../tsx/rx/facts.ts";
+import { actionInference } from "../tsx/rx/infer.ts";
 import { checkModules, compileModules, lowerViews, STRING_RENDERER, type ModuleSet } from "../tsx/rx/compiler.ts";
 import { createApp, flush, Runtime } from "../tsx/rx/runtime.ts";
 import { loadYieldModules, YieldError } from "./lower.ts";
@@ -108,7 +109,7 @@ for (const [name, script, expected] of [
   test("yield " + name + ": canonical facts equal the handwritten RX and the Solid TSX twin", () => {
     const facts = semanticFacts(fromYield(name));
     assert.deepEqual(facts.diagnostics, []);
-    assert.ok(facts.modules[0].computations.some(c => c.kind === "action"), "an $event lowers to an action");
+    assert.ok(facts.modules.every(m => m.symbols.every(s => !s.includes("::action:"))), "events do not declare actions");
     assert.deepEqual(facts, semanticFacts(load(name + ".rx")));
     assert.deepEqual(facts, semanticFacts(load(name + ".tsx")));
   });
@@ -136,9 +137,63 @@ for (const [name, script, expected] of [
   });
 }
 
-test("yield counter: an $event is an action, so the plain-handler Solid counter is a different program", () => {
-  const plain = readFileSync(new URL("../tsx/fixtures/paired/counter.tsx", import.meta.url), "utf8");
-  assert.notDeepEqual(semanticFacts(fromYield("counter")), semanticFacts(load("counter.tsx", plain)));
+test("yield counter: facts also equal the original plain-handler TSX and handwritten RX counters", () => {
+  const facts = semanticFacts(fromYield("counter"));
+  for (const ext of ["tsx", "rx"]) {
+    const plain = readFileSync(new URL("../tsx/fixtures/paired/counter." + ext, import.meta.url), "utf8");
+    assert.deepEqual(facts, semanticFacts(load("counter." + ext, plain)), ext + " plain counter");
+  }
+});
+
+test("yield callbacks: inferred optimistic and write+await handlers satisfy action catches props", () => {
+  for (const optimistic of [true, false]) {
+    const body = optimistic ? 'yield* setValue("now");' :
+      'const owner = yield* attempt(() => assignIssue(1), function* () {}); if (owner !== undefined) { yield* setValue(owner); }';
+    const source =
+      'import { component, view, $signal, $optimistic, $event, attempt } from "solid-yield"; import { assignIssue } from "./api"; ' +
+      'export default component(function* Parent() { const [value, setValue] = yield* ' + (optimistic ? '$optimistic' : '$signal') + '(""); ' +
+      'const run = $event(function* () { ' + body + ' }); return view(function* () { return <>{yield* Child({ onRun: run })}</>; }); }); ' +
+      'const Child = component(function* Child(props: Props<{ onRun: Handler<[]> }>) { ' +
+      'const invoke = $event(function* () { yield* props.onRun(); }); return view(function* () { return <button onClick={yield* invoke}>go</button>; }); });';
+    const set = checked(loadYieldModules("callback.tsx", p => p === "callback.tsx" ? source : API[p]), "inferred callback");
+    const program = set.programs.get("callback.tsx")!;
+    const parent = program.decls.find(d => d.k === "component" && d.name === "Parent");
+    const child = program.decls.find(d => d.k === "component" && d.name === "Child");
+    assert.ok(parent?.k === "component" && child?.k === "component");
+    assert.ok(parent.decls.every(d => d.k !== "action"));
+    const application = parent.view[0];
+    assert.equal(application.k, "el");
+    assert.ok(application.k === "el");
+    const handler = application.attrs[0].e;
+    assert.ok(handler.k === "fn" && handler.stmts);
+    assert.ok(actionInference(handler.stmts).trigger, "RX infers this body as an action");
+    child.propsType = "{ onRun: action catches(nothing) }";
+    assert.deepEqual(checkModules(set).diags, [], "no declared action is needed for the callback prop");
+  }
+});
+
+test("yield events: calling a local event calls its handler, not a declared action", async () => {
+  const source = fixture("counter.yield.tsx")
+    .replace('  return view(', '  const relay = $event(function* (count: number) { yield* increment(); });\n  const invoke = $event(function* () { yield* relay(99); });\n  return view(')
+    .replace('onClick={yield* increment}', 'onClick={yield* invoke}');
+  const set = checked(loadYieldModules("counter.tsx", () => source), "local event call");
+  assert.deepEqual(await compiled(set, COUNTER), ["0", "2", "4"]);
+  assert.deepEqual(interpreted(set, COUNTER), ["0", "2", "4"]);
+});
+
+test("yield events: row parameters cannot capture a handler's source reads", async () => {
+  const source = fixture("counter.yield.tsx").replace('component,', 'For, component,')
+    .replace('return <button onClick={yield* increment}>{yield* doubled}</button>;',
+      'return <>{yield* For({ each: [0], children: function* (count) { return view(function* () { return <button onClick={yield* increment}>{yield* doubled}</button>; }); } })}</>;');
+  const set = checked(loadYieldModules("counter.tsx", () => source), "row-bound event");
+  assert.deepEqual(await compiled(set, COUNTER), ["0", "2", "4"]);
+  assert.deepEqual(interpreted(set, COUNTER), ["0", "2", "4"]);
+});
+
+test("TSX inline action callbacks: bodies without an AC-1b trigger still need a named action", () => {
+  const source = fixture("counter.tsx").replace('createMemo }', 'createMemo, action }')
+    .replace('onClick={() => setCount(count() + 1)}', 'onClick={action(function* () { setCount(count() + 1); })}');
+  assert.throws(() => loadTsxModules("counter.tsx", () => source), /Inline action callbacks need an AC-1b trigger/);
 });
 
 const counter = fixture("counter.yield.tsx");

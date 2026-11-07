@@ -2256,6 +2256,15 @@ export function lowerTsx(
     );
   };
   const handler = (n: Node, scope: Scope, expected?: Shape): Expr => {
+    // A Solid action used directly as a callback can share RX's inferred-arrow shape, but only if AC-1b agrees.
+    const explicitAction = n.type === "CallExpression" && n.callee.type === "Identifier" &&
+      primitives.get(n.callee.name) === "action";
+    if (n.type === "CallExpression" && explicitAction) {
+      const fn = n.arguments[0];
+      if (n.optional || n.typeArguments || n.arguments.length !== 1 || fn?.type !== "FunctionExpression" || !fn.generator || fn.async)
+        return fail(n, "Inline action callbacks require a synchronous generator");
+      n = fn;
+    }
     if (
       n.type === "Identifier" &&
       scope.bindings.get(n.name)?.actionParams?.length
@@ -2283,7 +2292,8 @@ export function lowerTsx(
     )
       return asyncCallback(n);
     if (
-      n.type !== "ArrowFunctionExpression" ||
+      (n.type !== "ArrowFunctionExpression" && n.type !== "FunctionExpression") ||
+      (n.type === "FunctionExpression" && !explicitAction) ||
       n.typeParameters ||
       (n.returnType && n.returnType.typeAnnotation.type !== "TSVoidKeyword")
     )
@@ -2300,7 +2310,7 @@ export function lowerTsx(
         "Intrinsic handlers currently support one typed event parameter",
       );
     const inner = copy(scope);
-    inner.action = false;
+    inner.action = explicitAction;
     inner.effect = false;
     inner.returnShape = undefined;
     const params = fn.params.map((param, i) => {
@@ -2323,16 +2333,19 @@ export function lowerTsx(
       inner.bindings.set(name, { kind: "value", shape: type });
       return name;
     });
+    const body = fn.body ?? fail(fn, "A callback needs a body");
     const stmts =
-      fn.body.type === "BlockStatement"
-        ? statements(fn.body.body, inner)
-        : actionExpr(fn.body, inner);
+      body.type === "BlockStatement"
+        ? statements(body.body, inner)
+        : actionExpr(body, inner);
     // Inferred actions (pinned upstream AC-1b): a plain Solid callback is never an action, but upstream infers one
     // from the lowered body. Ordinary async callbacks are refused above (issue #20); this guard still refuses any
     // lowered body whose writes upstream would hold (AC-1c) while Solid applies them at once. Other inferred actions
     // (refresh/affects) are left to the shared checker and are covered by the differential suites.
     const inferred = actionInference(stmts);
-    if (inferred.held.length)
+    if (explicitAction && !inferred.trigger)
+      return fail(fn, "Inline action callbacks need an AC-1b trigger; otherwise use a named action");
+    if (!explicitAction && inferred.held.length)
       return fail(
         fn,
         "Solid applies " + inferred.held.join(", ") + " immediately, before the await, but ReactiveScript infers this callback as an action (AC-1b: " + inferred.why + ") and holds that write until the body ends (AC-1c); write after the await, or wrap the callback in action(...) to hold it deliberately",
