@@ -83,6 +83,7 @@ struct Node<T> {
     revision: u64,
     status_revision: u64,
     propagated: bool,
+    height: usize,
     initialized: bool,
     dirty: bool,
     running: bool,
@@ -130,6 +131,7 @@ struct State<T> {
     queued: BTreeMap<NodeId, bool>,
     effects: Vec<NodeId>,
     flights: BTreeMap<FlightId, ReadResult<T>>,
+    memo_ready: VecDeque<(NodeId, FlightId)>,
     transactions: Vec<Transaction<T>>,
     actions: Vec<Action<T>>,
     active_tx: Option<usize>,
@@ -157,6 +159,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             queued: BTreeMap::new(),
             effects: vec![],
             flights: BTreeMap::new(),
+            memo_ready: VecDeque::new(),
             transactions: vec![],
             actions: vec![],
             active_tx: None,
@@ -269,6 +272,7 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             revision: 0,
             status_revision: 0,
             propagated: false,
+            height: 0,
             initialized,
             dirty: !initialized,
             running: false,
@@ -535,6 +539,16 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             let mut n = c.borrow_mut();
             n.running = false;
             n.initialized = true;
+            n.height = new_deps
+                .iter()
+                .filter_map(|(d, _, _)| {
+                    let c = self.node(*d);
+                    let dep = c.borrow();
+                    dep.compute.as_ref().map(|_| dep.height + 1)
+                })
+                .max()
+                .unwrap_or(0)
+                .max(n.height);
             n.deps = new_deps;
             n.flight = None;
         }
@@ -543,10 +557,10 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             Ok(Computation::Await(f)) => {
                 c.borrow_mut().flight = Some(f.clone());
                 let ready = self.0.borrow().flights.get(&f).cloned();
-                if let Some(result) = ready {
-                    c.borrow_mut().loading_seed = false;
-                    self.publish(id, result);
-                } else if !c.borrow().loading_seed {
+                if ready.is_some() {
+                    self.0.borrow_mut().memo_ready.push_back((id, f));
+                }
+                if !c.borrow().loading_seed {
                     self.publish(id, Err(ReadError::Pending));
                 }
             }
@@ -683,8 +697,14 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
             loop {
                 let item = {
                     let mut s = self.0.borrow_mut();
-                    s.queue
-                        .pop_front()
+                    let position = s
+                        .queue
+                        .iter()
+                        .enumerate()
+                        .min_by_key(|(_, id)| s.nodes[**id].borrow().height)
+                        .map(|(i, _)| i);
+                    position
+                        .and_then(|i| s.queue.remove(i))
                         .map(|id| (id, s.queued.remove(&id).unwrap_or(false)))
                 };
                 let Some((id, _force)) = item else { break };
@@ -904,23 +924,53 @@ impl<T: Clone + PartialEq + 'static> Runtime<T> {
         let nodes = self.0.borrow().nodes.clone();
         for (id, n) in nodes.iter().enumerate() {
             if !n.borrow().disposed && n.borrow().flight.as_ref() == Some(&flight) {
-                n.borrow_mut().loading_seed = false;
-                self.publish(id, result.clone())
+                self.0
+                    .borrow_mut()
+                    .memo_ready
+                    .push_back((id, flight.clone()));
             }
         }
     }
-    /// Drain controlled promise continuations, then run the reactive flush.
+    /// Drain controlled promise continuations. A completed flight is still asynchronous.
     pub fn drain(&self) {
+        self.flush();
         loop {
-            let next = self.0.borrow_mut().ready.pop_front();
-            if let Some((id, result)) = next {
-                self.step_action(id, result);
-                self.flush()
-            } else {
+            let memos = std::mem::take(&mut self.0.borrow_mut().memo_ready);
+            for (id, flight) in memos {
+                let node = self.node(id);
+                let current = {
+                    let n = node.borrow();
+                    !n.disposed && n.flight.as_ref() == Some(&flight)
+                };
+                if current {
+                    let result = self.0.borrow().flights[&flight].clone();
+                    node.borrow_mut().loading_seed = false;
+                    self.publish(id, result);
+                }
+            }
+            loop {
+                let next = self.0.borrow_mut().ready.pop_front();
+                if let Some((id, result)) = next {
+                    self.step_action(id, result);
+                    self.flush()
+                } else {
+                    break;
+                }
+            }
+            self.flush();
+            if self.0.borrow().memo_ready.is_empty() && self.0.borrow().ready.is_empty() {
                 break;
             }
         }
-        self.flush()
+    }
+    /// A native host schedules one main-thread drain when this becomes true.
+    pub fn has_work(&self) -> bool {
+        let s = self.0.borrow();
+        !s.writes.is_empty()
+            || !s.queue.is_empty()
+            || !s.effects.is_empty()
+            || !s.ready.is_empty()
+            || !s.memo_ready.is_empty()
     }
     pub fn take_action_results(&self) -> Vec<(usize, Result<(), String>)> {
         std::mem::take(&mut self.0.borrow_mut().action_results)

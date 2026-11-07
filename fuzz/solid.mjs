@@ -1,5 +1,5 @@
-import * as S from 'file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/index.js';
-export async function run(ops) {
+const S = await import(process.env.SOLID_SIGNALS_URL ?? new URL('../../solid-next/packages/signals/dist/prod/index.js', import.meta.url).href);
+export async function run(ops, progress=()=>{}) {
   const nodes=new Map(), setters=new Map(), owners=new Map(), flights=new Map(), log=[];
   const flight=id=>{if(!flights.has(id)){let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j});promise.catch(()=>{});flights.set(id,{promise,resolve,reject})}return flights.get(id)};
   const makeOwner=(id,parent)=>{let owner,dispose;S.createRoot(d=>{dispose=d;owner=S.getOwner()});owners.set(id,{owner,dispose});if(parent)S.runWithOwner(owners.get(parent).owner,()=>S.onCleanup(dispose));};
@@ -10,7 +10,7 @@ export async function run(ops) {
   const observed=f=>{try{return f()}catch(e){return {error:e instanceof S.NotReadyError?'pending':e.message}}};
   const drain=async()=>{for(let i=0;i<32;i++)await Promise.resolve();S.flush()};
   try {
-    for(const o of ops) {switch(o.op){
+    for(const [index,o] of ops.entries()) {progress(index);switch(o.op){
       case 'signal':{const [get,set]=owned(null,()=> (o.optimistic?S.createOptimistic:S.createSignal)(o.value,{equals:equal(o.equals)}));nodes.set(o.id,get);setters.set(o.id,set);break}
       case 'memo':{const opts={lazy:o.lazy,equals:equal(o.equals)};if('loading'in o)opts.loadingValue=o.loading;const get=owned(o.owner,()=>S.createMemo(prev=>{log.push(['compute',o.id,prev??null]);const v=evalExpr(o.expr,prev);if(o.flight){const id=o.flight+':'+v;log.push(['flight',id]);return flight(id).promise}return v},opts));nodes.set(o.id,get);break}
       case 'effect':{const compute=prev=>{log.push(['compute',o.id,prev??null]);return evalExpr(o.expr,prev)};const effect=(v,p)=>{log.push(['effect',o.id,v,p??null]);return ()=>{log.push(['effect_cleanup',o.id,v])}};owned(o.owner,()=>{if(o.render)S.createRenderEffect(compute,effect,{defer:o.defer});else S.createEffect(compute,{effect,error:e=>{log.push(['error',o.id,e.message])}},{defer:o.defer})});break}
@@ -28,8 +28,8 @@ export async function run(ops) {
       case 'action':S.action(function*(){for(const slice of o.slices){for(const w of slice.writes??[])setters.get(w.id)(w.value);if(slice.flight)yield flight(slice.flight).promise}})().then(()=>{log.push(['action',o.id,null])},e=>{log.push(['action',o.id,e.message])});break;
       default:throw Error('unknown op '+o.op);
     }}
-  } finally {owners.get('root').dispose();S.flush()}
-  const result=log.slice();
+  } finally {progress('teardown');owners.get('root').dispose();S.flush()}
+  const result=log.slice();progress('isolation');
   // A reduced program may leave actions open. Close them after recording teardown
   // so Solid's global queue cannot carry a transaction into the next program.
   for(let i=0;i<4;i++){for(const f of flights.values())f.resolve(0);await drain()}

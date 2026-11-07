@@ -12,9 +12,10 @@ export function generate(seed) {
    for(let i=0;i<25;i++){const k=n(7);if(k<3)put('write',{id:pick(['s','t']),value:n(7)});else if(k===3)put('flush');else if(k===4)observe(pick(refs));else if(k===5)put('refresh',{id:pick(refs.slice(2))});else put('read',{id:pick(refs)})}
    put('flush');put('dispose',{owner:'scope'});put('write',{id:'s',value:99});put('flush');
  } else if(mode===1) {
-   put('memo',{id:'a',expr:read('s'),flight:'flight',owner:'scope'});put('memo',{id:'m',expr:add(read('a'),read('t')),owner:'scope'});put('effect',{id:'e',expr:read('m'),owner:'scope'});observe('a');put('flush');
+   put('memo',{id:'a',expr:read('s'),flight:'flight',owner:'scope',...(seed%12===1?{loading:0}:{})});put('memo',{id:'m',expr:add(read('a'),read('t')),owner:'scope'});put('effect',{id:'e',expr:read('m'),owner:'scope'});observe('a');put('flush');
    const initial=ops[0].value;put('resolve',{flight:'flight:'+initial,value:10+n(8)});observe('a');
-   for(let i=1;i<=3;i++){put('write',{id:'s',value:10+i});put('write',{id:'t',value:n(5)});observe('s');put('flush');observe('s');observe('a');if(i>1&&n(2))put('resolve',{flight:'flight:'+(9+i),value:100+i});put('resolve',{flight:'flight:'+(10+i),value:20+i});observe('m')}
+   if(seed%18===1){put('refresh',{id:'a'});observe('a');put('flush');observe('a');put('resolve',{flight:'flight:'+initial,value:0});observe('a')}
+   for(let i=1;i<=3;i++){put('write',{id:'s',value:10+i});put('write',{id:'t',value:n(5)});observe('s');put('flush');observe('s');observe('a');if(i>1&&n(2))put('resolve',{flight:'flight:'+(9+i),value:100+i});if(i===2&&seed%24===1)put('reject',{flight:'flight:'+(10+i),message:'flight-failed'});else put('resolve',{flight:'flight:'+(10+i),value:20+i});observe('m')}
  } else if(mode===2||mode===3) {
    put('signal',{id:'o',value:0,optimistic:true});put('effect',{id:'e',expr:add(read('s'),read('o')),owner:'scope'});put('effect',{id:'et',expr:read('t'),owner:'scope'});put('flush');
    put('write',{id:'t',value:5});

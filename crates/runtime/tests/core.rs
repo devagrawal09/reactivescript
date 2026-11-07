@@ -114,3 +114,140 @@ fn cleanup_is_children_then_reverse_registration() {
     r.dispose(a);
     assert_eq!(*log.borrow(), vec![3, 2, 1]);
 }
+
+#[test]
+fn completed_flights_still_need_a_continuation_turn() {
+    let r = Runtime::<i64>::new();
+    r.settle("ready".into(), Ok(7));
+    let m = r.memo(
+        Rc::new(|_, _| Ok(Computation::Await("ready".into()))),
+        MemoOptions::default(),
+    );
+    assert_eq!(r.read(m), Err(ReadError::Pending));
+    assert!(r.has_work());
+    r.drain();
+    assert_eq!(r.read(m), Ok(7));
+}
+#[test]
+fn loading_value_is_a_real_initial_commit() {
+    let r = Runtime::<i64>::new();
+    let m = r.memo(
+        Rc::new(|_, prev| {
+            assert_eq!(prev, Some(0));
+            Ok(Computation::Await("f".into()))
+        }),
+        MemoOptions {
+            loading_value: Some(0),
+            ..Default::default()
+        },
+    );
+    assert_eq!(r.read(m), Ok(0));
+    assert!(!r.is_pending(m));
+    assert!(!r.is_loading(m));
+    r.settle("f".into(), Ok(5));
+    r.drain();
+    assert_eq!(r.read(m), Ok(5));
+}
+#[test]
+fn handled_error_keeps_apply_cleanup_until_recovery_or_disposal() {
+    let r = Runtime::<i64>::new();
+    let owner = r.create_owner(None, None);
+    let s = r.signal(1);
+    let ss = s.clone();
+    let count = Rc::new(RefCell::new(0));
+    let cc = count.clone();
+    r.with_owner(owner, || {
+        r.effect(
+            Rc::new(move |_, _| {
+                if ss.get()? == 0 {
+                    Err(ReadError::Failed("bad".into()))
+                } else {
+                    Ok(Computation::Ready(1))
+                }
+            }),
+            Rc::new(move |_, _| {
+                let cc = cc.clone();
+                Some(Box::new(move || *cc.borrow_mut() += 1))
+            }),
+            EffectKind::User,
+            Some(Rc::new(|_| {})),
+            false,
+        )
+    });
+    r.flush();
+    s.set(0);
+    r.flush();
+    assert_eq!(*count.borrow(), 0);
+    r.dispose(owner);
+    assert_eq!(*count.borrow(), 1);
+}
+#[test]
+fn errors_reach_the_nearest_owner_handler() {
+    let r = Runtime::<i64>::new();
+    let seen = Rc::new(RefCell::new(vec![]));
+    let s = seen.clone();
+    let root = r.create_owner(None, Some(Rc::new(move |e| s.borrow_mut().push(e))));
+    let child = r.create_owner(Some(root), None);
+    r.with_owner(child, || {
+        r.effect(
+            Rc::new(|_, _| Err(ReadError::Failed("bad".into()))),
+            Rc::new(|_, _| None),
+            EffectKind::User,
+            None,
+            false,
+        )
+    });
+    r.flush();
+    assert_eq!(*seen.borrow(), vec!["bad"]);
+    assert!(r.take_errors().is_empty());
+}
+#[test]
+fn same_tick_actions_hold_until_both_finish() {
+    let r = Runtime::<i64>::new();
+    let s = r.signal(0);
+    for (f, v) in [("a", 1), ("b", 2)] {
+        let s = s.clone();
+        let mut first = true;
+        r.action(Box::new(move |_, _| {
+            if first {
+                first = false;
+                s.set(v);
+                ActionStep::Yield(f.into())
+            } else {
+                ActionStep::Done
+            }
+        }));
+    }
+    r.flush();
+    assert_eq!(s.get(), Ok(0));
+    r.settle("a".into(), Ok(1));
+    r.drain();
+    assert_eq!(s.get(), Ok(0));
+    r.settle("b".into(), Ok(1));
+    r.drain();
+    assert_eq!(s.get(), Ok(2));
+}
+#[test]
+fn lazy_release_keeps_previous_committed_value() {
+    let r = Runtime::<i64>::new();
+    let m = r.memo(
+        Rc::new(|_, prev| Ok(Computation::Ready(prev.unwrap_or(0) + 1))),
+        MemoOptions {
+            lazy: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(r.read(m), Ok(1));
+    r.flush();
+    assert_eq!(r.read(m), Ok(2));
+}
+#[test]
+fn plain_signal_outlives_its_creation_owner() {
+    let r = Runtime::<i64>::new();
+    let o = r.create_owner(None, None);
+    let s = r.with_owner(o, || r.signal(1));
+    r.dispose(o);
+    s.set(2);
+    r.flush();
+    assert_eq!(s.get(), Ok(2));
+}
