@@ -38,11 +38,23 @@
       "status": "paused"
     },
     {
-      "name": "Slice 1: like button through every layer (gate passed; Rust fuzz 0.7%)",
+      "name": "Slice 1: like button through every layer (gate passed; Rust exact-trace fuzz 1000/1000 after the scheduler port, 147d971, pushed)",
       "status": "done"
     },
     {
-      "name": "Slice 2: tracker (lists, stores, per-row optimistic)",
+      "name": "Rust tiers: 2a async 991/1000, 2b stores 1000/1000, 2c lists/Show 999/1000, strings 1000/1000 (uncommitted, in rust-tracker)",
+      "status": "done"
+    },
+    {
+      "name": "Rust universal renderer port (render fuzz 993/1000; every valid program agrees)",
+      "status": "done"
+    },
+    {
+      "name": "Slice 2: tracker gate passed (13 frames on native, compiled TSX/RX/yield and Rust from all three plans; host log 453/453; frontend 83/83)",
+      "status": "done"
+    },
+    {
+      "name": "Push tiers + frontend merge (56feaff is local; git push credentials fail)",
       "status": "next"
     },
     {
@@ -104,9 +116,14 @@
         "name": "Subset fuzz vs Solid JS",
         "owner": "astra",
         "status": "done"
+      },
+      {
+        "name": "Rust parity: structural port of Solid's scheduler paths (147d971, exact-trace fuzz 1000/1000)",
+        "owner": "background workflow",
+        "status": "done"
       }
     ],
-    "result": "Gate PASS: identical plans from RX/TSX/yield; Rust frames 0→1→0→1→1 = native. Subset fuzz vs Solid JS: 7/1000 agree (0.7%); first diffs compute/read 105, compute/effect_cleanup 888."
+    "result": "Gate PASS: identical plans from RX/TSX/yield; Rust frames 0→1→0→1→1 = native. Subset fuzz vs Solid JS was 7/1000; after the scheduler port (147d971, pushed to rust-solid-slice1 with tembo commit) it is 1000/1000 exact-trace."
   },
   "agents": [],
   "findings": [
@@ -118,20 +135,29 @@
     "rune: partial fit (no public mutable tree); Blitz or Masonry fit better",
     "Solid's async model needs several views per node (_value, _pendingValue, lane, _shown)",
     "Slice 1: plan needs 8 AST fallbacks; CP-6 lacks expressions, control flow, markup, locals, optimistic kind",
-    "Slice 1: a passing frame hides runtime differences; Rust lacks speculative compute passes and held callback queues"
+    "Slice 1: a passing frame hid runtime differences (7/1000); the structural scheduler port closed them (1000/1000)",
+    "Slice 2: the plan v2 gate passes on Rust; plans are not fuzzed, and the scenario skips a filter toggle during a pending claim, two claims on one row, a store change under a live guess, non-overlapping transactions",
+    "Suspected Solid rc.21 bug: take(n, l, true) leaves CONFIG_HELD set, so the next txOf throws (not filed)",
+    "Suspected Solid rc.21 bug: a store array's has/get disagree and hand mapArray an undefined row (not filed)",
+    "Suspected Solid rc.21 bug: universal reconcileArrays removes a node without an isLive check (universal.ts:313, map-fallback removal) (not filed)",
+    "Suspected Solid rc.21 bug: slice 2a non-scalar values (undefined / error objects) and seed 629, a held error read back as a plain value (not filed)",
+    "Eval design: createEval / an .rx eval feature with explicit bindings only; the plan as the evaluation IR; RX default, TSX optional; one primitive with options for AI UI, REPL and plugins",
+    "Environment: Tembo sandbox at /workspace/rx-tsx-refresh; git push fails (HTTP 500), tembo commit works; collect.mjs still reads /Users/devagr paths"
   ],
   "parked": [
-    "Generative UI / live evaluator",
+    "Generative UI / live evaluator (eval design discussed, nothing built)",
     "Placement inference",
     "solid-yield P/E/W/R type cross-check",
     "Triage of 15 Solid JS hangs in rust-solid fuzz"
   ],
   "decisions": [
+    "Push the Rust tiers: rust-tracker as one commit on 147d971 to rust-solid-slice1 via tembo commit?",
+    "Frontend merge 56feaff + tracker: one ordinary commit via tembo commit, or the user pushes it?",
+    "Draft the Solid issue for the four suspected rc.21 bugs (locally first)?",
+    "Next slice: native window (4), Rust SSR + hydration (5), or fuzz plans first?",
     "Pull ~/solid: fork next or official next? (3 untracked dirs)",
-    "Back up rust-solid",
     "Server wire/hydration research pass",
-    "Slice 2 now, or first raise Rust subset parity (0.7%) with a full structural port of the scheduler?",
     "Architecture issue scope"
   ],
-  "next": "Decide: harden the Rust transition core on slice 1 subset (fuzz parity) before slice 2, or proceed to slice 2."
+  "next": "Slice 2's tracker gate passes (frontend 83/83, Rust from all three plans). Decide: push the tiers and the frontend merge (and how), draft the Solid issue, and pick the next slice."
 }
