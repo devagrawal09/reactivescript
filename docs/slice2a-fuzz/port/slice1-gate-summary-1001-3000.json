@@ -1,0 +1,24 @@
+{
+  "total": 2000,
+  "agreement": 2000,
+  "rate": 1,
+  "invalid": 0,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 4000,
+    "effect": 2000,
+    "flush": 11926,
+    "write": 3962,
+    "action": 6000,
+    "read": 36000,
+    "reject": 3000,
+    "resolve": 3000
+  },
+  "modes": {
+    "scalar-actions": {
+      "total": 2000,
+      "agreement": 2000
+    }
+  },
+  "classes": {}
+}

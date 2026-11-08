@@ -1,5 +1,6 @@
 //! Single-threaded reactive graph. Explicit flush is the host's microtask boundary.
 pub mod plan;
+pub mod plan_v2;
 pub mod renderer;
 pub mod scenario;
 pub mod slice1;

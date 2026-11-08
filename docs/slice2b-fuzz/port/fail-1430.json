@@ -1,0 +1,553 @@
+{
+  "seed": 1430,
+  "ops": [
+    {
+      "op": "signal",
+      "id": "page",
+      "value": 0,
+      "optimistic": true
+    },
+    {
+      "op": "signal",
+      "id": "status",
+      "value": 0
+    },
+    {
+      "op": "signal",
+      "id": "s",
+      "value": 0
+    },
+    {
+      "op": "store",
+      "id": "os",
+      "optimistic": true,
+      "seed": [],
+      "derive": {
+        "expr": {
+          "op": "read",
+          "id": "page"
+        },
+        "flight": "list",
+        "fresh": true
+      }
+    },
+    {
+      "op": "memo",
+      "id": "ml",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "memo",
+      "id": "md",
+      "expr": {
+        "op": "count",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "where": {
+          "op": "eq",
+          "a": {
+            "op": "get",
+            "of": {
+              "op": "elem"
+            },
+            "key": "d"
+          },
+          "b": 1
+        }
+      }
+    },
+    {
+      "op": "effect",
+      "id": "rows",
+      "render": true,
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "fields": [
+          "id",
+          "d"
+        ]
+      }
+    },
+    {
+      "op": "effect",
+      "id": "view",
+      "render": true,
+      "expr": {
+        "op": "arr",
+        "items": [
+          {
+            "op": "read",
+            "id": "page"
+          },
+          {
+            "op": "read",
+            "id": "ml"
+          },
+          {
+            "op": "read",
+            "id": "status"
+          },
+          {
+            "op": "read",
+            "id": "s"
+          }
+        ]
+      }
+    },
+    {
+      "op": "effect",
+      "id": "sum",
+      "expr": {
+        "op": "read",
+        "id": "md"
+      }
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#1",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 3,
+          "d": 0,
+          "t": 0
+        },
+        {
+          "id": 4,
+          "d": 1,
+          "t": 8
+        }
+      ]
+    },
+    {
+      "op": "read",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "latest",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "pending",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "action",
+      "id": "t0",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [],
+                  "removeKey": {
+                    "key": "id",
+                    "is": 3
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "save:3#1"
+        },
+        {
+          "steps": [
+            {
+              "refresh_store": "os"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "save:3#1",
+      "value": 1
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#3",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 3,
+          "d": 0,
+          "t": 0
+        },
+        {
+          "id": 4,
+          "d": 1,
+          "t": 8
+        },
+        {
+          "id": 7,
+          "d": 1,
+          "t": 2
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:1#1",
+      "value": [
+        {
+          "id": 5,
+          "d": 1,
+          "t": 2
+        },
+        {
+          "id": 6,
+          "d": 1,
+          "t": 1
+        }
+      ]
+    },
+    {
+      "op": "action",
+      "id": "t1",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [],
+                  "push": {
+                    "op": "lit",
+                    "value": {
+                      "id": 8,
+                      "d": 1,
+                      "t": 3
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "save:4#1"
+        },
+        {
+          "steps": [
+            {
+              "refresh_store": "os"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "refresh",
+      "store": "os"
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "action",
+      "id": "n2",
+      "slices": [
+        {
+          "steps": [
+            {
+              "write": "page",
+              "value": 1
+            }
+          ],
+          "flight": "nav#2"
+        },
+        {
+          "steps": [
+            {
+              "refresh_store": "os"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "latest",
+      "label": "p",
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "fields": [
+          "id",
+          "d"
+        ]
+      }
+    },
+    {
+      "op": "resolve",
+      "flight": "save:4#1",
+      "value": 1
+    },
+    {
+      "op": "resolve",
+      "flight": "list:1#1",
+      "value": [
+        {
+          "id": 5,
+          "d": 1,
+          "t": 2
+        },
+        {
+          "id": 6,
+          "d": 0,
+          "t": 1
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "nav#2",
+      "value": 1
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#1",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 3,
+          "d": 0,
+          "t": 0
+        },
+        {
+          "id": 4,
+          "d": 1,
+          "t": 8
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#2",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 3,
+          "d": 0,
+          "t": 0
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#4",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 4,
+          "d": 1,
+          "t": 8
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:0#5",
+      "value": [
+        {
+          "id": 1,
+          "d": 1,
+          "t": 9
+        },
+        {
+          "id": 3,
+          "d": 0,
+          "t": 0
+        },
+        {
+          "id": 4,
+          "d": 1,
+          "t": 8
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:1#1",
+      "value": [
+        {
+          "id": 5,
+          "d": 1,
+          "t": 2
+        },
+        {
+          "id": 6,
+          "d": 0,
+          "t": 1
+        },
+        {
+          "id": 9,
+          "d": 1,
+          "t": 3
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "list:1#2",
+      "value": [
+        {
+          "id": 6,
+          "d": 0,
+          "t": 1
+        },
+        {
+          "id": 5,
+          "d": 1,
+          "t": 2
+        }
+      ]
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "read",
+      "label": "rows",
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "fields": [
+          "id",
+          "d",
+          "t"
+        ]
+      }
+    },
+    {
+      "op": "latest",
+      "label": "rows",
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "fields": [
+          "id",
+          "d",
+          "t"
+        ]
+      }
+    },
+    {
+      "op": "read",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "latest",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    },
+    {
+      "op": "pending",
+      "label": "len",
+      "expr": {
+        "op": "len",
+        "of": {
+          "op": "store",
+          "id": "os"
+        }
+      }
+    }
+  ],
+  "invalid": "oracle-error",
+  "detail": "TypeError: Cannot read properties of null (reading 'eo')\n    at resolveTx (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:246:14)\n    at txOf (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:236:21)\n    at setSignal (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:1664:43)\n    at leafSet (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:986:5)\n    at notifyKeyDiff (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1009:74)\n    at applyAdopt (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:182:48)\n    at reconcileState (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:59:5)\n    at file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:45\n    at storeSetter (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1849:13)\n    at write (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:25)",
+  "actual": {
+    "driver_error": "panic"
+  },
+  "agree": false
+}

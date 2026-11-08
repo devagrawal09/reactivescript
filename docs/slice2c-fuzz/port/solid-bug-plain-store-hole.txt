@@ -1,0 +1,12 @@
+pass sees length 0 []
+mapped []
+pass sees length 1 [true:6]
+mapped [6]
+pass sees length 0 []
+pass sees length 1 [false:8]
+pass sees length 1 [true:9]
+key fn got undefined; untracked: length 1, 0 in list true, list[0].id 9
+key fn got undefined; untracked: length 1, 0 in list true, list[0].id 9
+key fn got undefined; untracked: length 1, 0 in list true, list[0].id 9
+mapped [9]
+REPRODUCED: mapArray handed its key function an undefined row 3x

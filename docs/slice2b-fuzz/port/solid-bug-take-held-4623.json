@@ -1,0 +1,144 @@
+[
+ {
+  "op": "signal",
+  "id": "page",
+  "value": 0,
+  "optimistic": true
+ },
+ {
+  "op": "store",
+  "id": "os",
+  "optimistic": true,
+  "seed": [],
+  "derive": {
+   "expr": {
+    "op": "read",
+    "id": "page"
+   },
+   "flight": "list",
+   "fresh": true
+  }
+ },
+ {
+  "op": "effect",
+  "id": "rows",
+  "render": true,
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d"
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#1",
+  "value": [
+   {
+    "id": 2,
+    "d": 0,
+    "t": 4
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 9
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#3",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 3
+   }
+  ]
+ },
+ {
+  "op": "refresh",
+  "store": "os"
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "action",
+  "id": "t1",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [],
+        "removeKey": {
+         "key": "id",
+         "is": 2
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "save:2#1"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 2
+    }
+   ]
+  }
+ },
+ {
+  "op": "refresh",
+  "store": "os"
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "action",
+  "id": "n3",
+  "slices": [
+   {
+    "steps": [
+     {
+      "write": "page",
+      "value": 1
+     }
+    ],
+    "flight": "nav#3"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#1",
+  "value": []
+ }
+]

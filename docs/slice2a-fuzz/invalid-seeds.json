@@ -1,0 +1,146 @@
+[
+ {
+  "seed": 225,
+  "family": "async-actions",
+  "invalid": "oracle-nonscalar",
+  "detail": "46: effect watch  "
+ },
+ {
+  "seed": 339,
+  "family": "async-lanes",
+  "invalid": "oracle-nonscalar",
+  "detail": "46: effect watch  "
+ },
+ {
+  "seed": 427,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "39: effect watch  "
+ },
+ {
+  "seed": 488,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "64: effect watch Error: memo-failed1 7"
+ },
+ {
+  "seed": 663,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "85: effect watch Error: action-failed5 15"
+ },
+ {
+  "seed": 683,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "42: effect watch  "
+ },
+ {
+  "seed": 704,
+  "family": "async-lanes",
+  "invalid": "oracle-nonscalar",
+  "detail": "40: effect watch  "
+ },
+ {
+  "seed": 873,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "30: latest m "
+ },
+ {
+  "seed": 1360,
+  "family": "async-actions",
+  "invalid": "oracle-nonscalar",
+  "detail": "64: effect watch  "
+ },
+ {
+  "seed": 1438,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "47: effect watch  "
+ },
+ {
+  "seed": 1637,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "57: effect watch  "
+ },
+ {
+  "seed": 1693,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "58: effect watch  "
+ },
+ {
+  "seed": 1778,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "59: effect watch Error: memo-failed2 11"
+ },
+ {
+  "seed": 1950,
+  "family": "async-actions",
+  "invalid": "oracle-nonscalar",
+  "detail": "63: compute m Error: memo-failed"
+ },
+ {
+  "seed": 2037,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "31: effect watch  "
+ },
+ {
+  "seed": 2215,
+  "family": "async-actions",
+  "invalid": "oracle-nonscalar",
+  "detail": "47: effect watch  "
+ },
+ {
+  "seed": 2253,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "51: effect watch  "
+ },
+ {
+  "seed": 2443,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "37: effect watch  "
+ },
+ {
+  "seed": 2558,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "84: compute m Error: memo-failed"
+ },
+ {
+  "seed": 2582,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "77: latest m "
+ },
+ {
+  "seed": 2583,
+  "family": "async-reject",
+  "invalid": "oracle-nonscalar",
+  "detail": "45: effect watch Error: memo-failed5 19"
+ },
+ {
+  "seed": 2667,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "78: effect watch Error: memo-failed0 4"
+ },
+ {
+  "seed": 2762,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "60: effect watch  "
+ },
+ {
+  "seed": 2972,
+  "family": "async-chain",
+  "invalid": "oracle-nonscalar",
+  "detail": "61: effect watch2  "
+ }
+]

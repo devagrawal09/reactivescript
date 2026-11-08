@@ -230,6 +230,9 @@ impl ActionBody for Execution {
             Resume::Start => {}
             Resume::Value(v) => {
                 let bind = self.bind.take().expect("resumed at an await");
+                let Some(v) = v.as_int() else {
+                    return ActionStep::Throw("a non-integer flight value".into());
+                };
                 self.locals.insert(bind, v);
             }
             Resume::Error(error) => loop {

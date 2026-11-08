@@ -1,0 +1,71 @@
+{
+  "total": 2000,
+  "agreement": 0,
+  "rate": 0,
+  "invalid": 2,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 3065,
+    "show": 609,
+    "effect": 4357,
+    "memo": 1911,
+    "flush": 15381,
+    "read": 7921,
+    "latest": 2456,
+    "pending": 1407,
+    "write": 7021,
+    "action": 5772,
+    "resolve": 5285,
+    "reject": 775,
+    "drain": 2524,
+    "owner": 261,
+    "dispose": 27,
+    "store": 1196,
+    "list": 1391,
+    "store_set": 5304
+  },
+  "modes": {
+    "list-show": {
+      "total": 261,
+      "agreement": 0
+    },
+    "list-nested": {
+      "total": 174,
+      "agreement": 0
+    },
+    "list-bulk": {
+      "total": 174,
+      "agreement": 0
+    },
+    "tracker": {
+      "total": 348,
+      "agreement": 0
+    },
+    "list-ints": {
+      "total": 261,
+      "agreement": 0
+    },
+    "list-store": {
+      "total": 261,
+      "agreement": 0
+    },
+    "list-lanes": {
+      "total": 261,
+      "agreement": 0
+    },
+    "list-opt-store": {
+      "total": 260,
+      "agreement": 0
+    }
+  },
+  "classes": {
+    "rust-panic": {
+      "count": 1998,
+      "seed": 1001
+    },
+    "oracle-error": {
+      "count": 2,
+      "seed": 2723
+    }
+  }
+}

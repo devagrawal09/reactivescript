@@ -14,7 +14,7 @@ impl Runtime {
     fn actual_insert_into_heap(&mut self, n: NodeId) {
         let parent_height = match self.nodes[n].parent {
             Some(p) if self.nodes[p].kind == Kind::Root => {
-                self.parent_computed(p).map(|c| self.nodes[c].height)
+                self.nodes[p].parent_computed.map(|c| self.nodes[c].height)
             }
             Some(p) => Some(self.nodes[p].height),
             None => None,

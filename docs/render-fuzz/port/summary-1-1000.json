@@ -1,0 +1,51 @@
+{
+  "total": 1000,
+  "agreement": 993,
+  "rate": 0.993,
+  "invalid": 7,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 6991,
+    "render": 1000,
+    "dispatch": 3590,
+    "flush": 10892,
+    "write": 10651,
+    "dispose": 281
+  },
+  "modes": {
+    "text": {
+      "total": 158,
+      "agreement": 158
+    },
+    "arrays": {
+      "total": 159,
+      "agreement": 153
+    },
+    "show": {
+      "total": 159,
+      "agreement": 159
+    },
+    "for": {
+      "total": 159,
+      "agreement": 159
+    },
+    "bulk": {
+      "total": 105,
+      "agreement": 105
+    },
+    "events": {
+      "total": 156,
+      "agreement": 156
+    },
+    "mixed": {
+      "total": 104,
+      "agreement": 103
+    }
+  },
+  "classes": {
+    "oracle-error": {
+      "count": 7,
+      "seed": 269
+    }
+  }
+}

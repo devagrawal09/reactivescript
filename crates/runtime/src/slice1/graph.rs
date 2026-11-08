@@ -29,16 +29,23 @@ impl Runtime {
             Some(p) => self.links[p].next_sub = next_sub,
             None => {
                 self.nodes[dep].subs = next_sub;
-                // No `_unobserved` hooks and no store slots in this slice.
-                // STATUS_PENDING never holds here (no async), and nothing
-                // defers releases (`deferredReleases`, #4142: only a staged
-                // pass's child teardown does, and no node here owns children).
+                // No `_unobserved` hooks. Store slot nodes dispatch to the
+                // store's one hook. During a pass's teardown of its
+                // unfinished frame the release waits for the pass to end
+                // (`deferredReleases`, #4142).
+                if next_sub.is_none() && self.nodes[dep].config & CONFIG_SLOT_NODE != 0 {
+                    self.slot_unobserved(dep);
+                }
                 if next_sub.is_none()
                     && self.nodes[dep].fn_.is_some()
                     && self.nodes[dep].config & CONFIG_AUTO_DISPOSE != 0
                     && self.nodes[dep].flags & REACTIVE_ZOMBIE == 0
+                    && self.nodes[dep].status & STATUS_PENDING == 0
                 {
-                    self.unobserved(dep);
+                    match self.deferred_releases.as_mut() {
+                        Some(released) => released.push(dep),
+                        None => self.unobserved(dep),
+                    }
                 }
             }
         }
@@ -72,11 +79,11 @@ impl Runtime {
         }
     }
 
-    // Solid: graph.ts:96-100
+    // Solid: graph.ts:98-102
     pub(super) fn unobserved(&mut self, el: NodeId) {
         self.delete_from_heap(el);
         self.clear_deps(el);
-        self.dispose_children(el, true);
+        self.dispose_children(el, true, false);
     }
 
     // Solid: graph.ts:149-190

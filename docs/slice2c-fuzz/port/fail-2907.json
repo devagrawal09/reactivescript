@@ -1,0 +1,481 @@
+{
+  "seed": 2907,
+  "ops": [
+    {
+      "op": "store",
+      "id": "os",
+      "optimistic": true,
+      "value": {
+        "list": [
+          {
+            "id": 1,
+            "a": 0,
+            "t": 2
+          },
+          {
+            "id": 2,
+            "a": 0,
+            "t": 0
+          },
+          {
+            "id": 3,
+            "a": 0,
+            "t": 9
+          },
+          {
+            "id": 4,
+            "a": 5,
+            "t": 4
+          }
+        ]
+      },
+      "key": null
+    },
+    {
+      "op": "signal",
+      "id": "status",
+      "value": 0
+    },
+    {
+      "op": "list",
+      "id": "L",
+      "each": {
+        "op": "get",
+        "of": {
+          "op": "store",
+          "id": "os"
+        },
+        "key": "list"
+      },
+      "keyed": "id",
+      "index": true,
+      "fallback": true,
+      "row": [
+        {
+          "effect": "e0",
+          "render": false,
+          "expr": {
+            "op": "plain",
+            "of": {
+              "op": "item"
+            },
+            "fields": [
+              "id",
+              "a",
+              "t"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "op": "effect",
+      "id": "top",
+      "render": true,
+      "expr": {
+        "op": "read",
+        "id": "L"
+      }
+    },
+    {
+      "op": "effect",
+      "id": "head",
+      "render": true,
+      "expr": {
+        "op": "arr",
+        "items": [
+          {
+            "op": "len",
+            "of": {
+              "op": "get",
+              "of": {
+                "op": "store",
+                "id": "os"
+              },
+              "key": "list"
+            }
+          },
+          {
+            "op": "read",
+            "id": "status"
+          }
+        ]
+      }
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "action",
+      "id": "c0",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list"
+                  ],
+                  "removeKey": {
+                    "key": "id",
+                    "is": 3
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "claim:3#1"
+        },
+        {
+          "steps": [
+            {
+              "write": "status",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "catch": {
+        "steps": [
+          {
+            "write": "status",
+            "value": 3
+          }
+        ]
+      }
+    },
+    {
+      "op": "action",
+      "id": "c1",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list"
+                  ],
+                  "push": {
+                    "op": "lit",
+                    "value": {
+                      "id": 5,
+                      "a": 9,
+                      "t": 4
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "claim:3#2"
+        },
+        {
+          "steps": [
+            {
+              "write": "status",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "catch": {
+        "steps": [
+          {
+            "write": "status",
+            "value": 3
+          }
+        ]
+      }
+    },
+    {
+      "op": "resolve",
+      "flight": "claim:3#2",
+      "value": 7
+    },
+    {
+      "op": "action",
+      "id": "c2",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list"
+                  ],
+                  "removeKey": {
+                    "key": "id",
+                    "is": 4
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "claim:4#1"
+        },
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list",
+                    {
+                      "key": "id",
+                      "is": 4
+                    },
+                    "a"
+                  ],
+                  "set": {
+                    "op": "sent"
+                  }
+                }
+              ]
+            },
+            {
+              "write": "status",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "catch": {
+        "steps": [
+          {
+            "write": "status",
+            "value": 4
+          }
+        ]
+      }
+    },
+    {
+      "op": "action",
+      "id": "c3",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list"
+                  ],
+                  "push": {
+                    "op": "lit",
+                    "value": {
+                      "id": 6,
+                      "a": 9,
+                      "t": 2
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "claim:4#2"
+        },
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list",
+                    {
+                      "key": "id",
+                      "is": 4
+                    },
+                    "a"
+                  ],
+                  "set": {
+                    "op": "sent"
+                  }
+                }
+              ]
+            },
+            {
+              "write": "status",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "catch": {
+        "steps": [
+          {
+            "write": "status",
+            "value": 4
+          }
+        ]
+      }
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "claim:4#1",
+      "value": 8
+    },
+    {
+      "op": "read",
+      "label": "L",
+      "expr": {
+        "op": "read",
+        "id": "L"
+      }
+    },
+    {
+      "op": "action",
+      "id": "c4",
+      "slices": [
+        {
+          "steps": [
+            {
+              "store": "os",
+              "edits": [
+                {
+                  "path": [
+                    "list"
+                  ],
+                  "push": {
+                    "op": "lit",
+                    "value": {
+                      "id": 7,
+                      "a": 9,
+                      "t": 0
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "flight": "claim:3#3"
+        },
+        {
+          "steps": [
+            {
+              "write": "status",
+              "value": 0
+            }
+          ]
+        }
+      ],
+      "catch": {
+        "steps": [
+          {
+            "write": "status",
+            "value": 3
+          }
+        ]
+      }
+    },
+    {
+      "op": "drain"
+    },
+    {
+      "op": "store_set",
+      "id": "os",
+      "edits": [
+        {
+          "path": [
+            "list",
+            {
+              "key": "id",
+              "is": 3
+            },
+            "t"
+          ],
+          "set": 1
+        }
+      ]
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "claim:3#1",
+      "value": 7
+    },
+    {
+      "op": "resolve",
+      "flight": "claim:4#2",
+      "value": 7
+    },
+    {
+      "op": "resolve",
+      "flight": "claim:3#3",
+      "value": 7
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "label": "L",
+      "expr": {
+        "op": "read",
+        "id": "L"
+      }
+    },
+    {
+      "op": "read",
+      "label": "rows",
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "get",
+          "of": {
+            "op": "store",
+            "id": "os"
+          },
+          "key": "list"
+        },
+        "fields": [
+          "id",
+          "a",
+          "t"
+        ]
+      }
+    },
+    {
+      "op": "latest",
+      "label": "rows",
+      "expr": {
+        "op": "plain",
+        "of": {
+          "op": "get",
+          "of": {
+            "op": "store",
+            "id": "os"
+          },
+          "key": "list"
+        },
+        "fields": [
+          "id",
+          "a",
+          "t"
+        ]
+      }
+    }
+  ],
+  "invalid": "oracle-error",
+  "detail": "TypeError: Cannot read properties of undefined (reading 'id')\n    at o.keyed.within [as Xe] (file:///workspace/rx-tsx-refresh/rust-tierc/fuzz/solid.mjs:138:73)\n    at file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/map.js:438:40\n    at runWithOwner (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:1787:16)\n    at Object.updateKeyedMap (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/map.js:277:5)\n    at recompute (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:328:25)\n    at GlobalQueue._e (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:47:12)\n    at runHeap (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/heap.js:104:41)\n    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:604:13)\n    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1145:21)\n    at run (file:///workspace/rx-tsx-refresh/rust-tierc/fuzz/solid.mjs:186:22)",
+  "actual": {
+    "driver_error": "panic"
+  },
+  "agree": false
+}

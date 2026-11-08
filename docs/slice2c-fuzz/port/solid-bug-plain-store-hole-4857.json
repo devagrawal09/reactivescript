@@ -1,0 +1,197 @@
+[
+ {
+  "op": "store",
+  "id": "st",
+  "value": {
+   "list": []
+  }
+ },
+ {
+  "op": "list",
+  "id": "L",
+  "each": {
+   "op": "get",
+   "of": {
+    "op": "store",
+    "id": "st"
+   },
+   "key": "list"
+  },
+  "keyed": "id",
+  "index": true,
+  "fallback": false,
+  "row": [
+   {
+    "effect": "e0",
+    "render": true,
+    "expr": {
+     "op": "get",
+     "of": {
+      "op": "item"
+     },
+     "key": "t"
+    }
+   },
+   {
+    "effect": "e1",
+    "render": true,
+    "expr": {
+     "op": "get",
+     "of": {
+      "op": "item"
+     },
+     "key": "a"
+    }
+   },
+   {
+    "effect": "e2",
+    "render": true,
+    "expr": {
+     "op": "get",
+     "of": {
+      "op": "item"
+     },
+     "key": "a"
+    }
+   },
+   {
+    "cleanup": "c"
+   }
+  ]
+ },
+ {
+  "op": "effect",
+  "id": "top",
+  "render": true,
+  "expr": {
+   "op": "read",
+   "id": "L"
+  }
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "insert": [
+     0,
+     {
+      "op": "lit",
+      "value": {
+       "id": 6,
+       "a": 3,
+       "t": 5
+      }
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "action",
+  "id": "a0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 3
+         },
+         "a"
+        ],
+        "set": 9
+       }
+      ]
+     }
+    ],
+    "flight": "f0"
+   },
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 3
+         },
+         "t"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "reconcile": {
+   "list": []
+  },
+  "key": "id"
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 8,
+      "a": 2,
+      "t": 5
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "reconcile": {
+   "list": [
+    {
+     "id": 9,
+     "a": 2,
+     "t": 6
+    }
+   ]
+  },
+  "key": "id"
+ },
+ {
+  "op": "resolve",
+  "flight": "f0",
+  "value": 1
+ }
+]

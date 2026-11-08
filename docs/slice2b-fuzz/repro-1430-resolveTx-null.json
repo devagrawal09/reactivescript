@@ -1,0 +1,544 @@
+[
+ {
+  "op": "signal",
+  "id": "page",
+  "value": 0,
+  "optimistic": true
+ },
+ {
+  "op": "signal",
+  "id": "status",
+  "value": 0
+ },
+ {
+  "op": "signal",
+  "id": "s",
+  "value": 0
+ },
+ {
+  "op": "store",
+  "id": "os",
+  "optimistic": true,
+  "seed": [],
+  "derive": {
+   "expr": {
+    "op": "read",
+    "id": "page"
+   },
+   "flight": "list",
+   "fresh": true
+  }
+ },
+ {
+  "op": "memo",
+  "id": "ml",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "memo",
+  "id": "md",
+  "expr": {
+   "op": "count",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "where": {
+    "op": "eq",
+    "a": {
+     "op": "get",
+     "of": {
+      "op": "elem"
+     },
+     "key": "d"
+    },
+    "b": 1
+   }
+  }
+ },
+ {
+  "op": "effect",
+  "id": "rows",
+  "render": true,
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d"
+   ]
+  }
+ },
+ {
+  "op": "effect",
+  "id": "view",
+  "render": true,
+  "expr": {
+   "op": "arr",
+   "items": [
+    {
+     "op": "read",
+     "id": "page"
+    },
+    {
+     "op": "read",
+     "id": "ml"
+    },
+    {
+     "op": "read",
+     "id": "status"
+    },
+    {
+     "op": "read",
+     "id": "s"
+    }
+   ]
+  }
+ },
+ {
+  "op": "effect",
+  "id": "sum",
+  "expr": {
+   "op": "read",
+   "id": "md"
+  }
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#1",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 0
+   },
+   {
+    "id": 4,
+    "d": 1,
+    "t": 8
+   }
+  ]
+ },
+ {
+  "op": "read",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "latest",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "pending",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "action",
+  "id": "t0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [],
+        "removeKey": {
+         "key": "id",
+         "is": 3
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "save:3#1"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "resolve",
+  "flight": "save:3#1",
+  "value": 1
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#3",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 0
+   },
+   {
+    "id": 4,
+    "d": 1,
+    "t": 8
+   },
+   {
+    "id": 7,
+    "d": 1,
+    "t": 2
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#1",
+  "value": [
+   {
+    "id": 5,
+    "d": 1,
+    "t": 2
+   },
+   {
+    "id": 6,
+    "d": 1,
+    "t": 1
+   }
+  ]
+ },
+ {
+  "op": "action",
+  "id": "t1",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [],
+        "push": {
+         "op": "lit",
+         "value": {
+          "id": 8,
+          "d": 1,
+          "t": 3
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "save:4#1"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "refresh",
+  "store": "os"
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "action",
+  "id": "n2",
+  "slices": [
+   {
+    "steps": [
+     {
+      "write": "page",
+      "value": 1
+     }
+    ],
+    "flight": "nav#2"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "latest",
+  "label": "p",
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d"
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "save:4#1",
+  "value": 1
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#1",
+  "value": [
+   {
+    "id": 5,
+    "d": 1,
+    "t": 2
+   },
+   {
+    "id": 6,
+    "d": 0,
+    "t": 1
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "nav#2",
+  "value": 1
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#1",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 0
+   },
+   {
+    "id": 4,
+    "d": 1,
+    "t": 8
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#2",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 0
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#4",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 4,
+    "d": 1,
+    "t": 8
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#5",
+  "value": [
+   {
+    "id": 1,
+    "d": 1,
+    "t": 9
+   },
+   {
+    "id": 3,
+    "d": 0,
+    "t": 0
+   },
+   {
+    "id": 4,
+    "d": 1,
+    "t": 8
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#1",
+  "value": [
+   {
+    "id": 5,
+    "d": 1,
+    "t": 2
+   },
+   {
+    "id": 6,
+    "d": 0,
+    "t": 1
+   },
+   {
+    "id": 9,
+    "d": 1,
+    "t": 3
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#2",
+  "value": [
+   {
+    "id": 6,
+    "d": 0,
+    "t": 1
+   },
+   {
+    "id": 5,
+    "d": 1,
+    "t": 2
+   }
+  ]
+ },
+ {
+  "op": "drain"
+ },
+ {
+  "op": "read",
+  "label": "rows",
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d",
+    "t"
+   ]
+  }
+ },
+ {
+  "op": "latest",
+  "label": "rows",
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d",
+    "t"
+   ]
+  }
+ },
+ {
+  "op": "read",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "latest",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ },
+ {
+  "op": "pending",
+  "label": "len",
+  "expr": {
+   "op": "len",
+   "of": {
+    "op": "store",
+    "id": "os"
+   }
+  }
+ }
+]

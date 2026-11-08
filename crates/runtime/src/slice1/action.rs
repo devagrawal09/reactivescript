@@ -5,14 +5,13 @@
 //! the runtime's FIFO queue, so their order against `queueMicrotask(flush)`
 //! is JS's. Async generators (`isThenable(r)`) are not ported.
 use super::*;
-use std::collections::BTreeMap;
 
 /// What resumes a body: the first `next()`, a flight's value, or its error
 /// thrown in at the yield point.
 #[derive(Clone, Debug)]
 pub enum Resume {
     Start,
-    Value(i64),
+    Value(Value),
     Error(String),
 }
 
@@ -34,8 +33,8 @@ pub(super) struct Action {
     tx: TxId,
     q: u64,
     body: Option<Box<dyn ActionBody>>,
-    waiting: Option<String>,
-    input: Option<Resume>,
+    pub(super) waiting: Option<String>,
+    pub(super) input: Option<Resume>,
     pub(super) outcome: Option<Result<(), String>>,
 }
 
@@ -80,13 +79,11 @@ impl Runtime {
             ActionStep::Throw(e) => self.action_done(id, Err(e)),
             ActionStep::Return => self.action_done(id, Ok(())),
             ActionStep::Yield(flight) => {
-                // `r.value.then(...)`: a settled flight queues its reaction now.
-                if let Some(result) = self.settled_flights().get(&flight).cloned() {
-                    self.actions[id].input = Some(result);
-                    self.microtasks.push_back(Microtask::Resume(id));
-                } else {
-                    self.actions[id].waiting = Some(flight);
-                }
+                // `r.value.then(...)` (action.ts:208-219): a settled flight
+                // queues its reaction now (`on_flight`).
+                let f = self.flight_id(&flight);
+                self.actions[id].waiting = Some(flight);
+                self.on_flight(f, Reaction::Action(id));
             }
         }
     }
@@ -100,30 +97,10 @@ impl Runtime {
         self.microtasks.push_back(Microtask::Settled(id));
     }
 
-    /// A host flight settles: each action yielded on it gets its reaction
-    /// queued, in the order the reactions were registered.
-    pub fn settle_flight(&mut self, flight: &str, result: Result<i64, String>) {
-        let input = match result {
-            Ok(v) => Resume::Value(v),
-            Err(e) => Resume::Error(e),
-        };
-        self.flight_results.insert(flight.to_owned(), input.clone());
-        for id in 0..self.actions.len() {
-            if self.actions[id].waiting.as_deref() == Some(flight) {
-                self.actions[id].waiting = None;
-                self.actions[id].input = Some(input.clone());
-                self.microtasks.push_back(Microtask::Resume(id));
-            }
-        }
-    }
-
-    fn settled_flights(&self) -> &BTreeMap<String, Resume> {
-        &self.flight_results
-    }
-
     // Solid: action.ts:38-48 (`inTransaction`) around `step(v)` / `step(e, true)`
     pub(super) fn resume_action(&mut self, id: ActionId) {
         let (t, q) = (self.actions[id].tx, self.actions[id].q);
+        self.actions[id].waiting = None;
         let input = self.actions[id]
             .input
             .take()

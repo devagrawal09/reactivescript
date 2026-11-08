@@ -1,0 +1,1 @@
+REPRODUCED: pass: list[2] is row 6 but 2 in list is false (length 3), key fn got undefined (list now: length 2, ids [3,2]), key fn got undefined (list now: length 2, ids [3,2]), key fn got undefined (list now: length 2, ids [3,2]) (4x)

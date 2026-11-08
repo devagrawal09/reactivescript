@@ -1,0 +1,16 @@
+{
+  "note": "Invalid --slice2c programs (never counted as agreement). All three are the same suspected Solid rc.21 bug family: an optimistic store's array view hands mapArray an undefined row; the program's key function (keyed: \"id\", x => x.id) throws a TypeError. docs/SLICE2C-COVERAGE.md sec. 8.",
+  "1-1000": [
+    {"seed": 493, "family": "list-opt-store", "class": "oracle-halted", "classNote": "the same run is sometimes classed oracle-error: the halt's reportError surfaces as an uncaught worker error that races the result message (3 runs of workers.mjs gave oracle-error once, oracle-halted twice); both are invalid",
+     "cause": "has/get disagreement: during a landing pass `2 in list` is false while list[2] is a row and length is 3; mapArray's `_items = newItems.slice(0)` (Array.prototype.slice copies only indices HasProperty reports) keeps a hole; the next pass calls the key function on it",
+     "repro": ["docs/slice2c-fuzz/repro-493-optimistic-hole.json (11 ops)", "docs/slice2c-fuzz/solid-bug-optimistic-hole.mjs (Solid API only)"]}
+  ],
+  "1001-3000": [
+    {"seed": 2723, "family": "list-opt-store", "class": "oracle-error",
+     "cause": "steady-state hole: overlapping pending guesses (move row 2 to the front + remove row 3; remove row 2, then a no-op removal) compose into the view [undefined] (expected [row 1]); any reader sees it",
+     "repro": ["docs/slice2c-fuzz/repro-2723-optimistic-hole.json (8 ops)", "docs/slice2c-fuzz/solid-bug-optimistic-hole-2.mjs (Solid API only)"]},
+    {"seed": 2907, "family": "list-opt-store", "class": "oracle-error",
+     "cause": "steady-state hole on a positional (key null) optimistic store: pending removals of both rows and a pending push compose into [undefined, row 6] (expected [row 6])",
+     "repro": ["docs/slice2c-fuzz/repro-2907-optimistic-hole.json (9 ops)"]}
+  ]
+}

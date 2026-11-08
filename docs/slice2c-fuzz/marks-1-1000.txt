@@ -1,0 +1,67 @@
+take                          0     0 {} first
+take@laneStage                0     0 {} first
+kept-back                     0     0 {} first
+kept-restored                 0     0 {} first
+reverted                    981   467 {"list-lanes":90,"list-opt-store":131,"list-show":74,"tracker":172} first 6,10,11,13,19
+laneOutcome                 115    56 {"list-lanes":56} first 7,8,29,52,53
+laneOutcome-stale             0     0 {} first
+laneWrite-guess               0     0 {} first
+laneWrite-held                0     0 {} first
+linkLanes                   138    82 {"list-opt-store":82} first 10,32,33,55,56
+slotTake-take                 0     0 {} first
+laneRebase                    0     0 {} first
+laneRebase-arrangement        0     0 {} first
+laneRebase-4525               0     0 {} first
+fold                          0     0 {} first
+fold-folded                   0     0 {} first
+foldedRead                    0     0 {} first
+laneSet                       0     0 {} first
+pairRows                      0     0 {} first
+optimisticHas              3882   132 {"list-opt-store":132} first 9,10,11,32,33
+stageError-staged            47     9 {"list-ints":9} first 25,48,163,230,255
+commit-staged-error          29     8 {"list-ints":8} first 25,48,163,255,460
+laneSeam-staged-error         0     0 {} first
+laneValue-staged-error        0     0 {} first
+reawaken-dormant              0     0 {} first
+dormant-sweep                 0     0 {} first
+verdict-reader                0     0 {} first
+notready-loading              0     0 {} first
+guessFlights-true             0     0 {} first
+parkChildren                651   172 {"list-show":128,"tracker":44} first 12,13,14,21,22
+die-on-spot                 227    79 {"list-show":77,"tracker":2} first 12,13,14,36,59
+deferZombie                 698   121 {"list-show":107,"tracker":14} first 12,13,14,35,36
+laneFrameMember-cancel       45    36 {"tracker":32,"list-show":4} first 21,22,43,65,88
+holdFrame                 10524   725 {"list-store":86,"list-lanes":127,"list-opt-store":126,"list-show":124,"tracker":172,"list-ints":90} first 3,4,5,7,8
+holdFrame-node              960   121 {"list-show":111,"tracker":10} first 13,14,21,35,36
+zombies-at-park            6317   761 {"list-store":98,"list-lanes":132,"list-opt-store":132,"list-show":129,"tracker":172,"list-ints":98} first 3,4,5,6,7
+zombie-rerun-at-commit       11     8 {"list-show":7,"tracker":1} first 37,82,520,587,702
+commit-retires-frame        424   135 {"list-show":126,"tracker":9} first 12,13,14,35,36
+removalStagedBy              44     6 {"list-show":6} first 37,311,612,910,957
+dissolve-retires-frame        2     2 {"list-show":2} first 13,910
+laneSeam-retires-frame      222   105 {"list-show":68,"tracker":37} first 12,21,22,36,37
+dispose-parked-frame        651   172 {"list-show":128,"tracker":44} first 12,13,14,21,22
+parked-frame-dies-with-owner      3     3 {"list-show":3} first 83,612,635
+bornInto                   1202   222 {"list-opt-store":62,"list-show":63,"list-lanes":61,"tracker":36} first 10,11,12,13,29
+sync-fast-arm              1176   301 {"list-show":129,"tracker":172} first 12,13,14,19,20
+promoted-write                0     0 {} first
+creatorReads                  0     0 {} first
+map-empty-dispose           236   164 {"list-ints":57,"list-store":10,"list-lanes":19,"list-show":20,"list-nested":56,"list-opt-store":1,"tracker":1} first 2,3,8,12,14
+map-fallback                163    86 {"list-ints":31,"list-lanes":8,"list-nested":23,"list-store":11,"list-show":12,"list-opt-store":1} first 2,8,15,50,60
+map-create-all             1823   978 {"list-ints":131,"list-store":131,"list-lanes":132,"list-opt-store":132,"list-show":108,"list-nested":86,"list-bulk":86,"tracker":172} first 1,2,3,4,5
+map-create-all-abort        117    19 {"list-ints":19} first 23,24,25,48,70
+map-prefix-writeRow        5095   374 {"list-ints":65,"list-store":73,"list-lanes":69,"list-opt-store":76,"list-nested":64,"list-show":27} first 1,2,4,5,6
+map-no-structural-change    924   448 {"list-ints":86,"list-store":59,"list-lanes":75,"list-show":39,"tracker":65,"list-opt-store":75,"list-nested":44,"list-bulk":5} first 1,4,6,12,13
+map-small-probe             388    85 {"list-bulk":85} first 17,18,40,41,63
+map-small-try               316    83 {"list-bulk":83} first 17,18,40,41,63
+map-small-duplicate-decline      2     2 {"list-bulk":2} first 133,822
+map-stageRemoval-not-pure    303   212 {"list-lanes":55,"list-bulk":53,"list-opt-store":42,"list-nested":18,"list-store":13,"list-ints":31} first 7,8,18,31,32
+map-stageRemoval-pure       945   569 {"list-ints":73,"list-store":87,"list-lanes":95,"list-opt-store":101,"list-show":18,"list-nested":67,"list-bulk":50,"tracker":78} first 1,4,5,6,7
+map-keyed-path             3743   881 {"list-ints":110,"list-store":120,"list-lanes":129,"list-opt-store":130,"list-show":56,"list-nested":84,"list-bulk":86,"tracker":166} first 1,2,3,4,5
+map-row-created            9891   861 {"list-ints":108,"list-store":119,"list-lanes":128,"list-opt-store":124,"list-show":48,"list-nested":84,"list-bulk":84,"tracker":166} first 1,2,3,4,5
+map-abort-2903               14     3 {"list-ints":3} first 92,830,920
+commitWindow-grow          1498   692 {"list-ints":103,"list-store":113,"list-lanes":127,"list-opt-store":122,"list-show":46,"list-nested":83,"list-bulk":55,"tracker":43} first 1,2,3,4,5
+commitWindow-shrink        1248   665 {"list-ints":83,"list-store":96,"list-lanes":120,"list-opt-store":123,"list-show":18,"list-nested":70,"list-bulk":77,"tracker":78} first 1,4,5,6,7
+writeRow-setSignal         2310   265 {"list-ints":54,"list-store":42,"list-lanes":67,"list-nested":56,"list-show":19,"list-opt-store":27} first 1,4,6,15,28
+index-setSignal            2453   262 {"list-store":47,"list-opt-store":57,"list-show":22,"list-nested":48,"list-ints":39,"list-lanes":49} first 4,10,13,15,16
+map-shallowView             117    13 {"list-store":13} first 96,118,189,281,394
+map-small-commit            141    69 {"list-bulk":69} first 17,40,41,63,64

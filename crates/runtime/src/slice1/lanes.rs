@@ -1,29 +1,16 @@
 //! Solid: lanes.ts (and truth.ts `laneValueOf`) — guesses, lanes, their
 //! seams, corrections and endings.
 //!
-//! Not ported (constant in this slice): verdict lanes (`_verdict` is always
-//! null, `isVerdict` always false), linked lanes (`_links`, `linkLanes`:
-//! only a pass reading two lanes links them), `take`/`kept`/`reverted`
-//! (another action's guess taken over by a lane), store slots
-//! (CONFIG_SLOT_NODE), truth readers (CONFIG_AUTHORITATIVE), folded and
-//! re-based lanes, `ahead`/`entered` verdict readers, and flights
-//! (`inFlight` is false: no node is ever STATUS_PENDING).
+//! Not ported (constant in these slices): verdict lanes (`_verdict` is
+//! always null, `isVerdict` always false), `ahead`/`entered` verdict
+//! readers, and parked frame flights (`adoptParked` finds none). The store
+//! hooks (`GlobalQueue._slotFlight`, `_slotTake`, `_slotCovered`,
+//! `_echoes`, `_laneRebase`, a lane's `folded`/`over`) are store/*.rs.
+use super::error;
+use super::r#async::Errored;
 use super::*;
 
 impl Runtime {
-    // Solid: truth.ts:23-29
-    pub(super) fn lane_value_of(&self, el: NodeId) -> Slot {
-        let n = &self.nodes[el];
-        if n.config & CONFIG_GUESS == 0 && n.pending.is_some() {
-            return n.pending;
-        }
-        match n.lane {
-            Some(v) => Some(v),
-            None if n.status & STATUS_UNINITIALIZED != 0 => None,
-            None => Some(n.value),
-        }
-    }
-
     // Solid: lanes.ts:119-123
     fn new_lane(&mut self, parent: TxId) -> TxId {
         let l = self.new_transaction(true, Some(parent));
@@ -32,43 +19,84 @@ impl Runtime {
     }
 
     // Solid: lanes.ts:128-135
-    fn display(&self, el: NodeId) -> Slot {
+    pub(super) fn display(&self, el: NodeId) -> Slot {
         let n = &self.nodes[el];
         let shown = n.transaction.is_some_and(|t| self.txs[t].shown);
-        match n.lane {
+        match n.lane.clone() {
             Some(v) if shown => Some(v),
             _ if n.status & STATUS_UNINITIALIZED != 0 => None,
-            _ => Some(n.value),
+            _ => Some(n.value.clone()),
         }
     }
 
     // Solid: lanes.ts:147-152
     pub(super) fn guessed_value_of(&self, n: NodeId) -> Value {
         if let Some(g) = self.pending_guess_of(n) {
-            return Some(g);
+            return g;
         }
         if self.nodes[n].config & CONFIG_OVERRIDE != 0 {
             if let Some(g) = self.lane_value_of(n) {
                 return g;
             }
         }
-        self.nodes[n].value
+        self.nodes[n].value.clone()
     }
 
     // Solid: lanes.ts:154-158
-    fn pending_guess_of(&self, n: NodeId) -> Option<i64> {
+    pub(super) fn pending_guess_of(&self, n: NodeId) -> Option<Value> {
         self.pending_guesses
             .iter()
             .rev()
             .find(|(m, _, _)| *m == n)
-            .map(|(_, v, _)| *v)
+            .map(|(_, v, _)| v.clone())
+    }
+
+    // Solid: lanes.ts:174-181
+    pub(super) fn take(&mut self, n: NodeId, l: TxId, d: bool) {
+        let lane = self.nodes[n].lane.clone();
+        let tx = self.nodes[n].transaction;
+        let q = self.nodes[n].q;
+        self.kept.push((n, lane, tx, q, l));
+        self.rerun(n, l);
+        self.nodes[n].config &= if d {
+            !(CONFIG_GUESS | CONFIG_OVERRIDE)
+        } else {
+            !CONFIG_GUESS
+        };
+        if d {
+            self.nodes[n].transaction = None;
+            self.nodes[n].lane = None;
+        } else {
+            self.list(n, l);
+        }
+    }
+
+    // Solid: lanes.ts:183-185
+    fn rerun(&mut self, n: NodeId, t: TxId) {
+        let mut s = self.nodes[n].subs;
+        while let Some(link) = s {
+            let sub = self.links[link].sub;
+            self.stale_reader(sub, t);
+            s = self.links[link].next_sub;
+        }
     }
 
     // Solid: lanes.ts:186-200
-    pub fn optimistic_write(&mut self, n: NodeId, v: i64) {
+    pub(super) fn optimistic_write_value(&mut self, n: NodeId, v: Value) {
+        let _ = self.optimistic_write_fn(n, &mut |_, _| Ok(v.clone()));
+    }
+
+    /// `optimisticWrite(n, prev => …)`: the updater composes on what the
+    /// user sees; its throw leaves nothing written.
+    pub(super) fn optimistic_write_fn(
+        &mut self,
+        n: NodeId,
+        f: &mut dyn FnMut(&mut Runtime, Value) -> Result<Value, Error>,
+    ) -> Result<(), Error> {
         let prev = self.guessed_value_of(n);
-        if self.nodes[n].equals && prev == Some(v) && self.nodes[n].config & CONFIG_GUESS == 0 {
-            return;
+        let v = f(self, prev.clone())?;
+        if self.equals(n, &prev, &v) && self.nodes[n].config & CONFIG_GUESS == 0 {
+            return Ok(());
         }
         let q = if self.question != 0 {
             self.question
@@ -79,22 +107,29 @@ impl Runtime {
         self.guessing = true; // armGuessing
         self.guessed = true;
         self.schedule();
+        Ok(())
     }
 
-    // Solid: lanes.ts:220-273 (`inFlight` is false: no pending nodes)
-    fn apply_guesses(&mut self, parent: Option<TxId>) {
+    // Solid: lanes.ts:213-218
+    fn in_flight(&self, n: NodeId) -> bool {
+        self.nodes[n].status & STATUS_PENDING != 0
+            || (self.nodes[n].config & CONFIG_SLOT_NODE != 0 && self.slot_flight(n))
+    }
+
+    // Solid: lanes.ts:220-273
+    fn apply_guesses(&mut self, mut parent: Option<TxId>) {
         let mut lane: Option<TxId> = None;
         let guesses = std::mem::take(&mut self.pending_guesses);
         for (n, v, q) in guesses {
             let mut changed = true;
             let mut holder: Option<TxId> = None;
             if self.nodes[n].config & CONFIG_OVERRIDE != 0 {
-                changed = !self.nodes[n].equals || self.lane_value_of(n) != Some(Some(v));
+                changed = !self.equals_slot(n, &self.lane_value_of(n), &Some(v.clone()));
                 if self.nodes[n].config & CONFIG_GUESS == 0 {
-                    self.nodes[n].pending = None;
+                    self.set_pending(n, None);
                     self.nodes[n].config |= CONFIG_GUESS;
                 }
-                self.nodes[n].lane = Some(Some(v));
+                self.nodes[n].lane = Some(v.clone());
                 let t = self.tx_of(n);
                 holder = self.txs[t].parent;
             } else {
@@ -103,6 +138,9 @@ impl Runtime {
                     holder = Some(h);
                     self.new_lane(h)
                 } else {
+                    if parent.is_none() && self.in_flight(n) {
+                        parent = Some(self.new_transaction(false, None));
+                    }
                     let Some(p) = parent else { continue };
                     match lane {
                         Some(l) => l,
@@ -113,7 +151,7 @@ impl Runtime {
                         }
                     }
                 };
-                self.nodes[n].lane = Some(Some(v));
+                self.nodes[n].lane = Some(v.clone());
                 self.nodes[n].config |= CONFIG_OVERRIDE | CONFIG_GUESS;
                 self.list(n, l);
             }
@@ -128,8 +166,7 @@ impl Runtime {
         }
     }
 
-    // Solid: lanes.ts:283-337 (no verdict lanes; a pass reading a second,
-    // unrelated lane would link the two — not ported)
+    // Solid: lanes.ts:283-337 (no verdict lanes)
     fn enter_lane(&mut self, l: TxId, c: NodeId) {
         self.nodes[c].flags |= REACTIVE_LANE_READ;
         let f = self.nodes[c].flags;
@@ -143,7 +180,10 @@ impl Runtime {
             Some(p) if self.same_lane(p, l) => self.pass_lane = Some(l),
             Some(p) => {
                 if !self.under(p, l) {
-                    panic!("linked lanes (linkLanes, lanes.ts:350-363) are not ported");
+                    if !self.under(l, p) {
+                        self.link_lanes(p, l);
+                    }
+                    self.pass_lane = Some(l);
                 }
             }
         }
@@ -164,10 +204,73 @@ impl Runtime {
         false
     }
 
+    // Solid: lanes.ts:348-360
+    fn link_lanes(&mut self, a: TxId, b: TxId) {
+        let ga = match self.txs[a].links {
+            Some(g) => g,
+            None => {
+                self.link_groups.push(vec![a]);
+                let g = self.link_groups.len() - 1;
+                self.txs[a].links = Some(g);
+                g
+            }
+        };
+        let gb = self.txs[b].links;
+        if gb == Some(ga) {
+            return;
+        }
+        match gb {
+            None => {
+                self.link_groups[ga].push(b);
+                self.txs[b].links = Some(ga);
+            }
+            Some(gb) => {
+                let members = self.link_groups[gb].clone();
+                for k in members {
+                    self.link_groups[ga].push(k);
+                    self.txs[k].links = Some(ga);
+                }
+            }
+        }
+    }
+
+    // Solid: lanes.ts:365-373
+    fn link_blocked(&mut self, l: TxId) -> bool {
+        let Some(g) = self.txs[l].links else {
+            return false;
+        };
+        let mut i = 0;
+        while i < self.link_groups[g].len() {
+            let k = self.link_groups[g][i];
+            i += 1;
+            if k != l && (self.txs[k].open != 0 || self.own_flights(k) || self.nested_blocked(k)) {
+                return true;
+            }
+        }
+        false
+    }
+
+    // Solid: lanes.ts:374-380
+    fn unlink(&mut self, l: TxId) {
+        let Some(g) = self.txs[l].links else {
+            return;
+        };
+        if let Some(k) = self.link_groups[g].iter().position(|x| *x == l) {
+            self.link_groups[g].remove(k);
+        }
+        self.txs[l].links = None;
+    }
+
     // Solid: lanes.ts:408-492
-    pub(super) fn lane_stage(&mut self, el: NodeId, l: TxId, create: bool, errored: bool) -> bool {
+    pub(super) fn lane_stage(
+        &mut self,
+        el: NodeId,
+        l: TxId,
+        create: bool,
+        errored: Errored,
+    ) -> bool {
         if !(create
-            || errored
+            || errored.truthy()
             || self.nodes[el].flags & REACTIVE_LANE_READ != 0
             || self.nodes[el].config & CONFIG_GUESS != 0)
         {
@@ -177,7 +280,8 @@ impl Runtime {
                     if self.flush_transaction.is_none() || !self.blocked(parent) {
                         self.nodes[el].notified_at = LEFT_SHOWN;
                     } else {
-                        self.nodes[el].value = self.display(el).expect("displayed value");
+                        // (NOT_PENDING for a node with nothing on screen.)
+                        self.nodes[el].value = self.display(el).unwrap_or(Value::NotPending);
                     }
                 }
                 self.nodes[el].transaction = None;
@@ -188,7 +292,7 @@ impl Runtime {
         }
         if self.nodes[el].effect_type == 0 {
             if self.nodes[el].config & CONFIG_OVERRIDE == 0 {
-                self.nodes[el].pending = None;
+                self.set_pending(el, None);
                 self.nodes[el].config =
                     (self.nodes[el].config & !(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
             }
@@ -201,25 +305,45 @@ impl Runtime {
                     a != b
                 });
             if self.guessed && self.nodes[el].config & CONFIG_GUESS != 0 && other {
-                panic!("take (another action's guess, lanes.ts:174-184) is not ported");
-            } else if !errored {
+                self.take(el, l, false);
+            } else if !errored.truthy() {
                 self.nodes[el].config &= !CONFIG_GUESS;
             }
-        } else if errored {
+        } else if errored.truthy() {
+            if let Errored::Node(src) = errored {
+                if self.nodes[src].status & STATUS_UNINITIALIZED == 0
+                    && (self.nodes[el].config & CONFIG_HELD != 0
+                        || self.nodes[el].flags & REACTIVE_RECOMPUTING_DEPS != 0)
+                    && !self.nodes[el].transaction.is_some_and(|t| self.txs[t].lane)
+                {
+                    self.queue_pending_node(el);
+                    return false;
+                }
+            }
             self.nodes[el].flags |= REACTIVE_LANE_DIRTY;
         }
         self.list(el, l);
         true
     }
 
-    // Solid: lanes.ts:510-542 (no store echoes, truth readers or reverts)
-    fn supersede(&mut self, n: NodeId, value: Value, changed: bool) {
+    // Solid: lanes.ts:510-542 (the observe tier is folded away)
+    pub(super) fn supersede(&mut self, n: NodeId, value: Value, changed: bool) {
         let l = self.tx_of(n);
         let parent = self.resolve_tx(self.txs[l].parent.unwrap_or(l));
+        let mut changed = changed;
+        if changed
+            && self.nodes[n].config & CONFIG_SLOT_NODE != 0
+            && self.echoes_hook(self.nodes[n].lane.as_ref().unwrap_or(&Value::Undef), &value)
+        {
+            changed = false;
+        }
         if changed {
             self.dissolve_lane(l, Some(parent), Some(n));
+            if self.guessed && self.reverting && !self.reverted.contains(&l) {
+                self.reverted.push(l);
+            }
             if self.txs[l].shown {
-                self.nodes[n].value = self.nodes[n].lane.expect("a guess carries its lane value");
+                self.nodes[n].value = self.nodes[n].lane.clone().unwrap_or(Value::NotPending);
             }
             self.nodes[n].config &= !(CONFIG_OVERRIDE | CONFIG_GUESS);
             self.nodes[n].lane = None;
@@ -229,15 +353,18 @@ impl Runtime {
             }
         } else {
             self.nodes[n].config |= CONFIG_HELD;
+            self.truth_confirmed(l);
         }
-        self.nodes[n].pending = Some(value);
+        self.set_pending(n, Some(value));
     }
 
-    // Solid: lanes.ts:554-695
+    // Solid: lanes.ts:554-695 (no verdict lane: `_verdict` is null)
     fn dissolve_lane(&mut self, l: TxId, into: Option<TxId>, except: Option<NodeId>) {
         if let Some(k) = self.lanes.iter().position(|x| *x == l) {
             self.lanes.remove(k);
         }
+        self.unlink(l);
+        let mut loading: Vec<NodeId> = vec![];
         let mut i = 0;
         while i < self.txs[l].nodes.len() {
             let n = self.txs[l].nodes[i];
@@ -250,11 +377,11 @@ impl Runtime {
             }
             let effect = self.nodes[n].effect_type;
             let guess = self.nodes[n].config & CONFIG_GUESS;
-            let slot = self.nodes[n].lane;
+            let slot = self.nodes[n].lane.clone();
             let shown = if self.txs[l].shown && effect == 0 {
-                slot
+                slot.clone()
             } else {
-                Some(self.nodes[n].value)
+                Some(self.nodes[n].value.clone())
             };
             let latest = self.lane_value_of(n);
             self.nodes[n].lane = None;
@@ -262,39 +389,69 @@ impl Runtime {
             match into {
                 None => {
                     self.nodes[n].transaction = None;
-                    // The first-load test needs a pending node; none here.
                     if effect == 0 && guess == 0 {
-                        self.nodes[n].pending = latest;
+                        let first_load = slot.is_none()
+                            && self.nodes[n].status & (STATUS_UNINITIALIZED | STATUS_PENDING)
+                                == STATUS_UNINITIALIZED | STATUS_PENDING
+                            && (self.nodes[n].in_flight.is_some()
+                                || loading
+                                    .iter()
+                                    .any(|q| self.set_has(self.nodes[n].pending_sources, *q)));
+                        if first_load {
+                            loading.push(n);
+                        } else if self.nodes[n].pending.is_none() {
+                            // (A staging is `latest` itself: unchanged.)
+                            self.set_pending(n, latest);
+                        }
                     }
                     self.commit_pending_node(n);
                     if effect == 0 {
                         if self.nodes[n].flags
                             & (REACTIVE_IN_HEAP | REACTIVE_DIRTY | REACTIVE_CHECK)
                             != 0
+                            || self.nodes[n].status & STATUS_PENDING != 0
                         {
                             self.nodes[n].config |= CONFIG_INPUTS_PUBLISHED;
                         }
                         if let Some(s) = shown {
-                            if !self.nodes[n].equals || s != self.nodes[n].value {
+                            if !self.equals(n, &s, &self.nodes[n].value) {
                                 self.insert_subs(n);
                             }
                         }
                     }
+                    if self.nodes[n].flags & REACTIVE_FRAME_READ != 0
+                        && self.nodes[n].status & STATUS_ERROR != 0
+                        && self.nodes[n].error.as_ref().and_then(|e| e.source()) == Some(Some(n))
+                    {
+                        self.enqueue_sub(n);
+                    }
                 }
-                Some(into) if guess != 0 => {
+                Some(into)
+                    if guess != 0
+                        || (self.guessed
+                            && self.nodes[n].config & CONFIG_SLOT_NODE != 0
+                            && self.nodes[n].pending.is_some()) =>
+                {
                     if self.nodes[n].pending.is_none() {
-                        self.nodes[n].pending = Some(self.covered(n));
+                        let c = self.covered(n);
+                        self.set_pending(n, Some(c));
                     }
                     if self.txs[l].shown {
-                        self.nodes[n].value = slot.expect("a guess carries its lane value");
+                        self.nodes[n].value = slot.unwrap_or(Value::NotPending);
                     }
                     self.hold_node(n, into);
                     self.insert_subs(n);
                 }
                 Some(_) => {
                     self.nodes[n].transaction = None;
-                    if effect == 0 && shown.is_some() && self.txs[l].shown {
-                        self.nodes[n].pending = shown;
+                    if effect == 0 {
+                        if shown.is_some() && self.txs[l].shown {
+                            self.set_pending(n, shown);
+                        }
+                        if self.nodes[n].status & STATUS_PENDING != 0 {
+                            self.nodes[n].in_flight = None;
+                            self.enqueue_sub(n);
+                        }
                     }
                     if self.txs[l].shown {
                         self.commit_pending_node(n);
@@ -302,6 +459,11 @@ impl Runtime {
                             self.nodes[n].config |= CONFIG_INPUTS_PUBLISHED;
                         }
                     } else {
+                        if self.nodes[n].pending_first_child.is_some()
+                            || !self.nodes[n].pending_disposal.is_empty()
+                        {
+                            self.dispose_children(n, false, true);
+                        }
                         self.nodes[n].config &= !(CONFIG_STAGED | CONFIG_HELD | CONFIG_HELD_FRAME);
                     }
                 }
@@ -314,24 +476,40 @@ impl Runtime {
         }
     }
 
-    // Solid: lanes.ts:716-814 (no folded lanes, truth readers or pending
-    // members: `pending` and `never` are false)
-    pub(super) fn lane_read(&mut self, c: Option<NodeId>, el: NodeId) -> Result<Slot, String> {
+    // Solid: lanes.ts:716-814 (no verdict lanes)
+    pub(super) fn lane_read(&mut self, c: Option<NodeId>, el: NodeId) -> Result<Slot, Error> {
         let guess = self.nodes[el].config & CONFIG_GUESS != 0;
         let l = self.tx_of(el);
-        if !guess && self.nodes[el].status & STATUS_ERROR != 0 {
+        if c.is_some() && self.txs[l].folded {
+            if let Some(v) = self.folded_read(c, el) {
+                return Ok(Some(v));
+            }
+        }
+        if let Some(c) = c {
+            if self.nodes[c].config & CONFIG_AUTHORITATIVE != 0 {
+                return self.truth_read(el);
+            }
+        }
+        let status = self.nodes[el].status;
+        if !guess && status & STATUS_ERROR != 0 {
             return Ok(None);
         }
         let Some(c) = c else {
             return Ok(self.lane_value_of(el));
         };
+        let pending = !guess && status & STATUS_PENDING != 0;
         if !self.tracking || self.nodes[c].config & CONFIG_CHILDREN_FORBIDDEN != 0 {
             if self.pass_lane.is_none() || self.nodes[c].config & CONFIG_CHILDREN_FORBIDDEN != 0 {
                 return Ok(self.display(el));
             }
         } else if self.nodes[c].effect_type == EFFECT_RENDER {
+            let never = pending && self.nodes[el].lane.is_none();
+            // `seated` (a verdict lane's seat) is false.
             let same = self.pass_lane.is_some_and(|p| self.same_lane(p, l));
             if !same {
+                if never && self.txs[l].shown {
+                    return Ok(None);
+                }
                 if !guess
                     && !self.txs[l].shown
                     && self.nodes[el].pending.is_some()
@@ -339,29 +517,63 @@ impl Runtime {
                     && self.flush_transaction.is_some()
                     && self.resolve_tx(self.flush_transaction.unwrap()) == self.tx_of(c)
                 {
-                    return Ok(self.nodes[el].pending);
+                    return Ok(self.nodes[el].pending.clone());
                 }
-                if self.txs[l].held {
+                if self.txs[l].held || pending {
                     if self.nodes[c].flags & REACTIVE_SCREEN_READ == 0 {
                         self.nodes[c].flags |= REACTIVE_FRAME_READ | REACTIVE_SCREEN_READ;
                         self.txs[l].reruns.push(c);
                     }
-                    return Ok(Some(self.display(el).ok_or("NotReadyError")?));
+                    return match self.display(el) {
+                        None => Err(error::not_ready(None)),
+                        Some(v) => Ok(Some(v)),
+                    };
                 }
             }
         }
         self.enter_lane(l, c);
-        Ok(self.lane_value_of(el))
+        Ok(if pending {
+            None
+        } else {
+            self.lane_value_of(el)
+        })
     }
 
-    // Solid: lanes.ts:818-822 (no store slots)
+    // Solid: lanes.ts:1245-1249 (`laneServedHook`)
+    pub(super) fn lane_served(&mut self, c: NodeId, el: NodeId) {
+        let Some(from) = self.nodes[el].pending_sources else {
+            return;
+        };
+        if self.nodes[c].pending_sources.is_none() {
+            return;
+        }
+        let mut i = 0;
+        while let Some(entry) = self.set_at(from, i) {
+            i += 1;
+            if let Some(s) = entry {
+                if self.remove_pending_source(c, s) {
+                    self.settle_pending_source(c, s);
+                }
+            }
+        }
+    }
+
+    // Solid: lanes.ts:818-822
     fn covered(&self, n: NodeId) -> Value {
-        self.nodes[n].value
+        if self.nodes[n].config & CONFIG_SLOT_NODE != 0 {
+            self.slot_covered(n)
+        } else {
+            self.nodes[n].value.clone()
+        }
     }
 
-    // Solid: lanes.ts:826-832: a guess in flight needs a pending node.
-    fn guess_flights(&self, _l: TxId) -> bool {
-        false
+    // Solid: lanes.ts:826-832
+    fn guess_flights(&self, l: TxId) -> bool {
+        self.txs[l].nodes.iter().any(|&n| {
+            self.nodes[n].config & CONFIG_GUESS != 0
+                && self.nodes[n].transaction == Some(l)
+                && self.in_flight(n)
+        })
     }
 
     // Solid: lanes.ts:847-870
@@ -388,18 +600,37 @@ impl Runtime {
                 i += 1;
                 if self.nodes[n].config & CONFIG_GUESS != 0 && self.nodes[n].transaction == Some(l)
                 {
-                    let truth = self.nodes[n].pending.unwrap_or(self.covered(n));
-                    let changed = !self.nodes[n].equals || self.nodes[n].lane != Some(truth);
+                    let truth = match self.nodes[n].pending.clone() {
+                        Some(p) => p,
+                        None => self.covered(n),
+                    };
+                    // (`__OBSERVE__ || guessed`: `guessed` is set by every guess.)
+                    if self.guessed {
+                        self.reverting = self.nodes[n].pending.is_none();
+                    }
+                    let changed = !self.equals_slot(n, &self.nodes[n].lane, &Some(truth.clone()));
                     self.supersede(n, truth, changed);
+                    if self.guessed {
+                        self.reverting = false;
+                    }
                 }
             }
         }
         judged
     }
 
-    // Solid: lanes.ts:872-902 (no child frames)
+    // Solid: lanes.ts:872-902
     fn lane_seam(&mut self, l: TxId, leaked: bool) {
-        if leaked || self.blocked(l) {
+        let held = leaked
+            || self.blocked(l)
+            || match self.txs[l].over {
+                Some(over) => {
+                    let u = self.live_tx(over).unwrap_or(l);
+                    self.blocked(u)
+                }
+                None => false,
+            };
+        if held {
             self.txs[l].held = true;
             return;
         }
@@ -420,17 +651,75 @@ impl Runtime {
                 continue;
             }
             if self.nodes[n].config & CONFIG_GUESS == 0 && self.nodes[n].effect_type == 0 {
+                if self.nodes[n].pending_err.is_some() {
+                    panic!("a lane seam over a staged error is not ported");
+                }
                 if let Some(p) = self.nodes[n].pending.take() {
                     self.nodes[n].lane = Some(p);
                 }
+            }
+            // The frame this pass built is the screen's now; the one it
+            // replaced goes.
+            if self.nodes[n].pending_first_child.is_some()
+                || !self.nodes[n].pending_disposal.is_empty()
+            {
+                self.dispose_children(n, false, true);
             }
             self.nodes[n].config &= !CONFIG_STAGED;
         }
         self.release_queues(l);
     }
 
-    // Solid: lanes.ts:906-938 (`kept` is always empty: no `take`)
+    /// `(l._links || [l]).some(u => u.over && liveTx(u.over) == t)`
+    /// (lanes.ts:1152).
+    fn over_reads(&self, l: TxId, t: TxId) -> bool {
+        let group = match self.txs[l].links {
+            Some(g) => self.link_groups[g].clone(),
+            None => vec![l],
+        };
+        group.iter().any(|u| {
+            self.txs[*u]
+                .over
+                .is_some_and(|o| self.live_tx(o) == Some(t))
+        })
+    }
+
+    // Solid: lanes.ts:906-938
     pub(super) fn end_lanes(&mut self, u: TxId) {
+        if self.guessed {
+            let mut i = self.kept.len() as isize - 1;
+            while i >= 0 {
+                let at = i as usize;
+                i -= 1;
+                if at >= self.kept.len() {
+                    continue;
+                }
+                let taker = self.kept[at].4;
+                let p = self.txs[taker].parent.expect("a lane's parent");
+                if self.resolve_tx(p) != u {
+                    continue;
+                }
+                let (mut n, v, g, q, t) = self.kept.remove(at);
+                let g_live = g.is_some_and(|g| self.lanes.contains(&g));
+                if self.reverted.contains(&t)
+                    && g_live
+                    && (self.nodes[n].config & CONFIG_SLOT_NODE == 0 || {
+                        n = self.slot_take_back(n);
+                        true
+                    })
+                {
+                    let g = g.unwrap();
+                    if self.nodes[n].transaction.is_none() || self.tx_of(n) == u {
+                        self.commit_pending_node(n);
+                        self.nodes[n].lane = v;
+                        self.nodes[n].q = q;
+                        self.nodes[n].config |= CONFIG_OVERRIDE | CONFIG_GUESS;
+                        self.list(n, g);
+                        self.rerun(n, u);
+                    }
+                }
+            }
+        }
         let mut k = self.lanes.len() as isize - 1;
         while k >= 0 {
             let Some(&l) = self.lanes.get(k as usize) else {
@@ -446,9 +735,9 @@ impl Runtime {
         }
     }
 
-    // Solid: lanes.ts:945-947 (no links)
+    // Solid: lanes.ts:945-947
     pub(super) fn lanes_blocked(&mut self, t: TxId) -> bool {
-        self.nested_blocked(t)
+        (self.txs[t].lane && self.link_blocked(t)) || self.nested_blocked(t)
     }
 
     // Solid: lanes.ts:954-962
@@ -470,26 +759,27 @@ impl Runtime {
         false
     }
 
-    // Solid: lanes.ts:969-1001 (no store re-bases or slot takes)
-    pub(super) fn lane_write(&mut self, el: NodeId, v: i64) {
-        if self.nodes[el].config & CONFIG_GUESS != 0 {
-            if self.stale(el, self.question) {
-                self.nodes[el].pending = Some(Some(v));
+    // Solid: lanes.ts:969-1001
+    pub(super) fn lane_write(&mut self, el: NodeId, v: Value) {
+        if self.nodes[el].config & CONFIG_GUESS != 0 && !(self.guessed && self.slot_take_hook(el)) {
+            let older = self.stale(el, self.question);
+            if self.lane_rebase(el, &v, older) == Some(true) || older {
+                self.set_pending(el, Some(v.clone()));
                 self.nodes[el].config |= CONFIG_HELD;
                 self.schedule();
                 return;
             }
-            let changed = !self.nodes[el].equals || self.nodes[el].lane != Some(Some(v));
-            self.supersede(el, Some(v), changed);
+            let changed = !self.equals_slot(el, &self.nodes[el].lane, &Some(v.clone()));
+            self.supersede(el, v, changed);
         } else {
             let l = self.tx_of(el);
-            if self.nodes[el].equals && self.lane_value_of(el) == Some(Some(v)) {
+            if self.equals_slot(el, &self.lane_value_of(el), &Some(v.clone())) {
                 return;
             }
             if self.txs[l].shown {
-                self.nodes[el].pending = Some(Some(v));
+                self.set_pending(el, Some(v.clone()));
             } else {
-                self.nodes[el].lane = Some(Some(v));
+                self.nodes[el].lane = Some(v);
             }
             if self.nodes[el].fn_.is_some() {
                 self.nodes[el].time = self.clock;
@@ -505,11 +795,11 @@ impl Runtime {
             return true;
         }
         if self.stale(el, self.answered(el)) {
-            self.nodes[el].pending = Some(value);
+            self.set_pending(el, Some(value));
             self.nodes[el].config |= CONFIG_HELD;
             return true;
         }
-        let changed = !self.nodes[el].equals || self.nodes[el].lane != Some(value);
+        let changed = !self.equals_slot(el, &self.nodes[el].lane, &Some(value.clone()));
         self.supersede(el, value, changed);
         true
     }
@@ -572,7 +862,7 @@ impl Runtime {
                 let lane = l.filter(|l| self.txs[*l].lane);
                 let skip = self.nodes[r].flags & REACTIVE_DISPOSED != 0
                     || match l {
-                        Some(_) if lane.is_some() => false,
+                        Some(l) if lane.is_some() => self.over_reads(l, t),
                         Some(l) => {
                             !(self.nodes[r].flags & REACTIVE_PROBE_UNANSWERED != 0
                                 || ((self.nodes[r].flags & REACTIVE_STAGED_READ != 0

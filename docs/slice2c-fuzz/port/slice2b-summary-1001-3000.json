@@ -1,0 +1,60 @@
+{
+  "total": 2000,
+  "agreement": 1999,
+  "rate": 0.9995,
+  "invalid": 1,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 3799,
+    "store": 2332,
+    "memo": 5569,
+    "effect": 5793,
+    "flush": 10472,
+    "resolve": 12873,
+    "read": 10273,
+    "latest": 7282,
+    "pending": 5016,
+    "action": 8185,
+    "write": 2109,
+    "reject": 1449,
+    "drain": 3994,
+    "refresh": 382,
+    "store_set": 6661
+  },
+  "modes": {
+    "store-provenance": {
+      "total": 252,
+      "agreement": 252
+    },
+    "tracker": {
+      "total": 336,
+      "agreement": 336
+    },
+    "store-plain": {
+      "total": 250,
+      "agreement": 250
+    },
+    "store-actions": {
+      "total": 249,
+      "agreement": 249
+    },
+    "opt-memo-rows": {
+      "total": 332,
+      "agreement": 332
+    },
+    "opt-store-rows": {
+      "total": 332,
+      "agreement": 332
+    },
+    "opt-store-derived": {
+      "total": 249,
+      "agreement": 248
+    }
+  },
+  "classes": {
+    "oracle-error": {
+      "count": 1,
+      "seed": 1430
+    }
+  }
+}

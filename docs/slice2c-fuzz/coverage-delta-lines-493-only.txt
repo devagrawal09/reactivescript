@@ -1,0 +1,14 @@
++	core/effect.ts:123-174 notifyEffectStatus	calls 25456 -> 25481	lines 142-145	4
+NEW	core/effect.ts:179-184 escalate	calls 0 -> 1	lines 179-184	6
++	core/scheduler.ts:777-787 schedule	calls 63855 -> 63904	lines 779-781	3
+NEW	core/scheduler.ts:805-842 haltReactivity	calls 0 -> 1	lines 806-807,809-811,839-842	9
+NEW	core/scheduler.ts:857-866 notifyHalted	calls 0 -> 8	lines 857-861,864-866	8
++	core/scheduler.ts:1199-1225 notify	calls 22367 -> 22393	lines 1224	1
++	core/lanes.ts:408-492 laneStage	calls 12541 -> 12557	lines 481-482	2
+
+| file | functions with new lines | never called in base | new code lines |
+| --- | ---: | ---: | ---: |
+| core/scheduler.ts | 4 | 2 | 21 |
+| core/effect.ts | 2 | 1 | 10 |
+| core/lanes.ts | 1 | 0 | 2 |
+| **total** | **7** | **3** | **33** |

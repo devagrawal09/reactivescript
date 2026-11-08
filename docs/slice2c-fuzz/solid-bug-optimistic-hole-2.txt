@@ -1,0 +1,2 @@
+views: [1,2,3] -> [2,1] -> ["undefined"]
+REPRODUCED: the last view has an undefined element (expected ids [1])

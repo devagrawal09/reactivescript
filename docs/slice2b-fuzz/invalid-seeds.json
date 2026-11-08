@@ -1,0 +1,10 @@
+[
+ {
+  "seed": 1430,
+  "range": "1001-3000",
+  "family": "opt-store-derived",
+  "invalid": "oracle-error",
+  "detail": "TypeError: Cannot read properties of null (reading 'eo')\n    at resolveTx (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:246:14)\n    at txOf (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:236:21)\n    at setSignal (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:1664:43)\n    at leafSet (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:986:5)\n    at notifyKeyDiff (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1009:74)",
+  "reduced": "repro-1430-resolveTx-null.json"
+ }
+]

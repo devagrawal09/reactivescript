@@ -1,0 +1,895 @@
+{
+ "first_load_holds_render_effect": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 1
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": 3
+   },
+   "flight": "q"
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "read",
+    "id": "a"
+   },
+   "render": true
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:1",
+   "value": 5
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  }
+ ],
+ "rejection_runs_the_error_handler": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 2
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "read",
+    "id": "s"
+   },
+   "flight": "q"
+  },
+  {
+   "op": "effect",
+   "id": "watch",
+   "expr": {
+    "op": "read",
+    "id": "a"
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "reject",
+   "flight": "q:2",
+   "message": "boom"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": 3
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:3",
+   "value": 9
+  },
+  {
+   "op": "read",
+   "id": "a"
+  }
+ ],
+ "loading_value_serves_until_landing": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 0
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "read",
+    "id": "s"
+   },
+   "flight": "q",
+   "loading": 7
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "read",
+    "id": "a"
+   },
+   "render": true
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:0",
+   "value": 4
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": 1
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:1",
+   "value": 6
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  }
+ ],
+ "same_key_promise_and_refresh": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 0
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": 3
+   },
+   "flight": "q"
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "read",
+    "id": "a"
+   },
+   "render": true
+  },
+  {
+   "op": "resolve",
+   "flight": "q:0",
+   "value": 1
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": 3
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "refresh",
+   "id": "a"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:2",
+   "value": 8
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  }
+ ],
+ "action_entangles_with_a_flight": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 0
+  },
+  {
+   "op": "signal",
+   "id": "o",
+   "value": 1,
+   "optimistic": true
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": 3
+   },
+   "flight": "q"
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "a"
+    },
+    "b": {
+     "op": "read",
+     "id": "o"
+    }
+   },
+   "render": true
+  },
+  {
+   "op": "resolve",
+   "flight": "q:0",
+   "value": 2
+  },
+  {
+   "op": "action",
+   "id": "a0",
+   "slices": [
+    {
+     "writes": [
+      {
+       "id": "o",
+       "value": 5
+      },
+      {
+       "id": "s",
+       "value": 1
+      }
+     ],
+     "flight": "f0"
+    },
+    {
+     "writes": [
+      {
+       "id": "s",
+       "value": 2
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "o"
+  },
+  {
+   "op": "resolve",
+   "flight": "f0",
+   "value": 0
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:2",
+   "value": 3
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "read",
+   "id": "o"
+  }
+ ],
+ "chained_async_memos": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 1
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "read",
+    "id": "s"
+   },
+   "flight": "q"
+  },
+  {
+   "op": "memo",
+   "id": "b",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "a"
+    },
+    "b": 3
+   },
+   "flight": "r"
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "read",
+    "id": "b"
+   },
+   "render": true
+  },
+  {
+   "op": "resolve",
+   "flight": "q:1",
+   "value": 4
+  },
+  {
+   "op": "read",
+   "id": "b"
+  },
+  {
+   "op": "pending",
+   "id": "b"
+  },
+  {
+   "op": "resolve",
+   "flight": "r:1",
+   "value": 7
+  },
+  {
+   "op": "read",
+   "id": "b"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": 2
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "latest",
+   "id": "b"
+  },
+  {
+   "op": "pending",
+   "id": "b"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:2",
+   "value": 5
+  },
+  {
+   "op": "resolve",
+   "flight": "r:2",
+   "value": 0
+  },
+  {
+   "op": "read",
+   "id": "b"
+  }
+ ],
+ "linked_lanes": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 1
+  },
+  {
+   "op": "signal",
+   "id": "o",
+   "value": 2,
+   "optimistic": true
+  },
+  {
+   "op": "signal",
+   "id": "p",
+   "value": 1,
+   "optimistic": true
+  },
+  {
+   "op": "effect",
+   "id": "side",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": {
+     "op": "add",
+     "a": {
+      "op": "read",
+      "id": "o"
+     },
+     "b": {
+      "op": "read",
+      "id": "p"
+     }
+    }
+   },
+   "render": true
+  },
+  {
+   "op": "action",
+   "id": "a1",
+   "slices": [
+    {
+     "writes": [
+      {
+       "id": "p",
+       "value": 4
+      }
+     ],
+     "flight": "f1"
+    },
+    {
+     "writes": []
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "action",
+   "id": "a2",
+   "slices": [
+    {
+     "writes": [
+      {
+       "id": "o",
+       "value": 7
+      },
+      {
+       "id": "s",
+       "value": 1
+      }
+     ],
+     "flight": "q:2"
+    },
+    {
+     "writes": []
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "resolve",
+   "flight": "f1",
+   "value": 0
+  },
+  {
+   "op": "read",
+   "id": "o"
+  },
+  {
+   "op": "latest",
+   "id": "o"
+  },
+  {
+   "op": "pending",
+   "id": "o"
+  },
+  {
+   "op": "read",
+   "id": "p"
+  },
+  {
+   "op": "latest",
+   "id": "p"
+  },
+  {
+   "op": "pending",
+   "id": "p"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:2",
+   "value": 0
+  },
+  {
+   "op": "read",
+   "id": "o"
+  },
+  {
+   "op": "latest",
+   "id": "o"
+  },
+  {
+   "op": "pending",
+   "id": "o"
+  },
+  {
+   "op": "read",
+   "id": "p"
+  },
+  {
+   "op": "latest",
+   "id": "p"
+  },
+  {
+   "op": "pending",
+   "id": "p"
+  }
+ ],
+ "pass_scoped_transaction": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 2
+  },
+  {
+   "op": "signal",
+   "id": "o",
+   "value": 2,
+   "optimistic": true
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": 3
+   },
+   "flight": "q"
+  },
+  {
+   "op": "memo",
+   "id": "m",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "a"
+    },
+    "b": {
+     "op": "read",
+     "id": "o"
+    }
+   }
+  },
+  {
+   "op": "effect",
+   "id": "view",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "m"
+    },
+    "b": {
+     "op": "read",
+     "id": "s"
+    }
+   },
+   "render": true
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": 4
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "refresh",
+   "id": "a"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "read",
+   "id": "m"
+  },
+  {
+   "op": "latest",
+   "id": "m"
+  },
+  {
+   "op": "pending",
+   "id": "m"
+  },
+  {
+   "op": "resolve",
+   "flight": "q:1",
+   "value": 3
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "read",
+   "id": "m"
+  },
+  {
+   "op": "latest",
+   "id": "m"
+  },
+  {
+   "op": "pending",
+   "id": "m"
+  }
+ ],
+ "staged_error": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": 2
+  },
+  {
+   "op": "signal",
+   "id": "o",
+   "value": 1,
+   "optimistic": true
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "mod",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": 3
+   },
+   "flight": "q",
+   "loading": 2
+  },
+  {
+   "op": "action",
+   "id": "a0",
+   "slices": [
+    {
+     "writes": [
+      {
+       "id": "o",
+       "value": 4
+      },
+      {
+       "id": "s",
+       "value": 0
+      }
+     ],
+     "flight": "f0"
+    },
+    {
+     "writes": [
+      {
+       "id": "s",
+       "value": 4
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "op": "resolve",
+   "flight": "q:0",
+   "value": 0
+  },
+  {
+   "op": "action",
+   "id": "a2",
+   "slices": [
+    {
+     "writes": [
+      {
+       "id": "o",
+       "value": 5
+      },
+      {
+       "id": "s",
+       "value": 5
+      }
+     ],
+     "flight": "f2"
+    },
+    {
+     "writes": [
+      {
+       "id": "s",
+       "value": 0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "op": "reject",
+   "flight": "q:2",
+   "message": "action-failed"
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "resolve",
+   "flight": "f0",
+   "value": 0
+  },
+  {
+   "op": "resolve",
+   "flight": "f2",
+   "value": 0
+  },
+  {
+   "op": "read",
+   "id": "a"
+  },
+  {
+   "op": "latest",
+   "id": "a"
+  },
+  {
+   "op": "pending",
+   "id": "a"
+  },
+  {
+   "op": "read",
+   "id": "s"
+  },
+  {
+   "op": "latest",
+   "id": "s"
+  },
+  {
+   "op": "pending",
+   "id": "s"
+  }
+ ]
+}
