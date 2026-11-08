@@ -9,7 +9,7 @@ export type Row = {
   error?: string;
 };
 export const id = (row: Row) =>
-  row.file.replaceAll("\\", "/").replace(/^.*\/(tsx|yield)\//, "$1/") +
+  row.file.replaceAll("\\", "/").replace(/^.*\/(tsx|yield|slices|plan)\//, "$1/") +
   " :: " +
   row.name;
 export function checkTests(
@@ -104,6 +104,7 @@ if (
   );
   const required = [
     "pins",
+    "rust-solid-build",
     "types",
     "suite",
     "fuzz",

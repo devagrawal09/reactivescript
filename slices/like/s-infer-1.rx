@@ -1,0 +1,14 @@
+export default component App() {
+  source liked = "no"
+  source error := ""
+
+  <button onClick={() => {
+    optimistic liked := "yes"
+    try {
+      let r = await fetch("like")
+      liked := r
+    } catch (e) {
+      error := e.message
+    }
+  }}>{liked} {error}</button>
+}

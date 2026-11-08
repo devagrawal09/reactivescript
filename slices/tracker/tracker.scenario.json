@@ -1,0 +1,132 @@
+{
+  "version": 2,
+  "name": "tracker: overlapping per-row claims, rejection, filter",
+  "fixture": "tracker",
+  "host": [
+    {
+      "name": "assignIssue",
+      "parameters": [
+        "number"
+      ],
+      "returns": "string",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "Filter: all2 openCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Crash on save: nobodytake",
+        "index": 0
+      },
+      "frame": "Filter: all1 openCrash on save: metakeSlow search: anatakeTypo in footer: nobodytake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Typo in footer: nobodytake",
+        "index": 0
+      },
+      "frame": "Filter: all0 openCrash on save: metakeSlow search: anatakeTypo in footer: metake"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 2,
+      "args": [
+        3
+      ],
+      "value": "dev",
+      "frame": "Filter: all0 openCrash on save: metakeSlow search: anatakeTypo in footer: metake"
+    },
+    {
+      "type": "reject",
+      "host": "assignIssue",
+      "call": 1,
+      "args": [
+        1
+      ],
+      "error": "offline",
+      "frame": "Filter: all1 openCrash on save: nobodytakeSlow search: anatakeTypo in footer: devtakeCould not assign #1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Slow search: anatake",
+        "index": 0
+      },
+      "frame": "Filter: all1 openCrash on save: nobodytakeSlow search: metakeTypo in footer: devtakeCould not assign #1"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 3,
+      "args": [
+        2
+      ],
+      "value": "bo",
+      "frame": "Filter: all1 openCrash on save: nobodytakeSlow search: botakeTypo in footer: devtake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "Filter: all",
+        "index": 0
+      },
+      "frame": "Filter: open1 openCrash on save: nobodytake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Crash on save: nobodytake",
+        "index": 0
+      },
+      "frame": "Filter: open0 openNothing to triage"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 4,
+      "args": [
+        1
+      ],
+      "value": "ana",
+      "frame": "Filter: open0 openNothing to triage"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "Filter: open",
+        "index": 0
+      },
+      "frame": "Filter: all0 openCrash on save: anatakeSlow search: botakeTypo in footer: devtake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Slow search: botake",
+        "index": 0
+      },
+      "frame": "Filter: all0 openCrash on save: anatakeSlow search: metakeTypo in footer: devtake"
+    },
+    {
+      "type": "reject",
+      "host": "assignIssue",
+      "call": 5,
+      "args": [
+        2
+      ],
+      "error": "offline",
+      "frame": "Filter: all0 openCrash on save: anatakeSlow search: botakeTypo in footer: devtakeCould not assign #2"
+    }
+  ]
+}

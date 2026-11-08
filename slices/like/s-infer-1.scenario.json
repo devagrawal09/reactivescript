@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "name": "upstream S-infer-1: confirmation",
+  "fixture": "s-infer-1",
+  "host": [
+    {
+      "name": "fetch",
+      "parameters": [
+        "string"
+      ],
+      "returns": "string",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "no "
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "yes "
+    },
+    {
+      "type": "resolve",
+      "host": "fetch",
+      "call": 1,
+      "value": "yes",
+      "frame": "yes "
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import { parseSync } from "oxc-parser/src-js/index";
 import { decodeHTML } from "entities";
 import { entryView, type Decl, type Expr, type Markup, type Program, type Stmt } from "../tsx/rx/ast.ts";
 import { joinPath, parseDeclarations, parseProgram, type JsDecl, type ModuleSet } from "../tsx/rx/compiler.ts";
+import { actionInference } from "../tsx/rx/infer.ts";
 
 type N = any;
 export class YieldError extends Error {
@@ -43,7 +44,10 @@ const OPS: Record<string, string> = { "===": "==", "!==": "!=", "+": "+", "-": "
 type B =
   | { k: "accessor" } | { k: "path"; name?: string } | { k: "value"; name?: string } | { k: "js" }
   | { k: "setter"; target: string; optimistic: boolean; store: boolean }
-  | { k: "event"; params: string[]; handler: Expr }
+  // use: how a setup event has been used so far. "action": called from events while RX infers its body as an action
+  // (AC-1b), so it is the declared RX action `name`; "inline": bound, passed or called as its handler arrow. row: declared
+  // in a For row, so it is only bound in that row's view.
+  | { k: "event"; params: string[]; handler: Expr; name: string; use?: "inline" | "action"; row?: boolean }
   | { k: "local"; e: Expr }
   | { k: "draft"; store: string }
   | { k: "waited" };
@@ -180,11 +184,21 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
         const c = call.callee;
         const b = c.type === "Identifier" ? scope.get(c.name) : undefined;
         if (b?.k === "setter") { out.push(...write(call, b, scope)); continue; }
+        if (b?.k === "event" && b.row) fail(call, "a row event is bound in its row's view, not called");
+        if (b?.k === "event" && b.handler.k === "fn" && actionInference(b.handler.stmts ?? []).trigger) {
+          // RX would infer this body as an action (AC-1b), and Solid's spelling is action(function* (…) { … }) called
+          // with its arguments. Lower it to the declared RX action of the same name, called here; never a local arrow.
+          if (b.use === "inline") fail(call, "an event that RX infers as an action is either bound/passed or called as an action, not both");
+          b.use = "action";
+          actionCalls.push(call);
+          out.push({ k: "expr", e: { k: "call", f: { k: "id", name: b.name }, args: call.arguments.map((a: N) => expr(a, scope)) } });
+          continue;
+        }
         if (b?.k === "event" || (c.type === "MemberExpression" && !c.computed && c.object.type === "Identifier" && c.object.name === "props")) {
           // Name a local arrow before calling it, as a handwritten RX handler would. The emitter expects a callable,
           // not an unparenthesized arrow in callee position. Fresh names also keep repeated calls distinct.
           const name = b?.k === "event" ? fresh() : undefined;
-          if (b?.k === "event") out.push({ k: "let", name: name!, e: b.handler });
+          if (b?.k === "event") { b.use = "inline"; out.push({ k: "let", name: name!, e: b.handler }); }
           out.push({ k: "expr", e: { k: "call", f: name ? { k: "id", name } : { k: "member", o: { k: "id", name: "props" }, p: c.property.name }, args: call.arguments.map((a: N) => expr(a, scope)) } });
           continue;
         }
@@ -251,6 +265,36 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
     return [{ k: b.optimistic ? "optimistic" : "write", target: target([]), e: expr(arg, scope) }];
   };
 
+  /** The action calls (yield* evt(…) of an event lowered as an action) in the event body being lowered. */
+  let actionCalls: N[] = [];
+  /** const evt = $event(function* (…) { … }): a plain handler arrow, used at its binding or call sites. */
+  const event = (d: N, scope: Scope, row = false): Extract<B, { k: "event" }> => {
+    if (isYield(d.init)) fail(d.init, "an $event is created without yield*: const evt = $event(function* (…) { … })");
+    if (d.id.type !== "Identifier") fail(d.id, "an $event is bound to a name");
+    const ev = routine(d.init.arguments[0], "$event");
+    const names: string[] = ev.params.map((q: N) => (q.type === "Identifier" && q.typeAnnotation ? q.name : fail(q, "event parameters need explicit types")));
+    // The handler may be used inside another event or a row. Do not let their parameters capture its reads.
+    const params = names.map(q => scope.has(q) ? fresh() : q);
+    const inner: Scope = new Map(scope);
+    names.forEach((q, i) => inner.set(q, { k: "value", name: params[i] }));
+    // Keep the body in the handler: RX alone infers actions (AC-1b). Forwarding to a child passes this same arrow.
+    const outer = actionCalls;
+    actionCalls = [];
+    const stmts = events(ev.body.body, inner);
+    // An action body that starts another action would nest transactions; that is not verified here, so it is refused.
+    if (actionCalls.length && actionInference(stmts).trigger) fail(actionCalls[0], "an event that RX infers as an action does not call another such event in the yield subset (nested actions are not verified)");
+    actionCalls = outer;
+    const handler: Expr = { k: "fn", params, body: { k: "lit", v: undefined }, stmts };
+    const b: Extract<B, { k: "event" }> = { k: "event", params, handler, name: d.id.name, ...(row ? { row } : {}) };
+    scope.set(d.id.name, b);
+    return b;
+  };
+  const inline = (at: N, b: Extract<B, { k: "event" }>): Expr => {
+    if (b.use === "action") fail(at, "an event that RX infers as an action is either bound/passed or called as an action, not both");
+    if (!b.row) b.use = "inline";
+    return b.handler;
+  };
+
   // ---------------------------------------------------------------- views
   const props = (n: N): Map<string, N> => {
     if (n?.type !== "ObjectExpression") fail(n ?? program, "a call takes an object of props");
@@ -287,11 +331,20 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       for (const k of p.keys()) if (!["each", "children"].includes(k)) fail(p.get(k), "For takes each and children here");
       const row = routine(p.get("children"), "For's row");
       if (row.params.length !== 1 || row.params[0].type !== "Identifier") fail(row, "a For row takes its item: function* (item) { … } (the index is not in the subset)");
-      const ret = only(row, "a row returns its view, with no row-owned state in the yield subset");
-      if (callee(ret) !== "view") fail(ret, "a row returns its view: return view(function* () { return <…/>; })");
       const raw = row.params[0].name, name = scope.has(raw) ? fresh() : raw;
       const inner: Scope = new Map(scope); inner.set(raw, { k: "path", name });
-      const body = markup(only(routine(ret.arguments[0], "view"), "a view has no body: return <…/>"), inner);
+      // A row may create parameterless events before its view; they see the row item and are bound in that view.
+      // Any other row setup (row-owned state) stays outside the subset.
+      for (const s of row.body.body.slice(0, -1)) {
+        const d = s.type === "VariableDeclaration" && s.kind === "const" && s.declarations.length === 1 ? s.declarations[0] : undefined;
+        if (!d || callee(d.init) !== "$event") fail(s, "a row creates only events, const evt = $event(function* () { … }), before returning its view; row-owned state is not in the yield subset");
+        const ev = event(d, inner, true);
+        if (ev.params.length) fail(d.init.arguments[0], "a row event is bound in the row's view, so it takes no parameters");
+      }
+      const ret = row.body.body.at(-1);
+      if (ret?.type !== "ReturnStatement" || !ret.argument) fail(row, "a row returns its view, with no row-owned state in the yield subset");
+      if (callee(ret.argument) !== "view") fail(ret.argument, "a row returns its view: return view(function* () { return <…/>; })");
+      const body = markup(only(routine(ret.argument.arguments[0], "view"), "a view has no body: return <…/>"), inner);
       return [{ k: "mfor", name, xs: input(p.get("each"), scope), decls: [], body, line: at } as Markup];
     }
     if (name && components.has(name)) {
@@ -299,7 +352,7 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       const attrs = [...p].map(([k, v]) => {
         if (k === "children") fail(v, "children of yield components are not in the subset");
         const ev = v.type === "Identifier" ? scope.get(v.name) : undefined;
-        if (ev?.k === "event") return { name: k, e: ev.handler };
+        if (ev?.k === "event") return { name: k, e: inline(v, ev) };
         return { name: k, e: input(v, scope) };
       });
       return [{ k: "el", tag: name, attrs, children: [], line: at } as Markup];
@@ -337,7 +390,7 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       const b = target.type === "Identifier" ? scope.get(target.name) : undefined;
       if (b?.k !== "event") return fail(target, "an event prop binds a local $event: onClick={yield* evt}");
       if (b.params.length) return fail(target, "a bound event receives the DOM event; events with parameters are only called from events in the yield subset");
-      return { name: key, e: b.handler };
+      return { name: key, e: inline(target, b) };
     });
     return [{ k: "el", tag: open.name.name, attrs, children: n.children.flatMap((c: N) => markup(c, scope)), line: line(n) }];
   };
@@ -387,6 +440,7 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       scope.set("props", { k: "path" });
     }
     const decls: Decl[] = [];
+    const setupEvents: { b: Extract<B, { k: "event" }>; slot: number; line: number }[] = [];
     const body = fn.body.body;
     for (const s of body.slice(0, -1)) {
       if (s.type !== "VariableDeclaration" || s.kind !== "const" || s.declarations.length !== 1) fail(s, "a setup only creates: const … = yield* $signal(…), $memo(…), $event(…), …");
@@ -395,17 +449,9 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
       const what = callee(init);
       if (what && LATER[what]) fail(init, LATER[what]);
       if (what === "$event") {
-        if (isYield(d.init)) fail(d.init, "an $event is created without yield*: const evt = $event(function* (…) { … })");
-        if (d.id.type !== "Identifier") fail(d.id, "an $event is bound to a name");
-        const ev = routine(init.arguments[0], "$event");
-        const names: string[] = ev.params.map((q: N) => (q.type === "Identifier" && q.typeAnnotation ? q.name : fail(q, "event parameters need explicit types")));
-        // The handler may be used inside another event or a row. Do not let their parameters capture its reads.
-        const params = names.map(q => scope.has(q) ? fresh() : q);
-        const inner: Scope = new Map(scope);
-        names.forEach((q, i) => inner.set(q, { k: "value", name: params[i] }));
-        // Keep the body in the handler: RX alone infers actions (AC-1b). Forwarding to a child passes this same arrow.
-        const handler: Expr = { k: "fn", params, body: { k: "lit", v: undefined }, stmts: events(ev.body.body, inner) };
-        scope.set(d.id.name, { k: "event", params, handler });
+        // A slot in declaration order: it becomes `action name(…) { … }` if the event is called as an action.
+        setupEvents.push({ b: event(d, scope), slot: decls.length, line: line(s) });
+        decls.push(undefined as unknown as Decl);
         continue;
       }
       if (!isYield(d.init)) fail(d.init ?? d, "a setup creates with yield*: const … = yield* $signal(…)");
@@ -415,13 +461,18 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
           fail(d.id, "bind the source and its setter: const [x, setX] = yield* " + what + "(…)");
         if (init.arguments.length !== 1) fail(init, what + " takes one initial value here (options are not in the subset)");
         const v = init.arguments[0];
-        if (v.type === "FunctionExpression" || v.type === "ArrowFunctionExpression") fail(v, what + " with a derived body is not in the yield subset");
+        const derived = v.type === "FunctionExpression" || v.type === "ArrowFunctionExpression";
+        if (derived && what !== "$optimistic") fail(v, what + " with a derived body is not in the yield subset");
+        if (derived) {
+          const fn = routine(v, "$optimistic");
+          if (fn.params.length) fail(fn, "an optimistic body takes no parameters");
+        }
         const [get, set] = d.id.elements.map((e: N) => e.name);
-        const value = expr(v, new Map());
+        const value = derived ? expr(only(v, "an optimistic body returns one synchronous expression"), scope) : expr(v, new Map());
         scope.set(get, what === "$store" ? { k: "path" } : { k: "accessor" });
         scope.set(set, { k: "setter", target: get, optimistic: what === "$optimistic", store: what === "$store" });
         decls.push(what === "$optimistic"
-          ? ({ k: "source", name: get, init: { k: "peek", e: value }, question: true, line: line(s) } as Decl)
+          ? ({ k: "source", name: get, init: derived ? value : { k: "peek", e: value }, question: true, line: line(s) } as Decl)
           : ({ k: "source", name: get, init: value, line: line(s) } as Decl));
         continue;
       }
@@ -450,7 +501,12 @@ export function lowerYield(source: string, filename = "main.tsx"): Program {
     if (ret?.type !== "ReturnStatement" || callee(ret.argument) !== "view") fail(ret ?? fn, "a setup returns its view: return view(function* () { return <…/>; })");
     const view = routine(ret.argument.arguments[0], "view");
     const vret = only(view, "a view has no body: return <…/>; no if, no early return, no local computation (solid-yield's READ_IN_VIEW)");
-    return { k: "component", name, props: "props", ...(propsType ? { propsType } : {}), decls, view: markup(vret, scope), line: line(fn), exported, ...(isDefault ? { isDefault } : {}) } as Decl;
+    const lowered = markup(vret, scope);
+    for (const { b, slot, line: at } of setupEvents) {
+      if (b.use !== "action" || b.handler.k !== "fn") continue;
+      decls[slot] = { k: "action", name: b.name, params: b.handler.params, body: b.handler.stmts ?? [], line: at } as Decl;
+    }
+    return { k: "component", name, props: "props", ...(propsType ? { propsType } : {}), decls: decls.filter(d => d !== undefined), view: lowered, line: line(fn), exported, ...(isDefault ? { isDefault } : {}) } as Decl;
   };
 
   // ---------------------------------------------------------------- module

@@ -25,10 +25,20 @@ fi
 printf 'reactivescript %s\nSolid %s\n' "$HEAD" "$SOLID_HEAD" | tee "$OUT/pins.txt"
 record pins $pins
 cd "$HERE"
+# The plan tests run Rust Solid's scenario binary (plan v1 for like, plan v2 for the tracker, picked by the plan's
+# version) from the sibling rust-solid checkout, or from RUST_SOLID; a missing build fails the suite. Until the v2
+# consumer lands in rust-solid, pass RUST_SOLID=<rust-tracker checkout>: rust-solid's binary refuses the v2 plan.
+RUST_SOLID=${RUST_SOLID:-$HERE/../rust-solid}
+(cd "$RUST_SOLID" && cargo build -q --bin scenario) > "$OUT/rust-solid-build.log" 2>&1; record rust-solid-build $?
+export RUST_SCENARIO=$RUST_SOLID/target/debug/scenario
+# The gate requires a plan v2 consumer. RUST_PLAN_V2=1 makes plan/plan.test.ts register the tracker's Rust leg, which
+# baselines/subset-tests.json lists, so a run that does not run it, or whose binary refuses v2, fails
+# (plan/docs/PLAN-V2.md, Gate).
+export RUST_PLAN_V2=1
 node --experimental-strip-types scripts/check-types.ts --out "$OUT"; record types $?
 node --experimental-strip-types --conditions=browser --conditions=development --test \
   --test-reporter=spec --test-reporter-destination="$OUT/suite.spec.txt" \
-  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts yield/*.test.ts
+  --test-reporter=./scripts/jsonl-reporter.mjs --test-reporter-destination="$OUT/suite.jsonl" tsx/*.test.ts yield/*.test.ts slices/*.test.ts plan/*.test.ts
 record suite $?
 node --experimental-strip-types --conditions=browser --conditions=development scripts/fuzz.ts --seeds 200 --start 0 --no-reduce > "$OUT/fuzz.log" 2>&1
 record fuzz $?

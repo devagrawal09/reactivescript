@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "like: reject then retry",
+  "fixture": "like",
+  "host": [
+    {
+      "name": "save",
+      "parameters": [],
+      "returns": "number",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "0"
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "1"
+    },
+    {
+      "type": "reject",
+      "host": "save",
+      "call": 1,
+      "error": "offline",
+      "frame": "0"
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "1"
+    },
+    {
+      "type": "resolve",
+      "host": "save",
+      "call": 2,
+      "value": 1,
+      "frame": "1"
+    }
+  ]
+}

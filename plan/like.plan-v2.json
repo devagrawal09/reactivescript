@@ -1,0 +1,103 @@
+{
+  "version": 2,
+  "component": "Like",
+  "hosts": [
+    {
+      "name": "save",
+      "params": [],
+      "returns": "number"
+    }
+  ],
+  "sources": [
+    {
+      "name": "likes",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": 0
+      }
+    },
+    {
+      "name": "shown",
+      "kind": "optimistic",
+      "seed": {
+        "op": "read",
+        "source": "likes"
+      }
+    }
+  ],
+  "memos": [],
+  "actions": [
+    {
+      "name": "$action0",
+      "params": [],
+      "steps": [
+        {
+          "op": "optimistic",
+          "source": "shown",
+          "updater": {
+            "param": "n",
+            "body": {
+              "op": "add",
+              "left": {
+                "op": "local",
+                "name": "n"
+              },
+              "right": {
+                "op": "literal",
+                "value": 1
+              }
+            }
+          }
+        },
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "host": "save",
+              "args": [],
+              "bind": "$await0"
+            },
+            {
+              "op": "write",
+              "source": "likes",
+              "value": {
+                "op": "local",
+                "name": "$await0"
+              }
+            }
+          ],
+          "catch": []
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+        {
+          "name": "onClick",
+          "steps": [
+            {
+              "op": "call",
+              "action": "$action0",
+              "args": []
+            }
+          ]
+        }
+      ],
+      "children": [
+        {
+          "kind": "text",
+          "value": {
+            "op": "read",
+            "source": "shown"
+          }
+        }
+      ]
+    }
+  ]
+}
