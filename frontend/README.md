@@ -55,6 +55,11 @@ Remaining versions and measured upstream baselines are in pins.json.
 Use sibling directories frontend/, rust-solid/, reactivescript/, solid-next/: this package is frontend/ of the
 solid-model repository, whose scripts/setup.sh clones and builds the two pinned checkouts at its root (gitignored).
 frontend/upstream links to ../reactivescript, and the gate's default RUST_SOLID is ../rust-solid.
+The link is not committed (the commit API this repository is pushed through rejects symlinks and executable modes);
+it is gitignored and ../scripts/setup.sh creates it before npm ci. To create it by hand, from the repository root:
+[ -L frontend/upstream ] || ln -s ../reactivescript frontend/upstream
+The "#rx/*" imports (package.json, "./upstream/ref/*"), the type check, scripts/verify-pinned.sh and
+tsx/boundary.test.ts all resolve reactivescript through it; scripts/canary.sh creates its own in the canary workspace.
 Upstream and Solid must be clean. There is no patch queue. Patch 0001 was removed with server support;
 that does not mean its defect was fixed upstream.
 

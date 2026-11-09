@@ -16,11 +16,11 @@ Everything here is a verified subset, not full readiness: each claim below is a 
 | [`rust-solid/`](rust-solid/README.md) | A Rust port of Solid 2's runtime: the scheduler (slice 1), async memos, stores and lists (tiers 2a–2c), the `@solidjs/universal` renderer, the plan v2 consumer, the eval table and the server renderer |
 | [`docs/`](docs/HANDOFF.md) | [`HANDOFF.md`](docs/HANDOFF.md), [`HISTORY.md`](docs/HISTORY.md) (the branches this repository was consolidated from) and `scratch/` research notes and drafts |
 | [`dashboard/`](dashboard/README.md) | A local status dashboard; [`notes.json`](dashboard/notes.json) is the narrative state |
-| [`scripts/setup.sh`](scripts/setup.sh) | Clones and builds the pinned checkouts below and installs the folders' dependencies |
+| [`scripts/setup.sh`](scripts/setup.sh) | Clones and builds the pinned checkouts below, links `frontend/upstream` and installs the folders' dependencies. Run it with `sh` |
 | `reactivescript/`, `solid-next/` | Pinned checkouts created by `scripts/setup.sh`, gitignored and kept clean: [ryansolid/reactivescript](https://github.com/ryansolid/reactivescript) at `fdbcad92` and [solidjs/solid](https://github.com/solidjs/solid) at `2105ffb8` (2.0.0-rc.21, reactivescript's `ref/SOLID_NEXT`) |
 
 The folders keep the sibling layout they were developed in, so their relative paths resolve: `frontend/upstream` links
-to `../reactivescript`; the frontend's Solid packages are `file:../solid-next/packages/*`; the gate's default
+to `../reactivescript` (a symlink `scripts/setup.sh` creates; below); the frontend's Solid packages are `file:../solid-next/packages/*`; the gate's default
 `RUST_SOLID` is `../rust-solid`; the Rust fuzz oracles import `../solid-next/packages/*/dist`.
 
 ## Setup
@@ -39,6 +39,14 @@ signals, solid, web and universal: build, then types if present; the compiler), 
 not move and its outputs exist (`SETUP_REBUILD=1` forces it); then `npm ci` in `frontend/` and `cargo build` in
 `rust-solid/`. It never moves a checkout with local changes. Existing clones can stand in for it: symlink them as
 `reactivescript` and `solid-next` at the root.
+
+Before `npm ci` it creates `frontend/upstream -> ../reactivescript` if it is missing (`[ -L frontend/upstream ] || ln -s
+../reactivescript frontend/upstream`, from the root). Everything that reaches reactivescript from `frontend/` goes through
+that link: the `"#rx/*": "./upstream/ref/*"` imports in `frontend/package.json`, the strict type check of upstream's sources
+(`frontend/baselines/upstream-tsc.txt`), `frontend/scripts/verify-pinned.sh` (`cd "$HERE/upstream"`) and
+`frontend/tsx/boundary.test.ts`. Without it the frontend gate fails, so run setup (or that one line) in every fresh clone or
+worktree. The link is gitignored, not committed, and the scripts are committed as mode 100644 and run with `sh`: this
+branch is pushed through `tembo commit`, whose API rejects files with mode 100755 (executable) or 120000 (symlink).
 
 ## Gates
 

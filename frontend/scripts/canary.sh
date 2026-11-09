@@ -26,5 +26,6 @@ export RUSTUP_TOOLCHAIN=$(pin .toolchain.rust)
 (cd "$TMP/reactivescript/ref" && npm ci > "$TMP/rx-install.log" 2>&1)
 mkdir "$TMP/frontend"
 git -C "$HERE" archive HEAD | tar -x -C "$TMP/frontend"
+ln -s ../reactivescript "$TMP/frontend/upstream"   # not committed; scripts/setup.sh creates it in the repository
 (cd "$TMP/frontend" && npm ci > "$TMP/frontend-install.log" 2>&1)
 (cd "$TMP/frontend" && OUT="$TMP/report" sh scripts/verify-pinned.sh --canary $EXTRA)

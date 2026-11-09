@@ -1,6 +1,8 @@
 # Pinned checkouts created by scripts/setup.sh (or symlinks to existing clones).
 /reactivescript
 /solid-next
+# frontend/upstream -> ../reactivescript, created by scripts/setup.sh (the commit API rejects symlinks).
+/frontend/upstream
 
 # Dependencies and build output.
 node_modules/

@@ -858,7 +858,7 @@ latest(a)   throws StatusError("failed")
 ## Reproducing everything
 
 ```sh
-nix shell nixpkgs#nodejs_24 -c bash docs/scratch/solid-rc21-repros/run-all.sh   # from the repository root
+nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh   # from the repository root
 ```
 
 This writes `out/<repro>.prod.txt` and `out/<repro>.dev.txt` (the dev runs use `solid.dev.js` and
