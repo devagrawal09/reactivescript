@@ -1,0 +1,19 @@
+watch compute: m() = 3 ->  6
+watch compute: m() = 3 ->  4
+watch compute: m() = 3 ->  6
+watch compute: m() = 3 ->  8
+watch effect 8
+watch compute: m() = 3 ->  10
+watch compute: m() = 3 ->  8
+watch effect 8
+a0 done
+watch compute: m() = 7 ->  12
+watch effect 12
+watch compute: m() = 8 ->  13
+watch compute: m() = 11 ->  16
+watch effect 16
+watch compute: m() = <StatusError: memo-failed> ->  "Error: memo-failed41"
+watch error handler <Error: memo-failed>
+a3 rejected memo-failed
+a1 done
+[exit code 0]

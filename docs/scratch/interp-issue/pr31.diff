@@ -1,0 +1,1392 @@
+diff --git a/eval/README.md b/eval/README.md
+index e23ad49..645cb46 100644
+--- a/eval/README.md
++++ b/eval/README.md
+@@ -98,7 +98,10 @@ mutants/   naive React drafts the hidden tests must catch
+ results/   scored runs
+ ```
+ 
+-Setup: `npm install` here (Solid 2.0.0-rc.21 from npm); `cargo build --release --bin rxc` in `../compiler` (its Solid pin is d2323b0, rc.19).
++Setup: `npm install` here (Solid 2.0.0-rc.21 and Playwright from npm; set `CHROMIUM=/path/to/chromium` to drive a
++system browser instead of Playwright's download); `cargo build --release --bin rxc` in `../compiler` (its Solid pin
++is `ref/SOLID_NEXT`). A round is regradable only if its runs' sources are committed under `results/<round>/runs/`
++(rounds 5, 7, 10 and 11 kept theirs in the session that ran them and cannot be regraded).
+ `RXC` and `RT_WEB` override the paths to the binary and `ref/compile/rt-web.ts`. (The pilot itself ran on PR #6's
+ crate before it merged, built with the same pin.)
+ 
+diff --git a/eval/harness/driver.mjs b/eval/harness/driver.mjs
+index 55c073a..47ec5ea 100644
+--- a/eval/harness/driver.mjs
++++ b/eval/harness/driver.mjs
+@@ -22,7 +22,8 @@ export async function serve(dist) {
+   return { url: `http://127.0.0.1:${http.address().port}/`, close: () => http.close() };
+ }
+ 
+-export async function launch() { return chromium.launch(); }
++/** CHROMIUM=/path/to/chromium drives a system browser (NixOS and the like, where Playwright's download does not run). */
++export async function launch() { return chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {}); }
+ 
+ /** One test: a fresh page on the app, `run(app)` with the helpers below. Returns { ok, error }. */
+ export async function runTest(browser, url, test) {
+diff --git a/eval/package-lock.json b/eval/package-lock.json
+index 9b2133d..05efd36 100644
+--- a/eval/package-lock.json
++++ b/eval/package-lock.json
+@@ -19,6 +19,7 @@
+         "eslint-plugin-react-hooks": "7.0.0",
+         "eslint-plugin-solid": "^0.18.1",
+         "foldkit": "^0.170.0",
++        "playwright": "1.64.1",
+         "react": "19.2.0",
+         "react-dom": "19.2.0",
+         "solid-js": "2.0.0-rc.21",
+@@ -3075,6 +3076,33 @@
+         "url": "https://github.com/sponsors/jonschlinkert"
+       }
+     },
++    "node_modules/playwright": {
++      "version": "1.64.1",
++      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.64.1.tgz",
++      "integrity": "sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==",
++      "license": "Apache-2.0",
++      "dependencies": {
++        "playwright-core": "1.64.1"
++      },
++      "bin": {
++        "playwright": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
++    "node_modules/playwright-core": {
++      "version": "1.64.1",
++      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.64.1.tgz",
++      "integrity": "sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==",
++      "license": "Apache-2.0",
++      "bin": {
++        "playwright-core": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
+     "node_modules/postcss": {
+       "version": "8.5.32",
+       "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.32.tgz",
+diff --git a/eval/package.json b/eval/package.json
+index c3a5f24..9992f9b 100644
+--- a/eval/package.json
++++ b/eval/package.json
+@@ -17,6 +17,7 @@
+     "eslint-plugin-react-hooks": "7.0.0",
+     "eslint-plugin-solid": "^0.18.1",
+     "foldkit": "^0.170.0",
++    "playwright": "1.64.1",
+     "react": "19.2.0",
+     "react-dom": "19.2.0",
+     "solid-js": "2.0.0-rc.21",
+diff --git a/eval/reference/chain2/rx/issues.rx b/eval/reference/chain2/rx/issues.rx
+index 15ef341..c59ae01 100644
+--- a/eval/reference/chain2/rx/issues.rx
++++ b/eval/reference/chain2/rx/issues.rx
+@@ -9,6 +9,14 @@ export error NotFound(id: number) => `issue #${id} not found`
+ 
+ fn found(it, id: number) => it == null ? throw NotFound(id) : it
+ 
++// the open list as shown (closes in flight already out of it) is the tab's count: it is read where the list is read,
++// under the list's boundary, so it holds and reveals with the rows; other lists, loads and failures leave it as it was
++component OpenCount(props: { n: number; onCount: (n: number) => void }) {
++  effect (props.n) {
++    props.onCount($0)
++  }
++}
++
+ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+   source user: string := "guest"
+   source filter: string := "open"
+@@ -20,13 +28,6 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+   source renameError: string = ""
+   source closeError: string = ""
+ 
+-  // the open list as shown (closes in flight already out of it) is the tab's count; other lists, loads and failures
+-  // leave the count as it was
+-  effect ((filter == "open" ? issues.length : -1) catch (e) => -1) {
+-    if ($0 >= 0) {
+-      props.onOpenCount($0)
+-    }
+-  }
+ 
+   action assignTo(id: number, who: string) {
+     optimistic assignError := ""
+@@ -83,6 +84,9 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+     <div data-testid="list">
+       {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+         {errored fallback(e) { <p>list error: {e.message}</p> } {
++          {if filter == "open" {
++            <OpenCount n={issues.length} onCount={n => { props.onOpenCount(n) }} />
++          }}
+           <ul>
+             {for it in issues {
+               <li data-testid="issue" onClick={() => {
+diff --git a/eval/reference/chain3/rx/issues.rx b/eval/reference/chain3/rx/issues.rx
+index 356322b..728712e 100644
+--- a/eval/reference/chain3/rx/issues.rx
++++ b/eval/reference/chain3/rx/issues.rx
+@@ -10,6 +10,14 @@ export error NotFound(id: number) => `issue #${id} not found`
+ 
+ fn found(it, id: number) => it == null ? throw NotFound(id) : it
+ 
++// the open list as shown (closes in flight already out of it) is the tab's count: it is read where the list is read,
++// under the list's boundary, so it holds and reveals with the rows; other lists, loads and failures leave it as it was
++component OpenCount(props: { n: number; onCount: (n: number) => void }) {
++  effect (props.n) {
++    props.onCount($0)
++  }
++}
++
+ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHelp: (query: string, id: number) => void }) {
+   source user: string := "guest"
+   source filter: string := "open"
+@@ -21,13 +29,6 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHel
+   source renameError: string = ""
+   source closeError: string = ""
+ 
+-  // the open list as shown (closes in flight already out of it) is the tab's count; other lists, loads and failures
+-  // leave the count as it was
+-  effect ((filter == "open" ? issues.length : -1) catch (e) => -1) {
+-    if ($0 >= 0) {
+-      props.onOpenCount($0)
+-    }
+-  }
+ 
+   action assignTo(id: number, who: string) {
+     optimistic assignError := ""
+@@ -84,6 +85,9 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHel
+     <div data-testid="list">
+       {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+         {errored fallback(e) { <p>list error: {e.message}</p> } {
++          {if filter == "open" {
++            <OpenCount n={issues.length} onCount={n => { props.onOpenCount(n) }} />
++          }}
+           <ul>
+             {for it in issues {
+               <li data-testid="issue" onClick={() => {
+diff --git a/eval/reference/chain4/rx/issues.rx b/eval/reference/chain4/rx/issues.rx
+index 23aab1a..51d7dc7 100644
+--- a/eval/reference/chain4/rx/issues.rx
++++ b/eval/reference/chain4/rx/issues.rx
+@@ -10,6 +10,14 @@ export error NotFound(id: number) => `issue #${id} not found`
+ 
+ fn found(it, id: number) => it == null ? throw NotFound(id) : it
+ 
++// the open list as shown (closes in flight already out of it) is the tab's count: it is read where the list is read,
++// under the list's boundary, so it holds and reveals with the rows; other lists, loads and failures leave it as it was
++component OpenCount(props: { n: number; onCount: (n: number) => void }) {
++  effect (props.n) {
++    props.onCount($0)
++  }
++}
++
+ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHelp: (query: string, id: number) => void }) {
+   source user: string := "guest"
+   source filter: string := "open"
+@@ -23,13 +31,6 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHel
+   // the newest row action's failure; row actions and the detail's leave each other's errors alone
+   source rowError: string = ""
+ 
+-  // the open list as shown (closes in flight already out of it) is the tab's count; other lists, loads and failures
+-  // leave the count as it was
+-  effect ((filter == "open" ? issues.length : -1) catch (e) => -1) {
+-    if ($0 >= 0) {
+-      props.onOpenCount($0)
+-    }
+-  }
+ 
+   action assignTo(id: number, who: string, fromRow: boolean) {
+     if (fromRow) {
+@@ -105,6 +106,9 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void; onOpenHel
+     <div data-testid="list">
+       {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+         {errored fallback(e) { <p>list error: {e.message}</p> } {
++          {if filter == "open" {
++            <OpenCount n={issues.length} onCount={n => { props.onOpenCount(n) }} />
++          }}
+           <ul>
+             {for it in issues {
+               <li>
+diff --git a/eval/reference/count/rx/issues.rx b/eval/reference/count/rx/issues.rx
+index ae17232..4e32d57 100644
+--- a/eval/reference/count/rx/issues.rx
++++ b/eval/reference/count/rx/issues.rx
+@@ -8,6 +8,14 @@ export error NotFound(id: number) => `issue #${id} not found`
+ 
+ fn found(it, id: number) => it == null ? throw NotFound(id) : it
+ 
++// the open list as shown (closes in flight already out of it) is the tab's count: it is read where the list is read,
++// under the list's boundary, so it holds and reveals with the rows; other lists, loads and failures leave it as it was
++component OpenCount(props: { n: number; onCount: (n: number) => void }) {
++  effect (props.n) {
++    props.onCount($0)
++  }
++}
++
+ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+   source user: string := "guest"
+   source filter: string := "open"
+@@ -19,13 +27,6 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+   source renameError: string = ""
+   source closeError: string = ""
+ 
+-  // the open list as shown (closes in flight already out of it) is the tab's count; other lists, loads and failures
+-  // leave the count as it was
+-  effect ((filter == "open" ? issues.length : -1) catch (e) => -1) {
+-    if ($0 >= 0) {
+-      props.onOpenCount($0)
+-    }
+-  }
+ 
+   action assignTo(id: number, who: string) {
+     optimistic assignError := ""
+@@ -82,6 +83,9 @@ export component IssuesPage(props: { onOpenCount: (n: number) => void }) {
+     <div data-testid="list">
+       {loading on(filter) fallback { <p>loading {latest filter} issues</p> } {
+         {errored fallback(e) { <p>list error: {e.message}</p> } {
++          {if filter == "open" {
++            <OpenCount n={issues.length} onCount={n => { props.onOpenCount(n) }} />
++          }}
+           <ul>
+             {for it in issues {
+               <li data-testid="issue" onClick={() => {
+diff --git a/eval/results/rc21-regrade-2026-11-05/README.md b/eval/results/rc21-regrade-2026-11-05/README.md
+new file mode 100644
+index 0000000..24fef1f
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/README.md
+@@ -0,0 +1,72 @@
++# Regrade on Solid 2.0.0-rc.21 (2026-11-05, not a round)
++
++The rc.21 repin (41a6b1f) carried the fixes for every Solid issue the eval had filed but did not rerun anything. This
++regrades what the repository holds, with rc.21 from npm and `rxc` from this commit. Round 10's and round 11's desks are
++not in the repository (their run directories stayed in the session that ran them), so they are not here.
++
++## References on the desk9 brief (`harness/grade.sh`: hidden, overlap, 20 fuzz seeds)
++
++| app | hidden | overlap | fuzz seeds with a hole |
++| --- | --- | --- | --- |
++| chain4 .rx (count read with `latest issues`) | 77/77 | 38/38 | 3 |
++| chain4 .rx (count read under the list's region) | 77/77 | 38/38 | 2 |
++| chain4 React | 77/77 | 38/38 | 0 |
++| recipe React (TanStack's optimistic-updates guide) | 77/77 | 22/38 | 7 |
++
++The recipe React desk scores what round 9 recorded for it (22/38), so this setup grades as the rounds did. The chain4
++.rx reference passes every hidden and overlap test, including "retry after not found" (#4425, #4627), which failed in
++every .rx run from round 5 on.
++
++The `latest issues` reference's three fuzz holes, replayed:
++
++| seed | hole | cause | owner |
++| --- | --- | --- | --- |
++| 1 | the tab count shows 3 beside 2 rows, a close in flight | `latest issues` answers the re-asked truth, not the guess, once a list refresh lands under a pending close | Solid: `latest` should keep a shown guess until its hold commits (solidjs/solid#4689, ruled in #4695 decision 3, not built; DV-19) |
++| 11 | an accepted rename's row shows the old title until the refresh lands | the row was not in the list when the rename was sent (`findIndex` -1): nothing was guessed on it | the app; `guide/async.md` §4 now says so |
++| 15 | an accepted rename's detail heading shows the old title until the refresh lands | the detail was still loading when the rename was sent: nothing was guessed on it (the row guess held) | the app; the same |
++
++Seed 1 was the reference as the checker suggested it: CN-3e refuses the count effect's read of `issues` outside the
++`loading on(filter)` region and suggests `latest issues`. Four references (chain2, chain3, chain4, count) had the
++outside read, predating the rule. By the spec (and Solid's own ruling, #4695 decision 3) `latest issues` answers the
++guess the list shows, so that program is right and the hole is Solid's (DV-19, #4689, not built). The references
++read the count where the list is read instead, in a small component under the list's region: it holds and reveals
++with the rows, it is equally right by the spec, it does not depend on #4689, and it is what 10 of 12 agent desks in
++rounds 10 and 11 wrote. With it, chain4 has two fuzz holes, both the app's (seeds 11 and 15), and chain2, chain3 and
++count pass their own tasks' hidden and overlap tests (`graded/`).
++
++Reducing seed 15 turned up a second Solid bug, solidjs/solid#4690: with nothing rendering a store, an effect reading it
++sees a guess revert at the action's end, before the action's refresh lands, once an outside re-ask has landed under it.
++A rendered reader keeps the guess, and so does an effect beside one; an effect over a source nothing renders reaches
++it (DV-20, S-guess-reask-refresh's effect-only variant; `ref/oracle/repros/4690-guess-reask-refresh.mjs`). Fixed on
++`next` (Ryan, 2026-11-05); recorded until the repin.
++
++## Round 4's .rx apps (18, `results/change-2026-10-28/runs`) on rc.21 and this `rxc`
++
++| | runs |
++| --- | --- |
++| pass every hidden and overlap test | 14 |
++| refused by `STALE_WRITE_BACK` (AC-1e, added after round 4) | 3: small close-rx-1, small comments-rx-2, frontier rename-rx-3 |
++| one overlap test failed | 1: small rename-rx-1, a guess on `detail` with `refresh issues` only |
++
++The three refusals are the three the round 4 write-up predicted. The one failure is the shape `guide/async.md` §4 now
++names ("refresh every question you guessed on"). Nothing in round 4's residue is Solid's.
++
++## Reference suites on rc.21
++
++Interpreter 114 pass; oracle and compiled 114 pass, 6 recorded divergences (DV-19 at four instants, DV-20 at two);
++server render 107 pass, 7 skip (not rerun after the review fixes); types 156 pass; the crate agrees with ref/ on 321/321 programs.
++
++S-store-8 (two actions' guesses on one row; a declined one reverts alone) had failed on the interpreter since the
++commit that added it (edb76be): the interpreter kept one guess per node with one owner, so the newer action's guess took
++the row and the older action's decline found nothing of its own to revert. Guesses are now entries per key and hold
++(`ref/src/runtime.ts`), as H-11 says; the same-key variant added to S-store-8 passes on all three runners. A new answer that corrects a guess (D-34) marks
++the action's entry spent instead of dropping it, so the action's re-ask still holds the corrected guess (D-35): with
++the entry dropped, a closed row came back between the write landing and the re-ask (S-latest-reask's variant, `4 / 4`
++for `2 / 4`; Solid shows `2 / 4`). The interpreter now follows #4695's D-34: a landing answer is compared with the guess (before,
++only one that changed the truth corrected), the correction re-derives the graph, and the screen, the guess's effects
++and `latest` of a shown guess keep it until the hold commits.
++
++## Setup
++
++`eval/package.json` now lists Playwright; `CHROMIUM=/path/to/chromium` drives a system browser in `harness/driver.mjs`
++and `ref/ssr/run.ts`. `graded/`: the grade output per app above, and `round4-<tier>-<run>.txt` per round 4 app.
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/chain2-rx.txt b/eval/results/rc21-regrade-2026-11-05/graded/chain2-rx.txt
+new file mode 100644
+index 0000000..96070da
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/chain2-rx.txt
+@@ -0,0 +1,4 @@
++== hidden
++64/64 passed
++== overlap
++29/29 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/chain3-rx.txt b/eval/results/rc21-regrade-2026-11-05/graded/chain3-rx.txt
+new file mode 100644
+index 0000000..829d974
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/chain3-rx.txt
+@@ -0,0 +1,4 @@
++== hidden
++70/70 passed
++== overlap
++32/32 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/chain4-react.txt b/eval/results/rc21-regrade-2026-11-05/graded/chain4-react.txt
+new file mode 100644
+index 0000000..5759b08
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/chain4-react.txt
+@@ -0,0 +1,6 @@
++== hidden
++77/77 passed
++== overlap
++38/38 passed
++== fuzz
++chain4-react: 0/20 seeds found a hole
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/chain4-rx.txt b/eval/results/rc21-regrade-2026-11-05/graded/chain4-rx.txt
+new file mode 100644
+index 0000000..15135e5
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/chain4-rx.txt
+@@ -0,0 +1,10 @@
++== hidden
++77/77 passed
++== overlap
++38/38 passed
++== fuzz
++chain4-rx: 2/20 seeds found a hole
++  seed 11 step 33: row title: #4 shows "Typo in footer", server "Delta"
++    tab help ; tab issues ; tab help ; land fetchIssues:open ; tab issues ; focus ; tab help ; tab issues ; land fetchIssues:open ; row-assign 1 ; land assign:3,guest ; filter closed ; user ann ; row-assign 0 ; focus ; land fetchIssues:open ; land assign:1,ann ; select #4 ; close ; land fetchIssues:closed ; close ; land fetchComments:4 ; fail fetchLabels:4 ; row-assign 0 ; close ; land fetchIssue:
++  seed 15 step 24: detail title: "#2 Old buglong gonesaving filescrash reportsretryassign to g", server "Bravo"
++    land fetchIssues:open ; row-assign 0 ; focus ; land assign:1,guest ; fail fetchIssues:open ; tab help ; tab issues ; land fetchIssues:open ; focus ; filter closed ; land fetchIssues:closed ; select #2 ; land fetchComments:2 ; rename Bravo ; select #2 ; assign ; land fetchIssue:2 ; row-assign 0 ; select #2 ; land fetchLabels:2 ; assign ; remove-label 0 ; land search:Old bug ; land renameIssue:2
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/count-rx.txt b/eval/results/rc21-regrade-2026-11-05/graded/count-rx.txt
+new file mode 100644
+index 0000000..aa1cc15
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/count-rx.txt
+@@ -0,0 +1,4 @@
++== hidden
++56/56 passed
++== overlap
++24/24 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/recipe-react.txt b/eval/results/rc21-regrade-2026-11-05/graded/recipe-react.txt
+new file mode 100644
+index 0000000..22f81c0
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/recipe-react.txt
+@@ -0,0 +1,36 @@
++== hidden
++77/77 passed
++== overlap
++✗ base: two issues assigned at once: declining one reverts only that row
++✗ base: a list that loads while an assignment is out keeps the new assignee
++✗ base: a declined assignment keeps a rename in flight on the same issue
++✗ base: a list that loads while a rename is out keeps the new title
++✗ base: a detail that loads while a rename is out keeps the new title
++✗ base: an earlier rename declined after a later one was accepted keeps the later title
++✗ base: a declined close keeps an assignment in flight on another issue
++✗ base: a declined assignment keeps a close in flight on another issue
++✗ base: a list that loads while a close is out keeps the row out
++✗ base: two closes at once: a declined one does not undo the other
++✗ an add and a remove at once: a declined add does not undo the remove
++✗ two adds at once: a declined one does not take the other with it
++✗ labels that load while an add is out keep the add
++✗ open issues that load while a close is out keep it off the count
++✗ rows: a row assign and a newer detail assign on one issue: a declined older one leaves the newer
++✗ rows: open issues that load while a row close is out keep the row out
++22/38 passed
++== fuzz
++recipe-react: 7/20 seeds found a hole
++  seed 1 step 17: row title: #3 shows "Crash on save", server "Alpha"
++    user bob ; focus ; land fetchIssues:open ; row-assign 2 ; row-close 0 ; row-assign 0 ; select #3 ; rename Alpha ; land assign:3,bob ; rename Alpha ; row-assign 1 ; land renameIssue:3,Alpha ; focus ; land fetchComments:3 ; land fetchLabels:3 ; land fetchIssue:3 ; fail closeIssue:1
++  seed 7 step 6: closed row shown: #1 is closed on the server
++    land fetchIssues:open ; row-close 1 ; row-assign 0 ; row-close 0 ; land closeIssue:1 ; fail assign:1,guest
++  seed 12 step 11: dropped guess: #4 assignee: showed "guest" while it was in flight, now "dana"
++    land fetchIssues:open ; focus ; land fetchIssues:open ; row-close 1 ; select #4 ; land fetchIssue:4 ; row-assign 1 ; rename Alpha ; close ; rename Alpha ; fail closeIssue:3
++  seed 14 step 36: dropped guess: #1 open: showed false while it was in flight, now true
++    filter closed ; filter open ; land fetchIssues:open ; land fetchIssues:closed ; row-assign 0 ; select #1 ; land fetchLabels:1 ; land fetchIssue:1 ; close ; row-close 1 ; fail fetchComments:1 ; rename Alpha ; rename Alpha ; row-assign 0 ; row-close 0 ; close ; land closeIssue:4 ; rename Bravo ; fail assign:3,guest ; fail search:Alpha ; land renameIssue:1,Alpha ; user bob ; row-assign 0 ; rename
++  seed 15 step 35: closed row shown: #4 is closed on the server
++    land fetchIssues:open ; row-assign 0 ; focus ; land assign:1,guest ; fail fetchIssues:open ; tab help ; tab issues ; land fetchIssues:open ; focus ; row-assign 0 ; select #3 ; land fetchIssue:3 ; close ; row-assign 0 ; row-close 0 ; land fetchIssues:open ; row-assign 0 ; select #4 ; land assign:1,guest ; assign ; add-label ui ; land fetchLabels:4 ; land fetchLabels:3 ; assign ; land addLabel:4
++  seed 17 step 14: dropped guess: #3 open: showed false while it was in flight, now true
++    user bob ; land fetchIssues:open ; row-assign 1 ; land assign:3,bob ; land fetchIssues:open ; row-close 2 ; land closeIssue:4 ; row-close 1 ; row-assign 0 ; land assign:1,bob ; row-close 0 ; land fetchIssues:open ; land closeIssue:1 ; land fetchIssues:open
++  seed 18 step 13: dropped guess: #4 assignee: showed "guest" while it was in flight, now "dana"
++    land fetchIssues:open ; select #4 ; row-close 0 ; land fetchComments:4 ; assign ; row-close 0 ; row-close 0 ; assign ; rename Delta ; fail closeIssue:3 ; fail renameIssue:4,Delta ; land closeIssue:1 ; land fetchIssues:open
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-1.txt
+new file mode 100644
+index 0000000..b022fdc
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-1.txt
+@@ -0,0 +1,4 @@
++== hidden
++15/15 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-2.txt
+new file mode 100644
+index 0000000..b022fdc
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-2.txt
+@@ -0,0 +1,4 @@
++== hidden
++15/15 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-3.txt
+new file mode 100644
+index 0000000..b022fdc
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-close-rx-3.txt
+@@ -0,0 +1,4 @@
++== hidden
++15/15 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-1.txt
+new file mode 100644
+index 0000000..c7accb2
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-1.txt
+@@ -0,0 +1,4 @@
++== hidden
++17/17 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-2.txt
+new file mode 100644
+index 0000000..c7accb2
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-2.txt
+@@ -0,0 +1,4 @@
++== hidden
++17/17 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-3.txt
+new file mode 100644
+index 0000000..c7accb2
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-comments-rx-3.txt
+@@ -0,0 +1,4 @@
++== hidden
++17/17 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-1.txt
+new file mode 100644
+index 0000000..7134659
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-1.txt
+@@ -0,0 +1,4 @@
++== hidden
++16/16 passed
++== overlap
++7/7 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-2.txt
+new file mode 100644
+index 0000000..7134659
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-2.txt
+@@ -0,0 +1,4 @@
++== hidden
++16/16 passed
++== overlap
++7/7 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-3.txt
+new file mode 100644
+index 0000000..b5c7e2c
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-big-rename-rx-3.txt
+@@ -0,0 +1,52 @@
++== hidden
++build failed (compile):
++✗ base: a declined assignment reverts the row and shows the message
++    build failed (compile)
++✗ base: a new assignment clears the previous error at once
++    build failed (compile)
++✗ base: selecting another issue clears the assignment error
++    build failed (compile)
++✗ base: a filter answer landing late does not replace the current filter's list
++    build failed (compile)
++✗ base: a filter failing late shows no error
++    build failed (compile)
++✗ base: details landing out of order show the selected issue
++    build failed (compile)
++✗ base: selecting after not found shows loading, not the old message
++    build failed (compile)
++✗ base: retry after not found shows the issue
++    build failed (compile)
++✗ base: a failing list leaves the detail alone
++    build failed (compile)
++✗ base: a failing detail leaves the list alone
++    build failed (compile)
++✗ base: an accepted assignment survives switching filters and back
++    build failed (compile)
++✗ a declined rename reverts the row and the heading and shows the message
++    build failed (compile)
++✗ a new rename clears the previous error at once
++    build failed (compile)
++✗ selecting another issue clears the rename error
++    build failed (compile)
++✗ the title input is empty when another issue is selected
++    build failed (compile)
++✗ an accepted rename survives switching filters and back
++    build failed (compile)
++0/16 passed
++== overlap
++build failed (compile):
++✗ base: two issues assigned at once: declining one reverts only that row
++    build failed (compile)
++✗ base: a list that loads while an assignment is out keeps the new assignee
++    build failed (compile)
++✗ a declined assignment keeps a rename in flight on the same issue
++    build failed (compile)
++✗ a declined rename keeps an assignment in flight on the same issue
++    build failed (compile)
++✗ a list that loads while a rename is out keeps the new title
++    build failed (compile)
++✗ a detail that loads while a rename is out keeps the new title
++    build failed (compile)
++✗ an earlier rename declined after a later one was accepted keeps the later title
++    build failed (compile)
++0/7 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-1.txt
+new file mode 100644
+index 0000000..0f832ed
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-1.txt
+@@ -0,0 +1,48 @@
++== hidden
++build failed (compile):
++✗ base: a declined assignment reverts the row and shows the message
++    build failed (compile)
++✗ base: a new assignment clears the previous error at once
++    build failed (compile)
++✗ base: selecting another issue clears the assignment error
++    build failed (compile)
++✗ base: a filter answer landing late does not replace the current filter's list
++    build failed (compile)
++✗ base: a filter failing late shows no error
++    build failed (compile)
++✗ base: details landing out of order show the selected issue
++    build failed (compile)
++✗ base: selecting after not found shows loading, not the old message
++    build failed (compile)
++✗ base: retry after not found shows the issue
++    build failed (compile)
++✗ base: a failing list leaves the detail alone
++    build failed (compile)
++✗ base: a failing detail leaves the list alone
++    build failed (compile)
++✗ base: an accepted assignment survives switching filters and back
++    build failed (compile)
++✗ a declined close brings the row back in place and shows the message
++    build failed (compile)
++✗ a new close clears the previous error at once
++    build failed (compile)
++✗ selecting another issue clears the close error
++    build failed (compile)
++✗ an accepted close survives switching filters and back
++    build failed (compile)
++0/15 passed
++== overlap
++build failed (compile):
++✗ base: two issues assigned at once: declining one reverts only that row
++    build failed (compile)
++✗ base: a list that loads while an assignment is out keeps the new assignee
++    build failed (compile)
++✗ a declined close keeps an assignment in flight on another issue
++    build failed (compile)
++✗ a declined assignment keeps a close in flight on another issue
++    build failed (compile)
++✗ a list that loads while a close is out keeps the row out
++    build failed (compile)
++✗ two closes at once: a declined one does not undo the other
++    build failed (compile)
++0/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-2.txt
+new file mode 100644
+index 0000000..b022fdc
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-2.txt
+@@ -0,0 +1,4 @@
++== hidden
++15/15 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-3.txt
+new file mode 100644
+index 0000000..b022fdc
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-close-rx-3.txt
+@@ -0,0 +1,4 @@
++== hidden
++15/15 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-1.txt
+new file mode 100644
+index 0000000..c7accb2
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-1.txt
+@@ -0,0 +1,4 @@
++== hidden
++17/17 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-2.txt
+new file mode 100644
+index 0000000..bf3c04f
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-2.txt
+@@ -0,0 +1,52 @@
++== hidden
++build failed (compile):
++✗ base: a declined assignment reverts the row and shows the message
++    build failed (compile)
++✗ base: a new assignment clears the previous error at once
++    build failed (compile)
++✗ base: selecting another issue clears the assignment error
++    build failed (compile)
++✗ base: a filter answer landing late does not replace the current filter's list
++    build failed (compile)
++✗ base: a filter failing late shows no error
++    build failed (compile)
++✗ base: details landing out of order show the selected issue
++    build failed (compile)
++✗ base: selecting after not found shows loading, not the old message
++    build failed (compile)
++✗ base: retry after not found shows the issue
++    build failed (compile)
++✗ base: a failing list leaves the detail alone
++    build failed (compile)
++✗ base: a failing detail leaves the list alone
++    build failed (compile)
++✗ base: an accepted assignment survives switching filters and back
++    build failed (compile)
++✗ a declined post removes the row and shows the message
++    build failed (compile)
++✗ a new post clears the previous error at once
++    build failed (compile)
++✗ selecting another issue clears the post error
++    build failed (compile)
++✗ comments landing out of order show the selected issue's
++    build failed (compile)
++✗ failing comments show their error and leave the issue
++    build failed (compile)
++✗ an accepted post stays after switching issues and back
++    build failed (compile)
++0/17 passed
++== overlap
++build failed (compile):
++✗ base: two issues assigned at once: declining one reverts only that row
++    build failed (compile)
++✗ base: a list that loads while an assignment is out keeps the new assignee
++    build failed (compile)
++✗ two posts at once: a declined one does not take the other with it
++    build failed (compile)
++✗ a post on one issue does not show on another
++    build failed (compile)
++✗ comments that load while a post is out keep the post
++    build failed (compile)
++✗ a post declined while an assignment is out leaves the assignment
++    build failed (compile)
++0/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-3.txt
+new file mode 100644
+index 0000000..c7accb2
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-comments-rx-3.txt
+@@ -0,0 +1,4 @@
++== hidden
++17/17 passed
++== overlap
++6/6 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-1.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-1.txt
+new file mode 100644
+index 0000000..8a1058e
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-1.txt
+@@ -0,0 +1,5 @@
++== hidden
++16/16 passed
++== overlap
++✗ an earlier rename declined after a later one was accepted keeps the later title
++6/7 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-2.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-2.txt
+new file mode 100644
+index 0000000..7134659
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-2.txt
+@@ -0,0 +1,4 @@
++== hidden
++16/16 passed
++== overlap
++7/7 passed
+diff --git a/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-3.txt b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-3.txt
+new file mode 100644
+index 0000000..7134659
+--- /dev/null
++++ b/eval/results/rc21-regrade-2026-11-05/graded/round4-small-rename-rx-3.txt
+@@ -0,0 +1,4 @@
++== hidden
++16/16 passed
++== overlap
++7/7 passed
+diff --git a/guide/async.md b/guide/async.md
+index 378539c..8fc525a 100644
+--- a/guide/async.md
++++ b/guide/async.md
+@@ -188,6 +188,14 @@ export action add(id: string, title: string) {
+   server. Keep such a write off the action's sources, or make it an `onFlush` run.
+ - **A failure stays up while its retry is in flight.** That's H-12. To show `loading…` instead, put
+   `loading on(k)` above the `errored`.
++- **The server accepted, and the screen went back to the old value.** The action guessed on one question and
++  refreshed another, or none. A guess ends with its action; only a new answer for the question it guessed on shows
++  what the server took. Refresh every question you guessed on (`optimistic detail.title := t` needs `refresh detail`,
++  not only `refresh issues`).
++- **A write landed and nothing showed it until the reload answered.** A guess needs a value to guess on. A rename sent
++  while the detail is still loading, or for a row the list does not show yet (`findIndex` gave -1), guesses nothing,
++  so the accepted value appears only when the action's `refresh` lands. If that window matters, keep the accepted
++  write in the client-owned layer ("three layers" above) until the server's answer confirms it.
+ 
+ ## 5. Plain handlers
+ 
+diff --git a/ref/compile/run.ts b/ref/compile/run.ts
+index 49e24dc..d46b433 100644
+--- a/ref/compile/run.ts
++++ b/ref/compile/run.ts
+@@ -63,7 +63,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
+       const prefixed = rows.indexOf(r) < own;
+       if (prefixed && t.program) continue;
+       const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === last.instant);
+-      const want = norm(div ? div.frame : last.frame); const wantEff = chain.flatMap(c => c.effects);
++      const want = norm(div ? div.frame : last.frame); const wantEff = chain.flatMap(c => sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === c.instant && d.effects)?.effects ?? c.effects);   // a recorded divergence may name the effects Solid runs there
+       const effOk = prefixed || effects.join("; ") === wantEff.join("; ");
+       if (got === want && effOk) { if (div) divergent++; lines.push(`  ${div ? "≠" : "✓"} ${t.title} instant ${last.instant}: ${got}${effects.length ? "  [" + effects.join("; ") + "]" : ""}`); }
+       else { ok = false; lines.push(`  ✗ ${t.title} instant ${last.instant}: expected '${want}' effects [${wantEff.join("; ")}], got '${got}' effects [${effects.join("; ")}]`); }
+diff --git a/ref/oracle/repros/4690-guess-reask-refresh.mjs b/ref/oracle/repros/4690-guess-reask-refresh.mjs
+new file mode 100644
+index 0000000..0c6f211
+--- /dev/null
++++ b/ref/oracle/repros/4690-guess-reask-refresh.mjs
+@@ -0,0 +1,35 @@
++// DV-20, solidjs/solid#4690 (S-guess-reask-refresh, effect-only variant): a guess reverts at the action's end, before the refresh it issued lands, once an outside
++// re-ask landed under it. Reader: a text node under <Loading> (view) vs an effect (no boundary).
++// node --conditions=browser --conditions=development repros/4690-guess-reask-refresh.mjs   (from ref/oracle)
++// Expected (spec 06 D-35): every reader keeps the guess until the action's re-ask lands.
++// Observed on 2.0.0-rc.21: a text node under <Loading> keeps it; an effect alone sees the old truth once the write lands
++//   until the re-ask lands; an effect beside a rendered reader keeps it. Without the outside re-ask, every reader keeps it.
++import { createRenderer } from "@solidjs/universal";
++import { Loading, createRoot, createOptimisticStore, createEffect, action, refresh, flush } from "solid-js";
++const nodes = {
++  createElement: tag => ({ tag, children: [] }), createTextNode: text => ({ text }), replaceText: (n, v) => { n.text = v; }, isTextNode: n => "text" in n,
++  setProperty() {}, getParentNode: n => n.parent, getFirstChild: n => n.children?.[0], getNextSibling: n => n.parent && n.parent.children[n.parent.children.indexOf(n) + 1],
++  insertNode(p, n, anchor) { if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1); const i = anchor ? p.children.indexOf(anchor) : -1; i < 0 ? p.children.push(n) : p.children.splice(i, 0, n); n.parent = p; },
++  removeNode(p, n) { p.children.splice(p.children.indexOf(n), 1); n.parent = undefined; },
++};
++const R = createRenderer(nodes);
++const text = n => "text" in n ? n.text : n.children.map(text).join("");
++const settle = async () => { for (let i = 0; i < 3; i++) { await new Promise(r => setTimeout(r, 0)); flush(); } };
++const asks = []; const ask = key => new Promise((res, rej) => asks.push({ key, res, rej }));
++const land = async (key, v) => { for (const a of asks.filter(a => a.key === key)) { asks.splice(asks.indexOf(a), 1); a.res(v); } await settle(); };
++for (const reader of ["view under <Loading>", "effect", "effect + view"]) {
++  const root = { tag: "root", children: [] }; let d, rename, eff = null;
++  createRoot(() => {
++    let set; [d, set] = createOptimisticStore(async draft => { const r = await ask("fetch"); Object.assign(draft, r); }, {});
++    rename = action(function* (t) { set(x => { x.title = t; }); yield ask("rename"); refresh(d); });
++    if (reader.startsWith("effect")) createEffect(() => d.title, v => { eff = v; });
++    if (reader !== "effect") R.insert(root, R.createComponent(Loading, { fallback: "loading", get children() { return R.memo(() => d.title); } }));
++  });
++  const shown = () => reader === "effect" ? eff : reader === "effect + view" ? `${eff} (view ${text(root)})` : text(root);
++  flush(); await settle(); await land("fetch", { id: 2, title: "Old" });
++  rename("New"); await settle(); const s1 = shown();
++  refresh(d); await settle(); await land("fetch", { id: 2, title: "Old" }); const s2 = shown();
++  await land("rename", true); const s3 = shown();
++  await land("fetch", { id: 2, title: "New" }); const s4 = shown();
++  console.log(`${reader.padEnd(22)} guess=${s1}  outside re-ask landed=${s2}  write landed, refresh in flight=${s3} (expected New)  refresh landed=${s4}`);
++}
+diff --git a/ref/oracle/repros/README.md b/ref/oracle/repros/README.md
+index 0be56b9..bc9016b 100644
+--- a/ref/oracle/repros/README.md
++++ b/ref/oracle/repros/README.md
+@@ -18,6 +18,8 @@ node repros/dv14-replay-instant/run.mjs
+ node --conditions=browser --conditions=development repros/dv16-latest-first.mjs [latest-first|n0-first]
+ node --conditions=browser --conditions=development repros/dv17-boundary-merges-mounts.mjs [boundary|none]
+ node --conditions=browser --conditions=development repros/dv18-projection-relanding.mjs [row-memo|direct]
++node --conditions=browser --conditions=development repros/dv19-latest-reask.mjs
++node --conditions=browser --conditions=development repros/4690-guess-reask-refresh.mjs
+ ```
+ 
+ The hydration repros are each one `app.jsx`, compiled by Solid's own
+@@ -379,3 +381,40 @@ thunk makes, never its return value (RULES-DERIVED D-24, A23) — so it is
+ `false` while the memo under the projection re-asks. `keys` (what
+ `__rt.isPending` now does for a structured value) and `length` report
+ `searching` as S-ai2-search's instants 2 and 4 expect.
++
++---
++
++## DV-19 — `latest()` over a pending guess answers the re-asked truth once a re-ask lands under it — filed as solidjs/solid#4689; ruled a bug in #4695 (decision 3), not built
++
++**Rule.** Spec H-11 and H-7: `latest x` of a guess the screen shows answers the guess until its hold commits, even after
++an answer corrected the graph (Solid D-22, D-34, decision 3 of #4695; S-latest-reask instants 4 and 5).
++
++**Shape.** A keyed `createOptimisticStore` over an async loader; an action guesses a row away and awaits; the store is
++refreshed from outside the action and that answer lands while the guess is pending. The same with `createOptimistic`
++over `createSignal(async)`.
++
++**Expected.** `store.length` 2, `latest(() => store.length)` 2.
++
++**Observed on 2.0.0-rc.21 (next @ 2105ffb8).** `store.length` 2, `untrack` 2, `latest` 3. Before the re-ask lands,
++`latest` is 2. The signal form: `detail().title` "New", `latest` "Old".
++
++**Found by** the round 8 timing fuzzer on the chain4 reference desk, regraded on rc.21 (2026-11-05): a tab count read
++with `latest issues` beside a list with a close in flight.
++
++---
++
++## DV-20 — a store read only by effects reverts at the action's end, before the action's refresh lands, once an outside re-ask has landed under it — filed as solidjs/solid#4690
++
++**Rule.** Spec 06 D-35: an action's `refresh` is authoritative work in flight; the guess waits for that answer.
++
++**Shape.** An optimistic store (object, array, keyed, or `createOptimistic` over a signal); an action guesses, awaits
++its write, then `refresh`es the store; the store is refreshed from outside the action and that answer lands while the
++guess is pending; the write lands.
++
++**Expected.** Every reader keeps the guess until the action's re-ask lands.
++
++**Observed on 2.0.0-rc.21.** A text node under `<Loading>` keeps it. An effect with nothing rendering the store sees
++the old truth once the write lands, until the re-ask lands. An effect beside a rendered reader keeps it. Without the
++outside re-ask every reader keeps it. An `effect` over a source nothing renders is a legal `.rx` program, so
++S-guess-reask-refresh's effect-only variant records it (instants 5 and 6).
++
+diff --git a/ref/oracle/repros/dv19-latest-reask.mjs b/ref/oracle/repros/dv19-latest-reask.mjs
+new file mode 100644
+index 0000000..93abfff
+--- /dev/null
++++ b/ref/oracle/repros/dv19-latest-reask.mjs
+@@ -0,0 +1,37 @@
++// DV-19: `latest()` over an optimistic guess answers the re-asked truth once a re-ask lands while the guess is pending.
++// node --conditions=browser --conditions=development repros/dv19-latest-reask.mjs   (from ref/oracle)
++// Expected (spec H-7, R-12; S-latest-reask instant 4): `latest` reads past a hold but answers what the source shows —
++//   the guess, while its action is out. After the re-ask lands: store.length 2, latest 2.
++// Observed on 2.0.0-rc.21 (next @ 2105ffb8): store.length 2, untrack 2, latest 3. Before the re-ask lands, latest is 2.
++//   The signal form (createOptimistic over createSignal(async)) does the same: detail().title "New", latest "Old".
++// Found by the timing fuzzer on the chain4 reference desk. Filed as solidjs/solid#4689; ruled a bug in #4695 (decision 3), not built.
++import { createRoot, createSignal, createOptimistic, createOptimisticStore, action, refresh, latest, untrack, flush } from "solid-js";
++const tick = async () => { for (let i = 0; i < 4; i++) { await new Promise(r => setTimeout(r, 0)); flush(); } };
++const asks = []; const ask = key => new Promise((res, rej) => asks.push({ key, res, rej }));
++const land = async (key, v) => { for (const a of asks.filter(a => a.key === key)) { asks.splice(asks.indexOf(a), 1); a.res(v); } await tick(); };
++const rows = [{ id: 1 }, { id: 2 }, { id: 3 }];
++{
++  let issues, setIssues, close, probe;
++  createRoot(() => {
++    [issues, setIssues] = createOptimisticStore(async d => { const r = await ask("fetch"); d.length = r.length; r.forEach((x, i) => { d[i] = { ...x }; }); }, [], { key: "id" });
++    close = action(function* (id) { setIssues(d => { const v = d.filter(t => t.id != id); d.length = v.length; v.forEach((x, i) => { d[i] = x; }); }); yield ask("close"); refresh(issues); });
++    probe = () => `store.length=${issues.length} untrack=${untrack(() => issues.length)} latest=${latest(() => issues.length)}`;
++  });
++  await tick(); await land("fetch", rows); close(1); await tick();
++  console.log("store  | guess pending, before the re-ask:", probe());
++  refresh(issues); await tick(); await land("fetch", rows);
++  console.log("store  | guess pending, re-ask landed:    ", probe(), " (expected latest=2)");
++}
++{
++  let truth, detail, setGuess, rename, probe;
++  createRoot(() => {
++    [truth] = createSignal(async () => ({ ...(await ask("fetch")) }));
++    [detail, setGuess] = createOptimistic(() => truth());
++    rename = action(function* (t) { setGuess(d => ({ ...d, title: t })); yield ask("rename"); refresh(truth); });
++    probe = () => `detail().title=${detail().title} untrack=${untrack(() => detail().title)} latest=${latest(() => detail().title)}`;
++  });
++  await tick(); await land("fetch", { id: 2, title: "Old" }); rename("New"); await tick();
++  console.log("signal | guess pending, before the re-ask:", probe());
++  refresh(truth); await tick(); await land("fetch", { id: 2, title: "Old" });
++  console.log("signal | guess pending, re-ask landed:    ", probe(), " (expected latest=New)");
++}
+diff --git a/ref/oracle/run.ts b/ref/oracle/run.ts
+index e6d5baf..e6eeaec 100644
+--- a/ref/oracle/run.ts
++++ b/ref/oracle/run.ts
+@@ -48,7 +48,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
+       const prefixed = rows.indexOf(r) < own;
+       if (prefixed && t.program) continue;
+       const div = sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === last.instant);
+-      const want = norm(div ? div.frame : last.frame); const wantEff = chain.flatMap(c => c.effects);
++      const want = norm(div ? div.frame : last.frame); const wantEff = chain.flatMap(c => sc.divergences.find(d => d.runner === "oracle" && d.table === t.title && d.instant === c.instant && d.effects)?.effects ?? c.effects);   // a recorded divergence may name the effects Solid runs there
+       const effOk = prefixed || effects.join("; ") === wantEff.join("; ");
+       if (got === want && effOk) { if (div) divergent++; lines.push(`  ${div ? "≠" : "✓"} ${t.title} instant ${last.instant}: ${got}${effects.length ? "  [" + effects.join("; ") + "]" : ""}${div ? `   (spec: '${norm(last.frame)}')` : ""}`); }
+       else { ok = false; lines.push(`  ✗ ${t.title} instant ${last.instant}: expected '${want}' effects [${wantEff.join("; ")}], got '${got}' effects [${effects.join("; ")}]`); }
+diff --git a/ref/src/runtime.ts b/ref/src/runtime.ts
+index cd3da47..3319eec 100644
+--- a/ref/src/runtime.ts
++++ b/ref/src/runtime.ts
+@@ -59,7 +59,7 @@ export class Node {
+   lane = false;                                        // R-10: read a probe during last compute
+   lanes = new Set<Node>();                             // R-10 / H-7: which probed sources' lanes this value lives in
+   inLanes = new Set<Node>();                           // H-7: the lanes it is held by: all but a guess's lane reached only through `latest` (DV-10)
+-  flight: Flight | null = null; answered = false; firstPaint = false;   // R-1, R-7
++  flight: Flight | null = null; answered = false; firstPaint = false; landing = false;   // R-1, R-7; landing: its flight answered and it has not recomputed since
+   heldBy: number | null = null;                        // the change (instant) whose uncommitted write / flight this value belongs to
+   taint = new Set<number>();                           // open changes this value derives from (equations); empty for served reads
+   heldOn: number | null = null;                        // readers: the group this reader holds (root), or null
+@@ -69,7 +69,9 @@ export class Node {
+   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
+   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
+   question = false;                                    // ST-5: `source x = e` — an equation until written
+-  guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
++  guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];
++  shownGuess: unknown = undefined; guessShown = false; answerCorrected = false;   // D-22/D-34 (Solid decision 3, #4695): the guess as the screen last showed it; `latest x` keeps it after an answer corrects the graph, until the hold commits
++  guessEntries: { path: Path; by: number; value: unknown; spent?: boolean }[] = [];   // H-11: each guess with the hold it was made over ("" = the root); `guess` is the truth with the live ones applied in order; `spent`: a new answer corrected it (D-34) — it shows the truth now but still belongs to its action, so the action's re-ask still holds it (D-35) and its end still ends it   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
+   quiet = false; refreshBy: number | null = null; refreshInAction = false;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
+   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
+@@ -299,16 +301,10 @@ export class Runtime {
+     }
+     for (const { node, path, value: v0 } of this.pendingGuesses) {   // AC-3: a guess shows from this instant's settle
+       const base = node.hasGuess ? node.guess : node.demanded ? node.value : this.pull(node);   /* a guess over a source nothing on screen reads (found by S-app-notes: the list was unmounted) */
+-      const fresh = !node.hasGuess;
+-      if (path.length === 0) { node.guess = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(base) : v0; node.guessPaths = [""]; }   // W-6 applies to guesses too
+-      else {                                                            // a path guess: a copy along the written path; untouched rows keep identity (ST-3a)
+-        const copy = (o: unknown) => Array.isArray(o) ? [...o] : { ...(o as object) } as Record<string, unknown>;
+-        const root = copy(base) as Record<string, unknown>; let o = root;
+-        for (const k of path.slice(0, -1)) { o[k] = isObj(o[k]) ? copy(o[k]) : /^\d+$/.test(k) ? [] : {}; o = o[k] as Record<string, unknown>; }
+-        const last = path[path.length - 1]; o[last] = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(o[last]) : v0;
+-        node.guess = root; node.guessPaths = [...(fresh ? [] : node.guessPaths), path.join(".")];
+-      }
+-      node.hasGuess = true; node.guessBy = this.instant; node.corrected = false; this.notify(node, "");
++      let cur: unknown = base; for (const k of path) cur = isObj(cur) ? cur[k] : undefined;
++      const value = typeof v0 === "function" ? (v0 as (x: unknown) => unknown)(cur) : v0;   // W-6 applies to guesses too
++      node.guessEntries.push({ path: path.join("."), by: this.instant, value });   // its own hold's, per key (H-11): two actions' guesses on one row live and end apart
++      node.corrected = false; this.rebuildGuess(node); this.notify(node, "");
+     }
+     this.pendingGuesses = [];
+     for (const n of this.pendingRefresh) { n.quiet = true; n.refreshBy = this.instant; if (n.flight) this.flights.delete(n.flight.key); this.markDirty(n); }   // AC-4: re-ask quietly
+@@ -330,7 +326,7 @@ export class Runtime {
+       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
+       for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
+       for (const a of this.openActions) if (a.change !== null) heldRoots.add(this.find(a.change));          // AC-1: an action holds its change until its body returns
+-      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && this.allNodes().some(m => m.hasGuess && m.guessBy !== null && this.find(m.guessBy) === this.find(n.refreshBy!))) heldRoots.add(this.find(n.refreshBy));   // D-35, AC-4: a re-ask issued by an action that guessed is authoritative work in flight — the change waits for its answer, so every guess of the action (on that source or another) stays until the truth that confirms or corrects it lands
++      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && this.allNodes().some(m => this.guessedBy(m, this.find(n.refreshBy!)))) heldRoots.add(this.find(n.refreshBy));   // D-35, AC-4: a re-ask issued by an action that guessed is authoritative work in flight — the change waits for its answer, so every guess of the action (on that source or another) stays until the truth that confirms or corrects it lands
+       for (const l of this.heldLanes) { if (l.heldBy !== null) heldRoots.add(this.find(l.heldBy)); for (const t of l.taint) heldRoots.add(this.find(t)); }   // H-7: a held lane keeps its change staged (S-solid-33: the landing stays uncommitted)
+       let any = false;
+       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
+@@ -349,6 +345,7 @@ export class Runtime {
+     if (this.openChanges.has(this.find(this.instant))) for (const { reader, lb } of this.bornHeldOwn) { lb.caught.push(reader); lb.showingFallback = true; reader.heldOn = null; }   // D-27: born held under a fresh boundary → the boundary's
+     else for (const { lb } of this.bornHeldOwn) { lb.bornCandidates = 0; lb.showingFallback = lb.caught.length > 0; if (!lb.showingFallback) lb.armed = false; }
+     // Verdicts are final only after the decision (H-9): lane readers re-settle against the decided world, then show ahead (H-7).
++    for (const n of this.allNodes()) if (n.hasGuess && !n.corrected && !this.heldLanes.has(n)) { n.guessShown = true; n.shownGuess = n.guess; }   // D-22: the guess the screen shows now (a held lane's guess is not shown: S-solid-33)
+     for (const n of this.allNodes()) if (n.lane) { n.state = "clean"; this.markDirty(n); }   // re-settle lane nodes; their subscribers are notified too (a dirty node whose subs were not told blocks later invalidation)
+     this.settle(this.view, [], null);
+     this.patchLanes(this.view);
+@@ -366,7 +363,7 @@ export class Runtime {
+     for (const c of this.pendingCleanups) c(); this.pendingCleanups = [];
+     for (const e of [...this.effects]) {
+       if (!e.alive) continue;
+-      const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))));   // E-12: an error is an answer
++      const settled = e.computes.every(c => !(c.value instanceof PendingVal) && ![...c.taint].some(t => this.openChanges.has(this.find(t))) && !this.laneHeld(c));   // E-12: an error is an answer; D-34: a corrected guess's effects wait for the commit, as its views do
+       const differs = (c: Node, i: number) => { if (!e.ran) return true; const d = new Set<Path>(); diffPaths(e.last[i], c.value, "", d); return d.size > 0; };
+       const fire = settled && (!e.ran || e.computes.some((c, i) => c.changedSinceCommit && differs(c, i)));   // EF-2: a value differing from the one last received (pending → equal is not a change)
+       if (!fire) continue;
+@@ -394,7 +391,11 @@ export class Runtime {
+       const openTaint = [...n.taint].some(t => this.openChanges.has(this.find(t)) && this.find(t) !== g);
+       if (n.hasValue && !stillHeld && !openTaint && !(n.value instanceof PendingVal)) { n.committed = n.value; n.hasCommitted = true; }
+       if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
+-      if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.corrected = false; n.guessPaths = []; this.notify(n, ""); }   // H-11: a guess lives as long as its hold
++      if (n.hasGuess && (this.guessedBy(n, g) || (n.guessBy !== null && this.find(n.guessBy) === g))) {   // H-11: a guess lives as long as its hold; another action's guesses on the node stay
++        n.guessEntries = n.guessEntries.filter(e => this.find(e.by) !== g); n.corrected = false;
++        if (n.guessEntries.length === 0) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.guessPaths = []; n.guessShown = false; n.shownGuess = undefined; n.answerCorrected = false; } else this.rebuildGuess(n);
++        this.notify(n, "");
++      }
+       for (const [k, c] of n.heldKeys) if (this.find(c) === g) n.heldKeys.delete(k);
+       if (n.affectedBy !== null && this.find(n.affectedBy) === g) n.affectedBy = null;
+       if (n.refreshBy !== null && this.find(n.refreshBy) === g) { n.refreshBy = null; n.refreshInAction = false; if (!(n.value instanceof PendingVal)) n.quiet = false; }
+@@ -649,6 +650,7 @@ export class Runtime {
+       let v: unknown;
+       try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
+       this.tracking = prevTracking;
++      const landed = n.landing && !(v instanceof PendingVal); n.landing = false;   // a new answer, even one equal to the truth the guess was made over: it is compared with the guess (D-34)
+       this.subscribe(n);
+       if (n.deferred && n.answered && v instanceof PendingVal) { n.lagging = true; v = n.value; }   // D-40: a declared-lag re-ask keeps showing its last answer
+       else if (n.deferred) n.lagging = false;
+@@ -659,7 +661,7 @@ export class Runtime {
+       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
+       if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
+       n.hasValue = true;
+-      if (n.hasGuess && !isAbsent(v) && ch.size > 0) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { n.guess = v; n.corrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now; equal there confirms silently (the screen keeps the guess's world until the commit)
++      if (n.hasGuess && !isAbsent(v) && (ch.size > 0 || landed)) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { for (const e of n.guessEntries) if (guessedAt({ guessPaths: [e.path] }, dg)) e.spent = true; if (n.guessEntries.some(e => !e.spent)) this.rebuildGuess(n, v); else n.guess = v; n.corrected = true; n.answerCorrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now (derivations; `latest x` of a shown guess keeps it, D-22); equal there confirms silently (the screen keeps the guess's world until the commit)
+       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
+       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
+       if (n.heldBy !== null) n.taint.add(n.heldBy);
+@@ -779,6 +781,7 @@ export class Runtime {
+         const ahead = !!ln?.hasGuess;                                  // DV-10: `latest` of a guess reads ahead of the guess's held lane (Solid #4284)
+         if (this.tracking) { this.tracking.lane = true; if (ln) this.addLane(ln, !ahead); }
+         if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
++        if (ln && e.e.k === "id" && ln.hasGuess && ln.answerCorrected && ln.guessShown && this.frozen(ln)) { this.track(ln, ""); return ln.shownGuess; }   // D-22, D-34 (Solid decision 3; DV-19): an answer corrected the graph, but the slot still displays the guess: `latest` keeps it until the hold commits
+         this.probing++; if (ahead) this.latestOfGuess++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; }
+         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
+         if (v instanceof PendingVal && !this.demandMode) throw new Error("NotReadyError: latest of a value that has never had one");   // R-12: in imperative scope as anywhere, `latest` of a first load throws (Solid S-28, A7)
+@@ -965,7 +968,7 @@ export class Runtime {
+   }
+   private answer(f: Flight, state: "resolved" | "rejected", value: unknown) {
+     f.state = state; f.value = value; f.first ??= { state, value };
+-    for (const n of this.allNodes()) if (n.flight === f) this.markDirty(n);
++    for (const n of this.allNodes()) if (n.flight === f) { n.landing = true; this.markDirty(n); }   // landing: the next pass of n is this answer's (D-34)
+     const resumed = this.suspended.filter(r => r.flight === f); this.suspended = this.suspended.filter(r => r.flight !== f);
+     for (const r of resumed) { if (r.action && r.change !== null) this.pendingJoin.push(r.change); this.resume(r); }   // AC-1: a write after an `await` is still the action's
+   }
+@@ -1083,14 +1086,35 @@ export class Runtime {
+   private bodyEndCorrections(): boolean {
+     let any = false;
+     for (const g0 of this.pendingBodyEnds) { const g = this.find(g0);
+-      for (const n of this.allNodes()) if (n.hasGuess && n.guessBy !== null && this.find(n.guessBy) === g) {
++      for (const n of this.allNodes()) if (n.hasGuess && this.guessedBy(n, g)) {
+         const truth = n.demanded ? n.value : this.pull(n);
+         if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending") || this.refreshPending(g)) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`) — or the action re-asked a question the guess's truth may follow: that answer corrects (D-34, D-35, AC-4)
+-        const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg); if (dg.size) { n.guess = truth; n.corrected = true; any = true; }
++        const mine = n.guessEntries.filter(e => this.find(e.by) === g);
++        const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg);
++        if (guessedAt({ guessPaths: mine.map(e => e.path) }, dg)) {   // this action's keys differ from the truth at hand: corrected; another action's keys keep their guesses
++          n.guessEntries = n.guessEntries.filter(e => this.find(e.by) !== g); this.rebuildGuess(n, truth);
++          n.hasGuess = true; n.corrected = true; n.answerCorrected = false; n.guessBy = g; any = true;
++        }
+       }
+     }
+     this.pendingBodyEnds = []; return any;
+   }
++  /** H-11: the composite guess — the truth at hand with every live entry applied in order (a path entry copies along its path, ST-3a). */
++  private rebuildGuess(n: Node, truth?: unknown) {
++    let g: unknown = truth !== undefined ? truth : n.demanded ? n.value : this.pull(n);
++    const copy = (o: unknown) => Array.isArray(o) ? [...o] : { ...(o as object) } as Record<string, unknown>;
++    for (const e of n.guessEntries) {
++      if (e.spent) continue;
++      if (e.path === "") { g = e.value; continue; }
++      const keys = e.path.split("."); const root = copy(g) as Record<string, unknown>; let o = root;
++      for (const k of keys.slice(0, -1)) { o[k] = isObj(o[k]) ? copy(o[k]) : /^\d+$/.test(k) ? [] : {}; o = o[k] as Record<string, unknown>; }
++      o[keys[keys.length - 1]] = e.value; g = root;
++    }
++    n.guess = g; n.guessPaths = n.guessEntries.map(e => e.path);
++    if (n.guessEntries.length) { n.hasGuess = true; n.guessBy = n.guessEntries[n.guessEntries.length - 1].by; }
++  }
++  /** H-11: whether change `g` (a group root) made a guess on `n` that is still live. */
++  private guessedBy(n: Node, g: number) { return n.guessEntries.some(e => this.find(e.by) === g); }
+   /** AC-4, D-35: a re-ask issued by the action of change `g` is still answering. */
+   private refreshPending(g: number) { return this.allNodes().some(n => n.quiet && n.refreshInAction && n.refreshBy !== null && this.find(n.refreshBy) === g && n.flight?.state === "pending"); }
+   /** D-34: a corrected guess's readers keep what they showed until the hold commits (the lane is frozen, not held). */
+diff --git a/ref/src/scenario.ts b/ref/src/scenario.ts
+index c018b56..fdc03af 100644
+--- a/ref/src/scenario.ts
++++ b/ref/src/scenario.ts
+@@ -5,7 +5,7 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
+ type Row = { instant: number; action: string; frame: string; effects: string[] };
+ type Table = { title: string; program: string | null; rows: Row[] };
+ type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean };   // types: refused by the type layer (TY, types/run.ts)
+-export type Divergence = { table: string; instant: number; frame: string; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
++export type Divergence = { table: string; instant: number; frame: string; effects?: string[]; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // effects: the effect log Solid gives at that instant, when it differs too   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
+ export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
+   entry: string; modules: Map<string, string>;
+   server: Row[];     // 10: `## Server frames` — what a browser shows from the server's stream (ref/ssr/run.ts only)
+@@ -74,7 +74,7 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
+     else if (s.title === "Frames") tables.push({ title: "Frames", program: null, rows: table(s.body) });
+     else if (s.title.startsWith("Variant")) tables.push({ title: s.title, program: fence(s.body), rows: table(s.body) });
+     else if (s.title.startsWith("Divergences")) {
+-      for (const m of s.body.matchAll(/^- (oracle|server|hydrated) "([^"]*)" instant (\d+): `([^`]*)`/gm)) divergences.push({ runner: m[1] as Divergence["runner"], table: m[2], instant: Number(m[3]), frame: m[4] });
++      for (const m of s.body.matchAll(/^- (oracle|server|hydrated) "([^"]*)" instant (\d+): `([^`]*)`(?: effects `([^`]*)`)?/gm)) divergences.push({ runner: m[1] as Divergence["runner"], table: m[2], instant: Number(m[3]), frame: m[4], ...(m[5] !== undefined ? { effects: m[5] === "—" || m[5] === "" ? [] : m[5].split(";").map(x => x.trim()) } : {}) });
+     }
+     else if (s.title === "Hydration window") {                     // SV-3b: frames of a client that took over before the server answered — ruled, not divergences
+       for (const m of s.body.matchAll(/^- "([^"]*)" instant (\d+): `([^`]*)`/gm)) divergences.push({ runner: "hydrated", table: m[1], instant: Number(m[2]), frame: m[3], ruled: true });
+diff --git a/ref/ssr/run.ts b/ref/ssr/run.ts
+index 6b3f4aa..e657db2 100644
+--- a/ref/ssr/run.ts
++++ b/ref/ssr/run.ts
+@@ -54,7 +54,7 @@ let clientJs = "";   // the current table's client bundle (SV-3)
+ const http = createServer((req, res) => { if (req.url?.startsWith("/_server")) { serverFunction(req, res).catch(e => { res.statusCode = 500; res.end(String(e)); }); return; } if (req.url === "/favicon.ico") { res.statusCode = 404; res.end(); return; } if (req.url === "/client.js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(clientJs); return; } res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); const p = pending; pending = null; if (p) p(res); else res.end("no render"); });
+ await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
+ const port = (http.address() as { port: number }).port;
+-const browser = await chromium.launch();
++const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
+ const page = await browser.newPage();
+ const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+ const textOf = () => page.evaluate(() => {
+diff --git a/scenarios/S-guess-reask-refresh.md b/scenarios/S-guess-reask-refresh.md
+new file mode 100644
+index 0000000..6326e5d
+--- /dev/null
++++ b/scenarios/S-guess-reask-refresh.md
+@@ -0,0 +1,67 @@
++# S-guess-reask-refresh — a guess stays until the action's refresh lands, even after an outside re-ask landed under it
++
++Rules exercised: AC-3, AC-4, H-11, D-35.
++
++## Program
++
++```
++export default component App() {
++  source detail = await fetch("d")
++  action rename(t) { try { optimistic detail.title := t; await fetch("save"); refresh detail } catch (e) {} }
++  errored fallback(e) { <p>error</p> } { loading fallback { <p>loading</p> } { <b>{detail.title}</b> } }
++}
++```
++
++An action's `refresh` is authoritative work in flight: the guess waits for that answer before the body-end correction
++(06 D-35; S-remount-refresh instants 3 and 8). That holds whether or not the question was re-asked from outside the
++action while the guess was pending: the outside answer (instant 4) lands under the guess and leaves it; the write
++landing (instant 5) ends the body, and the action's own re-ask is what corrects the guess (instant 6).
++
++## Frames
++
++| instant | action | frame |
++| ------- | ------ | ----- |
++| 0 | mount | `loading` |
++| 1 | resolve "d" {"title":"Old"} | `Old` |
++| 2 | handler `rename("New")` | `New` |
++| 3 | handler `refresh detail` | `New` |
++| 4 | resolve "d" {"title":"Old"} | `New` |
++| 5 | resolve "save" 0 | `New` |
++| 6 | resolve "d" {"title":"New"} | `New` |
++
++Solid 2.0.0-rc.21 does this for a rendered reader. A source read by effects alone, with nothing rendering it, reverts
++at the body's end in this sequence and shows the old truth until the re-ask lands (the variant below;
++`ref/oracle/repros/4690-guess-reask-refresh.mjs`, solidjs/solid#4690); any rendered reader of the source holds the
++effect's view too.
++
++## Variant: read by an effect alone
++
++```
++export default component App() {
++  source detail = await fetch("d")
++  action rename(t) { try { optimistic detail.title := t; await fetch("save"); refresh detail } catch (e) {} }
++  effect (detail.title catch (e) => "err") { log($0) }
++  <p>x</p>
++}
++```
++
++The effect follows the graph's value, and the guess is the graph's value until the action's re-ask answers (H-11,
++D-35): it logs the guess once and nothing after, since the re-ask confirms it.
++
++| instant | action | frame | effect |
++| ------- | ------ | ----- | ------ |
++| 0 | mount | `x` | — |
++| 1 | resolve "d" {"title":"Old"} | `x` | log(Old) |
++| 2 | handler `rename("New")` | `x` | log(New) |
++| 3 | handler `refresh detail` | `x` | — |
++| 4 | resolve "d" {"title":"Old"} | `x` | — |
++| 5 | resolve "save" 0 | `x` | — |
++| 6 | resolve "d" {"title":"New"} | `x` | — |
++
++## Divergences (DV-20)
++
++- oracle "Variant: read by an effect alone" instant 5: `x` effects `log(Old)`
++- oracle "Variant: read by an effect alone" instant 6: `x` effects `log(New)`
++
++Found reviewing PR #31: an effect over a source nothing renders is a legal `.rx` program, so #4690 is reachable.
++Fixed on `next` (2026-11-05); the divergence stays recorded until the repin.
+diff --git a/scenarios/S-latest-reask.md b/scenarios/S-latest-reask.md
+new file mode 100644
+index 0000000..7a22ea9
+--- /dev/null
++++ b/scenarios/S-latest-reask.md
+@@ -0,0 +1,60 @@
++# S-latest-reask — `latest` of a shown guess keeps the guess after a re-ask lands under it
++
++Rules exercised: R-12, H-7, H-11, AC-3, AC-4, ST-4.
++
++## Program
++
++```
++export default component App() {
++  source rows key id = await fetch("l")
++  action close(id) { try { optimistic rows := rows.filter(r => r.id != id); await fetch("close"); refresh rows } catch (e) {} }
++  errored fallback(e) { <p>error</p> } { loading fallback { <p>loading</p> } { <p>{rows.length} / {(latest rows).length}</p> } }
++}
++```
++
++A re-ask of the list from outside the action (instant 3) lands under the pending guess (instant 4). It answers the
++guess's own question and differs from the guess, so it corrects the graph now (H-11, D-34): derivations re-derive from
++the truth. But the slot still displays the guess, and `latest rows` answers what the slot displays: the guess, until
++the hold commits (H-11; Solid D-22 and D-34, decision 3 of solidjs/solid#4695). The write landing (instant 5) ends the
++body with the action's `refresh rows` in flight, so nothing commits yet (D-35); the re-ask's answer commits it all
++(instant 6).
++
++## Frames
++
++| instant | action | frame |
++| ------- | ------ | ----- |
++| 0 | mount | `loading` |
++| 1 | resolve "l" [{"id":1},{"id":2},{"id":3}] | `3 / 3` |
++| 2 | handler `close(1)` | `2 / 2` |
++| 3 | handler `refresh rows` | `2 / 2` |
++| 4 | resolve "l" [{"id":1},{"id":2},{"id":3}] | `2 / 2` |
++| 5 | resolve "close" 0 | `2 / 2` |
++| 6 | resolve "l" [{"id":2},{"id":3}] | `2 / 2` |
++
++## Variant: the outside answer changes the truth
++
++The same program. The outside re-ask brings a row the guess did not see (instant 4): the graph is corrected, the screen
++and `latest rows` keep the guess, and the closed row does not come back when the write lands under the action's
++refresh (instant 5). The re-ask's answer commits the server's list (instant 6).
++
++| instant | action | frame |
++| ------- | ------ | ----- |
++| 0 | mount | `loading` |
++| 1 | resolve "l" [{"id":1},{"id":2},{"id":3}] | `3 / 3` |
++| 2 | handler `close(1)` | `2 / 2` |
++| 3 | handler `refresh rows` | `2 / 2` |
++| 4 | resolve "l" [{"id":1},{"id":2},{"id":3},{"id":4}] | `2 / 2` |
++| 5 | resolve "close" 0 | `2 / 2` |
++| 6 | resolve "l" [{"id":2},{"id":3},{"id":4}] | `3 / 3` |
++
++## Divergences (DV-19)
++
++- oracle "Frames" instant 4: `2 / 3`
++- oracle "Frames" instant 5: `2 / 3`
++- oracle "Variant: the outside answer changes the truth" instant 4: `2 / 4`
++- oracle "Variant: the outside answer changes the truth" instant 5: `2 / 4`
++
++Found by the timing fuzzer on the chain4 reference desk (Solid 2.0.0-rc.21): a tab count read with `latest` showed the
++server's row count beside a list with a close in flight. Filed as solidjs/solid#4689; Solid ruled it (decision 3 in
++#4695, D-22: "a slot that is displaying a guess has the guess as its newest value"), not built yet. The variant was
++found reviewing PR #31: an earlier interpreter change let the closed row come back at instant 5 (`4 / 4`).
+diff --git a/scenarios/S-store-8.md b/scenarios/S-store-8.md
+index 75f6743..0005127 100644
+--- a/scenarios/S-store-8.md
++++ b/scenarios/S-store-8.md
+@@ -41,3 +41,37 @@ Found by an agent-written desk (round 10 baseline, desk9-rx-7): S-store-7's snap
+ which served an older frame than reads through the store: after instant 4 it still showed the declined guess (`Z+B-`),
+ so a declined write on a row stayed on screen while another write to that row was out. The snapshot is now copied by
+ reading through the store, inside `latest`, and agrees with `todos` itself.
++
++## Variant: two guesses on one key
++
++```
++export default component App() {
++  source todos key id = await fetch("todos")
++  shown = latest todos
++  action first(i) {
++    try { optimistic todos[i].title := "X"; await fetch("one") } catch {}
++  }
++  action second(i) {
++    try { optimistic todos[i].title := "Y"; await fetch("two") } catch {}
++  }
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    {loading fallback { <p>loading</p> } {
++      <ul>{for t in shown { <li>{t.title}{t.done ? "+" : "-"}</li> }}</ul>
++    }}
++  }
++}
++```
++
++Each guess lives with its own action (H-11), the newer on top. When the older is declined (instant 4) the newer
++still shows; when the newer ends with nothing authoritative in flight, the body's end corrects it by the truth at
++hand (D-35, instant 5).
++
++| instant | action                                                                                 | frame   |
++| ------- | -------------------------------------------------------------------------------------- | ------- |
++| 0       | mount                                                                                  | `loading` |
++| 1       | resolve todos [{ id: 1, title: "A", done: false }, { id: 2, title: "B", done: false }] | `A-B-`  |
++| 2       | handler `first(0)`                                                                     | `X-B-`  |
++| 3       | handler `second(0)`                                                                    | `Y-B-`  |
++| 4       | reject "one" "no"                                                                      | `Y-B-`  |
++| 5       | resolve "two" 0                                                                        | `A-B-`  |
+diff --git a/spec/05-holds.md b/spec/05-holds.md
+index 1a0a3e4..9229756 100644
+--- a/spec/05-holds.md
++++ b/spec/05-holds.md
+@@ -149,8 +149,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   it lands. A lane hold and the instant's hold are independent on both sides.
+   One reader is not held by a guess's lane: `latest x` of an optimistic
+   guess (H-11) reads ahead of the guess's held lane, as every probe reads
+-  ahead of the instant's hold. It shows the guess — after a correction, the
+-  truth — beside the lane's held readers (S-solid-35 variant instant 2:
++  ahead of the instant's hold. It shows the guess — after a correction of a
++  guess the screen never showed, the truth — beside the lane's held readers (S-solid-35 variant instant 2:
+   `1 x1 / 5`; ruled 2026-10-26 by adopting Solid's position, DV-10). A lane
+   of `latest` readers is not a guess's lane: there pending work inside it
+   still holds its probes (S-solid-24).
+@@ -199,11 +199,15 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   its answer: while an action's re-ask of it is in flight, every reader of
+   it waits for that action, a declined guess's revert included (ruled
+   2026-10-31: by design, a re-ask can touch every row). When `x`'s own question
+-  answers: an answer equal to the guess confirms silently — the held answer
++  answers — the action's re-ask or one from outside it, compared with
++  the guess, not with the truth the guess was made over (DV-19) — an
++  answer equal to the guess confirms silently — the held answer
+   is not pending (S-solid-34 instant 5); a different answer **corrects the
+-  graph now** (derivations re-derive from the truth, `latest x` is the
+-  truth, `pending? x` is `true`) while the screen keeps what it showed
+-  until the commit — and a guess the screen never showed is void
++  graph now** (derivations re-derive from the truth, `pending? x` is
++  `true`) while the screen keeps what it showed until the commit, and so do
++  effects over it (S-guess-reask-refresh) and `latest x` of a guess the
++  screen shows: a slot displaying a guess has the guess as its newest value
++  (S-latest-reask; Solid D-22, decision 3 of solidjs/solid#4695) — and a guess the screen never showed is void
+   (S-solid-33). An older question's late answer is superseded (R-4) and
+   moves nothing (S-solid-34). When the body returns and nothing
+   authoritative is in flight for `x`, the guess is corrected by the truth
+@@ -351,6 +355,28 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
+   rows. A render effect reading the rows directly follows. The spec frames
+   stand. Filed as solidjs/solid#4305; fixed on `next` 2026-10-27 (shows
+   in no scenario at `2c9fdd9`).
++- **DV-19 (`latest` of a pending guess after a re-ask) — a Solid bug,
++  ruled not built** (solidjs/solid#4689; ruled in #4695, decision 3:
++  D-22 "a slot that is displaying a guess has the guess as its newest
++  value", D-34 "the screen, untracked reads and `latest` of the displayed
++  slot keep the guess until the commit"). Found by the round 8 fuzzer on
++  the chain4 reference desk regraded on rc.21
++  (`ref/oracle/repros/dv19-latest-reask.mjs`). A re-ask from outside the
++  action lands under a shown guess and corrects the graph; Solid's
++  `latest(…)` answers the truth there, so a count read with `latest
++  issues` shows the server's rows beside a list with a close in flight.
++  S-latest-reask records `2 / 3` for `2 / 2` (and `2 / 4` in its variant)
++  on the oracle and the compiled runtime. `untrack` answers the guess
++  throughout.
++- **DV-20 (a guess read by effects alone reverts under the action's
++  refresh) — a Solid bug, reproduced 2026-11-05** (solidjs/solid#4690,
++  `ref/oracle/repros/4690-guess-reask-refresh.mjs`). With nothing
++  rendering a source and an outside re-ask landed under a pending guess,
++  an effect over it sees the old truth once the write lands, until the
++  action's re-ask answers. D-35 says the guess waits for that answer.
++  S-guess-reask-refresh's effect-only variant records it at instants 5
++  and 6; a rendered reader of the source holds the effect's view too.
++  Fixed on `next` (Ryan, 2026-11-05); recorded until the repin.
+ - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
+   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
+   `<Loading>` that has shown content, a derived store's per-key verdicts
+diff --git a/spec/08-constraints.md b/spec/08-constraints.md
+index cf80921..56ba85d 100644
+--- a/spec/08-constraints.md
++++ b/spec/08-constraints.md
+@@ -103,7 +103,8 @@ runtime check.
+   on `selected`). Checked within a component: a read through a prop in
+   another component is left to Solid's run-time report. The fix is
+   structural: move the read under the region, or read `latest x` outside
+-  it. (Ryan: "if you can make a reasonable static check we should do it";
++  it. Both show a guess the screen shows until its hold commits (H-11,
++  S-latest-reask; on Solid rc.21 `latest` does not yet, DV-19). (Ryan: "if you can make a reasonable static check we should do it";
+   found by the round 9 eval, where a tab count's effect outside the list's
+   `loading on(filter)` froze the old list on a filter switch in 39 of 82
+   `.rx` apps.) Checked by `rxc` and `ref/`.

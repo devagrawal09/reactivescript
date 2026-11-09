@@ -1,0 +1,35 @@
+derive asks list:0#1
+rows [2,3]
+derive asks list:0#2
+rows [3]
+rows [3]
+derive asks list:1#1
+[REACTIVITY_HALTED] TypeError: Cannot read properties of null (reading 'eo')
+    at resolveTx (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:246:14)
+    at txOf (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:236:21)
+    at setSignal (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:1664:43)
+    at leafSet (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:986:5)
+    at notifyKeyDiff (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1009:74)
+    at applyAdopt (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:182:48)
+    at reconcileState (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:59:5)
+    at file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:45
+    at storeSetter (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1849:13)
+    at write (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:25)
+file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:246
+    while (e.eo !== null) e = e.eo;
+             ^
+
+TypeError: Cannot read properties of null (reading 'eo')
+    at resolveTx (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:246:14)
+    at txOf (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:236:21)
+    at setSignal (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/core.js:1664:43)
+    at leafSet (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:986:5)
+    at notifyKeyDiff (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1009:74)
+    at applyAdopt (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:182:48)
+    at reconcileState (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/reconcile.js:59:5)
+    at file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:45
+    at storeSetter (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/store.js:1849:13)
+    at write (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/store/projection.js:260:25)
+
+Node.js v24.11.1
+[exit code 1]

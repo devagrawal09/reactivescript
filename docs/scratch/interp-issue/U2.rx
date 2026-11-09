@@ -1,0 +1,21 @@
+import { request } from "./api";
+
+export default component App() {
+  source n := 0;
+  source guess = n;
+  action save(amount: number) {
+    optimistic guess := value => value + amount;
+    try {
+      let got = await request(amount);
+      n := value => value + got;
+    } catch (error) {}
+  }
+  <section>
+    <button onClick={() => { save(2); }}>two</button>
+    <button onClick={() => { save(3); }}>three</button>
+    <output>{n}</output>
+  </section>
+}
+
+// Steps: mount; click two; click three; resolve request(2) with 5
+// while request(3) is still pending; resolve request(3) with 0.

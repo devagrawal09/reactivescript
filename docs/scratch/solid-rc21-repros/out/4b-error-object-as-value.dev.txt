@@ -1,0 +1,10 @@
+effect compute: m() returned 12
+effect called with 13
+effect compute: m() returned 16
+effect called with 17
+-- release action 1
+effect compute: m() returned StatusError("failed")
+effect called with "Error: failed1"
+m()         returns StatusError("failed")
+latest(m)   returns StatusError("failed")
+[exit code 0]

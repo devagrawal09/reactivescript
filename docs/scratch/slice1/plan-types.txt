@@ -1,0 +1,5 @@
+upstream/ref/compile/emit.ts(273,79): error TS2339: Property 'e' does not exist on type '{ k: "import"; names: { name: string; alias: string; }[]; from: string; pure: boolean; side?: "server" | "client" | undefined; line: number; fails?: string[] | undefined; resolved?: string | undefined; declared?: string | undefined; declaredErrors?: string[] | undefined; declaredPure?: string[] | undefined; declared...'.
+  Property 'e' does not exist on type '{ k: "import"; names: { name: string; alias: string; }[]; from: string; pure: boolean; side?: "server" | "client" | undefined; line: number; fails?: string[] | undefined; resolved?: string | undefined; declared?: string | undefined; declaredErrors?: string[] | undefined; declaredPure?: string[] | undefined; declared...'.
+upstream/ref/compile/emit.ts(393,38): error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+upstream/ref/compile/emit.ts(479,31): error TS2339: Property 'name' does not exist on type '{ k: "let"; name: string; e: Expr; type?: string | undefined; } | { k: "expr"; e: Expr; }'.
+  Property 'name' does not exist on type '{ k: "expr"; e: Expr; }'.

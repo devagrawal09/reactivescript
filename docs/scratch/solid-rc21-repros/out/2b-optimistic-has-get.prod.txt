@@ -1,0 +1,5 @@
+pass: length 3, list[2] is row 6, but (2 in list) is false
+key function called with undefined
+key function called with undefined
+key function called with undefined
+[exit code 0]

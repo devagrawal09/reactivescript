@@ -1,0 +1,36 @@
+1 <root#0><p#3><em#1>shared</em>x</p><p#4>-</p></root>
+  host.removeNode(parent #4, node #6); the node's parent is #4
+2 <root#0><p#3>x</p><p#4><em#1>shared</em></p></root>
+  host.removeNode(parent #3, node #1); the node's parent is #4
+[REACTIVITY_HALTED] An uncaught error halted the reactive system. No further updates will be processed. Handle errors with <Errored> or treat this as a crash.
+  in renderer insert Error: NotFoundError (removeChild)
+    at removeNode (file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/out/.3-universal-shared-node.dev.mjs:29:31)
+    at reconcileArrays (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:189:16)
+    at insertExpression (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:102:18)
+    at Object._effectFn (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:77:7)
+    at runEffect (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev.js:2784:30)
+    at runQueue (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:3119:54)
+    at GlobalQueue.run (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:2661:7)
+    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:2445:12)
+    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:3097:17)
+    at file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/out/.3-universal-shared-node.dev.mjs:52:16
+[REACTIVITY_HALTED] what it means and how to fix it: https://v2.solidjs.com/reference/solid-js/diagnostics/reactivity-halted
+[REACTIVITY_HALTED] agent repair guide: node_modules/solid-js/skills/reactivity-diagnostics/SKILL.md#reactivity_halted — https://github.com/solidjs/solid/blob/next/packages/solid/skills/reactivity-diagnostics/SKILL.md#reactivity_halted
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Error: NotFoundError (removeChild)
+    at removeNode (file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/out/.3-universal-shared-node.dev.mjs:29:31)
+    at reconcileArrays (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:189:16)
+    at insertExpression (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:102:18)
+    at Object._effectFn (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.dev.js:77:7)
+    at runEffect (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev.js:2784:30)
+    at runQueue (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:3119:54)
+    at GlobalQueue.run (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:2661:7)
+    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:2445:12)
+    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/dev-shared.js:3097:17)
+    at file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/out/.3-universal-shared-node.dev.mjs:52:16
+
+Node.js v24.11.1
+[exit code 1]

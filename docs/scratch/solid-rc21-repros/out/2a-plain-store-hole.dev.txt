@@ -1,0 +1,12 @@
+pass sees length 0 []
+mapped []
+pass sees length 1 [true:6]
+mapped [6]
+pass sees length 0 []
+pass sees length 1 [false:8]
+pass sees length 1 [true:9]
+key function called with undefined
+key function called with undefined
+key function called with undefined
+mapped [9]
+[exit code 0]

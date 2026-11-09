@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "name": "likes",
+      "kind": "source",
+      "seed": {
+        "op": "literal",
+        "value": 0
+      }
+    },
+    {
+      "name": "shown",
+      "kind": "optimistic",
+      "seed": {
+        "op": "read",
+        "source": "likes"
+      }
+    }
+  ],
+  "equations": [],
+  "actions": [
+    {
+      "name": "$action0",
+      "steps": [
+        {
+          "op": "optimistic",
+          "source": "shown",
+          "value": {
+            "op": "add",
+            "left": {
+              "op": "current",
+              "source": "shown"
+            },
+            "right": {
+              "op": "literal",
+              "value": 1
+            }
+          }
+        },
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "host": "save",
+              "args": [],
+              "bind": "$await0"
+            },
+            {
+              "op": "write",
+              "source": "likes",
+              "value": {
+                "op": "local",
+                "name": "$await0"
+              }
+            }
+          ],
+          "catch": []
+        }
+      ]
+    }
+  ],
+  "handlers": [
+    {
+      "name": "$handler0",
+      "action": "$action0"
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+        {
+          "name": "onClick",
+          "handler": "$handler0"
+        }
+      ],
+      "children": [
+        {
+          "kind": "text",
+          "value": {
+            "op": "read",
+            "source": "shown"
+          }
+        }
+      ]
+    }
+  ]
+}

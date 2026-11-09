@@ -1,0 +1,5 @@
+m()         throws StatusError("failed")
+latest(m)   returns undefined
+a()         throws StatusError("failed")
+latest(a)   throws StatusError("failed")
+[exit code 0]

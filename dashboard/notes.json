@@ -1,0 +1,179 @@
+{
+  "goal": "Write Solid-style code in other syntaxes (Solid TSX, solid-yield), lower it onto ReactiveScript's existing AST, and accept a program only if it behaves exactly like native Solid; refuse everything else. Direction: 'Solid' is a semantic model plus a conformance suite; syntaxes, hosts, runtimes, renderers and placement are plugins.",
+  "milestones": [
+    {
+      "name": "TSX frontend, verified subset",
+      "status": "done"
+    },
+    {
+      "name": "Async-callback refusal (#20)",
+      "status": "done"
+    },
+    {
+      "name": "Tracker demo, five legs",
+      "status": "done"
+    },
+    {
+      "name": "STALE_WRITE_BACK through TSX",
+      "status": "done"
+    },
+    {
+      "name": "Differential fuzzer (500 seeds, found #33)",
+      "status": "done"
+    },
+    {
+      "name": "Shrink to verified subset + repin fdbcad92 / rc.21",
+      "status": "done"
+    },
+    {
+      "name": "yield frontend (syntax only, $event -> handler)",
+      "status": "done"
+    },
+    {
+      "name": "PR #21 v3 published",
+      "status": "done"
+    },
+    {
+      "name": "Rust Solid runtime M1 (57.4% of 2000 seeds, 0/667 actions)",
+      "status": "paused"
+    },
+    {
+      "name": "Slice 1: like button through every layer (gate passed; Rust exact-trace fuzz 1000/1000 after the scheduler port, 147d971, pushed)",
+      "status": "done"
+    },
+    {
+      "name": "Rust tiers: 2a async 991/1000, 2b stores 1000/1000, 2c lists/Show 999/1000, strings 1000/1000 (in rust-solid/)",
+      "status": "done"
+    },
+    {
+      "name": "Rust universal renderer port (render fuzz 993/1000; every valid program agrees)",
+      "status": "done"
+    },
+    {
+      "name": "Slice 2: tracker gate passed (13 frames on native, compiled TSX/RX/yield and Rust from all three plans; host log 453/453; frontend 83/83)",
+      "status": "done"
+    },
+    {
+      "name": "Push tiers + frontend through slice 2 (4276aba on rust-solid-slice1, 7791984 on tsx-frontend-workspace, via tembo commit)",
+      "status": "done"
+    },
+    {
+      "name": "Plan fuzz: generated plans on native Solid, compiled RX, solid-plan.ts and Rust (1-1000: 861 agree, 8 RX-only, 131 refused, 0 divergent)",
+      "status": "done"
+    },
+    {
+      "name": "Slice 3: live evaluator, eval/createEval as plans on JS and Rust (eval fuzz 1-1000: 869 agree, 131 refused, 0 divergent; integrated)",
+      "status": "done"
+    },
+    {
+      "name": "Slice 4: native window (Blitz or Masonry)",
+      "status": "planned"
+    },
+    {
+      "name": "Slice 5: Rust SSR byte-identical to renderToString, hydrated by Solid in Chromium (SSR fuzz 1-1000: 869 agree, 0 HTML/hydration failures; integrated)",
+      "status": "done"
+    },
+    {
+      "name": "Integrate slices 3 and 5 into frontend-tracker/rust-tracker (frontend 106/106, cargo test 132, all fuzz summaries byte-identical)",
+      "status": "done"
+    },
+    {
+      "name": "Consolidate all project work into one branch, solid-model (frontend/, rust-solid/, docs/, dashboard/), with plan fuzz + slices 3 and 5 committed",
+      "status": "done"
+    },
+    {
+      "name": "Slice 6: inferred server components (Frames)",
+      "status": "planned"
+    }
+  ],
+  "slice1": {
+    "gate": "like.scenario.json passes unchanged on native Solid, compiled RX and Rust Solid, using the plan from each of the three syntaxes",
+    "parts": [
+      {
+        "name": "Fixtures in TSX/RX/yield, equal facts",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "Runtime-neutral scenario + format doc; frames 0→1→0→1→1",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "S-infer-1 converted",
+        "owner": "sol",
+        "status": "done"
+      },
+      {
+        "name": "Solid action-path traces",
+        "owner": "luna x3",
+        "status": "done"
+      },
+      {
+        "name": "Resolved plan + CP-6 fallback list",
+        "owner": "astra",
+        "status": "done"
+      },
+      {
+        "name": "Structural port of Solid's transition path",
+        "owner": "astra",
+        "status": "done"
+      },
+      {
+        "name": "Renderer trait + text renderer + plan evaluator",
+        "owner": "astra",
+        "status": "done"
+      },
+      {
+        "name": "Subset fuzz vs Solid JS",
+        "owner": "astra",
+        "status": "done"
+      },
+      {
+        "name": "Rust parity: structural port of Solid's scheduler paths (147d971, exact-trace fuzz 1000/1000)",
+        "owner": "background workflow",
+        "status": "done"
+      }
+    ],
+    "result": "Gate PASS: identical plans from RX/TSX/yield; Rust frames 0→1→0→1→1 = native. Subset fuzz vs Solid JS was 7/1000; after the scheduler port (147d971, pushed to rust-solid-slice1 with tembo commit) it is 1000/1000 exact-trace."
+  },
+  "agents": [],
+  "findings": [
+    "Upstream lowering is AST-driven; CP-6 facts are output-only today",
+    "Fuzzer: 454/500 agree, 46 interpreter-vs-compiler (#33), 0 frontend bugs",
+    "Non-waiting $event: no frame difference vs action; lowered to a plain handler",
+    "Solid 2 has server components (Frames, live holes); RX has none",
+    "No runtime-neutral conformance kit exists anywhere yet",
+    "rune: partial fit (no public mutable tree); Blitz or Masonry fit better",
+    "Solid's async model needs several views per node (_value, _pendingValue, lane, _shown)",
+    "Slice 1: plan needs 8 AST fallbacks; CP-6 lacks expressions, control flow, markup, locals, optimistic kind",
+    "Slice 1: a passing frame hid runtime differences (7/1000); the structural scheduler port closed them (1000/1000)",
+    "Slice 2: the plan v2 gate passes on Rust; plans are now fuzzed (plan fuzz), but the tracker scenario still skips a filter toggle during a pending claim, two claims on one row, a store change under a live guess, non-overlapping transactions",
+    "Suspected Solid rc.21 bug: take(n, l, true) leaves CONFIG_HELD set, so the next txOf throws (not filed)",
+    "Suspected Solid rc.21 bug: a store array's has/get disagree and hand mapArray an undefined row (not filed)",
+    "Suspected Solid rc.21 bug: universal reconcileArrays removes a node without an isLive check (universal.ts:313, map-fallback removal) (not filed)",
+    "Suspected Solid rc.21 bug: slice 2a non-scalar values (undefined / error objects) and seed 629, a held error read back as a plain value (not filed)",
+    "Eval (slice 3, built): eval / createEval with explicit bindings typed from the checked enclosing component; keyed Show semantics; typed EvalRefused for Errored; the plan as the evaluation IR on JS and Rust; preserve, place and yield syntax refused (deferred)",
+    "Environment: Tembo sandbox; the working copy is /workspace/rx-tsx-refresh/solid-model (branch solid-model); git push fails (HTTP 500), tembo commit works but can't create a branch (the user creates new branches on GitHub, then tembo commit fills them); collect.mjs reads paths relative to the repository",
+    "Slice 5: a plan cannot tell {n()} from {\"\" + n()}, which Solid SSR keys differently; Rust renders the canonical twin, so idiomatic tracker.tsx hydration keys differ (_hk=8000 vs 7000)",
+    "Slice 5: async server data is not expressible in plan v2 (no async source or Loading); Rust hydration, renderToStream and attributes are not ported",
+    "Integration: slice 3's plan v2 eval forms broke slice 5's exhaustive server lowering; the server renderer now refuses eval sites with a diagnostic",
+    "--slice2c with reduction crashes reducing seed 493 (known store-hole Solid bug throws uncaught); recorded summaries use --no-reduce"
+  ],
+  "parked": [
+    "Generative UI on top of the live evaluator (primitive built in slice 3; place deferred)",
+    "Placement inference",
+    "solid-yield P/E/W/R type cross-check",
+    "Triage of 15 Solid JS hangs in rust-solid fuzz"
+  ],
+  "decisions": [
+    "File the Solid rc.21 issue (draft local in docs/scratch/solid-rc21-issues.md)?",
+    "SSR canonical twin: accept it, or record a hole's TSX spelling in the plan?",
+    "Eval follow-ups first: preserve, place, yield syntax, Errored in Rust, or eval on the server?",
+    "Next slice: native window (4), async server data, Rust hydration, or server components (6)?",
+    "Pull ~/solid: fork next or official next? (3 untracked dirs)",
+    "Server wire/hydration research pass",
+    "Architecture issue scope"
+  ],
+  "next": "Slices 3 (live evaluator) and 5 (Rust SSR + Solid hydration) are integrated and, with everything else, consolidated into one branch, solid-model (frontend/ and rust-solid/; the old branches are not deleted yet, the user will delete them on GitHub after verification): frontend 106/106, cargo test 132, plan/eval/SSR fuzz and all six Rust fuzz summaries on 1-1000 byte-identical. Decide: file the Solid issue, and pick the next slice."
+}

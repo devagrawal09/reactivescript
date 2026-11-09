@@ -1,0 +1,1103 @@
+PASS S-action-1
+  ✓ Frames instant 0: 2 items / / 0
+  ✓ Frames instant 1: 0 items / / 0
+  ✓ Frames instant 2: 2 items / failed: declined / 100
+  ✓ Variant: a panic ends the body — the held writes still commit instant 0: 2 items /
+  ✓ Variant: a panic ends the body — the held writes still commit instant 1: 0 items /
+  ✓ Variant: a panic ends the body — the held writes still commit instant 2: 2 items / placing
+  ✓ Variant: throw caught in a plain handler instant 1: boom
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action placeOrder can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action placeOrder can fail with Declined and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+PASS S-action-2
+  ✓ Frames instant 0: Ann
+  ✓ Frames instant 1: Bob
+  ✓ Frames instant 2: Bob
+  ✓ Frames instant 3: Bob
+  ✓ Frames instant 4: Bob confirmed
+  ✓ Variant: the condition already holds instant 0: Ann
+  ✓ Variant: the condition already holds instant 1: Ann
+  ✓ Variant: the condition already holds instant 2: Ann confirmed
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (AC-6) line 3: until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited
+  ✓ rejected(UNTIL_PREDICATE): UNTIL_PREDICATE (AC-6) line 3: until takes a predicate, `until(() => e)`: a value would be read once and never change
+  ✓ rejected(REACTIVE_WRITE_IN_OWNED_SCOPE): REACTIVE_WRITE_IN_OWNED_SCOPE (W-2) line 3: a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action wait can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+PASS S-ai-feed
+  ✓ Frames instant 0: rooms…send  [log(count, 0)]
+  ✓ Frames instant 1: general * random - send
+  ✓ Frames instant 2: general * random - ann: hello bob: hey send  [log(count, 2)]
+  ✓ Frames instant 3: general * random - ann: hello bob: hey hityping…send
+  ✓ Frames instant 4: general * random - ann: hello bob: hey me: hi sending…  [log(count, 3)]
+  ✓ Frames instant 5: general * random - ann: hello bob: hey me: hi sending…
+  ✓ Frames instant 6: general * random - ann: hello bob: hey me: hi send
+  ✓ Frames instant 7: general - random * loading…send
+  ✓ Frames instant 8: general - random * cat: yo send  [log(count, 1)]
+  ✓ Frames instant 9: general - random * cat: yo send
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 0: rooms…send  [log(count, 0)]
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 1: general * random - send
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 2: general * random - ann: hello bob: hey send  [log(count, 2)]
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 3: general * random - ann: hello bob: hey hityping…send
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 4: general * random - ann: hello bob: hey me: hi sending…  [log(count, 3)]
+  ✓ Variant: the send rejects — the guesses revert, the catch reports instant 5: general * random - ann: hello bob: hey hityping…sendboom  [log(count, 2)]
+  ✓ rejected(OPTIMISTIC_NO_QUESTION): OPTIMISTIC_NO_QUESTION (AC-3) line 3: selected is declared with := — a guess needs a question to confirm it (source selected = …, ST-5c)
+  ✓ rejected(RG-7b): CONTEXT_NOT_FOUND (RG-7b) line 3: use room (in <Room>) (in <App>): no provision of room (declared in feed.rx) above this region on any path that renders it
+PASS S-ai-grid
+  ✓ Frames instant 0: 0 selectedname*ageLoading page 1…prevnext  [log(sel, 0)]
+  ✓ Frames instant 1: 0 selectedname*ageready[ ] ann (30)[ ] bob (25)Page 1 of 3 (5 rows)prevnext
+  ✓ Frames instant 2: 0 selectedname*ageready[ ] bob (25)Page 1 of 3 (5 rows)prevnext
+  ✓ Frames instant 3: 1 selectedname*ageready[x] bob (25)Page 1 of 3 (5 rows)prevnext  [log(sel, 1)]
+  ✓ Frames instant 4: 1 selectedname*ageready[ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows)prevnext
+  ✓ Frames instant 5: 1 selectednameage*updating[ ] ann (30)[x] bob (25)Page 1 of 3 (5 rows)prevnext
+  ✓ Frames instant 6: 1 selectednameage*ready[x] bob (25)[ ] ann (30)Page 1 of 3 (5 rows)prevnext
+  ✓ Frames instant 7: 1 selectednameage*Loading page 2…prevnext
+  ✓ Frames instant 8: 1 selectednameage*ready[ ] cat (40)[ ] dan (35)Page 2 of 3 (5 rows)prevnext
+  ✓ Frames instant 9: 2 selectednameage*ready[x] cat (40)[ ] dan (35)Page 2 of 3 (5 rows)prevnext  [log(sel, 2)]
+  ✓ Frames instant 10: 2 selectednameage*ready[x] cat (40)[ ] dan (35)Page 2 of 2 (5 rows)prevnext
+PASS S-ai-wizard
+  ✓ Frames instant 0: Step 1 of 3 (reached 1)next  [log(enter, 1)]
+  ✓ Frames instant 1: Step 1 of 3 (reached 1)name requirednext
+  ✓ Frames instant 2: Step 1 of 3 (reached 1)next
+  ✓ Frames instant 3: Step 2 of 3 (reached 2)email: (invalid)backnext  [log(leave, 1); log(enter, 2)]
+  ✓ Frames instant 4: Step 2 of 3 (reached 2)email: ann@x.io backnext
+  ✓ Frames instant 5: Step 3 of 3 (reached 3)Ann / ann@x.io / no planproagreebacksubmit  [log(leave, 2); log(enter, 3)]
+  ✓ Frames instant 6: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit
+  ✓ Frames instant 7: Step 2 of 3 (reached 3)email: ann@x.io backnext  [log(leave, 3); log(enter, 2)]
+  ✓ Frames instant 8: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreebacksubmit  [log(leave, 2); log(enter, 3)]
+  ✓ Frames instant 9: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit
+  ✓ Frames instant 10: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitsubmitting
+  ✓ Frames instant 11: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitfailed: boom
+  ✓ Variant: the submit resolves instant 0: Step 1 of 3 (reached 1)next  [log(enter, 1)]
+  ✓ Variant: the submit resolves instant 1: Step 1 of 3 (reached 1)name requirednext
+  ✓ Variant: the submit resolves instant 2: Step 1 of 3 (reached 1)next
+  ✓ Variant: the submit resolves instant 3: Step 2 of 3 (reached 2)email: (invalid)backnext  [log(leave, 1); log(enter, 2)]
+  ✓ Variant: the submit resolves instant 4: Step 2 of 3 (reached 2)email: ann@x.io backnext
+  ✓ Variant: the submit resolves instant 5: Step 3 of 3 (reached 3)Ann / ann@x.io / no planproagreebacksubmit  [log(leave, 2); log(enter, 3)]
+  ✓ Variant: the submit resolves instant 6: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit
+  ✓ Variant: the submit resolves instant 7: Step 2 of 3 (reached 3)email: ann@x.io backnext  [log(leave, 3); log(enter, 2)]
+  ✓ Variant: the submit resolves instant 8: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreebacksubmit  [log(leave, 2); log(enter, 3)]
+  ✓ Variant: the submit resolves instant 9: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmit
+  ✓ Variant: the submit resolves instant 10: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitsubmitting
+  ✓ Variant: the submit resolves instant 11: Step 3 of 3 (reached 3)Ann / ann@x.io / proproagreedbacksubmitdone #42
+PASS S-ai2-search
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: pick a result
+  ✓ Frames instant 1: too short: a pick a result
+  ✓ Frames instant 2: searching… too short: a pick a result
+  ✓ Frames instant 3: 2 results for ap apple apricot pick a result
+  ✓ Frames instant 4: searching… 2 results for app apple apricot pick a result
+  ✓ Frames instant 5: 3 results for app apple applesauce apple pie pick a result
+  ✓ Frames instant 6: 3 results for app apple applesauce > apple pie loading…
+  ✓ Frames instant 7: 3 results for app apple applesauce > apple pie item 4 not found
+  ✓ Frames instant 8: 3 results for app apple > applesauce apple pie loading…
+  ✓ Frames instant 9: 3 results for app apple > applesauce apple pie failed: timeout retry
+  ✓ Frames instant 10: 3 results for app apple > applesauce apple pie failed: timeout retry
+  ✓ Frames instant 11: 3 results for app apple > applesauce apple pie applesauce stewed apples
+PASS S-ai2-settings
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: Settings [comfortable] Loading settings…
+  ✓ Frames instant 1: Settings [comfortable] Could not load settings: network down Retry
+  ✓ Frames instant 2: Settings [comfortable] Could not load settings: network down Retry
+  ✓ Frames instant 3: Saved: Ann · light · compact Profile [compact] Display name 3/20 Appearance [compact] Theme: light light dark Toggle density Preview: light / compact Save
+  ✓ Frames instant 4: Saved: Ann · light · compact Profile [compact] Display name 0/20 Display name is required Appearance [compact] Theme: light light dark Toggle density Preview: light / compact Save
+  ✓ Frames instant 5: Saved: Ann · light · compact Profile [compact] Display name 27/20 Display name must be at most 20 characters, not 27 Appearance [compact] Theme: light light dark Toggle density Preview: light / compact Save
+  ✓ Frames instant 6: Saved: Ann · light · compact Profile [compact] Display name 3/20 Appearance [compact] Theme: dark light dark Toggle density Preview: dark / compact Save
+  ✓ Frames instant 7: Saved: Bea · dark · compact (saving…) Profile [compact] Display name 3/20 Appearance [compact] Theme: dark light dark Toggle density Preview: dark / compact Save
+  ✓ Frames instant 8: Saved: Ann · light · compact Save failed: quota exceeded Profile [compact] Display name 3/20 Appearance [compact] Theme: dark light dark Toggle density Preview: dark / compact Save
+  ✓ Frames instant 9: Saved: Ann · light · compact Save failed: quota exceeded Profile [comfortable] Display name 3/20 Appearance [comfortable] Theme: dark light dark Toggle density Preview: dark / comfortable Save
+  ✓ Frames instant 10: Saved: Bea · dark · comfortable (saving…) Profile [comfortable] Display name 3/20 Appearance [comfortable] Theme: dark light dark Toggle density Preview: dark / comfortable Save
+  ✓ Frames instant 11: Saved: Bea · dark · comfortable Profile [comfortable] Display name 3/20 Appearance [comfortable] Theme: dark light dark Toggle density Preview: dark / comfortable Save
+PASS S-ai2-tracker
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: open closed loading open issues / select an issue
+  ✓ Frames instant 1: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / select an issue
+  ✓ Frames instant 2: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / loading #3 retry assign to guest
+  ✓ Frames instant 3: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / detail error: issue #3 not found retry assign to guest
+  ✓ Frames instant 4: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / detail error: issue #3 not found retry assign to guest
+  ✓ Frames instant 5: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / #3 Crash on save stack trace attached retry assign to guest
+  ✓ Frames instant 6: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / #3 Crash on save stack trace attached retry assign to ann
+  ✓ Frames instant 7: open closed #1 Login fails (unassigned) #3 Crash on save (ann) #4 Typo in footer (dana) / #3 Crash on save stack trace attached retry assign to ann
+  ✓ Frames instant 8: open closed #1 Login fails (unassigned) #3 Crash on save (unassigned) #4 Typo in footer (dana) / #3 Crash on save stack trace attached retry assign to ann declined
+  ✓ Frames instant 9: open closed loading closed issues / #3 Crash on save stack trace attached retry assign to ann declined
+  ✓ Frames instant 10: open closed list error: timeout / #3 Crash on save stack trace attached retry assign to ann declined
+  ✓ Frames instant 11: open closed list error: timeout / loading #1 retry assign to ann
+PASS S-app-cart
+  ✓ Frames instant 0: Cart (0)Coupon Subtotal 0Total 0Checkout
+  ✓ Frames instant 1: Cart (0)Tea4-0+Mug10-0+Coupon Subtotal 0Total 0Checkout
+  ✓ Frames instant 2: Cart (2)Tea4-2+Mug10-0+Coupon Subtotal 8Total 8Checkout
+  ✓ Frames instant 3: Cart (3)Tea4-2+Mug10-1+Coupon Subtotal 18Total 18Checkout
+  ✓ Frames instant 4: Cart (3)Tea4-2+Mug10-1+Coupon checking…Subtotal 18Total 18Checkout
+  ✓ Frames instant 5: Cart (3)Tea4-2+Mug10-1+Coupon -10%Subtotal 18Total 16.2Checkout
+  ✓ Frames instant 6: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutPlacing order…
+  ✓ Frames instant 7: Cart (3)Tea4-2+Mug10-1+Coupon -10%Subtotal 18Total 16.2CheckoutFailed: declined
+  ✓ Frames instant 8: Cart (2)Tea4-2+Mug10-0+Coupon -10%Subtotal 8Total 7.2CheckoutFailed: declined
+  ✓ Frames instant 9: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutPlacing order…
+  ✓ Frames instant 10: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutOrder #77 placed
+PASS S-app-notes
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: widesearching…
+  ✓ Frames instant 1: wideGroceries10-01Ideas10-20
+  ✓ Frames instant 2: widesearching…
+  ✓ Frames instant 3: wideIdeas10-20
+  ✓ Frames instant 4: backwideopening…
+  ✓ Frames instant 5: backwidesave
+  ✓ Frames instant 6: backwidea note needs a titlesave
+  ✓ Frames instant 7: backwidesave
+  ✓ Frames instant 8: backwidesave
+  ✓ Frames instant 9: backwidesomeone else saved first: rev 7save
+  ✓ Frames instant 10: wideIdeas10-20
+  ✓ Frames instant 11: narrowIdeas10-20
+PASS S-app-shop
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: Cart (0)Coupon Subtotal 0Total 0Checkout
+  ✓ Frames instant 1: Cart (0)Tea4-0+Mug10-0+Coupon Subtotal 0Total 0Checkout
+  ✓ Frames instant 2: Cart (2)Tea4-2+Mug10-0+Coupon Subtotal 8Total 8Checkout
+  ✓ Frames instant 3: Cart (3)Tea4-2+Mug10-1+Coupon Subtotal 18Total 18Checkout
+  ✓ Frames instant 4: Cart (3)Tea4-2+Mug10-1+Coupon checking…Subtotal 18Total 18Checkout
+  ✓ Frames instant 5: Cart (3)Tea4-2+Mug10-1+Coupon -10%Subtotal 18Total 16.2Checkout
+  ✓ Frames instant 6: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutPlacing order…
+  ✓ Frames instant 7: Cart (3)Tea4-2+Mug10-1+Coupon -10%Subtotal 18Total 16.2CheckoutFailed: declined
+  ✓ Frames instant 8: Cart (2)Tea4-2+Mug10-0+Coupon -10%Subtotal 8Total 7.2CheckoutFailed: declined
+  ✓ Frames instant 9: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutPlacing order…
+  ✓ Frames instant 10: Cart (0)Tea4-0+Mug10-0+Coupon -10%Subtotal 0Total 0CheckoutOrder #77 placed
+PASS S-app-signup
+  ✓ Frames instant 0: UsernameEmailPasswordSign up
+  ✓ Frames instant 1: UsernamerequiredEmailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 2: Usernameat least 3 charactersEmailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 3: Usernamechecking…Emailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 4: Usernamealready takenEmailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 5: Usernamechecking…already takenEmailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 6: UsernameEmailnot an emailPasswordat least 8 charactersSign up
+  ✓ Frames instant 7: UsernameEmailPasswordat least 8 charactersSign up
+  ✓ Frames instant 8: UsernameEmailPasswordSign up
+  ✓ Frames instant 9: UsernameEmailPasswordSign up
+  ✓ Frames instant 10: UsernameEmailPasswordSign upwelcome
+PASS S-app-todo
+  ✓ Frames instant 0: Add0 leftallopendone
+  ✓ Frames instant 1: Add0 leftallopendone
+  ✓ Frames instant 2: Addwrite spec×1 leftallopendone
+  ✓ Frames instant 3: Addwrite spec×1 leftallopendone
+  ✓ Frames instant 4: Addwrite spec×lex×2 leftallopendone
+  ✓ Frames instant 5: Addwrite spec×lex×1 leftallopendone
+  ✓ Frames instant 6: Addlex×1 leftallopendone
+  ✓ Frames instant 7: Add0 leftallopendone
+  ✓ Frames instant 8: Addwrite spec×0 leftallopendone
+PASS S-app-todos
+  ✓ Frames instant 0: loading…
+  ✓ Frames instant 1: milk×1 leftallactivedone
+  ✓ Frames instant 2: milk×eggs…×2 leftallactivedone
+  ✓ Frames instant 3: milk…×eggs…×1 leftallactivedoneclear done
+  ✓ Frames instant 4: milk…×eggs…×1 leftallactivedoneclear done
+  ✓ Frames instant 5: milk…×eggs…×1 leftallactivedoneclear done
+  ✓ Frames instant 6: milkretry toggle×eggs×2 leftallactivedone
+  ✓ Frames instant 7: milkretry toggle×1 leftallactivedone
+  ✓ Frames instant 8: milkretry toggle×1 leftallactivedone
+  ✓ Frames instant 9: milkretry toggle×eggsretry remove×2 leftallactivedone
+  ✓ Frames instant 10: 2 leftallactivedone
+PASS S-app-users
+  ✓ Frames instant 0: 0 usersNext page (1)
+  ✓ Frames instant 1: 2 users1Anna@x2Bobb@xNext page (1)
+  ✓ Frames instant 2: 2 users1a@x2Bobb@xNext page (1)
+  ✓ Frames instant 3: 2 users1Annea@x2Bobb@xNext page (1)
+  ✓ Frames instant 4: 2 users1Annea@x2Bobb@xNext page (1)
+  ✓ Frames instant 5: loading…1Annea@x2Bobb@xNext page (2)
+  ✓ Frames instant 6: 1 users3Cyc@xNext page (2)
+  ✓ Frames instant 7: loading…Searching…Next page (1)
+  ✓ Frames instant 8: 1 users3Cyc@xNext page (1)
+PASS S-await-1
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: …
+  ✓ Frames instant 2: a b -
+  ✓ Frames instant 3: a b -
+  ✓ Frames instant 4: a b - got none
+  ✓ Frames instant 5: a b - got none
+  ✓ Frames instant 6: a b c got none
+  ✓ Variant: a typed catch passes other classes to the `try` around it instant 0: 
+  ✓ Variant: a typed catch passes other classes to the `try` around it instant 1: 
+  ✓ Variant: a typed catch passes other classes to the `try` around it instant 2: failed: no
+  ✓ rejected(AWAIT_IN_EXPRESSION): AWAIT_IN_EXPRESSION (AC-1) line 3: `await fetch(…)` inside an expression of imperative scope: a run suspends only at a statement — bind it first, `let v = await fetch(…)` (a `catch (e) => alt` may follow it)
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action place can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+PASS S-check-1
+  ✓ Frames instant 0: P41:02:01 2 0
+  ✓ Frames instant 1: P41:02:01 2 0
+  ✓ Frames instant 2: P41:02:01 2 1
+  ✓ rejected(DUPLICATE_DECLARATION): DUPLICATE_DECLARATION (E-7) line 3: x is declared twice in one block
+  ✓ rejected(CYCLE): CYCLE (C-1) line 3: instantaneous cycle: a → b → a (break it with `pre`, C-2)
+  ✓ rejected(CYCLE): CYCLE (C-1) line 3: instantaneous cycle: a → b → a (break it with `pre`, C-2)
+  ✓ rejected(PRE_OF_NON_REACTIVE): PRE_OF_NON_REACTIVE (C-2) line 3: pre of f, which is not reactive
+  ✓ rejected(ROW_NARROWER_THAN_INFERRED): ROW_NARROWER_THAN_INFERRED (CN-4a) line 3: user is declared `lane` but its value is also `pending`
+  ✓ rejected(UNBOUND): UNBOUND (SCOPE) line 1: caption is not declared here (a component sees its declaration site, not its caller — RG-7a)
+  ✓ rejected(UNKNOWN_COMPONENT): UNKNOWN_COMPONENT (RG-4a) line 2: <Nope> is not a component declared here
+  ✓ rejected(ACTION_CALLED_IN_OWNED_SCOPE): ACTION_CALLED_IN_OWNED_SCOPE (IO-2) line 4: bump(…) is io and is called in reactive scope (R-io-3)
+  ✓ rejected(IO_IN_FN): IO_IN_FN (R-io-2) line 3: log(…) is io; a fn is pure by definition
+  ✓ rejected(REACTIVE_WRITE_IN_OWNED_SCOPE): REACTIVE_WRITE_IN_OWNED_SCOPE (W-2) line 3: a statement-bodied closure in reactive scope (SC-3: a closure created here is a pure function)
+  ✓ rejected(ASYNC_STORE_SETTER): ASYNC_STORE_SETTER (ST-3b) line 3: refresh in a draft block: it is reactive scope (only let, expressions and writes to d)
+  ✓ rejected(WRITE_TO_NON_SOURCE): WRITE_TO_NON_SOURCE (W-1) line 5: double is an equation: only sources are written (W-1)
+  ✓ rejected(OPTIMISTIC_OUTSIDE_HOLD): OPTIMISTIC_OUTSIDE_HOLD (AC-3) line 4: optimistic outside an action: a guess needs a hold to live in — an apply block is never an action (its return is the cleanup, EF-5): declare one, `action save(v) { optimistic … }`, and call it from the block
+  ✓ rejected(OPTIMISTIC_NO_QUESTION): OPTIMISTIC_NO_QUESTION (AC-3) line 3: shown is declared with := — a guess needs a question to confirm it (source shown = …, ST-5c)
+  ✓ rejected(INVALID_REFRESH_TARGET): INVALID_REFRESH_TARGET (AC-4) line 4: base has no question to re-ask
+  ✓ rejected(INVALID_AFFECTS_TARGET): INVALID_AFFECTS_TARGET (AC-5) line 2: n is not reactive
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 7: a closure capturing hits (declared in a region that ends sooner) is stored into handlers, which outlives it
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 7: a closure capturing n (declared in a region that ends sooner) is stored into handlers, which outlives it
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 11: a closure capturing an instance of counter (declared in a region that ends sooner) is stored into handlers, which outlives it
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 8: a closure capturing hits (declared in a region that ends sooner) is stored into handlers, which outlives it
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 11: <Item onFocus={…}>: the closure passed captures hits (declared in a region that ends sooner), and Item stores onFocus (itself, or through a component it passes it to) where it outlives it
+  ✓ rejected(CONTEXT_NOT_FOUND): CONTEXT_NOT_FOUND (RG-7b) line 6: use panel (in <Badge>) (in <App>): no provision of panel (declared in main.rx) above this region on any path that renders it
+PASS S-check-2
+  ✓ Frames instant 0: 0  [log(0)]
+  ✓ Frames instant 1: 5  [log(5)]
+  ✓ Frames instant 2: 0  [log(0)]
+  ✓ rejected(EFFECT_WRITES_OWN_SOURCE): EFFECT_WRITES_OWN_SOURCE (C-3) line 3: the apply block writes count, which its compute half reads (count): a loop across instants — derive it as an equation, or as `source count = …` (ST-5), or write it from the event that changes the inputs
+  ✓ rejected(EFFECT_WRITES_OWN_SOURCE): EFFECT_WRITES_OWN_SOURCE (C-3) line 5: the apply block writes selected, which its compute half reads (valid → selected): a loop across instants — derive it as an equation, or as `source selected = …` (ST-5), or write it from the event that changes the inputs
+  ✓ rejected(EFFECT_WRITES_OWN_SOURCE): EFFECT_WRITES_OWN_SOURCE (C-3) line 3: the apply block writes n, which its compute half reads (n): a loop across instants — derive it as an equation, or as `source n = …` (ST-5), or write it from the event that changes the inputs
+PASS S-context-1
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(CONTEXT_NOT_FOUND): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(ROW_NARROWER_THAN_INFERRED): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(WRITE_TO_NON_SOURCE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(CONTEXT_AS_VALUE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: light/blue dark/blue
+  ✓ Frames instant 1: light/blue dim/blue
+  ✓ rejected(CONTEXT_NOT_FOUND): CONTEXT_NOT_FOUND (RG-7b) line 3: use accent (in <Label>) (in <App>): no provision of accent (declared in theme.rx) above this region on any path that renders it
+  ✓ rejected(ROW_NARROWER_THAN_INFERRED): ROW_NARROWER_THAN_INFERRED (RG-7e) line 2: context accent is declared without `pending`, but this provision is pending
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 5: a reader of use who (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(WRITE_TO_NON_SOURCE): WRITE_TO_NON_SOURCE (O-4) line 5: context accent is read beneath its provision: call an action it provides that writes it (O-4)
+  ✓ rejected(SOURCE_CONTEXT): SOURCE_CONTEXT (O-4) line 1: context picked: source … is withdrawn (RG-7c, 2026-10-31): what is provided is read beneath it — provide the writes you allow, as actions (`context picked: { current: T; set: (v: T) => void }`)
+  ✓ rejected(NOT_A_CONTEXT): NOT_A_CONTEXT (RG-7) line 3: picked is a source, not a context: `provide` and `use` name a `context` declaration
+  ✓ rejected(CONTEXT_AS_VALUE): CONTEXT_AS_VALUE (RG-7) line 4: context theme used as a value: read the nearest provision with `use theme`
+PASS S-core-1
+  ✓ Frames instant 0: 0 prev 0  [log(0)]
+  ✓ Frames instant 1: 2 prev 0  [log(2)]
+  ✓ Frames instant 2: 2 prev 0
+  ✓ Frames instant 3: 14 prev 2  [log(14)]
+  ✓ Frames instant 4: - prev 2
+  ✓ Frames instant 5: - prev 14  [log(16)]
+  ✓ Variant: no effect (`double` undemanded while `show` is false) instant 4: - prev 2
+  ✓ Variant: no effect (`double` undemanded while `show` is false) instant 5: - prev 14
+  ✓ rejected(W-1): WRITE_TO_NON_SOURCE (W-1) line 3: double is an equation: only sources are written (W-1)
+  ✓ rejected(W-2): main.rx: line 2: W-2: write in reactive scope (no statement position) near '
+'
+  ✓ rejected(C-1): CYCLE (C-1) line 3: instantaneous cycle: a → b → a (break it with `pre`, C-2)
+PASS S-effect-store-1
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: AC  [log(A,C)]
+  ✓ Frames instant 2: xC  [log(x,C)]
+  ✓ Frames instant 3: xC
+  ✓ Frames instant 4: BC  [log(B,C)]
+PASS S-effect-store-2
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: 3  [log(3)]
+  ✓ Frames instant 2: 3
+  ✓ Frames instant 3: error  [log(none)]
+  ✓ Frames instant 4: error
+  ✓ Frames instant 5: 2  [log(2)]
+  ✓ Variant: the first answer fails instant 0: loading
+  ✓ Variant: the first answer fails instant 1: error  [log(none)]
+  ✓ Variant: the first answer fails instant 2: error
+  ✓ Variant: the first answer fails instant 3: 2  [log(2)]
+PASS S-fail-1
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: #1 Ann
+  ✓ Frames instant 2: #1 Ann
+  ✓ Frames instant 3: #2 (nobody)
+  ✓ Frames instant 4: #0 bad id 0
+  ✓ Frames instant 5: #3 bad id 0
+  ✓ Frames instant 6: down: offline
+  ✓ Frames instant 7: down: offline
+  ✓ Frames instant 8: #4 Dee
+  ✓ Variant: a boundary that lists `Error` takes everything instant 0: 
+  ✓ Variant: a boundary that lists `Error` takes everything instant 1: Ann
+  ✓ Variant: a boundary that lists `Error` takes everything instant 2: down: bad id 0
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 10: a reader of name catch … (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 9: a reader of name (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(NOT_AN_ERROR_CLASS): NOT_AN_ERROR_CLASS (R-f-1) line 5: Missing is not an error class (declare it: `error Missing(…)`)
+  ✓ rejected(ROW_NARROWER_THAN_INFERRED): ROW_NARROWER_THAN_INFERRED (CN-4a) line 4: name is declared `pending fails(NotFound)` but its value also fails with Error
+PASS S-fail-2
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: xxxy
+  ✓ Frames instant 3: xxxy
+  ✓ Frames instant 4: unavailable-missing none
+  ✓ Frames instant 5: unavailable-missing none
+  ✓ Frames instant 6: unavailable-missing none
+  ✓ Frames instant 7: zzzq
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 9: a reader of value (in <App>) can fail with Missing and no catch or errored boundary above it discharges Missing — wrap it in `errored fallback(e: Missing) { … } { … }`, or catch it: `… catch (e: Missing) => …`
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 9: a reader of <Panel body={…}> (in <App>) can fail with Missing and no catch or errored boundary above it discharges Missing — wrap it in `errored fallback(e: Missing) { … } { … }`, or catch it: `… catch (e: Missing) => …`
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 9: a reader of <Line text={…}> (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 9: action go in <Btn> reads props.v, which can fail with Error here (line 9), and does not catch it
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action save can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+PASS S-fail-3
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: ok detail failed: timeout
+  ✓ Frames instant 2: crashed: corrupt input
+  ✓ Frames instant 3: fine detail failed: timeout
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 6: a reader of detail (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+PASS S-fail-4
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: list failed: downLogin
+PASS S-flush-1
+  ✓ Frames instant 0: menu:loading
+  ✓ Frames instant 1: menu:A
+  ✓ Frames instant 2: menu:A
+  ✓ Frames instant 3: closed:A
+  ✓ Frames instant 4: closed:B
+  ✓ Variant: one run, one hold instant 0: menu:loading
+  ✓ Variant: one run, one hold instant 1: menu:A
+  ✓ Variant: one run, one hold instant 2: menu:A
+  ✓ Variant: one run, one hold instant 3: closed:B
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (EF-8) line 3: onFlush(…) is called from imperative scope (a handler, an apply block, an action): it starts a run of its own after this flush
+  ✓ rejected(HOOK_CALLBACK): HOOK_CALLBACK (EF-8) line 3: onFlush takes a closure, `onFlush(() => { … })`: its body is the run it schedules
+PASS S-hold-1
+  ✓ Frames instant 0: sel:aloading
+  ✓ Frames instant 1: sel:aA false
+  ✓ Frames instant 2: sel:bA true
+  ✓ Frames instant 3: sel:bB false
+  ✓ warn(ASYNC_OUTSIDE_LOADING_BOUNDARY): ASYNC_OUTSIDE_LOADING_BOUNDARY: reader is pending at mount with no loading boundary; the mount is held
+PASS S-hold-2
+  ✓ Frames instant 0: q1skel
+  ✓ Frames instant 1: q1skel
+  ✓ Frames instant 2: q1skel
+  ✓ Frames instant 3: q11 2 3
+  ✓ Frames instant 4: q21 2 3
+  ✓ Frames instant 5: q21 2 3
+  ✓ Frames instant 6: q21 2 3
+  ✓ Frames instant 7: q210 20 30
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 0: q1skelaskel
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 1: q1skelaskel
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 2: q11 2askel
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 3: q11 23
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 4: q21 23
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 5: q21 23
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 6: q210 20askel
+  ✓ Variant: the audit panel takes its own skeleton with `on` instant 7: q210 2030
+  ✓ Variant: audit lands first — its skeleton is never seen instant 0: q1skelaskel
+  ✓ Variant: audit lands first — its skeleton is never seen instant 1: q1skelaskel
+  ✓ Variant: audit lands first — its skeleton is never seen instant 2: q11 2askel
+  ✓ Variant: audit lands first — its skeleton is never seen instant 3: q11 23
+  ✓ Variant: audit lands first — its skeleton is never seen instant 4: q21 23
+  ✓ Variant: audit lands first — its skeleton is never seen instant 5: q21 23
+  ✓ Variant: audit lands first — its skeleton is never seen instant 6: q21 23
+  ✓ Variant: audit lands first — its skeleton is never seen instant 7: q210 2030
+PASS S-hold-3
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: A 0
+  ✓ Frames instant 2: A 0
+  ✓ Frames instant 3: A 1
+  ✓ Frames instant 4: B 1
+  ✓ Variant: superseded flight instant 0: 
+  ✓ Variant: superseded flight instant 1: A
+  ✓ Variant: superseded flight instant 2: A
+  ✓ Variant: superseded flight instant 3: A
+  ✓ Variant: superseded flight instant 4: A
+  ✓ Variant: superseded flight instant 5: C
+PASS S-hold-4
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: A pa
+  ✓ Frames instant 3: A pa
+  ✓ Frames instant 4: A pb
+  ✓ Frames instant 5: B pb
+PASS S-hold-5
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: failed
+  ✓ Frames instant 2: failed
+  ✓ Frames instant 3: B
+PASS S-hold-6
+  ✓ Frames instant 0: loading…
+  ✓ Frames instant 1: item 4 not found
+  ✓ Frames instant 2: loading…
+  ✓ Frames instant 3: pear
+PASS S-infer-1
+  ✓ Frames instant 0: no
+  ✓ Frames instant 1: yes
+  ✓ Frames instant 2: yes
+  ✓ Variant: the server declines instant 0: no
+  ✓ Variant: the server declines instant 1: yes
+  ✓ Variant: the server declines instant 2: no offline
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 3: action inferred here (AC-1b: it has `optimistic`) can fail with Error and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+  ✓ rejected(OPTIMISTIC_OUTSIDE_HOLD): OPTIMISTIC_OUTSIDE_HOLD (AC-3) line 4: optimistic outside an action: a guess needs a hold to live in — an apply block is never an action (its return is the cleanup, EF-5): declare one, `action save(v) { optimistic … }`, and call it from the block
+PASS S-infer-2
+  ✓ Frames instant 0: status:
+  ✓ Frames instant 1: status:
+  ✓ Frames instant 2: status: saving
+  ✓ Frames instant 3: status: ok
+  ✓ Variant: held on purpose instant 0: status:
+  ✓ Variant: held on purpose instant 1: status:
+  ✓ Variant: held on purpose instant 2: status: ok
+  ✓ rejected(HELD_WRITE): HELD_WRITE (AC-1c) line 3: status := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `optimistic status := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => { status := … })` (EF-8); to hold it on purpose, declare the action (`action name() { … }`); or write it after the `await`
+  ✓ rejected(HELD_WRITE): HELD_WRITE (AC-1c) line 3: saving := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `optimistic saving := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => { saving := … })` (EF-8); to hold it on purpose, declare the action (`action name() { … }`); or write it after the `await`
+PASS S-infer-3
+  ✓ Frames instant 0: no
+  ✓ Frames instant 1: yes
+  ✓ Frames instant 2: yes
+  ✓ Variant: the server declines instant 0: no
+  ✓ Variant: the server declines instant 1: yes
+  ✓ Variant: the server declines instant 2: no
+PASS S-infer-4
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: Ann
+  ✓ Frames instant 2: Ann updating
+  ✓ Frames instant 3: Ann updating
+  ✓ Frames instant 4: Ann2
+PASS S-infer-5
+  ✓ Frames instant 0: 0 0
+  ✓ Frames instant 1: 1 1
+  ✓ rejected(STALE_OWN_READ): STALE_OWN_READ (AC-1d) line 4: count is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; count := v`) and read that, or write functionally (`count := v => …`, W-6)
+  ✓ rejected(STALE_OWN_READ): STALE_OWN_READ (AC-1d) line 4: seq is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; seq := v`) and read that, or write functionally (`seq := v => …`, W-6)
+  ✓ rejected(STALE_OWN_READ): STALE_OWN_READ (AC-1d) line 3: form is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; form := v`) and read that, or write functionally (`form := v => …`, W-6)
+PASS S-infer-6
+  ✓ Frames instant 0: log:
+  ✓ Frames instant 1: log:
+  ✓ Frames instant 2: log:
+  ✓ Frames instant 3: log: b
+  ✓ Frames instant 4: log: ba
+  ✓ rejected(STALE_WRITE_BACK): STALE_WRITE_BACK (AC-1e) line 3: log := … after an `await` is computed from log as it was read before that `await`: whatever changed log in between (another action, a reload) is overwritten — write functionally (`log := v => …`, W-6), which applies to log as it stands at the write, or guess it (`optimistic`, AC-3) and let the answer replace the guess
+  ✓ rejected(STALE_WRITE_BACK): STALE_WRITE_BACK (AC-1e) line 3: items := … after an `await` is computed from items as it was read before that `await`: whatever changed items in between (another action, a reload) is overwritten — write functionally (`items := v => …`, W-6), which applies to items as it stands at the write, or guess it (`optimistic`, AC-3) and let the answer replace the guess
+  ✓ rejected(STALE_WRITE_BACK): STALE_WRITE_BACK (AC-1e) line 3: detail := … after an `await` is computed from detail as it was read before that `await`: whatever changed detail in between (another action, a reload) is overwritten — write functionally (`detail := v => …`, W-6), which applies to detail as it stands at the write, or guess it (`optimistic`, AC-3) and let the answer replace the guess
+PASS S-module-1
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(MO-2): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(REGION_ESCAPE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(NOT_EXPORTED): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(MODULE_CYCLE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(IMPORT_ROW_MISMATCH): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(CONTEXT_NOT_FOUND): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(UNHANDLED_FAILURE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(SHADOWED_IMPORT): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: #1 Ann Z
+  ✓ Frames instant 2: #0 nobody Z
+  ✓ Frames instant 3: #0 nobody Z
+  ✓ Frames instant 4: #2 ? Z
+  ✓ rejected(MO-2): WRITE_TO_NON_SOURCE (MO-2) line 4: selected is a source of ./store.rx: a module boundary is a value boundary — write it through an action ./store.rx exports
+  ✓ rejected(REGION_ESCAPE): REGION_ESCAPE (O-3) line 7: <Pick onPick={…}>: the closure passed captures hits (declared in a region that ends sooner), and Pick stores onPick (itself, or through a component it passes it to) where it outlives it
+  ✓ rejected(NOT_EXPORTED): NOT_EXPORTED (MO-6) line 1: ./store.rx does not export hidden
+  ✓ rejected(MODULE_NOT_FOUND): MODULE_NOT_FOUND (MO-6) line 1: no module ./nope.rx (from main.rx)
+  ✓ rejected(MODULE_CYCLE): MODULE_CYCLE (MO-5) line 1: a.rx → b.rx → a.rx: modules may not import each other in a cycle (signatures are computed dependencies first)
+  ✓ rejected(IMPORT_ROW_MISMATCH): IMPORT_ROW_MISMATCH (MO-4) line 1: select is io in ./store.rx's signature; `pure` cannot lower an .rx row
+  ✓ rejected(CONTEXT_NOT_FOUND): CONTEXT_NOT_FOUND (RG-7b) line 4: use who (in <Badge>) (in <App>): no provision of who (declared in ui.rx) above this region on any path that renders it
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 5: a reader of <Name user={…}> (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 5: action go in <Save> reads props.v, which can fail with Error here (line 5), and does not catch it
+  ✓ rejected(SHADOWED_IMPORT): SHADOWED_IMPORT (MO-1d) line 4: initials shadows the imported initials: rename one (`import { initials as … }`)
+PASS S-module-2
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Ann
+  ✓ Frames instant 2: Ann
+  ✓ Frames instant 3: Ann offline
+  ✓ Frames instant 4: Ann offline
+  ✓ Frames instant 5: no such user offline
+  ✓ Frames instant 6: no such user offline
+  ✓ Frames instant 7: offline: no network
+  ✓ rejected(NOT_EXPORTED): NOT_EXPORTED (MO-8) line 1: api.d.rx declares no export deleteUser (declare it, or it is not ./api's)
+  ✓ rejected(IMPORT_ROW_MISMATCH): IMPORT_ROW_MISMATCH (MO-8) line 1: saveUser is declared io in api.d.rx (`export fn`, not `export pure fn`); `pure` on the import cannot lower it
+  ✓ rejected(IMPORT_ROW_MISMATCH): IMPORT_ROW_MISMATCH (MO-8) line 1: ./api's rows are declared in api.d.rx: `fails` on the import cannot restate them
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (IO-2) line 3: saveUser(…) is io and is called in reactive scope (R-io-3)
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 5: a reader of user.name (in <App>) can fail with Offline and no catch or errored boundary above it discharges Offline — wrap it in `errored fallback(e: Offline) { … } { … }`, or catch it: `… catch (e: Offline) => …`
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action save can fail with Offline and does not catch it: a handler cannot (it does not await the action) — `try { … } catch (e) { … }` in the body
+PASS S-module-3
+  ✓ Program: accepted by the checker
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 4: a reader of <Name user={…}> (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(CONTEXT_NOT_FOUND): CONTEXT_NOT_FOUND (RG-7b) line 3: use who (in <Badge>) (in <App>): no provision of who (declared in ui.rx) above this region on any path that renders it
+  ✓ rejected(WRITE_TO_NON_SOURCE): WRITE_TO_NON_SOURCE (MO-2) line 3: selected is a source of ./store.rx: a module boundary is a value boundary — write it through an action ./store.rx exports
+  ✓ rejected(NOT_EXPORTED): NOT_EXPORTED (MO-6) line 1: ./store.rx does not export users
+  ✓ rejected(UNCAUGHT_ACTION_FAILURE): UNCAUGHT_ACTION_FAILURE (R-f-6) line 4: action go in <Save> reads props.v, which can fail with Error here (line 4), and does not catch it
+  ✓ rejected(INVALID_REFRESH_TARGET): INVALID_REFRESH_TARGET (AC-4) line 3: selected has no question to re-ask
+PASS S-region-1
+  ✓ Frames instant 0: 0
+  ✓ Frames instant 1: 3
+  ✓ Frames instant 2: closed
+  ✓ Frames instant 3: 0
+  ✓ Frames instant 4: 0
+  ✓ rejected(W-1): W-1: write to non-source total
+PASS S-region-2
+  ✓ Frames instant 0: a
+  ✓ Frames instant 1: b
+  ✓ Frames instant 2: c
+  ✓ Frames instant 3: none
+  ✓ Frames instant 4: d
+PASS S-region-3
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: a:0b:0c:0
+  ✓ Frames instant 2: c:0a:0b:0
+  ✓ Frames instant 3: c:0b:0
+  ✓ Frames instant 4: c:0b:0a:0
+  ✓ Frames instant 5: a:0a:0
+  ✓ Frames instant 6: A:0A:0
+PASS S-region-4
+  ✓ Frames instant 0: 0  [log(run 0)]
+  ✓ Frames instant 1: 1  [log(cleanup 1); log(run 1)]
+  ✓ Frames instant 2: 1
+  ✓ Frames instant 3: closed  [log(cleanup 1)]
+  ✓ Frames instant 4: 1  [log(run 1)]
+PASS S-region-5
+  ✓ Frames instant 0: a! hi
+  ✓ Frames instant 1: b! hi
+  ✓ Frames instant 2: 
+  ✓ Frames instant 3: b! hi
+  ✓ rejected(RG-4a): COMPONENT_AS_VALUE (RG-4a) line 3: component Greeting used as a value: apply it in a view
+PASS S-region-6
+  ✓ Frames instant 0: 2 11
+  ✓ Frames instant 1: 4 12
+  ✓ Frames instant 2: 4 17
+  ✓ Frames instant 3: 6 18
+  ✓ rejected(SNAPSHOT_ARGUMENT): SNAPSHOT_ARGUMENT (E-10) line 7: watch(…): the argument for value parameter v reads n and would be snapshotted — declare the parameter `ref`, or pass peek(…)
+  ✓ rejected(E-9): INSTANTIATION_NOT_BOUND (E-9) line 8: counter(…) declares state: bind it, `x = counter(…)` (RG-6)
+PASS S-region-7
+  ✓ Frames instant 0: 0 valid
+  ✓ Frames instant 1: 2 invalid
+  ✓ Frames instant 2: a 2 invalid
+  ✓ Frames instant 3: a 2 invalid
+  ✓ Frames instant 4: ae 2 invalid
+  ✓ Frames instant 5: ae 2 valid
+  ✓ Frames instant 6: a 2 valid
+  ✓ Frames instant 7: a 1 valid
+  ✓ Frames instant 8: ae 1 valid
+  ✓ Frames instant 9: ae 2 valid
+  ✓ rejected(RG-7b): CONTEXT_NOT_FOUND (RG-7b) line 4: use fields (in <Field>) (in <App>): no provision of fields (declared in main.rx) above this region on any path that renders it
+PASS S-region-8
+  ✓ Frames instant 0: count 0
+  ✓ Frames instant 1: count 0 » loud dialog 0close
+  ✓ Frames instant 2: count 1 » loud dialog 1close
+  ✓ Frames instant 3: count 1
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 2: <tr> inside <body>: the browser's HTML parser drops the <tr> tag outside a table (its content stays, unwrapped), so the served page is not the tree the client builds
+PASS S-remount-refresh
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: A
+  ✓ Frames instant 2: x
+  ✓ Frames instant 3: x
+  ✓ Frames instant 4: help
+  ✓ Frames instant 5: loading
+  ✓ Frames instant 6: B
+  ✓ Frames instant 7: x
+  ✓ Frames instant 8: x
+  ✓ Frames instant 9: C
+PASS S-server-1
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: Profile loading user loading posts
+  ✓ Frames instant 1: Profile no user 7 loading posts
+  ✓ Frames instant 2: Profile no user 7 error: db password is hunter2
+PASS S-server-2
+  ✓ Frames instant 0: 0 +
+  ✓ Frames instant 1: 1 +
+PASS S-server-3
+  ✓ Frames instant 0: zone UTC measuring
+  ✓ Frames instant 1: zone UTC wide
+  ✓ Frames instant 2: zone Europe/Paris wide
+  ✓ rejected(CLIENT_QUESTION_UNHELD): CLIENT_QUESTION_UNHELD (SV-7b) line 5: a reader of width (in <App>) awaits `client` JS, and no `loading` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under `loading fallback { … } { … }`, or give the await a first paint (`await f() -> v`)
+  ✓ rejected(CLIENT_QUESTION_UNHELD): CLIENT_QUESTION_UNHELD (SV-7b) line 7: a reader of narrow (in <App>) awaits `client` JS, and no `loading` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under `loading fallback { … } { … }`, or give the await a first paint (`await f() -> v`)
+  ✓ rejected(CLIENT_QUESTION_UNHELD): CLIENT_QUESTION_UNHELD (SV-7b) line 6: <Size w={…}>, read in Size, (in <App>) awaits `client` JS, and no `loading` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under `loading fallback { … } { … }`, or give the await a first paint (`await f() -> v`)
+  ✓ rejected(CLIENT_NOT_AWAITED): CLIENT_NOT_AWAITED (SF-5b) line 3: viewport(…) is `client` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now
+PASS S-server-4
+  ✓ Program: checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(CONTENT_MODEL): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ rejected(CONTENT_MODEL): checked against its imports' .d.rx as against their bodies (MO-9)
+  ✓ Frames instant 0: AnnBo hi
+  ✓ Frames instant 1: AnnBoCy hi
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 5: <tr>, the root of <Row>, inside <table>: the browser's HTML parser wraps it in a <tbody> the client does not build, so the served page is not the tree the client builds
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 4: <tr>, the root of <Row>, inside <div>: the browser's HTML parser drops the <tr> tag outside a table (its content stays, unwrapped), so the served page is not the tree the client builds
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 4: <div>, the root of <Panel>, inside <p>: the browser's HTML parser closes the open <p> before it, so the served page is not the tree the client builds
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 4: <span> inside <tr>: the browser's HTML parser moves it out of the <tr> (foster parenting), so the served page is not the tree the client builds
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 4: <div> inside <p>: the browser's HTML parser closes the open <p> before it, so the served page is not the tree the client builds
+  ✓ rejected(CONTENT_MODEL): CONTENT_MODEL (SV-7d) line 4: <a>, the root of <Link>, inside <a>: the browser's HTML parser closes the open <a> (links do not nest), so the served page is not the tree the client builds
+PASS S-settled-1
+  ✓ Frames instant 0: idle
+  ✓ Frames instant 1: idle
+  ✓ Frames instant 2: saved  [log(toast, saved)]
+  ✓ Variant: nothing held instant 0: idle
+  ✓ Variant: nothing held instant 1: x  [log(toast, x)]
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (EF-7) line 3: onSettled(…) schedules work from imperative scope (a handler, an apply block, an action); in a component body the mount hook is `effect () { … }` (EF-4)
+  ✓ rejected(SETTLED_CLEANUP_UNOWNED): SETTLED_CLEANUP_UNOWNED (EF-7) line 3: an onSettled callback returns a cleanup, but it has no region to bind it to: setup with teardown is `effect () { … }` (EF-4, EF-5)
+PASS S-sf-1
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: Ann: 0 notes
+  ✓ Frames instant 2: Ann: 0 notes
+  ✓ Frames instant 3: Ann: 0 notes saved 2
+  ✓ Frames instant 4: Ann: 0 notes too long: 7
+  ✓ Frames instant 5: Ann: 0 notes too long: 7
+  ✓ Frames instant 6: Ann: 0 notes Internal Server Error
+  ✓ Frames instant 7: Ann: 0 notes Internal Server Error
+  ✓ Frames instant 8: error: no user 2
+  ✓ rejected(SERVER_CAPTURE): SERVER_CAPTURE (SF-3) line 2: a server function's body names n, a source: it runs in its own request on the server, where that is not the client's — pass what it needs as an argument
+  ✓ rejected(SERVER_CAPTURE): SERVER_CAPTURE (SF-3) line 3: a server function's body names next, a fn that reads n: it runs in its own request on the server, where that is not the client's — pass what it needs as an argument
+  ✓ rejected(SERVER_CAPTURE): SERVER_CAPTURE (SF-3) line 2: a server function's body names props, the component's props: it runs in its own request on the server, where that is not the client's — pass what it needs as an argument
+  ✓ rejected(SERVER_WRITE): SERVER_WRITE (SF-4) line 2: a server function writes status: return the value, and write it in the action that awaited the call (`let r = await f(…); status := r`)
+  ✓ rejected(SERVER_ONLY): SERVER_ONLY (SF-5a) line 3: findUser is `server` JS: it is not in the client bundle — call it in a `server fn` body
+  ✓ rejected(CLIENT_IN_SERVER): CLIENT_IN_SERVER (SF-5c) line 2: viewport is `client` JS and this is a server function's body
+  ✓ rejected(IMPORT_ROW_MISMATCH): IMPORT_ROW_MISMATCH (SF-5) line 1: findUser is declared `server` in api.d.rx; `client` on the import cannot restate it
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (IO-2) line 4: add(…) is io and is called in reactive scope (R-io-3) — its server body calls insertNote(…)
+  ✓ rejected(UNHANDLED_FAILURE): UNHANDLED_FAILURE (R-f-5) line 5: a reader of x (in <App>) can fail with Error and no catch or errored boundary above it discharges Error — wrap it in `errored fallback(e) { … } { … }`, or catch it: `… catch (e) => …`
+  ✓ rejected(WIRE_VALUE): WIRE_VALUE: f: its result.g is a function, which the wire cannot carry: send data
+PASS S-sf-2
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: Ann
+  ✓ Frames instant 2: Ann
+  ✓ Frames instant 3: Bo
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (IO-2) line 3: GET(…) is io and is called in reactive scope (R-io-3)
+  ✓ rejected(SERVER_CAPTURE): SERVER_CAPTURE (SF-3) line 4: a server function's body names n, a source: it runs in its own request on the server, where that is not the client's — pass what it needs as an argument
+  ✓ rejected(IO_IN_REACTIVE): IO_IN_REACTIVE (IO-2) line 5: save(…) is io and is called in reactive scope (R-io-3) — its server body calls insert(…)
+PASS S-solid-1
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: A spinner false
+  ✓ Frames instant 2: A comments-A false
+  ✓ Frames instant 3: A comments-A true
+  ✓ Frames instant 4: A comments-A true
+  ✓ Frames instant 5: B comments-B false
+PASS S-solid-10
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 0 Count 0
+  ✓ Frames instant 2: 0 Count 0
+  ✓ Frames instant 3: 0 Count 0
+  ✓ Frames instant 4: hidden Count 1
+PASS S-solid-11
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: A 0 B 0 Sum 0
+  ✓ Frames instant 3: A 0 B 0 Sum 0
+  ✓ Frames instant 4: A 0 B 0 Sum 0
+  ✓ Frames instant 5: A 0 B 0 Sum 0
+  ✓ Frames instant 6: A 1 B 1 Sum 2
+  ✓ Variant: without `Sum` the two are independent instant 0: 
+  ✓ Variant: without `Sum` the two are independent instant 1: 
+  ✓ Variant: without `Sum` the two are independent instant 2: A 0 B 0
+  ✓ Variant: without `Sum` the two are independent instant 3: A 0 B 0
+  ✓ Variant: without `Sum` the two are independent instant 4: A 0 B 0
+  ✓ Variant: without `Sum` the two are independent instant 5: A 1 B 0
+  ✓ Variant: without `Sum` the two are independent instant 6: A 1 B 1
+PASS S-solid-12
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Fixed false / Count 0 / Selected 0 / Slow false
+  ✓ Frames instant 2: Fixed false / Count 0 / Selected 0 / Slow false
+  ✓ Frames instant 3: Fixed false / Count 0 / Selected 0 / Slow false
+  ✓ Frames instant 4: Fixed true / Count 1 / Selected 2 / Slow true
+PASS S-solid-13
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Count 0 0
+  ✓ Frames instant 2: Count 0 0
+  ✓ Frames instant 3: Count 1
+PASS S-solid-14
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Count 0 Slow 0
+  ✓ Frames instant 2: Count 0 Slow 0
+  ✓ Frames instant 3: Count 0 Slow 0 fallback
+  ✓ Frames instant 4: Count 1 Slow 1 count 1
+  ✓ Variant: a plain read beside the boundary holds the mount (2b) instant 3: Count 0 Slow 0
+  ✓ Variant: a plain read beside the boundary holds the mount (2b) instant 4: Count 1 Slow 1 1count 1
+PASS S-solid-15
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Slow false
+  ✓ Frames instant 2: Slow false
+  ✓ Frames instant 3: Slow false
+  ✓ Frames instant 4: Slow true fallback
+  ✓ Frames instant 5: Slow true ready
+PASS S-solid-16
+  ✓ Frames instant 0: Loading... Sum 0
+  ✓ Frames instant 1: Loading... Sum 0
+  ✓ Frames instant 2: Details d(0,0) Sum 0
+  ✓ Frames instant 3: Details d(0,0) Sum 0
+  ✓ Frames instant 4: Loading... Sum 2
+  ✓ Frames instant 5: Loading... Sum 2
+  ✓ Frames instant 6: Details d(1,1) Sum 2
+  ✓ rejected(CN-3e): LOADING_ON_OUTSIDE_HOLD (CN-3e) line 8: `details` is read here, outside the `loading on(page)` region that waits on it: when `page` changes this read holds the change, so the region's fallback never shows and the old content stays up with no sign of the wait — move the read under the region, or read `latest details` here
+PASS S-solid-17
+  ✓ Frames instant 0: B 0 Loading
+  ✓ Frames instant 1: B 0 Loading
+  ✓ Frames instant 2: B 0 Fast 0Slow 0
+  ✓ Frames instant 3: B 0 Fast 0Slow 0
+  ✓ Frames instant 4: B 1 Loading
+  ✓ Frames instant 5: B 1 Loading
+  ✓ Frames instant 6: B 1 Fast 1Slow 1
+PASS S-solid-18
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: A spinner
+  ✓ Frames instant 2: A comments-A
+  ✓ Frames instant 3: A comments-A
+  ✓ Frames instant 4: B spinner
+  ✓ Frames instant 5: B comments-B
+  ✓ Variant: comments land first — no spinner ever instant 3: A comments-A
+  ✓ Variant: comments land first — no spinner ever instant 4: A comments-A
+  ✓ Variant: comments land first — no spinner ever instant 5: B comments-B
+  ✓ Variant: nothing outside holds instant 0: spinner
+  ✓ Variant: nothing outside holds instant 1: comments-A
+  ✓ Variant: nothing outside holds instant 2: spinner
+  ✓ Variant: nothing outside holds instant 3: comments-B
+PASS S-solid-19
+  ✓ Frames instant 0: spinner spinner
+  ✓ Frames instant 1: A A
+  ✓ Frames instant 2: spinner spinner
+  ✓ Frames instant 3: B B
+  ✓ rejected(CN-3e): LOADING_ON_OUTSIDE_HOLD (CN-3e) line 6: `data` is read here, outside the `loading on(id)` region that waits on it: when `id` changes this read holds the change, so the region's fallback never shows and the old content stays up with no sign of the wait — move the read under the region, or read `latest data` here
+  ✓ rejected(CN-3e): LOADING_ON_OUTSIDE_HOLD (CN-3e) line 6: `data` is read here, outside the `loading on(id)` region that waits on it: when `id` changes this read holds the change, so the region's fallback never shows and the old content stays up with no sign of the wait — move the read under the region, or read `latest data` here
+PASS S-solid-2
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Count 0 Details 0 Panel hidden
+  ✓ Frames instant 2: Count 0 Details 0 Panel hidden
+  ✓ Frames instant 3: Count 0 Details 0 Panel hidden
+  ✓ Frames instant 4: Count 1 Details 1 Panel 1
+PASS S-solid-20
+  ✓ Frames instant 0: A spinner
+  ✓ Frames instant 1: A comments-A
+  ✓ Frames instant 2: A comments-A
+  ✓ Frames instant 3: A comments-A
+  ✓ Frames instant 4: B comments-B
+  ✓ Variant: the action ends before the data lands instant 0: A spinner
+  ✓ Variant: the action ends before the data lands instant 1: A comments-A
+  ✓ Variant: the action ends before the data lands instant 2: A comments-A
+  ✓ Variant: the action ends before the data lands instant 3: B spinner
+  ✓ Variant: the action ends before the data lands instant 4: B comments-B
+PASS S-solid-21
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: A spinner
+  ✓ Frames instant 2: A comments-A
+  ✓ Frames instant 3: A spinner
+  ✓ Frames instant 4: B spinner
+  ✓ Frames instant 5: B comments-B
+PASS S-solid-22
+  ✓ Frames instant 0: outer
+  ✓ Frames instant 1: Meta 1
+  ✓ Frames instant 2: c1
+  ✓ Frames instant 3: c1
+  ✓ Frames instant 4: Meta 2
+  ✓ Frames instant 5: c2
+  ✓ Variant: content lands first — the fallback is never seen instant 3: c1
+  ✓ Variant: content lands first — the fallback is never seen instant 4: c2
+PASS S-solid-23
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: d » dialog for d
+PASS S-solid-24
+  ✓ Frames instant 0: 0 loading
+  ✓ Frames instant 1: 1 loading
+  ✓ Frames instant 2: 1 1
+  ✓ Variant: once the boundary has shown content, the lane holds on `details` instant 0: 0 loading
+  ✓ Variant: once the boundary has shown content, the lane holds on `details` instant 1: 0 0
+  ✓ Variant: once the boundary has shown content, the lane holds on `details` instant 2: 0 0
+  ✓ Variant: once the boundary has shown content, the lane holds on `details` instant 3: 1 1
+PASS S-solid-25
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 20 20 40 false 20
+  ✓ Frames instant 2: 20 30 60 true 20
+  ✓ Frames instant 3: 30 30 60 false 30
+PASS S-solid-26
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: Ann
+  ✓ Frames instant 2: Ann updating
+  ✓ Frames instant 3: Bob
+  ✓ Frames instant 4: Bob
+  ✓ Frames instant 5: Bob2
+  ✓ Frames instant 6: Bob2 updating
+  ✓ Frames instant 7: Bob2 updating
+  ✓ Frames instant 8: Bob3
+  ✓ Variant: a guess over `user` is verdict-inert (row 7) instant 0: …
+  ✓ Variant: a guess over `user` is verdict-inert (row 7) instant 1: Ann
+  ✓ Variant: a guess over `user` is verdict-inert (row 7) instant 2: Annie
+  ✓ Variant: a guess over `user` is verdict-inert (row 7) instant 3: Ann
+PASS S-solid-27
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: false,x0 false,x0 y0
+  ✓ Frames instant 3: true,x0 true,x0 y0
+  ✓ Frames instant 4: true,x0 false,x1 y0
+  ✓ Frames instant 5: false,x1 false,x1 y1
+PASS S-solid-28
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: not pending loading
+  ✓ Frames instant 2: not ready loading
+  ✓ Frames instant 3: not ready Ann -
+  ✓ Frames instant 4: Ann Ann -
+  ✓ Frames instant 5: Ann Ann p
+  ✓ Frames instant 6: pending Ann p
+PASS S-solid-29
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: Fast 0 / Slow 0 / Pending false
+  ✓ Frames instant 3: Fast 0 / Slow 0 / Pending true
+  ✓ Frames instant 4: Fast 0 / Slow 0 / Pending true
+  ✓ Frames instant 5: Fast 1 / Slow 1 / Pending false
+PASS S-solid-3
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 0 0
+  ✓ Frames instant 2: 0 0
+  ✓ Frames instant 3: 0 0
+  ✓ Frames instant 4: 0 0 t
+  ✓ Frames instant 5: 1 1 t 10 1
+PASS S-solid-30
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: Details 0 / Value 0 g
+  ✓ Frames instant 3: Details 0 / Value 0 g
+  ✓ Frames instant 4: Details 0 / Value 0 Late 0 g
+  ✓ Frames instant 5: Details 1 / Value 0 Late 1 g
+  ✓ Frames instant 6: Details 1 / Value 1 Late 1 g2
+PASS S-solid-31
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 0 g
+  ✓ Frames instant 2: 0 fallback g
+  ✓ Frames instant 3: 1 content 1 g2
+PASS S-solid-32
+  ✓ Frames instant 0: Ann / unsaved / - -
+  ✓ Frames instant 1: Bob / unsaved / - p
+  ✓ Frames instant 2: Bob / saved / - -
+  ✓ Variant: the save rejects — the guess reverts, the held write commits instant 0: Ann / unsaved / - -
+  ✓ Variant: the save rejects — the guess reverts, the held write commits instant 1: Bob / unsaved / - p
+  ✓ Variant: the save rejects — the guess reverts, the held write commits instant 2: Ann / saved / - -
+  ✓ Variant: a guess in a handler, with nothing to hold it instant 0: Ann / unsaved / - -
+  ✓ Variant: a guess in a handler, with nothing to hold it instant 1: Ann / unsaved / - -
+  ✓ rejected(OPTIMISTIC_NO_QUESTION): OPTIMISTIC_NO_QUESTION (AC-3) line 3: shown is declared with := — a guess needs a question to confirm it (source shown = …, ST-5c)
+PASS S-solid-33
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: loading
+  ✓ Frames instant 2: double=0 async=0
+  ✓ Frames instant 3: double=0 async=0
+  ✓ Frames instant 4: double=0 async=0
+  ✓ Frames instant 5: double=0 async=0
+  ✓ Frames instant 6: double=2 async=2
+PASS S-solid-34
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: home / home -
+  ✓ Frames instant 2: news / news p
+  ✓ Frames instant 3: finance / finance p
+  ✓ Frames instant 4: finance / finance p
+  ✓ Frames instant 5: finance / finance -
+  ✓ Frames instant 6: finance / finance -
+  ✓ Frames instant 7: finance / finance -
+PASS S-solid-35
+  ✓ Frames instant 0: 1 / 1 -
+  ✓ Frames instant 1: 5 / 5 -
+  ✓ Frames instant 2: 1 / 1 -
+  ✓ Variant: a derived flight keeps the hold open instant 0: 
+  ✓ Variant: a derived flight keeps the hold open instant 1: 1 x1 / 1 -
+  ✓ Variant: a derived flight keeps the hold open instant 2: 1 x1 / 5 -
+  ✓ Variant: a derived flight keeps the hold open instant 3: 1 x1 / 1 -
+  ✓ Variant: a derived flight keeps the hold open instant 4: 1 x1 / 1 -
+  ✓ Variant: a derived flight keeps the hold open instant 5: 1 x1 / 1 -
+  ✓ Variant: the guess's own question re-asked holds the change instant 0: 
+  ✓ Variant: the guess's own question re-asked holds the change instant 1: a
+  ✓ Variant: the guess's own question re-asked holds the change instant 2: a+mine
+  ✓ Variant: the guess's own question re-asked holds the change instant 3: a+mine
+  ✓ Variant: the guess's own question re-asked holds the change instant 4: a,mine
+PASS S-solid-36
+  ✓ Frames instant 0: placeholder false
+  ✓ Frames instant 1: rows1 false
+  ✓ Frames instant 2: rows1 true
+  ✓ Frames instant 3: rows2 false
+PASS S-solid-37
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: 1 1 - -
+  ✓ Frames instant 2: 1 1 a! b!
+  ✓ Frames instant 3: 2 2 - -
+  ✓ Frames instant 4: 2 2 - -
+  ✓ Frames instant 5: 3 3 - -
+  ✓ Variant: a held path write pends exactly its key (row 2′) instant 0: loading
+  ✓ Variant: a held path write pends exactly its key (row 2′) instant 1: 1 1 - -
+  ✓ Variant: a held path write pends exactly its key (row 2′) instant 2: 1 1 a! -
+  ✓ Variant: a held path write pends exactly its key (row 2′) instant 3: 5 1 - -
+PASS S-solid-38
+  ✓ Frames instant 0: 0 loading
+  ✓ Frames instant 1: 0 Fetch error
+  ✓ Frames instant 2: 1 Fetch error
+  ✓ Frames instant 3: 1 Fetch error
+PASS S-solid-39
+  ✓ Frames instant 0: off
+  ✓ Frames instant 1: off
+  ✓ Frames instant 2: off
+  ✓ Frames instant 3: on [1, 1]
+  ✓ Frames instant 4: on [1, 1]
+  ✓ Variant: the other order instant 0: off
+  ✓ Variant: the other order instant 1: off
+  ✓ Variant: the other order instant 2: off
+  ✓ Variant: the other order instant 3: on [1, 1]
+  ✓ Variant: inside a fresh `loading` the throw is caught (row 1′) instant 0: off
+  ✓ Variant: inside a fresh `loading` the throw is caught (row 1′) instant 1: off
+  ✓ Variant: inside a fresh `loading` the throw is caught (row 1′) instant 2: on loading
+  ✓ Variant: inside a fresh `loading` the throw is caught (row 1′) instant 3: on [1, 1]
+PASS S-solid-4
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 0:0
+  ✓ Frames instant 2: 0:0
+  ✓ Frames instant 3: 1:0
+  ✓ Frames instant 4: 1:1
+  ✓ Variant: through a shared derivation the write waits instant 0: 
+  ✓ Variant: through a shared derivation the write waits instant 1: 0:0 sum 0
+  ✓ Variant: through a shared derivation the write waits instant 2: 0:0 sum 0
+  ✓ Variant: through a shared derivation the write waits instant 3: 0:0 sum 0
+  ✓ Variant: through a shared derivation the write waits instant 4: 1:1 sum 2
+PASS S-solid-40
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 0 0
+  ✓ Frames instant 2: 0 1
+  ✓ Frames instant 3: 1 1
+PASS S-solid-41
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: Period 1 fast 1 false slow 1 false
+  ✓ Frames instant 3: Period 2 fast 1 true slow 1 true
+  ✓ Frames instant 4: Period 2 fast 2 false slow 1 true
+  ✓ Frames instant 5: Period 2 fast 2 false slow 2 false
+  ✓ Variant: plain async equations — one hold, gated on the slowest instant 3: Period 1 fast 1 true slow 1 true
+  ✓ Variant: plain async equations — one hold, gated on the slowest instant 4: Period 1 fast 1 true slow 1 true
+  ✓ Variant: plain async equations — one hold, gated on the slowest instant 5: Period 2 fast 2 false slow 2 false
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 0: 
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 1: 
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 2: Period 1 fast 1 g
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 3: Period 1 fast 1 g
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 4: Period 1 fast 1 g
+  ✓ Variant: `period` is held by another reader — a re-ask lands into that hold instant 5: Period 2 fast 2 g2
+PASS S-solid-42
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: 1 1 1  [log(1)]
+  ✓ Frames instant 3: 1 1 1
+  ✓ Frames instant 4: 1 1 1
+  ✓ Frames instant 5: 2 Error 2  [log(#error)]
+  ✓ Frames instant 6: 2 Error 2
+  ✓ Frames instant 7: 2 Error 2
+  ✓ Frames instant 8: 3 1 3  [log(1)]
+PASS S-solid-5
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 
+  ✓ Frames instant 2: x/y
+  ✓ Frames instant 3: x/y
+  ✓ Frames instant 4: x/y
+  ✓ Frames instant 5: x/y
+  ✓ Frames instant 6: x/y
+  ✓ Frames instant 7: x1/y1pA 1pB 1
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 0: 
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 1: 
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 2: x/y
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 3: x/y
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 4: x/y
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 5: x/y
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 6: x/y
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 7: x1/ypA 1
+  ✓ Variant: two instants, two independent holds (rows 1′–3′) instant 8: x1/y1pA 1pB 1
+  ✓ Variant: both branches under one `errored` boundary instant 0: 
+  ✓ Variant: both branches under one `errored` boundary instant 1: 
+  ✓ Variant: both branches under one `errored` boundary instant 2: x/y
+  ✓ Variant: both branches under one `errored` boundary instant 3: x/y
+  ✓ Variant: both branches under one `errored` boundary instant 4: x/y
+  ✓ Variant: both branches under one `errored` boundary instant 5: x/y
+  ✓ Variant: both branches under one `errored` boundary instant 6: x/y
+  ✓ Variant: both branches under one `errored` boundary instant 7: x1/ypA 1
+  ✓ Variant: both branches under one `errored` boundary instant 8: x1/y1pA 1pB 1
+PASS S-solid-6
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: parent 1 1
+  ✓ Frames instant 2: parent 1 1
+  ✓ Frames instant 3: parent 1 1
+  ✓ Frames instant 4: parent 1 1
+  ✓ Frames instant 5: parent 2 2 child 2
+  ✓ Variant: `fast` slower than `slow` instant 3: parent 1 1
+  ✓ Variant: `fast` slower than `slow` instant 4: parent 1 1
+  ✓ Variant: `fast` slower than `slow` instant 5: parent 2 2 child 2
+PASS S-solid-7
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: Profile
+  ✓ Variant: with a boundary instant 0: Spinner
+  ✓ Variant: with a boundary instant 1: Profile
+  ✓ warn(ASYNC_OUTSIDE_LOADING_BOUNDARY): ASYNC_OUTSIDE_LOADING_BOUNDARY: reader is pending at mount with no loading boundary; the mount is held
+PASS S-solid-8
+  ✓ Frames instant 0: 0 latest 0 idle
+  ✓ Frames instant 1: 0 latest 1 saving
+  ✓ Frames instant 2: 1 latest 1 idle
+  ✓ Variant: the body rejects — the held writes still commit instant 0: 0 latest 0 idle
+  ✓ Variant: the body rejects — the held writes still commit instant 1: 0 latest 1 saving
+  ✓ Variant: the body rejects — the held writes still commit instant 2: 1 latest 1 idle
+PASS S-solid-9
+  ✓ Frames instant 0: 0 0 0
+  ✓ Frames instant 1: 0 0 0
+  ✓ Frames instant 2: 1 1 1
+PASS S-store-1
+  ✓ Frames instant 0: Ann light 12  [log(theme, light); log(name, Ann)]
+  ✓ Frames instant 1: Ann dark 12  [log(theme, dark)]
+  ✓ Frames instant 2: Bo dark 14  [log(name, Bo)]
+  ✓ Frames instant 3: Bo dark 14
+  ✓ Frames instant 4: Bo dim 14  [log(theme, dim)]
+PASS S-store-2
+  ✓ Frames instant 0: 1 -  [log(one, true); log(two, undefined)]
+  ✓ Frames instant 1: - 2  [log(one, false); log(two, true)]
+  ✓ Frames instant 2: - 2
+  ✓ Frames instant 3: - -  [log(two, false)]
+  ✓ rejected(ST-3a): DRAFT_WRITE_OUTSIDE_DRAFT (ST-3a) line 4: a draft block writes only its draft, not other
+PASS S-store-3
+  ✓ Frames instant 0: a!b!  [log(1, a!); log(2, b!)]
+  ✓ Frames instant 1: a!B!  [log(2, B!)]
+  ✓ Frames instant 2: B!a!
+  ✓ Frames instant 3: B!c!  [log(3, c!)]
+  ✓ rejected(UNSTABLE_LIST_IDENTITY): UNSTABLE_LIST_IDENTITY (ST-4b) line 5: for r in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)
+PASS S-store-4
+  ✓ Frames instant 0: 10
+  ✓ Frames instant 1: 7
+  ✓ Frames instant 2: 20
+  ✓ Frames instant 3: 7
+  ✓ Frames instant 4: 20
+  ✓ Variant: an async question, re-asked quietly instant 0: 
+  ✓ Variant: an async question, re-asked quietly instant 1: A -
+  ✓ Variant: an async question, re-asked quietly instant 2: A* -
+  ✓ Variant: an async question, re-asked quietly instant 3: A* -
+  ✓ Variant: an async question, re-asked quietly instant 4: A2 -
+  ✓ Variant: an async question, re-asked quietly instant 5: A2 p
+  ✓ Variant: an async question, re-asked quietly instant 6: B -
+  ✓ rejected(INVALID_REFRESH_TARGET): INVALID_REFRESH_TARGET: base has no question to re-ask
+PASS S-store-5
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: a1 -
+  ✓ Frames instant 2: a2 -
+  ✓ Frames instant 3: a2 p
+  ✓ Frames instant 4: a2 p
+  ✓ Frames instant 5: b1 -
+  ✓ Frames instant 6: b2 -
+PASS S-store-6
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: A-B-.
+  ✓ Frames instant 2: A+B-.
+  ✓ Frames instant 3: A+B-.
+  ✓ Frames instant 4: A+B+.
+  ✓ Variant: the truth disagrees — the guess is corrected at the commit instant 0: loading
+  ✓ Variant: the truth disagrees — the guess is corrected at the commit instant 1: A-B-.
+  ✓ Variant: the truth disagrees — the guess is corrected at the commit instant 2: A+B-.
+  ✓ Variant: the truth disagrees — the guess is corrected at the commit instant 3: A+B-.
+  ✓ Variant: the truth disagrees — the guess is corrected at the commit instant 4: A-B-.
+  ✓ Variant: the save fails — the guess reverts to the truth at hand instant 0: loading
+  ✓ Variant: the save fails — the guess reverts to the truth at hand instant 1: A-B-.
+  ✓ Variant: the save fails — the guess reverts to the truth at hand instant 2: A+B-.
+  ✓ Variant: the save fails — the guess reverts to the truth at hand instant 3: A-B-.
+  ✓ Variant: a path guess on a record instant 0: loading
+  ✓ Variant: a path guess on a record instant 1: 1 1 - -
+  ✓ Variant: a path guess on a record instant 2: 5 1 - -
+  ✓ Variant: a path guess on a record instant 3: 1 1 - -
+  ✓ rejected(OPTIMISTIC_NO_QUESTION): OPTIMISTIC_NO_QUESTION (AC-3) line 3: todos is declared with := — a guess needs a question to confirm it (source todos = …, ST-5c)
+PASS S-store-7
+  ✓ Frames instant 0: 
+  ✓ Frames instant 1: 1A
+  ✓ Frames instant 2: 1loading
+  ✓ Frames instant 3: 1B
+FAIL S-store-8
+  ✓ Frames instant 0: loading
+  ✓ Frames instant 1: A-B-
+  ✓ Frames instant 2: A+B-
+  ✓ Frames instant 3: Z+B-
+  ✗ Frames instant 4: expected frame 'Z-B-' effects [], got 'Z+B-' effects []
+PASS S-surface-1
+  ✓ Frames instant 0: 1 of 1specall
+  ✓ Frames instant 1: 1 of 1specall
+  ✓ Frames instant 2: 0 of 1open
+  ✓ Frames instant 3: 1 of 2lexopen
+  ✓ rejected(IO-2): IO_IN_REACTIVE (IO-2) line 4: log(…) is io and is called in reactive scope (R-io-3)
+  ✓ rejected(W-2): main.rx: line 3: W-2: write in reactive scope (no statement position) near ':= 2)
+  <p>{m}</p>
+}'
+  ✓ rejected(SNAPSHOT_INITIALIZER): SNAPSHOT_INITIALIZER (E-4) line 3: source email := … reads form outside peek(…): write the snapshot as one (DV-6)
+PASS S-surface-2
+  ✓ Frames instant 0: Hi
+  ✓ Frames instant 1: Hithere
+  ✓ rejected(STYLE_PLACEMENT): STYLE_PLACEMENT (CSS-1) line 2: a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there
+  ✓ rejected(STYLE_PLACEMENT): STYLE_PLACEMENT (CSS-1) line 4: a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there
+  ✓ rejected(STYLE_PLACEMENT): STYLE_PLACEMENT (CSS-1) line 3: a second <style> in one view: a view has one stylesheet
+PASS S-surface-3
+  ✓ Frames instant 0: open warnfinish
+  ✓ Frames instant 1: done donefinish
+  ✓ rejected(CSS-5): main.rx: line 2: CSS-5: a class map is a declaration, `styles = <style>…</style>` — TSRX's `<style ref={styles}>` assigns into a variable, and a name here is bound once, by its declaration near 'ref={styles}>.a { co'
+PASS S-types-1
+  ✓ Frames instant 0: …
+  ✓ Frames instant 1: ANN no emailadd
+  ✓ Frames instant 2: ANN no emailadd
+  ✓ Frames instant 3: ANN no emailred 3add

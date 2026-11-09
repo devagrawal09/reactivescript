@@ -1,0 +1,5 @@
+error handler: failed
+effect called with undefined
+error handler: failed
+settled
+[exit code 0]

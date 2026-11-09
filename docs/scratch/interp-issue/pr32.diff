@@ -1,0 +1,1463 @@
+diff --git a/guide/async.md b/guide/async.md
+index 8fc525a..1af3b74 100644
+--- a/guide/async.md
++++ b/guide/async.md
+@@ -170,7 +170,7 @@ export action add(id: string, title: string) {
+ - **Never keep your own copy of what the server accepted.** Don't append the answer of a write to a list
+   (`posted := [...posted, await addComment(…)]`): when a read and a write cross, the read's answer already has the
+   new item and your copy adds it again. End the action with `refresh` on the server's list instead. The action's
+-  guesses stay up until that answer lands (D-35), so the row never blinks out and never shows twice.
++  guesses stay up until that answer lands (D-34), so the row never blinks out and never shows twice.
+ - **A failure is the client's, not a guess.** A guess reverts when its action ends; a failure must outlast it, so it
+   lives in the client's layer, and a successful retry removes it.
+ - **Generate ids on the client** in the handler, before calling the action, so a declined add can be shown again
+diff --git a/guide/reference.md b/guide/reference.md
+index 802d645..db54884 100644
+--- a/guide/reference.md
++++ b/guide/reference.md
+@@ -78,6 +78,9 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
+   `x` inside the `loading on(x)` region; a read of it outside holds the change (CN-3e).
+ - `pending? x` is true while a new answer for `x` is out; `latest x` is the value `x` is moving to (R-9). Use them to
+   show work in progress without a fallback.
++- Only the probe reads ahead. Beside it, a plain read of the same `x` shows what is on screen, and a plain read of
++  another held value waits for its change, probe or not (R-11). `loading on(latest x)` shows its fallback at once;
++  `loading on(x)` shows it with `x`'s change (H-6).
+ - `await e -> v` gives `v` until the first answer, so there is no first-load wait (R-7).
+ 
+ ## Failures
+@@ -86,7 +89,7 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
+ - Every reader of a value that can fail needs an `errored` region above it or a `catch` on the read
+   (UNHANDLED_FAILURE, R-f-5). `errored fallback(e: NotFound) { … }` takes only that class (R-f-4).
+ - An error stays on screen until a new answer replaces it: `refresh x` (quiet) retries; changing an input asks a new
+-  question (H-12, D-39).
++  question (H-12, D-41).
+ - A value borrowed from another section (a list passed into a detail) carries that section's failures: catch the
+   read, or the other section's error shows in this one.
+ - `throw NotFound(id)` in an equation's arm is a failure value: `found(it, id) => it == null ? throw NotFound(id) : it`.
+diff --git a/ref/compile/rt-server.ts b/ref/compile/rt-server.ts
+index 107e064..8d19c4d 100644
+--- a/ref/compile/rt-server.ts
++++ b/ref/compile/rt-server.ts
+@@ -12,7 +12,7 @@ import { Show, For, Loading, Errored, createComponent, createSignal, createMemo,
+ import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
+ import { $TARGET } from "@solidjs/signals";
+ 
+-// 05 H-9 / Solid D-24: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
++// 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
+ // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
+ const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
+ /** `latest x` (R-12) of a store is its whole value, read inside `latest` and handed out as a snapshot: a later read of a
+diff --git a/ref/compile/rt-web.ts b/ref/compile/rt-web.ts
+index ac77148..849d001 100644
+--- a/ref/compile/rt-web.ts
++++ b/ref/compile/rt-web.ts
+@@ -12,7 +12,7 @@ import {
+ import { getContext, setContext, $TARGET } from "@solidjs/signals";
+ import { hydrate, render } from "@solidjs/web";
+ 
+-// 05 H-9 / Solid D-24: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
++// 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
+ // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
+ const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
+ /** `latest x` (R-12) of a store is its whole value, read inside `latest` and handed out as a snapshot: a later read of a
+diff --git a/ref/compile/rt.ts b/ref/compile/rt.ts
+index be6081d..ad40b5f 100644
+--- a/ref/compile/rt.ts
++++ b/ref/compile/rt.ts
+@@ -11,7 +11,7 @@ import {
+   flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, createContext, getContext, setContext, getOwner, runWithOwner, $TARGET, createErrorBoundary,
+ } from "@solidjs/signals";
+ 
+-// 05 H-9 / Solid D-24: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
++// 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
+ // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
+ const readWhole = (v: unknown) => { if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; };
+ /** `latest x` (R-12) of a store is its whole value, read inside `latest` and handed out as a snapshot: a later read of a
+diff --git a/ref/oracle/lower.ts b/ref/oracle/lower.ts
+index c120d92..b26eae1 100644
+--- a/ref/oracle/lower.ts
++++ b/ref/oracle/lower.ts
+@@ -402,7 +402,7 @@ export class Oracle {
+         const v = this.ev(e.e, scope, env); return !e.stream && v instanceof Flight ? v.first : v;   // in tail position the memo returns the flight (R-1): a stream for `await*`, else its one answer
+       }   // in tail position the memo returns the flight (R-1); elsewhere the operand checks below refuse it
+       case "latest": { const was = this.imperative; this.imperative = 0; try { return latest(() => { const v = this.ev(e.e, scope, env); return v !== null && typeof v === "object" && (v as any)[$TARGET] !== undefined ? readCopy(v) : v; }); } finally { this.imperative = was; } }   // R-12: `latest` of a value that never had one throws, in a handler as anywhere (Solid S-28)
+-      case "pending": return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; });   // Solid D-24: the probe judges reads, so a structured value is read whole
++      case "pending": return isPending(() => { const v = this.ev(e.e, scope, env); if (v !== null && typeof v === "object") Reflect.ownKeys(v); return v; });   // Solid D-23: the probe judges reads, so a structured value is read whole
+       case "if": return this.ev(e.c, scope, env) ? this.ev(e.t, scope, env) : this.ev(e.f, scope, env);
+       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
+       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, scope))); return f; }   // SF-1d
+diff --git a/ref/src/runtime.ts b/ref/src/runtime.ts
+index 3319eec..f9cae51 100644
+--- a/ref/src/runtime.ts
++++ b/ref/src/runtime.ts
+@@ -67,11 +67,16 @@ export class Node {
+   served = new Set<Node>();                            // readers: held values this pass was served σ for (D-3); re-run while any is still in flight
+   triggered = false;                                   // readers: this instant's pass was caused by a notification (D-4: membership is the tick's)
+   kept = new Map<Target, Set<string>>();               // D-10: inputs of the committed pass, kept while the value is held
++  questionMoved = false;                               // H-11: the question changed under the guess (S-solid-44): answers to it do not correct the guess
++  plainTaint = new Set<number>();                      // R-11: the open changes this pass's plain reads derive from (a lane value carries these, not its lane's)
++  probed = new Set<Node>();                            // R-11 / Solid D-25: the nodes this pass read ahead (`latest`, `pending?`)
++  plainAhead = new Set<Node>();                        // R-11: held nodes this pass read plainly and was given the in-flight value
++  screenFor: Set<Node> | null = null;                  // R-11: a re-run pass's probed nodes — a plain read of one is the screen's
+   deferred = false; lagging = false;                   // V-16 / D-40: declared lag — re-asks never hold; readers keep the shown answer
+   question = false;                                    // ST-5: `source x = e` — an equation until written
+   guess: unknown = undefined; hasGuess = false; guessBy: number | null = null; corrected = false; guessPaths: Path[] = [];
+   shownGuess: unknown = undefined; guessShown = false; answerCorrected = false;   // D-22/D-34 (Solid decision 3, #4695): the guess as the screen last showed it; `latest x` keeps it after an answer corrects the graph, until the hold commits
+-  guessEntries: { path: Path; by: number; value: unknown; spent?: boolean }[] = [];   // H-11: each guess with the hold it was made over ("" = the root); `guess` is the truth with the live ones applied in order; `spent`: a new answer corrected it (D-34) — it shows the truth now but still belongs to its action, so the action's re-ask still holds it (D-35) and its end still ends it   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
++  guessEntries: { path: Path; by: number; value: unknown; spent?: boolean }[] = [];   // H-11: each guess with the hold it was made over ("" = the root); `guess` is the truth with the live ones applied in order; `spent`: a new answer corrected it (D-34) — it shows the truth now but still belongs to its action, so the action's re-ask still holds it (D-34) and its end still ends it   // guessPaths: the keys guessed ("" = the root; AC-3 path targets)   // AC-3 / H-11: a guess over the hold `guessBy`; corrected: the truth differed, display keeps what it showed
+   quiet = false; refreshBy: number | null = null; refreshInAction = false;      // AC-4: a quiet re-ask; its landing belongs to the change that asked (D-31)
+   affectedBy: number | null = null;                    // AC-5: declared pending until that change lands
+   heldKeys = new Map<string, number>();                // ST-2c: held path writes, per key ("" = the root)
+@@ -148,7 +153,7 @@ export class Runtime {
+   private tracking: Node | null = null;
+   private demandMode = true;
+   private probing = 0;                                  // inside `latest`: reads σ′, never served
+-  private committedView = false;                        // D-26: evaluate a lane reader against the committed world
++  private committedView = false;                        // D-25: evaluate a lane reader against the committed world
+   private probeReads: Set<Node> | null = null;          // `pending?` over a composite: nodes read inside
+   private heldLanes = new Set<Node>();                  // H-7: lanes with pending work this instant
+   private bornHeldOwn: { reader: Node; lb: BoundaryItem }[] = [];
+@@ -326,7 +331,7 @@ export class Runtime {
+       for (const n of holding) if (n.heldOn !== null) heldRoots.add(this.find(n.heldOn));
+       for (const r of this.allNodes()) if (r.kind === "reader" && r.demanded) for (const b of r.served) if (b.value instanceof PendingVal) { if (b.heldBy !== null) heldRoots.add(this.find(b.heldBy)); for (const t of b.taint) heldRoots.add(this.find(t)); }   // a flight a display still waits on keeps every change in its question open (F-2)
+       for (const a of this.openActions) if (a.change !== null) heldRoots.add(this.find(a.change));          // AC-1: an action holds its change until its body returns
+-      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && this.allNodes().some(m => this.guessedBy(m, this.find(n.refreshBy!)))) heldRoots.add(this.find(n.refreshBy));   // D-35, AC-4: a re-ask issued by an action that guessed is authoritative work in flight — the change waits for its answer, so every guess of the action (on that source or another) stays until the truth that confirms or corrects it lands
++      for (const n of this.allNodes()) if (n.quiet && n.refreshInAction && n.refreshBy !== null && n.flight?.state === "pending" && this.allNodes().some(m => this.guessedBy(m, this.find(n.refreshBy!)))) heldRoots.add(this.find(n.refreshBy));   // D-34, AC-4: a re-ask issued by an action that guessed is authoritative work in flight — the change waits for its answer, so every guess of the action (on that source or another) stays until the truth that confirms or corrects it lands
+       for (const l of this.heldLanes) { if (l.heldBy !== null) heldRoots.add(this.find(l.heldBy)); for (const t of l.taint) heldRoots.add(this.find(t)); }   // H-7: a held lane keeps its change staged (S-solid-33: the landing stays uncommitted)
+       let any = false;
+       if (process.env.RS_TRACE) console.log(`[instant ${this.instant} pass ${pass}] holding=${holding.map(h => h.name + "@" + h.heldOn).join(",")} heldRoots=${[...heldRoots]} roots=${[...roots()]} parent=${[...this.parent.entries()].map(e => e.join(">"))} actions=${[...this.openActions].map(a => a.change)} lanes=${[...this.heldLanes].map(l => l.name + ":" + l.heldBy + "/" + [...l.taint])}`);
+@@ -342,7 +347,7 @@ export class Runtime {
+       for (const h of holding) if (!nearest(h.region.boundary, "loading")) this.diagnostics.push(`ASYNC_OUTSIDE_LOADING_BOUNDARY: ${h.name} is pending at mount with no loading boundary; the mount is held`);
+     }
+     if (!this.committedOnce && !this.openChanges.has(this.find(0)) && committedSome) this.committedOnce = true;   // the view attaches when the mount's change commits
+-    if (this.openChanges.has(this.find(this.instant))) for (const { reader, lb } of this.bornHeldOwn) { lb.caught.push(reader); lb.showingFallback = true; reader.heldOn = null; }   // D-27: born held under a fresh boundary → the boundary's
++    if (this.openChanges.has(this.find(this.instant))) for (const { reader, lb } of this.bornHeldOwn) { lb.caught.push(reader); lb.showingFallback = true; reader.heldOn = null; }   // D-25: born held under a fresh boundary → the boundary's
+     else for (const { lb } of this.bornHeldOwn) { lb.bornCandidates = 0; lb.showingFallback = lb.caught.length > 0; if (!lb.showingFallback) lb.armed = false; }
+     // Verdicts are final only after the decision (H-9): lane readers re-settle against the decided world, then show ahead (H-7).
+     for (const n of this.allNodes()) if (n.hasGuess && !n.corrected && !this.heldLanes.has(n)) { n.guessShown = true; n.shownGuess = n.guess; }   // D-22: the guess the screen shows now (a held lane's guess is not shown: S-solid-33)
+@@ -393,7 +398,7 @@ export class Runtime {
+       if (n.heldOn !== null && this.find(n.heldOn) === g) n.heldOn = null;
+       if (n.hasGuess && (this.guessedBy(n, g) || (n.guessBy !== null && this.find(n.guessBy) === g))) {   // H-11: a guess lives as long as its hold; another action's guesses on the node stay
+         n.guessEntries = n.guessEntries.filter(e => this.find(e.by) !== g); n.corrected = false;
+-        if (n.guessEntries.length === 0) { n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.guessPaths = []; n.guessShown = false; n.shownGuess = undefined; n.answerCorrected = false; } else this.rebuildGuess(n);
++        if (n.guessEntries.length === 0) { n.questionMoved = false; n.hasGuess = false; n.guess = undefined; n.guessBy = null; n.guessPaths = []; n.guessShown = false; n.shownGuess = undefined; n.answerCorrected = false; } else this.rebuildGuess(n);
+         this.notify(n, "");
+       }
+       for (const [k, c] of n.heldKeys) if (this.find(c) === g) n.heldKeys.delete(k);
+@@ -412,7 +417,7 @@ export class Runtime {
+         const v = this.pull(i.node);
+         if (v instanceof ViewValue) return this.settle(v, holding, boundary);
+         { const eb = erroredShowing(boundary); const above = eb && v instanceof PendingVal ? armedAbove(eb) : null; if (above) { above.caught.push(i.node); i.node.heldOn = null; return; }   // H-12: an armed `loading` above the error fallback takes the pending content (found by S-ai2-search)
+-          if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-39)
++          if (eb && (i.node.served.size || v instanceof PendingVal)) { eb.stillWaiting = true; i.node.served.clear(); i.node.heldOn = null; return; } }   // behind an error fallback: not the display (H-4); pending is not an answer (D-41)
+         if (v instanceof ErrVal) {                                                                                         // H-12 / D-41: an error is an answer; it reveals with its frame
+           const eb = catching(boundary, v.err); if (eb) eb.caught.push(i.node);
+           const openE = [...i.node.taint].filter(c => c !== this.instant && this.openChanges.has(this.find(c)));
+@@ -424,13 +429,13 @@ export class Runtime {
+         const plainHeld = ownServed || openPlain.length > 0 || i.node.taint.has(this.instant) || (v instanceof PendingVal && i.node.served.size > 0);
+         if (i.node.lane && !plainHeld && !(v instanceof PendingVal)) {                                                     // H-7: a pure lane reader never holds the instant
+           i.node.heldOn = null;
+-          if (i.shown === null && [...i.node.lanes].some(l => this.heldLanes.has(l))) {                                   // D-26: mounted mid-hold: shows the committed world
++          if (i.shown === null && [...i.node.lanes].some(l => this.heldLanes.has(l))) {                                   // D-25: mounted mid-hold: shows the committed world
+             this.committedView = true; i.node.evaluated = false; i.node.state = "dirty";
+             try { i.shown = fmt(this.pull(i.node)); } finally { this.committedView = false; i.node.evaluated = false; i.node.state = "dirty"; }
+           }
+           return;
+         }
+-        if (i.node.lane && v instanceof PendingVal && !plainHeld && this.committedOnce && i.shown !== null) {              // pending only through the lane (at the mount there is no committed world to show: the reader is the mount's — H-7). A reader that has never shown anything has no display to keep: its read throws and holds the pass like a plain one (Solid D-28, S-solid-39)
++        if (i.node.lane && v instanceof PendingVal && !plainHeld && this.committedOnce && i.shown !== null) {              // pending only through the lane (at the mount there is no committed world to show: the reader is the mount's — H-7). A reader that has never shown anything has no display to keep: its read throws and holds the pass like a plain one (Solid D-25, S-solid-39)
+           i.node.heldOn = null;
+           const lb = nearest(boundary, "loading"); if (lb && lb.armed) lb.caught.push(i.node); else for (const l of i.node.lanes) this.heldLanes.add(l);
+           return;
+@@ -456,7 +461,7 @@ export class Runtime {
+         }
+         if (i.node.taint.has(this.instant)) {                                                                              // consumed this instant's writes: shows at its commit (F-2)
+           const lb = nearest(boundary, "loading");
+-          if (lb && lb.armed && !i.node.hasCommitted) { this.bornHeldOwn.push({ reader: i.node, lb }); lb.bornCandidates++; }   // D-27: born held if this instant ends up held — decided after the hold decision
++          if (lb && lb.armed && !i.node.hasCommitted) { this.bornHeldOwn.push({ reader: i.node, lb }); lb.bornCandidates++; }   // D-25: born held if this instant ends up held — decided after the hold decision
+           i.node.heldOn = this.find(this.instant); return;
+         }
+         if (ownServed) { i.node.heldOn = this.find(this.instant); holding.push(i.node); i.shown = fmt(v); return; }        // served this change's own flight: publishes committed-derived text, holds the change (S-solid-27)
+@@ -515,7 +520,7 @@ export class Runtime {
+         i.caught = []; i.stillWaiting = false;
+         const was = i.showingFallback;
+         this.settle(i.content, holding, i);
+-        i.showingFallback = i.caught.length > 0 || (i.showingFallback && i.stillWaiting);   // H-12: fallback until a new *answer* (D-39)
++        i.showingFallback = i.caught.length > 0 || (i.showingFallback && i.stillWaiting);   // H-12: fallback until a new *answer* (D-41)
+         if (i.showingFallback !== was) {                                                      // D-41: the change belongs to the frame of the answer that caused it
+           const owners = (i.caught.length ? i.caught : this.contentReaders(i.content)).flatMap(r => [...r.taint]).filter(t => this.openChanges.has(this.find(t)) || t === this.instant);
+           i.armedBy = owners.length ? owners[0] : this.instant;
+@@ -587,6 +592,17 @@ export class Runtime {
+     const walk = (i: VItem) => { switch (i.k) { case "read": out.push(i.node); if (i.node.value instanceof ViewValue) v2(i.node.value); break; case "el": i.children.forEach(walk); break; case "comp": v2(i.inst); break; case "mif": if (i.inflight) v2(i.inflight.inst); break; case "mfor": i.inflightRows.forEach(r => v2(r.inst)); break; case "loading": case "errored": v2(i.content); break; } };
+     const v2 = (x: ViewInst) => x.items.forEach(walk); v2(v); return out;
+   }
++  /** D-1 (decision 4 of #4695): a mount whose content read a held value plainly, with no boundary catching it, is born held. */
++  private bornHeld(v: ViewInst): boolean {
++    const walk = (i: VItem): boolean => { switch (i.k) {
++      case "read": return i.node.heldOn !== null || (i.node.value instanceof ViewValue && this.bornHeld(i.node.value));
++      case "el": return i.children.some(walk); case "comp": return this.bornHeld(i.inst);
++      case "mif": return !!i.inflight && this.bornHeld(i.inflight.inst); case "mfor": return i.inflightRows.some(r => this.bornHeld(r.inst));
++      case "loading": return !i.armed && this.bornHeld(i.content);   // an armed boundary catches what is born held under it (D-12)
++      case "errored": return this.bornHeld(i.content);
++      default: return false; } };
++    return v.items.some(walk);
++  }
+   /** H-7: during a hold, lane readers in the committed structure show σ′ unless their own lane is pending. */
+   private patchLanes(v: ViewInst) { for (const i of v.items) this.patchItem(i); }
+   private patchItem(i: VItem) {
+@@ -596,13 +612,13 @@ export class Runtime {
+       case "el": { for (const c of i.children) this.patchItem(c); return; }
+       case "comp": return this.patchLanes(i.inst);
+       case "mif": {
+-        if (i.cond.lane && i.inflight !== i.committed && i.inflight && ![...i.cond.lanes].some(l => this.heldLanes.has(l))) {   // D-27: a verdict-opened branch is a mainline mount: attaches now
++        if (i.cond.lane && i.inflight !== i.committed && i.inflight && ![...i.cond.lanes].some(l => this.heldLanes.has(l)) && !this.bornHeld(i.inflight.inst)) {   // D-25: a verdict-opened branch is a mainline mount: attaches now — unless its content is born held (D-1, decision 4 of #4695; S-solid-46): then the old arm stays until the landing
+           i.committed?.inst.region.dispose(); i.committed = i.inflight; this.commit(i.committed.inst, null);
+         }
+         if (i.committed) this.patchLanes(i.committed.inst); return;
+       }
+       case "mfor": {
+-        if (i.xs.lane && ![...i.xs.lanes].some(l => this.heldLanes.has(l) || this.frozen(l)) && (i.inflightRows.length !== i.committedRows.length || i.inflightRows.some((r, k) => r !== i.committedRows[k]))) {   // D-27 for rows: a lane-opened row set is a mainline mount
++        if (i.xs.lane && ![...i.xs.lanes].some(l => this.heldLanes.has(l) || this.frozen(l)) && (i.inflightRows.length !== i.committedRows.length || i.inflightRows.some((r, k) => r !== i.committedRows[k])) && !i.inflightRows.some(r => !i.committedRows.includes(r) && this.bornHeld(r.inst))) {   // D-25 for rows: a lane-opened row set is a mainline mount, unless a fresh row is born held
+           for (const r of i.committedRows) if (!i.inflightRows.includes(r)) r.region.dispose();
+           const fresh = i.inflightRows.filter(r => !i.committedRows.includes(r)); i.committedRows = i.inflightRows;
+           for (const r of fresh) this.commit(r.inst, null);
+@@ -611,7 +627,7 @@ export class Runtime {
+       }
+       case "loading": case "errored": {
+         // D-17: `on` read a probe → the fallback shows now; otherwise the display follows settle once nothing under it is held on an open change
+-        if ((i.k === "loading" && i.onNode?.lane) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
++        if ((i.k === "loading" && i.onNode?.lane && this.onAhead(i.onNode)) || i.laneAttached || !this.openChanges.has(this.find(i.armedBy))) i.committedFallback = i.showingFallback;
+         this.patchLanes(i.content); if (i.committedFallback) this.patchLanes(i.fallback); return;
+       }
+       case "text": return;
+@@ -637,18 +653,27 @@ export class Runtime {
+     const notified = n.state !== "clean" || !n.hasValue;
+     if (n.kind === "reader" && (n.heldOn !== null || n.value instanceof PendingVal || n.served.size > 0)) recompute = true;   // a held or served display re-runs its pass each instant
+     if (!recompute) {
+-      n.taint = new Set();
+-      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); if (n.taintFrom.has(d)) for (const t of d.taint) n.taint.add(t);   /* only what the last pass took taint from: a probe's target is the lane's, not the instant's (F-6; found by S-solid-28) */ if (n.state === "check" && d.changed) { recompute = true; break; } }
++      n.taint = new Set(); n.plainTaint = new Set();
++      for (const d of n.deps.keys()) if (d instanceof Node) { this.pull(d); if (n.taintFrom.has(d)) for (const t of (d.lane ? d.plainTaint : d.taint)) { n.taint.add(t); n.plainTaint.add(t); }   /* only what the last pass took taint from: a probe's target is the lane's, not the instant's (F-6; found by S-solid-28) */ if (n.state === "check" && d.changed) { recompute = true; break; } }
+       if (!recompute && n.state === "check") recompute = true;
+     }
+     if (process.env.RS_TRACE_PULL) console.log(`  pull ${n.name}#${n.id} state=${n.state} recompute=${recompute} evaluated=${n.evaluated} value=${fmt(n.value)}`);
+     if (recompute) {
+       const oldDeps = new Map([...n.deps].map(([t, ks]) => [t, new Set(ks)] as const));
+       this.unsubscribe(n);
+-      const prevTracking = this.tracking; this.tracking = n; n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); const prevFlight = n.flight; n.flight = null; n.taint = new Set(); n.taintFrom = new Set(); n.served = new Set();
++      const prevTracking = this.tracking; this.tracking = n; const prevFlight = n.flight;
+       n.triggered = notified;
+       let v: unknown;
+-      try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
++      n.screenFor = null;
++      for (;;) {
++        n.lane = false; n.lanes = new Set(); n.inLanes = new Set(); n.flight = null; n.taint = new Set(); n.plainTaint = new Set(); n.taintFrom = new Set(); n.served = new Set(); n.probed = new Set(); n.plainAhead = new Set();
++        try { v = n.compute!(this); } catch (e) { if (e instanceof RuleError) throw e; v = new ErrVal(e); }
++        // R-11 (Solid D-25, decision 1 of #4695): posture is per read. A plain read of a node this same pass also read ahead is
++        // the screen's (`[x, pending? x]` in an equation is `[committed, true]` now, either order: Solid S-27's memo case). The pass
++        // learns what it probes only by running, so a pass that did both is run once more with those nodes on the screen.
++        if (n.screenFor || n.kind !== "eq" || ![...n.plainAhead].some(b => n.probed.has(b))) break;
++        n.screenFor = new Set(n.probed); this.unsubscribe(n);
++      }
+       this.tracking = prevTracking;
+       const landed = n.landing && !(v instanceof PendingVal); n.landing = false;   // a new answer, even one equal to the truth the guess was made over: it is compared with the guess (D-34)
+       this.subscribe(n);
+@@ -661,8 +686,11 @@ export class Runtime {
+       if (!n.hasValue) ch.add(""); else diffPaths(n.value, v, "", ch);
+       if (ch.size > 0) { if (n.hasValue) { n.prev = n.value; n.hasPrev = true; } n.value = v; n.changed = true; n.changedSinceCommit = true; }   // C-2: `pre` is the value before this change
+       n.hasValue = true;
+-      if (n.hasGuess && !isAbsent(v) && (ch.size > 0 || landed)) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { for (const e of n.guessEntries) if (guessedAt({ guessPaths: [e.path] }, dg)) e.spent = true; if (n.guessEntries.some(e => !e.spent)) this.rebuildGuess(n, v); else n.guess = v; n.corrected = true; n.answerCorrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now (derivations; `latest x` of a shown guess keeps it, D-22); equal there confirms silently (the screen keeps the guess's world until the commit)
++      if (n.hasGuess && !n.questionMoved && !isAbsent(v) && (ch.size > 0 || landed)) { const dg = new Set<Path>(); diffPaths(v, n.guess, "", dg); if (guessedAt(n, dg)) { for (const e of n.guessEntries) if (guessedAt({ guessPaths: [e.path] }, dg)) e.spent = true; if (n.guessEntries.some(e => !e.spent)) this.rebuildGuess(n, v); else n.guess = v; n.corrected = true; n.answerCorrected = true; } }   // D-34: a new answer different from the guess at a guessed key corrects the graph now (derivations; `latest x` of a shown guess keeps it, D-22); equal there confirms silently (the screen keeps the guess's world until the commit)
+       if (!(v instanceof PendingVal)) n.answered = true;   // H-12: an error is an answer (a first load ends with it — found by S-ai2-search)
++      if (n.hasGuess && n.question && notified && v instanceof PendingVal && !n.quiet && !n.guessEntries.some(e => !e.spent && this.find(e.by) === this.find(this.instant))) {   // H-11 (Solid D-34, S-44): a new question under a guess is held with the guess's hold; its answer is not the guess's truth
++        for (const e of n.guessEntries) if (!e.spent && this.groupOpen(e.by)) { this.union(this.instant, e.by); n.questionMoved = true; }
++      }
+       if (n.kind === "eq" && notified && v instanceof PendingVal && !(n.deferred && n.answered) && !n.quiet) n.heldBy = this.instant;   // a deferred node's first load holds like any   // R-4: a pass this change triggered asked a new question; its pending belongs to this change
+       if (n.heldBy !== null) n.taint.add(n.heldBy);
+       // D-10: while this value is held by an open change, the committed pass's inputs stay subscribed.
+@@ -709,6 +737,12 @@ export class Runtime {
+   evalExpr(e: Expr, region: Region, env?: Map<string, unknown>): unknown { return this.ev(e, region, env); }
+   private latestOfGuess = 0;                            // DV-10: evaluating `latest g` of a guess: its reads join g's lane without being held by it
+   private addLane(l: Node, held = true) { const t = this.tracking!; t.lanes.add(l); if (held && !this.latestOfGuess) t.inLanes.add(l); }
++  /** H-6, R-11 (Solid D-17, decision 1 of #4695): a re-arm shows its fallback now iff every held value its `on` pass read, it read
++   *  ahead. A plain read of another held value — served, or derived from an open change — makes the pass the hold's work. */
++  private onAhead(n: Node) {
++    if ([...n.served].some(b => !n.probed.has(b))) return false;
++    return ![...n.taint].some(t => t === this.instant || this.groupOpen(t));
++  }
+   /** H-7: a reader keeps what it showed while one of the lanes it is in is held or frozen. */
+   private laneHeld(n: Node) { return [...n.inLanes].some(l => this.heldLanes.has(l) || this.frozen(l)); }
+   /** A tracked read of a reactive node from reactive scope: guesses (H-11), lanes (R-10), serving (D-3), taint. */
+@@ -725,7 +759,12 @@ export class Runtime {
+         const future = ((b.kind === "source" || b.question) && b.heldBy !== this.instant && !(b.value instanceof PendingVal)) || b.value instanceof PendingVal;   // a landed answer is consumed, not served; own writes are read
+         const armed = this.tracking.kind === "reader" && nearest(this.tracking.region.boundary, "loading")?.armed;   // F-4: an armed boundary's catch beats serving
+         if (this.tracking.kind === "reader" && held && future && b.hasCommitted && !armed && !this.probing && !b.lane) { this.tracking.served.add(b); return b.committed; }   // D-3: served the committed value
+-        if (!b.lane && !this.probing) { this.tracking.taintFrom.add(b); for (const t of b.taint) this.tracking.taint.add(t); }   // lane work and probes are the lane's, not the instant's (F-6)
++        if (this.probing) this.tracking.probed.add(b);
++        else if (b.hasCommitted && (held || [...b.taint].some(t => t === this.instant || this.groupOpen(t)))) {
++          if (this.tracking.screenFor?.has(b)) return b.committed;                                   // R-11: the plain twin of a probe in this pass reads the screen
++          this.tracking.plainAhead.add(b);
++        }
++        if (!this.probing) { this.tracking.taintFrom.add(b); for (const t of (b.lane ? b.plainTaint : b.taint)) { this.tracking.taint.add(t); this.tracking.plainTaint.add(t); } }   // probes and lane work are the lane's, not the instant's (F-6); a lane value carries the holds of its plain reads (R-11, Solid D-25)
+       }
+       return v;
+   }
+@@ -779,8 +818,8 @@ export class Runtime {
+       case "latest": {                                                 // R-9 probe: the value an update is moving toward, else the committed value
+         const ln = this.nodeOf(e.e, region, env);
+         const ahead = !!ln?.hasGuess;                                  // DV-10: `latest` of a guess reads ahead of the guess's held lane (Solid #4284)
+-        if (this.tracking) { this.tracking.lane = true; if (ln) this.addLane(ln, !ahead); }
+-        if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-26: an outsider shows what is on screen
++        if (this.tracking) { this.tracking.lane = true; if (ln) { this.addLane(ln, !ahead); this.tracking.probed.add(ln); } }
++        if (this.committedView && ln && ln.hasCommitted) { this.track(ln, ""); return ln.committed; }   // D-25: an outsider shows what is on screen
+         if (ln && e.e.k === "id" && ln.hasGuess && ln.answerCorrected && ln.guessShown && this.frozen(ln)) { this.track(ln, ""); return ln.shownGuess; }   // D-22, D-34 (Solid decision 3; DV-19): an answer corrected the graph, but the slot still displays the guess: `latest` keeps it until the hold commits
+         this.probing++; if (ahead) this.latestOfGuess++; let v: unknown; try { v = this.ev(e.e, region, env); } finally { this.probing--; if (ahead) this.latestOfGuess--; }
+         if (v instanceof PendingVal && ln && ln.hasCommitted && e.e.k === "id") return ln.committed;
+@@ -797,17 +836,18 @@ export class Runtime {
+           if (v instanceof PendingVal) return true;
+           return [...reads].some(r => r.value instanceof PendingVal || (r.heldBy !== null && (r.heldBy === this.instant || this.groupOpen(r.heldBy))));
+         }
+-        if (this.tracking) this.addLane(n);
++        if (this.tracking) { this.addLane(n); this.tracking.probed.add(n); }
+         this.track(n, ""); if (n.kind !== "source") this.pull(n);     // a probe is a (lane) dependency
+         if (e.e.k === "latest") return n.value instanceof PendingVal;  // the latest channel's own verdict: x's own async is up (S-solid-27)
+         if (n.lagging) return true;                                    // D-40: lagging behind a new question
+         if (n.firstPaint) return false;                                // R-7
+         if (n.affectedBy !== null && (n.affectedBy === this.instant || this.groupOpen(n.affectedBy))) return true;   // AC-5: a declared new question
++        if (n.questionMoved && n.guessEntries.some(e => this.groupOpen(e.by))) return true;   // H-9 / H-11 (Solid S-44): the new question's answer waits in the guess's hold, re-asked or not
+         if (n.quiet) return false;                                     // AC-4 / D-31: a re-ask of the same question is quiet, even landed into a hold
+-        if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-24)
++        if (n.kind !== "source" && !n.hasCommitted && !n.answered) return this.demandMode ? PENDING : false;   // first load: no verdict (R-9 / D-23)
+         const open = (c: number | null) => c !== null && (c === this.instant || this.groupOpen(c));
+         if (n.value instanceof PendingVal) return true;
+-        if (n.hasGuess && !n.corrected && open(n.heldBy)) { const dg = new Set<Path>(); diffPaths(n.value, n.guess, "", dg); if (dg.size === 0) return false; }   // D-35: a held answer equal to the guess is a silent confirm (S-solid-34)
++        if (n.hasGuess && !n.corrected && open(n.heldBy)) { const dg = new Set<Path>(); diffPaths(n.value, n.guess, "", dg); if (dg.size === 0) return false; }   // D-34: a held answer equal to the guess is a silent confirm (S-solid-34)
+         if (e.e.k === "member" || e.e.k === "index") {                   // ST-2c / D-30: pending is per key — a held path write pends exactly its key
+           const path: string[] = []; let x: Expr = e.e; while (x.k === "member" || x.k === "index") { path.unshift(x.k === "member" ? x.p : String(this.ev(x.i, region, env))); x = x.o; }
+           if (n.changedSinceCommit && n.heldKeys.size === 0 && open(n.heldBy)) return true;   // a re-derived family: every key re-asks
+@@ -1079,16 +1119,16 @@ export class Runtime {
+     this.openActions.delete(run);
+     if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct
+     // AC-1 (ruled 2026-10-22, DV-2): a rejection ends the body like a return — the held writes commit, the guesses
+-    // revert to the truth at hand (the body-end correction, D-35). Only optimistic state is provisional.
++    // revert to the truth at hand (the body-end correction, D-34). Only optimistic state is provisional.
+     this.pendingBodyEnds.push(this.find(run.change));
+   }
+-  /** D-35: the body's end corrects a guess nothing authoritative is answering — by the truth at hand. */
++  /** D-34: the body's end corrects a guess nothing authoritative is answering — by the truth at hand. */
+   private bodyEndCorrections(): boolean {
+     let any = false;
+     for (const g0 of this.pendingBodyEnds) { const g = this.find(g0);
+       for (const n of this.allNodes()) if (n.hasGuess && this.guessedBy(n, g)) {
+         const truth = n.demanded ? n.value : this.pull(n);
+-        if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending") || this.refreshPending(g)) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`) — or the action re-asked a question the guess's truth may follow: that answer corrects (D-34, D-35, AC-4)
++        if (truth instanceof PendingVal || (n.quiet && n.flight?.state === "pending") || this.refreshPending(g)) continue;   // its own source is still answering — a first load or a re-ask (`refresh x`) — or the action re-asked a question the guess's truth may follow: that answer corrects (D-34, AC-4)
+         const mine = n.guessEntries.filter(e => this.find(e.by) === g);
+         const dg = new Set<Path>(); diffPaths(truth, n.guess, "", dg);
+         if (guessedAt({ guessPaths: mine.map(e => e.path) }, dg)) {   // this action's keys differ from the truth at hand: corrected; another action's keys keep their guesses
+@@ -1115,7 +1155,7 @@ export class Runtime {
+   }
+   /** H-11: whether change `g` (a group root) made a guess on `n` that is still live. */
+   private guessedBy(n: Node, g: number) { return n.guessEntries.some(e => this.find(e.by) === g); }
+-  /** AC-4, D-35: a re-ask issued by the action of change `g` is still answering. */
++  /** AC-4, D-34: a re-ask issued by the action of change `g` is still answering. */
+   private refreshPending(g: number) { return this.allNodes().some(n => n.quiet && n.refreshInAction && n.refreshBy !== null && this.find(n.refreshBy) === g && n.flight?.state === "pending"); }
+   /** D-34: a corrected guess's readers keep what they showed until the hold commits (the lane is frozen, not held). */
+   private frozen(n: Node) { return n.hasGuess && n.corrected && n.guessBy !== null && (n.guessBy === this.instant || this.groupOpen(n.guessBy)); }
+diff --git a/scenarios/S-app-todos.md b/scenarios/S-app-todos.md
+index b842cdc..565db2c 100644
+--- a/scenarios/S-app-todos.md
++++ b/scenarios/S-app-todos.md
+@@ -1,6 +1,6 @@
+ # S-app-todos — TodoMVC against a server, in layers: server → failures → guesses
+ 
+-Rules exercised: ST-4, ST-5, AC-1, AC-3, AC-4, AC-7, H-11, R-f-6, W-6, D-35.
++Rules exercised: ST-4, ST-5, AC-1, AC-3, AC-4, AC-7, H-11, R-f-6, W-6, D-34.
+ 
+ The layering of solid next's `examples/todos` (server → failures → guesses), written in .rx. Nothing keeps a copy of
+ what the server accepted: every action ends with `refresh server`, and its guesses stay until that answer lands.
+@@ -28,7 +28,7 @@ file: ../examples/todos.rx
+ - 2: the add guesses `adding`, a list of its own, so it never joins a toggle's change (H-11).
+ - 3: the toggle guesses one row of `todos` (AC-3); `clear done` opens with the guess (a lane branch attaches now, H-7).
+ - 4: the save is declined. The catch records the failure (AC-7) and the body re-asks `server`. A re-ask issued by an
+-  action that guessed holds its change (D-35, AC-4): the guess stays up until the server's list lands, so the screen
++  action that guessed holds its change (D-34, AC-4): the guess stays up until the server's list lands, so the screen
+   never shows the row reverted and then corrected.
+ - 5: the add is accepted. Its re-ask is the same question, still out: nothing moves.
+ - 6: the list lands. Both changes commit in one frame: `eggs` comes from the server (the add's guess goes in the same
+@@ -40,7 +40,7 @@ file: ../examples/todos.rx
+ 
+ 1. `ref/` corrected an action's guesses at the end of its body even when the action had re-asked a question with
+    `refresh` that was still out, unless the guess was on that question's own source. Solid holds the action's
+-   transition until the refresh lands. Fixed in `ref/src/runtime.ts`; AC-3's D-35 sentence now says so.
++   transition until the refresh lands. Fixed in `ref/src/runtime.ts`; AC-3's D-34 sentence now says so.
+ 2. A guessed keyed source derived synchronously from a loaded equation (`source todos key id = server.map(…)`) was
+    rebuilt instead of adopted on hydration: the runtime always handed `createOptimisticStore` an async derive. Fixed in
+    `ref/compile/rt*.ts` (and so `@reactivescript/runtime`): the derive is async only when its value is.
+diff --git a/scenarios/S-fail-1.md b/scenarios/S-fail-1.md
+index 170c627..0af348e 100644
+--- a/scenarios/S-fail-1.md
++++ b/scenarios/S-fail-1.md
+@@ -1,6 +1,6 @@
+ # S-fail-1 — typed failures: a class becomes a value, a typed boundary takes its class, another class passes it
+ 
+-Rules: R-f-1, R-f-3, R-f-4, R-f-5, H-12, D-39.
++Rules: R-f-1, R-f-3, R-f-4, R-f-5, H-12, D-41.
+ 
+ ## Program
+ 
+@@ -44,7 +44,7 @@ Instant 3: `NotFound` is caught into a value — the reader shows
+ `(nobody)` and no boundary moves. Instant 4: `BadId` is thrown with no
+ await; the typed boundary takes it in the same frame as `#0`. Instant 5:
+ the content is pending behind an error fallback, which holds nothing
+-(H-4) and stays until an answer replaces the error (D-39). Instant 6: the
++(H-4) and stays until an answer replaces the error (D-41). Instant 6: the
+ rejection is an `Error`: the `BadId` boundary does not take it, the root
+ does. Instants 7–8: a new question, then its answer recovers through both
+ boundaries in one frame.
+diff --git a/scenarios/S-fail-2.md b/scenarios/S-fail-2.md
+index 92ea70b..67c804d 100644
+--- a/scenarios/S-fail-2.md
++++ b/scenarios/S-fail-2.md
+@@ -1,6 +1,6 @@
+ # S-fail-2 — failures through components: a prop's failures are checked where it is read, children's where they are rendered
+ 
+-Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, D-39.
++Rules: R-f-4, R-f-5, R-f-6, R-2, RG-4c, H-4, D-41.
+ 
+ ## Program
+ 
+@@ -54,7 +54,7 @@ Instant 3: `Missing` is thrown with no await, but `other` re-asks and its
+ reader holds the change; the three error fallbacks are staged with it (an
+ error is an answer, H-12). Instant 4: the rejection is caught into `none`
+ and the frame commits as one. Instants 5–7: behind their fallbacks the
+-readers of `value` hold nothing (H-4) and recover with the answer (D-39);
++readers of `value` hold nothing (H-4) and recover with the answer (D-41);
+ `other`'s reader holds the change until `q` lands.
+ 
+ ## Rejected variants
+diff --git a/scenarios/S-fail-4.md b/scenarios/S-fail-4.md
+index ab2671e..2b700da 100644
+--- a/scenarios/S-fail-4.md
++++ b/scenarios/S-fail-4.md
+@@ -1,6 +1,6 @@
+ # S-fail-4 — a pane that borrows another pane's data catches the borrowed read
+ 
+-Rules: R-f-4, R-f-5, R-6, D-39.
++Rules: R-f-4, R-f-5, R-6, D-41.
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-guess-reask-refresh.md b/scenarios/S-guess-reask-refresh.md
+index 6326e5d..02cacb0 100644
+--- a/scenarios/S-guess-reask-refresh.md
++++ b/scenarios/S-guess-reask-refresh.md
+@@ -1,6 +1,6 @@
+ # S-guess-reask-refresh — a guess stays until the action's refresh lands, even after an outside re-ask landed under it
+ 
+-Rules exercised: AC-3, AC-4, H-11, D-35.
++Rules exercised: AC-3, AC-4, H-11, D-34.
+ 
+ ## Program
+ 
+@@ -13,7 +13,7 @@ export default component App() {
+ ```
+ 
+ An action's `refresh` is authoritative work in flight: the guess waits for that answer before the body-end correction
+-(06 D-35; S-remount-refresh instants 3 and 8). That holds whether or not the question was re-asked from outside the
++(06 D-34; S-remount-refresh instants 3 and 8). That holds whether or not the question was re-asked from outside the
+ action while the guess was pending: the outside answer (instant 4) lands under the guess and leaves it; the write
+ landing (instant 5) ends the body, and the action's own re-ask is what corrects the guess (instant 6).
+ 
+@@ -46,7 +46,7 @@ export default component App() {
+ ```
+ 
+ The effect follows the graph's value, and the guess is the graph's value until the action's re-ask answers (H-11,
+-D-35): it logs the guess once and nothing after, since the re-ask confirms it.
++D-34): it logs the guess once and nothing after, since the re-ask confirms it.
+ 
+ | instant | action | frame | effect |
+ | ------- | ------ | ----- | ------ |
+diff --git a/scenarios/S-hold-5.md b/scenarios/S-hold-5.md
+index 221262d..975ff97 100644
+--- a/scenarios/S-hold-5.md
++++ b/scenarios/S-hold-5.md
+@@ -27,5 +27,5 @@ export default component App() {
+ Instant 1: the rejection ends the wait like a value (R-6) and reaches the
+ `errored` region, which becomes the display (H-12). Instant 2: a new
+ question; the reader behind the error fallback holds nothing (H-4), so the
+-instant commits and the fallback stays (Solid D-39). Instant 3: the answer
++instant commits and the fallback stays (Solid D-41). Instant 3: the answer
+ replaces the error; content returns.
+diff --git a/scenarios/S-hold-6.md b/scenarios/S-hold-6.md
+index 63cd095..cbbb9f7 100644
+--- a/scenarios/S-hold-6.md
++++ b/scenarios/S-hold-6.md
+@@ -1,6 +1,6 @@
+ # S-hold-6 — a re-armed `loading` above an error fallback takes the next question (found by S-ai2-search)
+ 
+-Rules: H-12, H-6, H-5, D-39.
++Rules: H-12, H-6, H-5, D-41.
+ 
+ ## Program
+ 
+@@ -27,7 +27,7 @@ export default component App() {
+ | 3       | resolve item "pear" | `pear`             |
+ 
+ Instant 2: the error fallback alone would stay up while the content under it
+-is pending (D-39), showing item 4's failure while item 3 loads. But the
++is pending (D-41), showing item 4's failure while item 3 loads. But the
+ `loading` above it is re-armed by `on(sel)`, and an armed boundary takes
+ the pending content even behind an error fallback: its fallback replaces
+ both (Solid's behaviour; the second AI test's search pane first wrapped its
+diff --git a/scenarios/S-latest-reask.md b/scenarios/S-latest-reask.md
+index 7a22ea9..d106fc0 100644
+--- a/scenarios/S-latest-reask.md
++++ b/scenarios/S-latest-reask.md
+@@ -16,7 +16,7 @@ A re-ask of the list from outside the action (instant 3) lands under the pending
+ guess's own question and differs from the guess, so it corrects the graph now (H-11, D-34): derivations re-derive from
+ the truth. But the slot still displays the guess, and `latest rows` answers what the slot displays: the guess, until
+ the hold commits (H-11; Solid D-22 and D-34, decision 3 of solidjs/solid#4695). The write landing (instant 5) ends the
+-body with the action's `refresh rows` in flight, so nothing commits yet (D-35); the re-ask's answer commits it all
++body with the action's `refresh rows` in flight, so nothing commits yet (D-34); the re-ask's answer commits it all
+ (instant 6).
+ 
+ ## Frames
+diff --git a/scenarios/S-solid-13.md b/scenarios/S-solid-13.md
+index 7e83f3d..d0f2c4b 100644
+--- a/scenarios/S-solid-13.md
++++ b/scenarios/S-solid-13.md
+@@ -1,4 +1,4 @@
+-# S-solid-13 — the last on-screen reader leaving releases the hold (Solid S-13; D-11, O3)
++# S-solid-13 — the last on-screen reader leaving releases the hold (Solid S-13; D-9, O3)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-15.md b/scenarios/S-solid-15.md
+index ce4c206..d315498 100644
+--- a/scenarios/S-solid-15.md
++++ b/scenarios/S-solid-15.md
+@@ -1,4 +1,4 @@
+-# S-solid-15 — a boundary whose own mount is held appears at that hold's commit (Solid S-15; D-13)
++# S-solid-15 — a boundary whose own mount is held appears at that hold's commit (Solid S-15; D-12)
+ 
+ Rules: AC-1, H-5, H-8, RG-1.
+ 
+diff --git a/scenarios/S-solid-16.md b/scenarios/S-solid-16.md
+index c740472..c491797 100644
+--- a/scenarios/S-solid-16.md
++++ b/scenarios/S-solid-16.md
+@@ -1,4 +1,4 @@
+-# S-solid-16 — a reset ends the hold on writes only its readers observed; an outside reader keeps it (Solid S-16; D-14)
++# S-solid-16 — a reset ends the hold on writes only its readers observed; an outside reader keeps it (Solid S-16; D-12)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-17.md b/scenarios/S-solid-17.md
+index 104d122..c31a3aa 100644
+--- a/scenarios/S-solid-17.md
++++ b/scenarios/S-solid-17.md
+@@ -1,4 +1,4 @@
+-# S-solid-17 — after a reset the fallback stays until every reader under it settles (Solid S-17; D-14)
++# S-solid-17 — after a reset the fallback stays until every reader under it settles (Solid S-17; D-12)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-18.md b/scenarios/S-solid-18.md
+index b2a7774..98ba23b 100644
+--- a/scenarios/S-solid-18.md
++++ b/scenarios/S-solid-18.md
+@@ -1,4 +1,4 @@
+-# S-solid-18 — `on` follows the frame of the change (Solid S-18; D-15)
++# S-solid-18 — `on` follows the frame of the change (Solid S-18; D-17)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-19.md b/scenarios/S-solid-19.md
+index ab9d11f..a6361e3 100644
+--- a/scenarios/S-solid-19.md
++++ b/scenarios/S-solid-19.md
+@@ -1,4 +1,4 @@
+-# S-solid-19 — a same-source outside read: the fallback is armed off screen and never seen (Solid S-19; D-16)
++# S-solid-19 — a same-source outside read: the fallback is armed off screen and never seen (Solid S-19; D-17)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-20.md b/scenarios/S-solid-20.md
+index 30e35db..fc3b1d8 100644
+--- a/scenarios/S-solid-20.md
++++ b/scenarios/S-solid-20.md
+@@ -1,4 +1,4 @@
+-# S-solid-20 — the action outlasts the data: a race the fallback lost (Solid S-20; D-16)
++# S-solid-20 — the action outlasts the data: a race the fallback lost (Solid S-20; D-17)
+ 
+ Rules: AC-1, H-5, H-6.
+ 
+diff --git a/scenarios/S-solid-24.md b/scenarios/S-solid-24.md
+index 74de602..fce325a 100644
+--- a/scenarios/S-solid-24.md
++++ b/scenarios/S-solid-24.md
+@@ -1,4 +1,4 @@
+-# S-solid-24 — an armed boundary lets a lane reveal immediately; a disarmed one forwards (Solid S-24; D-21, F-5, F-6)
++# S-solid-24 — an armed boundary lets a lane reveal immediately; a disarmed one forwards (Solid S-24; D-12, F-5, F-6)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-25.md b/scenarios/S-solid-25.md
+index 85ed439..71bfa2e 100644
+--- a/scenarios/S-solid-25.md
++++ b/scenarios/S-solid-25.md
+@@ -1,4 +1,4 @@
+-# S-solid-25 — nothing shows a write before its instant; then every channel at once (Solid S-25; D-22, D-32)
++# S-solid-25 — nothing shows a write before its instant; then every channel at once (Solid S-25; D-22, D-33)
+ 
+ A write becomes visible at its instant's settle, to every channel (H-10).
+ The in-run invisibility (Solid's "no flush" row) is W-4 and is exercised by
+diff --git a/scenarios/S-solid-26.md b/scenarios/S-solid-26.md
+index 2136ba4..40ef162 100644
+--- a/scenarios/S-solid-26.md
++++ b/scenarios/S-solid-26.md
+@@ -1,4 +1,4 @@
+-# S-solid-26 — `pending?` is about a new question (Solid S-26; D-23, D-24)
++# S-solid-26 — `pending?` is about a new question (Solid S-26; D-23)
+ 
+ Rules: R-9, H-9, AC-4, AC-5, AC-3.
+ 
+@@ -31,7 +31,7 @@ export default component App() {
+ | 8       | resolve "gate" 0               | `Bob3 `          |
+ 
+ Instant 0: the probe's own read suspends with the first load — no verdict,
+-nothing observable (D-24). Instant 2: an input changed — a new question.
++nothing observable (D-23). Instant 2: an input changed — a new question.
+ Instant 4: a re-ask of the same question is quiet; the fresh value reveals
+ silently (5). Instant 6: `affects` declares a reload: pending. Instant 7:
+ the re-ask lands into the action's hold (D-31) and reveals at its commit.
+@@ -59,4 +59,4 @@ export default component App() {
+ | 3       | resolve "gate" 0               | `Ann `           |
+ 
+ The guess shows; `pending? shown` stays `false`. The body's end corrects
+-it by the truth at hand (D-35).
++it by the truth at hand (D-34).
+diff --git a/scenarios/S-solid-27.md b/scenarios/S-solid-27.md
+index 86e0ea0..b0250e7 100644
+--- a/scenarios/S-solid-27.md
++++ b/scenarios/S-solid-27.md
+@@ -32,3 +32,58 @@ through `latest`, so it follows `x`'s own async.
+ Instant 4: `x(1)` landed but `y(1)` is still up, so the frame is held: the
+ atomic pair shows `[true, x0]` (a landed answer awaiting reveal); the
+ `latest` form saw `x`'s own answer — `[false, x1]`. Never `[true, x1]`.
++
++## Variant: an equation probes `n` and reads it plainly
++
++```
++export default component App() {
++  source n := 0
++  x = 1 + n + (pending? n ? 1 : 0)
++  action save() { try { n := 5; await fetch("save") } catch {} }
++
++  <div><p>x {x}</p></div>
++}
++```
++
++| instant | action              | frame     |
++| ------- | ------------------- | --------- |
++| 0       | mount               | `x 1`     |
++| 1       | handler `save()`    | `x 2`     |
++| 2       | resolve "save" 0    | `x 6`     |
++
++Solid S-27's memo case (D-25, decision 1 of solidjs/solid#4695): posture is
++per read. The plain read of `n` beside its probe in the same pass is the
++screen's `0`, in either order, and the probe is `true`: `x 2` shows now and
++the equation is not the hold's work (R-11). `x 7` (the plain read seeing the
++held `5`) and `x 1` (the equation held with the write it probed) are both
++wrong.
++
++## Variant: an equation probes `n` and reads another held value plainly
++
++```
++export default component App() {
++  source n := 0
++  source k := 0
++  x = 1 + k + (pending? n ? 1 : 0)
++  action save() { try { n := 5; k := 1; await fetch("save") } catch {} }
++
++  <div><p>x {x}</p></div>
++}
++```
++
++| instant | action              | frame     |
++| ------- | ------------------- | --------- |
++| 0       | mount               | `x 1`     |
++| 1       | handler `save()`    | `x 1`     |
++| 2       | resolve "save" 0    | `x 2`     |
++
++The plain read of `k`, which the action holds, makes the pass the hold's
++work (R-11; Solid D-25): the probe beside it does not let it show ahead.
++
++## Divergences (DV-21)
++
++- oracle "Variant: an equation probes `n` and reads another held value plainly" instant 1: `x 2`
++
++Solid ruled this in #4695 (D-25, S-49 and S-50, ruled, not built): today one
++probe in a pass makes the whole pass a display-ahead reader, so the plain read
++of `k` is served the screen's `0` and the equation shows now.
+diff --git a/scenarios/S-solid-28.md b/scenarios/S-solid-28.md
+index 772da17..d8257d8 100644
+--- a/scenarios/S-solid-28.md
++++ b/scenarios/S-solid-28.md
+@@ -1,6 +1,6 @@
+-# S-solid-28 — Imperative probes: `pending?` of a first load is false; `latest` of it throws (Solid S-28; D-24)
++# S-solid-28 — Imperative probes: `pending?` of a first load is false; `latest` of it throws (Solid S-28; D-23)
+ 
+-Rules: R-9, R-12, R-8; Solid D-24 (A16, A7).
++Rules: R-9, R-12, R-8; Solid D-23 (A16, A7).
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-3.md b/scenarios/S-solid-3.md
+index 6425873..e921fd3 100644
+--- a/scenarios/S-solid-3.md
++++ b/scenarios/S-solid-3.md
+@@ -1,4 +1,4 @@
+-# S-solid-3 — a mount during a hold: a derivation born held holds the mount (Solid S-3; D-2, D-3)
++# S-solid-3 — a mount during a hold: a derivation born held holds the mount (Solid S-3; D-1, D-3)
+ 
+ The branch is opened by a write instead of a click; `title` is the
+ unrelated mainline write of Solid's row 3.
+diff --git a/scenarios/S-solid-30.md b/scenarios/S-solid-30.md
+index 4b033fd..a0eb49c 100644
+--- a/scenarios/S-solid-30.md
++++ b/scenarios/S-solid-30.md
+@@ -1,4 +1,4 @@
+-# S-solid-30 — a `latest` reader mounted mid-hold shows the committed value and reveals with the lane (Solid S-30; D-26)
++# S-solid-30 — a `latest` reader mounted mid-hold shows the committed value and reveals with the lane (Solid S-30; D-25)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-31.md b/scenarios/S-solid-31.md
+index cf99274..0c5da1a 100644
+--- a/scenarios/S-solid-31.md
++++ b/scenarios/S-solid-31.md
+@@ -1,4 +1,4 @@
+-# S-solid-31 — a verdict reader's mount is mainline: a boundary it opens shows its fallback (Solid S-31; D-27, #3851)
++# S-solid-31 — a verdict reader's mount is mainline: a boundary it opens shows its fallback (Solid S-31; D-1, D-25, #3851)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-32.md b/scenarios/S-solid-32.md
+index b4c62de..14be9b5 100644
+--- a/scenarios/S-solid-32.md
++++ b/scenarios/S-solid-32.md
+@@ -1,4 +1,4 @@
+-# S-solid-32 — an optimistic write shows from its instant; held writes beside it; one frame at the end (Solid S-32; D-32, D-33)
++# S-solid-32 — an optimistic write shows from its instant; held writes beside it; one frame at the end (Solid S-32; D-33)
+ 
+ Rules: AC-1, AC-3, ST-5, H-11.
+ 
+@@ -45,7 +45,7 @@ was a plain write and commits (AC-1, DV-2).
+ | ------- | ----------------------------------- | ---------------------- |
+ | 1       | handler `optimistic shown := "Zed"` | `Ann / unsaved / - -`  |
+ 
+-A guess outside a hold does not exist (D-32). A handler with a guess is an
++A guess outside a hold does not exist (D-33). A handler with a guess is an
+ action (AC-1b), so this compiles; the action's change opens and commits in
+ the same instant, and the guess ends with it before any frame shows it.
+ The `effect` form, which is never an action, is still rejected (S-check-1).
+diff --git a/scenarios/S-solid-34.md b/scenarios/S-solid-34.md
+index a6cfce4..90f94f9 100644
+--- a/scenarios/S-solid-34.md
++++ b/scenarios/S-solid-34.md
+@@ -1,4 +1,4 @@
+-# S-solid-34 — provenance: an older action's late answer never corrects a newer guess (Solid S-34; D-35)
++# S-solid-34 — provenance: an older action's late answer never corrects a newer guess (Solid S-34; D-34)
+ 
+ Rules: AC-3, R-4, H-11.
+ 
+diff --git a/scenarios/S-solid-35.md b/scenarios/S-solid-35.md
+index 0e964df..b8f3cb3 100644
+--- a/scenarios/S-solid-35.md
++++ b/scenarios/S-solid-35.md
+@@ -1,4 +1,4 @@
+-# S-solid-35 — the body's end corrects a guess nothing authoritative is answering (Solid S-35; D-35)
++# S-solid-35 — the body's end corrects a guess nothing authoritative is answering (Solid S-35; D-34)
+ 
+ Rules: AC-1, AC-3, H-11.
+ 
+@@ -81,7 +81,7 @@ export default component App() {
+ | 3       | resolve "save" 0         | `a+mine`    |
+ | 4       | resolve list "a,mine"    | `a,mine`    |
+ 
+-The other side of D-35, for a guess over a whole value (`createOptimistic`,
++The other side of D-34, for a guess over a whole value (`createOptimistic`,
+ not a store): instant 3, `refresh list` re-asks the guess's own question,
+ so the body's end does not correct the guess; the change commits when the
+ new answer lands (instant 4). Lowered, `refresh` must re-ask the question
+diff --git a/scenarios/S-solid-38.md b/scenarios/S-solid-38.md
+index 8f6d31b..0defe79 100644
+--- a/scenarios/S-solid-38.md
++++ b/scenarios/S-solid-38.md
+@@ -1,4 +1,4 @@
+-# S-solid-38 — an error is a boundary returning to its fallback; a write beside an old error (Solid S-38; D-39)
++# S-solid-38 — an error is a boundary returning to its fallback; a write beside an old error (Solid S-38; D-41)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-solid-39.md b/scenarios/S-solid-39.md
+index 8f45c6b..c25a354 100644
+--- a/scenarios/S-solid-39.md
++++ b/scenarios/S-solid-39.md
+@@ -1,6 +1,6 @@
+-# S-solid-39 — A later unread value still throws: one reader, either order (Solid S-39; D-28)
++# S-solid-39 — A later unread value still throws: one reader, either order (Solid S-39; D-25)
+ 
+-Rules: R-11, H-5, F-4; Solid D-28 (ruled 2026-10-09).
++Rules: R-11, H-5, F-4; Solid D-25 (ruled 2026-10-09).
+ 
+ ## Program
+ 
+@@ -32,7 +32,7 @@ Instant 1: the action holds `s = 1`; `n0` follows `latest s`, so `n0(1)` is
+ asked. Instant 2: the new branch's reader reads `n0`, which has never shown
+ a value: the read throws, and a throw holds the pass — so the mount is held
+ (control stays `off`). `latest s` read first does not stop the throw;
+-publishing the branch with an empty slot is the violation (D-28).
++publishing the branch with an empty slot is the violation (D-25).
+ Instant 3: `n0(1)` lands; control and `[1, 1]` reveal together.
+ 
+ ## Variant: the other order
+diff --git a/scenarios/S-solid-42.md b/scenarios/S-solid-42.md
+index ab3527f..1b11a23 100644
+--- a/scenarios/S-solid-42.md
++++ b/scenarios/S-solid-42.md
+@@ -1,4 +1,4 @@
+-# S-solid-42 — a held rejection reveals with its frame; a held recovery keeps the shown error (Solid S-42, S-43; D-41, D-39)
++# S-solid-42 — a held rejection reveals with its frame; a held recovery keeps the shown error (Solid S-42, S-43; D-41)
+ 
+ ## Program
+ 
+@@ -36,6 +36,6 @@ be a snapshot, and a snapshot of an error throws it (R-f-7).
+ Instant 4: the error settled `data` but is staged like a value would be —
+ the frame is still held on `slow(2)`. Instant 5: one frame — input, error
+ fallback, sibling — and the effect's arm runs then. Instants 6–7: the error
+-stays the display through the retry (D-39); the recovery to `1` is settled,
++stays the display through the retry (D-41); the recovery to `1` is settled,
+ not shown. Instant 8: `1` equals the last good value and is still a new
+ answer — the arm runs.
+diff --git a/scenarios/S-solid-44.md b/scenarios/S-solid-44.md
+new file mode 100644
+index 0000000..2083e65
+--- /dev/null
++++ b/scenarios/S-solid-44.md
+@@ -0,0 +1,49 @@
++# S-solid-44 — an outside input change under a guess is held with the guess's hold (Solid S-44; D-34, F-1)
++
++Rules: H-9, H-11, AC-3, AC-4, ST-5.
++
++## Program
++
++```
++export default component App() {
++  source sel := 3
++  source comments = await fetch("c:" + sel)
++  action post() { try { optimistic comments := 9; await fetch("post"); refresh comments } catch {} }
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{sel} {comments}</span> <span>{latest comments}</span> <span>{str(pending? comments)}</span></div>
++  }
++}
++```
++
++## Frames
++
++| instant | action                | frame          |
++| ------- | --------------------- | -------------- |
++| 0       | mount                 | ``             |
++| 1       | resolve "c:3" 4       | `3 4 4 false`  |
++| 2       | handler `post()`      | `3 9 9 false`  |
++| 3       | handler `sel := 1`    | `3 9 9 true`   |
++| 4       | resolve "c:1" 2       | `3 9 9 true`   |
++| 5       | resolve "post" 0      | `3 9 9 true`   |
++| 6       | resolve "c:1" 2       | `1 2 2 false`  |
++
++Instant 2: the guess shows and is verdict-inert. Instant 3: a new question,
++not the guess's source answering: a guess is an edit over the answers to the
++question it was written over, so the change is held with the guess's hold
++(Solid D-34) and `pending? comments` is `true`. Instant 4: issue 1's answer
++lands; still held, and `latest comments` is the displayed guess (decision 3
++of solidjs/solid#4695). Instant 5: the post's body settles; its `refresh`
++re-asks issue 1, so nothing commits yet. Instant 6: one frame. Any `1 …`
++frame before instant 6 is a tear.
++
++## Divergences (DV-19, DV-22)
++
++- oracle "Frames" instant 3: `3 9 9 false`
++- oracle "Frames" instant 4: `3 9 2 true`
++- oracle "Frames" instant 5: `3 9 2 true`
++
++Solid's S-44 is ruled, not built (#4695): today `pending? comments` reads
++`false` under the new question (DV-22), and `latest comments` answers the new
++question's answer instead of the displayed guess (DV-19, #4689). The screen
++is the ruled one on every runner.
+diff --git a/scenarios/S-solid-46.md b/scenarios/S-solid-46.md
+new file mode 100644
+index 0000000..f5fafc1
+--- /dev/null
++++ b/scenarios/S-solid-46.md
+@@ -0,0 +1,84 @@
++# S-solid-46 — the content a display-ahead branch opens reads the screen, whoever opened the hold (Solid S-46; D-1, D-25)
++
++Rules: H-7, H-8, RG-1.
++
++## Program
++
++```
++export default component App() {
++  source id := 0
++  detail = await fetch("d:" + id)
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{id}</span> <span>{detail}</span> {if latest id > 0 { <span>{id}</span> } else { <p>[none]</p> }}</div>
++  }
++}
++```
++
++## Frames
++
++| instant | action              | frame         |
++| ------- | ------------------- | ------------- |
++| 0       | mount               | ``            |
++| 1       | resolve detail "d0" | `0 d0 [none]` |
++| 2       | handler `id := 1`   | `0 d0 [none]` |
++| 3       | resolve detail "d1" | `1 d1 1`      |
++
++Instant 2: the condition opens ahead (`latest` asked), but the branch is a
++mount whose first pass read the held write plainly: born held (Solid D-1,
++decision 4 of solidjs/solid#4695), it does not attach until the landing, and
++the `else` arm stays. A plain `id` means one thing on the whole screen.
++Rejected: `0 d0 1` (two plain reads of one source disagreeing), `0 d0 0` (the
++branch attached with the committed value), `0 d0` (attached with its slot
++empty).
++
++## Variant: the content reads `latest id`
++
++```
++export default component App() {
++  source id := 0
++  detail = await fetch("d:" + id)
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{id}</span> <span>{detail}</span> {if latest id > 0 { <span>{latest id}</span> } else { <p>[none]</p> }}</div>
++  }
++}
++```
++
++| instant | action              | frame         |
++| ------- | ------------------- | ------------- |
++| 0       | mount               | ``            |
++| 1       | resolve detail "d0" | `0 d0 [none]` |
++| 2       | handler `id := 1`   | `0 d0 1`      |
++| 3       | resolve detail "d1" | `1 d1 1`      |
++
++The read that asks sees ahead, at its own site.
++
++## Variant: the content is inside a `loading`
++
++```
++export default component App() {
++  source id := 0
++  detail = await fetch("d:" + id)
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{id}</span> <span>{detail}</span> {if latest id > 0 { {loading fallback { <p>[fallback]</p> } { <span>{id}</span> }} } else { <p>[none]</p> }}</div>
++  }
++}
++```
++
++| instant | action              | frame             |
++| ------- | ------------------- | ----------------- |
++| 0       | mount               | ``                |
++| 1       | resolve detail "d0" | `0 d0 [none]`     |
++| 2       | handler `id := 1`   | `0 d0 [fallback]` |
++| 3       | resolve detail "d1" | `1 d1 1`          |
++
++S-solid-31's form: the fresh boundary catches the born-held read.
++
++## Divergences (DV-23)
++
++- oracle "Frames" instant 2: `0 d0`
++
++Solid's S-46 plain row is ruled, not built (#4695, decision 4): today the
++branch attaches with its slot empty. The variants match.
+diff --git a/scenarios/S-solid-48.md b/scenarios/S-solid-48.md
+new file mode 100644
+index 0000000..36fe683
+--- /dev/null
++++ b/scenarios/S-solid-48.md
+@@ -0,0 +1,35 @@
++# S-solid-48 — `on(id)`: the `on` pass reads the held value plainly, so the swap lands with the write's frame (Solid S-48; D-17)
++
++Rules: H-6, H-7, R-11.
++
++## Program
++
++```
++export default component App() {
++  source id := 1
++  product = await fetch("p:" + id)
++  comments = await fetch("c:" + id)
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{product}</span> {loading on(id) fallback { <p>[fallback]</p> } { <span>{comments}</span> }}</div>
++  }
++}
++```
++
++## Frames
++
++| instant | action              | frame            |
++| ------- | ------------------- | ---------------- |
++| 0       | mount               | ``               |
++| 1       | resolve product "p1" | `p1 [fallback]` |
++| 2       | resolve comments "c1" | `p1 c1`        |
++| 3       | handler `id := 2`   | `p1 c1`          |
++| 4       | resolve product "p2" | `p2 [fallback]` |
++| 5       | resolve comments "c2" | `p2 c2`        |
++
++Instant 3: the `on` pass read the held `id` plainly, so it is the hold's work
++and the re-arm is held with it (Solid D-17). Instant 4: the frame commits and
++the swap lands with it. `p1 [fallback]` at instant 3 would show the fallback
++ahead of the frame the plain read belongs to. S-solid-21 is the same program
++with `on(latest id)`: there every held read of the `on` pass was ahead, and
++the fallback shows now.
+diff --git a/scenarios/S-solid-49.md b/scenarios/S-solid-49.md
+new file mode 100644
+index 0000000..ac4c59d
+--- /dev/null
++++ b/scenarios/S-solid-49.md
+@@ -0,0 +1,44 @@
++# S-solid-49 — a mixed `on`: a plain read of a held value makes the re-arm wait (Solid S-49; D-17, D-25)
++
++Rules: H-6, H-7, R-11.
++
++## Program
++
++```
++export default component App() {
++  source id := 1
++  source filter := 0
++  product = await fetch("p:" + id)
++  comments = await fetch("c:" + id)
++  action go() { try { id := 2; filter := 1; await fetch("go") } catch {} }
++
++  errored fallback(e) { <p>error: {e.message}</p> } {
++    <div><span>{product}</span> {loading on([latest id, filter]) fallback { <p>[fallback]</p> } { <span>{comments}</span> }}</div>
++  }
++}
++```
++
++## Frames
++
++| instant | action                | frame            |
++| ------- | --------------------- | ---------------- |
++| 0       | mount                 | ``               |
++| 1       | resolve product "p1"  | `p1 [fallback]`  |
++| 2       | resolve comments "c1" | `p1 c1`          |
++| 3       | handler `go()`        | `p1 c1`          |
++| 4       | resolve "go" 0        | `p1 c1`          |
++| 5       | resolve product "p2"  | `p2 [fallback]`  |
++| 6       | resolve comments "c2" | `p2 c2`          |
++
++Instant 3: `filter` is a plain read of a write the action holds, so the `on`
++pass is the hold's work and the re-arm waits, whatever `latest id` beside it
++read: posture is per read (decision 1 of solidjs/solid#4695). Instant 5: the
++hold commits and the swap lands with the frame.
++
++## Divergences (DV-21)
++
++- oracle "Frames" instant 3: `p1 [fallback]`
++- oracle "Frames" instant 4: `p1 [fallback]`
++
++Solid ruled this row in #4695 (S-49, ruled, not built): today one probe in
++the `on` pass makes the whole pass a display-ahead reader.
+diff --git a/scenarios/S-solid-50.md b/scenarios/S-solid-50.md
+new file mode 100644
+index 0000000..7bc792b
+--- /dev/null
++++ b/scenarios/S-solid-50.md
+@@ -0,0 +1,39 @@
++# S-solid-50 — an equation that probed once, re-run by a plain write, holds the instant (Solid S-50; D-25)
++
++Rules: H-3a, H-7, R-11.
++
++## Program
++
++```
++export default component App() {
++  source x := 0
++  source k := 0
++  source probe := true
++  m = 1 + k + (probe ? (pending? x ? 1 : 0) : 0) + x
++  action save() { try { x := 1; await fetch("save") } catch {} }
++
++  <div><p>m {m}</p> <p>k {k}</p></div>
++}
++```
++
++## Frames
++
++| instant | action                              | frame       |
++| ------- | ----------------------------------- | ----------- |
++| 0       | mount                               | `m 1 k 0`   |
++| 1       | handler `save()`                    | `m 2 k 0`   |
++| 2       | handler `probe := false; k := 1`    | `m 2 k 0`   |
++| 3       | resolve "save" 0                    | `m 3 k 1`   |
++
++Instant 1: the pass probes `x` and reads it plainly; the plain read is the
++screen's `0` and the probe is `true`, shown now (R-11; Solid S-27's memo
++case). Instant 2: this pass probes nothing, so its read of `x` is a plain read
++of the held write: `m` is the hold's work, and the instant that wrote `k`
++joins the hold through it (H-3a). A posture is never carried into the next
++pass: `m 2 k 1` here would be the probe of the last pass leaking into this one.
++
++## Divergences (DV-21)
++
++- oracle "Frames" instant 2: `m 2 k 1`
++
++Solid ruled this row in #4695 (S-50, ruled, not built).
+diff --git a/scenarios/S-solid-6.md b/scenarios/S-solid-6.md
+index 6e1dbb9..91eb486 100644
+--- a/scenarios/S-solid-6.md
++++ b/scenarios/S-solid-6.md
+@@ -1,4 +1,4 @@
+-# S-solid-6 — a new async memo a reader consumes waits with the hold (Solid S-6; D-2, F-2, #3800)
++# S-solid-6 — a new async memo a reader consumes waits with the hold (Solid S-6; D-1, F-2, #3800)
+ 
+ ## Program
+ 
+diff --git a/scenarios/S-store-6.md b/scenarios/S-store-6.md
+index f179ab0..2e29c94 100644
+--- a/scenarios/S-store-6.md
++++ b/scenarios/S-store-6.md
+@@ -1,7 +1,7 @@
+ # S-store-6 — An optimistic path write: a guess per key, confirmed by the re-ask
+ 
+ Rules exercised: AC-3 (path targets), ST-2c, ST-4, ST-5, AC-4, H-11; Solid
+-D-34, D-35 (`createOptimisticStore`).
++D-34 (`createOptimisticStore`).
+ 
+ ## Program
+ 
+@@ -37,7 +37,7 @@ export default component App() {
+ 
+ Instant 2: the guess shows at once and is verdict-inert (`pending?` stays
+ false). Instant 3: the body has returned, but the guess's own question is
+-being re-asked, so nothing corrects it yet (D-35: a guess whose source is
++being re-asked, so nothing corrects it yet (D-34: a guess whose source is
+ still answering waits for that answer). The re-ask is quiet (AC-4).
+ Instant 4: the truth agrees at the guessed key — a silent confirm — and
+ brings `B` done as well (another tab); everything the action held reveals
+@@ -57,7 +57,7 @@ in one frame.
+ 
+ The catch takes the rejection inside the action; the body returns without
+ re-asking, and nothing authoritative is in flight, so the guess is
+-corrected by the truth it was made over (D-35).
++corrected by the truth it was made over (D-34).
+ 
+ ## Variant: a path guess on a record
+ 
+diff --git a/scenarios/S-store-8.md b/scenarios/S-store-8.md
+index 0005127..29fa112 100644
+--- a/scenarios/S-store-8.md
++++ b/scenarios/S-store-8.md
+@@ -65,7 +65,7 @@ export default component App() {
+ 
+ Each guess lives with its own action (H-11), the newer on top. When the older is declined (instant 4) the newer
+ still shows; when the newer ends with nothing authoritative in flight, the body's end corrects it by the truth at
+-hand (D-35, instant 5).
++hand (D-34, instant 5).
+ 
+ | instant | action                                                                                 | frame   |
+ | ------- | -------------------------------------------------------------------------------------- | ------- |
+diff --git a/spec/00-vocabulary.md b/spec/00-vocabulary.md
+index 6864ac3..f868c23 100644
+--- a/spec/00-vocabulary.md
++++ b/spec/00-vocabulary.md
+@@ -106,11 +106,14 @@ requires `peek`, with one exception: a source's initializer is a snapshot (E-4).
+ 
+ Solid: `untrack`; reads inside an effect's apply half.
+ 
+-## V-12. Probe [Solid: display-ahead reader]
++## V-12. Probe [Solid: display-ahead read]
+ 
+ `latest x` and `pending? x`: reads that show a held instant, or the verdict about
+ it, ahead of its commit. A probe never holds the instant it reads ahead of
+-(H-6). What is derived from a probe lives in a **lane** (V-14).
++(H-7). What is derived from a probe lives in a **lane** (V-14). A probe is a
++read, not a kind of reader: a plain read beside it in the same pass is still a
++plain read (R-11; Solid renamed "display-ahead reader" to "display-ahead read"
++in #4695 for this reason).
+ 
+ Solid: `latest()`, `isPending()`.
+ 
+@@ -125,7 +128,9 @@ committed version; holds, `05-holds.md`, add the second.)
+ 
+ The world a probe opens: the committed screen plus what the probe shows ahead.
+ Equations derived from a probe belong to its lane; pending work in a lane holds
+-the lane, never the parent instant (H-6).
++the lane, never the parent instant (H-7). A branch a probe merely gates is not
++derived from it: it is a mainline mount whose plain reads are the screen's
++(H-7, Solid D-25).
+ 
+ ## V-15. Draft
+ 
+diff --git a/spec/04-rows.md b/spec/04-rows.md
+index 7e4cf18..ce51b69 100644
+--- a/spec/04-rows.md
++++ b/spec/04-rows.md
+@@ -153,13 +153,23 @@ and where they may not go.
+   the probing reader re-evaluates when `x` changes. The result of a probe of `x` carries row `lane(x)`. The
+   row flows through equations like `pending`: `y = latest x * 2` has
+   `lane(x)`; an expression over probes of two sources has both lanes. It
+-  stops at readers: a reader of a lane-typed value renders in that lane. This
++  stops at readers: a reader of a lane-typed value renders in that lane (for
++  the probe-derived part of what it reads; its plain reads are R-11's). This
+   is Solid F-6 ("a display-ahead read is a world of its own") as a type; what
+   it means for the screen is 05.
+-- **R-11 (Probes never hold).** A probe never holds the instant it reads ahead
+-  of (F-6). A *plain* read beside a probe in the same reader still holds
+-  (D-23): `[pending? x, x]` holds like `x` alone, and the two are atomic
+-  because they are one reader (V-1).
++- **R-11 (Probes never hold; posture is per read).** A probe never holds the
++  instant it reads ahead of (F-6). Only the probe reads ahead: the row
++  `lane(x)` is the probe's, and every other read in the pass keeps its own
++  (Solid D-25, decision 1 of solidjs/solid#4695). A plain read of a source
++  the same pass also probes is the screen's: `[pending? x, x]` is `[true,
++  committed]` while `x`'s change is held, in either order, in a view reader
++  and in an equation alike, and the two are atomic because they are one
++  pass (D-23, V-1; S-solid-27). A plain read of any *other* held value makes
++  the pass the hold's work (H-3), whatever it probes beside it
++  (S-solid-27's equation variants; an `on` expression likewise, H-6,
++  S-solid-49). A pass's posture is decided by its reads in that pass: never
++  inherited from what created it or what it reads, never carried into its
++  next pass (S-solid-50).
+ - **R-12 (Probes in imperative scope).** `latest x` and `pending? x` are
+   readable in imperative scope as snapshots of the verdict / in-flight value
+   at that moment. On a first load there is no owner to hold, so `pending?
+diff --git a/spec/05-holds.md b/spec/05-holds.md
+index 9229756..e048619 100644
+--- a/spec/05-holds.md
++++ b/spec/05-holds.md
+@@ -6,6 +6,17 @@ F-1…F-12, `solidjs/solid@next`) over the calculus of 02–04. Each H-rule
+ cites the F-rule it restates and must agree with it; an open question there
+ (Q-n) is open here. This document does not rule on Solid's open questions.
+ 
++Aligned 2026-11-06 with solidjs/solid#4695 (Ryan's decisions 1–4, and the
++derived rules collapsed: sixteen folded into nine). Solid keeps every D-id
++and leaves a stub where a rule folded, so an old citation still resolves;
++this spec cites the rule each one folded into: D-2 → D-1, D-11 → D-9,
++D-13/D-14/D-21 → D-12, D-15/D-16 → D-17, D-24 → D-23, D-26/D-27/D-28 →
++D-25, D-32 → D-33, D-35 → D-34, D-39 → D-41; D-36 and D-37 are retired as
++rules (consequences of the glossary's *Guess* and *Lane*). The one change
++of behaviour is decision 1, **posture is per read** (R-11, H-6, H-7): a
++probe reads ahead at its own site, and a plain read beside it in the same
++pass is a plain read.
++
+ ---
+ 
+ ## The model: two versions of state
+@@ -125,11 +136,27 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   change's frame — *if* a reader under it is pending in that change's
+   settle; with nothing pending the re-arm is a no-op and the content
+   updates in place (S-ai-grid). The value `on` yields is never compared;
+-  children are not recreated.
++  children are not recreated. The `on` expression is a pass like any other
++  (Solid D-17, decision 1 of #4695): when every held value it read, it read
++  through a probe, its frame has landed and the fallback shows now (H-7,
++  S-solid-21); when it read a held value plainly — one it did not also
++  probe (R-11) — it is that hold's work and the swap lands with the hold's
++  frame (`on(id)`, S-solid-48), even beside a probe (`on([latest id,
++  filter])` with `filter` held waits, S-solid-49).
+ 
+-- **H-7 (Lanes).** [F-6] A reader whose equation carries `lane(x)` (R-10)
++- **H-7 (Lanes).** [F-6, Solid D-25] A reader whose equation carries `lane(x)` (R-10)
+   renders from `σ′` for `x` and what is derived from it, beside the held
+-  screen, and never holds the instant — except at the mount: a lane reader
++  screen, and never holds the instant on its account. Only the probe sites
++  read ahead (R-11): in the same pass a plain read of a source the pass also
++  probes is the screen's (`x = 1 + n + (pending? n ? 1 : 0)` shows `1 + 0 +
++  1` now while an action holds `n := 5`: S-solid-27's equation variant), and a
++  plain read of any other held value makes the pass the hold's work — it
++  joins the hold like any reader of a held change (H-3), probe or no probe
++  (S-solid-27's second equation variant). What a pass probed is never carried
++  into its next pass: an equation that probed last time and probes nothing
++  this time is an ordinary reader of the held value, and the instant that
++  re-ran it joins the hold (S-solid-50, H-3a). The exception is at the
++  mount: a lane reader
+   with no committed value has no committed world to show, so it is the
+   mount's and holds instant 0 like any reader (S-hold-4; found by the
+   oracle). A lane has identity — the probed
+@@ -140,10 +167,14 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   now, beside the held frame (D-17, S-solid-21). `latest x` while `x`'s
+   flight is pending is `x`'s committed value (the value an update is moving
+   toward does not exist yet). A lane reader mounted mid-hold shows the
+-  committed world and reveals with the lane (D-26, S-solid-30). A branch a
+-  lane condition opens is a mainline mount and attaches now; content under
+-  it that read a write the instant holds is born held — a fresh boundary
+-  there shows its fallback (D-27, S-solid-31). But pending work *inside* the lane —
++  committed world and reveals with the lane (D-25, S-solid-30). A branch a
++  lane condition opens is a mainline mount, not derived from the probe: it
++  attaches now — unless its content is born held, having read a write an
++  open change holds plainly in its first pass (Solid D-1, decision 4 of
++  #4695): then a fresh boundary there catches it and shows its fallback
++  (S-solid-31), and with no boundary the branch does not attach until the
++  landing and the old arm stays (S-solid-46; `latest x` inside the branch
++  shows ahead at its own site). But pending work *inside* the lane —
+   an `await` over `latest x`, a derivation of it that is pending — holds the
+   lane: the lane's readers keep what they showed and reveal together when
+   it lands. A lane hold and the instant's hold are independent on both sides.
+@@ -182,7 +213,7 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   not `σ`, not `σ′`, not a probe. The instant begins when the run ends
+   (W-3); from then `v` is in `σ′` (probes see it) and in `σ` at commit.
+ 
+-- **H-11 (Optimistic).** [F-11, D-32…D-35] `optimistic x := e`, legal only
++- **H-11 (Optimistic).** [F-11, D-33, D-34] `optimistic x := e`, legal only
+   inside an action body, declared or inferred (AC-3, AC-1b), and only on a source with a question (ST-5),
+   writes a *guess* for `x`: from the instant's settle it is the graph's
+   value (equations derive from it — S-solid-33: `related` re-asks from the
+@@ -190,9 +221,17 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   identity is `x` (H-7), so they show now unless pending work inside that
+   lane holds it — and `latest x` shows the guess even then (H-7, DV-10).
+   It is verdict-inert: `pending? x` is unaffected by the
+-  guess alone (S-solid-32, S-solid-35); `latest x` answers the guess
++  guess alone (S-solid-32, S-solid-35). A guess is an edit over the answers
++  to the question it was written over: a write to an input of `x` from
++  outside the guess's hold asks a new question, and that instant is held
++  with the guess's hold until it commits (Solid D-34, S-44; ruled
++  2026-10-28): the screen keeps the guess and the old input, `pending? x` is
++  `true`, and the new question's answer is not the guess's truth — it neither
++  confirms nor corrects the guess; it commits with the hold (S-solid-44). An
++  input the guess's own action writes is the guess's question
++  (S-solid-34). `latest x` answers the guess
+   (S-solid-33, S-solid-34 — the first draft said "unaffected"; Solid's
+-  D-26 and S-33 say otherwise). It lives as long as the hold it was made
++  D-25 and S-33 say otherwise). It lives as long as the hold it was made
+   over: the hold's commit ends it and reveals the truth in the same frame;
+   the hold ending without a commit reverts it. A path guess's hold is its own action's
+   (per key), except that a keyed source with a question is a projection of
+@@ -230,7 +269,7 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+   error value like any answer (E-12); only pending withholds the apply. Pending is never an error: `errored` does not
+   catch it — and it is not an answer either: an `errored` region on its
+   fallback stays there while the content under it is pending, and leaves
+-  only when a value replaces the error (Solid D-39; found by `ref/`:
++  only when a value replaces the error (Solid D-41; found by `ref/`:
+   S-hold-5 instant 2) — unless a `loading` above it is armed (re-armed by
+   its `on`): that boundary takes the pending content behind the error
+   fallback and shows its own fallback over both (S-hold-6; found by
+@@ -247,7 +286,8 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
+ ## Divergences from the oracle (Solid's `next`, `ref/oracle/`)
+ 
+ Every scenario is also run through the real runtime — Solid's `next` branch
+-built from source at the commit in `ref/SOLID_NEXT` (`0847122`, 2026-10-26;
++built from source at the commit in `ref/SOLID_NEXT` (`2105ffb`, 2.0.0-rc.21;
++`0847122` on 2026-10-26;
+ before that `2f7dc84` and `2a0da2f`, 2026-10-24;
+ the records before that date were found on the published rc.16 and all
+ re-run there): the oracle lowers the abstract syntax onto `solid-js` +
+@@ -323,7 +363,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
+   newly mounted reader that reads `latest s` before `n0` — a lane
+   derivation that has never shown a value — publishes its branch with the
+   slot empty instead of holding the mount; the `n0`-first order holds.
+-  Solid's own ruling (D-28) names the empty slot the violation. The spec
++  Solid's own ruling (D-25) names the empty slot the violation. The spec
+   frames stand; the interpreter holds in both orders (a reader that has
+   never shown anything has no lane display to keep, so a read that throws
+   holds the pass).
+@@ -341,7 +381,7 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
+   `ref/oracle/repros/dv8b-projection-pending.mjs`): `pending? results`
+   lowered to `isPending(() => proj)`, and Solid's probe judges the reads
+   its thunk makes, never its return value — `isPending(() => store)` reads
+-  nothing and is `false` by design (D-24, A23). `pending?` over a
++  nothing and is `false` by design (D-23, A23). `pending?` over a
+   structured value now reads its keys (`__rt.isPending`, the oracle's
+   `pending` case), Solid's "whole-store questions are asked through
+   reads"; S-ai2-search matches on every runner.
+@@ -373,10 +413,28 @@ repro in `ref/oracle/repros/` still reproduces on that commit.
+   `ref/oracle/repros/4690-guess-reask-refresh.mjs`). With nothing
+   rendering a source and an outside re-ask landed under a pending guess,
+   an effect over it sees the old truth once the write lands, until the
+-  action's re-ask answers. D-35 says the guess waits for that answer.
++  action's re-ask answers. D-34 says the guess waits for that answer.
+   S-guess-reask-refresh's effect-only variant records it at instants 5
+   and 6; a rendered reader of the source holds the effect's view too.
+   Fixed on `next` (Ryan, 2026-11-05); recorded until the repin.
++- **DV-21 (posture is per read) — Solid's ruling, not built** (solidjs/solid#4695,
++  decision 1: D-17, D-25; Solid's S-49 and S-50 `it.fails`). Today one probe in a
++  pass makes the whole pass a display-ahead reader, and a probe on its last
++  run is carried into the next: a mixed `on([latest id, filter])` with
++  `filter` held re-arms now (S-solid-49 instants 3–4), an equation that
++  probes one source and reads another held one plainly shows now
++  (S-solid-27's second equation variant), and an equation that probed once
++  publishes the plain write that re-ran it beside the held value (S-solid-50
++  instant 2: `m 2 k 1`). The spec frames are Solid's ruled ones.
++- **DV-22 (`pending?` under a new question under a guess) — Solid's ruling,
++  not built** (#4695, S-44). An outside input change under a guess reads
++  `pending? x` `false` (S-solid-44 instant 3); the ruled verdict is `true`.
++  The screen is the ruled one; `latest x` there is DV-19.
++- **DV-23 (a born-held branch under a display-ahead condition) — Solid's
++  ruling, not built** (#4695, decision 4: D-1; S-46's plain row). A branch a
++  probe opens whose content read the held write plainly attaches with its
++  slot empty and removes the old arm (S-solid-46 instant 2: `0 d0`); ruled:
++  it is born held and the old arm stays until the landing.
+ - **DV-4 (S-37 row 2 under a boundary) — a Solid bug, reproduced
+   2026-10-23; fixed on `next` 2026-10-26 (solidjs/solid#4269, fix #4278)** (`ref/oracle/repros/dv4-signals.mjs`). Under a
+   `<Loading>` that has shown content, a derived store's per-key verdicts
+@@ -412,8 +470,13 @@ S-26, S-27, S-29, S-30, S-31, S-36, S-38, S-40, S-41,
+ S-42+S-43, and with 06: S-8, S-9 (inverted — no escape), S-15, S-20,
+ S-26 rows 4–7, S-32, S-33, S-34, S-35, S-37, and with 03 RG-8: S-23;
+ S-28 (imperative probes, R-12), S-39 (one reader, two orders; DV-16) and
+-S-5 (two roots as two branches of one app — MO-1c; DV-17). Every scenario
+-of Solid's `SCENARIOS.md` is now ported. Divergences found and fixed
++S-5 (two roots as two branches of one app — MO-1c; DV-17); since #4695
++(2026-11-06): S-27's memo case (S-solid-27's equation variants), S-44,
++S-46, S-48, S-49 and S-50. Two of Solid's rows are not ported: S-45 (a
++first answer and an action landing in one tick — a scenario instant carries
++one event) and S-47 (`try/catch` around a reactive read, D-42 — `.rx` has
++no such form: a reactive `catch` (R-f-4) lowers to an error boundary,
++which is a channel, and `try` is imperative only). Divergences found and fixed
+ by porting are recorded in the rule they changed. Solid's probe columns
+ (`latest(x)`, `isPending(x)` beside a screen) are untracked reads; an
+ on-screen probe in a held lane of `latest` readers keeps what it showed
+diff --git a/spec/06-stores.md b/spec/06-stores.md
+index 658ad7c..7fa9d06 100644
+--- a/spec/06-stores.md
++++ b/spec/06-stores.md
+@@ -27,7 +27,7 @@ AC-1…AC-5 (S-store-1…5, S-solid-8/9/15/20/26/32…35/37). Optimistic path wr
+   path with its previous value (E-6): equal → cut, keep old identity;
+   otherwise the root changed. With a key (ST-4) the result is reconciled
+   instead.
+-- **ST-2c (Pending is per key).** [Solid D-30, S-37] A held path write makes
++- **ST-2c (Pending is per key).** [Solid F-9, D-30, S-37] A held path write makes
+   `pending? x.a` true and leaves `pending? x.b` false; a root write or a
+   re-ask of a source with a question (ST-5) makes the whole family pending
+   (S-solid-37 and its variant).
+@@ -232,7 +232,7 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
+   guess, a new answer corrects only where it differs at a guessed key, and
+   equal there it confirms silently (S-store-6). A question re-asked by an
+   action that guessed (`refresh x`) is authoritative work in flight: the
+-  change waits for that answer before the body-end correction (D-35) — for
++  change waits for that answer before the body-end correction (D-34) — for
+   a guess on `x` itself, and for a guess on another source whose truth may
+   follow `x` (S-app-todos: an add guessed in its own list stays until the
+   re-asked server list brings the row; a declined toggle's revert and its
+diff --git a/spec/10-server.md b/spec/10-server.md
+index fd16257..fed1edf 100644
+--- a/spec/10-server.md
++++ b/spec/10-server.md
+@@ -154,7 +154,7 @@ by default — see the list at the end.
+   the shell or in a later chunk — is streamed with its fallback rendered:
+   the browser shows the client's frame (`no user 7`, S-server-1 instant 1),
+   and the client adopts it and keeps tracking the failed content, so it
+-  recovers like any boundary (D-39). DV-9 and DV-12 are Solid's.
++  recovers like any boundary (D-41). DV-9 and DV-12 are Solid's.
+ 
+ ---
+ 

@@ -1,0 +1,3 @@
+views: [1,2,3] -> [2,1] -> ["undefined"]
+now: length 1 | 0 in list: false | list[0]: undefined | [...list]: [null]
+[exit code 0]

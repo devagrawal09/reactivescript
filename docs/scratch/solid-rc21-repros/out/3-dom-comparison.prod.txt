@@ -1,0 +1,9 @@
+map-removal program
+1 <p><em>shared</em>x</p><p>-</p>
+2 <p>x</p><p><em>shared</em></p>
+3 <p>y</p><p><em>shared</em></p>
+bulk-removal program
+1 <p><i></i><em>shared</em><u></u></p><p>-</p>
+2 <p><i></i><u></u></p><p><em>shared</em></p>
+3 <p><i></i><u></u></p><p><em>shared</em></p>
+[exit code 0]

@@ -1,0 +1,6 @@
+m compute, prev = undefined
+m compute, prev = 0
+m compute, prev = 2
+m compute, prev = 2
+m compute, prev = StatusError("failed")
+[exit code 0]

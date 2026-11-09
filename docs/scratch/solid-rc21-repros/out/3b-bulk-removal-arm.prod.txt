@@ -1,0 +1,33 @@
+1 <root#0><p#3><i#5></i><em#1>shared</em><u#6></u></p><p#4>-</p></root>
+  host.removeNode(parent #4, node #7); the node's parent is #4
+2 <root#0><p#3><i#5></i><u#6></u></p><p#4><em#1>shared</em></p></root>
+  host.removeNode(parent #3, node #1); the node's parent is #4
+[REACTIVITY_HALTED] Error: NotFoundError (removeChild)
+    at removeNode (file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/3b-bulk-removal-arm.mjs:29:31)
+    at reconcileArrays (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:155:44)
+    at insertExpression (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:99:18)
+    at Object.qe (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:74:7)
+    at runEffect (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/effect.js:118:21)
+    at runQueue (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1153:44)
+    at GlobalQueue.run (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:787:13)
+    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:610:18)
+    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1145:21)
+    at file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/3b-bulk-removal-arm.mjs:52:16
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Error: NotFoundError (removeChild)
+    at removeNode (file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/3b-bulk-removal-arm.mjs:29:31)
+    at reconcileArrays (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:155:44)
+    at insertExpression (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:99:18)
+    at Object.qe (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:74:7)
+    at runEffect (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/effect.js:118:21)
+    at runQueue (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1153:44)
+    at GlobalQueue.run (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:787:13)
+    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:610:18)
+    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1145:21)
+    at file:///workspace/rx-tsx-refresh/docs/scratch/solid-rc21-repros/3b-bulk-removal-arm.mjs:52:16
+
+Node.js v24.11.1
+[exit code 1]
