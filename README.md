@@ -1,51 +1,117 @@
-# ReactiveScript frontends: a small checked subset
+# solid-model
 
-This package lowers a narrow Solid TSX subset onto ReactiveScript. A separate [yield frontend](docs/YIELD.md)
-lowers directly to the same RX AST. This is an experiment, not a full Solid frontend or a browser/SSR parity claim.
+Write Solid-style code in other syntaxes (Solid TSX, solid-yield's generator syntax), lower it onto ReactiveScript's
+(RX) existing AST, and accept a program only if it behaves exactly like native Solid; refuse everything else, with a
+diagnostic. The broader direction: **"Solid" is a semantic model plus a conformance suite.** Syntaxes, host languages,
+runtimes (Solid JS, a Rust port), renderers and client/server placement are plugins around that core.
 
-The gate keeps the counter, composition, tracker, stale-write checks, boundary checks, fuzzer, verifier, yield tests,
-the [like slice](docs/SCENARIO-FORMAT.md) (native Solid plus all three compiled frontends), and the slice-2
-[tracker scenario](docs/SCENARIO-FORMAT.md#version-2-slice-2-the-tracker) on the same four legs, with its
-[v2 plan](plan/docs/PLAN-V2.md) emitted equally by all three frontends and rendered from the plan alone with Solid.
-The old broad port and its known-failure catalog were removed rather than carried forward.
+Everything here is a verified subset, not full readiness: each claim below is a gate that compares against native Solid
+2 (rc.21) exactly. Start with [docs/HANDOFF.md](docs/HANDOFF.md) for the state of the work and the open decisions.
 
-## Run
+## Layout
 
-- **npm run verify:subset**: pins, strict types, every kept TSX/yield test, and fuzz seeds 0–199.
-- **OUT=.out/repin-fdbcad92 sh scripts/verify-pinned.sh --rust**: also run upstream and Rust checks.
-  This full check fails at the pin: upstream's interpreter fails S-store-8. No exit code is waived.
-- **npm run fuzz -- --seeds 200 --start 0 --no-reduce**: write five-backend traces and a summary.
-- **sh scripts/canary.sh REV [--dry-run] [--rust]**: check committed HEAD against another revision in a fresh layout.
+| Path | What |
+| --- | --- |
+| [`frontend/`](frontend/README.md) | The TSX and yield frontends onto RX, the differential fuzzer, plan schemas v1 and v2 and their emitter, the plan fuzz, the live evaluator (slice 3, [`docs/EVAL.md`](frontend/docs/EVAL.md)), the SSR and hydration oracle (slice 5) and the gate. Results: [`frontend/docs/RESULTS.md`](frontend/docs/RESULTS.md) |
+| [`rust-solid/`](rust-solid/README.md) | A Rust port of Solid 2's runtime: the scheduler (slice 1), async memos, stores and lists (tiers 2a–2c), the `@solidjs/universal` renderer, the plan v2 consumer, the eval table and the server renderer |
+| [`docs/`](docs/HANDOFF.md) | [`HANDOFF.md`](docs/HANDOFF.md), [`HISTORY.md`](docs/HISTORY.md) (the branches this repository was consolidated from) and `scratch/` research notes and drafts |
+| [`dashboard/`](dashboard/README.md) | A local status dashboard; [`notes.json`](dashboard/notes.json) is the narrative state |
+| [`scripts/setup.sh`](scripts/setup.sh) | Clones and builds the pinned checkouts below and installs the folders' dependencies |
+| `reactivescript/`, `solid-next/` | Pinned checkouts created by `scripts/setup.sh`, gitignored and kept clean: [ryansolid/reactivescript](https://github.com/ryansolid/reactivescript) at `fdbcad92` and [solidjs/solid](https://github.com/solidjs/solid) at `2105ffb8` (2.0.0-rc.21, reactivescript's `ref/SOLID_NEXT`) |
 
-The subset gate permits only listed interpreter-only fuzz differences in baselines/fuzz-upstream.json. It rejects
-frontend/semantics differences, generator errors, new upstream differences, missing tests, skips and incomplete output.
-A passing subset is not full backend parity. See [results](docs/RESULTS.md) and [upstream issues](docs/UPSTREAM-ISSUES.md).
+The folders keep the sibling layout they were developed in, so their relative paths resolve: `frontend/upstream` links
+to `../reactivescript`; the frontend's Solid packages are `file:../solid-next/packages/*`; the gate's default
+`RUST_SOLID` is `../rust-solid`; the Rust fuzz oracles import `../solid-next/packages/*/dist`.
 
-## Accepted TSX
+## Setup
 
-Literal-seeded scalar signals and stores; synchronous memos; plain-value or accessor-based optimistic values;
-synchronous handlers; generator actions with try/catch; functional setters and store draft writes; module-level
-components with inline value/callback props (including parameterized forwarding); JSX/fragments, Show and For.
-The counter, tracker, composition, yield twins and fuzzer define the tested combinations. JS calls use RX declaration
-files. Build output is the universal renderer only.
+Needs git, Node 24 with npm, and a Rust toolchain (the native Solid compiler is built from source). The pins are Node
+24.18.0 and Rust 1.97.1 (`frontend/pins.json`); the recorded runs used Node 24.11.1 and rustc 1.96.0 from nixpkgs.
 
-Other forms fail with **outside the verified subset: <construct>**. Async callbacks retain issue #20's generator-action
-guidance; effects and object-valued signals retain their semantic explanations; the checker still refuses
-STALE_WRITE_BACK. Source contexts, server helpers, effects, async/derived stores, previous/deferred values, general
-setup helpers/constants and cross-module component imports are not supported. See [the boundary](docs/SUBSET.md).
+```sh
+sh scripts/setup.sh           # in the Tembo sandbox: nix shell nixpkgs#nodejs_24 -c sh scripts/setup.sh
+sh scripts/setup.sh --check   # changes nothing; reports whether the layout is ready
+```
 
-## Clean pinned layout
+It is idempotent. It clones `reactivescript/` at `fdbcad92` and `npm ci`s its `ref/`; clones `solid-next/` at `2105ffb8`
+and builds it as reactivescript's `ref/scripts/solid-next.sh` does (`npx -y pnpm@11.1.1 install --frozen-lockfile`;
+signals, solid, web and universal: build, then types if present; the compiler), skipping the build when the checkout did
+not move and its outputs exist (`SETUP_REBUILD=1` forces it); then `npm ci` in `frontend/` and `cargo build` in
+`rust-solid/`. It never moves a checkout with local changes. Existing clones can stand in for it: symlink them as
+`reactivescript` and `solid-next` at the root.
 
-ReactiveScript fdbcad921c6bc1cae59cbebe9905eeabc480e88f; Solid 2105ffb8ca2fced55f5fac0763177fc93f97c2c2
-(upstream ref/SOLID_NEXT, Solid 2.0.0-rc.21). Node 24.18.0, pnpm 11.20.0, Rust 1.97.1.
-Remaining versions and measured upstream baselines are in pins.json.
+## Gates
 
-Use sibling directories frontend/, reactivescript/, solid-next/. frontend/upstream links to ../reactivescript.
-Upstream and Solid must be clean. There is no patch queue. Patch 0001 was removed with server support;
-that does not mean its defect was fixed upstream.
+Prefix node and npm commands with `nix shell nixpkgs#nodejs_24 -c` in the sandbox. Every count below is the recorded
+result; a run that differs is a failure, not a tolerance.
 
-Build Solid with RUSTUP_TOOLCHAIN=1.97.1 sh ref/scripts/solid-next.sh from the RX checkout; run npm ci in
-reactivescript/ref and this package. Build Rust with RUSTUP_TOOLCHAIN=1.97.1 cargo build --release in reactivescript/compiler.
+### Frontend (`frontend/`)
 
-Code: tsx/subset.ts is the syntax boundary, tsx/lower.ts lowers it, tsx/modules.ts loads/checks modules, and tsx/rx/
-is the only upstream import boundary. yield/ is independent of TSX lowering.
+```sh
+npm run verify:subset   # Result: PASS, Tests: 106, pass 106, fail 0
+```
+
+`scripts/verify-pinned.sh --subset` checks the pins (both checkouts clean, at `pins.json`'s commits and reactivescript's
+`ref/SOLID_NEXT`), builds `scenario`, `plan-trace` and `ssr` in `RUST_SOLID` (default `../rust-solid`), and runs strict
+types (0 package diagnostics, the 12 baseline upstream ones), the 106 listed tests, the TSX fuzz on seeds 0–199 (179
+agree, 21 listed interpreter-only differences), and the plan, eval and SSR fuzz on seeds 1–100 (85 agree and 15 refused
+each; the SSR fuzz hydrates in Chromium, on PATH or `$CHROMIUM`). `report.ts` checks each against `baselines/`.
+
+Longer runs, whose summaries are recorded in `rust-solid/docs/` (byte-identical on seeds 1–1000):
+
+```sh
+RUST_SOLID=$PWD/../rust-solid npm run plan-fuzz -- --seeds 1000 --start 1        # docs/plan-fuzz/summary-1-1000.json: 861 agree, 8 upstream, 131 refused
+RUST_SOLID=$PWD/../rust-solid npm run eval-fuzz -- --seeds 1000 --start 1        # docs/eval/summary-1-1000.json: 869 agree, 131 refused
+RUST_SOLID=$PWD/../rust-solid npm run ssr-fuzz -- --seeds 1000 --start 1 --dev   # docs/ssr-fuzz/summary-1-1000.json: 869 agree, 0 HTML or hydration failures
+```
+
+The held-out seeds 1001–3000 are recorded beside each (`summary-1001-3000.json`).
+
+### Rust (`rust-solid/`)
+
+```sh
+cargo test                                              # 132 passed
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+git diff --check
+```
+
+The scenarios: the tracker plan (v2) and the like plans (v1 and v2) give the native frames, and the Rust host log
+equals Solid's entry for entry (`plan-diff`: 453/453 and 34/34).
+
+```sh
+F=crates/runtime/tests/fixtures
+cargo run -q --bin scenario -- $F/tracker.plan.json $F/tracker.scenario.json   # the 13 tracker frames
+cargo run -q --bin scenario -- $F/like.plan.json $F/like.scenario.json         # ["0","1","0","1","1"]
+cargo run -q --bin scenario -- $F/like.plan-v2.json $F/like.scenario.json      # ["0","1","0","1","1"]
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker.plan.json $F/tracker.scenario.json   # entries 453/453
+node --conditions=browser fuzz/plan-diff.mjs $F/like.plan-v2.json $F/like.scenario.json      # entries 34/34
+```
+
+The fuzz modes compare the Rust port with Solid JS exactly, trace for trace (`node fuzz/run.mjs MODE --seeds 1000 --start 1
+--out out/MODE`; `summary.json` must be byte-identical to the recorded one):
+
+| Mode | What | Seeds 1–1000 | Recorded summary |
+| --- | --- | --- | --- |
+| `--slice1` | the scheduler, scalar actions | 1000/1000 | `docs/slice1-fuzz/parity/summary-1-1000.json` |
+| `--slice2a --no-reduce` | async memos | 991/1000 (8 invalid, seed 629 fails closed) | `docs/slice2a-fuzz/port/summary-1-1000.json` |
+| `--slice2b` | stores, per-row optimistic writes | 1000/1000 | `docs/slice2b-fuzz/port/summary-1-1000.json` |
+| `--slice2c --no-reduce` | mapArray/For, Show, parked frames | 999/1000 (seed 493 invalid) | `docs/slice2c-fuzz/port/summary-1-1000.json` |
+| `--render` | the universal renderer | 993/1000 (7 invalid: they throw in Solid) | `docs/render-fuzz/port/summary-1-1000.json` |
+| `--strings` | string values and the tracker's strings | 1000/1000 | `docs/strings-fuzz/port/summary-1-1000.json` |
+
+Held-out ranges (`summary-1001-3000.json`, and 3001–8000 for 2b and 2c) are recorded beside them. `--slice2c` with
+reduction crashes while reducing seed 493 (a Solid bug throws uncaught), so its summaries use `--no-reduce`.
+
+### Dashboard (`dashboard/`)
+
+```sh
+node --test test.mjs
+```
+
+## History
+
+This repository's `solid-model` branch consolidates seven branches of `devagrawal09/reactivescript`
+(`tsx-frontend-workspace`, `tsx-frontend-slice1-like`, `tsx-frontend-slice1-plan`, `rust-solid-main`,
+`rust-solid-slice1`, `project-docs`, `project-dashboard`). It starts at `tsx-frontend-workspace`'s `7791984`, so the
+frontend keeps its history; [docs/HISTORY.md](docs/HISTORY.md) records the others' SHAs, logs and ancestry.
