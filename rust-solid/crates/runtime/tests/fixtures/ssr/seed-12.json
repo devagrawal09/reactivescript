@@ -1,0 +1,919 @@
+{
+ "seed": 12,
+ "plan": {
+  "version": 2,
+  "component": "App",
+  "hosts": [
+   {
+    "name": "h0",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "h1",
+    "params": [],
+    "returns": "number"
+   }
+  ],
+  "sources": [
+   {
+    "name": "issues",
+    "kind": "store",
+    "seed": {
+     "op": "object",
+     "fields": [
+      {
+       "key": "list",
+       "value": {
+        "op": "array",
+        "items": [
+         {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "literal",
+             "value": 1
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "literal",
+             "value": "Crash"
+            }
+           },
+           {
+            "key": "owner",
+            "value": {
+             "op": "literal",
+             "value": "ana"
+            }
+           },
+           {
+            "key": "tag",
+            "value": {
+             "op": "literal",
+             "value": "me"
+            }
+           }
+          ]
+         },
+         {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "literal",
+             "value": 2
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "literal",
+             "value": "Slow"
+            }
+           },
+           {
+            "key": "owner",
+            "value": {
+             "op": "literal",
+             "value": "me"
+            }
+           },
+           {
+            "key": "tag",
+            "value": {
+             "op": "literal",
+             "value": "bo"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "key": "total",
+       "value": {
+        "op": "literal",
+        "value": 2
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   },
+   {
+    "name": "count",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 0
+    }
+   },
+   {
+    "name": "shown",
+    "kind": "optimistic",
+    "seed": {
+     "op": "get",
+     "object": {
+      "op": "read",
+      "source": "issues"
+     },
+     "key": "list"
+    }
+   },
+   {
+    "name": "shownCount",
+    "kind": "optimistic",
+    "seed": {
+     "op": "read",
+     "source": "count"
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "visible",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "shown"
+     },
+     "param": "x0",
+     "body": {
+      "op": "eq",
+      "left": {
+       "op": "cond",
+       "test": {
+        "op": "literal",
+        "value": false
+       },
+       "then": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "x0"
+        },
+        "key": "id"
+       },
+       "else": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "x0"
+        },
+        "key": "id"
+       }
+      },
+      "right": {
+       "op": "add",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "read",
+         "source": "issues"
+        },
+        "key": "total"
+       },
+       "right": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "x0"
+        },
+        "key": "id"
+       }
+      }
+     }
+    }
+   },
+   {
+    "name": "open",
+    "value": {
+     "op": "length",
+     "array": {
+      "op": "filter",
+      "array": {
+       "op": "read",
+       "source": "shown"
+      },
+      "param": "x1",
+      "body": {
+       "op": "literal",
+       "value": true
+      }
+     }
+    }
+   },
+   {
+    "name": "firstAt",
+    "value": {
+     "op": "findIndex",
+     "array": {
+      "op": "read",
+      "source": "shown"
+     },
+     "param": "x2",
+     "body": {
+      "op": "eq",
+      "left": {
+       "op": "get",
+       "object": {
+        "op": "local",
+        "name": "x2"
+       },
+       "key": "title"
+      },
+      "right": {
+       "op": "get",
+       "object": {
+        "op": "local",
+        "name": "x2"
+       },
+       "key": "title"
+      }
+     }
+    }
+   },
+   {
+    "name": "names",
+    "value": {
+     "op": "map",
+     "array": {
+      "op": "read",
+      "source": "shown"
+     },
+     "param": "x3",
+     "body": {
+      "op": "add",
+      "left": {
+       "op": "get",
+       "object": {
+        "op": "local",
+        "name": "x3"
+       },
+       "key": "title"
+      },
+      "right": {
+       "op": "literal",
+       "value": "/"
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "claim",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h0",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "optimistic",
+        "source": "shown",
+        "updater": {
+         "param": "x4",
+         "body": {
+          "op": "map",
+          "array": {
+           "op": "local",
+           "name": "x4"
+          },
+          "param": "x5",
+          "body": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "x5"
+             },
+             "key": "id"
+            },
+            "right": {
+             "op": "local",
+             "name": "id"
+            }
+           },
+           "then": {
+            "op": "object",
+            "fields": [
+             {
+              "key": "id",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x5"
+               },
+               "key": "id"
+              }
+             },
+             {
+              "key": "title",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x5"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "key": "owner",
+              "value": {
+               "op": "literal",
+               "value": "me"
+              }
+             },
+             {
+              "key": "tag",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x5"
+               },
+               "key": "tag"
+              }
+             }
+            ]
+           },
+           "else": {
+            "op": "local",
+            "name": "x5"
+           }
+          }
+         }
+        }
+       },
+       {
+        "op": "write",
+        "source": "issues",
+        "path": [
+         {
+          "key": "list"
+         },
+         {
+          "index": {
+           "op": "findIndex",
+           "array": {
+            "op": "get",
+            "object": {
+             "op": "read",
+             "source": "issues"
+            },
+            "key": "list"
+           },
+           "param": "x6",
+           "body": {
+            "op": "eq",
+            "left": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "x6"
+             },
+             "key": "id"
+            },
+            "right": {
+             "op": "local",
+             "name": "id"
+            }
+           }
+          }
+         },
+         {
+          "key": "owner"
+         }
+        ],
+        "value": {
+         "op": "local",
+         "name": "$await0"
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": "failed"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "bump",
+    "params": [],
+    "steps": [
+     {
+      "op": "optimistic",
+      "source": "shownCount",
+      "value": {
+       "op": "literal",
+       "value": 5
+      }
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h1",
+        "args": [],
+        "bind": "$await1"
+       },
+       {
+        "op": "write",
+        "source": "count",
+        "value": {
+         "op": "local",
+         "name": "$await1"
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": "failed"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "Filter: "
+        }
+       },
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "mode"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "show",
+      "when": {
+       "op": "gt",
+       "left": {
+        "op": "length",
+        "array": {
+         "op": "read",
+         "source": "visible"
+        }
+       },
+       "right": {
+        "op": "literal",
+        "value": 0
+       }
+      },
+      "children": [
+       {
+        "kind": "for",
+        "each": {
+         "op": "read",
+         "source": "visible"
+        },
+        "item": "issue",
+        "key": "identity",
+        "children": [
+         {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "title"
+            }
+           },
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": ": "
+            }
+           },
+           {
+            "kind": "text",
+            "value": {
+             "op": "or",
+             "left": {
+              "op": "get",
+              "object": {
+               "op": "local",
+               "name": "issue"
+              },
+              "key": "owner"
+             },
+             "right": {
+              "op": "literal",
+              "value": "nobody"
+             }
+            }
+           },
+           {
+            "kind": "element",
+            "tag": "button",
+            "events": [
+             {
+              "name": "onClick",
+              "steps": [
+               {
+                "op": "call",
+                "action": "claim",
+                "args": [
+                 {
+                  "op": "get",
+                  "object": {
+                   "op": "local",
+                   "name": "issue"
+                  },
+                  "key": "id"
+                 }
+                ]
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "take"
+              }
+             }
+            ]
+           },
+           {
+            "kind": "element",
+            "tag": "button",
+            "events": [
+             {
+              "name": "onClick",
+              "steps": [
+               {
+                "op": "write",
+                "source": "issues",
+                "path": [
+                 {
+                  "key": "list"
+                 },
+                 {
+                  "index": {
+                   "op": "findIndex",
+                   "array": {
+                    "op": "get",
+                    "object": {
+                     "op": "read",
+                     "source": "issues"
+                    },
+                    "key": "list"
+                   },
+                   "param": "x7",
+                   "body": {
+                    "op": "eq",
+                    "left": {
+                     "op": "get",
+                     "object": {
+                      "op": "local",
+                      "name": "x7"
+                     },
+                     "key": "id"
+                    },
+                    "right": {
+                     "op": "get",
+                     "object": {
+                      "op": "local",
+                      "name": "issue"
+                     },
+                     "key": "id"
+                    }
+                   }
+                  }
+                 },
+                 {
+                  "key": "owner"
+                 }
+                ],
+                "value": {
+                 "op": "literal",
+                 "value": "zed"
+                }
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "edit"
+              }
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "kind": "element",
+          "tag": "small",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "id"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "i",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Nothing to triage"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "issues",
+          "path": [
+           {
+            "key": "list"
+           },
+           {
+            "index": {
+             "op": "literal",
+             "value": 1
+            }
+           },
+           {
+            "key": "owner"
+           }
+          ],
+          "value": {
+           "op": "literal",
+           "value": ""
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "poke"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "count",
+          "value": {
+           "op": "add",
+           "left": {
+            "op": "read",
+            "source": "count"
+           },
+           "right": {
+            "op": "literal",
+            "value": 1
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "inc"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "shownCount"
+        }
+       },
+       {
+        "kind": "element",
+        "tag": "button",
+        "events": [
+         {
+          "name": "onClick",
+          "steps": [
+           {
+            "op": "call",
+            "action": "bump",
+            "args": []
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "bump"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "b",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "open"
+        }
+       },
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": " open"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "html": "<section _hk=6><button>Filter: <!--$-->all<!--/--></button><!--$--><i _hk=a0>Nothing to triage</i><!--/--><button>poke</button><button>inc</button><div><!--$-->0<!--/--><button>bump</button></div><b><!--$-->2<!--/--> open</b><em></em></section>"
+}

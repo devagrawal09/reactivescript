@@ -1,0 +1,600 @@
+{
+ "name": "tracker",
+ "plan": {
+  "version": 2,
+  "component": "Tracker",
+  "hosts": [
+   {
+    "name": "assignIssue",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   }
+  ],
+  "sources": [
+   {
+    "name": "issues",
+    "kind": "store",
+    "seed": {
+     "op": "object",
+     "fields": [
+      {
+       "key": "list",
+       "value": {
+        "op": "array",
+        "items": [
+         {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "literal",
+             "value": 1
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "literal",
+             "value": "Crash on save"
+            }
+           },
+           {
+            "key": "assignee",
+            "value": {
+             "op": "literal",
+             "value": ""
+            }
+           }
+          ]
+         },
+         {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "literal",
+             "value": 2
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "literal",
+             "value": "Slow search"
+            }
+           },
+           {
+            "key": "assignee",
+            "value": {
+             "op": "literal",
+             "value": "ana"
+            }
+           }
+          ]
+         },
+         {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "literal",
+             "value": 3
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "literal",
+             "value": "Typo in footer"
+            }
+           },
+           {
+            "key": "assignee",
+            "value": {
+             "op": "literal",
+             "value": ""
+            }
+           }
+          ]
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "shown",
+    "kind": "optimistic",
+    "seed": {
+     "op": "get",
+     "object": {
+      "op": "read",
+      "source": "issues"
+     },
+     "key": "list"
+    }
+   },
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "visible",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "shown"
+     },
+     "param": "issue",
+     "body": {
+      "op": "or",
+      "left": {
+       "op": "eq",
+       "left": {
+        "op": "read",
+        "source": "mode"
+       },
+       "right": {
+        "op": "literal",
+        "value": "all"
+       }
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "issue"
+        },
+        "key": "assignee"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   },
+   {
+    "name": "unassigned",
+    "value": {
+     "op": "length",
+     "array": {
+      "op": "filter",
+      "array": {
+       "op": "read",
+       "source": "shown"
+      },
+      "param": "issue",
+      "body": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "issue"
+        },
+        "key": "assignee"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "claim",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "optimistic",
+      "source": "shown",
+      "updater": {
+       "param": "list",
+       "body": {
+        "op": "map",
+        "array": {
+         "op": "local",
+         "name": "list"
+        },
+        "param": "issue",
+        "body": {
+         "op": "cond",
+         "test": {
+          "op": "eq",
+          "left": {
+           "op": "get",
+           "object": {
+            "op": "local",
+            "name": "issue"
+           },
+           "key": "id"
+          },
+          "right": {
+           "op": "local",
+           "name": "id"
+          }
+         },
+         "then": {
+          "op": "object",
+          "fields": [
+           {
+            "key": "id",
+            "value": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "id"
+            }
+           },
+           {
+            "key": "title",
+            "value": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "title"
+            }
+           },
+           {
+            "key": "assignee",
+            "value": {
+             "op": "literal",
+             "value": "me"
+            }
+           }
+          ]
+         },
+         "else": {
+          "op": "local",
+          "name": "issue"
+         }
+        }
+       }
+      }
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "assignIssue",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "write",
+        "source": "issues",
+        "path": [
+         {
+          "key": "list"
+         },
+         {
+          "index": {
+           "op": "findIndex",
+           "array": {
+            "op": "get",
+            "object": {
+             "op": "read",
+             "source": "issues"
+            },
+            "key": "list"
+           },
+           "param": "issue",
+           "body": {
+            "op": "eq",
+            "left": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "id"
+            },
+            "right": {
+             "op": "local",
+             "name": "id"
+            }
+           }
+          }
+         },
+         {
+          "key": "assignee"
+         }
+        ],
+        "value": {
+         "op": "local",
+         "name": "$await0"
+        }
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": ""
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Could not assign #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "Filter: "
+        }
+       },
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "mode"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "b",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "unassigned"
+        }
+       },
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": " open"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "show",
+      "when": {
+       "op": "gt",
+       "left": {
+        "op": "length",
+        "array": {
+         "op": "read",
+         "source": "visible"
+        }
+       },
+       "right": {
+        "op": "literal",
+        "value": 0
+       }
+      },
+      "children": [
+       {
+        "kind": "for",
+        "each": {
+         "op": "read",
+         "source": "visible"
+        },
+        "item": "issue",
+        "key": "identity",
+        "children": [
+         {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "get",
+             "object": {
+              "op": "local",
+              "name": "issue"
+             },
+             "key": "title"
+            }
+           },
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": ": "
+            }
+           },
+           {
+            "kind": "text",
+            "value": {
+             "op": "or",
+             "left": {
+              "op": "get",
+              "object": {
+               "op": "local",
+               "name": "issue"
+              },
+              "key": "assignee"
+             },
+             "right": {
+              "op": "literal",
+              "value": "nobody"
+             }
+            }
+           },
+           {
+            "kind": "element",
+            "tag": "button",
+            "events": [
+             {
+              "name": "onClick",
+              "steps": [
+               {
+                "op": "call",
+                "action": "claim",
+                "args": [
+                 {
+                  "op": "get",
+                  "object": {
+                   "op": "local",
+                   "name": "issue"
+                  },
+                  "key": "id"
+                 }
+                ]
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "take"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "i",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Nothing to triage"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "html": "<section _hk=3><button>Filter: <!--$-->all<!--/--></button><b><!--$-->2<!--/--> open</b><!--$--><p _hk=7000><!--$-->Crash on save<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=7010><!--$-->Slow search<!--/-->: <!--$-->ana<!--/--><button>take</button></p><p _hk=7020><!--$-->Typo in footer<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><!--/--><em></em></section>"
+}
