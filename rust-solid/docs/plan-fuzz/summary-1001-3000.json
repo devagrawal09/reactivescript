@@ -1,0 +1,350 @@
+{
+ "start": 1001,
+ "seeds": 2000,
+ "total": 2000,
+ "agree": 1694,
+ "upstream": 19,
+ "divergent": 0,
+ "refused": 287,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "scenarioSteps": 19959,
+  "logEntriesPerLeg": 610856
+ },
+ "families": {
+  "strings": {
+   "total": 264,
+   "agree": 263
+  },
+  "mixed": {
+   "total": 499,
+   "agree": 490
+  },
+  "tracker": {
+   "total": 457,
+   "agree": 456
+  },
+  "outside": {
+   "total": 287,
+   "agree": 0
+  },
+  "rows": {
+   "total": 253,
+   "agree": 252
+  },
+  "scalar": {
+   "total": 240,
+   "agree": 233
+  }
+ },
+ "classes": {
+  "upstream: RX optimistic source is a guess layer over a computed signal (AC-3)": {
+   "count": 9,
+   "seeds": [
+    1073,
+    1457,
+    1518,
+    1578,
+    1740,
+    1871,
+    2390,
+    2511,
+    2853
+   ]
+  },
+  "upstream: RX evaluates a path write's keys and value before the store setter": {
+   "count": 10,
+   "seeds": [
+    1309,
+    1349,
+    1540,
+    1695,
+    2080,
+    2468,
+    2757,
+    2776,
+    2848,
+    2850
+   ]
+  }
+ },
+ "refusals": {
+  "unsupported operator *": {
+   "count": 89,
+   "seeds": [
+    1006,
+    1014,
+    1024,
+    1050,
+    1056,
+    1091,
+    1101,
+    1167,
+    1174,
+    1176,
+    1186,
+    1191,
+    1207,
+    1212,
+    1217,
+    1228,
+    1235,
+    1246,
+    1289,
+    1331
+   ]
+  },
+  "unsupported operator -": {
+   "count": 91,
+   "seeds": [
+    1007,
+    1020,
+    1049,
+    1100,
+    1132,
+    1134,
+    1142,
+    1144,
+    1151,
+    1152,
+    1155,
+    1220,
+    1245,
+    1275,
+    1282,
+    1321,
+    1327,
+    1334,
+    1382,
+    1392
+   ]
+  },
+  "a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2": {
+   "count": 107,
+   "seeds": [
+    1054,
+    1086,
+    1089,
+    1121,
+    1145,
+    1148,
+    1184,
+    1264,
+    1280,
+    1293,
+    1365,
+    1373,
+    1427,
+    1428,
+    1437,
+    1469,
+    1489,
+    1490,
+    1492,
+    1511
+   ]
+  }
+ },
+ "refusedClasses": {
+  "rx: insertNode-getFirstChild": {
+   "count": 107,
+   "seeds": [
+    1054,
+    1086,
+    1089,
+    1121,
+    1145,
+    1148,
+    1184,
+    1264,
+    1280,
+    1293,
+    1365,
+    1373,
+    1427,
+    1428,
+    1437,
+    1469,
+    1489,
+    1490,
+    1492,
+    1511
+   ]
+  }
+ },
+ "yieldTwins": {
+  "none: a row of more than one element": 152,
+  "none: a row read inside a lambda": 215,
+  "none: a source read inside a lambda": 204,
+  "none: a try the yield attempt cannot spell": 1113,
+  "same": 316
+ },
+ "scenarioFeatures": {
+  "base write under a live guess": 67,
+  "filter toggle while pending": 554,
+  "overlapping requests": 1075,
+  "rejection": 1114,
+  "settled out of order": 847,
+  "store write under a live guess": 562,
+  "two claims on one row": 608
+ },
+ "coverage": {
+  "action": {
+   "programs": 1694,
+   "nodes": 3183
+  },
+  "event:onClick": {
+   "programs": 1694,
+   "nodes": 8588
+  },
+  "expr:add": {
+   "programs": 1688,
+   "nodes": 8633
+  },
+  "expr:and": {
+   "programs": 508,
+   "nodes": 636
+  },
+  "expr:array": {
+   "programs": 1694,
+   "nodes": 1694
+  },
+  "expr:cond": {
+   "programs": 1694,
+   "nodes": 6482
+  },
+  "expr:eq": {
+   "programs": 1694,
+   "nodes": 9756
+  },
+  "expr:filter": {
+   "programs": 1694,
+   "nodes": 4627
+  },
+  "expr:findIndex": {
+   "programs": 1661,
+   "nodes": 4454
+  },
+  "expr:ge": {
+   "programs": 342,
+   "nodes": 390
+  },
+  "expr:get": {
+   "programs": 1694,
+   "nodes": 37108
+  },
+  "expr:gt": {
+   "programs": 1694,
+   "nodes": 2084
+  },
+  "expr:le": {
+   "programs": 353,
+   "nodes": 396
+  },
+  "expr:length": {
+   "programs": 1694,
+   "nodes": 5491
+  },
+  "expr:literal": {
+   "programs": 1694,
+   "nodes": 73907
+  },
+  "expr:local": {
+   "programs": 1694,
+   "nodes": 49977
+  },
+  "expr:lt": {
+   "programs": 343,
+   "nodes": 372
+  },
+  "expr:map": {
+   "programs": 1620,
+   "nodes": 3167
+  },
+  "expr:ne": {
+   "programs": 644,
+   "nodes": 789
+  },
+  "expr:not": {
+   "programs": 1286,
+   "nodes": 2409
+  },
+  "expr:object": {
+   "programs": 1694,
+   "nodes": 9165
+  },
+  "expr:or": {
+   "programs": 1595,
+   "nodes": 3808
+  },
+  "expr:read": {
+   "programs": 1694,
+   "nodes": 33961
+  },
+  "memo": {
+   "programs": 1694,
+   "nodes": 5682
+  },
+  "source:optimistic": {
+   "programs": 1694,
+   "nodes": 2363
+  },
+  "source:signal": {
+   "programs": 1694,
+   "nodes": 5231
+  },
+  "source:store": {
+   "programs": 1694,
+   "nodes": 1694
+  },
+  "step:await": {
+   "programs": 1694,
+   "nodes": 3901
+  },
+  "step:call": {
+   "programs": 1694,
+   "nodes": 3676
+  },
+  "step:optimistic:updater": {
+   "programs": 1664,
+   "nodes": 2970
+  },
+  "step:optimistic:value": {
+   "programs": 213,
+   "nodes": 213
+  },
+  "step:try": {
+   "programs": 1694,
+   "nodes": 3183
+  },
+  "step:write:path": {
+   "programs": 1682,
+   "nodes": 5104
+  },
+  "step:write:signal": {
+   "programs": 1694,
+   "nodes": 9003
+  },
+  "view:element": {
+   "programs": 1694,
+   "nodes": 23450
+  },
+  "view:for": {
+   "programs": 1694,
+   "nodes": 2212
+  },
+  "view:show": {
+   "programs": 1694,
+   "nodes": 3010
+  },
+  "view:text:dynamic": {
+   "programs": 1694,
+   "nodes": 13610
+  },
+  "view:text:static": {
+   "programs": 1694,
+   "nodes": 15228
+  }
+ }
+}

@@ -1,0 +1,39 @@
+{
+  "total": 2000,
+  "agreement": 2000,
+  "rate": 1,
+  "invalid": 0,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 5200,
+    "memo": 3894,
+    "effect": 5294,
+    "flush": 12689,
+    "write": 10851,
+    "read": 7932,
+    "latest": 3970,
+    "pending": 2570,
+    "action": 5974,
+    "reject": 593,
+    "drain": 5161,
+    "resolve": 5945,
+    "list": 600,
+    "store": 800,
+    "show": 800
+  },
+  "modes": {
+    "str-scalar": {
+      "total": 600,
+      "agreement": 600
+    },
+    "str-list": {
+      "total": 600,
+      "agreement": 600
+    },
+    "str-tracker": {
+      "total": 800,
+      "agreement": 800
+    }
+  },
+  "classes": {}
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 2
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "a",
+    "expr": {
+      "op": "read",
+      "id": "s"
+    },
+    "flight": "flight",
+    "owner": "scope",
+    "loading": 0
+  },
+  {
+    "op": "resolve",
+    "flight": "flight:2",
+    "value": 17
+  },
+  {
+    "op": "refresh",
+    "id": "a"
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "pending",
+    "id": "a"
+  }
+]

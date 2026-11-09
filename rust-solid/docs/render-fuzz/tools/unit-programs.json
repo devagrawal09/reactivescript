@@ -1,0 +1,3031 @@
+{
+ "text_types": [
+  {
+   "op": "signal",
+   "id": "v",
+   "value": "hello"
+  },
+  {
+   "op": "signal",
+   "id": "n",
+   "value": 1
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [],
+    "kids": [
+     {
+      "k": "el",
+      "el": {
+       "x": "el",
+       "tag": "p",
+       "props": [],
+       "kids": [
+        {
+         "k": "ins",
+         "x": {
+          "x": "read",
+          "id": "v"
+         },
+         "fn": true
+        }
+       ]
+      }
+     },
+     {
+      "k": "text",
+      "v": "["
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "cat",
+       "a": {
+        "x": "read",
+        "id": "n"
+       },
+       "b": " items"
+      },
+      "fn": true
+     },
+     {
+      "k": "text",
+      "v": "]"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "read",
+       "id": "v"
+      },
+      "fn": true
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": "world"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": 7
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": 0
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": ""
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": null
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": true
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": [
+    "a",
+    1,
+    [
+     "b",
+     []
+    ]
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": []
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": "back"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "v",
+   "value": [
+    "x"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "n",
+   "value": "2"
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "for_bulk_moves": [
+  {
+   "op": "signal",
+   "id": "l",
+   "value": [
+    {
+     "row": 1
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 4
+    },
+    {
+     "row": 5
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 7
+    },
+    {
+     "row": 8
+    },
+    {
+     "row": 9
+    },
+    {
+     "row": 10
+    },
+    {
+     "row": 11
+    },
+    {
+     "row": 12
+    },
+    {
+     "row": 13
+    },
+    {
+     "row": 14
+    },
+    {
+     "row": 15
+    },
+    {
+     "row": 16
+    },
+    {
+     "row": 17
+    },
+    {
+     "row": 18
+    },
+    {
+     "row": 19
+    },
+    {
+     "row": 20
+    },
+    {
+     "row": 21
+    },
+    {
+     "row": 22
+    },
+    {
+     "row": 23
+    },
+    {
+     "row": 24
+    },
+    {
+     "row": 25
+    },
+    {
+     "row": 26
+    },
+    {
+     "row": 27
+    },
+    {
+     "row": 28
+    },
+    {
+     "row": 29
+    },
+    {
+     "row": 30
+    },
+    {
+     "row": 31
+    },
+    {
+     "row": 32
+    },
+    {
+     "row": 33
+    },
+    {
+     "row": 34
+    },
+    {
+     "row": 35
+    },
+    {
+     "row": 36
+    },
+    {
+     "row": 37
+    },
+    {
+     "row": 38
+    },
+    {
+     "row": 39
+    },
+    {
+     "row": 40
+    },
+    {
+     "row": 41
+    },
+    {
+     "row": 42
+    },
+    {
+     "row": 43
+    },
+    {
+     "row": 44
+    },
+    {
+     "row": 45
+    },
+    {
+     "row": 46
+    },
+    {
+     "row": 47
+    },
+    {
+     "row": 48
+    },
+    {
+     "row": 49
+    },
+    {
+     "row": 50
+    },
+    {
+     "row": 51
+    },
+    {
+     "row": 52
+    },
+    {
+     "row": 53
+    },
+    {
+     "row": 54
+    },
+    {
+     "row": 55
+    },
+    {
+     "row": 56
+    },
+    {
+     "row": 57
+    },
+    {
+     "row": 58
+    },
+    {
+     "row": 59
+    },
+    {
+     "row": 60
+    },
+    {
+     "row": 61
+    },
+    {
+     "row": 62
+    },
+    {
+     "row": 63
+    },
+    {
+     "row": 64
+    },
+    {
+     "row": 65
+    },
+    {
+     "row": 66
+    },
+    {
+     "row": 67
+    },
+    {
+     "row": 68
+    },
+    {
+     "row": 69
+    },
+    {
+     "row": 70
+    },
+    {
+     "row": 71
+    },
+    {
+     "row": 72
+    },
+    {
+     "row": 73
+    },
+    {
+     "row": 74
+    },
+    {
+     "row": 75
+    },
+    {
+     "row": 76
+    },
+    {
+     "row": 77
+    },
+    {
+     "row": 78
+    },
+    {
+     "row": 79
+    },
+    {
+     "row": 80
+    },
+    {
+     "row": 81
+    },
+    {
+     "row": 82
+    },
+    {
+     "row": 83
+    },
+    {
+     "row": 84
+    },
+    {
+     "row": 85
+    },
+    {
+     "row": 86
+    },
+    {
+     "row": 87
+    },
+    {
+     "row": 88
+    },
+    {
+     "row": 89
+    },
+    {
+     "row": 90
+    },
+    {
+     "row": 91
+    },
+    {
+     "row": 92
+    },
+    {
+     "row": 93
+    },
+    {
+     "row": 94
+    },
+    {
+     "row": 95
+    },
+    {
+     "row": 96
+    },
+    {
+     "row": 97
+    },
+    {
+     "row": 98
+    },
+    {
+     "row": 99
+    },
+    {
+     "row": 100
+    }
+   ]
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "ul",
+    "props": [],
+    "kids": [
+     {
+      "k": "text",
+      "v": "["
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "for",
+       "each": {
+        "x": "read",
+        "id": "l"
+       },
+       "arity": 1,
+       "kids": {
+        "x": "el",
+        "tag": "li",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "field",
+           "of": {
+            "x": "item"
+           },
+           "key": "label"
+          },
+          "fn": true
+         }
+        ]
+       }
+      },
+      "fn": false
+     },
+     {
+      "k": "text",
+      "v": "]"
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 100
+    },
+    {
+     "row": 99
+    },
+    {
+     "row": 98
+    },
+    {
+     "row": 97
+    },
+    {
+     "row": 96
+    },
+    {
+     "row": 95
+    },
+    {
+     "row": 94
+    },
+    {
+     "row": 93
+    },
+    {
+     "row": 92
+    },
+    {
+     "row": 91
+    },
+    {
+     "row": 90
+    },
+    {
+     "row": 89
+    },
+    {
+     "row": 88
+    },
+    {
+     "row": 87
+    },
+    {
+     "row": 86
+    },
+    {
+     "row": 85
+    },
+    {
+     "row": 84
+    },
+    {
+     "row": 83
+    },
+    {
+     "row": 82
+    },
+    {
+     "row": 81
+    },
+    {
+     "row": 80
+    },
+    {
+     "row": 79
+    },
+    {
+     "row": 78
+    },
+    {
+     "row": 77
+    },
+    {
+     "row": 76
+    },
+    {
+     "row": 75
+    },
+    {
+     "row": 74
+    },
+    {
+     "row": 73
+    },
+    {
+     "row": 72
+    },
+    {
+     "row": 71
+    },
+    {
+     "row": 70
+    },
+    {
+     "row": 69
+    },
+    {
+     "row": 68
+    },
+    {
+     "row": 67
+    },
+    {
+     "row": 66
+    },
+    {
+     "row": 65
+    },
+    {
+     "row": 64
+    },
+    {
+     "row": 63
+    },
+    {
+     "row": 62
+    },
+    {
+     "row": 61
+    },
+    {
+     "row": 60
+    },
+    {
+     "row": 59
+    },
+    {
+     "row": 58
+    },
+    {
+     "row": 57
+    },
+    {
+     "row": 56
+    },
+    {
+     "row": 55
+    },
+    {
+     "row": 54
+    },
+    {
+     "row": 53
+    },
+    {
+     "row": 52
+    },
+    {
+     "row": 51
+    },
+    {
+     "row": 50
+    },
+    {
+     "row": 49
+    },
+    {
+     "row": 48
+    },
+    {
+     "row": 47
+    },
+    {
+     "row": 46
+    },
+    {
+     "row": 45
+    },
+    {
+     "row": 44
+    },
+    {
+     "row": 43
+    },
+    {
+     "row": 42
+    },
+    {
+     "row": 41
+    },
+    {
+     "row": 40
+    },
+    {
+     "row": 39
+    },
+    {
+     "row": 38
+    },
+    {
+     "row": 37
+    },
+    {
+     "row": 36
+    },
+    {
+     "row": 35
+    },
+    {
+     "row": 34
+    },
+    {
+     "row": 33
+    },
+    {
+     "row": 32
+    },
+    {
+     "row": 31
+    },
+    {
+     "row": 30
+    },
+    {
+     "row": 29
+    },
+    {
+     "row": 28
+    },
+    {
+     "row": 27
+    },
+    {
+     "row": 26
+    },
+    {
+     "row": 25
+    },
+    {
+     "row": 24
+    },
+    {
+     "row": 23
+    },
+    {
+     "row": 22
+    },
+    {
+     "row": 21
+    },
+    {
+     "row": 20
+    },
+    {
+     "row": 19
+    },
+    {
+     "row": 18
+    },
+    {
+     "row": 17
+    },
+    {
+     "row": 16
+    },
+    {
+     "row": 15
+    },
+    {
+     "row": 14
+    },
+    {
+     "row": 13
+    },
+    {
+     "row": 12
+    },
+    {
+     "row": 11
+    },
+    {
+     "row": 10
+    },
+    {
+     "row": 9
+    },
+    {
+     "row": 8
+    },
+    {
+     "row": 7
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 5
+    },
+    {
+     "row": 4
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 1
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 71
+    },
+    {
+     "row": 72
+    },
+    {
+     "row": 73
+    },
+    {
+     "row": 74
+    },
+    {
+     "row": 75
+    },
+    {
+     "row": 76
+    },
+    {
+     "row": 77
+    },
+    {
+     "row": 78
+    },
+    {
+     "row": 79
+    },
+    {
+     "row": 80
+    },
+    {
+     "row": 81
+    },
+    {
+     "row": 82
+    },
+    {
+     "row": 83
+    },
+    {
+     "row": 84
+    },
+    {
+     "row": 85
+    },
+    {
+     "row": 86
+    },
+    {
+     "row": 87
+    },
+    {
+     "row": 88
+    },
+    {
+     "row": 89
+    },
+    {
+     "row": 90
+    },
+    {
+     "row": 91
+    },
+    {
+     "row": 92
+    },
+    {
+     "row": 93
+    },
+    {
+     "row": 94
+    },
+    {
+     "row": 95
+    },
+    {
+     "row": 96
+    },
+    {
+     "row": 97
+    },
+    {
+     "row": 98
+    },
+    {
+     "row": 99
+    },
+    {
+     "row": 100
+    },
+    {
+     "row": 1
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 4
+    },
+    {
+     "row": 5
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 7
+    },
+    {
+     "row": 8
+    },
+    {
+     "row": 9
+    },
+    {
+     "row": 10
+    },
+    {
+     "row": 11
+    },
+    {
+     "row": 12
+    },
+    {
+     "row": 13
+    },
+    {
+     "row": 14
+    },
+    {
+     "row": 15
+    },
+    {
+     "row": 16
+    },
+    {
+     "row": 17
+    },
+    {
+     "row": 18
+    },
+    {
+     "row": 19
+    },
+    {
+     "row": 20
+    },
+    {
+     "row": 21
+    },
+    {
+     "row": 22
+    },
+    {
+     "row": 23
+    },
+    {
+     "row": 24
+    },
+    {
+     "row": 25
+    },
+    {
+     "row": 26
+    },
+    {
+     "row": 27
+    },
+    {
+     "row": 28
+    },
+    {
+     "row": 29
+    },
+    {
+     "row": 30
+    },
+    {
+     "row": 31
+    },
+    {
+     "row": 32
+    },
+    {
+     "row": 33
+    },
+    {
+     "row": 34
+    },
+    {
+     "row": 35
+    },
+    {
+     "row": 36
+    },
+    {
+     "row": 37
+    },
+    {
+     "row": 38
+    },
+    {
+     "row": 39
+    },
+    {
+     "row": 40
+    },
+    {
+     "row": 41
+    },
+    {
+     "row": 42
+    },
+    {
+     "row": 43
+    },
+    {
+     "row": 44
+    },
+    {
+     "row": 45
+    },
+    {
+     "row": 46
+    },
+    {
+     "row": 47
+    },
+    {
+     "row": 48
+    },
+    {
+     "row": 49
+    },
+    {
+     "row": 50
+    },
+    {
+     "row": 51
+    },
+    {
+     "row": 52
+    },
+    {
+     "row": 53
+    },
+    {
+     "row": 54
+    },
+    {
+     "row": 55
+    },
+    {
+     "row": 56
+    },
+    {
+     "row": 57
+    },
+    {
+     "row": 58
+    },
+    {
+     "row": 59
+    },
+    {
+     "row": 60
+    },
+    {
+     "row": 61
+    },
+    {
+     "row": 62
+    },
+    {
+     "row": 63
+    },
+    {
+     "row": 64
+    },
+    {
+     "row": 65
+    },
+    {
+     "row": 66
+    },
+    {
+     "row": 67
+    },
+    {
+     "row": 68
+    },
+    {
+     "row": 69
+    },
+    {
+     "row": 70
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 1
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 4
+    },
+    {
+     "row": 5
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 7
+    },
+    {
+     "row": 8
+    },
+    {
+     "row": 9
+    },
+    {
+     "row": 10
+    },
+    {
+     "row": 81
+    },
+    {
+     "row": 82
+    },
+    {
+     "row": 83
+    },
+    {
+     "row": 84
+    },
+    {
+     "row": 85
+    },
+    {
+     "row": 86
+    },
+    {
+     "row": 87
+    },
+    {
+     "row": 88
+    },
+    {
+     "row": 89
+    },
+    {
+     "row": 90
+    },
+    {
+     "row": 91
+    },
+    {
+     "row": 92
+    },
+    {
+     "row": 93
+    },
+    {
+     "row": 94
+    },
+    {
+     "row": 95
+    },
+    {
+     "row": 96
+    },
+    {
+     "row": 97
+    },
+    {
+     "row": 98
+    },
+    {
+     "row": 99
+    },
+    {
+     "row": 100
+    },
+    {
+     "row": 11
+    },
+    {
+     "row": 12
+    },
+    {
+     "row": 13
+    },
+    {
+     "row": 14
+    },
+    {
+     "row": 15
+    },
+    {
+     "row": 16
+    },
+    {
+     "row": 17
+    },
+    {
+     "row": 18
+    },
+    {
+     "row": 19
+    },
+    {
+     "row": 20
+    },
+    {
+     "row": 21
+    },
+    {
+     "row": 22
+    },
+    {
+     "row": 23
+    },
+    {
+     "row": 24
+    },
+    {
+     "row": 25
+    },
+    {
+     "row": 26
+    },
+    {
+     "row": 27
+    },
+    {
+     "row": 28
+    },
+    {
+     "row": 29
+    },
+    {
+     "row": 30
+    },
+    {
+     "row": 31
+    },
+    {
+     "row": 32
+    },
+    {
+     "row": 33
+    },
+    {
+     "row": 34
+    },
+    {
+     "row": 35
+    },
+    {
+     "row": 36
+    },
+    {
+     "row": 37
+    },
+    {
+     "row": 38
+    },
+    {
+     "row": 39
+    },
+    {
+     "row": 40
+    },
+    {
+     "row": 41
+    },
+    {
+     "row": 42
+    },
+    {
+     "row": 43
+    },
+    {
+     "row": 44
+    },
+    {
+     "row": 45
+    },
+    {
+     "row": 46
+    },
+    {
+     "row": 47
+    },
+    {
+     "row": 48
+    },
+    {
+     "row": 49
+    },
+    {
+     "row": 50
+    },
+    {
+     "row": 51
+    },
+    {
+     "row": 52
+    },
+    {
+     "row": 53
+    },
+    {
+     "row": 54
+    },
+    {
+     "row": 55
+    },
+    {
+     "row": 56
+    },
+    {
+     "row": 57
+    },
+    {
+     "row": 58
+    },
+    {
+     "row": 59
+    },
+    {
+     "row": 60
+    },
+    {
+     "row": 61
+    },
+    {
+     "row": 62
+    },
+    {
+     "row": 63
+    },
+    {
+     "row": 64
+    },
+    {
+     "row": 65
+    },
+    {
+     "row": 66
+    },
+    {
+     "row": 67
+    },
+    {
+     "row": 68
+    },
+    {
+     "row": 69
+    },
+    {
+     "row": 70
+    },
+    {
+     "row": 71
+    },
+    {
+     "row": 72
+    },
+    {
+     "row": 73
+    },
+    {
+     "row": 74
+    },
+    {
+     "row": 75
+    },
+    {
+     "row": 76
+    },
+    {
+     "row": 77
+    },
+    {
+     "row": 78
+    },
+    {
+     "row": 79
+    },
+    {
+     "row": 80
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 5
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 8
+    },
+    {
+     "row": 9
+    },
+    {
+     "row": 11
+    },
+    {
+     "row": 12
+    },
+    {
+     "row": 14
+    },
+    {
+     "row": 15
+    },
+    {
+     "row": 17
+    },
+    {
+     "row": 18
+    },
+    {
+     "row": 20
+    },
+    {
+     "row": 21
+    },
+    {
+     "row": 23
+    },
+    {
+     "row": 24
+    },
+    {
+     "row": 26
+    },
+    {
+     "row": 27
+    },
+    {
+     "row": 29
+    },
+    {
+     "row": 30
+    },
+    {
+     "row": 32
+    },
+    {
+     "row": 33
+    },
+    {
+     "row": 35
+    },
+    {
+     "row": 36
+    },
+    {
+     "row": 38
+    },
+    {
+     "row": 39
+    },
+    {
+     "row": 41
+    },
+    {
+     "row": 42
+    },
+    {
+     "row": 44
+    },
+    {
+     "row": 45
+    },
+    {
+     "row": 47
+    },
+    {
+     "row": 48
+    },
+    {
+     "row": 50
+    },
+    {
+     "row": 51
+    },
+    {
+     "row": 53
+    },
+    {
+     "row": 54
+    },
+    {
+     "row": 56
+    },
+    {
+     "row": 57
+    },
+    {
+     "row": 59
+    },
+    {
+     "row": 60
+    },
+    {
+     "row": 62
+    },
+    {
+     "row": 63
+    },
+    {
+     "row": 65
+    },
+    {
+     "row": 66
+    },
+    {
+     "row": 68
+    },
+    {
+     "row": 69
+    },
+    {
+     "row": 71
+    },
+    {
+     "row": 72
+    },
+    {
+     "row": 74
+    },
+    {
+     "row": 75
+    },
+    {
+     "row": 77
+    },
+    {
+     "row": 78
+    },
+    {
+     "row": 80
+    },
+    {
+     "row": 81
+    },
+    {
+     "row": 83
+    },
+    {
+     "row": 84
+    },
+    {
+     "row": 86
+    },
+    {
+     "row": 87
+    },
+    {
+     "row": 89
+    },
+    {
+     "row": 90
+    },
+    {
+     "row": 92
+    },
+    {
+     "row": 93
+    },
+    {
+     "row": 95
+    },
+    {
+     "row": 96
+    },
+    {
+     "row": 98
+    },
+    {
+     "row": 99
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": []
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 101
+    },
+    {
+     "row": 102
+    },
+    {
+     "row": 103
+    },
+    {
+     "row": 104
+    },
+    {
+     "row": 105
+    },
+    {
+     "row": 106
+    },
+    {
+     "row": 107
+    },
+    {
+     "row": 108
+    },
+    {
+     "row": 109
+    },
+    {
+     "row": 110
+    },
+    {
+     "row": 111
+    },
+    {
+     "row": 112
+    },
+    {
+     "row": 113
+    },
+    {
+     "row": 114
+    },
+    {
+     "row": 115
+    },
+    {
+     "row": 116
+    },
+    {
+     "row": 117
+    },
+    {
+     "row": 118
+    },
+    {
+     "row": 119
+    },
+    {
+     "row": 120
+    },
+    {
+     "row": 121
+    },
+    {
+     "row": 122
+    },
+    {
+     "row": 123
+    },
+    {
+     "row": 124
+    },
+    {
+     "row": 125
+    },
+    {
+     "row": 126
+    },
+    {
+     "row": 127
+    },
+    {
+     "row": 128
+    },
+    {
+     "row": 129
+    },
+    {
+     "row": 130
+    },
+    {
+     "row": 131
+    },
+    {
+     "row": 132
+    },
+    {
+     "row": 133
+    },
+    {
+     "row": 134
+    },
+    {
+     "row": 135
+    },
+    {
+     "row": 136
+    },
+    {
+     "row": 137
+    },
+    {
+     "row": 138
+    },
+    {
+     "row": 139
+    },
+    {
+     "row": 140
+    },
+    {
+     "row": 141
+    },
+    {
+     "row": 142
+    },
+    {
+     "row": 143
+    },
+    {
+     "row": 144
+    },
+    {
+     "row": 145
+    },
+    {
+     "row": 146
+    },
+    {
+     "row": 147
+    },
+    {
+     "row": 148
+    },
+    {
+     "row": 149
+    },
+    {
+     "row": 150
+    },
+    {
+     "row": 151
+    },
+    {
+     "row": 152
+    },
+    {
+     "row": 153
+    },
+    {
+     "row": 154
+    },
+    {
+     "row": 155
+    },
+    {
+     "row": 156
+    },
+    {
+     "row": 157
+    },
+    {
+     "row": 158
+    },
+    {
+     "row": 159
+    },
+    {
+     "row": 160
+    },
+    {
+     "row": 161
+    },
+    {
+     "row": 162
+    },
+    {
+     "row": 163
+    },
+    {
+     "row": 164
+    },
+    {
+     "row": 165
+    },
+    {
+     "row": 166
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "for_keyed_modes": [
+  {
+   "op": "signal",
+   "id": "l",
+   "value": [
+    {
+     "row": 1
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    },
+    {
+     "row": 4
+    }
+   ]
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [],
+    "kids": [
+     {
+      "k": "ins",
+      "x": {
+       "x": "for",
+       "each": {
+        "x": "read",
+        "id": "l"
+       },
+       "arity": 2,
+       "keyed": false,
+       "kids": {
+        "x": "el",
+        "tag": "li",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "field",
+           "of": {
+            "x": "item"
+           },
+           "key": "label"
+          },
+          "fn": true
+         },
+         {
+          "k": "text",
+          "v": "@"
+         },
+         {
+          "k": "ins",
+          "x": {
+           "x": "index"
+          },
+          "fn": true
+         }
+        ]
+       }
+      },
+      "fn": true
+     },
+     {
+      "k": "text",
+      "v": "|"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "for",
+       "each": {
+        "x": "read",
+        "id": "l"
+       },
+       "arity": 2,
+       "keyed": "id",
+       "kids": {
+        "x": "el",
+        "tag": "li",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "field",
+           "of": {
+            "x": "item"
+           },
+           "key": "id"
+          },
+          "fn": true
+         },
+         {
+          "k": "text",
+          "v": "@"
+         },
+         {
+          "k": "ins",
+          "x": {
+           "x": "index"
+          },
+          "fn": true
+         }
+        ]
+       },
+       "fallback": "none"
+      },
+      "fn": true
+     },
+     {
+      "k": "text",
+      "v": "|"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "for",
+       "each": {
+        "x": "read",
+        "id": "l"
+       },
+       "arity": 1,
+       "kids": {
+        "x": "arr",
+        "items": [
+         {
+          "x": "field",
+          "of": {
+           "x": "item"
+          },
+          "key": "label"
+         },
+         ","
+        ]
+       },
+       "fallback": {
+        "x": "el",
+        "tag": "i",
+        "props": [],
+        "kids": [
+         {
+          "k": "text",
+          "v": "empty"
+         }
+        ]
+       }
+      },
+      "fn": true
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 3
+    },
+    {
+     "row": 1
+    },
+    {
+     "row": 4
+    },
+    {
+     "row": 2
+    },
+    {
+     "row": 3
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 2
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": []
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "l",
+   "value": [
+    {
+     "row": 5
+    },
+    {
+     "row": 6
+    },
+    {
+     "row": 7
+    }
+   ]
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "show_swaps": [
+  {
+   "op": "signal",
+   "id": "c",
+   "value": "x"
+  },
+  {
+   "op": "signal",
+   "id": "s",
+   "value": "a"
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [],
+    "kids": [
+     {
+      "k": "ins",
+      "x": {
+       "x": "show",
+       "when": {
+        "x": "read",
+        "id": "c"
+       },
+       "kids": {
+        "x": "el",
+        "tag": "b",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "read",
+           "id": "s"
+          },
+          "fn": true
+         }
+        ]
+       },
+       "fallback": "off"
+      },
+      "fn": false
+     },
+     {
+      "k": "text",
+      "v": "|"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "show",
+       "when": {
+        "x": "read",
+        "id": "c"
+       },
+       "fn": true,
+       "kids": {
+        "x": "arr",
+        "items": [
+         "v:",
+         {
+          "x": "sarg"
+         }
+        ]
+       }
+      },
+      "fn": false
+     },
+     {
+      "k": "text",
+      "v": "|"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "show",
+       "when": {
+        "x": "read",
+        "id": "c"
+       },
+       "keyed": true,
+       "fn": true,
+       "kids": {
+        "x": "el",
+        "tag": "i",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "sarg"
+          },
+          "fn": true
+         }
+        ]
+       },
+       "fallback": {
+        "x": "el",
+        "tag": "u",
+        "props": [],
+        "kids": [
+         {
+          "k": "text",
+          "v": "none"
+         }
+        ]
+       }
+      },
+      "fn": false
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": "y"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": ""
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": 0
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": "z"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": "z"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": null
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": "w"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "b"
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "conditional_fragments": [
+  {
+   "op": "signal",
+   "id": "t",
+   "value": true
+  },
+  {
+   "op": "signal",
+   "id": "k",
+   "value": 2
+  },
+  {
+   "op": "signal",
+   "id": "a",
+   "value": [
+    "p",
+    "q"
+   ]
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [],
+    "kids": [
+     {
+      "k": "text",
+      "v": "<"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "arr",
+       "items": [
+        {
+         "x": "cmemo",
+         "test": {
+          "x": "read",
+          "id": "t"
+         },
+         "yes": {
+          "x": "el",
+          "tag": "b",
+          "props": [],
+          "kids": [
+           {
+            "k": "text",
+            "v": "T"
+           }
+          ]
+         },
+         "no": "F"
+        },
+        {
+         "x": "memo",
+         "body": {
+          "x": "read",
+          "id": "a"
+         }
+        },
+        {
+         "x": "fn",
+         "body": {
+          "x": "cond",
+          "test": {
+           "x": "read",
+           "id": "k"
+          },
+          "yes": {
+           "x": "arr",
+           "items": [
+            {
+             "x": "read",
+             "id": "k"
+            },
+            "-"
+           ]
+          },
+          "no": {
+           "x": "arr",
+           "items": []
+          }
+         }
+        }
+       ]
+      },
+      "fn": true
+     },
+     {
+      "k": "text",
+      "v": ">"
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "cmemo",
+       "test": {
+        "x": "read",
+        "id": "k"
+       },
+       "yes": {
+        "x": "read",
+        "id": "a"
+       },
+       "no": {
+        "x": "arr",
+        "items": []
+       }
+      },
+      "fn": true
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "t",
+   "value": false
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "a",
+   "value": []
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "k",
+   "value": 0
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "a",
+   "value": [
+    "r",
+    [
+     "s",
+     3
+    ]
+   ]
+  },
+  {
+   "op": "write",
+   "id": "t",
+   "value": "yes"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "k",
+   "value": 5
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "delegated_events": [
+  {
+   "op": "signal",
+   "id": "n",
+   "value": 0
+  },
+  {
+   "op": "signal",
+   "id": "d",
+   "value": false
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [
+     {
+      "name": "onClick",
+      "v": {
+       "x": "handler",
+       "id": "outer",
+       "data": "top"
+      },
+      "dyn": false
+     },
+     {
+      "name": "onInput",
+      "v": {
+       "x": "handler",
+       "id": "in",
+       "stop": true
+      },
+      "dyn": false
+     }
+    ],
+    "kids": [
+     {
+      "k": "el",
+      "el": {
+       "x": "el",
+       "tag": "section",
+       "props": [
+        {
+         "name": "onClick",
+         "v": {
+          "x": "handler",
+          "id": "mid"
+         },
+         "dyn": false
+        }
+       ],
+       "kids": [
+        {
+         "k": "el",
+         "el": {
+          "x": "el",
+          "tag": "button",
+          "props": [
+           {
+            "name": "onClick",
+            "v": {
+             "x": "handler",
+             "id": "inner",
+             "data": [
+              "row",
+              7
+             ],
+             "write": {
+              "id": "n",
+              "value": 1
+             }
+            },
+            "dyn": false
+           },
+           {
+            "name": "disabled",
+            "v": {
+             "x": "read",
+             "id": "d"
+            },
+            "dyn": true
+           }
+          ],
+          "kids": [
+           {
+            "k": "text",
+            "v": "go"
+           }
+          ]
+         }
+        },
+        {
+         "k": "ins",
+         "x": {
+          "x": "read",
+          "id": "n"
+         },
+         "fn": true
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "dispatch",
+   "node": 4,
+   "type": "click"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispatch",
+   "node": 3,
+   "type": "click"
+  },
+  {
+   "op": "write",
+   "id": "d",
+   "value": true
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispatch",
+   "node": 4,
+   "type": "click"
+  },
+  {
+   "op": "dispatch",
+   "node": 3,
+   "type": "input"
+  },
+  {
+   "op": "dispatch",
+   "node": 1,
+   "type": "click"
+  },
+  {
+   "op": "dispatch",
+   "node": 99,
+   "type": "click"
+  }
+ ],
+ "stop_propagation": [
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "div",
+    "props": [
+     {
+      "name": "onClick",
+      "v": {
+       "x": "handler",
+       "id": "div"
+      },
+      "dyn": false
+     }
+    ],
+    "kids": [
+     {
+      "k": "el",
+      "el": {
+       "x": "el",
+       "tag": "p",
+       "props": [
+        {
+         "name": "onClick",
+         "v": {
+          "x": "handler",
+          "id": "p",
+          "stop": true
+         },
+         "dyn": false
+        }
+       ],
+       "kids": [
+        {
+         "k": "text",
+         "v": "x"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "dispatch",
+   "node": 3,
+   "type": "click"
+  },
+  {
+   "op": "dispatch",
+   "node": 1,
+   "type": "click"
+  }
+ ],
+ "native_events": [
+  {
+   "op": "signal",
+   "id": "c",
+   "value": 1
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "let",
+    "id": "t",
+    "v": {
+     "x": "handler",
+     "id": "tuple",
+     "data": 5
+    },
+    "body": {
+     "x": "el",
+     "tag": "form",
+     "props": [
+      {
+       "name": "onChange",
+       "v": {
+        "x": "handler",
+        "id": "form"
+       },
+       "dyn": false
+      },
+      {
+       "name": "onClick",
+       "v": {
+        "x": "cond",
+        "test": {
+         "x": "read",
+         "id": "c"
+        },
+        "yes": {
+         "x": "handler",
+         "id": "fresh"
+        },
+        "no": {
+         "x": "handler",
+         "id": "other"
+        }
+       },
+       "dyn": true
+      }
+     ],
+     "kids": [
+      {
+       "k": "el",
+       "el": {
+        "x": "el",
+        "tag": "input",
+        "props": [
+         {
+          "name": "onChange",
+          "v": {
+           "x": "cond",
+           "test": {
+            "x": "read",
+            "id": "c"
+           },
+           "yes": {
+            "x": "var",
+            "id": "t"
+           },
+           "no": null
+          },
+          "dyn": true
+         }
+        ],
+        "kids": []
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "op": "dispatch",
+   "node": 2,
+   "type": "change"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": 2
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispatch",
+   "node": 2,
+   "type": "change"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": 0
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispatch",
+   "node": 2,
+   "type": "change"
+  },
+  {
+   "op": "dispatch",
+   "node": 2,
+   "type": "click"
+  },
+  {
+   "op": "write",
+   "id": "c",
+   "value": 3
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispatch",
+   "node": 2,
+   "type": "change"
+  }
+ ],
+ "shared_node": [
+  {
+   "op": "signal",
+   "id": "a",
+   "value": true
+  },
+  {
+   "op": "signal",
+   "id": "b",
+   "value": false
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "let",
+    "id": "m",
+    "v": {
+     "x": "memo",
+     "body": {
+      "x": "el",
+      "tag": "em",
+      "props": [],
+      "kids": [
+       {
+        "k": "text",
+        "v": "shared"
+       }
+      ]
+     }
+    },
+    "body": {
+     "x": "el",
+     "tag": "div",
+     "props": [],
+     "kids": [
+      {
+       "k": "el",
+       "el": {
+        "x": "el",
+        "tag": "p",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "cond",
+           "test": {
+            "x": "read",
+            "id": "a"
+           },
+           "yes": {
+            "x": "arr",
+            "items": [
+             {
+              "x": "var",
+              "id": "m"
+             },
+             "x"
+            ]
+           },
+           "no": {
+            "x": "el",
+            "tag": "i",
+            "props": [],
+            "kids": [
+             {
+              "k": "text",
+              "v": "n"
+             }
+            ]
+           }
+          },
+          "fn": true
+         }
+        ]
+       }
+      },
+      {
+       "k": "el",
+       "el": {
+        "x": "el",
+        "tag": "p",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "cond",
+           "test": {
+            "x": "read",
+            "id": "b"
+           },
+           "yes": {
+            "x": "var",
+            "id": "m"
+           },
+           "no": "-"
+          },
+          "fn": true
+         }
+        ]
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "op": "write",
+   "id": "b",
+   "value": true
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "a",
+   "value": false
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "b",
+   "value": false
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "a",
+   "value": true
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "dispose": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": "a"
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "arr",
+    "items": [
+     {
+      "x": "el",
+      "tag": "p",
+      "props": [],
+      "kids": [
+       {
+        "k": "ins",
+        "x": {
+         "x": "read",
+         "id": "s"
+        },
+        "fn": true
+       }
+      ]
+     },
+     {
+      "x": "read",
+      "id": "s"
+     },
+     "!"
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "b"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispose"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "c"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "dispose"
+  }
+ ],
+ "components": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": "a"
+  },
+  {
+   "op": "render",
+   "view": {
+    "x": "el",
+    "tag": "main",
+    "props": [],
+    "kids": [
+     {
+      "k": "ins",
+      "x": {
+       "x": "comp",
+       "body": {
+        "x": "el",
+        "tag": "h1",
+        "props": [],
+        "kids": [
+         {
+          "k": "ins",
+          "x": {
+           "x": "read",
+           "id": "s"
+          },
+          "fn": true
+         }
+        ]
+       }
+      },
+      "fn": false
+     },
+     {
+      "k": "ins",
+      "x": {
+       "x": "comp",
+       "body": {
+        "x": "cat",
+        "a": {
+         "x": "read",
+         "id": "s"
+        },
+        "b": "!"
+       }
+      },
+      "fn": false
+     }
+    ]
+   }
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "b"
+  },
+  {
+   "op": "flush"
+  }
+ ]
+}

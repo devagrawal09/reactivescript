@@ -1,0 +1,123 @@
+{
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "dev": true,
+ "agree": 869,
+ "html": 0,
+ "hydration": 0,
+ "ssr-refused": 0,
+ "refused": 131,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "htmlBytes": 445065,
+  "hydrationKeys": 4758,
+  "hydrations": 2607,
+  "scenarioStepsPerHydration": 9766
+ },
+ "families": {
+  "tracker": {
+   "total": 256,
+   "agree": 256
+  },
+  "rows": {
+   "total": 130,
+   "agree": 130
+  },
+  "outside": {
+   "total": 131,
+   "agree": 0
+  },
+  "strings": {
+   "total": 120,
+   "agree": 120
+  },
+  "mixed": {
+   "total": 242,
+   "agree": 242
+  },
+  "scalar": {
+   "total": 121,
+   "agree": 121
+  }
+ },
+ "classes": {},
+ "refusals": {
+  "refused: unsupported operator *": {
+   "count": 43,
+   "seeds": [
+    4,
+    6,
+    76,
+    85,
+    114,
+    125,
+    137,
+    207,
+    238,
+    241,
+    263,
+    298,
+    302,
+    304,
+    305,
+    326,
+    342,
+    343,
+    359,
+    378
+   ]
+  },
+  "refused: unsupported operator -": {
+   "count": 49,
+   "seeds": [
+    10,
+    14,
+    41,
+    43,
+    48,
+    53,
+    59,
+    112,
+    129,
+    140,
+    206,
+    231,
+    254,
+    286,
+    316,
+    333,
+    338,
+    360,
+    404,
+    459
+   ]
+  },
+  "refused: a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2": {
+   "count": 39,
+   "seeds": [
+    70,
+    82,
+    94,
+    98,
+    104,
+    169,
+    194,
+    210,
+    230,
+    341,
+    363,
+    397,
+    421,
+    440,
+    481,
+    518,
+    540,
+    541,
+    563,
+    585
+   ]
+  }
+ }
+}

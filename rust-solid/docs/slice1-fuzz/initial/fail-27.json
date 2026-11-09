@@ -1,0 +1,754 @@
+{
+  "seed": 27,
+  "ops": [
+    {
+      "op": "signal",
+      "id": "s",
+      "value": 1
+    },
+    {
+      "op": "signal",
+      "id": "o",
+      "value": 0,
+      "optimistic": true
+    },
+    {
+      "op": "effect",
+      "id": "view",
+      "expr": {
+        "op": "add",
+        "a": {
+          "op": "read",
+          "id": "s"
+        },
+        "b": {
+          "op": "read",
+          "id": "o"
+        }
+      },
+      "render": true
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "s",
+      "value": 1
+    },
+    {
+      "op": "action",
+      "id": "a0",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "o",
+              "value": 6
+            }
+          ],
+          "flight": "f0"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "write",
+      "id": "s",
+      "value": 3
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "f0",
+      "value": 3
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "action",
+      "id": "a1",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "o",
+              "value": 3
+            }
+          ],
+          "flight": "f1"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "write",
+      "id": "s",
+      "value": 4
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "reject",
+      "flight": "f1",
+      "message": "rejected"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "action",
+      "id": "a2",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "o",
+              "value": 7
+            },
+            {
+              "id": "s",
+              "value": 3
+            }
+          ],
+          "flight": "f2"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 6
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "write",
+      "id": "s",
+      "value": 6
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "reject",
+      "flight": "f2",
+      "message": "rejected"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "flush"
+    }
+  ],
+  "expected": [
+    [
+      "compute",
+      "view",
+      null
+    ],
+    [
+      "effect",
+      "view",
+      1,
+      null
+    ],
+    [
+      "read",
+      "s",
+      1
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      1
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      1
+    ],
+    [
+      "effect",
+      "view",
+      7,
+      1
+    ],
+    [
+      "read",
+      "s",
+      1
+    ],
+    [
+      "read",
+      "o",
+      6
+    ],
+    [
+      "compute",
+      "view",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      7
+    ],
+    [
+      "effect",
+      "view",
+      9,
+      7
+    ],
+    [
+      "compute",
+      "view",
+      9
+    ],
+    [
+      "compute",
+      "view",
+      8
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      9
+    ],
+    [
+      "effect",
+      "view",
+      2,
+      9
+    ],
+    [
+      "action",
+      "a0",
+      null
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      2
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      2
+    ],
+    [
+      "effect",
+      "view",
+      5,
+      2
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      3
+    ],
+    [
+      "compute",
+      "view",
+      5
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      5
+    ],
+    [
+      "effect",
+      "view",
+      7,
+      5
+    ],
+    [
+      "compute",
+      "view",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      7
+    ],
+    [
+      "effect",
+      "view",
+      4,
+      7
+    ],
+    [
+      "action",
+      "a1",
+      "rejected"
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      4
+    ],
+    [
+      "compute",
+      "view",
+      3
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      4
+    ],
+    [
+      "effect",
+      "view",
+      11,
+      4
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      7
+    ],
+    [
+      "compute",
+      "view",
+      11
+    ],
+    [
+      "compute",
+      "view",
+      13
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      11
+    ],
+    [
+      "effect",
+      "view",
+      11,
+      11
+    ],
+    [
+      "compute",
+      "view",
+      11
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      11
+    ],
+    [
+      "effect",
+      "view",
+      6,
+      11
+    ],
+    [
+      "action",
+      "a2",
+      "rejected"
+    ],
+    [
+      "read",
+      "s",
+      6
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      6
+    ]
+  ],
+  "actual": [
+    [
+      "compute",
+      "view",
+      null
+    ],
+    [
+      "effect",
+      "view",
+      1,
+      null
+    ],
+    [
+      "read",
+      "s",
+      1
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      1
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      1
+    ],
+    [
+      "effect",
+      "view",
+      7,
+      1
+    ],
+    [
+      "read",
+      "s",
+      1
+    ],
+    [
+      "read",
+      "o",
+      6
+    ],
+    [
+      "compute",
+      "view",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      7
+    ],
+    [
+      "effect",
+      "view",
+      2,
+      7
+    ],
+    [
+      "action",
+      "a0",
+      null
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      2
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      2
+    ],
+    [
+      "effect",
+      "view",
+      5,
+      2
+    ],
+    [
+      "read",
+      "s",
+      2
+    ],
+    [
+      "read",
+      "o",
+      3
+    ],
+    [
+      "compute",
+      "view",
+      5
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      5
+    ],
+    [
+      "effect",
+      "view",
+      7,
+      5
+    ],
+    [
+      "compute",
+      "view",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      7
+    ],
+    [
+      "effect",
+      "view",
+      4,
+      7
+    ],
+    [
+      "action",
+      "a1",
+      "rejected"
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "compute",
+      "view",
+      4
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      4
+    ],
+    [
+      "effect",
+      "view",
+      11,
+      4
+    ],
+    [
+      "read",
+      "s",
+      4
+    ],
+    [
+      "read",
+      "o",
+      7
+    ],
+    [
+      "compute",
+      "view",
+      11
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      11
+    ],
+    [
+      "effect",
+      "view",
+      6,
+      11
+    ],
+    [
+      "action",
+      "a2",
+      "rejected"
+    ],
+    [
+      "read",
+      "s",
+      6
+    ],
+    [
+      "read",
+      "o",
+      0
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      6
+    ]
+  ],
+  "agree": false
+}

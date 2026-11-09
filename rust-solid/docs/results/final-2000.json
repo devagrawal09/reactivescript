@@ -1,0 +1,104 @@
+{
+  "total": 2000,
+  "agreement": 1148,
+  "rate": 0.574,
+  "invalid": 15,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 4667,
+    "owner": 2000,
+    "cleanup": 4000,
+    "memo": 4331,
+    "effect": 3999,
+    "read": 19117,
+    "latest": 14739,
+    "pending": 14739,
+    "flush": 9731,
+    "resolve": 2687,
+    "refresh": 2419,
+    "write": 12621,
+    "reject": 431,
+    "action": 1334,
+    "dispose": 999
+  },
+  "modes": {
+    "0": {
+      "total": 333,
+      "agreement": 330
+    },
+    "1": {
+      "total": 334,
+      "agreement": 285
+    },
+    "2": {
+      "total": 334,
+      "agreement": 0
+    },
+    "3": {
+      "total": 333,
+      "agreement": 0
+    },
+    "4": {
+      "total": 333,
+      "agreement": 333
+    },
+    "5": {
+      "total": 333,
+      "agreement": 200
+    }
+  },
+  "classes": {
+    "2-compute-effect_cleanup": {
+      "count": 334,
+      "seed": 2
+    },
+    "3-compute-effect_cleanup": {
+      "count": 333,
+      "seed": 3
+    },
+    "5-compute-compute": {
+      "count": 84,
+      "seed": 17
+    },
+    "1-compute-read": {
+      "count": 49,
+      "seed": 49
+    },
+    "5-effect_cleanup-compute": {
+      "count": 10,
+      "seed": 59
+    },
+    "5-compute-read": {
+      "count": 10,
+      "seed": 65
+    },
+    "oracle-timeout": {
+      "count": 14,
+      "seed": 71
+    },
+    "5-read-compute": {
+      "count": 11,
+      "seed": 299
+    },
+    "5-effect-compute": {
+      "count": 1,
+      "seed": 485
+    },
+    "0-compute-compute": {
+      "count": 3,
+      "seed": 582
+    },
+    "oracle-error": {
+      "count": 1,
+      "seed": 1193
+    },
+    "5-read-read": {
+      "count": 1,
+      "seed": 1577
+    },
+    "5-compute-effect_cleanup": {
+      "count": 1,
+      "seed": 1727
+    }
+  }
+}

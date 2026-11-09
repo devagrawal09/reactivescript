@@ -1,0 +1,21 @@
+{
+  "note": "Private out-of-distribution probe (tools/probe.mjs); same worker oracle and exact comparison; not an official score.",
+  "runs": [
+    {
+      "mode": "plain",
+      "start": 1,
+      "count": 2300,
+      "agree": 2300,
+      "invalid": 0,
+      "classes": {}
+    },
+    {
+      "mode": "overlap",
+      "start": 1,
+      "count": 2300,
+      "agree": 2300,
+      "invalid": 0,
+      "classes": {}
+    }
+  ]
+}

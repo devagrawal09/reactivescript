@@ -1,0 +1,62 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 2
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 0,
+    "equals": "parity"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "signal",
+    "id": "o",
+    "value": 0,
+    "optimistic": true
+  },
+  {
+    "op": "effect",
+    "id": "et",
+    "expr": {
+      "op": "read",
+      "id": "t"
+    },
+    "owner": "scope"
+  },
+  {
+    "op": "action",
+    "id": "a",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 10
+          },
+          {
+            "id": "o",
+            "value": 50
+          }
+        ],
+        "flight": "gate-a"
+      },
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 20
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "flush"
+  }
+]

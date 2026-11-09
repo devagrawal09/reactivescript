@@ -1,0 +1,41 @@
+[
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 2,
+    "equals": "parity"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m0",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "t"
+      },
+      "b": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": true,
+    "equals": "parity",
+    "owner": "scope"
+  },
+  {
+    "op": "read",
+    "id": "m0"
+  },
+  {
+    "op": "refresh",
+    "id": "m0"
+  },
+  {
+    "op": "flush"
+  }
+]

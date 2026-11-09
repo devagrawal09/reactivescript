@@ -1,0 +1,110 @@
+{
+ "start": 1001,
+ "seeds": 2000,
+ "total": 2000,
+ "agree": 1713,
+ "refused": 287,
+ "divergent": 0,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "scenarioSteps": 19887,
+  "logEntriesPerLeg": 639808,
+  "evaluatedCodes": 1713,
+  "codeChanges": 1198
+ },
+ "shapes": {
+  "split / rx / reload": 339,
+  "split / rx": 324,
+  "split / tsx / reload": 324,
+  "split / tsx": 309,
+  "whole / rx / reload": 95,
+  "whole / rx": 107,
+  "whole / tsx / reload": 106,
+  "whole / tsx": 109
+ },
+ "bindingKinds": {
+  "action": 713,
+  "host": 968,
+  "read": 3807,
+  "store": 221
+ },
+ "classes": {},
+ "refusals": {
+  "eval refused: PLAN: unsupported operator *": {
+   "count": 89,
+   "seeds": [
+    1006,
+    1014,
+    1024,
+    1050,
+    1056,
+    1091,
+    1101,
+    1167,
+    1174,
+    1176,
+    1186,
+    1191,
+    1207,
+    1212,
+    1217,
+    1228,
+    1235,
+    1246,
+    1289,
+    1331
+   ]
+  },
+  "eval refused: PLAN: unsupported operator -": {
+   "count": 91,
+   "seeds": [
+    1007,
+    1020,
+    1049,
+    1100,
+    1132,
+    1134,
+    1142,
+    1144,
+    1151,
+    1152,
+    1155,
+    1220,
+    1245,
+    1275,
+    1282,
+    1321,
+    1327,
+    1334,
+    1382,
+    1392
+   ]
+  },
+  "eval refused: PLAN: a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2": {
+   "count": 107,
+   "seeds": [
+    1054,
+    1086,
+    1089,
+    1121,
+    1145,
+    1148,
+    1184,
+    1264,
+    1280,
+    1293,
+    1365,
+    1373,
+    1427,
+    1428,
+    1437,
+    1469,
+    1489,
+    1490,
+    1492,
+    1511
+   ]
+  }
+ }
+}

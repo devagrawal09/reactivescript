@@ -1,0 +1,988 @@
+{
+  "seed": 629,
+  "ops": [
+    {
+      "op": "signal",
+      "id": "s",
+      "value": 2
+    },
+    {
+      "op": "signal",
+      "id": "o",
+      "value": 3,
+      "optimistic": true
+    },
+    {
+      "op": "signal",
+      "id": "p",
+      "value": 1,
+      "optimistic": true
+    },
+    {
+      "op": "memo",
+      "id": "a",
+      "expr": {
+        "op": "mod",
+        "a": {
+          "op": "read",
+          "id": "s"
+        },
+        "b": 3
+      },
+      "flight": "q",
+      "loading": 0
+    },
+    {
+      "op": "memo",
+      "id": "m",
+      "expr": {
+        "op": "add",
+        "a": {
+          "op": "read",
+          "id": "a"
+        },
+        "b": {
+          "op": "read",
+          "id": "o"
+        }
+      }
+    },
+    {
+      "op": "effect",
+      "id": "view",
+      "expr": {
+        "op": "add",
+        "a": {
+          "op": "read",
+          "id": "s"
+        },
+        "b": {
+          "op": "add",
+          "a": {
+            "op": "read",
+            "id": "o"
+          },
+          "b": {
+            "op": "read",
+            "id": "p"
+          }
+        }
+      },
+      "render": true
+    },
+    {
+      "op": "effect",
+      "id": "watch",
+      "expr": {
+        "op": "add",
+        "a": {
+          "op": "add",
+          "a": {
+            "op": "read",
+            "id": "m"
+          },
+          "b": {
+            "op": "read",
+            "id": "s"
+          }
+        },
+        "b": {
+          "op": "read",
+          "id": "p"
+        }
+      }
+    },
+    {
+      "op": "effect",
+      "id": "watch2",
+      "expr": {
+        "op": "read",
+        "id": "a"
+      }
+    },
+    {
+      "op": "read",
+      "id": "a"
+    },
+    {
+      "op": "latest",
+      "id": "a"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "id": "a"
+    },
+    {
+      "op": "latest",
+      "id": "a"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "action",
+      "id": "a0",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "p",
+              "value": 3
+            },
+            {
+              "id": "s",
+              "value": 0
+            }
+          ],
+          "flight": "q:1"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "o",
+      "value": 3
+    },
+    {
+      "op": "resolve",
+      "flight": "q:1",
+      "value": 4
+    },
+    {
+      "op": "read",
+      "id": "p"
+    },
+    {
+      "op": "latest",
+      "id": "p"
+    },
+    {
+      "op": "pending",
+      "id": "p"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "action",
+      "id": "a1",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "o",
+              "value": 7
+            },
+            {
+              "id": "s",
+              "value": 0
+            }
+          ],
+          "flight": "f1"
+        },
+        {
+          "writes": []
+        }
+      ]
+    },
+    {
+      "op": "reject",
+      "flight": "q:2",
+      "message": "memo-failed"
+    },
+    {
+      "op": "read",
+      "id": "a"
+    },
+    {
+      "op": "latest",
+      "id": "a"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "write",
+      "id": "s",
+      "value": 0
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "resolve",
+      "flight": "q:0",
+      "value": 1
+    },
+    {
+      "op": "read",
+      "id": "a"
+    },
+    {
+      "op": "latest",
+      "id": "a"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "action",
+      "id": "a2",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 0
+            }
+          ],
+          "flight": "q:2"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "q:2",
+      "value": 4
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "latest",
+      "id": "o"
+    },
+    {
+      "op": "pending",
+      "id": "o"
+    },
+    {
+      "op": "action",
+      "id": "a3",
+      "slices": [
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 5
+            }
+          ],
+          "flight": "q:2"
+        },
+        {
+          "writes": [
+            {
+              "id": "s",
+              "value": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "resolve",
+      "flight": "f1",
+      "value": 4
+    },
+    {
+      "op": "read",
+      "id": "m"
+    },
+    {
+      "op": "latest",
+      "id": "m"
+    },
+    {
+      "op": "pending",
+      "id": "m"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "resolve",
+      "flight": "q:2",
+      "value": 1
+    },
+    {
+      "op": "resolve",
+      "flight": "q:1",
+      "value": 0
+    },
+    {
+      "op": "resolve",
+      "flight": "q:2",
+      "value": 3
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "read",
+      "id": "s"
+    },
+    {
+      "op": "latest",
+      "id": "s"
+    },
+    {
+      "op": "pending",
+      "id": "s"
+    },
+    {
+      "op": "read",
+      "id": "o"
+    },
+    {
+      "op": "latest",
+      "id": "o"
+    },
+    {
+      "op": "pending",
+      "id": "o"
+    },
+    {
+      "op": "read",
+      "id": "p"
+    },
+    {
+      "op": "latest",
+      "id": "p"
+    },
+    {
+      "op": "pending",
+      "id": "p"
+    },
+    {
+      "op": "read",
+      "id": "a"
+    },
+    {
+      "op": "latest",
+      "id": "a"
+    },
+    {
+      "op": "pending",
+      "id": "a"
+    },
+    {
+      "op": "read",
+      "id": "m"
+    },
+    {
+      "op": "latest",
+      "id": "m"
+    },
+    {
+      "op": "pending",
+      "id": "m"
+    }
+  ],
+  "expected": [
+    [
+      "compute",
+      "a",
+      0
+    ],
+    [
+      "flight",
+      "q:2"
+    ],
+    [
+      "compute",
+      "m",
+      null
+    ],
+    [
+      "compute",
+      "view",
+      null
+    ],
+    [
+      "effect",
+      "view",
+      6,
+      null
+    ],
+    [
+      "compute",
+      "watch",
+      null
+    ],
+    [
+      "compute",
+      "watch2",
+      null
+    ],
+    [
+      "read",
+      "a",
+      0
+    ],
+    [
+      "latest",
+      "a",
+      0
+    ],
+    [
+      "pending",
+      "a",
+      false
+    ],
+    [
+      "effect",
+      "watch",
+      6,
+      null
+    ],
+    [
+      "effect",
+      "watch2",
+      0,
+      null
+    ],
+    [
+      "read",
+      "a",
+      0
+    ],
+    [
+      "latest",
+      "a",
+      0
+    ],
+    [
+      "pending",
+      "a",
+      false
+    ],
+    [
+      "compute",
+      "a",
+      0
+    ],
+    [
+      "flight",
+      "q:0"
+    ],
+    [
+      "compute",
+      "view",
+      6
+    ],
+    [
+      "compute",
+      "watch",
+      6
+    ],
+    [
+      "compute",
+      "view",
+      4
+    ],
+    [
+      "compute",
+      "watch",
+      4
+    ],
+    [
+      "compute",
+      "watch",
+      6
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      6
+    ],
+    [
+      "effect",
+      "view",
+      8,
+      6
+    ],
+    [
+      "effect_cleanup",
+      "watch",
+      6
+    ],
+    [
+      "effect",
+      "watch",
+      8,
+      6
+    ],
+    [
+      "compute",
+      "a",
+      0
+    ],
+    [
+      "flight",
+      "q:1"
+    ],
+    [
+      "compute",
+      "view",
+      8
+    ],
+    [
+      "compute",
+      "watch",
+      8
+    ],
+    [
+      "compute",
+      "view",
+      10
+    ],
+    [
+      "compute",
+      "watch",
+      10
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      8
+    ],
+    [
+      "effect",
+      "view",
+      8,
+      8
+    ],
+    [
+      "effect_cleanup",
+      "watch",
+      8
+    ],
+    [
+      "effect",
+      "watch",
+      8,
+      8
+    ],
+    [
+      "action",
+      "a0",
+      null
+    ],
+    [
+      "compute",
+      "m",
+      3
+    ],
+    [
+      "compute",
+      "watch2",
+      0
+    ],
+    [
+      "compute",
+      "watch",
+      8
+    ],
+    [
+      "effect_cleanup",
+      "watch2",
+      0
+    ],
+    [
+      "effect",
+      "watch2",
+      4,
+      0
+    ],
+    [
+      "effect_cleanup",
+      "watch",
+      8
+    ],
+    [
+      "effect",
+      "watch",
+      12,
+      8
+    ],
+    [
+      "read",
+      "p",
+      1
+    ],
+    [
+      "latest",
+      "p",
+      1
+    ],
+    [
+      "pending",
+      "p",
+      false
+    ],
+    [
+      "compute",
+      "a",
+      4
+    ],
+    [
+      "flight",
+      "q:0"
+    ],
+    [
+      "compute",
+      "view",
+      8
+    ],
+    [
+      "compute",
+      "watch",
+      12
+    ],
+    [
+      "compute",
+      "view",
+      4
+    ],
+    [
+      "compute",
+      "m",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      8
+    ],
+    [
+      "effect",
+      "view",
+      12,
+      8
+    ],
+    [
+      "read",
+      "a",
+      4
+    ],
+    [
+      "latest",
+      "a",
+      4
+    ],
+    [
+      "pending",
+      "a",
+      true
+    ],
+    [
+      "compute",
+      "m",
+      7
+    ],
+    [
+      "compute",
+      "watch2",
+      4
+    ],
+    [
+      "compute",
+      "watch",
+      12
+    ],
+    [
+      "compute",
+      "m",
+      8
+    ],
+    [
+      "compute",
+      "watch",
+      13
+    ],
+    [
+      "effect_cleanup",
+      "watch",
+      12
+    ],
+    [
+      "effect",
+      "watch",
+      16,
+      12
+    ],
+    [
+      "read",
+      "a",
+      4
+    ],
+    [
+      "latest",
+      "a",
+      1
+    ],
+    [
+      "pending",
+      "a",
+      true
+    ],
+    [
+      "action",
+      "a2",
+      "memo-failed"
+    ],
+    [
+      "read",
+      "o",
+      7
+    ],
+    [
+      "latest",
+      "o",
+      7
+    ],
+    [
+      "pending",
+      "o",
+      false
+    ],
+    [
+      "compute",
+      "a",
+      1
+    ],
+    [
+      "flight",
+      "q:2"
+    ],
+    [
+      "compute",
+      "view",
+      12
+    ],
+    [
+      "compute",
+      "watch",
+      16
+    ],
+    [
+      "compute",
+      "view",
+      13
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      12
+    ],
+    [
+      "effect",
+      "view",
+      12,
+      12
+    ],
+    [
+      "compute",
+      "watch",
+      16
+    ],
+    [
+      "compute",
+      "view",
+      12
+    ],
+    [
+      "compute",
+      "m",
+      7
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      12
+    ],
+    [
+      "effect",
+      "view",
+      9,
+      12
+    ],
+    [
+      "error",
+      "watch",
+      "memo-failed"
+    ],
+    [
+      "error",
+      "watch2",
+      "memo-failed"
+    ],
+    [
+      "action",
+      "a3",
+      "memo-failed"
+    ],
+    [
+      "action",
+      "a1",
+      null
+    ],
+    [
+      "read",
+      "m",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "latest",
+      "m",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "pending",
+      "m",
+      false
+    ],
+    [
+      "pending",
+      "a",
+      false
+    ],
+    [
+      "read",
+      "s",
+      5
+    ],
+    [
+      "latest",
+      "s",
+      5
+    ],
+    [
+      "pending",
+      "s",
+      false
+    ],
+    [
+      "read",
+      "o",
+      3
+    ],
+    [
+      "latest",
+      "o",
+      3
+    ],
+    [
+      "pending",
+      "o",
+      false
+    ],
+    [
+      "read",
+      "p",
+      1
+    ],
+    [
+      "latest",
+      "p",
+      1
+    ],
+    [
+      "pending",
+      "p",
+      false
+    ],
+    [
+      "read",
+      "a",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "latest",
+      "a",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "pending",
+      "a",
+      false
+    ],
+    [
+      "read",
+      "m",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "latest",
+      "m",
+      {
+        "error": "memo-failed"
+      }
+    ],
+    [
+      "pending",
+      "m",
+      false
+    ],
+    [
+      "effect_cleanup",
+      "watch2",
+      4
+    ],
+    [
+      "effect_cleanup",
+      "watch",
+      16
+    ],
+    [
+      "effect_cleanup",
+      "view",
+      9
+    ]
+  ],
+  "actual": {
+    "driver_error": "panic"
+  },
+  "agree": false
+}

@@ -1,0 +1,145 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 0
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 3,
+    "equals": "never"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m0",
+    "expr": {
+      "op": "mod",
+      "a": {
+        "op": "read",
+        "id": "t"
+      },
+      "b": 2
+    },
+    "lazy": false,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m1",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "t"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": false,
+    "equals": "default",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m2",
+    "expr": {
+      "op": "mod",
+      "a": {
+        "op": "read",
+        "id": "m1"
+      },
+      "b": 2
+    },
+    "lazy": false,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m3",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "m2"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": false,
+    "equals": "parity",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m4",
+    "expr": {
+      "op": "choose",
+      "test": {
+        "op": "read",
+        "id": "s"
+      },
+      "yes": {
+        "op": "read",
+        "id": "m0"
+      },
+      "no": {
+        "op": "read",
+        "id": "t"
+      }
+    },
+    "lazy": false,
+    "equals": "parity",
+    "owner": "scope"
+  },
+  {
+    "op": "effect",
+    "id": "e0",
+    "expr": {
+      "op": "read",
+      "id": "m4"
+    },
+    "render": false,
+    "defer": false,
+    "owner": "scope"
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 4
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "write",
+    "id": "t",
+    "value": 4
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 1
+  },
+  {
+    "op": "flush"
+  }
+]

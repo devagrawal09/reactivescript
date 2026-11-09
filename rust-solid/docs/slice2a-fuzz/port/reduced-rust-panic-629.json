@@ -1,0 +1,162 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 2
+  },
+  {
+    "op": "signal",
+    "id": "o",
+    "value": 3,
+    "optimistic": true
+  },
+  {
+    "op": "signal",
+    "id": "p",
+    "value": 1,
+    "optimistic": true
+  },
+  {
+    "op": "memo",
+    "id": "a",
+    "expr": {
+      "op": "mod",
+      "a": {
+        "op": "read",
+        "id": "s"
+      },
+      "b": 3
+    },
+    "flight": "q",
+    "loading": 0
+  },
+  {
+    "op": "memo",
+    "id": "m",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "a"
+      },
+      "b": {
+        "op": "read",
+        "id": "o"
+      }
+    }
+  },
+  {
+    "op": "effect",
+    "id": "watch",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "add",
+        "a": {
+          "op": "read",
+          "id": "m"
+        },
+        "b": {
+          "op": "read",
+          "id": "s"
+        }
+      },
+      "b": {
+        "op": "read",
+        "id": "p"
+      }
+    }
+  },
+  {
+    "op": "action",
+    "id": "a0",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "p",
+            "value": 3
+          },
+          {
+            "id": "s",
+            "value": 0
+          }
+        ],
+        "flight": "q:1"
+      },
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 4
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "resolve",
+    "flight": "q:1",
+    "value": 4
+  },
+  {
+    "op": "action",
+    "id": "a1",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "o",
+            "value": 7
+          },
+          {
+            "id": "s",
+            "value": 0
+          }
+        ],
+        "flight": "f1"
+      },
+      {
+        "writes": []
+      }
+    ]
+  },
+  {
+    "op": "reject",
+    "flight": "q:2",
+    "message": "memo-failed"
+  },
+  {
+    "op": "resolve",
+    "flight": "q:0",
+    "value": 1
+  },
+  {
+    "op": "action",
+    "id": "a3",
+    "slices": [
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 5
+          }
+        ],
+        "flight": "q:2"
+      },
+      {
+        "writes": [
+          {
+            "id": "s",
+            "value": 2
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "op": "resolve",
+    "flight": "f1",
+    "value": 4
+  }
+]

@@ -1,0 +1,411 @@
+{
+  "seed": 269,
+  "ops": [
+    {
+      "op": "signal",
+      "id": "S0",
+      "value": "0"
+    },
+    {
+      "op": "signal",
+      "id": "N1",
+      "value": 2
+    },
+    {
+      "op": "signal",
+      "id": "P2",
+      "value": null
+    },
+    {
+      "op": "signal",
+      "id": "A3",
+      "value": "b"
+    },
+    {
+      "op": "signal",
+      "id": "A4",
+      "value": " "
+    },
+    {
+      "op": "signal",
+      "id": "A5",
+      "value": ""
+    },
+    {
+      "op": "render",
+      "view": {
+        "x": "el",
+        "tag": "p",
+        "props": [],
+        "kids": [
+          {
+            "k": "text",
+            "v": "A"
+          },
+          {
+            "k": "el",
+            "el": {
+              "x": "el",
+              "tag": "div",
+              "props": [],
+              "kids": [
+                {
+                  "k": "ins",
+                  "x": {
+                    "x": "let",
+                    "id": "v0",
+                    "v": {
+                      "x": "memo",
+                      "body": {
+                        "x": "el",
+                        "tag": "span",
+                        "props": [
+                          {
+                            "name": "onClick",
+                            "v": {
+                              "x": "handler",
+                              "id": "h0",
+                              "write": {
+                                "id": "N1",
+                                "value": 42
+                              }
+                            },
+                            "dyn": true
+                          },
+                          {
+                            "name": "onChange",
+                            "v": {
+                              "x": "handler",
+                              "id": "h1",
+                              "stop": true
+                            },
+                            "dyn": false
+                          }
+                        ],
+                        "kids": [
+                          {
+                            "k": "ins",
+                            "x": {
+                              "x": "read",
+                              "id": "N1"
+                            },
+                            "fn": true
+                          },
+                          {
+                            "k": "ins",
+                            "x": 2,
+                            "fn": true
+                          }
+                        ]
+                      }
+                    },
+                    "body": {
+                      "x": "el",
+                      "tag": "div",
+                      "props": [],
+                      "kids": [
+                        {
+                          "k": "el",
+                          "el": {
+                            "x": "el",
+                            "tag": "p",
+                            "props": [],
+                            "kids": [
+                              {
+                                "k": "ins",
+                                "x": {
+                                  "x": "cond",
+                                  "test": {
+                                    "x": "read",
+                                    "id": "N1"
+                                  },
+                                  "yes": {
+                                    "x": "arr",
+                                    "items": [
+                                      {
+                                        "x": "var",
+                                        "id": "v0"
+                                      },
+                                      "x"
+                                    ]
+                                  },
+                                  "no": {
+                                    "x": "el",
+                                    "tag": "div",
+                                    "props": [
+                                      {
+                                        "name": "disabled",
+                                        "v": false,
+                                        "dyn": true
+                                      }
+                                    ],
+                                    "kids": [
+                                      {
+                                        "k": "ins",
+                                        "x": 0,
+                                        "fn": true
+                                      }
+                                    ]
+                                  }
+                                },
+                                "fn": true
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "k": "el",
+                          "el": {
+                            "x": "el",
+                            "tag": "p",
+                            "props": [],
+                            "kids": [
+                              {
+                                "k": "ins",
+                                "x": {
+                                  "x": "cond",
+                                  "test": {
+                                    "x": "read",
+                                    "id": "P2"
+                                  },
+                                  "yes": {
+                                    "x": "var",
+                                    "id": "v0"
+                                  },
+                                  "no": "-"
+                                },
+                                "fn": true
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  "fn": true
+                },
+                {
+                  "k": "text",
+                  "v": "C"
+                }
+              ]
+            }
+          },
+          {
+            "k": "ins",
+            "x": {
+              "x": "let",
+              "id": "v1",
+              "v": {
+                "x": "el",
+                "tag": "span",
+                "props": [],
+                "kids": [
+                  {
+                    "k": "ins",
+                    "x": {
+                      "x": "let",
+                      "id": "v2",
+                      "v": {
+                        "x": "el",
+                        "tag": "span",
+                        "props": [],
+                        "kids": [
+                          {
+                            "k": "ins",
+                            "x": 7,
+                            "fn": false
+                          }
+                        ]
+                      },
+                      "body": {
+                        "x": "arr",
+                        "items": [
+                          {
+                            "x": "var",
+                            "id": "v2"
+                          },
+                          {
+                            "x": "read",
+                            "id": "N1"
+                          },
+                          {
+                            "x": "cond",
+                            "test": {
+                              "x": "read",
+                              "id": "S0"
+                            },
+                            "yes": {
+                              "x": "var",
+                              "id": "v2"
+                            },
+                            "no": null
+                          }
+                        ]
+                      }
+                    },
+                    "fn": false
+                  }
+                ]
+              },
+              "body": {
+                "x": "arr",
+                "items": [
+                  {
+                    "x": "var",
+                    "id": "v1"
+                  },
+                  {
+                    "x": "show",
+                    "when": {
+                      "x": "read",
+                      "id": "N1"
+                    },
+                    "kids": {
+                      "x": "fn",
+                      "body": ""
+                    },
+                    "fallback": "no"
+                  },
+                  {
+                    "x": "cond",
+                    "test": {
+                      "x": "read",
+                      "id": "N1"
+                    },
+                    "yes": {
+                      "x": "var",
+                      "id": "v1"
+                    },
+                    "no": {
+                      "x": "read",
+                      "id": "N1"
+                    }
+                  }
+                ]
+              }
+            },
+            "fn": true
+          }
+        ]
+      }
+    },
+    {
+      "op": "dispatch",
+      "node": 18,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "dispatch",
+      "node": 3,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "dispatch",
+      "node": 28,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "S0",
+      "value": "0"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "P2",
+      "value": true
+    },
+    {
+      "op": "write",
+      "id": "P2",
+      "value": "0"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "dispatch",
+      "node": 5,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "P2",
+      "value": null
+    },
+    {
+      "op": "write",
+      "id": "P2",
+      "value": true
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "N1",
+      "value": 0
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "A3",
+      "value": []
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "S0",
+      "value": " "
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "dispatch",
+      "node": 28,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    },
+    {
+      "op": "write",
+      "id": "P2",
+      "value": true
+    },
+    {
+      "op": "dispatch",
+      "node": 12,
+      "type": "click"
+    },
+    {
+      "op": "flush"
+    }
+  ],
+  "invalid": "oracle-error",
+  "detail": "Error: NotFoundError\n    at removeNode (file:///workspace/rx-tsx-refresh/rust-tracker/fuzz/universal.mjs:58:112)\n    at reconcileArrays (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:186:16)\n    at insertExpression (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:99:18)\n    at Object.undefined [as qe] (file:///workspace/rx-tsx-refresh/solid-next/packages/universal/dist/universal.js:64:9)\n    at runEffect (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/effect.js:118:21)\n    at runQueue (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1153:44)\n    at GlobalQueue.run (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:787:13)\n    at GlobalQueue.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:610:18)\n    at Module.flush (file:///workspace/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1145:21)\n    at runRender (file:///workspace/rx-tsx-refresh/rust-tracker/fuzz/universal.mjs:125:19)",
+  "actual": {
+    "driver_error": "exit"
+  },
+  "agree": false
+}

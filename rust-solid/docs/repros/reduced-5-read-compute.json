@@ -1,0 +1,72 @@
+[
+  {
+    "op": "signal",
+    "id": "s",
+    "value": 3
+  },
+  {
+    "op": "signal",
+    "id": "t",
+    "value": 2,
+    "equals": "default"
+  },
+  {
+    "op": "owner",
+    "id": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m0",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "t"
+      },
+      "b": {
+        "op": "read",
+        "id": "s"
+      }
+    },
+    "lazy": false,
+    "equals": "parity",
+    "owner": "scope"
+  },
+  {
+    "op": "memo",
+    "id": "m4",
+    "expr": {
+      "op": "add",
+      "a": {
+        "op": "read",
+        "id": "m0"
+      },
+      "b": {
+        "op": "untrack",
+        "expr": {
+          "op": "read",
+          "id": "t"
+        }
+      }
+    },
+    "lazy": true,
+    "equals": "never",
+    "owner": "scope"
+  },
+  {
+    "op": "write",
+    "id": "s",
+    "value": 5
+  },
+  {
+    "op": "flush"
+  },
+  {
+    "op": "refresh",
+    "id": "m0"
+  },
+  {
+    "op": "read",
+    "id": "m4"
+  }
+]

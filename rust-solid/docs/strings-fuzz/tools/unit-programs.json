@@ -1,0 +1,1132 @@
+{
+ "equal_string_write": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": "ab"
+  },
+  {
+   "op": "memo",
+   "id": "m",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "s"
+    },
+    "b": {
+     "op": "lit",
+     "value": "!"
+    }
+   }
+  },
+  {
+   "op": "effect",
+   "id": "e",
+   "render": true,
+   "expr": {
+    "op": "read",
+    "id": "m"
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "ab"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "a"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "ab"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "b"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "read",
+   "label": "m",
+   "expr": {
+    "op": "read",
+    "id": "m"
+   }
+  }
+ ],
+ "coercions": [
+  {
+   "op": "signal",
+   "id": "s",
+   "value": ""
+  },
+  {
+   "op": "signal",
+   "id": "k",
+   "value": 3
+  },
+  {
+   "op": "memo",
+   "id": "a",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "k"
+    },
+    "b": {
+     "op": "read",
+     "id": "s"
+    }
+   }
+  },
+  {
+   "op": "memo",
+   "id": "b",
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "add",
+     "a": {
+      "op": "read",
+      "id": "s"
+     },
+     "b": {
+      "op": "read",
+      "id": "k"
+     }
+    },
+    "b": {
+     "op": "add",
+     "a": {
+      "op": "read",
+      "id": "k"
+     },
+     "b": 1
+    }
+   }
+  },
+  {
+   "op": "memo",
+   "id": "c",
+   "expr": {
+    "op": "choose",
+    "test": {
+     "op": "read",
+     "id": "s"
+    },
+    "yes": {
+     "op": "lit",
+     "value": "full"
+    },
+    "no": {
+     "op": "lit",
+     "value": "empty"
+    }
+   }
+  },
+  {
+   "op": "memo",
+   "id": "d",
+   "expr": {
+    "op": "not",
+    "a": {
+     "op": "read",
+     "id": "s"
+    }
+   }
+  },
+  {
+   "op": "memo",
+   "id": "e",
+   "expr": {
+    "op": "eq",
+    "a": {
+     "op": "read",
+     "id": "a"
+    },
+    "b": {
+     "op": "lit",
+     "value": "30"
+    }
+   }
+  },
+  {
+   "op": "effect",
+   "id": "v",
+   "render": true,
+   "expr": {
+    "op": "arr",
+    "items": [
+     {
+      "op": "read",
+      "id": "a"
+     },
+     {
+      "op": "read",
+      "id": "b"
+     },
+     {
+      "op": "read",
+      "id": "c"
+     },
+     {
+      "op": "read",
+      "id": "d"
+     },
+     {
+      "op": "read",
+      "id": "e"
+     }
+    ]
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": "0"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "k",
+   "value": -1
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "s",
+   "value": ""
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "string_list": [
+  {
+   "op": "signal",
+   "id": "xs",
+   "value": [
+    "a",
+    "b",
+    "a",
+    ""
+   ]
+  },
+  {
+   "op": "list",
+   "id": "I",
+   "each": {
+    "op": "read",
+    "id": "xs"
+   },
+   "keyed": true,
+   "index": true,
+   "row": [
+    {
+     "effect": "e",
+     "render": true,
+     "expr": {
+      "op": "add",
+      "a": {
+       "op": "item"
+      },
+      "b": {
+       "op": "index"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "op": "list",
+   "id": "F",
+   "each": {
+    "op": "read",
+    "id": "xs"
+   },
+   "keyed": {
+    "expr": {
+     "op": "add",
+     "a": {
+      "op": "elem"
+     },
+     "b": {
+      "op": "lit",
+      "value": "#"
+     }
+    }
+   },
+   "index": false,
+   "row": [
+    {
+     "effect": "e",
+     "render": true,
+     "expr": {
+      "op": "add",
+      "a": {
+       "op": "item"
+      },
+      "b": {
+       "op": "lit",
+       "value": "!"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "op": "effect",
+   "id": "top",
+   "render": true,
+   "expr": {
+    "op": "arr",
+    "items": [
+     {
+      "op": "len",
+      "of": {
+       "op": "read",
+       "id": "I"
+      }
+     },
+     {
+      "op": "len",
+      "of": {
+       "op": "read",
+       "id": "F"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "xs",
+   "value": [
+    "b",
+    "a",
+    "a"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "xs",
+   "value": [
+    "",
+    "c"
+   ]
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "write",
+   "id": "xs",
+   "value": []
+  },
+  {
+   "op": "flush"
+  }
+ ],
+ "tracker_scenario": [
+  {
+   "op": "store",
+   "id": "issues",
+   "value": {
+    "list": [
+     {
+      "id": 1,
+      "title": "Crash on save",
+      "assignee": ""
+     },
+     {
+      "id": 2,
+      "title": "Slow search",
+      "assignee": "ana"
+     },
+     {
+      "id": 3,
+      "title": "Typo in footer",
+      "assignee": ""
+     }
+    ]
+   }
+  },
+  {
+   "op": "memo",
+   "id": "shown",
+   "optimistic": true,
+   "expr": {
+    "op": "get",
+    "of": {
+     "op": "store",
+     "id": "issues"
+    },
+    "key": "list"
+   }
+  },
+  {
+   "op": "signal",
+   "id": "mode",
+   "value": "all"
+  },
+  {
+   "op": "signal",
+   "id": "status",
+   "value": ""
+  },
+  {
+   "op": "memo",
+   "id": "visible",
+   "expr": {
+    "op": "filter",
+    "of": {
+     "op": "read",
+     "id": "shown"
+    },
+    "where": {
+     "op": "choose",
+     "test": {
+      "op": "eq",
+      "a": {
+       "op": "read",
+       "id": "mode"
+      },
+      "b": {
+       "op": "lit",
+       "value": "all"
+      }
+     },
+     "yes": 1,
+     "no": {
+      "op": "eq",
+      "a": {
+       "op": "get",
+       "of": {
+        "op": "elem"
+       },
+       "key": "assignee"
+      },
+      "b": {
+       "op": "lit",
+       "value": ""
+      }
+     }
+    },
+    "native": true
+   }
+  },
+  {
+   "op": "memo",
+   "id": "unassigned",
+   "expr": {
+    "op": "count",
+    "of": {
+     "op": "read",
+     "id": "shown"
+    },
+    "where": {
+     "op": "eq",
+     "a": {
+      "op": "get",
+      "of": {
+       "op": "elem"
+      },
+      "key": "assignee"
+     },
+     "b": {
+      "op": "lit",
+      "value": ""
+     }
+    },
+    "native": true
+   }
+  },
+  {
+   "op": "effect",
+   "id": "hm",
+   "render": true,
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "lit",
+     "value": "Filter: "
+    },
+    "b": {
+     "op": "read",
+     "id": "mode"
+    }
+   }
+  },
+  {
+   "op": "effect",
+   "id": "hu",
+   "render": true,
+   "expr": {
+    "op": "add",
+    "a": {
+     "op": "read",
+     "id": "unassigned"
+    },
+    "b": {
+     "op": "lit",
+     "value": " open"
+    }
+   }
+  },
+  {
+   "op": "show",
+   "id": "B",
+   "when": {
+    "op": "len",
+    "of": {
+     "op": "read",
+     "id": "visible"
+    }
+   },
+   "yes": [
+    {
+     "list": {
+      "id": "L",
+      "lazy": true,
+      "each": {
+       "op": "read",
+       "id": "visible"
+      },
+      "keyed": true,
+      "index": false,
+      "row": [
+       {
+        "effect": "t",
+        "render": true,
+        "expr": {
+         "op": "add",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "item"
+          },
+          "key": "title"
+         },
+         "b": {
+          "op": "lit",
+          "value": ": "
+         }
+        }
+       },
+       {
+        "effect": "a",
+        "render": true,
+        "expr": {
+         "op": "choose",
+         "test": {
+          "op": "get",
+          "of": {
+           "op": "item"
+          },
+          "key": "assignee"
+         },
+         "yes": {
+          "op": "get",
+          "of": {
+           "op": "item"
+          },
+          "key": "assignee"
+         },
+         "no": {
+          "op": "lit",
+          "value": "nobody"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "no": []
+  },
+  {
+   "op": "effect",
+   "id": "body",
+   "render": true,
+   "expr": {
+    "op": "call",
+    "of": {
+     "op": "read",
+     "id": "B"
+    }
+   }
+  },
+  {
+   "op": "effect",
+   "id": "foot",
+   "render": true,
+   "expr": {
+    "op": "read",
+    "id": "status"
+   }
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "action",
+   "id": "claim0",
+   "slices": [
+    {
+     "steps": [
+      {
+       "update": "shown",
+       "expr": {
+        "op": "replace",
+        "of": {
+         "op": "arg"
+        },
+        "where": {
+         "op": "eq",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "elem"
+          },
+          "key": "id"
+         },
+         "b": 1
+        },
+        "with": {
+         "op": "obj",
+         "fields": {
+          "id": 1,
+          "title": {
+           "op": "get",
+           "of": {
+            "op": "elem"
+           },
+           "key": "title"
+          },
+          "assignee": {
+           "op": "lit",
+           "value": "me"
+          }
+         }
+        },
+        "native": true
+       }
+      }
+     ],
+     "flight": "assign:1#1"
+    },
+    {
+     "steps": [
+      {
+       "store": "issues",
+       "edits": [
+        {
+         "path": [
+          "list",
+          {
+           "key": "id",
+           "is": 1
+          },
+          "assignee"
+         ],
+         "set": {
+          "op": "sent"
+         }
+        }
+       ]
+      },
+      {
+       "write": "status",
+       "value": ""
+      }
+     ]
+    }
+   ],
+   "catch": {
+    "steps": [
+     {
+      "update": "status",
+      "expr": {
+       "op": "add",
+       "a": {
+        "op": "lit",
+        "value": "Could not assign #"
+       },
+       "b": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "drain"
+  },
+  {
+   "op": "action",
+   "id": "claim1",
+   "slices": [
+    {
+     "steps": [
+      {
+       "update": "shown",
+       "expr": {
+        "op": "replace",
+        "of": {
+         "op": "arg"
+        },
+        "where": {
+         "op": "eq",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "elem"
+          },
+          "key": "id"
+         },
+         "b": 3
+        },
+        "with": {
+         "op": "obj",
+         "fields": {
+          "id": 3,
+          "title": {
+           "op": "get",
+           "of": {
+            "op": "elem"
+           },
+           "key": "title"
+          },
+          "assignee": {
+           "op": "lit",
+           "value": "me"
+          }
+         }
+        },
+        "native": true
+       }
+      }
+     ],
+     "flight": "assign:3#1"
+    },
+    {
+     "steps": [
+      {
+       "store": "issues",
+       "edits": [
+        {
+         "path": [
+          "list",
+          {
+           "key": "id",
+           "is": 3
+          },
+          "assignee"
+         ],
+         "set": {
+          "op": "sent"
+         }
+        }
+       ]
+      },
+      {
+       "write": "status",
+       "value": ""
+      }
+     ]
+    }
+   ],
+   "catch": {
+    "steps": [
+     {
+      "update": "status",
+      "expr": {
+       "op": "add",
+       "a": {
+        "op": "lit",
+        "value": "Could not assign #"
+       },
+       "b": 3
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "drain"
+  },
+  {
+   "op": "resolve",
+   "flight": "assign:3#1",
+   "value": "dev"
+  },
+  {
+   "op": "reject",
+   "flight": "assign:1#1",
+   "message": "offline"
+  },
+  {
+   "op": "action",
+   "id": "claim2",
+   "slices": [
+    {
+     "steps": [
+      {
+       "update": "shown",
+       "expr": {
+        "op": "replace",
+        "of": {
+         "op": "arg"
+        },
+        "where": {
+         "op": "eq",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "elem"
+          },
+          "key": "id"
+         },
+         "b": 2
+        },
+        "with": {
+         "op": "obj",
+         "fields": {
+          "id": 2,
+          "title": {
+           "op": "get",
+           "of": {
+            "op": "elem"
+           },
+           "key": "title"
+          },
+          "assignee": {
+           "op": "lit",
+           "value": "me"
+          }
+         }
+        },
+        "native": true
+       }
+      }
+     ],
+     "flight": "assign:2#1"
+    },
+    {
+     "steps": [
+      {
+       "store": "issues",
+       "edits": [
+        {
+         "path": [
+          "list",
+          {
+           "key": "id",
+           "is": 2
+          },
+          "assignee"
+         ],
+         "set": {
+          "op": "sent"
+         }
+        }
+       ]
+      },
+      {
+       "write": "status",
+       "value": ""
+      }
+     ]
+    }
+   ],
+   "catch": {
+    "steps": [
+     {
+      "update": "status",
+      "expr": {
+       "op": "add",
+       "a": {
+        "op": "lit",
+        "value": "Could not assign #"
+       },
+       "b": 2
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "drain"
+  },
+  {
+   "op": "resolve",
+   "flight": "assign:2#1",
+   "value": "bo"
+  },
+  {
+   "op": "write",
+   "id": "mode",
+   "value": "open"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "action",
+   "id": "claim3",
+   "slices": [
+    {
+     "steps": [
+      {
+       "update": "shown",
+       "expr": {
+        "op": "replace",
+        "of": {
+         "op": "arg"
+        },
+        "where": {
+         "op": "eq",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "elem"
+          },
+          "key": "id"
+         },
+         "b": 1
+        },
+        "with": {
+         "op": "obj",
+         "fields": {
+          "id": 1,
+          "title": {
+           "op": "get",
+           "of": {
+            "op": "elem"
+           },
+           "key": "title"
+          },
+          "assignee": {
+           "op": "lit",
+           "value": "me"
+          }
+         }
+        },
+        "native": true
+       }
+      }
+     ],
+     "flight": "assign:1#2"
+    },
+    {
+     "steps": [
+      {
+       "store": "issues",
+       "edits": [
+        {
+         "path": [
+          "list",
+          {
+           "key": "id",
+           "is": 1
+          },
+          "assignee"
+         ],
+         "set": {
+          "op": "sent"
+         }
+        }
+       ]
+      },
+      {
+       "write": "status",
+       "value": ""
+      }
+     ]
+    }
+   ],
+   "catch": {
+    "steps": [
+     {
+      "update": "status",
+      "expr": {
+       "op": "add",
+       "a": {
+        "op": "lit",
+        "value": "Could not assign #"
+       },
+       "b": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "drain"
+  },
+  {
+   "op": "resolve",
+   "flight": "assign:1#2",
+   "value": "ana"
+  },
+  {
+   "op": "write",
+   "id": "mode",
+   "value": "all"
+  },
+  {
+   "op": "flush"
+  },
+  {
+   "op": "action",
+   "id": "claim4",
+   "slices": [
+    {
+     "steps": [
+      {
+       "update": "shown",
+       "expr": {
+        "op": "replace",
+        "of": {
+         "op": "arg"
+        },
+        "where": {
+         "op": "eq",
+         "a": {
+          "op": "get",
+          "of": {
+           "op": "elem"
+          },
+          "key": "id"
+         },
+         "b": 2
+        },
+        "with": {
+         "op": "obj",
+         "fields": {
+          "id": 2,
+          "title": {
+           "op": "get",
+           "of": {
+            "op": "elem"
+           },
+           "key": "title"
+          },
+          "assignee": {
+           "op": "lit",
+           "value": "me"
+          }
+         }
+        },
+        "native": true
+       }
+      }
+     ],
+     "flight": "assign:2#2"
+    },
+    {
+     "steps": [
+      {
+       "store": "issues",
+       "edits": [
+        {
+         "path": [
+          "list",
+          {
+           "key": "id",
+           "is": 2
+          },
+          "assignee"
+         ],
+         "set": {
+          "op": "sent"
+         }
+        }
+       ]
+      },
+      {
+       "write": "status",
+       "value": ""
+      }
+     ]
+    }
+   ],
+   "catch": {
+    "steps": [
+     {
+      "update": "status",
+      "expr": {
+       "op": "add",
+       "a": {
+        "op": "lit",
+        "value": "Could not assign #"
+       },
+       "b": 2
+      }
+     }
+    ]
+   }
+  },
+  {
+   "op": "drain"
+  },
+  {
+   "op": "reject",
+   "flight": "assign:2#2",
+   "message": "offline"
+  },
+  {
+   "op": "read",
+   "label": "rows",
+   "expr": {
+    "op": "plain",
+    "of": {
+     "op": "read",
+     "id": "shown"
+    },
+    "fields": [
+     "id",
+     "title",
+     "assignee"
+    ]
+   }
+  },
+  {
+   "op": "read",
+   "label": "status",
+   "expr": {
+    "op": "read",
+    "id": "status"
+   }
+  }
+ ]
+}

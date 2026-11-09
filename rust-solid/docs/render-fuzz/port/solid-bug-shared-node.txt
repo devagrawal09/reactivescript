@@ -1,0 +1,6 @@
+1 <root#0><p#3><em#1>shared</em>x</p><p#4>-</p></root>
+removeNode(parent #4, node #6): node.parent is #4
+2 <root#0><p#3>x</p><p#4><em#1>shared</em></p></root> (p2 took the shared node)
+removeNode(parent #3, node #1): node.parent is #4
+console.error: [REACTIVITY_HALTED]
+3 threw: NotFoundError (removeChild)

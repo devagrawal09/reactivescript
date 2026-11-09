@@ -1,0 +1,2 @@
+import {run} from './solid.mjs';
+for(const loading of [undefined,0]){const memo={op:'memo',id:'a',expr:{op:'read',id:'s'},flight:'f'};if(loading!==undefined)memo.loading=loading;const ops=[{op:'signal',id:'s',value:0},memo,{op:'effect',id:'e',expr:{op:'read',id:'a'}},{op:'read',id:'a'},{op:'pending',id:'a'},{op:'flush'},{op:'reject',flight:'f:0',message:'bad'},{op:'read',id:'a'},{op:'pending',id:'a'}];console.log(loading,JSON.stringify(await run(ops)))}

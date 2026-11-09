@@ -1,0 +1,52 @@
+{
+  "expected": [
+    [
+      "compute",
+      "m2",
+      null
+    ],
+    [
+      "compute",
+      "m3",
+      null
+    ],
+    [
+      "read",
+      "m3",
+      1
+    ],
+    [
+      "compute",
+      "m2",
+      1
+    ]
+  ],
+  "actual": [
+    [
+      "compute",
+      "m2",
+      null
+    ],
+    [
+      "compute",
+      "m3",
+      null
+    ],
+    [
+      "read",
+      "m3",
+      1
+    ],
+    [
+      "compute",
+      "m2",
+      1
+    ],
+    [
+      "compute",
+      "m3",
+      1
+    ]
+  ],
+  "agree": false
+}

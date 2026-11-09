@@ -1,0 +1,32 @@
+{
+  "expected": [
+    [
+      "compute",
+      "m0",
+      null
+    ],
+    [
+      "read",
+      "m0",
+      4
+    ]
+  ],
+  "actual": [
+    [
+      "compute",
+      "m0",
+      null
+    ],
+    [
+      "read",
+      "m0",
+      4
+    ],
+    [
+      "compute",
+      "m0",
+      4
+    ]
+  ],
+  "agree": false
+}

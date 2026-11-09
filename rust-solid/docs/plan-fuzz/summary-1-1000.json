@@ -1,0 +1,345 @@
+{
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "agree": 861,
+ "upstream": 8,
+ "divergent": 0,
+ "refused": 131,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "scenarioSteps": 9651,
+  "logEntriesPerLeg": 301340
+ },
+ "families": {
+  "tracker": {
+   "total": 256,
+   "agree": 255
+  },
+  "rows": {
+   "total": 130,
+   "agree": 130
+  },
+  "outside": {
+   "total": 131,
+   "agree": 0
+  },
+  "strings": {
+   "total": 120,
+   "agree": 119
+  },
+  "mixed": {
+   "total": 242,
+   "agree": 238
+  },
+  "scalar": {
+   "total": 121,
+   "agree": 119
+  }
+ },
+ "classes": {
+  "upstream: RX optimistic source is a guess layer over a computed signal (AC-3)": {
+   "count": 3,
+   "seeds": [
+    117,
+    460,
+    534
+   ]
+  },
+  "upstream: RX evaluates a path write's keys and value before the store setter": {
+   "count": 5,
+   "seeds": [
+    138,
+    580,
+    685,
+    730,
+    980
+   ]
+  }
+ },
+ "refusals": {
+  "unsupported operator *": {
+   "count": 43,
+   "seeds": [
+    4,
+    6,
+    76,
+    85,
+    114,
+    125,
+    137,
+    207,
+    238,
+    241,
+    263,
+    298,
+    302,
+    304,
+    305,
+    326,
+    342,
+    343,
+    359,
+    378
+   ]
+  },
+  "unsupported operator -": {
+   "count": 49,
+   "seeds": [
+    10,
+    14,
+    41,
+    43,
+    48,
+    53,
+    59,
+    112,
+    129,
+    140,
+    206,
+    231,
+    254,
+    286,
+    316,
+    333,
+    338,
+    360,
+    404,
+    459
+   ]
+  },
+  "a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2": {
+   "count": 39,
+   "seeds": [
+    70,
+    82,
+    94,
+    98,
+    104,
+    169,
+    194,
+    210,
+    230,
+    341,
+    363,
+    397,
+    421,
+    440,
+    481,
+    518,
+    540,
+    541,
+    563,
+    585
+   ]
+  }
+ },
+ "refusedClasses": {
+  "rx: insertNode-getFirstChild": {
+   "count": 39,
+   "seeds": [
+    70,
+    82,
+    94,
+    98,
+    104,
+    169,
+    194,
+    210,
+    230,
+    341,
+    363,
+    397,
+    421,
+    440,
+    481,
+    518,
+    540,
+    541,
+    563,
+    585
+   ]
+  },
+  "upstream: RX optimistic source is a guess layer over a computed signal (AC-3)": {
+   "count": 1,
+   "seeds": [
+    784
+   ]
+  }
+ },
+ "yieldTwins": {
+  "none: a row of more than one element": 63,
+  "none: a row read inside a lambda": 108,
+  "none: a source read inside a lambda": 90,
+  "none: a try the yield attempt cannot spell": 586,
+  "same": 153
+ },
+ "scenarioFeatures": {
+  "base write under a live guess": 34,
+  "filter toggle while pending": 304,
+  "overlapping requests": 500,
+  "rejection": 526,
+  "settled out of order": 396,
+  "store write under a live guess": 285,
+  "two claims on one row": 272
+ },
+ "coverage": {
+  "action": {
+   "programs": 861,
+   "nodes": 1617
+  },
+  "event:onClick": {
+   "programs": 861,
+   "nodes": 4319
+  },
+  "expr:add": {
+   "programs": 861,
+   "nodes": 4351
+  },
+  "expr:and": {
+   "programs": 280,
+   "nodes": 349
+  },
+  "expr:array": {
+   "programs": 861,
+   "nodes": 861
+  },
+  "expr:cond": {
+   "programs": 861,
+   "nodes": 3385
+  },
+  "expr:eq": {
+   "programs": 861,
+   "nodes": 5036
+  },
+  "expr:filter": {
+   "programs": 861,
+   "nodes": 2366
+  },
+  "expr:findIndex": {
+   "programs": 843,
+   "nodes": 2336
+  },
+  "expr:ge": {
+   "programs": 179,
+   "nodes": 193
+  },
+  "expr:get": {
+   "programs": 861,
+   "nodes": 19092
+  },
+  "expr:gt": {
+   "programs": 861,
+   "nodes": 1066
+  },
+  "expr:le": {
+   "programs": 165,
+   "nodes": 184
+  },
+  "expr:length": {
+   "programs": 861,
+   "nodes": 2805
+  },
+  "expr:literal": {
+   "programs": 861,
+   "nodes": 37890
+  },
+  "expr:local": {
+   "programs": 861,
+   "nodes": 25647
+  },
+  "expr:lt": {
+   "programs": 163,
+   "nodes": 179
+  },
+  "expr:map": {
+   "programs": 822,
+   "nodes": 1630
+  },
+  "expr:ne": {
+   "programs": 323,
+   "nodes": 372
+  },
+  "expr:not": {
+   "programs": 660,
+   "nodes": 1234
+  },
+  "expr:object": {
+   "programs": 861,
+   "nodes": 4682
+  },
+  "expr:or": {
+   "programs": 817,
+   "nodes": 1951
+  },
+  "expr:read": {
+   "programs": 861,
+   "nodes": 17378
+  },
+  "memo": {
+   "programs": 861,
+   "nodes": 2921
+  },
+  "source:optimistic": {
+   "programs": 861,
+   "nodes": 1184
+  },
+  "source:signal": {
+   "programs": 861,
+   "nodes": 2678
+  },
+  "source:store": {
+   "programs": 861,
+   "nodes": 861
+  },
+  "step:await": {
+   "programs": 861,
+   "nodes": 1990
+  },
+  "step:call": {
+   "programs": 861,
+   "nodes": 1833
+  },
+  "step:optimistic:updater": {
+   "programs": 835,
+   "nodes": 1498
+  },
+  "step:optimistic:value": {
+   "programs": 119,
+   "nodes": 119
+  },
+  "step:try": {
+   "programs": 861,
+   "nodes": 1617
+  },
+  "step:write:path": {
+   "programs": 857,
+   "nodes": 2613
+  },
+  "step:write:signal": {
+   "programs": 861,
+   "nodes": 4556
+  },
+  "view:element": {
+   "programs": 861,
+   "nodes": 11915
+  },
+  "view:for": {
+   "programs": 861,
+   "nodes": 1117
+  },
+  "view:show": {
+   "programs": 861,
+   "nodes": 1559
+  },
+  "view:text:dynamic": {
+   "programs": 861,
+   "nodes": 6922
+  },
+  "view:text:static": {
+   "programs": 861,
+   "nodes": 7721
+  }
+ }
+}

@@ -1,0 +1,47 @@
+{
+  "invalid": "oracle-error",
+  "detail": "TypeError: Cannot set properties of undefined (setting 'We')\n    at deleteFromHeap (file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/heap.js:74:14)\n    at unobserved (file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/graph.js:84:5)\n    at sweepDormant (file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/graph.js:119:13)\n    at GlobalQueue.flush (file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:603:13)\n    at Module.flush (file:///Users/devagr/rx-tsx-refresh/solid-next/packages/signals/dist/prod/core/scheduler.js:1145:21)\n    at run (file:///Users/devagr/rx-tsx-refresh/rust-solid/fuzz/solid.mjs:21:22)\n    at MessagePort.<anonymous> (file:///Users/devagr/rx-tsx-refresh/rust-solid/fuzz/worker.mjs:3:80)\n    at [nodejs.internal.kHybridDispatch] (node:internal/event_target:843:20)\n    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28)",
+  "actual": [
+    [
+      "compute",
+      "m2",
+      null
+    ],
+    [
+      "compute",
+      "m1",
+      null
+    ],
+    [
+      "read",
+      "m1",
+      6
+    ],
+    [
+      "compute",
+      "m0",
+      null
+    ],
+    [
+      "read",
+      "m0",
+      6
+    ],
+    [
+      "compute",
+      "m2",
+      6
+    ],
+    [
+      "compute",
+      "m1",
+      6
+    ],
+    [
+      "compute",
+      "m0",
+      6
+    ]
+  ],
+  "agree": false
+}

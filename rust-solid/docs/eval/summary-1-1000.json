@@ -1,0 +1,110 @@
+{
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "agree": 869,
+ "refused": 131,
+ "divergent": 0,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "scenarioSteps": 9621,
+  "logEntriesPerLeg": 313420,
+  "evaluatedCodes": 869,
+  "codeChanges": 574
+ },
+ "shapes": {
+  "split / rx / reload": 166,
+  "split / rx": 150,
+  "split / tsx / reload": 170,
+  "split / tsx": 175,
+  "whole / rx / reload": 49,
+  "whole / rx": 49,
+  "whole / tsx / reload": 47,
+  "whole / tsx": 63
+ },
+ "bindingKinds": {
+  "action": 371,
+  "host": 490,
+  "read": 1954,
+  "store": 109
+ },
+ "classes": {},
+ "refusals": {
+  "eval refused: PLAN: unsupported operator *": {
+   "count": 43,
+   "seeds": [
+    4,
+    6,
+    76,
+    85,
+    114,
+    125,
+    137,
+    207,
+    238,
+    241,
+    263,
+    298,
+    302,
+    304,
+    305,
+    326,
+    342,
+    343,
+    359,
+    378
+   ]
+  },
+  "eval refused: PLAN: unsupported operator -": {
+   "count": 49,
+   "seeds": [
+    10,
+    14,
+    41,
+    43,
+    48,
+    53,
+    59,
+    112,
+    129,
+    140,
+    206,
+    231,
+    254,
+    286,
+    316,
+    333,
+    338,
+    360,
+    404,
+    459
+   ]
+  },
+  "eval refused: PLAN: a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2": {
+   "count": 39,
+   "seeds": [
+    70,
+    82,
+    94,
+    98,
+    104,
+    169,
+    194,
+    210,
+    230,
+    341,
+    363,
+    397,
+    421,
+    440,
+    481,
+    518,
+    540,
+    541,
+    563,
+    585
+   ]
+  }
+ }
+}

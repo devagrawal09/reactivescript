@@ -1,0 +1,93 @@
+[
+  {
+    "file": "reduced-0-compute-compute.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-1-compute-read.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-2-compute-effect_cleanup.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-3-compute-effect_cleanup.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-compute-compute.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-compute-effect_cleanup.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-compute-read.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-effect-compute.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-effect_cleanup-compute.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-read-compute.json",
+    "exit": 0,
+    "agree": true,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-5-read-read.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": null,
+    "progress": null
+  },
+  {
+    "file": "reduced-oracle-error.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": "oracle-error",
+    "progress": null
+  },
+  {
+    "file": "reduced-oracle-timeout.json",
+    "exit": 1,
+    "agree": false,
+    "invalid": "oracle-timeout",
+    "progress": "teardown"
+  }
+]
