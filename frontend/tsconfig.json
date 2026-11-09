@@ -1,0 +1,48 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ]
+  },
+  "files": [
+    "tsx/lower.ts",
+    "tsx/modules.ts",
+    "tsx/build.ts",
+    "tsx/rx/ast.ts",
+    "tsx/rx/compiler.ts",
+    "tsx/rx/runtime.ts",
+    "tsx/rx/infer.ts",
+    "tsx/rx/facts.ts",
+    "tsx/rx/string-renderer.ts",
+    "tsx/fuzz/gen.ts",
+    "tsx/fuzz/run.ts",
+    "yield/lower.ts",
+    "slices/run-js.ts",
+    "tsx/subset.ts",
+    "scripts/report.ts",
+    "scripts/fuzz.ts",
+    "plan/types.ts",
+    "eval/sites.ts",
+    "eval/interface.ts",
+    "eval/compile.ts",
+    "eval/runtime.ts",
+    "eval/inject.ts",
+    "eval/harness/run.ts",
+    "eval/harness/eval-native.ts",
+    "eval/fuzz/gen.ts",
+    "eval/fuzz/run.ts",
+    "eval/eval.test.ts",
+    "slices/eval.test.ts",
+    "slices/eval/load.ts",
+    "scripts/eval-fuzz.ts",
+    "scripts/eval-slice.ts",
+    "scripts/eval-fuzz-corpus.ts"
+  ]
+}

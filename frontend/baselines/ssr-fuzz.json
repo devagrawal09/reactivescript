@@ -1,0 +1,12 @@
+{
+  "note": "The gate's SSR fuzz (docs/RESULTS.md, 'Slice 5: server rendering'): scripts/ssr-fuzz.ts --seeds 100 --start 1 --dev at fdbcad92 / Solid rc.21. On every program the emitter accepts, rust-ssr's server HTML of the plan is Solid's renderToString HTML of the TSX twin byte for byte, and Chromium hydrates both with Solid's client build (production; the Rust HTML also on the dev builds) and replays the scenario recorded on native Solid. The refused programs are the generator's 'outside' family, refused by the emitter; Solid's own server render of them is still required to succeed.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 85,
+  "refused": 15,
+  "refusals": [
+    "refused: unsupported operator *",
+    "refused: unsupported operator -",
+    "refused: a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2"
+  ]
+}

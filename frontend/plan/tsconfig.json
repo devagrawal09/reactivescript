@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.json",
+  "files": [
+    "resolve.ts",
+    "emit.ts",
+    "plan.test.ts",
+    "resolve-v2.ts",
+    "solid-plan.ts",
+    "plan-fuzz.test.ts",
+    "fuzz/gen.ts",
+    "fuzz/run.ts",
+    "fuzz/host.ts",
+    "fuzz/leg.ts",
+    "fuzz/renderer.ts",
+    "fuzz/solid-native.ts",
+    "../scripts/plan-fuzz.ts",
+    "../scripts/plan-fuzz-corpus.ts"
+  ]
+}

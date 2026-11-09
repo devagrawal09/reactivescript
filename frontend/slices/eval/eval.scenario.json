@@ -1,0 +1,205 @@
+{
+  "version": 2,
+  "name": "eval: code strings that change over time",
+  "fixture": "eval",
+  "host": [
+    {
+      "name": "save",
+      "parameters": [
+        "number"
+      ],
+      "returns": "string",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "onetwothreenoneswapformulamoreclicks 0bump count 0tenn is 0n=0"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "more",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulamoreclicks 1bump count 0tenn is 0n=0"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "bump",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulamoreclicks 1bump count 1tenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "two",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "keep",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved savingstoretenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "one",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulamoreclicks 0bump count 1tenn is 1n=1"
+    },
+    {
+      "type": "resolve",
+      "host": "save",
+      "call": 1,
+      "args": [
+        1
+      ],
+      "value": "ok",
+      "frame": "onetwothreenoneswapformulamoreclicks 0bump count 1tenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "two",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "store",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 1n=1"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "formula",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 1small"
+    },
+    {
+      "type": "reject",
+      "host": "save",
+      "call": 2,
+      "args": [
+        1
+      ],
+      "error": "offline",
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 1smallfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "ten",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 11bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "swap",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoregrowx11bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "grow",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoregrowxx11bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "three",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulaa11b11biggrowxx11bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "swap",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulaa11b11bigtenn is 11bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "ten",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulaa21b21bigtenn is 21bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "none",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulatenn is 21bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "two",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved nonestoretenn is 21bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "keep",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved savingstoretenn is 21bigfailed"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "store",
+        "index": 0
+      },
+      "frame": "onetwothreenoneswapformulakeepsaved savingstoretenn is 21bigfailed"
+    },
+    {
+      "type": "resolve",
+      "host": "save",
+      "call": 4,
+      "args": [
+        21
+      ],
+      "value": "stored",
+      "frame": "onetwothreenoneswapformulakeepsaved savingstoretenn is 21bigstored"
+    },
+    {
+      "type": "resolve",
+      "host": "save",
+      "call": 3,
+      "args": [
+        21
+      ],
+      "value": "kept",
+      "frame": "onetwothreenoneswapformulakeepsaved keptstoretenn is 21bigstored"
+    }
+  ]
+}

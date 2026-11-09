@@ -1,0 +1,50 @@
+import { save } from "./api";
+
+// The eval slice (docs/EVAL.md): code strings that change over time, evaluated against explicit bindings.
+export default component Studio() {
+  source code := "source clicks := 0;
+<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>";
+  source code2 := "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);";
+  source formula := "\"n=\" + count";
+  source count := 0;
+  source status := "";
+  action bump(n: number) {
+    count := count + n;
+  }
+  action store(n: number) {
+    try {
+      let r = await save(n);
+      status := r;
+    } catch (error) {
+      status := "failed";
+    }
+  }
+  label: string = eval(formula, { count }, { type: "string" });
+
+  <section>
+    <button onClick={() => { code := "source clicks := 0;
+<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>" }}>one</button>
+    <button onClick={() => { code := "source saved := \"none\";
+source shown = saved;
+action keep(n: number) {
+  optimistic shown := \"saving\";
+  try {
+    let r = await save(n);
+    saved := r;
+  } catch (error) {
+    saved := \"error\";
+  }
+}
+<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>" }}>two</button>
+    <button onClick={() => { code := "source items := { list: [{ id: 1, name: \"a\" }, { id: 2, name: \"b\" }] };
+<ul>{for it in items.list { <li>{it.name + count}</li> }}{if count > 1 { <b>big</b> } else { <s>small</s> }}</ul>" }}>three</button>
+    <button onClick={() => { code := "" }}>none</button>
+    <button onClick={() => { code2 := code2 == "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);" ? "const [t, setT] = createSignal(\"x\");
+return (<p><button onClick={() => setT(t() + \"x\")}>grow</button>{t() + n()}</p>);" : "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);" }}>swap</button>
+    <button onClick={() => { formula := "count > 3 ? \"big\" : \"small\"" }}>formula</button>
+    <div>{eval(code, { count, bump, store, save })}</div>
+    <aside>{eval(code2, { n: count, bump }, { syntax: "tsx" })}</aside>
+    <i>{label}</i>
+    <em>{status}</em>
+  </section>
+}

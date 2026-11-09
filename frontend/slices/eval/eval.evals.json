@@ -1,0 +1,802 @@
+{
+  "version": 1,
+  "evals": [
+    {
+      "code": "\"n=\" + count",
+      "interface": "read count: number",
+      "syntax": "rx",
+      "check": "strict",
+      "type": "string",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [],
+        "bindings": [
+          {
+            "name": "count",
+            "kind": "read",
+            "type": "number"
+          }
+        ],
+        "sources": [],
+        "memos": [],
+        "actions": [],
+        "markup": [],
+        "value": {
+          "op": "add",
+          "left": {
+            "op": "literal",
+            "value": "n="
+          },
+          "right": {
+            "op": "read",
+            "source": "count"
+          }
+        }
+      }
+    },
+    {
+      "code": "source clicks := 0;\n<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>",
+      "interface": "read count: number\naction bump(number)\naction store(number)\nhost save(number): string",
+      "syntax": "rx",
+      "check": "strict",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [
+          {
+            "name": "save",
+            "params": [
+              "number"
+            ],
+            "returns": "string"
+          }
+        ],
+        "bindings": [
+          {
+            "name": "count",
+            "kind": "read",
+            "type": "number"
+          },
+          {
+            "name": "bump",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          },
+          {
+            "name": "store",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "name": "clicks",
+            "kind": "signal",
+            "seed": {
+              "op": "literal",
+              "value": 0
+            }
+          }
+        ],
+        "memos": [],
+        "actions": [],
+        "markup": [
+          {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "write",
+                        "source": "clicks",
+                        "value": {
+                          "op": "add",
+                          "left": {
+                            "op": "read",
+                            "source": "clicks"
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "more"
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "text",
+                "value": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": "clicks "
+                  },
+                  "right": {
+                    "op": "read",
+                    "source": "clicks"
+                  }
+                }
+              },
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "call",
+                        "action": "bump",
+                        "args": [
+                          {
+                            "op": "literal",
+                            "value": 1
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "bump"
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "text",
+                "value": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": " count "
+                  },
+                  "right": {
+                    "op": "read",
+                    "source": "count"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);",
+      "interface": "read n: number\naction bump(number)",
+      "syntax": "tsx",
+      "check": "strict",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [],
+        "bindings": [
+          {
+            "name": "n",
+            "kind": "read",
+            "type": "number"
+          },
+          {
+            "name": "bump",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          }
+        ],
+        "sources": [],
+        "memos": [],
+        "actions": [],
+        "markup": [
+          {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "call",
+                        "action": "bump",
+                        "args": [
+                          {
+                            "op": "literal",
+                            "value": 10
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "ten"
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "text",
+                "value": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": "n is "
+                  },
+                  "right": {
+                    "op": "read",
+                    "source": "n"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "source saved := \"none\";\nsource shown = saved;\naction keep(n: number) {\n  optimistic shown := \"saving\";\n  try {\n    let r = await save(n);\n    saved := r;\n  } catch (error) {\n    saved := \"error\";\n  }\n}\n<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>",
+      "interface": "read count: number\naction bump(number)\naction store(number)\nhost save(number): string",
+      "syntax": "rx",
+      "check": "strict",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [
+          {
+            "name": "save",
+            "params": [
+              "number"
+            ],
+            "returns": "string"
+          }
+        ],
+        "bindings": [
+          {
+            "name": "count",
+            "kind": "read",
+            "type": "number"
+          },
+          {
+            "name": "bump",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          },
+          {
+            "name": "store",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "name": "saved",
+            "kind": "signal",
+            "seed": {
+              "op": "literal",
+              "value": "none"
+            }
+          },
+          {
+            "name": "shown",
+            "kind": "optimistic",
+            "seed": {
+              "op": "read",
+              "source": "saved"
+            }
+          }
+        ],
+        "memos": [],
+        "actions": [
+          {
+            "name": "keep",
+            "params": [
+              "n"
+            ],
+            "steps": [
+              {
+                "op": "optimistic",
+                "source": "shown",
+                "value": {
+                  "op": "literal",
+                  "value": "saving"
+                }
+              },
+              {
+                "op": "try",
+                "body": [
+                  {
+                    "op": "await",
+                    "host": "save",
+                    "args": [
+                      {
+                        "op": "local",
+                        "name": "n"
+                      }
+                    ],
+                    "bind": "$await0"
+                  },
+                  {
+                    "op": "write",
+                    "source": "saved",
+                    "value": {
+                      "op": "local",
+                      "name": "$await0"
+                    }
+                  }
+                ],
+                "catch": [
+                  {
+                    "op": "write",
+                    "source": "saved",
+                    "value": {
+                      "op": "literal",
+                      "value": "error"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "markup": [
+          {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "call",
+                        "action": "keep",
+                        "args": [
+                          {
+                            "op": "read",
+                            "source": "count"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "keep"
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "text",
+                "value": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": "saved "
+                  },
+                  "right": {
+                    "op": "read",
+                    "source": "shown"
+                  }
+                }
+              },
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "call",
+                        "action": "store",
+                        "args": [
+                          {
+                            "op": "read",
+                            "source": "count"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "store"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "count > 3 ? \"big\" : \"small\"",
+      "interface": "read count: number",
+      "syntax": "rx",
+      "check": "strict",
+      "type": "string",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [],
+        "bindings": [
+          {
+            "name": "count",
+            "kind": "read",
+            "type": "number"
+          }
+        ],
+        "sources": [],
+        "memos": [],
+        "actions": [],
+        "markup": [],
+        "value": {
+          "op": "cond",
+          "test": {
+            "op": "gt",
+            "left": {
+              "op": "read",
+              "source": "count"
+            },
+            "right": {
+              "op": "literal",
+              "value": 3
+            }
+          },
+          "then": {
+            "op": "literal",
+            "value": "big"
+          },
+          "else": {
+            "op": "literal",
+            "value": "small"
+          }
+        }
+      }
+    },
+    {
+      "code": "const [t, setT] = createSignal(\"x\");\nreturn (<p><button onClick={() => setT(t() + \"x\")}>grow</button>{t() + n()}</p>);",
+      "interface": "read n: number\naction bump(number)",
+      "syntax": "tsx",
+      "check": "strict",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [],
+        "bindings": [
+          {
+            "name": "n",
+            "kind": "read",
+            "type": "number"
+          },
+          {
+            "name": "bump",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "name": "t",
+            "kind": "signal",
+            "seed": {
+              "op": "literal",
+              "value": "x"
+            }
+          }
+        ],
+        "memos": [],
+        "actions": [],
+        "markup": [
+          {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+              {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                  {
+                    "name": "onClick",
+                    "steps": [
+                      {
+                        "op": "write",
+                        "source": "t",
+                        "value": {
+                          "op": "add",
+                          "left": {
+                            "op": "read",
+                            "source": "t"
+                          },
+                          "right": {
+                            "op": "literal",
+                            "value": "x"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "children": [
+                  {
+                    "kind": "text",
+                    "value": {
+                      "op": "literal",
+                      "value": "grow"
+                    }
+                  }
+                ]
+              },
+              {
+                "kind": "text",
+                "value": {
+                  "op": "add",
+                  "left": {
+                    "op": "read",
+                    "source": "t"
+                  },
+                  "right": {
+                    "op": "read",
+                    "source": "n"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "code": "source items := { list: [{ id: 1, name: \"a\" }, { id: 2, name: \"b\" }] };\n<ul>{for it in items.list { <li>{it.name + count}</li> }}{if count > 1 { <b>big</b> } else { <s>small</s> }}</ul>",
+      "interface": "read count: number\naction bump(number)\naction store(number)\nhost save(number): string",
+      "syntax": "rx",
+      "check": "strict",
+      "plan": {
+        "version": 2,
+        "component": "Eval",
+        "hosts": [
+          {
+            "name": "save",
+            "params": [
+              "number"
+            ],
+            "returns": "string"
+          }
+        ],
+        "bindings": [
+          {
+            "name": "count",
+            "kind": "read",
+            "type": "number"
+          },
+          {
+            "name": "bump",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          },
+          {
+            "name": "store",
+            "kind": "action",
+            "params": [
+              "number"
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "name": "items",
+            "kind": "store",
+            "seed": {
+              "op": "object",
+              "fields": [
+                {
+                  "key": "list",
+                  "value": {
+                    "op": "array",
+                    "items": [
+                      {
+                        "op": "object",
+                        "fields": [
+                          {
+                            "key": "id",
+                            "value": {
+                              "op": "literal",
+                              "value": 1
+                            }
+                          },
+                          {
+                            "key": "name",
+                            "value": {
+                              "op": "literal",
+                              "value": "a"
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "op": "object",
+                        "fields": [
+                          {
+                            "key": "id",
+                            "value": {
+                              "op": "literal",
+                              "value": 2
+                            }
+                          },
+                          {
+                            "key": "name",
+                            "value": {
+                              "op": "literal",
+                              "value": "b"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "memos": [],
+        "actions": [],
+        "markup": [
+          {
+            "kind": "element",
+            "tag": "ul",
+            "events": [],
+            "children": [
+              {
+                "kind": "for",
+                "each": {
+                  "op": "get",
+                  "object": {
+                    "op": "read",
+                    "source": "items"
+                  },
+                  "key": "list"
+                },
+                "item": "it",
+                "key": "identity",
+                "children": [
+                  {
+                    "kind": "element",
+                    "tag": "li",
+                    "events": [],
+                    "children": [
+                      {
+                        "kind": "text",
+                        "value": {
+                          "op": "add",
+                          "left": {
+                            "op": "get",
+                            "object": {
+                              "op": "local",
+                              "name": "it"
+                            },
+                            "key": "name"
+                          },
+                          "right": {
+                            "op": "read",
+                            "source": "count"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "kind": "show",
+                "when": {
+                  "op": "gt",
+                  "left": {
+                    "op": "read",
+                    "source": "count"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": 1
+                  }
+                },
+                "children": [
+                  {
+                    "kind": "element",
+                    "tag": "b",
+                    "events": [],
+                    "children": [
+                      {
+                        "kind": "text",
+                        "value": {
+                          "op": "literal",
+                          "value": "big"
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "fallback": [
+                  {
+                    "kind": "element",
+                    "tag": "s",
+                    "events": [],
+                    "children": [
+                      {
+                        "kind": "text",
+                        "value": {
+                          "op": "literal",
+                          "value": "small"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

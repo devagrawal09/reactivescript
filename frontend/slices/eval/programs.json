@@ -1,0 +1,9 @@
+{
+  "P1": "source clicks := 0;\n<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>",
+  "P2": "source saved := \"none\";\nsource shown = saved;\naction keep(n: number) {\n  optimistic shown := \"saving\";\n  try {\n    let r = await save(n);\n    saved := r;\n  } catch (error) {\n    saved := \"error\";\n  }\n}\n<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>",
+  "P3": "source items := { list: [{ id: 1, name: \"a\" }, { id: 2, name: \"b\" }] };\n<ul>{for it in items.list { <li>{it.name + count}</li> }}{if count > 1 { <b>big</b> } else { <s>small</s> }}</ul>",
+  "T1": "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);",
+  "T2": "const [t, setT] = createSignal(\"x\");\nreturn (<p><button onClick={() => setT(t() + \"x\")}>grow</button>{t() + n()}</p>);",
+  "F1": "\"n=\" + count",
+  "F2": "count > 3 ? \"big\" : \"small\""
+}

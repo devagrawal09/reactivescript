@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "files": [
+    "browser.ts",
+    "run.ts",
+    "server-leg.ts",
+    "ssr.test.ts",
+    "../scripts/ssr-fuzz.ts",
+    "../scripts/ssr-corpus.ts"
+  ]
+}

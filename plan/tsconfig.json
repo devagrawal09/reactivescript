@@ -1,4 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "files": ["resolve.ts", "emit.ts", "plan.test.ts", "resolve-v2.ts", "solid-plan.ts"]
-}

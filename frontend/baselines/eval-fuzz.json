@@ -1,0 +1,12 @@
+{
+  "note": "The gate's eval fuzz (docs/EVAL.md, 'Eval fuzz'): scripts/eval-fuzz.ts --seeds 100 --start 1 at fdbcad92 / Solid rc.21. The static twin on native Solid, createEval on native Solid, the plan on solid-plan.ts and Rust plan-trace with the host's eval table give one result and one full host log on every agreeing program. The refused programs are the plan fuzz's 'outside' family, refused with the plan fuzz's own diagnostic; every eval leg fails with it.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 85,
+  "refused": 15,
+  "refusals": [
+    "eval refused: PLAN: unsupported operator *",
+    "eval refused: PLAN: unsupported operator -",
+    "eval refused: PLAN: a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "note": "The gate's plan fuzz (plan/docs/PLAN-V2.md, 'Plan fuzz'): scripts/plan-fuzz.ts --seeds 100 --start 1 at fdbcad92 / Solid rc.21. Native Solid, compiled RX, solid-plan.ts and Rust plan-trace give one result and one full host log on every agreeing program. The refused programs are the generator's 'outside' family. Upstream (RX-only, probe-classified) differences fail the gate unless their seed is listed here.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 85,
+  "refused": 15,
+  "refusals": [
+    "unsupported operator *",
+    "unsupported operator -",
+    "a text hole with a constant value (Solid's compiler folds it to static text) is outside plan v2"
+  ],
+  "upstream": {
+    "classes": [
+      "upstream: RX optimistic source is a guess layer over a computed signal (AC-3)",
+      "upstream: RX evaluates a path write's keys and value before the store setter"
+    ],
+    "seeds": []
+  }
+}

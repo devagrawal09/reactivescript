@@ -1,0 +1,429 @@
+{
+  "version": 2,
+  "component": "Studio",
+  "hosts": [
+    {
+      "name": "save",
+      "params": [
+        "number"
+      ],
+      "returns": "string"
+    }
+  ],
+  "sources": [
+    {
+      "name": "code",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "source clicks := 0;\n<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>"
+      }
+    },
+    {
+      "name": "code2",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);"
+      }
+    },
+    {
+      "name": "formula",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "\"n=\" + count"
+      }
+    },
+    {
+      "name": "count",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": 0
+      }
+    },
+    {
+      "name": "status",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": ""
+      }
+    }
+  ],
+  "memos": [
+    {
+      "name": "label",
+      "value": {
+        "op": "eval",
+        "code": {
+          "op": "read",
+          "source": "formula"
+        },
+        "bindings": [
+          {
+            "name": "count",
+            "target": "count"
+          }
+        ],
+        "interface": "read count: number",
+        "syntax": "rx",
+        "check": "strict",
+        "type": "string"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "bump",
+      "params": [
+        "n"
+      ],
+      "steps": [
+        {
+          "op": "write",
+          "source": "count",
+          "value": {
+            "op": "add",
+            "left": {
+              "op": "read",
+              "source": "count"
+            },
+            "right": {
+              "op": "local",
+              "name": "n"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "store",
+      "params": [
+        "n"
+      ],
+      "steps": [
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "host": "save",
+              "args": [
+                {
+                  "op": "local",
+                  "name": "n"
+                }
+              ],
+              "bind": "$await0"
+            },
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "local",
+                "name": "$await0"
+              }
+            }
+          ],
+          "catch": [
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "literal",
+                "value": "failed"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "section",
+      "events": [],
+      "children": [
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": "source clicks := 0;\n<p><button onClick={() => { clicks := clicks + 1 }}>more</button>{\"clicks \" + clicks}<button onClick={() => { bump(1) }}>bump</button>{\" count \" + count}</p>"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "one"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": "source saved := \"none\";\nsource shown = saved;\naction keep(n: number) {\n  optimistic shown := \"saving\";\n  try {\n    let r = await save(n);\n    saved := r;\n  } catch (error) {\n    saved := \"error\";\n  }\n}\n<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "two"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": "source items := { list: [{ id: 1, name: \"a\" }, { id: 2, name: \"b\" }] };\n<ul>{for it in items.list { <li>{it.name + count}</li> }}{if count > 1 { <b>big</b> } else { <s>small</s> }}</ul>"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "three"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": ""
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "none"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code2",
+                  "value": {
+                    "op": "cond",
+                    "test": {
+                      "op": "eq",
+                      "left": {
+                        "op": "read",
+                        "source": "code2"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);"
+                      }
+                    },
+                    "then": {
+                      "op": "literal",
+                      "value": "const [t, setT] = createSignal(\"x\");\nreturn (<p><button onClick={() => setT(t() + \"x\")}>grow</button>{t() + n()}</p>);"
+                    },
+                    "else": {
+                      "op": "literal",
+                      "value": "return (<p><button onClick={() => bump(10)}>ten</button>{\"n is \" + n()}</p>);"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "swap"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "formula",
+                  "value": {
+                    "op": "literal",
+                    "value": "count > 3 ? \"big\" : \"small\""
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "formula"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "div",
+          "events": [],
+          "children": [
+            {
+              "kind": "eval",
+              "code": {
+                "op": "read",
+                "source": "code"
+              },
+              "bindings": [
+                {
+                  "name": "count",
+                  "target": "count"
+                },
+                {
+                  "name": "bump",
+                  "target": "bump"
+                },
+                {
+                  "name": "store",
+                  "target": "store"
+                },
+                {
+                  "name": "save",
+                  "target": "save"
+                }
+              ],
+              "interface": "read count: number\naction bump(number)\naction store(number)\nhost save(number): string",
+              "syntax": "rx",
+              "check": "strict"
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "aside",
+          "events": [],
+          "children": [
+            {
+              "kind": "eval",
+              "code": {
+                "op": "read",
+                "source": "code2"
+              },
+              "bindings": [
+                {
+                  "name": "n",
+                  "target": "count"
+                },
+                {
+                  "name": "bump",
+                  "target": "bump"
+                }
+              ],
+              "interface": "read n: number\naction bump(number)",
+              "syntax": "tsx",
+              "check": "strict"
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "read",
+                "source": "label"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "em",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "read",
+                "source": "status"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
