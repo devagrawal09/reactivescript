@@ -1,0 +1,63 @@
+[
+  {
+    "op": "signal",
+    "id": "xs",
+    "value": [
+      0,
+      3,
+      5,
+      5
+    ]
+  },
+  {
+    "op": "list",
+    "id": "L",
+    "each": {
+      "op": "read",
+      "id": "xs"
+    },
+    "keyed": false,
+    "index": true,
+    "fallback": [
+      {
+        "effect": "fb",
+        "render": true,
+        "expr": 0
+      },
+      {
+        "cleanup": "fc"
+      }
+    ],
+    "row": [
+      {
+        "effect": "e0",
+        "render": true,
+        "expr": {
+          "op": "add",
+          "a": {
+            "op": "item"
+          },
+          "b": {
+            "op": "index"
+          }
+        }
+      },
+      {
+        "effect": "e1",
+        "render": true,
+        "expr": {
+          "op": "add",
+          "a": {
+            "op": "item"
+          },
+          "b": {
+            "op": "index"
+          }
+        }
+      },
+      {
+        "cleanup": "c"
+      }
+    ]
+  }
+]

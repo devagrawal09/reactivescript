@@ -1,0 +1,7 @@
+{
+  "invalid": "oracle-halted",
+  "actual": {
+    "driver_error": "panic"
+  },
+  "agree": false
+}

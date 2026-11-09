@@ -1,0 +1,3 @@
+{"mode":"slice1","first":1,"last":3000,"same":3000,"oracleErrorFrameOnly":[],"diff":0,"kinds":{"trace":3000}}
+{"mode":"m1","first":1,"last":2000,"same":1999,"oracleErrorFrameOnly":[1193],"diff":0,"kinds":{"trace":1985,"oracle-timeout":14,"oracle-error":1}}
+{"mode":"slice2a","first":1,"last":3000,"same":3000,"oracleErrorFrameOnly":[],"diff":0,"kinds":{"trace":2976,"oracle-nonscalar":24}}

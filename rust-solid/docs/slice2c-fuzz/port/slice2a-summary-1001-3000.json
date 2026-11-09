@@ -1,0 +1,49 @@
+{
+  "total": 2000,
+  "agreement": 1984,
+  "rate": 0.992,
+  "invalid": 16,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 4400,
+    "memo": 3384,
+    "effect": 4332,
+    "read": 23399,
+    "latest": 23370,
+    "pending": 23390,
+    "flush": 12934,
+    "action": 3857,
+    "refresh": 2199,
+    "write": 2680,
+    "resolve": 12586,
+    "reject": 1281
+  },
+  "modes": {
+    "async-refresh": {
+      "total": 400,
+      "agreement": 400
+    },
+    "async-chain": {
+      "total": 400,
+      "agreement": 394
+    },
+    "async-reject": {
+      "total": 400,
+      "agreement": 393
+    },
+    "async-lanes": {
+      "total": 400,
+      "agreement": 400
+    },
+    "async-actions": {
+      "total": 400,
+      "agreement": 397
+    }
+  },
+  "classes": {
+    "oracle-nonscalar": {
+      "count": 16,
+      "seed": 1360
+    }
+  }
+}

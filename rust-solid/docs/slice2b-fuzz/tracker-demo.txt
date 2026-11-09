@@ -1,0 +1,10 @@
+worker trace: 68 events
+ok   0 Filter: all2 openCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake
+ok   1 Filter: all1 openCrash on save: metakeSlow search: anatakeTypo in footer: nobodytake
+ok   2 Filter: all1 openCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytake
+ok   3 Filter: all1 openCrash on save: devtakeSlow search: metakeTypo in footer: nobodytake
+ok   4 Filter: all1 openCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeCould not assign #2
+ok   5 Filter: open1 openTypo in footer: nobodytakeCould not assign #2
+ok   6 Filter: open0 openNothing to triageCould not assign #2
+ok   7 Filter: open0 openNothing to triage
+8/8 frames match

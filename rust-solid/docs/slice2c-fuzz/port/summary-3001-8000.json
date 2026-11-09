@@ -1,0 +1,71 @@
+{
+  "total": 5000,
+  "agreement": 4988,
+  "rate": 0.9976,
+  "invalid": 12,
+  "timeoutMs": 1500,
+  "coverage": {
+    "store": 2993,
+    "signal": 7661,
+    "list": 3477,
+    "effect": 10913,
+    "flush": 38493,
+    "store_set": 13513,
+    "action": 14429,
+    "resolve": 13407,
+    "read": 19739,
+    "latest": 6178,
+    "pending": 3476,
+    "owner": 644,
+    "show": 1523,
+    "memo": 4800,
+    "write": 17929,
+    "dispose": 56,
+    "drain": 6140,
+    "reject": 1832
+  },
+  "modes": {
+    "list-opt-store": {
+      "total": 652,
+      "agreement": 643
+    },
+    "list-show": {
+      "total": 654,
+      "agreement": 654
+    },
+    "list-nested": {
+      "total": 436,
+      "agreement": 436
+    },
+    "list-bulk": {
+      "total": 436,
+      "agreement": 436
+    },
+    "tracker": {
+      "total": 869,
+      "agreement": 869
+    },
+    "list-ints": {
+      "total": 651,
+      "agreement": 651
+    },
+    "list-store": {
+      "total": 651,
+      "agreement": 648
+    },
+    "list-lanes": {
+      "total": 651,
+      "agreement": 651
+    }
+  },
+  "classes": {
+    "oracle-error": {
+      "count": 9,
+      "seed": 4081
+    },
+    "oracle-halted": {
+      "count": 3,
+      "seed": 4857
+    }
+  }
+}

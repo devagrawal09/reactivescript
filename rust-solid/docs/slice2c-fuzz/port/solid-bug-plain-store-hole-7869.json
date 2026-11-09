@@ -1,0 +1,215 @@
+[
+ {
+  "op": "store",
+  "id": "st",
+  "value": {
+   "list": []
+  }
+ },
+ {
+  "op": "list",
+  "id": "L",
+  "each": {
+   "op": "get",
+   "of": {
+    "op": "store",
+    "id": "st"
+   },
+   "key": "list"
+  },
+  "keyed": "id",
+  "index": true,
+  "fallback": [
+   {
+    "effect": "fb",
+    "render": true,
+    "expr": 0
+   },
+   {
+    "cleanup": "fc"
+   }
+  ],
+  "row": [
+   {
+    "effect": "e0",
+    "render": true,
+    "expr": {
+     "op": "get",
+     "of": {
+      "op": "item"
+     },
+     "key": "a"
+    }
+   },
+   {
+    "effect": "e1",
+    "render": true,
+    "expr": {
+     "op": "arr",
+     "items": [
+      {
+       "op": "index"
+      },
+      {
+       "op": "get",
+       "of": {
+        "op": "item"
+       },
+       "key": "id"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "op": "effect",
+  "id": "top",
+  "render": true,
+  "expr": {
+   "op": "read",
+   "id": "L"
+  }
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 6,
+      "a": 0,
+      "t": 1
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "action",
+  "id": "a0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "moveKey": {
+         "key": "id",
+         "is": 1,
+         "to": -1
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "f0"
+   },
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 1
+         },
+         "t"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "reconcile": {
+   "list": []
+  },
+  "key": null
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 7,
+      "a": 1,
+      "t": 8
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "returns": {
+   "op": "obj",
+   "fields": {
+    "list": {
+     "op": "filter",
+     "of": {
+      "op": "get",
+      "of": {
+       "op": "draft"
+      },
+      "key": "list"
+     },
+     "where": {
+      "op": "not",
+      "a": {
+       "op": "eq",
+       "a": {
+        "op": "get",
+        "of": {
+         "op": "elem"
+        },
+        "key": "a"
+       },
+       "b": 0
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "f0",
+  "value": 1
+ }
+]

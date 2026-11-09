@@ -1,0 +1,374 @@
+[
+ {
+  "op": "store",
+  "id": "os",
+  "optimistic": true,
+  "value": {
+   "list": [
+    {
+     "id": 2,
+     "a": 0,
+     "t": 4
+    },
+    {
+     "id": 3,
+     "a": 5,
+     "t": 8
+    }
+   ]
+  }
+ },
+ {
+  "op": "signal",
+  "id": "status",
+  "value": 0
+ },
+ {
+  "op": "list",
+  "id": "L",
+  "each": {
+   "op": "get",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "key": "list"
+  },
+  "keyed": "id",
+  "index": false,
+  "fallback": [
+   {
+    "effect": "fb",
+    "render": true,
+    "expr": 0
+   },
+   {
+    "cleanup": "fc"
+   }
+  ],
+  "row": [
+   {
+    "effect": "e0",
+    "render": true,
+    "expr": {
+     "op": "plain",
+     "of": {
+      "op": "item"
+     },
+     "fields": [
+      "id",
+      "a",
+      "t"
+     ]
+    }
+   },
+   {
+    "memo": "m1",
+    "expr": {
+     "op": "arr",
+     "items": [
+      {
+       "op": "get",
+       "of": {
+        "op": "item"
+       },
+       "key": "a"
+      },
+      {
+       "op": "get",
+       "of": {
+        "op": "item"
+       },
+       "key": "id"
+      }
+     ]
+    }
+   },
+   {
+    "effect": "v1",
+    "render": true,
+    "expr": {
+     "op": "local",
+     "id": "m1"
+    }
+   },
+   {
+    "memo": "m2",
+    "expr": {
+     "op": "arr",
+     "items": [
+      {
+       "op": "get",
+       "of": {
+        "op": "item"
+       },
+       "key": "a"
+      },
+      {
+       "op": "get",
+       "of": {
+        "op": "item"
+       },
+       "key": "id"
+      }
+     ]
+    }
+   },
+   {
+    "effect": "v2",
+    "render": true,
+    "expr": {
+     "op": "local",
+     "id": "m2"
+    }
+   }
+  ]
+ },
+ {
+  "op": "effect",
+  "id": "top",
+  "render": true,
+  "expr": {
+   "op": "read",
+   "id": "L"
+  }
+ },
+ {
+  "op": "action",
+  "id": "c0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "removeKey": {
+         "key": "id",
+         "is": 4
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:4#1"
+   },
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 4
+         },
+         "a"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     },
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 4
+    }
+   ]
+  }
+ },
+ {
+  "op": "action",
+  "id": "c1",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "returns": {
+       "op": "obj",
+       "fields": {
+        "list": {
+         "op": "reverse",
+         "of": {
+          "op": "get",
+          "of": {
+           "op": "draft"
+          },
+          "key": "list"
+         }
+        }
+       }
+      }
+     }
+    ],
+    "flight": "claim:4#2"
+   },
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 4
+         },
+         "a"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     },
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 4
+    }
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "claim:4#2",
+  "value": 6
+ },
+ {
+  "op": "action",
+  "id": "c2",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "push": {
+         "op": "lit",
+         "value": {
+          "id": 6,
+          "a": 9,
+          "t": 8
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:2#1"
+   },
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "removeKey": {
+         "key": "id",
+         "is": 2
+        }
+       }
+      ]
+     },
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 2
+    }
+   ]
+  }
+ },
+ {
+  "op": "action",
+  "id": "c3",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "moveKey": {
+         "key": "id",
+         "is": 2,
+         "to": 0
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:2#2"
+   },
+   {
+    "steps": [
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 2
+    }
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "claim:2#2",
+  "value": 7
+ },
+ {
+  "op": "resolve",
+  "flight": "claim:2#1",
+  "value": 6
+ }
+]

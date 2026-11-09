@@ -1,0 +1,117 @@
+[
+ {
+  "op": "signal",
+  "id": "page",
+  "value": 1,
+  "optimistic": true
+ },
+ {
+  "op": "store",
+  "id": "os",
+  "optimistic": true,
+  "seed": [],
+  "derive": {
+   "expr": {
+    "op": "read",
+    "id": "page"
+   },
+   "flight": "list",
+   "fresh": true
+  }
+ },
+ {
+  "op": "effect",
+  "id": "rows",
+  "render": true,
+  "expr": {
+   "op": "plain",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "fields": [
+    "id",
+    "d"
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "list:1#2",
+  "value": [
+   {
+    "id": 5,
+    "d": 0,
+    "t": 9
+   }
+  ]
+ },
+ {
+  "op": "action",
+  "id": "t0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [],
+        "push": {
+         "op": "lit",
+         "value": {
+          "id": 9,
+          "d": 0,
+          "t": 0
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "save:5#1"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "refresh",
+  "store": "os"
+ },
+ {
+  "op": "resolve",
+  "flight": "list:0#1",
+  "value": []
+ },
+ {
+  "op": "action",
+  "id": "n2",
+  "slices": [
+   {
+    "steps": [
+     {
+      "write": "page",
+      "value": 0
+     }
+    ],
+    "flight": "nav#2"
+   },
+   {
+    "steps": [
+     {
+      "refresh_store": "os"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "drain"
+ }
+]

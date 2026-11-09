@@ -1,0 +1,29 @@
+take                         27    22 {"opt-memo-rows":15,"opt-store-derived":3,"store-provenance":4} first 30,40,114,223,224
+take@laneStage               16    15 {"opt-memo-rows":15} first 30,223,224,297,345
+kept-back                    25    21 {"opt-memo-rows":15,"opt-store-derived":3,"store-provenance":3} first 30,40,223,224,297
+kept-restored                 5     5 {"opt-memo-rows":3,"opt-store-derived":1,"store-provenance":1} first 223,345,352,439,545
+reverted                   1259   680 {"store-actions":102,"opt-memo-rows":133,"opt-store-rows":168,"opt-store-derived":51,"store-provenance":63,"tracker":163} first 3,4,5,6,8
+laneOutcome                 106    50 {"opt-memo-rows":50} first 7,8,31,33,55
+laneOutcome-stale             0     0 {} first
+laneWrite-guess             570   151 {"opt-store-derived":50,"store-provenance":101} first 16,17,18,19,41
+laneWrite-held              422   100 {"opt-store-derived":26,"store-provenance":74} first 16,17,18,19,41
+linkLanes                   280   176 {"opt-store-rows":80,"opt-store-derived":32,"store-provenance":46,"opt-memo-rows":18} first 12,13,14,16,17
+slotTake-take                 8     7 {"opt-store-derived":3,"store-provenance":4} first 40,114,351,352,523
+laneRebase                  570   151 {"opt-store-derived":50,"store-provenance":101} first 16,17,18,19,41
+laneRebase-arrangement       46    35 {"opt-store-derived":7,"store-provenance":28} first 16,17,62,138,161
+laneRebase-4525              46    35 {"opt-store-derived":7,"store-provenance":28} first 16,17,62,138,161
+fold                        377   128 {"opt-store-derived":44,"store-provenance":84} first 16,17,19,41,42
+fold-folded                 193    53 {"store-provenance":38,"opt-store-derived":15} first 17,19,41,91,111
+foldedRead                  883    50 {"store-provenance":36,"opt-store-derived":14} first 17,41,91,111,138
+laneSet                      97    35 {"opt-store-derived":7,"store-provenance":28} first 16,17,62,138,161
+pairRows                      0     0 {} first
+optimisticHas                84    38 {"opt-store-rows":38} first 60,83,131,132,178
+stageError-staged            36     9 {"store-provenance":7,"opt-store-derived":2} first 89,163,232,497,521
+commit-staged-error          24     6 {"store-provenance":6} first 89,497,521,593,905
+laneSeam-staged-error         0     0 {} first
+laneValue-staged-error        5     5 {"store-provenance":5} first 89,521,593,905,930
+reawaken-dormant              0     0 {} first
+dormant-sweep                 0     0 {} first
+verdict-reader                0     0 {} first
+notready-loading              0     0 {} first
+guessFlights-true          1259   162 {"opt-store-derived":62,"store-provenance":100} first 14,15,17,19,41

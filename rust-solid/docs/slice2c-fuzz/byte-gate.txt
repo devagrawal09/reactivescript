@@ -1,0 +1,7 @@
+# docs/slice2c-fuzz/tools/gate.mjs: old = rust-tierb's fuzz/solid.mjs + fuzz/worker.mjs (byte-identical to this worktree's before the change, out/gate-old/), new = this worktree's; dist/prod; 4 jobs
+{"mode":"slice1","first":1,"last":3000,"same":3000,"oracleErrorFrameOnly":[],"diff":0,"kinds":{"trace":3000}}
+{"mode":"m1","first":1,"last":2000,"same":1999,"oracleErrorFrameOnly":[1193],"diff":0,"kinds":{"trace":1985,"oracle-timeout":14,"oracle-error":1}}
+{"mode":"slice2a","first":1,"last":3000,"same":3000,"oracleErrorFrameOnly":[],"diff":0,"kinds":{"trace":2976,"oracle-nonscalar":24}}
+{"mode":"slice2b","first":1,"last":3000,"same":3000,"oracleErrorFrameOnly":[],"diff":0,"kinds":{"trace":2999,"oracle-error":1}}
+# m1 rerun with the timeout list (2 jobs): the same 14 seeds time out in both oracles (M1 also times out on them in docs/results; M1 generates lazy memos, see SLICE2B-DESIGN.md sec. 4); their traces are not compared
+{"mode":"m1","first":1,"last":2000,"same":1999,"oracleErrorFrameOnly":[1193],"diff":0,"kinds":{"trace":1985,"oracle-timeout":14,"oracle-error":1},"timeouts":[71,569,635,815,929,971,1139,1277,1283,1613,1631,1685,1841,1955]}

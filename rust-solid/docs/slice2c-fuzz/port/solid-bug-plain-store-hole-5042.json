@@ -1,0 +1,192 @@
+[
+ {
+  "op": "store",
+  "id": "st",
+  "value": {
+   "list": []
+  }
+ },
+ {
+  "op": "list",
+  "id": "L",
+  "each": {
+   "op": "get",
+   "of": {
+    "op": "store",
+    "id": "st"
+   },
+   "key": "list"
+  },
+  "keyed": "id",
+  "index": true,
+  "fallback": true,
+  "row": [
+   {
+    "effect": "e0",
+    "render": false,
+    "expr": {
+     "op": "plain",
+     "of": {
+      "op": "item"
+     },
+     "fields": [
+      "id",
+      "a"
+     ]
+    }
+   },
+   {
+    "effect": "e1",
+    "render": true,
+    "expr": {
+     "op": "get",
+     "of": {
+      "op": "item"
+     },
+     "key": "t"
+    }
+   }
+  ]
+ },
+ {
+  "op": "effect",
+  "id": "top",
+  "render": true,
+  "expr": {
+   "op": "read",
+   "id": "L"
+  }
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 1,
+      "a": 1,
+      "t": 3
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "action",
+  "id": "a1",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "push": {
+         "op": "lit",
+         "value": {
+          "id": 2,
+          "a": 3,
+          "t": 5
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "f1"
+   },
+   {
+    "steps": [
+     {
+      "store": "st",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 99
+         },
+         "t"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "f0",
+  "value": 5
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "reconcile": {
+   "list": []
+  },
+  "key": "id"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 3,
+      "a": 3,
+      "t": 3
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "flush"
+ },
+ {
+  "op": "store_set",
+  "id": "st",
+  "edits": [
+   {
+    "path": [
+     "list"
+    ],
+    "push": {
+     "op": "lit",
+     "value": {
+      "id": 4,
+      "a": 2,
+      "t": 1
+     }
+    }
+   }
+  ]
+ },
+ {
+  "op": "resolve",
+  "flight": "f1",
+  "value": 6
+ }
+]

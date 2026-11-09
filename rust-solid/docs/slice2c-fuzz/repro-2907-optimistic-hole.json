@@ -1,0 +1,239 @@
+[
+ {
+  "op": "store",
+  "id": "os",
+  "optimistic": true,
+  "value": {
+   "list": [
+    {
+     "id": 3,
+     "a": 0,
+     "t": 9
+    },
+    {
+     "id": 4,
+     "a": 5,
+     "t": 4
+    }
+   ]
+  },
+  "key": null
+ },
+ {
+  "op": "signal",
+  "id": "status",
+  "value": 0
+ },
+ {
+  "op": "list",
+  "id": "L",
+  "each": {
+   "op": "get",
+   "of": {
+    "op": "store",
+    "id": "os"
+   },
+   "key": "list"
+  },
+  "keyed": "id",
+  "index": true,
+  "fallback": true,
+  "row": [
+   {
+    "effect": "e0",
+    "render": false,
+    "expr": {
+     "op": "plain",
+     "of": {
+      "op": "item"
+     },
+     "fields": [
+      "id",
+      "a",
+      "t"
+     ]
+    }
+   }
+  ]
+ },
+ {
+  "op": "effect",
+  "id": "top",
+  "render": true,
+  "expr": {
+   "op": "read",
+   "id": "L"
+  }
+ },
+ {
+  "op": "action",
+  "id": "c0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "removeKey": {
+         "key": "id",
+         "is": 3
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:3#1"
+   },
+   {
+    "steps": [
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 3
+    }
+   ]
+  }
+ },
+ {
+  "op": "resolve",
+  "flight": "claim:3#2",
+  "value": 7
+ },
+ {
+  "op": "action",
+  "id": "c2",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "removeKey": {
+         "key": "id",
+         "is": 4
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:4#1"
+   },
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 4
+         },
+         "a"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     },
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 4
+    }
+   ]
+  }
+ },
+ {
+  "op": "action",
+  "id": "c3",
+  "slices": [
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list"
+        ],
+        "push": {
+         "op": "lit",
+         "value": {
+          "id": 6,
+          "a": 9,
+          "t": 2
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "flight": "claim:4#2"
+   },
+   {
+    "steps": [
+     {
+      "store": "os",
+      "edits": [
+       {
+        "path": [
+         "list",
+         {
+          "key": "id",
+          "is": 4
+         },
+         "a"
+        ],
+        "set": {
+         "op": "sent"
+        }
+       }
+      ]
+     },
+     {
+      "write": "status",
+      "value": 0
+     }
+    ]
+   }
+  ],
+  "catch": {
+   "steps": [
+    {
+     "write": "status",
+     "value": 4
+    }
+   ]
+  }
+ },
+ {
+  "op": "flush"
+ }
+]

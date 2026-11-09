@@ -1,0 +1,60 @@
+{
+  "total": 1000,
+  "agreement": 0,
+  "rate": 0,
+  "invalid": 0,
+  "timeoutMs": 1500,
+  "coverage": {
+    "store": 1168,
+    "memo": 2777,
+    "effect": 2895,
+    "flush": 5258,
+    "store_set": 3235,
+    "read": 5082,
+    "latest": 3587,
+    "pending": 2442,
+    "signal": 1901,
+    "write": 1057,
+    "action": 4219,
+    "resolve": 6447,
+    "reject": 795,
+    "drain": 1991,
+    "refresh": 192
+  },
+  "modes": {
+    "store-plain": {
+      "total": 125,
+      "agreement": 0
+    },
+    "store-actions": {
+      "total": 126,
+      "agreement": 0
+    },
+    "opt-memo-rows": {
+      "total": 168,
+      "agreement": 0
+    },
+    "opt-store-rows": {
+      "total": 168,
+      "agreement": 0
+    },
+    "opt-store-derived": {
+      "total": 126,
+      "agreement": 0
+    },
+    "store-provenance": {
+      "total": 123,
+      "agreement": 0
+    },
+    "tracker": {
+      "total": 164,
+      "agreement": 0
+    }
+  },
+  "classes": {
+    "rust-panic": {
+      "count": 1000,
+      "seed": 1
+    }
+  }
+}
