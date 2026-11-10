@@ -6,7 +6,10 @@
 //! (store traps included: a native array method's `Get`/`HasProperty`
 //! sequence is ECMA-262's), the same log events and the same value
 //! encoding (identity tokens numbered in first-logged order). No laziness
-//! of memos and no custom equality of the legacy `equals` option.
+//! of memos and no custom equality of the legacy `equals` option. Tier D
+//! (`--boundaries`): Loading and Errored boundaries (`loading`/`errored`
+//! ops and child kinds, `reset`), tracked `pending`/`latest` expressions
+//! and `affects` (an op and an action step).
 use rust_solid::slice1::{
     new_host_fn, thrown_string, ActionBody, ActionStep, Builtin, Error, ErrorFn, JsObj, Key, Keyed,
     MapArg, Out, Resume, Runtime, StoreKey, Thrown, Value, ValueEffectFn, EFFECT_RENDER,
@@ -96,6 +99,8 @@ struct HostState {
     tokens: RefCell<HashMap<(u8, u64), i64>>,
     tok_n: RefCell<i64>,
     cx: RefCell<Option<Cx>>,
+    /// Tier D: an errored boundary's `reset`, by boundary id.
+    resets: RefCell<HashMap<String, Value>>,
     trace: bool,
 }
 type Host = Rc<HostState>;
@@ -157,6 +162,8 @@ fn enc(rt: &Runtime, h: &HostState, v: &Value) -> J {
         // A string encodes as itself (fuzz/solid.mjs `enc`).
         Value::Str(s) => json!(&**s),
         Value::Node(_) => panic!("a host node value is outside the op language"),
+        // An Error object: not a plain object (`{nonscalar: 'object'}`).
+        Value::Error(_) => json!({ "nonscalar": "object" }),
     }
 }
 
@@ -597,6 +604,18 @@ fn eval(rt: &mut Runtime, h: &Host, e: &J, prev: &Value) -> Result<Value, Error>
             }
             Ok(Value::Obj(JsObj::new_array(r)))
         }
+        // Tier D: the verdict windows inside a computation.
+        "pending" => {
+            let of = e["of"].clone();
+            let p = prev.clone();
+            rt.is_pending_of(|rt| eval(rt, h, &of, &p).map(|_| ()))
+                .map(Value::Bool)
+        }
+        "latest" => {
+            let of = e["of"].clone();
+            let p = prev.clone();
+            rt.latest_of(|rt| eval(rt, h, &of, &p))
+        }
         op => panic!("expression {op} is outside the op language"),
     }
 }
@@ -803,6 +822,12 @@ fn step(rt: &mut Runtime, h: &Host, st: &J) -> Result<(), Error> {
             panic!("a refresh of a host function is outside the op language")
         };
         rt.refresh(id);
+        Ok(())
+    } else if has(st, "affects") {
+        let NodeRef::Node(id) = h.nodes.borrow()[text(st, "affects")] else {
+            panic!("affects of a host function is outside the op language")
+        };
+        rt.affects(id);
         Ok(())
     } else if has(st, "refresh_store") {
         let p = h.stores.borrow()[text(st, "refresh_store")].clone();
@@ -1029,6 +1054,19 @@ fn child_c(rt: &mut Runtime, h: &Host, r: &J, pre: &str, cx: &Cx) -> Result<(), 
         let name = text(&o, "id").to_owned();
         o["id"] = json!(format!("{pre}.{name}"));
         let b = make_show(rt, h, &o, cx);
+        scope_set(cx, &name, b);
+        return Ok(());
+    }
+    if has(r, "loading") || has(r, "errored") {
+        let loading = has(r, "loading");
+        let mut o = if loading {
+            r["loading"].clone()
+        } else {
+            r["errored"].clone()
+        };
+        let name = text(&o, "id").to_owned();
+        o["id"] = json!(format!("{pre}.{name}"));
+        let b = make_boundary(rt, h, &o, cx, loading);
         scope_set(cx, &name, b);
         return Ok(());
     }
@@ -1282,6 +1320,80 @@ fn make_show(rt: &mut Runtime, h: &Host, o: &J, cx: &Cx) -> NodeRef {
     NodeRef::Node(outer)
 }
 
+/// `makeBoundary(o, cx, loading)` (tier D): `createLoadingBoundary(kids, () =>
+/// fb())` or `createErrorBoundary(kids, (err, reset) => fb(err))`; the
+/// boundary's output node, read as its accessor.
+fn make_boundary(rt: &mut Runtime, h: &Host, o: &J, cx: &Cx, loading: bool) -> NodeRef {
+    let id = text(o, "id").to_owned();
+    let kp = Rc::new(std::cell::Cell::new(0i64));
+    let fp = Rc::new(std::cell::Cell::new(0i64));
+    let kids: rust_solid::slice1::Getter = {
+        let (h, cx, o, id) = (h.clone(), cx.clone(), o.clone(), id.clone());
+        Rc::new(move |rt: &mut Runtime| {
+            kp.set(kp.get() + 1);
+            let p = kp.get();
+            let pre = format!("{id}^{p}");
+            push(&h, json!(["bcontent", id, p]));
+            let sc = pass_cx(cx.row.clone());
+            for r in o["children"].as_array().into_iter().flatten() {
+                child_c(rt, &h, r, &pre, &sc)?;
+            }
+            if has(&o, "expr") {
+                within(&h, Some(sc), || eval(rt, &h, &o["expr"], &Value::Undef))
+            } else {
+                Ok(Value::Int(p))
+            }
+        })
+    };
+    // `fb(err)`: the fallback pass; an Errored's reads the error when `err`.
+    let fb = {
+        let (h, cx, o, id) = (h.clone(), cx.clone(), o.clone(), id.clone());
+        Rc::new(
+            move |rt: &mut Runtime, err: Option<Value>| -> Result<Value, Error> {
+                fp.set(fp.get() + 1);
+                let p = fp.get();
+                let pre = format!("{id}~{p}");
+                push(&h, json!(["bfallback", id, p]));
+                if let Some(err) = err {
+                    if o["err"] == true {
+                        let e = rt.call(&err, &[])?;
+                        let m = match e {
+                            Value::Error(e) => err_text(&e),
+                            Value::Undef => "undefined".to_owned(),
+                            other => panic!(
+                                "an error accessor's value {other:?} is outside the op language"
+                            ),
+                        };
+                        push(&h, json!(["berror", id, m]));
+                    }
+                }
+                let sc = pass_cx(cx.row.clone());
+                for r in o["fallback"].as_array().into_iter().flatten() {
+                    child_c(rt, &h, r, &pre, &sc)?;
+                }
+                Ok(Value::Int(-p))
+            },
+        )
+    };
+    let output = if loading {
+        let fb = fb.clone();
+        rt.loading_boundary(kids, Rc::new(move |rt: &mut Runtime| fb(rt, None)))
+    } else {
+        let (h, id) = (h.clone(), id.clone());
+        let f = rt.function(
+            2,
+            Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+                h.resets
+                    .borrow_mut()
+                    .insert(id.clone(), args.get(1).cloned().unwrap_or(Value::Undef));
+                fb(rt, Some(args.first().cloned().unwrap_or(Value::Undef)))
+            }),
+        );
+        rt.error_boundary(kids, f)
+    };
+    NodeRef::Node(output)
+}
+
 /// `childPass(o, pre)`: the children built untracked, then the pass cleanup.
 fn child_pass(rt: &mut Runtime, h: &Host, o: &J, pre: &str) -> Result<(), Error> {
     rt.untrack(|rt| {
@@ -1519,6 +1631,28 @@ fn run(ops: Vec<J>, h: Host) -> J {
                 let b = rt.with_owner(owner, |rt| make_show(rt, &h, &op, &pass_cx(None)));
                 h.nodes.borrow_mut().insert(id, b);
             }
+            // Tier D ops.
+            "loading" | "errored" => {
+                let id = text(&op, "id").to_owned();
+                let owner = owner_of(&h, &op);
+                let loading = text(&op, "op") == "loading";
+                let b = rt.with_owner(owner, |rt| {
+                    make_boundary(rt, &h, &op, &pass_cx(None), loading)
+                });
+                h.nodes.borrow_mut().insert(id, b);
+            }
+            "affects" => {
+                let NodeRef::Node(id) = h.nodes.borrow()[text(&op, "id")] else {
+                    panic!("affects of a host function is outside the op language")
+                };
+                rt.affects(id);
+            }
+            "reset" => {
+                let r = h.resets.borrow().get(text(&op, "id")).cloned();
+                if let Some(r) = r {
+                    let _ = rt.call(&r, &[]);
+                }
+            }
             "action" => {
                 let extended = has(&op, "catch")
                     || op["slices"]
@@ -1552,16 +1686,20 @@ fn run(ops: Vec<J>, h: Host) -> J {
                     };
                     rt.settle_flight_value(flight, result);
                 }
-                // `await drain()`: the queued microtasks run in order, then `S.flush()`.
+                // `await drain()`: 32 turns of `await Promise.resolve()` (the
+                // queued microtasks run in order), then `S.flush()`, then the
+                // caller's own `await` of drain's promise: one more turn.
                 let h2 = h.clone();
-                rt.run_microtasks(&mut |a, r| {
+                let mut settled = |a, r: Result<(), String>| {
                     let message = match r {
                         Ok(()) => J::Null,
                         Err(e) => json!(e),
                     };
                     push(&h2, json!(["action", action_names[&a], message]));
-                });
+                };
+                rt.run_microtask_turns(32, &mut settled);
                 rt.flush();
+                rt.run_microtask_turns(1, &mut settled);
             }
             "store" => {
                 let id = text(&op, "id").to_owned();

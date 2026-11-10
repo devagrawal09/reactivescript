@@ -1,10 +1,11 @@
 //! Solid: core.ts — node creation, `recompute`, `read` and `setSignal`.
 //!
-//! Not ported (unreached by the slices): snapshots, tracked verdict readers
-//! (`observeFlightHook` arms keyed off CONFIG_VERDICT on the reader, never
-//! set), the dev/observe tiers and the dormant-node sweep (every memo here
-//! is owned). Promoted writes are ported but never promote: every write
-//! inside a computation runs in a flush (`notePromotedWrite` returns).
+//! The verdict engine's arms (`observeFlightHook` is installed: a pass
+//! that probes is a verdict reader, CONFIG_VERDICT) are ported with
+//! verdict.rs. Not ported (unreached by the slices): snapshots, the
+//! dev/observe tiers and the dormant-node sweep (every memo here is
+//! owned). Promoted writes are ported but never promote: every write inside
+//! a computation runs in a flush (`notePromotedWrite` returns).
 use super::error::{self, Thrown};
 use super::r#async::Errored;
 use super::*;
@@ -86,9 +87,9 @@ impl Runtime {
         {
             own_tx
         } else if create
-            // `prevLane?._parent!._verdict != prevLane`: no verdict lanes, so
-            // true exactly when there is a creator lane.
-            && prev_lane.is_some()
+            // `prevLane?._parent!._verdict != prevLane`: a creator lane that
+            // is not a verdict lane (loose `!=`: false with none).
+            && prev_lane.is_some_and(|l| !self.is_verdict(l))
             && self
                 .creator_pass(self.context)
                 .is_some_and(|p| self.nodes[p].flags & REACTIVE_RECOMPUTING_DEPS != 0)
@@ -114,7 +115,9 @@ impl Runtime {
             if self.nodes[el].config & CONFIG_HELD != 0 {
                 let tx = self.tx_of(el);
                 if self.txs[tx].lane || self.nodes[el].config & CONFIG_LAGS != 0 {
-                } else if self.nodes[el].config & (CONFIG_VERDICT | CONFIG_FRAME) == 0 {
+                } else if self.nodes[el].config & (CONFIG_VERDICT | CONFIG_FRAME) == 0
+                    || (self.nodes[el].config & CONFIG_FRAME == 0 && self.born_into(el, tx))
+                {
                     let uninit = self.nodes[el].status & STATUS_UNINITIALIZED != 0;
                     let own = self.fresh_hook(el, uninit);
                     self.join_pass_tx(tx, own);
@@ -248,6 +251,7 @@ impl Runtime {
                         !staged_err
                     } {
                         if not_ready {
+                            self.nodes[el].x = true;
                             self.nodes[el].blocked = true;
                         }
                         self.notify_status(
@@ -301,10 +305,18 @@ impl Runtime {
                 None => REACTIVE_JOINED,
             }
             != 0;
-        // `observeFlightHook`: the pass's verdict posture. No pass probes
-        // here (REACTIVE_PROBED, REACTIVE_WINDOW, REACTIVE_AHEAD are never
-        // set), so it clears CONFIG_VERDICT and keeps nothing.
-        self.nodes[el].config &= !CONFIG_VERDICT;
+        // `observeFlightHook`: the pass's verdict posture — a verdict reader
+        // for as long as it probes or reads a memo that does (REACTIVE_PROBED
+        // is CONFIG_VERDICT's bit), its own window (CONFIG_OWN_PROBE) and its
+        // display-ahead read (CONFIG_AHEAD).
+        {
+            let f = self.nodes[el].flags;
+            let c = self.nodes[el].config;
+            self.nodes[el].config = (c & !(CONFIG_VERDICT | CONFIG_OWN_PROBE | CONFIG_AHEAD))
+                | (f & REACTIVE_PROBED)
+                | ((f & REACTIVE_WINDOW) << 9)
+                | ((f & REACTIVE_AHEAD) << 11);
+        }
         let flags = self.nodes[el].flags;
         self.nodes[el].flags = (flags
             & (REACTIVE_ZOMBIE
@@ -447,8 +459,10 @@ impl Runtime {
         }
         if create && lane.is_none() && joined && self.nodes[el].status & STATUS_PENDING != 0 {
             if let Some(t) = self.flush_transaction.or(self.pass_tx) {
-                // `freshHook(el) === CAUGHT_REARMED`: no boundary re-arms.
-                if !self.txs[t].lane {
+                // `(isEffect && freshHook(el) === CAUGHT_REARMED) ||
+                // holdNode(el, t)`: an effect asks its boundaries first.
+                let rearmed = is_effect != 0 && self.fresh_hook_value(el, false) == CAUGHT_REARMED;
+                if !self.txs[t].lane && !rearmed {
                     self.hold_node(el, t);
                 }
             }
@@ -570,8 +584,22 @@ impl Runtime {
         self.computed_node(Body::User(f), loading, 0)
     }
 
+    /// `computed(fn, { lazy: 1 })` (core.ts:1144-1253): CONFIG_AUTO_DISPOSE
+    /// and REACTIVE_LAZY, and no first pass until a read (a boundary's
+    /// fallback, boundaries.ts:577-580).
+    pub(super) fn computed_lazy(&mut self, f: BodyFn) -> NodeId {
+        let n = self.add_node(Kind::Computed, Value::Undef);
+        let node = &mut self.nodes[n];
+        node.config = CONFIG_AUTO_DISPOSE;
+        node.fn_ = Some(Body::User(f));
+        node.flags = REACTIVE_LAZY;
+        node.status = STATUS_UNINITIALIZED;
+        self.setup_computed_node(n, true);
+        n
+    }
+
     // Solid: core.ts:1292-1308
-    fn join_pass(&mut self, c: NodeId, el: NodeId) {
+    pub(super) fn join_pass(&mut self, c: NodeId, el: NodeId) {
         self.nodes[c].flags |= REACTIVE_JOINED;
         if self.nodes[el].status & STATUS_UNINITIALIZED != 0
             || self.nodes[c].effect_type != EFFECT_RENDER
@@ -599,26 +627,30 @@ impl Runtime {
         self.schedule();
     }
 
-    // Solid: core.ts:1342-1399 (no verdict readers: `verdict` is false)
+    // Solid: core.ts:1342-1399
     fn frame_read(&mut self, c: NodeId, el: NodeId) -> bool {
+        let verdict = self.nodes[c].config & CONFIG_VERDICT != 0;
         let lane = self.pass_lane.is_some();
-        if !((!lane
-            || (self.nodes[c].status & STATUS_UNINITIALIZED != 0
-                && self.nodes[el].status & STATUS_PENDING != 0))
-            && (self.nodes[c].config & (EFFECT_RENDER << 23) == 0
-                || self.nodes[el].config & CONFIG_INPUTS_PUBLISHED != 0))
+        if !(verdict && self.hold_staging(c, el))
+            && !((!lane
+                || (self.nodes[c].status & STATUS_UNINITIALIZED != 0
+                    && self.nodes[el].status & STATUS_PENDING != 0))
+                && !verdict
+                && (self.nodes[c].config & (EFFECT_RENDER << 23) == 0
+                    || self.nodes[el].config & CONFIG_INPUTS_PUBLISHED != 0))
         {
             let t = self.tx_of(el);
-            if lane {
+            if lane && !verdict {
                 if let Some(over) = self.txs[self.pass_lane.unwrap()].over {
                     if self.resolve_tx(over) == t {
                         return false;
                     }
                 }
             }
-            if !((!lane && Some(t) == self.flush_transaction) || self.born_into(c, t)) {
+            let own_flush = !lane && Some(t) == self.flush_transaction && !verdict;
+            if !own_flush && !self.born_into(c, t) {
                 self.stale_reader(c, t);
-                if lane {
+                if lane || verdict {
                     self.lane_served(c, el);
                 }
                 return true;
@@ -646,8 +678,19 @@ impl Runtime {
         }
     }
 
+    // Solid: core.ts:1426-1430 (`creatorReads`)
+    pub(super) fn creator_reads(&self, p: NodeId, born: u32) -> u32 {
+        match self.creator_pass(self.nodes[p].parent) {
+            Some(q) if self.nodes[q].flags & REACTIVE_RECOMPUTING_DEPS != 0 => {
+                self.creator_reads(q, born | self.nodes[q].flags)
+            }
+            _ => born & (REACTIVE_JOINED | REACTIVE_STAGED_READ),
+        }
+    }
+
     // Solid: core.ts:1436-1444
     fn park_children(&mut self, el: NodeId) {
+        self.nodes[el].x = true; // `ext(el)`
         self.mark_disposal(el);
         self.nodes[el].pending_disposal = std::mem::take(&mut self.nodes[el].disposal);
         self.nodes[el].pending_first_child = self.nodes[el].first_child.take();
@@ -706,7 +749,19 @@ impl Runtime {
         } else if self.nodes[comp].flags & REACTIVE_DISPOSED != 0
             && self.nodes[comp].config & CONFIG_AUTO_DISPOSE != 0
         {
-            panic!("reawakening a dormant memo is not ported");
+            // A dormant observation-lifecycle node (a boundary's lazy
+            // fallback its output stopped reading) reawakens: relinked under
+            // its owner, unless that owner died, and recomputed.
+            if let Some(parent) = self.nodes[comp].parent {
+                if self.nodes[parent].flags & REACTIVE_DISPOSED != 0 {
+                    self.nodes[comp].config &= !CONFIG_AUTO_DISPOSE;
+                    return;
+                }
+                if self.nodes[comp].flags & REACTIVE_ZOMBIE == 0 {
+                    self.link_child(parent, comp);
+                }
+            }
+            self.recompute(comp, true);
         }
     }
 
@@ -749,7 +804,7 @@ impl Runtime {
     }
 
     // Solid: core.ts:2009-2014
-    fn mark_late_linker(&mut self, c: NodeId) {
+    pub(super) fn mark_late_linker(&mut self, c: NodeId) {
         self.nodes[c].flags |= REACTIVE_MISSED_WAKE;
     }
 
@@ -782,8 +837,7 @@ impl Runtime {
     }
 
     // Solid: core.ts:2585-2612 (`stagedScreen`). `holdStagingHook` is the
-    // verdict engine's (verdict.ts:873-890); `latestOpened` is set only by
-    // a tracked `latest()`, which no pass here runs.
+    // verdict engine's (verdict.ts:873-890).
     pub(super) fn staged_screen(&mut self, c: NodeId, el: Option<NodeId>) -> bool {
         let Some(f) = self.flush_transaction else {
             return false;
@@ -796,12 +850,24 @@ impl Runtime {
         {
             return false;
         }
+        // `flushTransaction === latestOpened`: `openedByLatest` has no caller
+        // in rc.21, so `latestOpened` stays null and, with a flush
+        // transaction, this arm is never taken.
+        if self.latest_opened == Some(f)
+            && self.pass_lane.is_none()
+            && self.nodes[c].config & CONFIG_VERDICT != 0
+            && self.nodes[c].status & STATUS_UNINITIALIZED == 0
+        {
+            // `return !stagedReaders.push(c)`: false.
+            self.staged_readers.push(c);
+            return false;
+        }
         self.stale_reader(c, f);
         true
     }
 
     // Solid: core.ts:2028-2044
-    fn pull_computed(&mut self, owner: NodeId, c: NodeId) {
+    pub(super) fn pull_computed(&mut self, owner: NodeId, c: NodeId) {
         if self.nodes[owner].height >= self.dirty_queue.min {
             self.mark_node(c, REACTIVE_DIRTY);
             self.mark_heap();
@@ -844,6 +910,7 @@ impl Runtime {
                 return false;
             }
         }
+        self.nodes[c].x = true; // `ext(c)._served`
         self.nodes[c].served = self.clock as i64;
         self.nodes[c].flags |= REACTIVE_MISSED_WAKE;
         true
@@ -896,11 +963,12 @@ impl Runtime {
             let Some(pending) = self.nodes[el].pending.clone() else {
                 return Ok(self.nodes[el].value.clone());
             };
-            // D-8: writes that netted; lane work over a folded lane reads
-            // the screen (`stagedScreen`; no verdict readers here).
+            // D-8: writes that netted; a verdict reader, or lane work over a
+            // folded lane, reads the screen (`stagedScreen`).
             let netted = pending == self.nodes[el].value;
             if netted
-                || (self.pass_lane.is_some_and(|l| self.txs[l].folded)
+                || ((self.nodes[c].config & CONFIG_VERDICT != 0
+                    || self.pass_lane.is_some_and(|l| self.txs[l].folded))
                     && self.staged_screen(c, Some(el)))
             {
                 return Ok(self.nodes[el].value.clone());
@@ -914,8 +982,35 @@ impl Runtime {
                 self.link(el, c);
                 if self.nodes[el].fn_.is_some() {
                     self.pull_computed(el, c);
-                    // F-6 (`REACTIVE_AHEAD`, the verdict posture): `el` is
-                    // never a verdict memo here, so neither mark applies.
+                    // F-6 (#4050, #4544): a render effect never committed
+                    // reading a settled verdict reader's value reads ahead
+                    // (REACTIVE_AHEAD); a memo over a verdict reader's value
+                    // is a verdict reader from this pass's end.
+                    let (oc, os) = (self.nodes[el].config, self.nodes[el].status);
+                    let (cc, cs) = (self.nodes[c].config, self.nodes[c].status);
+                    if self.nodes[c].effect_type == EFFECT_RENDER
+                        && oc & CONFIG_VERDICT != 0
+                        && os & (STATUS_PENDING | STATUS_UNINITIALIZED) == 0
+                        && if cs & STATUS_UNINITIALIZED != 0 {
+                            cc & CONFIG_HELD != 0 || self.flush_transaction.is_some()
+                        } else {
+                            cc & CONFIG_HELD_FRAME != 0
+                        }
+                    {
+                        self.nodes[c].flags |= REACTIVE_AHEAD;
+                    }
+                    if self.nodes[c].effect_type == 0 {
+                        // `owner._config & CONFIG_VERDICT & (pending && (staged
+                        // || uninitialized) ? c._config : -1)`
+                        let m = if os & STATUS_PENDING != 0
+                            && (cc & CONFIG_STAGED != 0 || cs & STATUS_UNINITIALIZED != 0)
+                        {
+                            cc
+                        } else {
+                            u32::MAX
+                        };
+                        self.nodes[c].flags |= oc & CONFIG_VERDICT & m;
+                    }
                 }
             }
             if self.nodes[el].config & CONFIG_HELD != 0
@@ -931,7 +1026,6 @@ impl Runtime {
         }
         if self.nodes[el].config & CONFIG_OVERRIDE != 0 {
             if let Some(v) = self.lane_read(c, el)? {
-                self.served_as_value(el);
                 return Ok(v);
             }
         }
@@ -941,8 +1035,8 @@ impl Runtime {
             && self.nodes[el].config & CONFIG_OVERRIDE == 0
             && status & STATUS_UNINITIALIZED == 0
         {
-            if c.is_some_and(|c| self.nodes[c].config & CONFIG_VERDICT != 0) {
-                panic!("observeFlight (a verdict reader's read of a flight) is not ported");
+            if let Some(cv) = c.filter(|c| self.nodes[*c].config & CONFIG_VERDICT != 0) {
+                committed = self.observe_flight(cv, el);
             } else if self.pass_lane.is_some()
                 && c.is_none_or(|c| self.nodes[c].status & STATUS_UNINITIALIZED == 0)
             {
@@ -992,18 +1086,6 @@ impl Runtime {
         Ok(value)
     }
 
-    /// A lane read served `laneValueOf(el)`, which is `_pendingValue` for a
-    /// derivation: with a staged error there (D-41), Solid hands the
-    /// `StatusError` object to the reader as a value, and the reader's
-    /// arithmetic turns it into a string. Values here are integers: fail
-    /// closed.
-    pub(super) fn served_as_value(&self, el: NodeId) {
-        let n = &self.nodes[el];
-        if n.config & CONFIG_GUESS == 0 && n.pending_err.is_some() {
-            panic!("a staged error served as a lane value (truth.ts:24) is not ported");
-        }
-    }
-
     /// `throw owner._x?._error` (a thrown `undefined` is not reached).
     fn thrown_error(&self, el: NodeId) -> Error {
         self.nodes[el]
@@ -1020,8 +1102,7 @@ impl Runtime {
         }
     }
 
-    // Solid: core.ts:2469-2523 (no verdict reader: `stagedScreen` is not
-    // asked; `spectating` is never set)
+    // Solid: core.ts:2469-2523 (`spectating` is never set)
     fn serve(&mut self, el: NodeId, c: Option<NodeId>) -> Result<Value, Error> {
         let forbidden = c.is_some_and(|c| self.nodes[c].config & CONFIG_CHILDREN_FORBIDDEN != 0);
         if self.nodes[el].pending.is_some()
@@ -1042,6 +1123,16 @@ impl Runtime {
         if self.reader_sees_committed(el, c) {
             return Ok(self.nodes[el].value.clone());
         }
+        // A verdict reader sees the screen (`stagedScreen`), a shown error
+        // included (`!throwShown(el)`).
+        let c0 = c.expect("a reader");
+        if self.nodes[c0].config & CONFIG_VERDICT != 0
+            && self.nodes[el].status & STATUS_UNINITIALIZED == 0
+            && self.staged_screen(c0, Some(el))
+        {
+            self.throw_shown(el)?;
+            return Ok(self.nodes[el].value.clone());
+        }
         // Prod: `!(__DEV__ && strictRead)` always holds.
         self.staged_read(c.unwrap(), Some(el));
         if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
@@ -1057,8 +1148,11 @@ impl Runtime {
     pub(super) fn staged_read(&mut self, c: NodeId, el: Option<NodeId>) {
         if el.is_none_or(|el| self.nodes[el].status & STATUS_UNINITIALIZED == 0) {
             self.nodes[c].flags |= REACTIVE_STAGED_READ;
-            // A verdict reader effect also pushes; none here.
-            if self.pass_lane.is_some() {
+            // Lane work, and a verdict reader effect (`laneSeamsHook` is
+            // installed).
+            if self.pass_lane.is_some()
+                || (self.nodes[c].effect_type != 0 && self.nodes[c].config & CONFIG_VERDICT != 0)
+            {
                 self.staged_readers.push(c);
             }
         }

@@ -18,6 +18,7 @@
 //!
 //! The M1 graph in `lib.rs` is not used here: its scheduler semantics differ.
 mod action;
+mod affects;
 mod r#async;
 mod boundaries;
 mod core;
@@ -46,7 +47,7 @@ pub use error::thrown_string;
 pub use error::user as user_error;
 pub use error::{Error, Thrown};
 pub use flatten::FlattenOptions;
-pub use flow::{Component, ForProps, Getter, ShowProps};
+pub use flow::{Component, ErroredProps, ForProps, Getter, LoadingProps, ShowProps};
 pub use function::FnBody;
 pub use map::{FallbackFn, KeyFn, Keyed, ListFn, MapArg, MapFn};
 use std::{collections::VecDeque, rc::Rc};
@@ -124,14 +125,19 @@ const REACTIVE_FRAME_READ: u32 = 1 << 11;
 const REACTIVE_MISSED_WAKE: u32 = 1 << 12;
 const REACTIVE_REASK: u32 = 1 << 13;
 const REACTIVE_STAGED_READ: u32 = 1 << 14;
+const REACTIVE_PROBED: u32 = 1 << 15;
 const REACTIVE_LANE_DIRTY: u32 = 1 << 16;
 const REACTIVE_LANE_READ: u32 = 1 << 17;
 const REACTIVE_SCREEN_READ: u32 = 1 << 18;
 const REACTIVE_PROBE_UNANSWERED: u32 = 1 << 19;
+const REACTIVE_AHEAD: u32 = 1 << 20;
 const REACTIVE_WINDOW: u32 = 1 << 21;
 const REACTIVE_RELEASE_AFTER: u32 = 1 << 22;
 // Solid: constants.ts:89-237 (the `_config` bits used here)
 const CONFIG_OWNED_WRITE: u32 = 1 << 0;
+/// `_noSnapshot` (snapshots are not ported: a boundary's output and error
+/// signal carry the bit, nothing reads it).
+const CONFIG_NO_SNAPSHOT: u32 = 1 << 1;
 const CONFIG_CHILDREN_FORBIDDEN: u32 = 1 << 4;
 const CONFIG_AUTO_DISPOSE: u32 = 1 << 5;
 const CONFIG_SYNC: u32 = 1 << 6;
@@ -152,11 +158,17 @@ const CONFIG_STAGED_ERROR: u32 = 1 << 21;
 const CONFIG_PROMOTED: u32 = 1 << 22;
 const CONFIG_FRAME: u32 = 1 << 23;
 const CONFIG_ASYNC: u32 = 1 << 29;
+/// Solid: constants.ts:243 (`REACTIVE_WINDOW << 9`)
+const CONFIG_OWN_PROBE: u32 = REACTIVE_WINDOW << 9;
+/// Solid: constants.ts:247 (`REACTIVE_AHEAD << 11`)
+const CONFIG_AHEAD: u32 = REACTIVE_AHEAD << 11;
 // Solid: constants.ts:249-265
 const STATUS_PENDING: u32 = 1 << 0;
 const STATUS_ERROR: u32 = 1 << 1;
 const STATUS_UNINITIALIZED: u32 = 1 << 2;
 const STATUS_NO_VALUE: u32 = 1 << 3;
+/// Solid: constants.ts:260 (`catchHook`'s answer for a re-armed boundary)
+const CAUGHT_REARMED: u32 = 2;
 pub const EFFECT_RENDER: u32 = 1;
 pub const EFFECT_USER: u32 = 2;
 /// Solid: constants.ts:265 (`createTrackedEffect`; no op creates one).
@@ -278,6 +290,27 @@ struct Node {
     pxv: Value,
     /// A derived store's derive: `(node as any)._fam`.
     fam: Option<FamId>,
+    /// `_context[BOUNDARY]` (boundaries.ts:133): the nearest boundary, the
+    /// context entry a node inherits from its owner at creation.
+    boundary: Option<boundaries::BoundaryId>,
+    /// `_x._marks` (affects-marks.ts): live `affects()` marks on the node.
+    marks: u32,
+    /// `_x._askedIn` (verdict.ts:475, #4544): the hold or flush a window
+    /// asked of this node's staging in.
+    asked_in: AskedIn,
+    /// `_x !== null`: the cold extension was allocated (`ext()`, core.ts:
+    /// 1259). Its fields are inlined above; only an effect's first run reads
+    /// the difference (`node._x?._transaction` is undefined without one,
+    /// effect.ts:100, and `enqueue`'s lane defaults to `passLane` then).
+    x: bool,
+}
+
+/// `_x._askedIn`: unset, a clock tick, or a transaction.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum AskedIn {
+    None,
+    Clock(u64),
+    Tx(TxId),
 }
 
 impl Node {
@@ -335,6 +368,10 @@ impl Node {
             px: Value::Undef,
             pxv: Value::Undef,
             fam: None,
+            boundary: None,
+            marks: 0,
+            asked_in: AskedIn::None,
+            x: false,
         }
     }
 }
@@ -345,14 +382,24 @@ impl Node {
 enum QueueCallback {
     RunEffect(NodeId),
     ReleaseQueues(TxId),
+    /// A boundary output's deferred `drop` of the fallback it replaced
+    /// (boundaries.ts:498-510): the boundary and that fallback's computed.
+    DropFallback(boundaries::BoundaryId, NodeId),
 }
 
-/// Solid: scheduler.ts:266-327 `Transaction`. `_verdict`, `_marks` and
-/// `latest` stay null/unset here (tracked verdict readers and `affects()`
-/// are not ported), so they are omitted and their tests are constant
-/// false. `_links` is an index into `Runtime::link_groups` (the shared JS
-/// array). `folded` is set only to `foldedRead` (store/optimistic.ts).
+/// Solid: scheduler.ts:260-323 `Transaction`. `_links` is an index into
+/// `Runtime::link_groups` (the shared JS array). `folded` is set only to
+/// `foldedRead` (store/optimistic.ts).
 struct Transaction {
+    /// `_verdict`: the lane the readers of this transaction's verdicts
+    /// break out into (lanes.ts `verdictLane`).
+    verdict: Option<TxId>,
+    /// `_marks`: `affects()` marks declared in it (affects.ts); null is
+    /// `None`.
+    marks: Option<Vec<NodeId>>,
+    /// `latest`: opened by a `latest()` read of an unheld flight
+    /// (verdict.ts `pendingVerdict`).
+    latest: bool,
     /// `folded`: a current truth folded beneath a keyed arrangement guess.
     folded: bool,
     /// `over`: the derive's transaction a lane was re-based over (#4525).
@@ -384,6 +431,9 @@ pub enum Microtask {
     Landing(NodeId, FlightId, Option<usize>),
     /// `refresh()`'s deferred waiter (signals.ts:961-998).
     Waiter(NodeId, Option<TxId>),
+    /// The host's own continuation: `await Promise.resolve()` (one job,
+    /// FIFO), which ends a turn of `run_microtask_turns`.
+    Tick,
     /// A waiter's `queueMicrotask(() => onValue(v))` / `onError` (signals.ts:845-847):
     /// both dispose the waiter (signals.ts:985-992).
     Deliver(NodeId),
@@ -496,6 +546,25 @@ pub struct Runtime {
     comparators: Vec<EqualsFn>,
     /// Host-made function values (function.rs), by identity.
     functions: std::collections::HashMap<u64, function::JsFunction>,
+    /// scheduler.ts:380 `latestOpened` (reset at each seam; `openedByLatest`
+    /// has no caller in rc.21, so it stays null).
+    latest_opened: Option<TxId>,
+    /// lanes.ts:1252 `ahead`: this flush's verdict readers that read a
+    /// flight ahead of the frame.
+    ahead: Vec<NodeId>,
+    /// lanes.ts:1254 `entered`: render effects that read a verdict and
+    /// entered a lane before its seam (#4284).
+    entered: Vec<NodeId>,
+    /// affects.ts:33 `ambient`: marks declared outside a transaction.
+    ambient: Vec<NodeId>,
+    /// affects-marks.ts:27 `active`: live marks, every declarer.
+    marks_active: u32,
+    /// boundaries.ts: every boundary, by creation.
+    boundaries: Vec<boundaries::Boundary>,
+    /// boundaries.ts:177 `collecting` (a JS `Set`).
+    collecting: boundaries::Collecting,
+    /// error-hooks.ts `reported` (a WeakSet of thrown objects).
+    reported: Vec<Error>,
     /// Debugging aid: `SLICE1_TRACE` prints scheduler events to stderr in
     /// the format of the instrumented Solid copy (docs/slice2a-fuzz).
     trace: bool,
@@ -562,6 +631,14 @@ impl Default for Runtime {
             maps: vec![],
             comparators: vec![],
             functions: Default::default(),
+            latest_opened: None,
+            ahead: vec![],
+            entered: vec![],
+            ambient: vec![],
+            marks_active: 0,
+            boundaries: vec![],
+            collecting: Default::default(),
+            reported: vec![],
             trace: std::env::var_os("SLICE1_TRACE").is_some(),
         }
     }
@@ -610,7 +687,11 @@ impl Runtime {
     }
     fn add_node(&mut self, kind: Kind, value: Value) -> NodeId {
         let id = self.nodes.len();
-        self.nodes.push(Node::new(kind, value, id, self.clock));
+        let mut node = Node::new(kind, value, id, self.clock);
+        // `_context: context?._context`: the nearest boundary is inherited
+        // from the creating owner.
+        node.boundary = self.context.and_then(|c| self.nodes[c].boundary);
+        self.nodes.push(node);
         id
     }
     /// `createSignal(value)` (signals.ts:413-429).
@@ -762,6 +843,35 @@ impl Runtime {
     /// reactions (`Resume`, `Settled`) are handled by `action.rs`.
     pub fn run_microtasks(&mut self, on_settled: &mut dyn FnMut(ActionId, Result<(), String>)) {
         while let Some(m) = self.microtasks.pop_front() {
+            self.run_microtask(m, on_settled);
+        }
+    }
+    /// `for (i < turns) await Promise.resolve()` (fuzz/solid.mjs `drain`):
+    /// each turn queues the host's continuation and runs the microtasks
+    /// queued before it, in order; a chain still going after the last turn
+    /// waits in the queue (a microtask chain that never ends stops being
+    /// observed, as in JS).
+    pub fn run_microtask_turns(
+        &mut self,
+        turns: usize,
+        on_settled: &mut dyn FnMut(ActionId, Result<(), String>),
+    ) {
+        for _ in 0..turns {
+            self.microtasks.push_back(Microtask::Tick);
+            while let Some(m) = self.microtasks.pop_front() {
+                if m == Microtask::Tick {
+                    break;
+                }
+                self.run_microtask(m, on_settled);
+            }
+        }
+    }
+    fn run_microtask(
+        &mut self,
+        m: Microtask,
+        on_settled: &mut dyn FnMut(ActionId, Result<(), String>),
+    ) {
+        {
             match m {
                 Microtask::Flush => self.flush_all(),
                 Microtask::Resume(a) => self.resume_action(a),
@@ -775,6 +885,9 @@ impl Runtime {
                 Microtask::Landing(el, f, pass) => self.flight_reaction(el, f, pass),
                 Microtask::Waiter(node, own) => self.refresh_waiter(node, own),
                 Microtask::Deliver(waiter) => self.dispose(waiter),
+                // A turn's end (`run_microtask_turns`) left in the queue by
+                // `run_microtasks`: nothing awaits it any more.
+                Microtask::Tick => {}
             }
         }
     }

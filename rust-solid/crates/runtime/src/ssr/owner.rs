@@ -1,22 +1,38 @@
 //! The lean SSR owner runtime of Solid's server build
-//! (solid/src/server/signals.ts:150-705): a forward-only owner tree whose only
-//! jobs are hydration-id allocation, `onCleanup` and disposal. It is not the
-//! client owner of `slice1/owner.rs`: no queue, heap, zombies or flags.
+//! (solid/src/server/signals.ts:150-705): a forward-only owner tree whose
+//! jobs are hydration-id allocation, `onCleanup`, disposal, and the context
+//! records the boundaries read (`ErrorContext`, `NoHydrateContext`). It is
+//! not the client owner of `slice1/owner.rs`: no queue, heap, zombies or
+//! flags.
 //!
 //! Not ported, because a plan app never reaches them: the owner pool
 //! (`ownerPool`, an allocation cache whose reuse resets every field, so it is
 //! not observable), the observe/dev `_name`/`_loc` labels and transparent
-//! component owners (`createComponentOwner`, observe tier only), `_context`
-//! records (a plan app sets no context; `getContext(NoHydrateContext)` reads
-//! the default `false`, see `Server::get_next_context_id`), the dev-only
-//! `devPeekNextChildId`, and the thrower stamps (`stampThrower`, which only
-//! feed the server error hook).
+//! component owners (`createComponentOwner`, observe tier only), contexts
+//! other than the two above (`RevealGroupContext` is set to `null` and never
+//! read here; a plan app sets no `NoHydrateContext`, whose default `false` is
+//! read), the dev-only `devPeekNextChildId`, and the thrower stamps
+//! (`stampThrower`, which only feed the server error hook).
+use super::boundary::ErrorHandler;
 use super::value::{throw, Res};
 use super::Server;
 use std::rc::Rc;
 
 pub type OwnerId = usize;
 pub type Cleanup = Rc<dyn Fn(&mut Server)>;
+
+/// An owner's `_context` record (signals.ts:500-541): the contexts the
+/// server reads. Copied on write (`setContext` replaces the record), and
+/// shared with the children allocated after (`allocateOwner`).
+#[derive(Clone, Default)]
+pub struct OwnerCtx {
+    /// `ErrorContext` (signals.ts:3800-3803): the nearest boundary's error
+    /// handler; `null` by default.
+    pub error: Option<ErrorHandler>,
+    /// `NoHydrateContext` (shared.ts:187-190): `false` by default. No plan
+    /// app sets it.
+    pub no_hydrate: Option<bool>,
+}
 
 pub struct SsrOwner {
     /// The hydration id, or, while `scope_slot >= 0`, the prefix of a pending
@@ -30,6 +46,7 @@ pub struct SsrOwner {
     pub children: Vec<OwnerId>,
     pub disposed: bool,
     pub scope_slot: i64,
+    pub context: Rc<OwnerCtx>,
 }
 
 // Solid: signals.ts:235-239 (`formatChildId`)
@@ -130,6 +147,10 @@ impl Server {
                 _ => None,
             },
         };
+        let context = match parent {
+            Some(p) => self.owners[p].context.clone(),
+            None => Rc::new(OwnerCtx::default()),
+        };
         let o = self.owners.len();
         self.owners.push(SsrOwner {
             id,
@@ -140,6 +161,7 @@ impl Server {
             children: vec![],
             disposed: false,
             scope_slot: -1,
+            context,
         });
         if let Some(p) = parent {
             // Pushed at the head of the forward list.
@@ -159,6 +181,28 @@ impl Server {
         let result = f(self);
         self.current = prev;
         result
+    }
+
+    // Solid: signals.ts:507-522 (`getContext`), for `ErrorContext`: a
+    // missing owner throws `NoOwnerError`, which no server path of a plan app
+    // reaches (every read is under the render root).
+    pub fn error_context(&self, owner: Option<OwnerId>) -> Res<Option<ErrorHandler>> {
+        match owner {
+            Some(o) => Ok(self.owners[o].context.error.clone()),
+            None => throw("NoOwnerError: getContext(ErrorContext) outside an owner"),
+        }
+    }
+
+    // Solid: signals.ts:524-541 (`setContext`, `ErrorContext`): a new record.
+    pub fn set_error_context(&mut self, owner: OwnerId, handler: Option<ErrorHandler>) {
+        let mut ctx = (*self.owners[owner].context).clone();
+        ctx.error = handler;
+        self.owners[owner].context = Rc::new(ctx);
+    }
+
+    // Solid: signals.ts:507-522 (`getContext(NoHydrateContext)`)
+    pub fn no_hydrate(&self, owner: OwnerId) -> bool {
+        self.owners[owner].context.no_hydrate.unwrap_or(false)
     }
 
     // Solid: signals.ts:478-480 (`getOwner`)

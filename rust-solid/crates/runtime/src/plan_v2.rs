@@ -14,9 +14,9 @@
 //! built.
 use crate::renderer::TreeRenderer;
 use crate::slice1::{
-    user_error, ActionBody, ActionId, ActionStep, BodyFn, Builtin, Disposer, Error, ForProps,
-    Getter, InsertOptions, JsObj, Key, Marker, NodeId, Out, Resume, Runtime, ShowProps, Universal,
-    Value,
+    user_error, ActionBody, ActionId, ActionStep, BodyFn, Builtin, Disposer, Error, ErroredProps,
+    ForProps, Getter, InsertOptions, JsObj, Key, LoadingProps, Marker, NodeId, Out, Resume,
+    Runtime, ShowProps, Universal, Value,
 };
 use serde::Deserialize;
 use serde_json::Value as J;
@@ -113,6 +113,15 @@ pub enum Expr {
         #[serde(rename = "else")]
         otherwise: Box<Expr>,
     },
+    /// v2.1 (PLAN-V2.md, "v2.1: async data", Expressions): `isPending(() =>
+    /// value)`, a reactive context only.
+    Pending {
+        value: Box<Expr>,
+    },
+    /// v2.1: `latest(() => value)`, a reactive context only.
+    Latest {
+        value: Box<Expr>,
+    },
     /// A value eval (frontend `docs/EVAL.md`): the whole value of a memo.
     /// The code is a reactive string; the host's table gives its plan, one
     /// expression over the bindings, of the declared scalar type.
@@ -203,6 +212,15 @@ pub enum Step {
         action: String,
         args: Vec<Expr>,
     },
+    /// v2.1: `refresh(source)` of an async memo, in an action or a plain
+    /// handler.
+    Refresh {
+        source: String,
+    },
+    /// v2.1: `affects(source)` of an async memo, in an action only.
+    Affects {
+        source: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -243,6 +261,17 @@ pub enum View {
         syntax: String,
         check: String,
     },
+    /// v2.1: `createComponent(Loading, { get fallback(), get children() })`.
+    Loading {
+        fallback: Vec<View>,
+        children: Vec<View>,
+    },
+    /// v2.1: `createComponent(Errored, { fallback: (err) => …, get
+    /// children() })`; the error is not bound.
+    Errored {
+        fallback: Vec<View>,
+        children: Vec<View>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -250,7 +279,12 @@ pub enum View {
 pub struct HostSig {
     pub name: String,
     pub params: Vec<String>,
+    /// A scalar type name, or (v2.1) a structured type in the eval
+    /// interface grammar, printed canonically (`HostType::print`).
     pub returns: String,
+    /// v2.1: `true` for an `export pure fn` host; absent otherwise.
+    #[serde(default)]
+    pub pure: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -273,7 +307,239 @@ pub struct Source {
 #[serde(deny_unknown_fields)]
 pub struct Memo {
     pub name: String,
-    pub value: Expr,
+    /// A memo's value; absent on an async memo.
+    #[serde(default)]
+    pub value: Option<Expr>,
+    /// v2.1: an async memo, `createMemo(() => host(…args))`.
+    #[serde(default, rename = "await")]
+    pub call: Option<AsyncCall>,
+}
+
+/// v2.1: an async memo's one host call.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AsyncCall {
+    pub host: String,
+    pub args: Vec<Expr>,
+}
+
+/// A plan's `version`: 2, or 2.1 (a JSON number) when a v2.1 form occurs.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlanVersion(pub f64);
+
+impl<'de> Deserialize<'de> for PlanVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let n = serde_json::Number::deserialize(d)?;
+        n.as_f64()
+            .map(PlanVersion)
+            .ok_or_else(|| serde::de::Error::custom(format!("plan version {n}")))
+    }
+}
+
+impl PlanVersion {
+    pub fn is_v21(&self) -> bool {
+        self.0 == 2.1
+    }
+}
+
+impl std::fmt::Display for PlanVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl PartialEq<u32> for PlanVersion {
+    fn eq(&self, o: &u32) -> bool {
+        self.0 == *o as f64
+    }
+}
+
+/// A host result type (frontend `eval/interface.ts` `parseType`, `plan/types.ts`
+/// `printType` and `conforms`): a scalar, an array, or a record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostType {
+    Number,
+    Str,
+    Boolean,
+    Array(Box<HostType>),
+    Record(Vec<(String, HostType)>),
+}
+
+impl HostType {
+    /// `parseType`: `number`, `string`, `boolean`, `T[]`, `(T)`, `{ k: T, … }`
+    /// (`,` or `;` between fields), whitespace anywhere.
+    pub fn parse(text: &str) -> Result<HostType, String> {
+        let s: Vec<char> = text.trim().chars().collect();
+        let mut i = 0;
+        let t = Self::one(&s, &mut i, text)?;
+        Self::ws(&s, &mut i);
+        if i != s.len() {
+            return Err(format!("type: unexpected input in {text:?}"));
+        }
+        Ok(t)
+    }
+    fn ws(s: &[char], i: &mut usize) {
+        while *i < s.len() && s[*i].is_whitespace() {
+            *i += 1;
+        }
+    }
+    fn one(s: &[char], i: &mut usize, text: &str) -> Result<HostType, String> {
+        Self::ws(s, i);
+        let mut t = if s.get(*i) == Some(&'{') {
+            *i += 1;
+            let mut fields: Vec<(String, HostType)> = vec![];
+            Self::ws(s, i);
+            while s.get(*i) != Some(&'}') {
+                let start = *i;
+                if !s
+                    .get(*i)
+                    .is_some_and(|c| c.is_ascii_alphabetic() || *c == '_' || *c == '$')
+                {
+                    return Err(format!("type: field name expected in {text:?}"));
+                }
+                while s
+                    .get(*i)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+                {
+                    *i += 1;
+                }
+                let k: String = s[start..*i].iter().collect();
+                Self::ws(s, i);
+                if s.get(*i) != Some(&':') {
+                    return Err(format!("type: `:` expected in {text:?}"));
+                }
+                *i += 1;
+                if fields.iter().any(|(n, _)| *n == k) {
+                    return Err(format!("type: field {k} twice"));
+                }
+                let ft = Self::one(s, i, text)?;
+                fields.push((k, ft));
+                Self::ws(s, i);
+                match s.get(*i) {
+                    Some(',') | Some(';') => {
+                        *i += 1;
+                        Self::ws(s, i);
+                    }
+                    Some('}') => {}
+                    _ => return Err(format!("type: `,` or `}}` expected in {text:?}")),
+                }
+            }
+            *i += 1;
+            HostType::Record(fields)
+        } else if s.get(*i) == Some(&'(') {
+            *i += 1;
+            let t = Self::one(s, i, text)?;
+            Self::ws(s, i);
+            if s.get(*i) != Some(&')') {
+                return Err(format!("type: `)` expected in {text:?}"));
+            }
+            *i += 1;
+            t
+        } else {
+            let rest: String = s[*i..].iter().collect();
+            let word = ["number", "string", "boolean"].into_iter().find(|w| {
+                rest.starts_with(w)
+                    && !rest[w.len()..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            });
+            let Some(w) = word else {
+                return Err(format!(
+                    "type: number, string, boolean, T[] or {{ … }} expected in {text:?}"
+                ));
+            };
+            *i += w.len();
+            match w {
+                "number" => HostType::Number,
+                "string" => HostType::Str,
+                _ => HostType::Boolean,
+            }
+        };
+        Self::ws(s, i);
+        while s.get(*i) == Some(&'[') && s.get(*i + 1) == Some(&']') {
+            *i += 2;
+            t = HostType::Array(Box::new(t));
+            Self::ws(s, i);
+        }
+        Ok(t)
+    }
+    /// `printType`: `{ a: T, b: U }`, `T[]`, an array item that is an array
+    /// parenthesized.
+    pub fn print(&self) -> String {
+        match self {
+            HostType::Number => "number".into(),
+            HostType::Str => "string".into(),
+            HostType::Boolean => "boolean".into(),
+            HostType::Array(t) => match **t {
+                HostType::Array(_) => format!("({})[]", t.print()),
+                _ => format!("{}[]", t.print()),
+            },
+            HostType::Record(fs) => format!(
+                "{{ {} }}",
+                fs.iter()
+                    .map(|(k, t)| format!("{k}: {}", t.print()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        }
+    }
+    pub fn is_scalar(&self) -> bool {
+        matches!(self, HostType::Number | HostType::Str | HostType::Boolean)
+    }
+    /// `conforms`: integers for `number`, arrays, records with exactly the
+    /// type's keys.
+    pub fn conforms_json(&self, v: &J) -> bool {
+        match (self, v) {
+            (HostType::Number, J::Number(n)) => n
+                .as_i64()
+                .is_some_and(|i| (-MAX_SAFE..=MAX_SAFE).contains(&i)),
+            (HostType::Str, J::String(_)) | (HostType::Boolean, J::Bool(_)) => true,
+            (HostType::Array(t), J::Array(xs)) => xs.iter().all(|x| t.conforms_json(x)),
+            (HostType::Record(fs), J::Object(o)) => {
+                o.len() == fs.len()
+                    && fs
+                        .iter()
+                        .all(|(k, t)| o.get(k).is_some_and(|x| t.conforms_json(x)))
+            }
+            _ => false,
+        }
+    }
+    /// A conforming JSON value as a fresh runtime value: arrays and records
+    /// are new plain objects (a host's JSON, `structuredClone`d per
+    /// resolution), with JSON's key order.
+    pub fn value_of(&self, v: &J) -> Result<Value, String> {
+        if !self.conforms_json(v) {
+            return Err(format!("{v} does not conform to {}", self.print()));
+        }
+        Ok(json_value(v))
+    }
+    /// A runtime value of this type (an awaited host result in an action).
+    pub fn conforms(&self, v: &Value) -> bool {
+        matches!(
+            (self, v),
+            (HostType::Number, Value::Int(_))
+                | (HostType::Str, Value::Str(_))
+                | (HostType::Boolean, Value::Bool(_))
+                | (HostType::Array(_) | HostType::Record(_), Value::Obj(_))
+        )
+    }
+}
+
+/// A JSON value (already checked against its type) as fresh plain objects.
+fn json_value(v: &J) -> Value {
+    match v {
+        J::Number(n) => Value::Int(n.as_i64().expect("an integer")),
+        J::String(s) => Value::str(s),
+        J::Bool(b) => Value::Bool(*b),
+        J::Array(xs) => Value::Obj(JsObj::new_array(xs.iter().map(json_value).collect())),
+        J::Object(o) => Value::Obj(JsObj::new_object(
+            o.iter()
+                .map(|(k, x)| (Rc::from(k.as_str()), json_value(x)))
+                .collect(),
+        )),
+        J::Null => unreachable!("no host type admits null"),
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -287,7 +553,7 @@ pub struct Action {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Plan {
-    pub version: u32,
+    pub version: PlanVersion,
     pub component: String,
     pub hosts: Vec<HostSig>,
     /// Evaluated code only (frontend `docs/EVAL.md`).
@@ -404,6 +670,8 @@ enum NameKind {
     Store,
     Optimistic,
     Memo,
+    /// v2.1: an async memo (`createMemo(() => host(…))`).
+    Async,
     Action,
     /// An evaluated plan's bindings: read, never written.
     BoundRead,
@@ -423,6 +691,11 @@ struct Check<'a> {
     actions: HashMap<&'a str, &'a Action>,
     /// Bound actions' arities.
     bound: HashMap<&'a str, usize>,
+    /// Set while a handler's or an action's steps are checked: their
+    /// expressions are imperative (untracked snapshots).
+    imperative: std::cell::Cell<bool>,
+    /// A v2.1 form occurs (PLAN-V2.md, "v2.1: async data").
+    v21: std::cell::Cell<bool>,
 }
 
 fn identifier(s: &str) -> bool {
@@ -469,8 +742,26 @@ impl<'a> Check<'a> {
                     Some(NameKind::Action | NameKind::BoundAction) => {
                         Err(format!("read of action {source}"))
                     }
+                    // PLAN-V2.md, "Async memo" 6: reactive reads only.
+                    Some(NameKind::Async) if self.imperative.get() => Err(format!(
+                        "an async memo is read only in reactive contexts: {source}"
+                    )),
                     Some(_) => Ok(()),
                 }
+            }
+            Expr::Pending { value } | Expr::Latest { value } => {
+                self.v21.set(true);
+                if !reads || self.imperative.get() {
+                    return Err(format!(
+                        "{} occurs only in a reactive context",
+                        if matches!(e, Expr::Pending { .. }) {
+                            "pending"
+                        } else {
+                            "latest"
+                        }
+                    ));
+                }
+                self.expr(value, scope, reads)
             }
             Expr::Local { name } => {
                 if scope.iter().any(|s| s == name) {
@@ -580,6 +871,18 @@ impl<'a> Check<'a> {
         scope: &mut Vec<String>,
         at: StepContext,
     ) -> Result<(), String> {
+        let prev = self.imperative.replace(true);
+        let r = self.steps_in(steps, scope, at);
+        self.imperative.set(prev);
+        r
+    }
+
+    fn steps_in(
+        &self,
+        steps: &[Step],
+        scope: &mut Vec<String>,
+        at: StepContext,
+    ) -> Result<(), String> {
         for s in steps {
             match s {
                 Step::Write {
@@ -679,6 +982,19 @@ impl<'a> Check<'a> {
                         self.expr(x, scope, true)?;
                     }
                 }
+                Step::Refresh { source } | Step::Affects { source } => {
+                    self.v21.set(true);
+                    let affects = matches!(s, Step::Affects { .. });
+                    if self.kind(source) != Some(NameKind::Async) {
+                        return Err(format!(
+                            "{} targets {source}, not an async memo",
+                            if affects { "affects" } else { "refresh" }
+                        ));
+                    }
+                    if affects && at == StepContext::Handler {
+                        return Err("affects in a plain handler".into());
+                    }
+                }
             }
         }
         Ok(())
@@ -769,6 +1085,13 @@ impl<'a> Check<'a> {
                     self.eval_site(bindings, syntax, check)?;
                     self.expr(code, scope, true)?;
                 }
+                // v2.1: a boundary's children and fallback are component
+                // positions.
+                View::Loading { fallback, children } | View::Errored { fallback, children } => {
+                    self.v21.set(true);
+                    self.views(fallback, scope, true)?;
+                    self.views(children, scope, true)?;
+                }
             }
         }
         Ok(())
@@ -787,7 +1110,7 @@ fn literal_text(v: &View) -> Option<&J> {
 
 /// Refuses a plan outside schema v2 before anything is built.
 pub fn validate(plan: &Plan) -> Result<(), String> {
-    if plan.version != 2 {
+    if plan.version != 2 && !plan.version.is_v21() {
         return Err(format!("plan version {} is not 2", plan.version));
     }
     if plan.component.is_empty() {
@@ -798,15 +1121,32 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         hosts: HashMap::new(),
         actions: HashMap::new(),
         bound: HashMap::new(),
+        imperative: std::cell::Cell::new(false),
+        v21: std::cell::Cell::new(false),
     };
     for h in &plan.hosts {
         if !identifier(&h.name) || check.hosts.insert(&h.name, h).is_some() {
             return Err(format!("host {:?} is not a unique name", h.name));
         }
-        if !SCALARS.contains(&h.returns.as_str())
-            || h.params.iter().any(|p| !SCALARS.contains(&p.as_str()))
-        {
+        if h.params.iter().any(|p| !SCALARS.contains(&p.as_str())) {
             return Err(format!("host {} has a non-scalar signature", h.name));
+        }
+        // v2.1: a structured result, printed canonically; `pure` is true or
+        // absent.
+        let ty = HostType::parse(&h.returns).map_err(|e| format!("host {}: {e}", h.name))?;
+        if ty.print() != h.returns {
+            return Err(format!(
+                "host {} result {:?} is not printed canonically",
+                h.name, h.returns
+            ));
+        }
+        match h.pure {
+            None => {}
+            Some(true) => check.v21.set(true),
+            Some(false) => return Err(format!("host {}: pure is true or absent", h.name)),
+        }
+        if !ty.is_scalar() {
+            check.v21.set(true);
         }
     }
     let kinds = plan
@@ -822,7 +1162,16 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
                 },
             )
         })
-        .chain(plan.memos.iter().map(|m| (m.name.as_str(), NameKind::Memo)))
+        .chain(plan.memos.iter().map(|m| {
+            (
+                m.name.as_str(),
+                if m.call.is_some() {
+                    NameKind::Async
+                } else {
+                    NameKind::Memo
+                },
+            )
+        }))
         .chain(
             plan.actions
                 .iter()
@@ -876,7 +1225,29 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         }
     }
     for m in &plan.memos {
-        check.expr(&m.value, &mut vec![], true)?;
+        match (&m.value, &m.call) {
+            (Some(v), None) => check.expr(v, &mut vec![], true)?,
+            // v2.1: an async memo over one host call; its arguments are a
+            // reactive context.
+            (None, Some(call)) => {
+                check.v21.set(true);
+                let h = check.hosts.get(call.host.as_str()).ok_or_else(|| {
+                    format!("async memo {} awaits unknown host {}", m.name, call.host)
+                })?;
+                if h.params.len() != call.args.len() {
+                    return Err(format!("{} takes {} arguments", call.host, h.params.len()));
+                }
+                for a in &call.args {
+                    check.expr(a, &mut vec![], true)?;
+                }
+            }
+            _ => {
+                return Err(format!(
+                    "memo {} has exactly one of value and await",
+                    m.name
+                ))
+            }
+        }
     }
     for a in &plan.actions {
         let mut seen = HashSet::new();
@@ -887,7 +1258,14 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         }
         check.steps(&a.steps, &mut a.params.clone(), StepContext::Action)?;
     }
-    check.views(&plan.markup, &mut vec![], true)
+    check.views(&plan.markup, &mut vec![], true)?;
+    // `"version": 2.1` exactly when a v2.1 form occurs (PLAN-V2.md, "Top
+    // level and hosts"): a v2 consumer refuses the rest by the version.
+    match (plan.version.is_v21(), check.v21.get()) {
+        (true, false) => Err("plan version 2.1 uses no v2.1 form".into()),
+        (false, true) => Err("plan version 2 uses a v2.1 form".into()),
+        _ => Ok(()),
+    }
 }
 
 // ---- the evaluator ----
@@ -901,6 +1279,8 @@ enum Binding {
     Store(Value),
     Optimistic(NodeId),
     Memo(NodeId),
+    /// v2.1: an async memo.
+    Async(NodeId),
 }
 
 /// One host invocation: a pending request until the scenario settles it.
@@ -977,7 +1357,9 @@ fn read(rt: &mut Runtime, c: &Ctx, name: &str) -> Result<Value, Error> {
     match b {
         None => Err(fail(c, format!("read of {name} before it exists"))),
         Some(Binding::Store(p)) => Ok(p),
-        Some(Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n)) => rt.read_value(n),
+        Some(
+            Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n) | Binding::Async(n),
+        ) => rt.read_value(n),
     }
 }
 
@@ -1207,6 +1589,13 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
                 eval(rt, c, otherwise, env)
             }
         }
+        // v2.1: the probes, evaluated inside Solid's own windows
+        // (solid-plan.ts `isPending(() => …)`, `latest(() => …)`).
+        Expr::Pending { value } => {
+            let found = rt.is_pending_of(|rt| eval(rt, c, value, env).map(|_| ()))?;
+            Ok(Value::Bool(found))
+        }
+        Expr::Latest { value } => rt.latest_of(|rt| eval(rt, c, value, env)),
         Expr::Eval {
             code,
             bindings,
@@ -1523,6 +1912,16 @@ impl Execution {
                 Step::Call { action, .. } => {
                     return Err(fail(&c, format!("an action calls the action {action}")))
                 }
+                Step::Refresh { source } => refresh(rt, &c, &source)?,
+                Step::Affects { source } => {
+                    let Binding::Async(n) = binding(&c, &source)? else {
+                        return Err(fail(
+                            &c,
+                            format!("affects targets {source}, not an async memo"),
+                        ));
+                    };
+                    rt.affects(n);
+                }
             }
         }
     }
@@ -1534,7 +1933,7 @@ impl ActionBody for Execution {
             Resume::Start => {}
             Resume::Value(v) => {
                 let (bind, returns) = self.bind.take().expect("resumed at an await");
-                if scalar_type(&v) != Some(returns.as_str()) {
+                if !HostType::parse(&returns).is_ok_and(|t| t.conforms(&v)) {
                     let e = fail(&self.c, format!("a host result {v:?} is not a {returns}"));
                     return ActionStep::Throw(e.message());
                 }
@@ -1604,6 +2003,18 @@ fn call_action(rt: &mut Runtime, c: &C, name: &str, args: Vec<Value>) -> Result<
     Ok(())
 }
 
+/// v2.1: `refresh(accessor)` of an async memo (solid-plan.ts).
+fn refresh(rt: &mut Runtime, c: &C, source: &str) -> Result<(), Error> {
+    let Binding::Async(n) = binding(c, source)? else {
+        return Err(fail(
+            c,
+            format!("refresh targets {source}, not an async memo"),
+        ));
+    };
+    rt.refresh(n);
+    Ok(())
+}
+
 /// A plain handler: its steps run synchronously, outside any transaction.
 fn handler(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Value {
     let (c, steps, env) = (c.clone(), steps.to_vec(), env.clone());
@@ -1624,7 +2035,14 @@ fn handler(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Value {
                         }
                         call_action(rt, &c, action, values)?
                     }
-                    _ => return Err(fail(&c, "a plain handler awaits, tries or guesses".into())),
+                    // v2.1: a plain re-ask.
+                    Step::Refresh { source } => refresh(rt, &c, source)?,
+                    _ => {
+                        return Err(fail(
+                            &c,
+                            "a plain handler awaits, tries, guesses or declares affects".into(),
+                        ))
+                    }
                 }
             }
             Ok(Value::Undef)
@@ -1762,7 +2180,9 @@ fn dynamic_expr(c: &C, e: &Expr) -> bool {
         | Expr::Filter { .. }
         | Expr::Map { .. }
         | Expr::FindIndex { .. }
-        | Expr::Eval { .. } => true,
+        | Expr::Eval { .. }
+        | Expr::Pending { .. }
+        | Expr::Latest { .. } => true,
         Expr::Array { items } => items.iter().any(|x| dynamic_expr(c, x)),
         Expr::Object { fields } => fields.iter().any(|f| dynamic_expr(c, &f.value)),
         Expr::Not { value } => dynamic_expr(c, value),
@@ -1935,6 +2355,35 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                 Ok(rt.for_component(props.clone()))
             }))
         }
+        // v2.1: the compiler passes Loading's fallback as a getter and
+        // Errored's as a function of the error (solid-plan.ts).
+        View::Loading { fallback, children } => {
+            let (fb, kids, e1, e2) = (fallback.clone(), children.clone(), env.clone(), env.clone());
+            let props = LoadingProps {
+                fallback: Some(getter(c, move |rt, c| fragment(rt, c, &fb, &e1))),
+                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2)),
+            };
+            rt.create_component(Rc::new(move |rt: &mut Runtime| {
+                rt.loading_component(props.clone())
+            }))
+        }
+        View::Errored { fallback, children } => {
+            let (fb, kids, e1, e2) = (fallback.clone(), children.clone(), env.clone(), env.clone());
+            let c2 = c.clone();
+            // `(_error) => fragment(fallback)`: one parameter, the error
+            // accessor, which the plan does not read.
+            let f = rt.function(
+                1,
+                Rc::new(move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1)),
+            );
+            let props = ErroredProps {
+                fallback: f,
+                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2)),
+            };
+            rt.create_component(Rc::new(move |rt: &mut Runtime| {
+                rt.errored_component(props.clone())
+            }))
+        }
         View::Eval {
             code,
             bindings,
@@ -2052,7 +2501,26 @@ fn build(rt: &mut Runtime, c: &C, plan: &Plan) -> Result<Value, Error> {
         c.names.borrow_mut().insert(s.name.clone(), b);
     }
     for m in &plan.memos {
-        let (value, c2) = (m.value.clone(), c.clone());
+        if let Some(call) = &m.call {
+            // v2.1: `createMemo(() => host(...args))`: each computation
+            // evaluates the arguments (tracked) and issues one new request,
+            // whose promise is the memo's flight (`handleAsync`).
+            let (call, c2) = (call.clone(), c.clone());
+            let body: BodyFn = Rc::new(move |rt: &mut Runtime, _| {
+                let mut values = vec![];
+                for a in &call.args {
+                    values.push(eval(rt, &c2, a, &Env::new())?);
+                }
+                let (flight, _) = request(&c2, &call.host, values)?;
+                Ok(Out::Flight(flight))
+            });
+            let n = rt.memo_with(body, None, false);
+            c.names
+                .borrow_mut()
+                .insert(m.name.clone(), Binding::Async(n));
+            continue;
+        }
+        let (value, c2) = (m.value.clone().expect("validated"), c.clone());
         let body: BodyFn =
             Rc::new(move |rt: &mut Runtime, _| eval(rt, &c2, &value, &Env::new()).map(Out::Value));
         let n = rt.memo_with(body, None, false);

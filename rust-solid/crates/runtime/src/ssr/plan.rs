@@ -27,15 +27,20 @@
 //! site anywhere in the plan, and an evaluated code's own plan (`bindings`,
 //! `value`), are refused too: slice 3's live evaluator (frontend
 //! `docs/EVAL.md`) has no server twin here.
+use super::boundary::{errored, loading, ErroredProps, LoadingProps};
 use super::flow::{for_, show, ForProps, ShowProps};
+use super::js::{promise_reject, promise_resolve, with_resolvers, Resolvers};
 use super::signals::{
     action, create_memo, create_optimistic, create_signal, create_store, memo, ssr_scope,
     MemoOptions,
 };
-use super::value::{call, throw, JsVal, Res, Thrown};
+use super::signals::{is_pending, latest, Compute};
+use super::stream::{render_to_stream, StreamEvent};
+use super::value::{call, throw, ErrClass, JsError, JsVal, Res, Thrown};
 use super::web::{escape, render_to_string, ssr, ssr_hydration_key};
 use super::Server;
-use crate::plan_v2::{validate, Expr, Plan, SourceKind, Step, View};
+use crate::plan_v2::{validate, Expr, HostType, Plan, SourceKind, Step, View};
+use serde::{Deserialize, Serialize};
 use serde_json::Value as J;
 use std::{
     cell::RefCell,
@@ -43,16 +48,323 @@ use std::{
     rc::Rc,
 };
 
-/// Renders a plan v2 app as `renderToString(() => App())` renders its TSX
-/// twin: the HTML, or the refusal or thrown error.
+/// Renders a plan app as `renderToString(() => App())` renders its TSX twin:
+/// the HTML, or the refusal or thrown error. A v2.1 app's host calls return
+/// promises that never settle (`renderToString` does not wait).
 pub fn render(plan: &Plan) -> Result<String, String> {
+    render_string(plan).map(|o| o.html)
+}
+
+/// What a server render of a plan app produced: the HTML (renderToString),
+/// or the stream's events (renderToStream), and the host requests made.
+pub struct Rendered {
+    pub html: String,
+    pub events: Vec<StreamEvent>,
+    pub requests: Vec<Request>,
+    /// Errors the render reported and survived (Solid's `console.error`).
+    pub render_errors: Vec<String>,
+}
+
+/// A server host request: host, call number (per host, from 1), arguments.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Request {
+    pub host: String,
+    pub call: usize,
+    pub args: Vec<J>,
+}
+
+fn prepare(plan: &Plan) -> Result<Rc<Ctx>, String> {
     validate(plan)?;
     refuse_evals(plan)?;
-    let c = Rc::new(Ctx::new(plan));
+    let c = Rc::new(Ctx::new(plan)?);
     c.check_views(&plan.markup, &Types::new())?;
+    Ok(c)
+}
+
+/// `renderToString(() => App())`.
+pub fn render_string(plan: &Plan) -> Result<Rendered, String> {
+    let c = prepare(plan)?;
+    *c.hosts.mode.borrow_mut() = HostMode::Never;
     let mut s = Server::new();
     let plan = Rc::new(plan.clone());
-    render_to_string(&mut s, "", move |s| component(s, &c, &plan)).map_err(|e| e.0)
+    let c2 = c.clone();
+    let html = render_to_string(&mut s, "", move |s| component(s, &c2, &plan))
+        .map_err(|e| e.to_string())?;
+    if let Some(f) = c.hosts.failure.borrow().clone() {
+        return Err(f);
+    }
+    let requests = c.hosts.requests.borrow().clone();
+    Ok(Rendered {
+        html,
+        events: vec![],
+        requests,
+        render_errors: s.render_errors.clone(),
+    })
+}
+
+/// A server host's answer (frontend `ssr/stream-core.ts`, `ServerAnswer`):
+/// `now` answers are settled promises when the host returns; `idle` ones
+/// settle one per idle point of the render, in `at` order.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerAnswer {
+    pub host: String,
+    pub call: usize,
+    pub args: Vec<J>,
+    pub mode: AnswerMode,
+    #[serde(default)]
+    pub at: Option<usize>,
+    #[serde(default)]
+    pub value: Option<J>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnswerMode {
+    Now,
+    Idle,
+}
+
+/// `renderToStream(() => App()).pipe(sink)` under a server answer script:
+/// the render runs until it is idle (no microtask and no `setImmediate`
+/// left), then the next idle answer settles, until the stream ends.
+pub fn render_stream(plan: &Plan, answers: &[ServerAnswer]) -> Result<Rendered, String> {
+    let c = prepare(plan)?;
+    for a in answers {
+        if a.value.is_some() == a.error.is_some() {
+            return Err(format!(
+                "the answer to {}#{} needs exactly one of value and error",
+                a.host, a.call
+            ));
+        }
+        if let Some(v) = &a.value {
+            let ty = c.hosts.types.get(&a.host).ok_or_else(|| {
+                format!(
+                    "the script answers {}, which is not a host of the plan",
+                    a.host
+                )
+            })?;
+            if !ty.conforms_json(v) {
+                return Err(format!(
+                    "the answer {v} to {}#{} does not conform to {}",
+                    a.host,
+                    a.call,
+                    ty.print()
+                ));
+            }
+        }
+        if a.mode == AnswerMode::Now && a.at.is_some() {
+            return Err(format!(
+                "the answer to {}#{}: a now answer has no `at`",
+                a.host, a.call
+            ));
+        }
+    }
+    *c.hosts.mode.borrow_mut() = HostMode::Script(answers.to_vec());
+    let mut s = Server::new();
+    let plan = Rc::new(plan.clone());
+    let c2 = c.clone();
+    let out =
+        render_to_stream(&mut s, move |s| component(s, &c2, &plan)).map_err(|e| e.to_string())?;
+    // An idle answer without `at` is one the render never needed: it stays
+    // pending (its reader was discarded before it was settled).
+    let mut idle: Vec<&ServerAnswer> = answers
+        .iter()
+        .filter(|a| a.mode == AnswerMode::Idle && a.at.is_some())
+        .collect();
+    idle.sort_by_key(|a| a.at);
+    let mut next = 0;
+    loop {
+        s.run_until_idle();
+        if let Some(f) = s.failures.first() {
+            return Err(f.clone());
+        }
+        if let Some(f) = c.hosts.failure.borrow().clone() {
+            return Err(f);
+        }
+        if out.borrow().ended {
+            break;
+        }
+        let Some(want) = idle.get(next) else {
+            return Err(
+                "the render went idle with no idle answer left, and the stream did not end".into(),
+            );
+        };
+        let found = c.hosts.take_pending(&want.host, want.call);
+        let Some(resolvers) = found else {
+            return Err(format!(
+                "the script settles {}#{} next, which is not pending",
+                want.host, want.call
+            ));
+        };
+        next += 1;
+        out.borrow_mut()
+            .events
+            .push(StreamEvent::Settle(format!("{}#{}", want.host, want.call)));
+        match (&want.value, &want.error) {
+            (Some(v), _) => {
+                let v = c.hosts.value(&want.host, v).map_err(|e| e.to_string())?;
+                resolvers.resolve(&mut s, v);
+            }
+            (_, Some(e)) => resolvers.reject(
+                &mut s,
+                JsVal::Error(JsError::new(ErrClass::Error, e.clone())),
+            ),
+            _ => unreachable!("checked"),
+        }
+    }
+    if next != idle.len() {
+        return Err(format!(
+            "the stream ended with {} idle answer(s) not given",
+            idle.len() - next
+        ));
+    }
+    let requests = c.hosts.requests.borrow().clone();
+    for a in answers {
+        if !requests
+            .iter()
+            .any(|r| r.host == a.host && r.call == a.call)
+        {
+            return Err(format!(
+                "the script answers {}#{}, which the render never asked",
+                a.host, a.call
+            ));
+        }
+    }
+    let events = out.borrow().events.clone();
+    Ok(Rendered {
+        html: String::new(),
+        events,
+        requests,
+        render_errors: s.render_errors.clone(),
+    })
+}
+
+// ---- the server's host functions ----
+
+enum HostMode {
+    /// renderToString: every request is a promise that never settles.
+    Never,
+    Script(Vec<ServerAnswer>),
+}
+
+struct Hosts {
+    mode: RefCell<HostMode>,
+    types: HashMap<String, HostType>,
+    calls: RefCell<HashMap<String, usize>>,
+    requests: RefCell<Vec<Request>>,
+    pending: RefCell<Vec<(String, usize, Resolvers)>>,
+    failure: RefCell<Option<String>>,
+}
+
+impl Hosts {
+    fn take_pending(&self, host: &str, call: usize) -> Option<Resolvers> {
+        let mut p = self.pending.borrow_mut();
+        let i = p.iter().position(|(h, n, _)| h == host && *n == call)?;
+        Some(p.remove(i).2)
+    }
+
+    /// A host's answer as a fresh plain value, checked against its type.
+    fn value(&self, host: &str, v: &J) -> Res<JsVal> {
+        let ty = self
+            .types
+            .get(host)
+            .ok_or_else(|| Thrown::msg(format!("no host {host}")))?;
+        if !ty.conforms_json(v) {
+            return throw(format!(
+                "the answer {v} does not conform to {host}'s {}",
+                ty.print()
+            ));
+        }
+        Ok(json_to_js(v))
+    }
+
+    /// A call of the server's host function: a new request, answered by the
+    /// script.
+    fn call(&self, s: &mut Server, host: &str, args: &[JsVal]) -> Res<JsVal> {
+        let call = {
+            let mut calls = self.calls.borrow_mut();
+            let n = calls.entry(host.to_string()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let args: Vec<J> = args.iter().map(js_to_json).collect::<Result<_, _>>()?;
+        self.requests.borrow_mut().push(Request {
+            host: host.to_string(),
+            call,
+            args: args.clone(),
+        });
+        let answer = match &*self.mode.borrow() {
+            HostMode::Never => None,
+            HostMode::Script(answers) => {
+                match answers.iter().find(|a| a.host == host && a.call == call) {
+                    Some(a) => Some(a.clone()),
+                    None => {
+                        self.failure
+                            .borrow_mut()
+                            .get_or_insert(format!("no server answer for {host}#{call}"));
+                        return Ok(JsVal::Promise(with_resolvers().promise));
+                    }
+                }
+            }
+        };
+        let Some(a) = answer else {
+            return Ok(JsVal::Promise(with_resolvers().promise));
+        };
+        if a.args != args {
+            self.failure.borrow_mut().get_or_insert(format!(
+                "{host}#{call} was called with {}, the script answers {}",
+                J::Array(args.clone()),
+                J::Array(a.args.clone())
+            ));
+        }
+        match a.mode {
+            AnswerMode::Now => Ok(JsVal::Promise(match (&a.value, &a.error) {
+                (Some(v), _) => {
+                    let v = self.value(host, v)?;
+                    promise_resolve(s, v)
+                }
+                (_, Some(e)) => {
+                    promise_reject(s, JsVal::Error(JsError::new(ErrClass::Error, e.clone())))
+                }
+                _ => unreachable!("checked"),
+            })),
+            AnswerMode::Idle => {
+                let r = with_resolvers();
+                self.pending
+                    .borrow_mut()
+                    .push((host.to_string(), call, r.clone()));
+                Ok(JsVal::Promise(r.promise))
+            }
+        }
+    }
+}
+
+/// A conforming JSON answer as fresh plain objects (records keep JSON's
+/// key order).
+fn json_to_js(v: &J) -> JsVal {
+    match v {
+        J::Number(n) => JsVal::Num(n.as_i64().expect("an integer")),
+        J::String(t) => JsVal::str(t),
+        J::Bool(b) => JsVal::Bool(*b),
+        J::Array(xs) => JsVal::array(xs.iter().map(json_to_js).collect()),
+        J::Object(o) => JsVal::Rec(Rc::new(RefCell::new(
+            o.iter().map(|(k, x)| (k.clone(), json_to_js(x))).collect(),
+        ))),
+        J::Null => JsVal::Null,
+    }
+}
+
+/// A scalar host argument as JSON.
+fn js_to_json(v: &JsVal) -> Res<J> {
+    Ok(match v {
+        JsVal::Num(n) => J::from(*n),
+        JsVal::Str(t) => J::String(t.to_string()),
+        JsVal::Bool(b) => J::Bool(*b),
+        other => return throw(format!("a host argument {other:?} that is not a scalar")),
+    })
 }
 
 // ---- eval sites (slice 3) ----
@@ -73,7 +385,7 @@ fn refuse_evals(plan: &Plan) -> Result<(), String> {
         .sources
         .iter()
         .map(|s| &s.seed)
-        .chain(plan.memos.iter().map(|m| &m.value));
+        .chain(plan.memos.iter().filter_map(|m| m.value.as_ref()));
     let steps = plan.actions.iter().flat_map(|a| &a.steps);
     if exprs.into_iter().any(has_eval)
         || steps.into_iter().any(step_has_eval)
@@ -104,6 +416,9 @@ fn view_has_eval(v: &View) -> bool {
                 || fallback.iter().any(view_has_eval)
         }
         View::For { each, children, .. } => has_eval(each) || children.iter().any(view_has_eval),
+        View::Loading { fallback, children } | View::Errored { fallback, children } => {
+            fallback.iter().chain(children).any(view_has_eval)
+        }
     }
 }
 
@@ -123,6 +438,7 @@ fn step_has_eval(s: &Step) -> bool {
         }
         Step::Await { args, .. } | Step::Call { args, .. } => args.iter().any(has_eval),
         Step::Try { body, catch } => body.iter().chain(catch).any(step_has_eval),
+        Step::Refresh { .. } | Step::Affects { .. } => false,
     }
 }
 
@@ -137,7 +453,7 @@ fn has_eval(e: &Expr) -> bool {
         Expr::Filter { array, body, .. }
         | Expr::Map { array, body, .. }
         | Expr::FindIndex { array, body, .. } => has_eval(array) || has_eval(body),
-        Expr::Not { value } => has_eval(value),
+        Expr::Not { value } | Expr::Pending { value } | Expr::Latest { value } => has_eval(value),
         Expr::Cond {
             test,
             then,
@@ -216,6 +532,18 @@ struct Ctx {
     kinds: HashMap<String, Kind>,
     types: Types,
     names: RefCell<HashMap<String, Binding>>,
+    hosts: Hosts,
+}
+
+/// A host's result type as the twin's static type.
+fn host_ty(t: &HostType) -> Ty {
+    match t {
+        HostType::Number => Ty::Int,
+        HostType::Str => Ty::Str,
+        HostType::Boolean => Ty::Bool,
+        HostType::Array(e) => Ty::Arr(Box::new(host_ty(e))),
+        HostType::Record(fs) => Ty::Rec(fs.iter().map(|(k, t)| (k.clone(), host_ty(t))).collect()),
+    }
 }
 
 /// How the compiler lowers one text hole of the canonical twin.
@@ -231,11 +559,23 @@ struct TextForm {
 }
 
 impl Ctx {
-    fn new(plan: &Plan) -> Ctx {
+    fn new(plan: &Plan) -> Result<Ctx, String> {
+        let mut types_of_hosts = HashMap::new();
+        for h in &plan.hosts {
+            types_of_hosts.insert(h.name.clone(), HostType::parse(&h.returns)?);
+        }
         let mut c = Ctx {
             kinds: HashMap::new(),
             types: Types::new(),
             names: RefCell::new(HashMap::new()),
+            hosts: Hosts {
+                mode: RefCell::new(HostMode::Never),
+                types: types_of_hosts,
+                calls: RefCell::new(HashMap::new()),
+                requests: RefCell::new(vec![]),
+                pending: RefCell::new(vec![]),
+                failure: RefCell::new(None),
+            },
         };
         for s in &plan.sources {
             let kind = match s.kind {
@@ -249,10 +589,15 @@ impl Ctx {
         }
         for m in &plan.memos {
             c.kinds.insert(m.name.clone(), Kind::Memo);
-            let t = c.ty(&m.value, &Types::new());
+            let t = match (&m.value, &m.call) {
+                (Some(v), _) => c.ty(v, &Types::new()),
+                // An async memo's value is its host's answer (plan v2.1).
+                (None, Some(a)) => c.hosts.types.get(&a.host).map_or(Ty::Unknown, host_ty),
+                (None, None) => Ty::Unknown,
+            };
             c.types.insert(m.name.clone(), t);
         }
-        c
+        Ok(c)
     }
 
     fn ty(&self, e: &Expr, locals: &Types) -> Ty {
@@ -305,6 +650,8 @@ impl Ctx {
             Expr::Cond {
                 then, otherwise, ..
             } => join(self.ty(then, locals), self.ty(otherwise, locals)),
+            Expr::Pending { .. } => Ty::Bool,
+            Expr::Latest { value } => self.ty(value, locals),
             // Refused before typing (`refuse_evals`).
             Expr::Eval { .. } => Ty::Unknown,
         }
@@ -323,7 +670,9 @@ impl Ctx {
             | Expr::Filter { .. }
             | Expr::Map { .. }
             | Expr::FindIndex { .. }
-            | Expr::Eval { .. } => true,
+            | Expr::Eval { .. }
+            | Expr::Pending { .. }
+            | Expr::Latest { .. } => true,
             Expr::Array { items } => items.iter().any(|x| self.dynamic(x)),
             Expr::Object { fields } => fields.iter().any(|f| self.dynamic(&f.value)),
             Expr::Not { value } => self.dynamic(value),
@@ -432,6 +781,10 @@ impl Ctx {
                     self.check_views(children, &inner)?;
                 }
                 View::Eval { .. } => return Err(EVAL_REFUSED.into()),
+                View::Loading { fallback, children } | View::Errored { fallback, children } => {
+                    self.check_views(fallback, locals)?;
+                    self.check_views(children, locals)?;
+                }
             }
         }
         Ok(())
@@ -674,7 +1027,7 @@ fn array_items(v: &JsVal, what: &str) -> Res<Vec<JsVal>> {
     }
 }
 
-fn read(s: &mut Server, c: &Ctx, name: &str) -> Res<JsVal> {
+fn read(s: &mut Server, c: &Rc<Ctx>, name: &str) -> Res<JsVal> {
     let b = c.names.borrow().get(name).cloned();
     match b {
         None => fail(format!("read of {name} before it exists")),
@@ -689,7 +1042,7 @@ fn with(env: &Env, name: &str, v: JsVal) -> Env {
     env
 }
 
-fn eval(s: &mut Server, c: &Ctx, e: &Expr, env: &Env) -> Res<JsVal> {
+fn eval(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
     match e {
         Expr::Literal { value } => literal(value),
         Expr::Array { items } => {
@@ -797,6 +1150,16 @@ fn eval(s: &mut Server, c: &Ctx, e: &Expr, env: &Env) -> Res<JsVal> {
             }
         }
         Expr::Eval { .. } => fail(EVAL_REFUSED),
+        // `isPending(() => value)` and `latest(() => value)`: the arrow
+        // evaluates the value where the probe calls it.
+        Expr::Pending { value } | Expr::Latest { value } => {
+            let (v, c2, env2) = ((**value).clone(), c.clone(), env.clone());
+            let f = JsVal::func(0, move |s, _| eval(s, &c2, &v, &env2));
+            match e {
+                Expr::Pending { .. } => is_pending(s, &f),
+                _ => latest(s, &f),
+            }
+        }
     }
 }
 
@@ -805,7 +1168,7 @@ fn eval(s: &mut Server, c: &Ctx, e: &Expr, env: &Env) -> Res<JsVal> {
 // operands, a conditional its branches, `&&` its right side; a literal or
 // `!` is left alone; anything else (a call, a member access, `||`, an
 // identifier, an array or object literal) is wrapped in `_$escape(...)`.
-fn eval_escaped(s: &mut Server, c: &Ctx, e: &Expr, env: &Env) -> Res<JsVal> {
+fn eval_escaped(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
     match e {
         Expr::Literal { .. } | Expr::Not { .. } => eval(s, c, e, env),
         Expr::Add { left, right } => {
@@ -848,7 +1211,7 @@ fn eval_escaped(s: &mut Server, c: &Ctx, e: &Expr, env: &Env) -> Res<JsVal> {
 
 /// A text hole's value: `"" + x` or `x`, escaped in place, which must be the
 /// string or integer the plan's ToString accepts.
-fn text_value(s: &mut Server, c: &Ctx, e: &Expr, env: &Env, coerce: bool) -> Res<JsVal> {
+fn text_value(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env, coerce: bool) -> Res<JsVal> {
     let v = eval_escaped(s, c, e, env)?;
     let v = if coerce { add(&JsVal::str(""), &v)? } else { v };
     to_text(&v)?;
@@ -881,12 +1244,29 @@ fn component(s: &mut Server, c: &Rc<Ctx>, plan: &Rc<Plan>) -> Res<JsVal> {
         c.names.borrow_mut().insert(src.name.clone(), b);
     }
     for m in &plan.memos {
-        let (value, c2) = (m.value.clone(), c.clone());
-        let read = create_memo(
-            s,
-            Rc::new(move |s, _| eval(s, &c2, &value, &Env::new())),
-            MemoOptions::default(),
-        )?;
+        let c2 = c.clone();
+        let compute: Compute = match (&m.value, &m.call) {
+            (Some(value), _) => {
+                let value = value.clone();
+                Rc::new(move |s, _| eval(s, &c2, &value, &Env::new()))
+            }
+            // An async memo (plan v2.1): `createMemo(() => host(…args))`, the
+            // arguments read in the compute.
+            (None, Some(a)) => {
+                let a = a.clone();
+                Rc::new(move |s, _| {
+                    let mut args = vec![];
+                    for x in &a.args {
+                        args.push(eval(s, &c2, x, &Env::new())?);
+                    }
+                    c2.hosts.call(s, &a.host, &args)
+                })
+            }
+            (None, None) => {
+                return fail(format!("memo {} has neither a value nor an await", m.name))
+            }
+        };
+        let read = create_memo(s, compute, MemoOptions::default())?;
         c.names
             .borrow_mut()
             .insert(m.name.clone(), Binding::Read(read));
@@ -977,12 +1357,33 @@ fn lower<'v>(v: &'v View, root: bool, parts: &mut Vec<String>, holes: &mut Vec<H
         .push_str(&format!("</{tag}>"));
 }
 
+/// Solid: compiler shared/utils.rs:765-771, 935-947 (`ascii_template_parts`,
+/// `push_ascii`): a character above U+00FF in a template's text becomes
+/// `&#N;` (the SSR output stays one-byte in V8). A plan's templates have no
+/// attributes, comments with such characters, or raw-text elements, so every
+/// character outside the tags is text.
+fn ascii_template_part(part: &str) -> String {
+    if part.chars().all(|c| (c as u32) <= 0xff) {
+        return part.to_string();
+    }
+    let mut out = String::with_capacity(part.len() + 8);
+    for c in part.chars() {
+        if (c as u32) <= 0xff {
+            out.push(c);
+        } else {
+            out.push_str(&format!("&#{};", c as u32));
+        }
+    }
+    out
+}
+
 /// A template root: its hydration key and holes evaluated in document order
 /// (the compiler's `var _v$ = …` list), then `_$ssr(_tmpl$, …)`.
 fn template(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res<JsVal> {
     let mut parts = vec![String::new()];
     let mut holes = vec![];
     lower(v, true, &mut parts, &mut holes);
+    let parts: Vec<String> = parts.iter().map(|p| ascii_template_part(p)).collect();
     let mut values = vec![];
     for hole in holes {
         values.push(match hole {
@@ -999,7 +1400,7 @@ fn template(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Re
 // `dynamic_child_value` (a thunk when dynamic), `escape_expression_in_place`,
 // and `_$scope` when the slot can allocate ids.
 fn text_hole(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env, tys: &Types) -> Res<JsVal> {
-    let form = c.text_form(e, tys).map_err(Thrown)?;
+    let form = c.text_form(e, tys).map_err(Thrown::msg)?;
     if !form.dynamic {
         return text_value(s, c, e, env, form.coerce);
     }
@@ -1152,6 +1553,45 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
                     each,
                     children: row,
                     fallback: None,
+                },
+            )
+        }
+        // `Loading(new _P$({ get fallback(), get children() }))`
+        View::Loading { fallback, children } => {
+            let (fb, kids) = (fallback.clone(), children.clone());
+            let (e1, e2, c1, c2, t1, t2) = (
+                env.clone(),
+                env.clone(),
+                c.clone(),
+                c.clone(),
+                tys.clone(),
+                tys.clone(),
+            );
+            loading(
+                s,
+                LoadingProps {
+                    fallback: getter(move |s| fragment(s, &c1, &fb, &e1, &t1)),
+                    children: getter(move |s| fragment(s, &c2, &kids, &e2, &t2)),
+                },
+            )
+        }
+        // `Errored(new _P$({ fallback: (err) => …, get children() }))`: the
+        // fallback is a plain field, a function of the error.
+        View::Errored { fallback, children } => {
+            let (fb, kids) = (fallback.clone(), children.clone());
+            let (e1, e2, c1, c2, t1, t2) = (
+                env.clone(),
+                env.clone(),
+                c.clone(),
+                c.clone(),
+                tys.clone(),
+                tys.clone(),
+            );
+            errored(
+                s,
+                ErroredProps {
+                    fallback: JsVal::func(1, move |s, _| fragment(s, &c1, &fb, &e1, &t1)),
+                    children: getter(move |s| fragment(s, &c2, &kids, &e2, &t2)),
                 },
             )
         }

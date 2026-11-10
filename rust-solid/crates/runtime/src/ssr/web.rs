@@ -1,24 +1,162 @@
-//! `@solidjs/web`'s server runtime (web/src/server.ts) as a synchronous
-//! `renderToString` of a plan app runs it: `ssr()` template assembly,
-//! `escape`, the hole and tree resolvers, hydration keys, and the render
-//! itself.
+//! `@solidjs/web`'s server runtime (web/src/server.ts) as a render of a plan
+//! app runs it: `ssr()` template assembly, `escape`, the hole and tree
+//! resolvers (with the `{ t, h, p }` results of holes that suspended and
+//! their async wraps), hydration keys, the render context
+//! (`sharedConfig.context`), `renderToString`, and the hydration script.
+//! `renderToStream` is `stream.rs`.
 //!
-//! Not ported, because `renderToString` of a plan app never reaches them:
-//! live holes (`sharedConfig.context.liveHoles` is only set by frame
-//! renders, so every `live` branch of `ssr()` is dead), group holes (`$g`,
-//! emitted only for attribute groups; plans have no attributes), async
-//! escalation (`{ t, h, p }` results, `buildAsyncWrap`: nothing suspends),
-//! attribute escaping, `ssrElement`/`ssrAttribute`/class and style
-//! serializers, link claims (no anchor has an `href`), `<select>` value
-//! resolution (never activated: plans have no `value` attributes), the
-//! hydration serializer (no async data is serialized; it writes nothing),
-//! head and asset tracking (nothing registers a head tag or an asset), and
-//! the trace context (`traceFor`, whose meta tag only reaches a document
-//! with a `</head>`, which a plan app never renders: `head` is refused).
+//! Not ported, because a plan app never reaches them: live holes
+//! (`sharedConfig.context.liveHoles` is only set by frame renders, so every
+//! `live` branch of `ssr()` is dead), group holes (`$g`, emitted only for
+//! attribute groups; plans have no attributes), attribute escaping,
+//! `ssrElement`/`ssrAttribute`/class and style serializers, link claims (no
+//! anchor has an `href`), `<select>` value resolution (never activated:
+//! plans have no `value` attributes), head and asset tracking (nothing
+//! registers a head tag or an asset: `registerEntryAssets` without a
+//! manifest, `renderShellHead` and `flushHeadFragment` over an empty
+//! registry, `serializeFragmentAssets` with no boundary modules all write
+//! nothing), and the trace context (`traceFor`, whose meta tag only reaches
+//! a document with a `</head>`, which a plan app never renders: `head` is
+//! refused).
+use super::boundary::ssr_handle_error;
+use super::js::Deferred;
 use super::owner::OwnerId;
-use super::value::{call, throw, JsFn, JsVal, Res};
+use super::stream::{HydrationSerializer, StreamRender};
+use super::value::{call, throw, JsFn, JsVal, Res, SsrRes, Thrown};
 use super::Server;
-use std::rc::Rc;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+/// A settled-slot record (signals.ts:1150-1166): an async memo's state by
+/// owner id, which a later pass over the same id adopts.
+pub struct Slot {
+    pub s: u8,
+    pub v: JsVal,
+    pub d: Option<Rc<Deferred>>,
+}
+
+pub type SlotStore = Rc<RefCell<Vec<(String, Rc<RefCell<Slot>>)>>>;
+
+/// The render context's own behaviour: `renderToString`'s, `renderToStream`'s,
+/// or a Loading boundary's `bufferedCtx` (`Object.create(ctx)` with its own
+/// `serialize`, solid/src/server/hydration.ts:351-355).
+pub enum CtxKind {
+    String(Rc<StringRender>),
+    Stream(Rc<StreamRender>),
+    Buffered(Rc<SerializeBuffer>),
+}
+
+/// `sharedConfig.context`: a render's context object. `proto` is the
+/// prototype of a `bufferedCtx`; `slots` is the object's own `[SLOTS]`.
+pub struct RenderCtx {
+    pub proto: Option<Rc<RenderCtx>>,
+    pub kind: CtxKind,
+    slots: RefCell<Option<SlotStore>>,
+}
+
+/// A Loading boundary's serialize buffer (solid/src/server/hydration.ts:343-381): writes made
+/// while the boundary discovers its content wait until it commits.
+pub struct SerializeBuffer {
+    pub ctx: Rc<RenderCtx>,
+    pub buffer: RefCell<Vec<(String, JsVal, bool)>>,
+    pub flushed: Cell<bool>,
+}
+
+impl RenderCtx {
+    pub fn new(kind: CtxKind, proto: Option<Rc<RenderCtx>>) -> Rc<RenderCtx> {
+        Rc::new(RenderCtx {
+            proto,
+            kind,
+            slots: RefCell::new(None),
+        })
+    }
+
+    /// `ctx.async`: true for `renderToStream`'s context.
+    pub fn is_async(&self) -> bool {
+        match &self.kind {
+            CtxKind::String(_) => false,
+            CtxKind::Stream(_) => true,
+            CtxKind::Buffered(b) => b.ctx.is_async(),
+        }
+    }
+
+    /// The stream render, through the prototype chain.
+    pub fn stream(&self) -> Option<Rc<StreamRender>> {
+        match &self.kind {
+            CtxKind::Stream(st) => Some(st.clone()),
+            CtxKind::String(_) => None,
+            CtxKind::Buffered(b) => b.ctx.stream(),
+        }
+    }
+
+    /// `ctx.serialize(id, value, deferStream)`.
+    pub fn serialize(&self, s: &mut Server, id: String, value: JsVal, defer: bool) -> Res<()> {
+        match &self.kind {
+            CtxKind::String(r) => r.serialize(s, id, value),
+            CtxKind::Stream(st) => st.serialize(s, id, value, defer),
+            // Solid: solid/src/server/hydration.ts:352-355 (`bufferedCtx.serialize`)
+            CtxKind::Buffered(b) => {
+                if b.flushed.get() {
+                    b.ctx.serialize(s, id, value, defer)
+                } else {
+                    b.buffer.borrow_mut().push((id, value, defer));
+                    Ok(())
+                }
+            }
+        }
+    }
+
+    /// `ctx[SLOTS]`, through the prototype chain.
+    fn slots(&self) -> Option<SlotStore> {
+        if let Some(st) = self.slots.borrow().as_ref() {
+            return Some(st.clone());
+        }
+        self.proto.as_ref().and_then(|p| p.slots())
+    }
+
+    /// `ctx[SLOTS]?.[id]`.
+    pub fn slot(&self, id: &str) -> Option<Rc<RefCell<Slot>>> {
+        let store = self.slots()?;
+        let found = store
+            .borrow()
+            .iter()
+            .find(|(k, _)| k == id)
+            .map(|(_, v)| v.clone());
+        found
+    }
+
+    /// `ctx[SLOTS] ||= Object.create(null)`: an inherited store is used; a
+    /// missing one is created on this object.
+    pub fn slots_or_create(&self) -> SlotStore {
+        if let Some(st) = self.slots() {
+            return st;
+        }
+        let st: SlotStore = Rc::new(RefCell::new(vec![]));
+        *self.slots.borrow_mut() = Some(st.clone());
+        st
+    }
+}
+
+/// `renderToString`'s context state (server.ts:1791-1846).
+pub struct StringRender {
+    pub serializer: Rc<HydrationSerializer>,
+    pub closed: Cell<bool>,
+}
+
+impl StringRender {
+    // Solid: server.ts:1828-1840 (`serialize`): an async value is an error.
+    fn serialize(&self, s: &mut Server, id: String, p: JsVal) -> Res<()> {
+        if self.closed.get() {
+            return Ok(());
+        }
+        if matches!(p, JsVal::Promise(_)) {
+            return throw(format!("Cannot serialize async value in renderToString (id: {id}). Use renderToStream for async data."));
+        }
+        self.serializer.write(s, id, p)
+    }
+}
 
 // Solid: server.ts:5645-5681 (`escape`, content position: `attr` false).
 pub fn escape(v: &JsVal) -> JsVal {
@@ -64,7 +202,7 @@ pub fn escape_str(s: &str) -> String {
 }
 
 // Solid: server.ts:5704-5718 (`escapeLate`): a function at a content hole is
-// escaped when the resolver calls it.
+// escaped when the resolver calls it; the wrapper keeps the `$lhSkip` brand.
 fn escape_late(f: &Rc<JsFn>) -> JsVal {
     if f.esc {
         return JsVal::Fn(f.clone());
@@ -73,6 +211,8 @@ fn escape_late(f: &Rc<JsFn>) -> JsVal {
     JsVal::Fn(Rc::new(JsFn {
         arity: 0,
         esc: true,
+        rw: false,
+        lh_skip: Cell::new(f.lh_skip.get()),
         body: Box::new(move |s, _| Ok(escape(&call(s, &inner, &[])?))),
     }))
 }
@@ -92,15 +232,59 @@ fn try_join_plain_ssr_array(nodes: &[JsVal]) -> Option<String> {
     Some(out)
 }
 
-// Solid: server.ts:3805-3817 (`tryResolveFunctionHole`). A throw is not a
-// `NotReadyError` on a plan app's path: `buildAsyncWrap` → `ssrHandleError`
-// rethrows it (no `<Errored>` above).
-fn try_resolve_function_hole(s: &mut Server, hole: &JsVal) -> Res<String> {
-    let value = call(s, hole, &[])?;
+/// A hole's resolution: a string, or what `appendResolvedNode` takes (an
+/// async wrap `{ fn, p }`, a template to merge, a node to resolve).
+enum Resolved {
+    Str(String),
+    Wrap(JsVal, JsVal),
+    Merge(Rc<SsrRes>),
+    Bail(JsVal),
+}
+
+// Solid: server.ts:3755-3796 (`buildAsyncWrap`): a `NotReadyError` becomes a
+// hole that waits on its source, re-run under the owner of the moment
+// (`$rw`); any other error goes to the boundary's handler (which throws it
+// on) or is rethrown.
+fn build_async_wrap(s: &mut Server, err: Thrown, node: &JsVal) -> Res<Option<(JsVal, JsVal)>> {
+    let p = ssr_handle_error(s, err, false)?;
+    let Some(p) = p else {
+        return Ok(None);
+    };
+    let JsVal::Fn(f) = node else {
+        return throw("buildAsyncWrap: a hole that is not a function");
+    };
+    if f.rw {
+        return Ok(Some((node.clone(), p)));
+    }
+    let Some(owner) = s.get_owner() else {
+        return Ok(Some((node.clone(), p)));
+    };
+    let inner = node.clone();
+    let wrapped = JsVal::Fn(Rc::new(JsFn {
+        arity: 0,
+        esc: false,
+        rw: true,
+        lh_skip: Cell::new(f.lh_skip.get()),
+        body: Box::new(move |s, _| s.run_with_owner(Some(owner), |s| call(s, &inner, &[]))),
+    }));
+    Ok(Some((wrapped, p)))
+}
+
+// Solid: server.ts:3805-3817 (`tryResolveFunctionHole`)
+fn try_resolve_function_hole(s: &mut Server, hole: &JsVal) -> Res<Resolved> {
+    let value = match call(s, hole, &[]) {
+        Ok(v) => v,
+        Err(err) => {
+            return Ok(match build_async_wrap(s, err, hole)? {
+                Some((f, p)) => Resolved::Wrap(f, p),
+                None => Resolved::Str(String::new()),
+            })
+        }
+    };
     Ok(match value {
-        JsVal::Str(v) => v.to_string(),
-        JsVal::Num(n) => n.to_string(),
-        JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => String::new(),
+        JsVal::Str(v) => Resolved::Str(v.to_string()),
+        JsVal::Num(n) => Resolved::Str(n.to_string()),
+        JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => Resolved::Str(String::new()),
         other => try_resolve_string(s, &other, false)?,
     })
 }
@@ -109,12 +293,14 @@ const TEXT_SEPARATOR: &str = "<!--!$-->";
 
 // Solid: server.ts:6231-6280 (`tryResolveString`). Adjacent text values are
 // separated by `<!--!$-->` (`ssrTextTail`), which the client's hydration
-// walk counts as a text boundary.
-fn try_resolve_string(s: &mut Server, node: &JsVal, nested: bool) -> Res<String> {
+// walk counts as a text boundary. A list with an item that does not resolve
+// to a string bails (its items are resolved again by `resolveSSRNode`); a
+// suspended template is merged; a function that suspends is wrapped.
+fn try_resolve_string(s: &mut Server, node: &JsVal, nested: bool) -> Res<Resolved> {
     if !nested {
         s.ssr_text_tail = false;
     }
-    match node {
+    Ok(match node {
         JsVal::Str(_) | JsVal::Num(_) => {
             let text = match node {
                 JsVal::Str(v) => v.to_string(),
@@ -127,38 +313,103 @@ fn try_resolve_string(s: &mut Server, node: &JsVal, nested: bool) -> Res<String>
                 text
             };
             s.ssr_text_tail = true;
-            Ok(out)
+            Resolved::Str(out)
         }
-        JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => Ok(String::new()),
+        JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => Resolved::Str(String::new()),
         JsVal::Arr(a) => {
             let items = a.borrow().clone();
             if let Some(joined) = try_join_plain_ssr_array(&items) {
                 s.ssr_text_tail = false;
-                return Ok(joined);
+                return Ok(Resolved::Str(joined));
             }
             let mut out = String::new();
             for item in &items {
-                out.push_str(&try_resolve_string(s, item, true)?);
+                match try_resolve_string(s, item, true)? {
+                    Resolved::Str(r) => out.push_str(&r),
+                    _ => return Ok(Resolved::Bail(node.clone())),
+                }
             }
-            Ok(out)
+            Resolved::Str(out)
+        }
+        JsVal::Res(r) => {
+            if !r.h.borrow().is_empty() {
+                return Ok(Resolved::Merge(r.clone()));
+            }
+            s.ssr_text_tail = false;
+            Resolved::Str(r.t.borrow()[0].clone())
         }
         JsVal::Tmpl(t) => {
             s.ssr_text_tail = false;
-            Ok(t.to_string())
+            Resolved::Str(t.to_string())
         }
-        // Not a template object: the dev build warns and skips it.
-        JsVal::Rec(_) => Ok(String::new()),
-        JsVal::Fn(_) => {
-            let v = call(s, node, &[])?;
-            try_resolve_string(s, &v, true)
+        JsVal::Fn(_) => match call(s, node, &[]) {
+            Ok(v) => try_resolve_string(s, &v, true)?,
+            Err(err) => match build_async_wrap(s, err, node)? {
+                Some((f, p)) => {
+                    s.ssr_text_tail = true;
+                    Resolved::Wrap(f, p)
+                }
+                None => Resolved::Str(String::new()),
+            },
+        },
+        // An object that is not a template (`node.t === undefined`).
+        JsVal::Rec(_) | JsVal::Promise(_) | JsVal::Error(_) | JsVal::Deferred(_) => {
+            Resolved::Str(String::new())
         }
+    })
+}
+
+// Solid: server.ts:3822-3829 (`mergeTemplateInto`)
+fn merge_template_into(result: &Rc<SsrRes>, node: &Rc<SsrRes>) {
+    let nt = node.t.borrow().clone();
+    result
+        .t
+        .borrow_mut()
+        .last_mut()
+        .expect("a part")
+        .push_str(&nt[0]);
+    if nt.len() > 1 {
+        result.t.borrow_mut().extend(nt[1..].iter().cloned());
+        result
+            .h
+            .borrow_mut()
+            .extend(node.h.borrow().iter().cloned());
+        result
+            .p
+            .borrow_mut()
+            .extend(node.p.borrow().iter().cloned());
     }
+}
+
+// Solid: server.ts:3831-3840 (`appendResolvedNode`)
+fn append_resolved_node(s: &mut Server, result: &Rc<SsrRes>, node: Resolved) -> Res<()> {
+    match node {
+        Resolved::Wrap(f, p) => {
+            result.h.borrow_mut().push(f);
+            result.p.borrow_mut().push(p);
+            result.t.borrow_mut().push(String::new());
+        }
+        Resolved::Merge(m) => merge_template_into(result, &m),
+        Resolved::Bail(b) => resolve_ssr_node(s, &b, result, false, false)?,
+        Resolved::Str(_) => unreachable!("a string is appended by the caller"),
+    }
+    Ok(())
+}
+
+fn push_text(result: &Rc<SsrRes>, text: &str) {
+    result
+        .t
+        .borrow_mut()
+        .last_mut()
+        .expect("a part")
+        .push_str(text);
 }
 
 // Solid: server.ts:4742-5005 (`ssr`), the path with no live holes and no
 // groups: strings and numbers are appended, nullish and booleans skipped,
 // functions resolved through `tryResolveFunctionHole`, anything else through
-// `tryResolveString`. A template with no holes is returned as is (`{ t }`).
+// `tryResolveString`; once a hole suspends, the rest resolve into the
+// `{ t, h, p }` result.
 pub fn ssr(s: &mut Server, template: &[String], holes: &[JsVal]) -> Res<JsVal> {
     if holes.is_empty() {
         // `if (len === 1) return { t }`: `t` is the template itself; the
@@ -169,25 +420,59 @@ pub fn ssr(s: &mut Server, template: &[String], holes: &[JsVal]) -> Res<JsVal> {
         return throw("ssr: a template has one more part than it has holes");
     }
     let mut out = template[0].clone();
+    let mut result: Option<Rc<SsrRes>> = None;
     for (i, hole) in holes.iter().enumerate() {
         match hole {
-            JsVal::Str(v) => out.push_str(v),
-            JsVal::Num(n) => out.push_str(&n.to_string()),
+            JsVal::Str(v) => match &result {
+                None => out.push_str(v),
+                Some(r) => push_text(r, v),
+            },
+            JsVal::Num(n) => match &result {
+                None => out.push_str(&n.to_string()),
+                Some(r) => push_text(r, &n.to_string()),
+            },
             JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => {}
-            JsVal::Fn(_) => out.push_str(&try_resolve_function_hole(s, hole)?),
-            other => out.push_str(&try_resolve_string(s, other, false)?),
+            JsVal::Fn(_) => match &result {
+                Some(r) => resolve_ssr_node(s, hole, r, false, false)?,
+                None => match try_resolve_function_hole(s, hole)? {
+                    Resolved::Str(v) => out.push_str(&v),
+                    other => {
+                        let r = SsrRes::new(std::mem::take(&mut out));
+                        append_resolved_node(s, &r, other)?;
+                        result = Some(r);
+                    }
+                },
+            },
+            other => match &result {
+                Some(r) => resolve_ssr_node(s, other, r, false, false)?,
+                None => match try_resolve_string(s, other, false)? {
+                    Resolved::Str(v) => out.push_str(&v),
+                    resolved => {
+                        let r = SsrRes::new(std::mem::take(&mut out));
+                        append_resolved_node(s, &r, resolved)?;
+                        result = Some(r);
+                    }
+                },
+            },
         }
-        out.push_str(&template[i + 1]);
+        match &result {
+            None => out.push_str(&template[i + 1]),
+            Some(r) => push_text(r, &template[i + 1]),
+        }
     }
-    Ok(JsVal::Tmpl(Rc::from(out.as_str())))
+    Ok(match result {
+        None => JsVal::Tmpl(Rc::from(out.as_str())),
+        Some(r) => JsVal::Res(r),
+    })
 }
 
-// Solid: server.ts:6285-6362 (`resolveSSRNode`), synchronous: `result.t`
-// stays one string.
-fn resolve_ssr_node(
+// Solid: server.ts:6285-6362 (`resolveSSRNode`): resolves a node into
+// `result`, a function's suspension becoming one of its holes
+// (`pushSSRAsyncHole`).
+pub fn resolve_ssr_node(
     s: &mut Server,
     node: &JsVal,
-    result: &mut String,
+    result: &Rc<SsrRes>,
     top: bool,
     nested: bool,
 ) -> Res<()> {
@@ -202,9 +487,9 @@ fn resolve_ssr_node(
                 _ => unreachable!(),
             };
             if s.ssr_text_tail {
-                result.push_str(TEXT_SEPARATOR);
+                push_text(result, TEXT_SEPARATOR);
             }
-            result.push_str(&text);
+            push_text(result, &text);
             s.ssr_text_tail = true;
         }
         JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => {}
@@ -217,41 +502,75 @@ fn resolve_ssr_node(
                 resolve_ssr_node(s, item, result, false, true)?;
             }
         }
+        JsVal::Res(r) => {
+            merge_template_into(result, r);
+            s.ssr_text_tail = false;
+        }
         JsVal::Tmpl(t) => {
-            result.push_str(t);
+            push_text(result, t);
             s.ssr_text_tail = false;
         }
         // An object that is not a template: the dev build warns.
-        JsVal::Rec(_) => {}
-        JsVal::Fn(_) => {
-            let v = call(s, node, &[])?;
-            resolve_ssr_node(s, &v, result, false, true)?;
+        JsVal::Rec(_) | JsVal::Promise(_) | JsVal::Error(_) | JsVal::Deferred(_) => {}
+        JsVal::Fn(_) => match call(s, node, &[]) {
+            Ok(v) => {
+                if let Err(err) = resolve_ssr_node(s, &v, result, false, true) {
+                    push_ssr_async_hole(s, result, err, node)?;
+                }
+            }
+            Err(err) => push_ssr_async_hole(s, result, err, node)?,
+        },
+    }
+    Ok(())
+}
+
+/// `resolveSSRNode(node)` into a fresh result.
+pub fn resolve_fresh(s: &mut Server, node: &JsVal) -> Res<Rc<SsrRes>> {
+    let r = SsrRes::new(String::new());
+    resolve_ssr_node(s, node, &r, false, false)?;
+    Ok(r)
+}
+
+// Solid: server.ts:6365-6374 (`pushSSRAsyncHole`)
+fn push_ssr_async_hole(s: &mut Server, result: &Rc<SsrRes>, err: Thrown, node: &JsVal) -> Res<()> {
+    if let Some((f, p)) = build_async_wrap(s, err, node)? {
+        if s.ssr_text_tail {
+            push_text(result, TEXT_SEPARATOR);
         }
+        result.h.borrow_mut().push(f);
+        result.p.borrow_mut().push(p);
+        result.t.borrow_mut().push(String::new());
+        s.ssr_text_tail = true;
     }
     Ok(())
 }
 
 // Solid: server.ts:6376-6380 (`resolveSSRSync`)
-fn resolve_ssr_sync(s: &mut Server, node: &JsVal) -> Res<String> {
-    let mut result = String::new();
-    resolve_ssr_node(s, node, &mut result, false, false)?;
-    Ok(result)
+pub fn resolve_ssr_sync(s: &mut Server, node: &JsVal) -> Res<String> {
+    let res = resolve_fresh(s, node)?;
+    if !res.h.borrow().is_empty() {
+        return throw("This value cannot be rendered synchronously. Are you missing a boundary?");
+    }
+    let t = res.t.borrow()[0].clone();
+    Ok(t)
 }
 
 impl Server {
-    // Solid: solid/src/server/shared.ts:207-213 (`getNextContextId`). No plan
-    // app sets `NoHydrateContext`, so its default (`false`) is read.
+    // Solid: solid/src/server/shared.ts:207-213 (`getNextContextId`)
     pub fn get_next_context_id(&mut self) -> Res<Option<String>> {
         let Some(o) = self.get_owner() else {
             return throw("getNextContextId cannot be used under non-hydrating context");
         };
+        if self.no_hydrate(o) {
+            return Ok(None);
+        }
         self.get_next_child_id(o).map(Some)
     }
 }
 
 // Solid: server.ts:5822-5827 (`getHydrationKey`)
 pub fn get_hydration_key(s: &mut Server) -> Res<Option<String>> {
-    if !s.context {
+    if s.ctx.is_none() {
         return Ok(None);
     }
     s.get_next_context_id()
@@ -265,41 +584,87 @@ pub fn ssr_hydration_key(s: &mut Server) -> Res<JsVal> {
     }))
 }
 
+/// `getLocalHeaderScript(renderId)` (server.ts:598-600).
+pub fn local_header_script(render_id: &str) -> String {
+    super::seroval::cross_reference_header(Some(render_id)) + ";"
+}
+
+/// `assembleDocument` and `withShellEnd` for a body-only render with nothing
+/// registered for the head (server.ts:5900-5906, 5931-6007): the scripts go
+/// at the `<!--xs-->` marker, or after the HTML. A render whose HTML has a
+/// `</head>` or the marker is refused: those splices are not ported.
+pub fn assemble_document(html: &str, scripts: &str) -> Res<String> {
+    if html.contains("</head>") || html.contains("<!--xs-->") {
+        return throw("a document shell (</head>, <!--xs-->) is not ported");
+    }
+    Ok(if scripts.is_empty() {
+        html.to_string()
+    } else {
+        format!("{html}<script>{scripts}</script>")
+    })
+}
+
+/// What `renderToString` returns, and the host requests it made.
+pub struct StringOutput {
+    pub html: String,
+}
+
 // Solid: server.ts:1791-1957 (`renderToString`), for a render with no
-// request event, no nonce, no manifest and no `onHead`: the root owner takes
-// `renderId` as its id, the code's result is escaped and resolved
-// synchronously, and the document is assembled. With nothing registered for
-// the head, nothing serialized and no bootstrap, `assembleDocument` and
-// `withShellEnd` return the HTML unchanged (server.ts:5900-5906, 5931-6007); a render
-// whose HTML has a `</head>` or the `<!--xs-->` marker is refused, because
-// those splices are not ported. The root is disposed before returning.
+// request event, no nonce, no manifest and no `onHead`: a hydration
+// serializer whose data becomes the document's one script, the context, the
+// root owner (`renderId` as its id), the code's result escaped and resolved
+// synchronously, the serializer closed, and the document assembled. The
+// root is disposed before returning.
 pub fn render_to_string(
     s: &mut Server,
     render_id: &str,
     code: impl FnOnce(&mut Server) -> Res<JsVal>,
 ) -> Res<String> {
-    s.context = true;
+    let scripts = Rc::new(RefCell::new(String::new()));
+    let sc = scripts.clone();
+    let rid = render_id.to_string();
+    let serializer = HydrationSerializer::new(
+        Some(render_id.to_string()),
+        Rc::new(move |_, script: String| {
+            let mut sc = sc.borrow_mut();
+            if sc.is_empty() {
+                *sc = local_header_script(&rid);
+            }
+            sc.push_str(&script);
+            sc.push(';');
+        }),
+        None,
+        false,
+    );
+    let render = Rc::new(StringRender {
+        serializer: serializer.clone(),
+        closed: Cell::new(false),
+    });
+    s.ctx = Some(RenderCtx::new(CtxKind::String(render.clone()), None));
     let mut root: Option<OwnerId> = None;
     let html = s.create_root(Some(render_id.to_string()), |s, owner| {
         root = Some(owner);
-        // `claimRenderRoot`: files the root for `getRequestEvent`-style
-        // lookups and drops it on dispose; nothing a plan app reads.
+        // `claimRenderRoot`: files the root for request-scoped lookups and
+        // drops it on dispose; nothing a plan app reads.
         s.on_cleanup(Rc::new(|_| {}));
         let v = code(s)?;
         let escaped = escape(&v);
         resolve_ssr_sync(s, &escaped)
     });
     let result = html.and_then(|html| {
-        if html.contains("</head>") || html.contains("<!--xs-->") {
-            return throw("a document shell (</head>, <!--xs-->) is not ported");
-        }
-        Ok(html)
+        render.closed.set(true);
+        serializer.close(s);
+        let scripts = scripts.borrow().clone();
+        assemble_document(&html, &scripts)
     });
     if let Some(root) = root {
         let disposed = s.dispose_owner(root, true);
         if result.is_ok() {
             disposed?;
         }
+    }
+    if let Some(f) = s.failures.first() {
+        return throw(f.clone());
     }
     result
 }

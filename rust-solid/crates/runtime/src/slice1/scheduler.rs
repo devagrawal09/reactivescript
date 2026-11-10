@@ -1,9 +1,9 @@
 //! Solid: scheduler.ts — transactions, the flush and its seam (`settle`),
 //! landings, the effect queues and the commit of staged nodes.
 //!
-//! Not ported (constant in these slices): `affects()` marks, the boundary
-//! hooks beyond `boundaries.rs` (no boundary), and tracked verdict readers.
-//! The store hooks are store/store.rs (`storePark`, `storeCommit`).
+//! The boundary hooks are boundaries.rs, the mark hooks affects.rs and the
+//! verdict hooks verdict.rs; the store hooks are store/store.rs
+//! (`storePark`, `storeCommit`).
 use super::*;
 
 impl Runtime {
@@ -11,6 +11,9 @@ impl Runtime {
     pub(super) fn new_transaction(&mut self, lane: bool, parent: Option<TxId>) -> TxId {
         let t = self.txs.len();
         self.txs.push(Transaction {
+            verdict: None,
+            marks: None,
+            latest: false,
             folded: false,
             over: None,
             nodes: vec![],
@@ -107,6 +110,9 @@ impl Runtime {
         }
         let reruns = self.txs[t].reruns.clone();
         self.txs[f].reruns.extend(reruns);
+        if let Some(m) = self.txs[t].marks.clone() {
+            self.txs[f].marks.get_or_insert_with(Vec::new).extend(m);
+        }
         if let Some(k) = self.transactions.iter().position(|x| *x == t) {
             self.transactions.remove(k);
         }
@@ -144,8 +150,7 @@ impl Runtime {
         false
     }
 
-    // Solid: scheduler.ts:516-568 (`blockedBy(t._nodes, t, own)`; no verdict
-    // reader carries CONFIG_AHEAD)
+    // Solid: scheduler.ts:516-568 (`blockedBy(t._nodes, t, own)`)
     fn blocked_by(&mut self, owner: TxId, own: bool) -> bool {
         let mut i = 0;
         while i < self.txs[owner].nodes.len() {
@@ -160,8 +165,12 @@ impl Runtime {
                 continue;
             }
             let judge = self.judge.unwrap_or(owner);
+            let lane = self.txs[owner].lane;
+            // `observeFlightHook && x._config & CONFIG_AHEAD && !owner._lane`:
+            // a display-ahead reader holds nothing of a transaction.
+            let ahead = |x: &Node| x.config & CONFIG_AHEAD != 0 && !lane;
             if self.nodes[n].effect_type == EFFECT_RENDER {
-                if self.on_screen(n, judge) {
+                if !ahead(&self.nodes[n]) && self.on_screen(n, judge) {
                     return true;
                 }
                 continue;
@@ -170,7 +179,9 @@ impl Runtime {
             while let Some(l) = s {
                 let r = self.links[l].sub;
                 let rn = &self.nodes[r];
-                if ((rn.effect_type == EFFECT_RENDER && rn.status & STATUS_PENDING != 0)
+                if ((rn.effect_type == EFFECT_RENDER
+                    && rn.status & STATUS_PENDING != 0
+                    && !ahead(rn))
                     || rn.flags & REACTIVE_FRAME_READ != 0
                     || (rn.config & CONFIG_REDERIVE != 0 && rn.status == STATUS_PENDING))
                     && (self.links[l].gen == rn.dep_gen || rn.error.is_some())
@@ -190,7 +201,7 @@ impl Runtime {
         if self.nodes[r].flags & REACTIVE_ZOMBIE != 0 && self.removal_staged_by(r, t) {
             return false;
         }
-        !self.hidden_by(r, &mut None)
+        !self.hidden_by(r, &mut None).truthy()
     }
 
     // Solid: scheduler.ts:586-592
@@ -231,6 +242,7 @@ impl Runtime {
 
     // Solid: scheduler.ts:624-629
     pub(super) fn list(&mut self, n: NodeId, t: TxId) {
+        self.nodes[n].x = true; // `ext(n)`
         if self.nodes[n].transaction == Some(t) {
             return;
         }
@@ -312,8 +324,8 @@ impl Runtime {
         if !self.lanes.is_empty() && self.lane_corrections() {
             self.run_heap();
         }
-        // `latestOpened`: only a tracked `latest()` opens one.
         let joined = self.flush_transaction.take();
+        self.latest_opened = None;
         self.apply_guesses_at(joined);
         let t = joined
             .filter(|j| !self.txs[*j].lane)
@@ -365,7 +377,7 @@ impl Runtime {
             self.store_park(t);
             // The batch joins: the deferred zombies are cancelled. A
             // verdict reader among them re-runs (`observeFlightHook` is
-            // installed; no node here is CONFIG_VERDICT).
+            // installed).
             let mut zombies = std::mem::take(&mut self.deferred_zombies);
             zombies.sort_by_key(|z| self.nodes[*z].height);
             for z in zombies {
@@ -407,6 +419,7 @@ impl Runtime {
         // `storeCommitHook` (store/store.ts: `drainFolds`, `sweepOverlaid`).
         self.store_commit();
         let live = t.and_then(|t| self.live_tx(t));
+        self.release_ambient_marks(live);
         let parked = live.is_some();
         for i in 0..2 {
             if let Some(l) = live {
@@ -435,7 +448,7 @@ impl Runtime {
                 }
             }
         }
-        // `boundarySeamHook`: no boundary.
+        self.boundary_seam();
     }
 
     // Solid: scheduler.ts:1169-1175
@@ -482,8 +495,9 @@ impl Runtime {
             {
                 continue;
             }
-            // `observeFlightHook && CONFIG_VERDICT`: no verdict readers.
-            if self.nodes[r].flags & REACTIVE_FRAME_READ != 0 {
+            if self.nodes[r].flags & REACTIVE_FRAME_READ != 0
+                || self.nodes[r].config & CONFIG_VERDICT != 0
+            {
                 frame = frame
                     || self.nodes[r].effect_type != 0
                     || s_is_r
@@ -514,6 +528,11 @@ impl Runtime {
     fn land(&mut self, u: TxId) {
         self.tr(|| format!("L {u}"));
         let frame = self.reruns(u);
+        // `releaseMarksHook(u._marks)`: the hook empties the list.
+        if let Some(m) = self.txs[u].marks.as_mut() {
+            let m = std::mem::take(m);
+            self.release_marks(m);
+        }
         let mut i = 0;
         while i < self.txs[u].nodes.len() {
             let n = self.txs[u].nodes[i];
@@ -582,8 +601,7 @@ impl Runtime {
         }
     }
 
-    // Solid: scheduler.ts:1431-1465 (no verdict memo: `node` never carries
-    // CONFIG_VERDICT)
+    // Solid: scheduler.ts:1431-1465
     pub(super) fn lane_dirty(&mut self, node: NodeId, l: TxId) {
         self.insert_subs(node);
         let mut s = self.nodes[node].subs;
@@ -605,6 +623,12 @@ impl Runtime {
                     self.list(c, l);
                 }
             }
+            if self.nodes[c].effect_type == EFFECT_RENDER
+                && self.nodes[node].config & CONFIG_VERDICT != 0
+            {
+                self.nodes[c].config |= CONFIG_VERDICT;
+                self.nodes[c].flags &= !REACTIVE_LANE_DIRTY;
+            }
             let mark = match t {
                 Some(t) if self.txs[t].lane => self.same_lane(t, l),
                 _ => self.nodes[c].effect_type != 0,
@@ -618,8 +642,14 @@ impl Runtime {
 
     // Solid: scheduler.ts:1199-1225 (`GlobalQueue.notify`; `catchHook` is
     // boundaries.ts `catchStatus`)
-    pub(super) fn notify(&mut self, node: NodeId, mask: u32, flags: u32) -> bool {
-        if self.catch_status(node, flags & mask) {
+    pub(super) fn notify(
+        &mut self,
+        node: NodeId,
+        mask: u32,
+        flags: u32,
+        error: Option<Error>,
+    ) -> bool {
+        if self.catch_status(node, flags & mask, error) != 0 {
             return true;
         }
         if mask & STATUS_PENDING != 0 {
@@ -742,6 +772,7 @@ impl Runtime {
             match f {
                 QueueCallback::RunEffect(n) => self.run_effect(n, ty),
                 QueueCallback::ReleaseQueues(u) => self.release_queues(u),
+                QueueCallback::DropFallback(b, fb) => self.drop_fallback(b, fb),
             }
         }
     }

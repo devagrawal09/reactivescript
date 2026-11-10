@@ -579,6 +579,7 @@ impl Runtime {
 
     // Solid: optimistic.ts:529-537
     fn lane_set(&mut self, node: NodeId, value: Value, lane: TxId) {
+        self.nodes[node].x = true; // `ext(node)`
         if self.nodes[node].config & CONFIG_OVERRIDE == 0 {
             self.nodes[node].config |= CONFIG_OVERRIDE;
             self.list(node, lane);

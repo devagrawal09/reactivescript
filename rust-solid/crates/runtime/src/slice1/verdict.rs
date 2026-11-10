@@ -1,18 +1,105 @@
-//! Solid: verdict.ts — the `latest`/`isPending` windows and the verdict
-//! engine's hooks the async paths call (`holdWork`, `stageMark`).
+//! Solid: verdict.ts — the `latest`/`isPending` windows, their readers
+//! (CONFIG_VERDICT: a pass that probes is a verdict reader, routed into the
+//! holder's verdict lane), and the verdict engine's hooks the async and
+//! lane paths call (`observeFlight`, `holdWork`, `stageMark`,
+//! `keepReaders`, `attachWaits`, `holdStaging`).
 //!
-//! Only untracked windows are ported: the op language calls `latest` and
-//! `isPending` outside every computation, so `creatorPass(context)` is null
-//! and the reader `c` is null. A window inside a pass makes it a verdict
-//! reader (CONFIG_VERDICT, `verdictRead`, `route`, `watchVerdict`,
-//! `provisionalVerdict`, `observeFlight`, verdict lanes); those arms panic
-//! "not ported" so a program reaching one fails closed. `attachWaits` and
-//! `holdStaging` are ported for the values they meet here: plain data
-//! inserts no DOM node, and no pass has a verdict posture of its own.
+//! Not ported: snapshots (a hydration claim's snapshot scope, never active
+//! here), the dev and observe tiers and the shadow seat (`__TEST__`), the
+//! store's witness mark (`GlobalQueue._witnessMark`, store/affects.ts), and
+//! `attachWaits`'s hold search (`bornHeldOpen`): plain data inserts no DOM
+//! node (`valueInserts` is false), so it is never reached, and it fails
+//! closed if it is.
 use super::*;
 
 impl Runtime {
-    // Solid: verdict.ts:240-248
+    // Solid: verdict.ts:110-113 (`watchVerdict`)
+    fn watch_verdict(&mut self, c: NodeId, unanswered: bool) {
+        if unanswered {
+            self.nodes[c].flags |= REACTIVE_PROBE_UNANSWERED;
+        }
+        self.staged_readers.push(c);
+    }
+
+    // Solid: verdict.ts:124-132 (`route`)
+    fn route(&mut self, c: NodeId, t: TxId) {
+        if self.pass_lane.is_none()
+            && self.nodes[c].flags & (REACTIVE_JOINED | REACTIVE_STAGED_READ) == 0
+            && !(self.nodes[c].config & CONFIG_HELD_FRAME != 0 && {
+                let r = self.resolve_tx(t);
+                self.born_into(c, r)
+            })
+        {
+            let l = self.verdict_lane(t);
+            self.pass_lane = Some(l);
+        }
+        self.nodes[c].flags |= REACTIVE_LANE_READ;
+    }
+
+    /// `observeFlightHook` (verdict.ts:156-173): a verdict reader's plain
+    /// read of a flight; true when it is served the committed value.
+    pub(super) fn observe_flight(&mut self, c: NodeId, el: NodeId) -> bool {
+        if self.pass_lane.is_some()
+            && self.nodes[c].effect_type != 0
+            && self.nodes[c].status & STATUS_UNINITIALIZED == 0
+        {
+            return true;
+        }
+        if self.nodes[el].config & CONFIG_INPUTS_PUBLISHED != 0
+            || (self.nodes[el].config & CONFIG_HELD != 0 && {
+                let t = self.tx_of(el);
+                self.born_into(c, t)
+            })
+        {
+            return false;
+        }
+        // `c._fam?.live.size !== 0`: a derived store's derive with no
+        // reader observes nothing.
+        let live = match self.nodes[c].fam {
+            None => true,
+            Some(f) => self.store.families[f].live.size() != 0,
+        };
+        if self.running && live {
+            self.join_future(None);
+            if self.nodes[el].config & CONFIG_HELD == 0 {
+                self.queue_pending_node(el);
+            }
+            if let Some(i) = self.ahead.iter().position(|x| *x == c) {
+                self.ahead.remove(i);
+            }
+            let f = self.flush_transaction.expect("joined");
+            self.verdict_read(c, f, true);
+        }
+        true
+    }
+
+    // Solid: verdict.ts:192-196 (`verdictRead`)
+    fn verdict_read(&mut self, c: NodeId, t: TxId, plain: bool) {
+        self.route(c, t);
+        if plain {
+            self.stale_reader(c, t);
+        } else if self.probing && self.txs[t].reruns.last() != Some(&c) {
+            self.txs[t].reruns.push(c);
+        }
+    }
+
+    // Solid: verdict.ts:218-235 (`provisionalVerdict`)
+    fn provisional_verdict(&mut self, c: NodeId, not_final: bool) {
+        if let Some(f) = self.flush_transaction {
+            if self.probing && not_final {
+                self.probe_found = true;
+            }
+            self.verdict_read(c, f, false);
+            if self.probing && self.nodes[c].flags & REACTIVE_STAGED_READ != 0 {
+                self.watch_verdict(c, false);
+            }
+            return;
+        }
+        let unanswered = !self.probing || not_final;
+        self.watch_verdict(c, unanswered);
+    }
+
+    // Solid: verdict.ts:240-248 (`quietPending`)
     fn quiet_pending(&self, el: NodeId) -> bool {
         if let Some(s) = self.nodes[el].pending_sources {
             for source in self.set_values(s) {
@@ -25,7 +112,7 @@ impl Runtime {
         self.nodes[el].reask
     }
 
-    // Solid: verdict.ts:264-274
+    // Solid: verdict.ts:264-274 (`heldNotFinal`)
     fn held_not_final(&self, owner: NodeId) -> bool {
         let n = &self.nodes[owner];
         if n.status & STATUS_PENDING != 0 && !self.quiet_pending(owner) {
@@ -39,25 +126,55 @@ impl Runtime {
                 || !self.equals_slot(owner, &Some(n.value.clone()), &n.pending))
     }
 
-    // Solid: verdict.ts:277-305 (`c` is null: the tracked arm is not reached)
+    // Solid: verdict.ts:277-305 (`pendingVerdict`)
     fn pending_verdict(&mut self, c: Option<NodeId>, el: NodeId) {
         if self.probing && !self.quiet_pending(el) {
             self.probe_found = true;
         }
-        if c.is_some() && self.tracking {
-            panic!("a tracked isPending/latest of a flight (verdict.ts:279-304) is not ported");
+        let Some(c) = c else { return };
+        if !self.tracking {
+            return;
+        }
+        if self.nodes[el].config & CONFIG_HELD != 0 {
+            let t = self.tx_of(el);
+            self.verdict_read(c, t, false);
+        } else if self.running {
+            if !self.probing {
+                if self.nodes[c].flags & REACTIVE_LANE_READ == 0 {
+                    self.ahead.push(c);
+                }
+                if self.flush_transaction.is_none() {
+                    self.join_future(None);
+                    let f = self.flush_transaction.expect("joined");
+                    self.txs[f].latest = true;
+                }
+            } else if let Some(f) = self.flush_transaction.filter(|f| self.txs[*f].latest) {
+                return self.route(c, f);
+            }
+            self.provisional_verdict(c, false);
         }
     }
 
-    // Solid: verdict.ts:312-333
+    // Solid: verdict.ts:312-333 (`markVerdictReader`; no observe tier)
     fn mark_verdict_reader(&mut self, _window: u32) {
-        let c = self.creator_pass(self.context);
-        if c.is_some() && self.tracking {
-            panic!("a verdict window inside a pass (CONFIG_VERDICT readers) is not ported");
+        let Some(c) = self.creator_pass(self.context) else {
+            return;
+        };
+        if !self.tracking {
+            return;
         }
+        self.nodes[c].config &= !CONFIG_ASYNC;
+        let reads = self.creator_reads(c, 0);
+        let bit = if reads != 0 {
+            reads
+        } else {
+            self.nodes[c].config |= CONFIG_VERDICT;
+            0
+        };
+        self.nodes[c].flags |= REACTIVE_PROBED | REACTIVE_WINDOW | bit;
     }
 
-    // Solid: verdict.ts:338-350
+    // Solid: verdict.ts:338-350 (`latest`)
     pub(super) fn latest_window<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Error>,
@@ -73,7 +190,7 @@ impl Runtime {
         r
     }
 
-    // Solid: verdict.ts:384-411
+    // Solid: verdict.ts:384-411 (`isPending`)
     pub(super) fn is_pending_window(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<(), Error>,
@@ -101,7 +218,7 @@ impl Runtime {
         r
     }
 
-    // Solid: verdict.ts:414-417
+    // Solid: verdict.ts:414-417 (`staged`)
     fn staged(&self, el: NodeId) -> Result<Value, Error> {
         if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
             return Err(self.nodes[el]
@@ -112,20 +229,25 @@ impl Runtime {
         Ok(self.nodes[el].pending.clone().expect("a staging"))
     }
 
-    // Solid: verdict.ts:421-426 (`c` is null: no late linker)
-    fn held_latest(&self, el: NodeId) -> Result<Value, Error> {
+    // Solid: verdict.ts:421-426 (`heldLatest`)
+    fn held_latest(&mut self, el: NodeId, c: Option<NodeId>) -> Result<Value, Error> {
         match self.unflushed_value(el) {
             None => self.staged(el),
-            Some(u) => Ok(u),
+            Some(u) => {
+                if let Some(c) = c {
+                    self.mark_late_linker(c);
+                }
+                Ok(u)
+            }
         }
     }
 
-    // Solid: verdict.ts:450-700 for an untracked window (`c` null: `owned`
-    // and `tracked` are false; no snapshot scope; no `affects()` marks)
+    /// The windows' read (`verdict`, core.ts `read`'s cold path).
+    // Solid: verdict.ts:450-700 (`verdictValue`; no snapshot scope)
     pub(super) fn verdict_value(&mut self, el: NodeId, c: Option<NodeId>) -> Result<Value, Error> {
-        if c.is_some() {
-            panic!("a verdict window read by a pass (verdict.ts:450-700, c != null) is not ported");
-        }
+        let owner = el;
+        let owned = c.is_some_and(|c| self.nodes[c].config & CONFIG_CHILDREN_FORBIDDEN == 0);
+        let tracked = owned && self.tracking;
         let prev_probing = self.probing;
         let prev_latest = self.latest_active;
         self.probing = false;
@@ -133,29 +255,58 @@ impl Runtime {
         self.verdict = false;
         // A signal has no `_flags`: the wake is a no-op for it.
         if self.nodes[el].fn_.is_some() {
-            self.prepare_computed(el, false);
+            self.prepare_computed(owner, false);
+        }
+        if let Some(c) = c.filter(|_| self.tracking) {
+            self.link(el, c);
+            // #4544: asked of this staging, under its hold or this flush.
+            if self.nodes[el].pending.is_some() {
+                self.nodes[el].x = true;
+                self.nodes[el].asked_in = if self.nodes[el].config & CONFIG_HELD != 0 {
+                    AskedIn::Tx(self.tx_of(el))
+                } else {
+                    match self.flush_transaction {
+                        Some(f) => AskedIn::Tx(f),
+                        None => AskedIn::Clock(self.clock),
+                    }
+                };
+            }
+            if self.nodes[el].fn_.is_some() {
+                self.pull_computed(owner, c);
+            }
         }
         self.verdict = true;
         self.latest_active = prev_latest;
         self.probing = prev_probing;
-        // `GlobalQueue._marked`: no `affects()` mark is active.
+        // A live `affects()` mark on the node or a dependency: not final.
+        if self.probing && self.marked_now(owner) {
+            self.probe_found = true;
+            if tracked {
+                if let Some(f) = self.flush_transaction {
+                    self.verdict_read(c.unwrap(), f, false);
+                }
+            }
+        }
         let status = self.nodes[el].status;
         let config = self.nodes[el].config;
         if config & CONFIG_OVERRIDE != 0
             && !(status & STATUS_ERROR != 0 && config & CONFIG_GUESS == 0)
         {
-            let _l = self.tx_of(el);
+            let l = self.tx_of(el);
             let flying = status & STATUS_PENDING != 0 && !self.quiet_pending(el);
             let guess = config & CONFIG_GUESS != 0;
             let v = if guess {
                 Some(Value::Int(0))
             } else if self.latest_active && !flying {
-                self.served_as_value(el);
-                self.lane_value_of(el)
+                self.lane_value_served(el)
             } else {
                 self.display(el)
             };
             if let Some(v) = v {
+                if tracked {
+                    let t = self.txs[l].parent.unwrap_or(l);
+                    self.verdict_read(c.unwrap(), t, false);
+                }
                 let n = &self.nodes[el];
                 if guess {
                     if self.probing
@@ -166,7 +317,7 @@ impl Runtime {
                     {
                         self.probe_found = true;
                     }
-                    if self.latest_active && self.txs[_l].folded {
+                    if self.latest_active && self.txs[l].folded {
                         return Ok(self.folded_read(None, el).expect("a folded value"));
                     }
                     return Ok(self.nodes[el]
@@ -191,35 +342,103 @@ impl Runtime {
         if config & CONFIG_HELD != 0 {
             if !uninitialized {
                 let t = self.tx_of(el);
-                if self.probing && self.held_not_final(el) {
-                    self.probe_found = true;
+                if tracked && !self.probing {
+                    let c = c.unwrap();
+                    if self.nodes[c].effect_type == EFFECT_RENDER
+                        && self.pass_lane.is_none()
+                        && self.flush_transaction != Some(t)
+                    {
+                        if let Some(v) = self.txs[t].verdict.filter(|v| self.txs[*v].held) {
+                            self.stale_reader(c, v);
+                            return Ok(self.nodes[el].value.clone());
+                        }
+                    }
+                }
+                if tracked {
+                    self.verdict_read(c.unwrap(), t, false);
+                }
+                if self.probing {
+                    match c.filter(|c| self.nodes[*c].config & CONFIG_HELD != 0) {
+                        Some(cc) => {
+                            if self.nodes[el].pending.is_some() && !self.blocked(t) {
+                                self.watch_verdict(cc, false);
+                                return self.staged(el);
+                            }
+                            if self.nodes[cc].q == 0 {
+                                self.stale_reader(cc, t);
+                            }
+                        }
+                        None => {
+                            if self.held_not_final(owner) {
+                                self.probe_found = true;
+                            }
+                            if let Some(cc) = c {
+                                if owned
+                                    && !tracked
+                                    && self.nodes[cc].q == 0
+                                    && self.nodes[cc].status & STATUS_UNINITIALIZED == 0
+                                {
+                                    self.watch_verdict(cc, false);
+                                }
+                            }
+                        }
+                    }
                 }
                 if self.latest_active && self.nodes[el].pending.is_some() {
-                    if self.flush_transaction.is_some() && !self.running {
+                    if !tracked && self.flush_transaction.is_some() && !self.running {
                         self.join_future(Some(t));
                     }
-                    return self.held_latest(el);
+                    return self.held_latest(el, if tracked { c } else { None });
                 }
                 return Ok(self.nodes[el].value.clone());
             }
             if self.nodes[el].pending.is_some() && status & STATUS_PENDING == 0 {
+                if self.probing && owned {
+                    self.join_pass(c.unwrap(), el);
+                }
                 return self.staged(el);
             }
         } else if self.nodes[el].pending.is_some() {
             if status & STATUS_PENDING != 0
                 && (!uninitialized || (self.probing && config & CONFIG_STAGED_ERROR == 0))
             {
-                self.pending_verdict(None, el);
+                self.pending_verdict(if tracked { c } else { None }, owner);
+            } else if tracked && self.running {
+                let c = c.unwrap();
+                // D-8: a signal's staging equal to its committed value nets.
+                let netted = self.nodes[el].fn_.is_none()
+                    && self.nodes[el].pending.as_ref() == Some(&self.nodes[el].value);
+                match self.flush_transaction {
+                    Some(f) if netted => self.route(c, f),
+                    _ => {
+                        let not_final = !self.latest_active && !uninitialized;
+                        self.provisional_verdict(c, not_final)
+                    }
+                }
+            } else if tracked && self.probing {
+                self.watch_verdict(c.unwrap(), false);
             }
-            if (self.latest_active || uninitialized) && self.running {
-                return self.staged(el);
+            if self.latest_active || uninitialized || (owned && !tracked) {
+                if self.running {
+                    return self.staged(el);
+                }
+                if let Some(c) = c {
+                    self.mark_late_linker(c);
+                }
             }
             return Ok(self.nodes[el].value.clone());
         }
         if status & STATUS_PENDING != 0 {
             if !uninitialized {
-                self.pending_verdict(None, el);
+                self.pending_verdict(if tracked { c } else { None }, owner);
                 return Ok(self.nodes[el].value.clone());
+            }
+            // As `read()`: an untracked read of a pending node still re-runs
+            // its reader when the node settles (`spectating` is never set).
+            if let Some(c) = c {
+                if !self.tracking && el != c {
+                    self.link(el, c);
+                }
             }
             return Err(self.nodes[el]
                 .error
@@ -235,16 +454,42 @@ impl Runtime {
         Ok(self.nodes[el].value.clone())
     }
 
-    // Solid: verdict.ts:873-890 (`holdStagingHook`). `_askedIn` is set only
-    // by a tracked window's read (verdict.ts:475), and a verdict lane
-    // (`passLane._parent._verdict === passLane`) never exists here.
+    // Solid: verdict.ts:873-890 (`holdStagingHook`)
     pub(super) fn hold_staging(&mut self, c: NodeId, el: NodeId) -> bool {
-        const CONFIG_OWN_PROBE: u32 = REACTIVE_WINDOW << 9;
-        !(self.nodes[c].config & (CONFIG_OWN_PROBE | CONFIG_FRAME) != 0
-            || self.nodes[c].flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED) != 0)
-            && self.nodes[el].pending.is_some()
-            && self.nodes[el].config & (CONFIG_ASYNC | CONFIG_OVERRIDE) == 0
-            && self.pass_lane.is_none()
+        // The conditions in Solid's order (`&&` short-circuits: the last
+        // `resolveTx` is reached only when every earlier one holds).
+        if self.nodes[c].config & (CONFIG_OWN_PROBE | CONFIG_FRAME) != 0
+            || self.nodes[c].flags & (REACTIVE_WINDOW | REACTIVE_PROBE_UNANSWERED) != 0
+            || self.nodes[el].pending.is_none()
+            || self.nodes[el].config & (CONFIG_ASYNC | CONFIG_OVERRIDE) != 0
+        {
+            return false;
+        }
+        match self.nodes[el].asked_in {
+            AskedIn::Clock(k) if k == self.clock => return false,
+            AskedIn::Tx(t) => {
+                let held = if self.nodes[el].config & CONFIG_HELD != 0 {
+                    self.nodes[el].transaction
+                } else {
+                    self.flush_transaction
+                };
+                // `resolveTx(flushTransaction!)` of a null flush transaction
+                // throws in Solid: fail closed.
+                let h = held.expect("resolveTx(null) (verdict.ts:886) is not ported");
+                if self.resolve_tx(t) == self.resolve_tx(h) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        match self.pass_lane {
+            None => true,
+            Some(l) if self.is_verdict(l) => {
+                self.pass_lane = None;
+                true
+            }
+            Some(_) => false,
+        }
     }
 
     // Solid: verdict.ts:836-840 (`valueInserts`): a DOM node (`nodeType`) in

@@ -101,6 +101,10 @@ pub enum Value {
     /// identity. It has no properties the runtime reads (no `then`, no
     /// `Symbol.asyncIterator`).
     Node(usize),
+    /// A thrown object held as a value: an error boundary's `_error`
+    /// signal (boundaries.ts:735, `setSignal(b._error, caught)`), compared
+    /// by identity. No op reads its properties.
+    Error(super::Error),
 }
 
 impl Value {
@@ -118,6 +122,7 @@ impl Value {
                 | Value::View(_)
                 | Value::NotPending
                 | Value::Node(_)
+                | Value::Error(_)
         )
     }
     pub fn as_int(&self) -> Option<i64> {
@@ -237,6 +242,7 @@ impl PartialEq for Value {
             (Value::NotPending, Value::NotPending) => true,
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Node(a), Value::Node(b)) => a == b,
+            (Value::Error(a), Value::Error(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -256,6 +262,7 @@ impl fmt::Debug for Value {
             Value::NotPending => write!(f, "NOT_PENDING"),
             Value::Str(s) => write!(f, "{s:?}"),
             Value::Node(n) => write!(f, "node#{n}"),
+            Value::Error(e) => write!(f, "error({:?})", e.message()),
         }
     }
 }

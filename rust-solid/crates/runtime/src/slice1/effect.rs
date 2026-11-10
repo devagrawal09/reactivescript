@@ -86,7 +86,15 @@ impl Runtime {
         } else if self.nodes[node].pending.is_none() {
             let tx = self.nodes[node].transaction;
             if tx.is_some_and(|t| self.txs[t].lane) || ty == EFFECT_USER || options.schedule {
-                self.enqueue(ty, QueueCallback::RunEffect(node), tx);
+                // `enqueue(type, run, node._x?._transaction)`: with no
+                // extension the argument is undefined and the lane defaults
+                // to `passLane` (the creator's seat).
+                let lane = if self.nodes[node].x {
+                    tx
+                } else {
+                    self.pass_lane
+                };
+                self.enqueue(ty, QueueCallback::RunEffect(node), lane);
             } else {
                 // Type 0: the synchronous first render (D-19).
                 self.run_effect(node, 0);
@@ -99,7 +107,7 @@ impl Runtime {
     pub(super) fn notify_effect_status(&mut self, node: NodeId) {
         let actual_status = self.nodes[node].status;
         if actual_status & STATUS_ERROR != 0 {
-            self.notify(node, STATUS_PENDING, 0);
+            self.notify(node, STATUS_PENDING, 0, None);
             if self.nodes[node].effect_type == EFFECT_USER {
                 if self.nodes[node].status & STATUS_ERROR != 0 {
                     self.queue_effect_run(node);
@@ -114,23 +122,34 @@ impl Runtime {
             );
             self.escalate(node, cause);
         } else if self.nodes[node].effect_type == EFFECT_RENDER {
-            self.notify(node, STATUS_PENDING | STATUS_ERROR, actual_status);
+            let actual_error = self.nodes[node].error.clone();
+            self.notify(
+                node,
+                STATUS_PENDING | STATUS_ERROR,
+                actual_status,
+                actual_error,
+            );
         }
     }
 
-    // Solid: effect.ts:179-184. With no boundary, `notify` returns false
-    // and Solid halts reactivity and rethrows `cause`. The port records the
-    // error instead (the plan evaluator fails the run on it); a fuzz
-    // program that reaches it is invalid on the reference (`oracle-halted`).
+    // Solid: effect.ts:179-184. A boundary takes the error (`notify` →
+    // `catchStatus`); with none, `notify` returns false and Solid halts
+    // reactivity and rethrows `cause`. The port records the error instead
+    // (the plan evaluator fails the run on it); a fuzz program that reaches
+    // it is invalid on the reference (`oracle-halted`).
     fn escalate(&mut self, node: NodeId, cause: Error) {
-        if !self.notify(node, STATUS_ERROR, STATUS_ERROR) {
+        if !self.notify(node, STATUS_ERROR, STATUS_ERROR, None) {
             self.errors.push(cause.message());
         }
     }
 
-    // Solid: effect.ts:186-286 (no boundaries: `heldRunHook` is false)
+    // Solid: effect.ts:186-286
     pub(super) fn run_effect(&mut self, node: NodeId, ty: u32) {
         if !self.nodes[node].modified || self.nodes[node].flags & REACTIVE_DISPOSED != 0 {
+            return;
+        }
+        // A queued run behind a fallback waits for the reveal (`heldRunHook`).
+        if ty != 0 && self.held_run(node) {
             return;
         }
         if ty != 0 && self.attach_waits(node) {

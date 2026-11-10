@@ -10,8 +10,13 @@
 //! it as a value. An absent prop is `None` (`"fallback" in props` is false;
 //! a read gives `undefined`).
 //!
-//! Not ported: `Repeat`, `Switch`/`Match`, `Loading`, `Errored`, `Reveal`
-//! (no renderer program here creates one).
+//! `Loading` and `Errored` (flow.ts:442-461, 530-543) go to the ported
+//! boundaries (boundaries.rs), not hydrating (solid's client
+//! `createLoadingBoundary`/`createErrorBoundary` wrappers delegate to the
+//! core ones when nothing hydrates).
+//!
+//! Not ported: `Repeat`, `Switch`/`Match`, `Reveal` (no program here
+//! creates one), and Loading's `on` (plan v2.1 refuses it).
 use super::*;
 
 /// A prop getter (`get name() { … }`).
@@ -39,6 +44,22 @@ pub struct ForProps {
     /// arity `mapArray` reads).
     pub children: Getter,
     pub fallback: Option<Getter>,
+}
+
+/// `<Loading>`'s props: `get fallback()` (absent: `undefined`) and
+/// `get children()`. `on` is not ported (plan v2.1 refuses it).
+#[derive(Clone)]
+pub struct LoadingProps {
+    pub fallback: Option<Getter>,
+    pub children: Getter,
+}
+
+/// `<Errored>`'s props: `fallback`, a value or a function of the error's
+/// accessor and `reset`, and `get children()`.
+#[derive(Clone)]
+pub struct ErroredProps {
+    pub fallback: Value,
+    pub children: Getter,
 }
 
 /// A component body (`Comp(props)`); the props are closed over.
@@ -113,6 +134,27 @@ impl Runtime {
                 rt.read_node(m)
             }),
         )
+    }
+
+    /// `<Loading fallback>{children}</Loading>`: `createLoadingBoundary(() =>
+    /// props.children, () => props.fallback)`; no `on` (`"on" in props` is
+    /// false).
+    // Solid: solid/src/client/flow.ts:530-543
+    pub fn loading_component(&mut self, props: LoadingProps) -> Result<Value, Error> {
+        let children = props.children.clone();
+        let fallback: Getter = match props.fallback {
+            Some(f) => f,
+            None => Rc::new(|_: &mut Runtime| Ok(Value::Undef)),
+        };
+        Ok(self.create_loading_boundary(children, fallback))
+    }
+
+    /// `<Errored fallback>{children}</Errored>`: `createErrorBoundary(() =>
+    /// props.children, (err, reset) => typeof f === "function" ? f(err,
+    /// reset) : f)`; prod: no dev log of an unseen error.
+    // Solid: solid/src/client/flow.ts:442-461
+    pub fn errored_component(&mut self, props: ErroredProps) -> Result<Value, Error> {
+        Ok(self.create_error_boundary(props.children.clone(), props.fallback.clone()))
     }
 
     /// A mapper argument as the JS mapper receives it: a raw value, or

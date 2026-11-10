@@ -123,6 +123,7 @@ impl Runtime {
         for (n, v, q) in guesses {
             let mut changed = true;
             let mut holder: Option<TxId> = None;
+            self.nodes[n].x = true; // `ext(n)._lane`
             if self.nodes[n].config & CONFIG_OVERRIDE != 0 {
                 changed = !self.equals_slot(n, &self.lane_value_of(n), &Some(v.clone()));
                 if self.nodes[n].config & CONFIG_GUESS == 0 {
@@ -166,15 +167,44 @@ impl Runtime {
         }
     }
 
-    // Solid: lanes.ts:283-337 (no verdict lanes)
+    // Solid: lanes.ts:283-337
     fn enter_lane(&mut self, l: TxId, c: NodeId) {
         self.nodes[c].flags |= REACTIVE_LANE_READ;
         let f = self.nodes[c].flags;
         match self.pass_lane {
             None => {
-                self.pass_lane = Some(l);
-                if f & REACTIVE_STAGED_READ != 0 && (self.guessed || f & REACTIVE_JOINED != 0) {
-                    self.staged_read(c, None);
+                let verdict = self.is_verdict(l);
+                // A verdict lane's value read by a pass that read the frame's
+                // staging or joined its hold (or whose creator did), by a
+                // re-run of another hold's held pass, or by a member of a
+                // held frame of that hold stays the frame's (D-25, D-26).
+                let stays = verdict && {
+                    let ty_or_f = if self.nodes[c].effect_type != 0 {
+                        self.nodes[c].effect_type
+                    } else {
+                        f
+                    };
+                    self.creator_reads(c, ty_or_f) != 0 || {
+                        let hold = self.resolve_tx(self.txs[l].parent.expect("a lane's parent"));
+                        (self.nodes[c].config
+                            & (CONFIG_HELD
+                                | CONFIG_VERDICT
+                                | CONFIG_FRAME
+                                | CONFIG_LAGS
+                                | CONFIG_OVERRIDE)
+                            == CONFIG_HELD
+                            && self.tx_of(c) != hold)
+                            || (self.nodes[c].config & CONFIG_HELD_FRAME != 0
+                                && self.born_into(c, hold))
+                    }
+                };
+                if !stays {
+                    self.pass_lane = Some(l);
+                    if f & REACTIVE_STAGED_READ != 0
+                        && (self.guessed || verdict || f & REACTIVE_JOINED != 0)
+                    {
+                        self.staged_read(c, None);
+                    }
                 }
             }
             Some(p) if self.same_lane(p, l) => self.pass_lane = Some(l),
@@ -185,6 +215,25 @@ impl Runtime {
                     }
                     self.pass_lane = Some(l);
                 }
+            }
+        }
+    }
+
+    // Solid: lanes.ts:339-341 (`isVerdict`)
+    pub(super) fn is_verdict(&self, l: TxId) -> bool {
+        self.txs[l]
+            .parent
+            .is_some_and(|p| self.txs[p].verdict == Some(l))
+    }
+
+    /// `verdictLane(t)` (lanes.ts:389-391): `t._verdict ??= newLane(t)`.
+    pub(super) fn verdict_lane(&mut self, t: TxId) -> TxId {
+        match self.txs[t].verdict {
+            Some(v) => v,
+            None => {
+                let v = self.new_lane(t);
+                self.txs[t].verdict = Some(v);
+                v
             }
         }
     }
@@ -295,6 +344,7 @@ impl Runtime {
                 self.set_pending(el, None);
                 self.nodes[el].config =
                     (self.nodes[el].config & !(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_OVERRIDE;
+                self.nodes[el].x = true; // `ext(el)`
             }
             let other = self.nodes[el]
                 .transaction
@@ -358,12 +408,18 @@ impl Runtime {
         self.set_pending(n, Some(value));
     }
 
-    // Solid: lanes.ts:554-695 (no verdict lane: `_verdict` is null)
+    // Solid: lanes.ts:554-695
     fn dissolve_lane(&mut self, l: TxId, into: Option<TxId>, except: Option<NodeId>) {
         if let Some(k) = self.lanes.iter().position(|x| *x == l) {
             self.lanes.remove(k);
         }
         self.unlink(l);
+        // Its verdicts end with it.
+        if let Some(v) = self.txs[l].verdict.take() {
+            if self.lanes.contains(&v) {
+                self.dissolve_lane(v, None, None);
+            }
+        }
         let mut loading: Vec<NodeId> = vec![];
         let mut i = 0;
         while i < self.txs[l].nodes.len() {
@@ -476,7 +532,7 @@ impl Runtime {
         }
     }
 
-    // Solid: lanes.ts:716-814 (no verdict lanes)
+    // Solid: lanes.ts:716-814
     pub(super) fn lane_read(&mut self, c: Option<NodeId>, el: NodeId) -> Result<Slot, Error> {
         let guess = self.nodes[el].config & CONFIG_GUESS != 0;
         let l = self.tx_of(el);
@@ -495,7 +551,7 @@ impl Runtime {
             return Ok(None);
         }
         let Some(c) = c else {
-            return Ok(self.lane_value_of(el));
+            return Ok(self.lane_value_served(el));
         };
         let pending = !guess && status & STATUS_PENDING != 0;
         if !self.tracking || self.nodes[c].config & CONFIG_CHILDREN_FORBIDDEN != 0 {
@@ -504,20 +560,26 @@ impl Runtime {
             }
         } else if self.nodes[c].effect_type == EFFECT_RENDER {
             let never = pending && self.nodes[el].lane.is_none();
-            // `seated` (a verdict lane's seat) is false.
+            // A verdict lane's seat leaves the lane for a node it cannot
+            // show, or another lane's.
+            if let Some(p) = self.pass_lane {
+                if self.is_verdict(p) && (never || p != l) {
+                    self.pass_lane = None;
+                }
+            }
             let same = self.pass_lane.is_some_and(|p| self.same_lane(p, l));
             if !same {
                 if never && self.txs[l].shown {
                     return Ok(None);
                 }
                 if !guess
-                    && !self.txs[l].shown
+                    && (!self.txs[l].shown || self.is_verdict(l))
                     && self.nodes[el].pending.is_some()
                     && self.nodes[c].config & CONFIG_HELD != 0
                     && self.flush_transaction.is_some()
                     && self.resolve_tx(self.flush_transaction.unwrap()) == self.tx_of(c)
                 {
-                    return Ok(self.nodes[el].pending.clone());
+                    return Ok(self.pending_value(el));
                 }
                 if self.txs[l].held || pending {
                     if self.nodes[c].flags & REACTIVE_SCREEN_READ == 0 {
@@ -529,13 +591,16 @@ impl Runtime {
                         Some(v) => Ok(Some(v)),
                     };
                 }
+                if self.nodes[c].config & CONFIG_VERDICT != 0 && !self.is_verdict(l) {
+                    self.entered.push(c);
+                }
             }
         }
         self.enter_lane(l, c);
         Ok(if pending {
             None
         } else {
-            self.lane_value_of(el)
+            self.lane_value_served(el)
         })
     }
 
@@ -651,11 +716,11 @@ impl Runtime {
                 continue;
             }
             if self.nodes[n].config & CONFIG_GUESS == 0 && self.nodes[n].effect_type == 0 {
-                if self.nodes[n].pending_err.is_some() {
-                    panic!("a lane seam over a staged error is not ported");
-                }
-                if let Some(p) = self.nodes[n].pending.take() {
+                // `x._lane = n._pendingValue`: a staged error (D-41) moves as
+                // the `StatusError` object; CONFIG_STAGED_ERROR stays set.
+                if let Some(p) = self.pending_value(n) {
                     self.nodes[n].lane = Some(p);
+                    self.set_pending(n, None);
                 }
             }
             // The frame this pass built is the screen's now; the one it
@@ -709,6 +774,7 @@ impl Runtime {
                     })
                 {
                     let g = g.unwrap();
+                    self.nodes[n].x = true; // `ext(n)`
                     if self.nodes[n].transaction.is_none() || self.tx_of(n) == u {
                         self.commit_pending_node(n);
                         self.nodes[n].lane = v;
@@ -843,9 +909,57 @@ impl Runtime {
         false
     }
 
-    // Solid: lanes.ts:1087-1215 (no verdict readers, probes or re-based lanes)
+    // Solid: lanes.ts:1053-1075 (`heldBy`)
+    fn held_by(&mut self, t: TxId, r: NodeId) -> bool {
+        if self.txs[t].open != 0 || (self.txs[t].lane && self.link_blocked(t)) {
+            return false;
+        }
+        let mut k: isize = -1;
+        let mut u = Some(t);
+        while let Some(x) = u {
+            if x == t || self.resolve_tx(self.txs[x].parent.expect("a lane's parent")) == t {
+                if x != t && self.guess_flights(x) {
+                    return false;
+                }
+                let mut i = 0;
+                while i < self.txs[x].nodes.len() {
+                    let n = self.txs[x].nodes[i];
+                    i += 1;
+                    if n == r
+                        || self.nodes[n].status & STATUS_PENDING == 0
+                        || (self.nodes[n].transaction.is_some() && self.tx_of(n) != x)
+                    {
+                        continue;
+                    }
+                    let s = self.nodes[n].pending_sources;
+                    let only_r =
+                        s.is_some_and(|s| self.sets[s].size == 1 && self.set_has(Some(s), r));
+                    if self.nodes[n].effect_type != EFFECT_RENDER || !only_r {
+                        return false;
+                    }
+                }
+            }
+            k += 1;
+            u = self.lanes.get(k as usize).copied();
+        }
+        true
+    }
+
+    // Solid: lanes.ts:1087-1215
     pub(super) fn lane_seams(&mut self, t: Option<TxId>) {
         self.revealing.clear();
+        // #4661 (F-6): a verdict reader that read a flight of the frame ahead
+        // of it is no frame reader of it.
+        for c in std::mem::take(&mut self.ahead) {
+            if self.nodes[c].flags & REACTIVE_FRAME_READ != 0 {
+                self.nodes[c].flags ^= REACTIVE_FRAME_READ;
+                if let Some(t) = t {
+                    if let Some(i) = self.txs[t].reruns.iter().position(|x| *x == c) {
+                        self.txs[t].reruns.remove(i);
+                    }
+                }
+            }
+        }
         let mut leaked: Vec<TxId> = vec![];
         if let Some(t) = t {
             let mut i = 0;
@@ -862,7 +976,15 @@ impl Runtime {
                 let lane = l.filter(|l| self.txs[*l].lane);
                 let skip = self.nodes[r].flags & REACTIVE_DISPOSED != 0
                     || match l {
-                        Some(l) if lane.is_some() => self.over_reads(l, t),
+                        Some(l) if lane.is_some() => {
+                            (self.is_verdict(l)
+                                && if self.nodes[r].config & CONFIG_VERDICT != 0 {
+                                    self.nodes[r].flags & REACTIVE_PROBE_UNANSWERED == 0
+                                } else {
+                                    !self.blocked(t) || self.held_by(t, r)
+                                })
+                                || self.over_reads(l, t)
+                        }
                         Some(l) => {
                             !(self.nodes[r].flags & REACTIVE_PROBE_UNANSWERED != 0
                                 || ((self.nodes[r].flags & REACTIVE_STAGED_READ != 0
@@ -877,6 +999,33 @@ impl Runtime {
                 }
                 if lane.is_some() && self.nodes[r].effect_type != 0 {
                     self.nodes[r].flags |= REACTIVE_LANE_DIRTY;
+                } else if lane.is_none() && self.nodes[r].flags & REACTIVE_PROBE_UNANSWERED != 0 {
+                    // R5 for an async reader: the landing adopts its frame
+                    // flight (`_parked`, `adoptParked`) — not ported.
+                    if self.nodes[r].in_flight.is_some() {
+                        if !self.blocked(t) {
+                            continue;
+                        }
+                        panic!("a parked frame flight (lanes.ts:1176-1178, `adoptParked`) is not ported");
+                    } else if self.blocked(t) {
+                        let mut sl = self.nodes[r].subs;
+                        while let Some(link) = sl {
+                            let n = self.links[link].sub;
+                            sl = self.links[link].next_sub;
+                            if self.nodes[n].in_flight.is_some()
+                                && self.set_has(self.nodes[n].pending_sources, n)
+                                && self.nodes[n].config & CONFIG_HELD != 0
+                                && self.tx_of(n) == t
+                            {
+                                panic!("a parked frame flight (lanes.ts:1184-1192, `adoptParked`) is not ported");
+                            }
+                        }
+                    }
+                    if let Some(v) = self.txs[t].verdict {
+                        if !leaked.contains(&v) {
+                            leaked.push(v);
+                        }
+                    }
                 }
                 self.enqueue_sub(r);
                 if let Some(l) = lane {
@@ -888,12 +1037,23 @@ impl Runtime {
         }
         let mut k = self.lanes.len() as isize - 1;
         while k >= 0 {
-            if (k as usize) < self.judged {
-                let l = self.lanes[k as usize];
+            // `k < judged || isVerdict(lanes[k])` (past the end, `lanes[k]` is
+            // undefined: not a verdict lane).
+            let l = self.lanes.get(k as usize).copied();
+            if (k as usize) < self.judged || l.is_some_and(|l| self.is_verdict(l)) {
+                let l = l.expect("laneSeam of a live lane");
                 let is_leaked = leaked.contains(&l);
                 self.lane_seam(l, is_leaked);
             }
             k -= 1;
+        }
+        // A verdict reader that entered a lane this seam held re-derives next
+        // round from the frame's seat (#4284).
+        while let Some(r) = self.entered.pop() {
+            if self.nodes[r].transaction.is_some_and(|t| self.txs[t].held) {
+                self.nodes[r].flags &= !REACTIVE_LANE_DIRTY;
+                self.enqueue_sub(r);
+            }
         }
     }
 }

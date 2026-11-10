@@ -17,6 +17,27 @@ impl Runtime {
         }
     }
 
+    /// `el._pendingValue` as a reader is handed it: a staged error (D-41,
+    /// CONFIG_STAGED_ERROR) is the `StatusError` object itself.
+    pub(super) fn pending_value(&self, el: NodeId) -> Slot {
+        let n = &self.nodes[el];
+        match &n.pending_err {
+            Some(e) if n.pending.is_some() => Some(Value::Error(e.clone())),
+            _ => n.pending.clone(),
+        }
+    }
+
+    /// `laneValueOf(el)` served to a reader (truth.ts:23-29): a derivation's
+    /// staged error is served as the `StatusError` object (no
+    /// CONFIG_STAGED_ERROR test there).
+    pub(super) fn lane_value_served(&self, el: NodeId) -> Slot {
+        let n = &self.nodes[el];
+        if n.config & CONFIG_GUESS == 0 && n.pending.is_some() {
+            return self.pending_value(el);
+        }
+        self.lane_value_of(el)
+    }
+
     // Solid: truth.ts:36-40 (`GlobalQueue._truth`)
     pub(super) fn truth_read(&self, el: NodeId) -> Result<Slot, Error> {
         if self.truth_of(el) {

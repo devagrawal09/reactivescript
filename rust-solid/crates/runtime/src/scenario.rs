@@ -187,7 +187,9 @@ impl StepV2 {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioV2 {
-    pub version: u32,
+    /// 1, 2, or 2.1 (a JSON number: structured host results, frames that
+    /// show `Loading` and `Errored` fallbacks).
+    pub version: crate::plan_v2::PlanVersion,
     pub name: String,
     pub fixture: String,
     pub host: Vec<Host>,
@@ -231,7 +233,8 @@ fn to_json(v: &crate::slice1::Value) -> Value {
 /// The checks `slices/run-js.ts` `loadScenario` makes, and the plan's hosts
 /// against the scenario's.
 fn validate_v2(plan: &crate::plan_v2::Plan, s: &ScenarioV2) -> Result<(), String> {
-    if s.version != 1 && s.version != 2 {
+    let v21 = s.version.is_v21();
+    if s.version != 1 && s.version != 2 && !v21 {
         return Err(format!("scenario version {} is not 1 or 2", s.version));
     }
     let mut f = s.fixture.chars();
@@ -262,23 +265,38 @@ fn validate_v2(plan: &crate::plan_v2::Plan, s: &ScenarioV2) -> Result<(), String
         if !identifier || !names.insert(h.name.clone()) {
             return Err(format!("host name {:?}", h.name));
         }
+        // Version 2.1: a structured result in the eval interface grammar
+        // (frontend docs/SCENARIO-FORMAT.md, "Version 2.1").
+        let returns_ok = if v21 {
+            crate::plan_v2::HostType::parse(&h.returns).is_ok()
+        } else {
+            TYPES.contains(&h.returns.as_str())
+        };
         if !h.asynchronous
-            || !TYPES.contains(&h.returns.as_str())
+            || !returns_ok
             || h.parameters.iter().any(|p| !TYPES.contains(&p.as_str()))
         {
-            return Err(format!("host {} must be async with scalar types", h.name));
+            return Err(format!(
+                "host {} must be async with scalar parameters and {}",
+                h.name,
+                if v21 {
+                    "a result type"
+                } else {
+                    "scalar types (host results are scalars before version 2.1)"
+                }
+            ));
         }
     }
-    let hosts: Vec<_> = s
-        .host
-        .iter()
-        .map(|h| crate::plan_v2::HostSig {
-            name: h.name.clone(),
-            params: h.parameters.clone(),
-            returns: h.returns.clone(),
-        })
-        .collect();
-    if plan.hosts != hosts {
+    // The plan's hosts are the scenario's, in order; a v2.1 plan also says
+    // which are pure, which a scenario's signature does not.
+    let same = plan.hosts.len() == s.host.len()
+        && plan.hosts.iter().zip(&s.host).all(|(p, h)| {
+            p.name == h.name
+                && p.params == h.parameters
+                && p.returns == h.returns
+                && (p.pure.is_none() || v21)
+        });
+    if !same {
         return Err("the plan's hosts are not the scenario's".into());
     }
     for (i, step) in s.steps.iter().enumerate() {
@@ -288,7 +306,7 @@ fn validate_v2(plan: &crate::plan_v2::Plan, s: &ScenarioV2) -> Result<(), String
                 element, target, ..
             } => match (element, target) {
                 (Some(_), None) => {}
-                (None, Some(_)) if s.version == 2 => {}
+                (None, Some(_)) if s.version == 2 || v21 => {}
                 (None, Some(_)) => return Err(format!("step {i}: click targets are version 2")),
                 _ => return Err(format!("step {i}: a click has element or target, not both")),
             },
@@ -306,9 +324,9 @@ fn validate_v2(plan: &crate::plan_v2::Plan, s: &ScenarioV2) -> Result<(), String
                 if *call == 0 {
                     return Err(format!("step {i}: call numbers start at one"));
                 }
-                match (s.version, args) {
-                    (1, None) => {}
-                    (1, Some(_)) => return Err(format!("step {i}: args are version 2")),
+                match (s.version == 1, args) {
+                    (true, None) => {}
+                    (true, Some(_)) => return Err(format!("step {i}: args are version 2")),
                     (_, None) => return Err(format!("step {i}: version 2 settles with args")),
                     (_, Some(a)) => {
                         if a.len() != h.parameters.len()
@@ -319,7 +337,13 @@ fn validate_v2(plan: &crate::plan_v2::Plan, s: &ScenarioV2) -> Result<(), String
                     }
                 }
                 if let StepV2::Resolve { value, .. } = step {
-                    if json_type(value) != h.returns {
+                    let ok = if v21 {
+                        crate::plan_v2::HostType::parse(&h.returns)
+                            .is_ok_and(|t| t.conforms_json(value))
+                    } else {
+                        json_type(value) == h.returns
+                    };
+                    if !ok {
                         return Err(format!("step {i}: {host} returns a {}", h.returns));
                     }
                 }
@@ -442,6 +466,17 @@ fn steps_v2(
                     }
                 }
                 let result = match step {
+                    // Version 2.1: a structured result is a fresh plain value
+                    // per resolution (the host's JSON, `structuredClone`d).
+                    StepV2::Resolve { value, .. } if scenario.version.is_v21() => {
+                        let h = scenario
+                            .host
+                            .iter()
+                            .find(|h| &h.name == host)
+                            .expect("validated");
+                        let t = crate::plan_v2::HostType::parse(&h.returns).map_err(at)?;
+                        Ok(t.value_of(value).map_err(at)?)
+                    }
                     StepV2::Resolve { value, .. } => Ok(scalar(value).map_err(at)?),
                     StepV2::Reject { error, .. } => Err(error.clone()),
                     _ => unreachable!(),

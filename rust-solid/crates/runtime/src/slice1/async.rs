@@ -68,6 +68,7 @@ impl Runtime {
 
     // Solid: async.ts:69-73
     pub(super) fn add_pending_source(&mut self, el: NodeId, source: NodeId) -> bool {
+        self.nodes[el].x = true; // `ext(el)._pendingSources`
         if self.set_has(self.nodes[el].pending_sources, source) {
             return false;
         }
@@ -122,6 +123,7 @@ impl Runtime {
 
     // Solid: async.ts:114-122
     pub(super) fn park_loading_window(&mut self, el: NodeId, e: &Error) {
+        self.nodes[el].x = true;
         self.nodes[el].blocked = true;
         let source = e.source().flatten();
         if let Some(s) = source {
@@ -428,6 +430,7 @@ impl Runtime {
         // `untrack(() => isThenable(result))` (core.ts:1848-1874): a promise
         // has no traps.
         let f = self.flight_id(flight);
+        self.nodes[el].x = true; // `ext(el)._inFlight`
         self.nodes[el].in_flight = Some(f);
         // `holdWorkHook` is installed (verdict.ts).
         if self.nodes[el].flags & REACTIVE_WINDOW == 0 {
@@ -659,6 +662,7 @@ impl Runtime {
         if pending_source.is_some() {
             self.set_pending_error(el, pending_source, error.clone());
         } else {
+            self.nodes[el].x = true; // `ext(el)._error`
             self.nodes[el].error = error.clone();
         }
         if self.guessing && status == STATUS_PENDING && self.nodes[el].config & CONFIG_GUESS != 0 {
