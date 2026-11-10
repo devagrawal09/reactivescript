@@ -73,6 +73,10 @@ export async function run(ops, progress=()=>{}) {
     case 'local':return CX.scope.get(e.id)();
     case 'concat':{const r=[];for(const it of e.items){const x=evalExpr(it,prev);if(x!=null)loop(x,y=>{r.push(y)})}return r}
     case 'reverse':{const x=evalExpr(e.of,prev);if(x==null)return undefined;const r=[];for(let i=x.length-1;i>=0;i--)r.push(x[i]);return r}
+    // Tier D (--boundaries): the verdict windows inside a computation (a tracked isPending /
+    // latest: the pass becomes a verdict reader).
+    case 'pending':return S.isPending(()=>evalExpr(e.of,prev));
+    case 'latest':return S.latest(()=>evalExpr(e.of,prev));
     default:throw Error('bad expression')}};
   const rowOf=up=>{let c=CX.row;for(let d=up??0;d>0;d--)c=c.up;return c};
   const evalExpr=(e,prev)=>{if(typeof e==='number')return e;switch(e.op){case 'read':return nodes.get(e.id)();case 'add':return evalExpr(e.a,prev)+evalExpr(e.b,prev);case 'mod':return evalExpr(e.a,prev)%e.b;case 'choose':return evalExpr(e.test,prev)?evalExpr(e.yes,prev):evalExpr(e.no,prev);case 'untrack':return S.untrack(()=>evalExpr(e.expr,prev));case 'fail':throw new Error(e.message);case 'prev':return prev??e.fallback;default:return evalExprB(e,prev)}};
@@ -102,6 +106,7 @@ export async function run(ops, progress=()=>{}) {
     st.set(d=>within(cx,()=>{if('returns'in s)return val(s.returns,d);for(const ed of s.edits)edit(sid,d,ed)}))};
   const upd=(id,e)=>{const cx=CX;setters.get(id)(prev=>{log.push(['update',id,out(prev)]);return within({...cx,arg:prev},()=>evalExpr(e))})};
   const step=st=>'write'in st?setters.get(st.write)(st.value):'update'in st?upd(st.update,st.expr)
+    :'affects'in st?S.affects(nodes.get(st.affects))
     :'store'in st?runSet(st.store,st):'refresh'in st?void S.refresh(nodes.get(st.refresh)).catch(()=>{})
     :'refresh_store'in st?void S.refresh(stores.get(st.refresh_store).proxy).catch(()=>{})
     :'read'in st?void log.push(['read',st.label,observed(()=>out(evalExpr(st.read)))]):(()=>{throw Error('bad step')})();
@@ -128,6 +133,7 @@ export async function run(ops, progress=()=>{}) {
     if('memo'in r){const id=pre+'.'+r.memo;cx.scope.set(r.memo,S.createMemo(prev=>within(cx,()=>{log.push(['compute',id,lg(prev)??null]);return evalExpr(r.expr,prev)})));return}
     if('list'in r){cx.scope.set(r.list.id,makeList({...r.list,id:pre+'.'+r.list.id},cx));return}
     if('show'in r){cx.scope.set(r.show.id,makeShow({...r.show,id:pre+'.'+r.show.id},cx));return}
+    if('loading'in r||'errored'in r){const b=r.loading??r.errored;cx.scope.set(b.id,makeBoundary({...b,id:pre+'.'+b.id},cx,'loading'in r));return}
     if('cleanup'in r){S.onCleanup(()=>{log.push(['cleanup',pre+'.'+r.cleanup])});return}
     // A read in the mapper/pass body itself (a component reading a prop at creation): not
     // wrapped in observed(), so a throw (an Error, a NotReadyError) aborts the pass (#2903).
@@ -166,6 +172,18 @@ export async function run(ops, progress=()=>{}) {
       if(!c)return build(o.no??[],p,undefined);
       if(!o.fn)return build(o.yes??[],p,undefined);
       return S.untrack(()=>build(o.yes??[],p,o.keyed?c:()=>{(S.verdict&&shown===run)||cond()||(()=>{throw 'Stale read from <Show>.'})();return cv()}))},{sync:true})};
+  // ---- Tier D (--boundaries, docs/BOUNDARIES-COVERAGE.md): Loading and Errored boundaries over
+  // children built in the boundary's children computed (as a JSX children getter), a fallback
+  // built in its own computed (Loading's a getter; Errored's a function of the error accessor
+  // and reset, which reads the error when `err` is set), and the events bcontent / bfallback
+  // (the pass that built them) and berror (the error the fallback read). The boundary's value
+  // is the content's `expr` (or its pass number) or the fallback's negated pass number; its
+  // accessor is a node (read it from a render effect to put it on screen).
+  const resets=new Map();
+  const makeBoundary=(o,cx,loading)=>{const id=o.id;let kp=0,fp=0;
+    const kids=()=>{const p=++kp,pre=id+'^'+p;log.push(['bcontent',id,p]);const sc={row:cx.row,scope:new Map()};for(const r of o.children??[])childC(r,pre,sc);return 'expr'in o?within(sc,()=>evalExpr(o.expr)):p};
+    const fb=err=>{const p=++fp,pre=id+'~'+p;log.push(['bfallback',id,p]);if(err&&o.err)log.push(['berror',id,errText(err())]);const sc={row:cx.row,scope:new Map()};for(const r of o.fallback??[])childC(r,pre,sc);return -p};
+    return loading?S.createLoadingBoundary(kids,()=>fb()):S.createErrorBoundary(kids,(err,reset)=>{resets.set(id,reset);return fb(err)})};
   // A memo or effect whose pass builds children (untracked, as a component call) and
   // registers a cleanup: every re-run parks or disposes the previous pass's frame.
   const childPass=(o,pre)=>{S.untrack(()=>{const sc={row:null,scope:new Map()};for(const r of o.children??[])childC(r,pre,sc)});if(o.cleanup)S.onCleanup(()=>{log.push(['cleanup',pre])})};
@@ -209,6 +227,10 @@ export async function run(ops, progress=()=>{}) {
       // Tier C ops.
       case 'list':nodes.set(o.id,owned(o.owner,()=>makeList(o,{row:null,scope:new Map()})));break;
       case 'show':nodes.set(o.id,owned(o.owner,()=>makeShow(o,{row:null,scope:new Map()})));break;
+      // Tier D ops.
+      case 'loading':case 'errored':nodes.set(o.id,owned(o.owner,()=>makeBoundary(o,{row:null,scope:new Map()},o.op==='loading')));break;
+      case 'affects':S.affects(nodes.get(o.id));break;
+      case 'reset':{const r=resets.get(o.id);if(r)r();break}
       default:throw Error('unknown op '+o.op);
     }}
   } finally {progress('teardown');owners.get('root').dispose();S.flush()}

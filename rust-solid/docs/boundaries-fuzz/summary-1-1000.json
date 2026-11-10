@@ -1,0 +1,58 @@
+{
+  "total": 1000,
+  "agreement": 985,
+  "rate": 0.985,
+  "invalid": 15,
+  "timeoutMs": 1500,
+  "coverage": {
+    "signal": 1190,
+    "memo": 2000,
+    "loading": 428,
+    "effect": 1515,
+    "flush": 6110,
+    "resolve": 6293,
+    "read": 2175,
+    "write": 2288,
+    "refresh": 626,
+    "action": 1413,
+    "affects": 630,
+    "errored": 572,
+    "pending": 1203,
+    "reset": 290,
+    "reject": 458,
+    "owner": 124,
+    "dispose": 25
+  },
+  "modes": {
+    "first-load": {
+      "total": 188,
+      "agreement": 188
+    },
+    "errored": {
+      "total": 189,
+      "agreement": 187
+    },
+    "nested": {
+      "total": 126,
+      "agreement": 125
+    },
+    "probes": {
+      "total": 187,
+      "agreement": 182
+    },
+    "actions": {
+      "total": 186,
+      "agreement": 179
+    },
+    "owners": {
+      "total": 124,
+      "agreement": 124
+    }
+  },
+  "classes": {
+    "oracle-timeout": {
+      "count": 15,
+      "seed": 21
+    }
+  }
+}

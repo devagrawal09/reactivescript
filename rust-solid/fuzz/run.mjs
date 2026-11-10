@@ -10,10 +10,14 @@ import {generateSlice2b,slice2bFamily} from './generate-slice2b.mjs';
 import {generateSlice2c,slice2cFamily} from './generate-slice2c.mjs';
 import {generateStrings,stringsFamily} from './generate-strings.mjs';
 import {generateRender,renderFamily} from './generate-render.mjs';
+import {generateBoundaries,boundariesFamily} from './generate-boundaries.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const args=process.argv.slice(2),arg=(key,fallback)=>{const i=args.indexOf(key);return i<0?fallback:args[i+1]};
 const timeout=Number(arg('--timeout-ms','1500'));
-const slice1=args.includes('--slice1'),slice2a=args.includes('--slice2a'),slice2b=args.includes('--slice2b'),slice2c=args.includes('--slice2c'),strings=args.includes('--strings'),render=args.includes('--render'),binary=render?'render-driver':slice1||slice2a||slice2b||slice2c||strings?'slice1-driver':'driver';
+const slice1=args.includes('--slice1'),slice2a=args.includes('--slice2a'),slice2b=args.includes('--slice2b'),slice2c=args.includes('--slice2c'),strings=args.includes('--strings'),render=args.includes('--render'),boundaries=args.includes('--boundaries'),binary=render?'render-driver':slice1||slice2a||slice2b||slice2c||strings||boundaries?'slice1-driver':'driver';
+// --boundaries: Loading and Errored boundaries over async memos, tracked isPending/latest and
+// affects (tier D, docs/BOUNDARIES-COVERAGE.md) on the slice-1 driver; strict workers
+// (worker.mjs strict 'boundaries').
 // --render: the renderer differential test (docs/RENDERER.md): Solid 2's @solidjs/universal with a
 // recording host (fuzz/universal.mjs, in a worker loaded with --conditions=browser) against the Rust
 // port (src/bin/render-driver.rs). --strings: string values on the slice-1 driver (strict 'strings').
@@ -26,7 +30,7 @@ const slice1=args.includes('--slice1'),slice2a=args.includes('--slice2a'),slice2
 execFileSync('cargo',['build','--quiet','--bin',binary],{cwd:root,stdio:'inherit'});
 let worker,child,lines;
 function startRust(){child=spawn(root+'/target/debug/'+binary,[],{stdio:['pipe','pipe','inherit']});lines=createInterface({input:child.stdout});}
-function oracle(ops){worker=render?new Worker(new URL('./render-worker.mjs',import.meta.url),{execArgv:['--conditions=browser']}):new Worker(new URL('./worker.mjs',import.meta.url),...(strings?[{workerData:{strict:'strings'}}]:slice2a?[{workerData:{strict:true}}]:slice2b?[{workerData:{strict:'slice2b'}}]:slice2c?[{workerData:{strict:'slice2c'}}]:[]));const w=worker;let progress;return new Promise(resolve=>{
+function oracle(ops){worker=render?new Worker(new URL('./render-worker.mjs',import.meta.url),{execArgv:['--conditions=browser']}):new Worker(new URL('./worker.mjs',import.meta.url),...(boundaries?[{workerData:{strict:'boundaries'}}]:strings?[{workerData:{strict:'strings'}}]:slice2a?[{workerData:{strict:true}}]:slice2b?[{workerData:{strict:'slice2b'}}]:slice2c?[{workerData:{strict:'slice2c'}}]:[]));const w=worker;let progress;return new Promise(resolve=>{
  const finish=result=>{clearTimeout(timer);w.removeListener('message',onMessage);w.removeListener('error',onError);w.terminate();worker=undefined;resolve(result)};
  const onMessage=result=>{if('progress'in result)progress=result.progress;else {if(result.invalid){w.terminate();worker=undefined}finish(result)}},onError=e=>{worker=undefined;finish({invalid:'oracle-error',detail:e.stack})};
  const timer=setTimeout(()=>{w.terminate();worker=undefined;finish({invalid:'oracle-timeout',progress})},timeout);
@@ -87,6 +91,21 @@ function valid2c(ops){const nodes=new Set(),setters=new Set(),stores=new Set(),o
   if(o.op==='action'&&!o.slices.concat(o.catch?[o.catch]:[]).every(s=>(s.writes??[]).every(w=>setters.has(w.id))&&(s.steps??[]).every(step)))return false;
   if(['signal','memo','list','show'].includes(o.op))nodes.add(o.id);if(o.op==='signal'||o.op==='memo'&&o.optimistic)setters.add(o.id);
   if(o.op==='store')stores.add(o.id);if(o.op==='owner')owners.add(o.id)}return true}
+// --boundaries reducer validity: every node, setter and owner an op, a step, an expression or a
+// child (walked into boundaries, Shows and memo passes) names is defined earlier; `local` only
+// inside a pass.
+function validD(ops){const nodes=new Set(),setters=new Set(),owners=new Set(['root']);
+ const expr=(e,pass)=>{if(e===null||typeof e!=='object')return true;if(e.op==='read'&&!nodes.has(e.id)||e.op==='local'&&!pass)return false;
+  return ['a','b','test','yes','no','of'].every(k=>!(k in e)||expr(e[k],pass))};
+ const kids=cs=>(cs??[]).every(c=>'effect'in c||'memo'in c?expr(c.expr,true):'loading'in c||'errored'in c?bnd(c.loading??c.errored):'show'in c?expr(c.show.when,true)&&kids(c.show.yes)&&kids(c.show.no):'cleanup'in c);
+ const bnd=b=>kids(b.children)&&kids(b.fallback)&&(!('expr'in b)||expr(b.expr,true));
+ const step=st=>'write'in st?setters.has(st.write):'refresh'in st||'affects'in st?nodes.has(st.refresh??st.affects):false;
+ for(const o of ops){if(o.owner&&!owners.has(o.owner))return false;if(o.expr&&!expr(o.expr,false))return false;
+  if((o.op==='loading'||o.op==='errored')&&!bnd(o))return false;if(o.op==='memo'&&o.children&&!kids(o.children))return false;
+  if(['read','pending','refresh','affects'].includes(o.op)&&!nodes.has(o.id))return false;
+  if(o.op==='write'&&!setters.has(o.id))return false;if(o.op==='dispose'&&!owners.has(o.owner))return false;
+  if(o.op==='action'&&!o.slices.concat(o.catch?[o.catch]:[]).every(s=>(s.writes??[]).every(w=>setters.has(w.id))&&(s.steps??[]).every(step)))return false;
+  if(['signal','memo','loading','errored'].includes(o.op))nodes.add(o.id);if(o.op==='signal')setters.add(o.id);if(o.op==='owner')owners.add(o.id)}return true}
 // --render reducer validity: every signal a program reads, writes or names in a handler is declared
 // before the op using it; at most one view is rendered at a time.
 function validRender(ops){const sigs=new Set();let live=false;
@@ -94,7 +113,7 @@ function validRender(ops){const sigs=new Set();let live=false;
  for(const o of ops){if(o.op==='signal'){sigs.add(o.id);continue}if(o.op==='write'&&!sigs.has(o.id))return false;
   if(o.op==='render'){if(live||!refs(o.view))return false;live=true}if(o.op==='dispose')live=false}return true}
 function traceClass(r){if(r.invalid)return r.invalid;if(r.actual?.driver_error)return 'rust-'+r.actual.driver_error;const i=r.expected.findIndex((x,i)=>JSON.stringify(x)!==JSON.stringify(r.actual[i]));return (r.expected[i]?.[0]??'end')+'-'+(r.actual[i]?.[0]??'end')}
-async function reduce(ops,initial){let out=ops;let size=Math.ceil(out.length/2),checks=0;while(size>=1&&checks<180){let changed=false;for(let i=0;i<out.length&&checks<180;i+=size){const candidate=out.slice(0,i).concat(out.slice(i+size));if(!(render?validRender:slice2c||strings?valid2c:slice2b?valid2b:valid)(candidate))continue;checks++;const r=await compare(candidate);const sameFailure=initial.invalid?r.invalid===initial.invalid:initial.actual?.driver_error?r.actual?.driver_error===initial.actual.driver_error:!r.invalid&&!r.actual?.driver_error;if(sameFailure&&!r.agree&&(!(slice1||slice2a||slice2b||slice2c||strings||render)||traceClass(r)===traceClass(initial))){out=candidate;changed=true;break}}if(!changed)size=Math.floor(size/2)}return out}
+async function reduce(ops,initial){let out=ops;let size=Math.ceil(out.length/2),checks=0;while(size>=1&&checks<180){let changed=false;for(let i=0;i<out.length&&checks<180;i+=size){const candidate=out.slice(0,i).concat(out.slice(i+size));if(!(render?validRender:boundaries?validD:slice2c||strings?valid2c:slice2b?valid2b:valid)(candidate))continue;checks++;const r=await compare(candidate);const sameFailure=initial.invalid?r.invalid===initial.invalid:initial.actual?.driver_error?r.actual?.driver_error===initial.actual.driver_error:!r.invalid&&!r.actual?.driver_error;if(sameFailure&&!r.agree&&(!(slice1||slice2a||slice2b||slice2c||strings||render||boundaries)||traceClass(r)===traceClass(initial))){out=candidate;changed=true;break}}if(!changed)size=Math.floor(size/2)}return out}
 const out=arg('--out',root+'/out');mkdirSync(out,{recursive:true});
 let total=0,agreement=0,invalid=0;const coverage={},classes={},modes={};
 try {
@@ -102,8 +121,8 @@ try {
  else {const count=Number(arg('--seeds','2000')),start=Number(arg('--start','1'));
  for(let seed=start;seed<start+count;seed++){
   if(args.includes('--trace'))console.error('seed',seed);
-  const ops=(render?generateRender:strings?generateStrings:slice2c?generateSlice2c:slice2b?generateSlice2b:slice2a?generateSlice2a:slice1?generateSlice1:generate)(seed);for(const o of ops)coverage[o.op]=(coverage[o.op]??0)+1;
-  const r=await compare(ops);total++;const mode=render?renderFamily(seed):strings?stringsFamily(seed):slice2c?slice2cFamily(seed):slice2b?slice2bFamily(seed):slice2a?slice2aFamily(seed):slice1?'scalar-actions':seed%6;modes[mode]??={total:0,agreement:0};modes[mode].total++;
+  const ops=(render?generateRender:boundaries?generateBoundaries:strings?generateStrings:slice2c?generateSlice2c:slice2b?generateSlice2b:slice2a?generateSlice2a:slice1?generateSlice1:generate)(seed);for(const o of ops)coverage[o.op]=(coverage[o.op]??0)+1;
+  const r=await compare(ops);total++;const mode=render?renderFamily(seed):boundaries?boundariesFamily(seed):strings?stringsFamily(seed):slice2c?slice2cFamily(seed):slice2b?slice2bFamily(seed):slice2a?slice2aFamily(seed):slice1?'scalar-actions':seed%6;modes[mode]??={total:0,agreement:0};modes[mode].total++;
   if(r.agree){agreement++;modes[mode].agreement++;continue}
   if(r.invalid)invalid++;
   const i=Array.isArray(r.actual)&&r.expected?r.expected.findIndex((x,i)=>JSON.stringify(x)!==JSON.stringify(r.actual[i])):0;

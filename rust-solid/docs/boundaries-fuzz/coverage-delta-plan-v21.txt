@@ -1,0 +1,78 @@
+47 scripts -> cov-base.json
+functions reached only in A: 50
+solid/dist/solid.js
+  954 createErrorBoundary x432
+  1236 createLoadingBoundary x543
+  1603 Errored x432
+  1604 Errored.f x432
+  1604 (anon) x158
+  1609 Loading x543
+  1613 (anon) x1084
+signals/dist/prod/core/verdict.js
+  35 watchVerdict x447
+  48 route x2270
+  74 observeFlight x19
+  109 verdictRead x2255
+  133 provisionalVerdict x754
+signals/dist/prod/core/core.js
+  883 creatorReads x4512
+signals/dist/prod/core/effect.js
+  63 escalate x198
+signals/dist/prod/core/error-hooks.js
+  27 hookFor x172
+  51 reportClientError x302
+signals/dist/prod/affects.js
+  35 release x459
+  46 register x771
+  56 affects x771
+  75 e.I x402
+  108 inFlight x1474
+signals/dist/prod/boundaries.js
+  84 behindError x5504
+  90 isCollecting x8342
+  92 record x2822
+  99 caught x1743
+  144 redraw x1730
+  237 release x2009
+  251 caughtBelow x1395
+  259 reads x1067
+  285 prune x9835
+  365 (anon) x77
+  453 createBoundary x975
+  477 (anon) x975
+  512 (anon) x975
+  518 (anon) x2419
+  524 computed.ae x3627
+  623 drop x537
+  657 fallback x792
+  687 (anon) x699
+  687 computed.id x699
+  749 createLoadingBoundary x543
+  750 (anon) x541
+  775 createErrorBoundary x432
+  776 (anon) x158
+signals/dist/prod/core/lanes.js
+  291 verdictLane x1456
+signals/dist/prod/affects-marks.js
+  29 repoll x7405
+  52 marked x1788
+  69 mark x771
+  75 unmark x771
+signals/dist/prod/store/affects.js
+  135 releaseMarkScope x253
+lines reached only in A: 615
+{
+  'solid/dist/solid.js': 10,
+  'universal/dist/universal.js': 14,
+  'signals/dist/prod/core/verdict.js': 101,
+  'signals/dist/prod/core/core.js': 15,
+  'signals/dist/prod/core/scheduler.js': 2,
+  'signals/dist/prod/core/effect.js': 8,
+  'signals/dist/prod/core/error-hooks.js': 15,
+  'signals/dist/prod/affects.js': 58,
+  'signals/dist/prod/flatten.js': 10,
+  'signals/dist/prod/boundaries.js': 344,
+  'signals/dist/prod/core/lanes.js': 3,
+  'signals/dist/prod/affects-marks.js': 32,
+  'signals/dist/prod/store/affects.js': 3
+}

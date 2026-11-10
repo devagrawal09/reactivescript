@@ -1,0 +1,91 @@
+{
+ "schema": "2.1",
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "agree": 878,
+ "refused": 122,
+ "divergent": 0,
+ "invalid": 0,
+ "generator-bug": 0,
+ "rust-unsupported": 0,
+ "agreeing": {
+  "scenarioSteps": 16081,
+  "logEntriesPerLeg": 240093,
+  "evaluatedCodes": 878,
+  "codeChanges": 1475
+ },
+ "shapes": {
+  "split / rx / reload": 105,
+  "split / rx": 103,
+  "split / tsx / reload": 103,
+  "split / tsx": 89,
+  "whole / rx / reload": 127,
+  "whole / rx": 95,
+  "whole / tsx / reload": 134,
+  "whole / tsx": 122
+ },
+ "bindingKinds": {
+  "action": 150,
+  "host": 1437,
+  "read": 457
+ },
+ "asyncCodes": {
+  "v21": 524,
+  "asyncMemo": 480,
+  "programsWithAsyncMemoInCode": 480
+ },
+ "classes": {},
+ "refusals": {
+  "eval refused: PLAN: unsupported operator -": {
+   "count": 58,
+   "seeds": [
+    11,
+    45,
+    47,
+    53,
+    55,
+    79,
+    83,
+    91,
+    108,
+    110,
+    114,
+    116,
+    127,
+    130,
+    131,
+    220,
+    239,
+    267,
+    289,
+    296
+   ]
+  },
+  "eval refused: PLAN: unsupported operator *": {
+   "count": 64,
+   "seeds": [
+    17,
+    20,
+    34,
+    37,
+    41,
+    61,
+    65,
+    68,
+    102,
+    104,
+    132,
+    133,
+    142,
+    146,
+    185,
+    190,
+    195,
+    229,
+    234,
+    249
+   ]
+  }
+ }
+}

@@ -22,6 +22,7 @@ trace.
 | --- | --- |
 | `summary-1-1000.json` | `npm run plan-fuzz -- --seeds 1000 --start 1` in ../frontend |
 | `summary-1001-3000.json` | `npm run plan-fuzz -- --seeds 2000 --start 1001` (held out) |
+| `summary-async-1-1000.json`, `summary-async-1001-3000.json` | the plan v2.1 fuzz (`npm run plan-fuzz -- --async …`): 878 and 1748 programs agree on all four legs, this consumer's included; 0 `rust-unsupported`, 0 divergent; 122 and 252 refused by the emitter ([PLAN-V2-CONSUMER.md](../PLAN-V2-CONSUMER.md), "Plan v2.1"); the async eval fuzz's are `../eval/summary-async-*.json` |
 
 ## Results
 

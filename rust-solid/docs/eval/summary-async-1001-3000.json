@@ -1,0 +1,91 @@
+{
+ "schema": "2.1",
+ "start": 1001,
+ "seeds": 2000,
+ "total": 2000,
+ "agree": 1748,
+ "refused": 252,
+ "divergent": 0,
+ "invalid": 0,
+ "generator-bug": 0,
+ "rust-unsupported": 0,
+ "agreeing": {
+  "scenarioSteps": 32027,
+  "logEntriesPerLeg": 479170,
+  "evaluatedCodes": 1748,
+  "codeChanges": 2819
+ },
+ "shapes": {
+  "split / rx / reload": 193,
+  "split / rx": 221,
+  "split / tsx / reload": 185,
+  "split / tsx": 194,
+  "whole / rx / reload": 253,
+  "whole / rx": 249,
+  "whole / tsx / reload": 241,
+  "whole / tsx": 212
+ },
+ "bindingKinds": {
+  "action": 274,
+  "host": 2940,
+  "read": 870
+ },
+ "asyncCodes": {
+  "v21": 1021,
+  "asyncMemo": 959,
+  "programsWithAsyncMemoInCode": 959
+ },
+ "classes": {},
+ "refusals": {
+  "eval refused: PLAN: unsupported operator *": {
+   "count": 134,
+   "seeds": [
+    1005,
+    1008,
+    1030,
+    1035,
+    1036,
+    1037,
+    1077,
+    1093,
+    1094,
+    1099,
+    1113,
+    1114,
+    1117,
+    1118,
+    1123,
+    1125,
+    1131,
+    1136,
+    1137,
+    1149
+   ]
+  },
+  "eval refused: PLAN: unsupported operator -": {
+   "count": 118,
+   "seeds": [
+    1013,
+    1027,
+    1032,
+    1071,
+    1097,
+    1109,
+    1111,
+    1129,
+    1140,
+    1153,
+    1183,
+    1192,
+    1199,
+    1238,
+    1262,
+    1264,
+    1286,
+    1290,
+    1302,
+    1313
+   ]
+  }
+ }
+}

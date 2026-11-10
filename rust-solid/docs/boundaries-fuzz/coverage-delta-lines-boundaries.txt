@@ -1,0 +1,628 @@
+== signals/dist/prod/core/verdict.js
+35 [170] function watchVerdict(e, t = false) {
+36 [170]     if (t) e.R |= REACTIVE_PROBE_UNANSWERED;
+37 [170]     stagedReaders.push(e);
+38 [170] }
+49 [991142]     if (!passLane && !(e.R & (REACTIVE_JOINED | REACTIVE_STAGED_READ)) && !(e.l & CONFIG_HELD_FRAME && bornInto(e, resolveTx(t)))) setPassLane(verdictLane(t));
+50 [991142]     e.R |= REACTIVE_LANE_READ;
+51 [991142] }
+75 [13]     // A render effect routed into a verdict lane reads the screen as lane
+76 [13]     // work (D-26). A memo still observes the flight: a plain read after its
+77 [13]     // window is the frame's read, as one before it is (A10, F-6, #4661).
+78 [13]     if (passLane && e.i && !(e.m & STATUS_UNINITIALIZED)) return true;
+79 [11]     if (t.l & CONFIG_INPUTS_PUBLISHED || t.l & CONFIG_HELD && bornInto(e, txOf(t))) return false;
+80 [4]     // A derived store's derive whose store has no reader (`fam.live` empty:
+81 [4]     // no leaf has a node) is no display: it observes nothing and holds nothing
+82 [4]     // (F-3, D-11) — it stays live only to keep the store's data.
+83 [4]         if (globalQueue.Y && e.rr?.live.size !== 0) {
+84 [4]         joinFuture(null);
+85 [4]         if (!(t.l & CONFIG_HELD)) queuePendingNode(t);
+86 [4]         ahead.splice(ahead.indexOf(e) >>> 0, 1);
+87 [4]         verdictRead(e, flushTransaction, true);
+88 [4]     }
+89 [4]     return true;
+90 [13] }
+110 [991139]     route(e, t);
+111 [991139]     if (r) staleReader(e, t); else if (probing && t.fn[t.fn.length - 1] !== e) t.fn.push(e);
+112 [991139] }
+134 [52905]     if (flushTransaction) {
+135 [52736]         if (probing && t) probeFound = true;
+136 [52736]         verdictRead(e, flushTransaction);
+137 [52736]         if (probing && e.R & REACTIVE_STAGED_READ) watchVerdict(e);
+138 [52736]         return;
+139 [52736]     }
+140 [169]     // Before anything joined, a staging that would not be final held has no
+141 [169]     // answer yet: whatever the seam decides, the pass runs again — a later
+142 [169]     // plain read of the same pass may route it into the verdict lane
+143 [169]     // (`observeFlight`), which the seam must not take as this probe's answer.
+144 [169]     // `latest` opens no transaction for its answer either (#4365): the plain
+145 [169]     // read of a staging after it took one opened for it for a hold and paired
+146 [169]     // the staging with the screen, in a frame nothing held. Its pass is the
+147 [169]     // frame's — whole — and re-derives once if the flush parks (unanswered:
+148 [169]     // its membership is the seam's, not the transaction it joins).
+149 [169]         watchVerdict(e, !probing || t);
+150 [52905] }
+185 [52534]         if (t.l & CONFIG_HELD) verdictRead(e, txOf(t)); else if (globalQueue.Y) {
+186 [52534]             // `latest` of a flight serves the committed value, the frame's and the
+187 [52534]             // lane's alike (D-22): nothing is the seam's, so the reader is the
+188 [52534]             // verdict lane's now, as a plain read of a flight makes it
+189 [52534]             // (`observeFlight`). Its frame pass re-derived in the lane (R5) asked
+190 [52534]             // its question again (F-9, #4397). A staging's is the seam's (#4365).
+191 [52534]             // A probe in a transaction only that opened is the lane's too, with no
+192 [52534]             // re-run at its landing: nothing it holds flips the verdict — the
+193 [52534]             // flight's own landing re-derives the reader — and it lands at this
+194 [52534]             // seam, where a re-run would open it again, every flush (F-6, D-23).
+195 [52534]             // (The mark is the transaction's own — `Transaction.latest` — so
+196 [52534]             // nothing outlives its landing.)
+197 [52534]             // Read ahead of, by a pass no plain read of a flight routed yet
+198 [52534]             // (`observeFlight`): no frame read of it (F-6, #4661; lanes.ts
+199 [52534]             // `laneSeams`). Once routed, the pass's later plain reads are the
+200 [52534]             // lane's and mark nothing.
+201 [52534]             if (!probing) {
+202 [59]                 e.R & REACTIVE_LANE_READ || ahead.push(e);
+203 [59]                 flushTransaction || (joinFuture(null), flushTransaction.latest = 1);
+204 [59]             } else if (flushTransaction?.latest) return route(e, flushTransaction);
+205 [52531]             provisionalVerdict(e, false);
+206 [52531]  // decided above
+207 [52531]                 }
+208 [52534]     }
+218 [1393270]         // A pass run inside passes still running — its creator's, theirs — one
+219 [1393270]         // of which read the future or a staging (a branch a held or staged
+220 [1393270]         // condition opened, and whatever that branch creates) has no screen: the
+221 [1393270]         // branch exists only in that world. It reads that world as any
+222 [1393270]         // derivation of it does (`bornInto` once held) and stays its pass
+223 [1393270]         // (`route`); a verdict reader from its next pass. #4341: a memo born in
+224 [1393270]         // a newly opened <Match> read the screen, where its branch was closed.
+225 [1393270]         // Not such a pass: a verdict reader now.
+226 [1393270]         t.l &= ~CONFIG_ASYNC;
+227 [1393270]         t.R |= REACTIVE_PROBED | REACTIVE_WINDOW | (creatorReads(t, 0) || (t.l |= CONFIG_VERDICT,
+228 [1393269]         0));
+229 [1393270]     }
+363 [1393475]         link(e, t);
+364 [1393475]         // #4544: asked of this staging, under its hold or this flush.
+365 [1393475]                 if (e.ue !== NOT_PENDING) ext(e).Nt = e.l & CONFIG_HELD ? txOf(e) : flushTransaction || clock;
+366 [1393475]         if (e.X) pullComputed(r, t);
+367 [1393475]     }
+389 [1054589]         probeFound = true;
+390 [1054589]         if (i && flushTransaction) verdictRead(t, flushTransaction);
+391 [1054589]     }
+442 [1]                 // In the flush that lands the hold (nothing blocks it now: the
+443 [1]                 // pass is the hold's own work, D-25), the probe reads the landed
+444 [1]                 // world and the pass is final in the landing frame (F-1). If a
+445 [1]                 // later node blocks the hold again, the seam re-runs it, held, on
+446 [1]                 // the committed value (`watchVerdict`; ruling on #4662).
+447 [1]                 if (e.ue !== NOT_PENDING && !blocked(o)) {
+448 [1]                     watchVerdict(t);
+449 [1]                     return staged(e);
+450 [1]                 }
+452 [1]             } else {
+505 [359]                 return staged(e);
+506 [359]             }
+== signals/dist/prod/core/core.js
+666 [38]         for (let t = e.C; t; t = t.G) {
+667 [38]             const n = t.S;
+668 [38]             if (n.X) {
+669 [38]                 updateIfNecessary(n);
+670 [38]             }
+671 [38]             if (e.R & REACTIVE_DIRTY) {
+674 [38]         }
+675 [38]     }
+884 [2603747]     return (e = creatorPass(e._parent))?.R & REACTIVE_RECOMPUTING_DEPS ? creatorReads(e, t | e.R) : t & (REACTIVE_JOINED | REACTIVE_STAGED_READ);
+885 [2603747] }
+1130 [315061]         e.R &= ~REACTIVE_LAZY;
+1131 [315061]         recompute(e, true);
+1132 [315061]     } else if (e.R & REACTIVE_DISPOSED) {
+1133 [5]         // Two disposal lifecycles share the flag (#3024). Observation-lifecycle
+1134 [5]         // nodes (CONFIG_AUTO_DISPOSE) are dormant — torn down by unobserved()
+1135 [5]         // when the last subscriber left — and reads reawaken them; that is the
+1136 [5]         // pay-for-use contract. Owner-lifecycle nodes are dead: recomputing would
+1137 [5]         // re-run user code in a torn-down tree (and discard manual writes on
+1138 [5]         // derived-writable signals), so reads return the last committed value.
+1139 [5]         if (e.l & CONFIG_AUTO_DISPOSE) {
+1155 [5]     } else ;
+== signals/dist/prod/core/scheduler.js
+342 [631257]             continue;
+343 [631257]         }
+== signals/dist/prod/core/effect.js
+51 [247]         // Dev locates the halt at the node that threw: the StatusError's
+52 [247]         // source, upstream of this effect when a computed failed. The rethrow is
+53 [247]         // the user's error, not the wrapper: the wrapper's `source` is a node, and
+54 [247]         // a reporter that serializes the throw walks the reactive graph.
+55 [247]                 escalate(this, unwrapStatusError(t));
+56 [247]     } else if (this.i === EFFECT_RENDER) {
+64 [247]     if (!globalQueue.notify(e, STATUS_ERROR, STATUS_ERROR)) {
+68 [247] }
+== signals/dist/prod/core/error-hooks.js
+28 [36]     for (let n = e; n; n = n._parent) {
+29 [80]         const e = n[ROOT_ERROR_HOOK];
+30 [80]         if (e !== undefined) return e;
+31 [80]     }
+32 [36]     return ambientHook;
+33 [36] }
+52 [277]     const r = e !== null && (typeof e === "object" || typeof e === "function");
+53 [277]     if (r) {
+54 [277]         if (reported.has(e)) return;
+55 [36]         reported.add(e);
+56 [36]     }
+57 [36]     const t = hookFor(n);
+58 [36]     if (t === undefined) return;
+62 [277]     if (c !== undefined) i.ownerPath = c;
+69 [277] }
+== signals/dist/prod/affects.js
+36 [209902]     for (let t = 0; t < e.length; t++) {
+37 [358]         const r = e[t];
+38 [358]         // A store mark's carrier: its scope (and the marks the nodes born in
+39 [358]         // its window inherited) goes with the last mark.
+40 [358]                 if (unmark(r)) releaseMarkScope(r);
+41 [358]     }
+42 [209902]     e.length = 0;
+43 [209902] }
+47 [450]     mark(e);
+48 [450]     const t = flushTransaction;
+49 [450]     if (t === null) ambient.push(e); else {
+50 [291]         const r = resolveTx(t);
+51 [291]         (r.I ??= []).push(e);
+52 [291]     }
+53 [450]     repoll(e);
+54 [450] }
+56 [450] function affects(e, t) {
+57 [450]     // A store (the store half, store/affects.ts): the slot's leaf, or the
+58 [450]     // record's carrier and every live node under it.
+59 [450]     const r = e?.[$TARGET];
+60 [450]     if (r !== undefined) {
+67 [450]     const s = e?.[$REFRESH];
+68 [450]     if (!s) {
+71 [450]     register(s);
+72 [450]     schedule();
+73 [450] }
+76 [209811]     // A landing's mark on a node whose own flight is up (a declared reload's
+77 [209811]     // quiet re-ask the action did not wait for) stays to the seam after
+78 [209811]     // that flight lands, as an ambient one does: the reload's window is the
+79 [209811]     // flight's (#4349). The rest release with the transaction.
+80 [209811]     const t = [];
+81 [209811]     for (let r = 0; r < e.length; r++) (inFlight(e[r]) ? ambient : t).push(e[r]);
+82 [209811]     e.length = 0;
+83 [209811]     release(t);
+84 [209811] }, e => {
+86 [579026]     // The flush parked: the declaration's window is the frame's — the marks
+87 [579026]     // are its transaction's ("nothing async below ⇒ no window").
+88 [579026]         if (e !== null) {
+89 [209668]         const t = e.I ??= [];
+90 [209668]         for (let e = 0; e < ambient.length; e++) t.push(ambient[e]);
+91 [209668]         ambient.length = 0;
+92 [209668]         return;
+93 [209668]     }
+94 [369358]     // Nothing parked, but a marked node's own flight is up (a declared
+95 [369358]     // reload's quiet re-ask — the node's, or a store leaf's family derive):
+96 [369358]     // the window is the flight's; the mark stays to the seam after the
+97 [369358]     // landing. The rest release: verdict-only, nothing to show.
+98 [369358]         let t = 0;
+99 [369358]     const r = [];
+100 [369358]     for (let e = 0; e < ambient.length; e++) {
+101 [421913]         const s = ambient[e];
+102 [421913]         if (inFlight(s)) ambient[t++] = s; else r.push(s);
+103 [421913]     }
+104 [369358]     ambient.length = t;
+105 [369358]     if (r.length !== 0) release(r);
+108 [1028401] function inFlight(e) {
+109 [1028401]     return (e.m & STATUS_PENDING) !== 0 || (e.l & CONFIG_SLOT_NODE) !== 0 && GlobalQueue.k?.(e) === true;
+110 [1028401] }
+== signals/dist/prod/boundaries.js
+93 [1457682]     e.F.set(r, n);
+94 [1457682]     collecting.add(e);
+95 [1457682] }
+100 [982070]     if (e.i === STATUS_ERROR) {
+101 [277]         // An error boundary waits on what THREW (`StatusError.source`), not on
+102 [277]         // the reader that saw it, while the error is settled only when its
+103 [277]         // source is neither errored nor in flight and the reader is not pending
+104 [277]         // on the answer that replaces it (`prune`) — or when the
+105 [277]         // reader is disposed: a source no live reader holds holds nothing
+106 [277]         // (#4373). A source that died (a memo its reader owned, kept past the
+107 [277]         // pass that disposed it) settles nothing: the reader is waited on.
+108 [277]         // `reset` re-runs the source.
+109 [277]         n ??= r.T?.U;
+110 [277]         o = n?.source ?? r;
+111 [277]         if (o.R & REACTIVE_DISPOSED) o = r;
+112 [277]         const t = unwrapStatusError(n);
+113 [277]         setSignal(e.U, t);
+114 [277]         reportClientError(t, e.H, o);
+115 [277]     }
+116 [981793]     // A loading boundary that catches has not shown content: fresh until it
+117 [981793]     // does — already so unless it caught behind an error fallback, which the
+118 [981793]     // recovery leaves catching (D-39, #4627); a re-arm's `flip` says it too.
+119 [981793]      else e.D = false;
+120 [982070]     record(e, r, o);
+121 [982070]     // A loading boundary behind an error fallback that catches a pending
+122 [982070]     // holds nothing above it: the error boundary's recovery shows its
+123 [982070]     // fallback beside the recovered content (D-39, #4627).
+124 [982070]         if (e.h) flip(e);
+125 [982070]     // Already showing the fallback: one more reader to wait on changes
+126 [982070]     // nothing on screen. The fallback is instantiated once per show — a later
+127 [982070]     // error reaches it through the `error` accessor, which is why it is one.
+128 [982070]         if (!e.L) redraw(e);
+129 [982070]     if (revealHooks && e.v !== null) revealHooks.V(e.v);
+130 [982070] }
+144 [743913] function redraw(e) {
+145 [743913]     if (e.j !== null && !(e.j.R & (REACTIVE_DISPOSED | REACTIVE_ZOMBIE))) {
+146 [320]         enqueueSub(e.j);
+147 [320]         schedule();
+148 [320]     }
+149 [743913] }
+171 [214]             if (r.L) redraw(r);
+172 [214]             if (revealHooks && r.v !== null) revealHooks.V(r.v);
+173 [214]         }
+177 [1551571]         if (!(o.i & r)) {
+178 [883409]             // A pending passing an error fallback by (A6) is still a reader the
+179 [883409]             // content needs: the error stays the display until it answers too —
+180 [883409]             // revealed beside its stale value, the frame tears (D-39, F-1, #4592).
+181 [883409]             if (o.L && o.i > r) record(o, e);
+182 [883409]             continue;
+183 [883409]         }
+184 [668162]         if (isCollecting(o)) {
+185 [667259]             caught(o, e, n);
+186 [667259]             return o.h ? CAUGHT_REARMED : true;
+187 [667259]         }
+188 [903]         record(o, e);
+189 [903]     }
+231 [210269]     (r.M ??= new Set).add(e);
+232 [210269]     return true;
+238 [56382]     if (e.M === null) return;
+239 [96]     for (const r of e.M) {
+240 [205]         const e = r.i;
+241 [205]         globalQueue.enqueue(e === EFFECT_TRACKED ? EFFECT_USER : e, e === EFFECT_TRACKED ? r.Z : r.W ??= GlobalQueue.q.bind(null, r));
+242 [205]     }
+243 [96]     e.M = null;
+244 [56382] }
+252 [526716]     if (!(n.m & (STATUS_ERROR | STATUS_PENDING) || r.m & STATUS_ERROR)) for (let n = boundaryOf(r); n && n !== e; n = n._parent) if (n.i & STATUS_PENDING && isCollecting(n)) return !(n.j.l & CONFIG_HELD);
+253 [526716]     return false;
+254 [526716] }
+260 [157265]     for (let o = e.C, t; o; o = o.G) if ((t = o.S) === r || (n ||= new Set).size < n.add(t).size && reads(t, r, n)) return 1;
+261 [157265] }
+286 [743072]     const n = e.i | STATUS_PENDING;
+287 [743072]     for (const [o, t] of e.F) {
+288 [1749636]         if (!((o.R | t.R) & REACTIVE_DISPOSED)) {
+289 [1275069]             // An error staged on its source (D-41, `stageError`) is not settled:
+290 [1275069]             // it publishes with the commit. A reader that threw it now (a lane
+291 [1275069]             // pass, a reader of a node born staged) reached the boundary first
+292 [1275069]             // (#4364). Nor a verdict reader queued to re-derive: its source
+293 [1275069]             // settling retired the pending it carried, and its pass, not that
+294 [1275069]             // retirement, is its answer (A19) — it may ask the next flight. Judged
+295 [1275069]             // settled before it ran, a fresh boundary revealed into a hold its
+296 [1275069]             // pass then went pending in, which waited on that flight (#4568).
+297 [1275069]             if ((o.m & n || t.m & n && reads(o, t)) && !(n & STATUS_ERROR && caughtBelow(e, o, t)) || n & STATUS_ERROR && t.l & CONFIG_STAGED_ERROR || o.l & CONFIG_VERDICT && o.R & REACTIVE_IN_HEAP) {
+298 [1273457]                 if (r === 0) break;
+299 [1273276]                 continue;
+300 [1273276]             }
+301 [1612]             if ((t !== e.K || e.h) && (t.l & (CONFIG_HELD | CONFIG_OVERRIDE)) === CONFIG_HELD) {
+302 [1124]                 // Landed, held: the content is that transaction's — the output's
+303 [1124]                 // pass enters it and the reveal lands with the reader's run. The
+304 [1124]                 // seam, past its park decision, waits for the commit instead. (A
+305 [1124]                 // lane's reader reveals with the lane, this round.) A boundary that
+306 [1124]                 // has not shown content catches it instead: the fallback stays until
+307 [1124]                 // the reader is committed (#3540: what a fresh boundary catches holds
+308 [1124]                 // nothing outside it). Not an error boundary (born `_initialized`):
+309 [1124]                 // what it caught in a hold was that hold's staged error (D-41), and an
+310 [1124]                 // answer landing in the same hold replaces it there — the content
+311 [1124]                 // reveals with the commit, and nothing ever shows the superseded
+312 [1124]                 // error (D-39, #4527).
+313 [1124]                 if (!r || !e.D) continue;
+314 [9]                 joinFuture(txOf(t));
+315 [9]             }
+316 [1275069]         }
+317 [475064]         e.F.delete(o);
+318 [475064]     }
+319 [743072]     return e.F.size;
+320 [743072] }
+332 [686433]         const r = e.j.R;
+333 [686433]         if (r & REACTIVE_DISPOSED) {
+337 [686433]         // A parked frame's boundary (zombie) keeps its state for its revival.
+338 [686433]                 if (r & REACTIVE_ZOMBIE) continue;
+339 [686218]         // A fresh boundary's content that derives from a write a hold keeps
+340 [686218]         // reveals with that hold's commit (F-7, D-12): the boundary waits on
+341 [686218]         // the held node, kept like a held reader until it commits (`prune`).
+342 [686218]         // The node a settled reader reads: an answer staged there — a staged
+343 [686218]         // error marks no frame reader (D-41) — left the reader settled on its
+344 [686218]         // stale committed value (#4591). The node a first load it waits on
+345 [686218]         // reads: the seam keeps a loading source out of every hold (#2937,
+346 [686218]         // D-6), so its answer landed mainline, torn from the frame a write's
+347 [686218]         // hold keeps on screen (F-1, #4593); under an open action it still
+348 [686218]         // reveals at its landing (#2937). Not a held reader: it reveals with its
+349 [686218]         // own commit.
+350 [686218]                 if (!e.D) for (const [r] of e.F) for (const n of r.m & STATUS_PENDING ? r.T?.se || [] : [ r ]) if (!(n.l & CONFIG_HELD)) for (let o = n.C; o; o = o.G) {
+351 [745666]             const t = o.S;
+352 [745666]             if (t.l & CONFIG_HELD && (n === r || !txOf(t).tt)) record(e, t);
+353 [745666]         }
+354 [686218]         prune(e);
+355 [686218]         const n = e.j;
+356 [686218]         // A fallback staged into the very hold its readers landed in folds back
+357 [686218]         // (D-16, U-9): the content is ready when that hold commits (D-15). Not
+358 [686218]         // only at the re-arm's own seam: readers pending then land, held, a
+359 [686218]         // flush later (#4379 — the staged fallback otherwise commits with the
+360 [686218]         // hold, and a quiet refresh then caught keeps it up, F-9). A loading
+361 [686218]         // fallback only: what an error boundary still waits on after `prune` is
+362 [686218]         // an error, staged into that hold (D-41) — the fallback is the hold's
+363 [686218]         // content and reveals with it; folding back re-derived the output into
+364 [686218]         // the error again every round (#4480).
+365 [686218]                 if (e.i & STATUS_PENDING && !e.D && n.l & CONFIG_HELD && [ ...e.F ].every(([, e]) => !(e.m & STATUS_PENDING) && e.l & CONFIG_HELD && txOf(e) === txOf(n))) {
+366 [20]             e.F.clear();
+367 [20]             e.D = true;
+368 [20]         }
+369 [686218]         e.h = false;
+370 [686218]         if (e.F.size === 0) {
+371 [418]             collecting.delete(e);
+372 [418]             if (e.L) redraw(e);
+373 [418]             if (revealHooks && e.v !== null) revealHooks.V(e.v);
+374 [418]         }
+375 [686433]     }
+434 [2]     // A snapshot: a source failing again is caught — and re-added — mid-walk.
+435 [2]     for (const r of new Set(e.F.values())) if (r.X !== undefined && !(r.R & REACTIVE_DISPOSED)) recompute(r);
+436 [2]     schedule();
+437 [2] }
+453 [423309] function createBoundary(e, r, n, o) {
+454 [423309]     const t = createOwner();
+455 [423309]     const l = {
+456 [423309]         i: e,
+457 [423309]         _parent: boundaryOf(t) ?? null,
+458 [423309]         H: t,
+459 [423309]         K: null,
+460 [423309]         j: null,
+461 [423309]         F: new Map,
+462 [423309]         // Loading only: an error boundary has no first-content wait (`prune`).
+463 [423309]         D: e === STATUS_ERROR,
+464 [423309]         h: false,
+465 [423309]         B: null,
+466 [423309]         P: null,
+467 [423309]         L: false,
+468 [423309]         M: null,
+469 [423309]         v: null,
+470 [423309]         $: false,
+471 [423309]         ee: false,
+472 [423309]         U: e === STATUS_ERROR ? signal(undefined, ERROR_SIGNAL) : null,
+473 [423309]         ne: n,
+474 [423309]         re: null
+475 [423309]     };
+476 [423309]     const a = e === STATUS_PENDING ? t.A[REVEAL] : null;
+477 [423309]     if (getOwner()) cleanup(() => {
+478 [423290]         collecting.delete(l);
+479 [423290]         if (revealHooks && a) revealHooks.oe(a, l);
+480 [423290]     });
+481 [423309]     // The `on` dependencies live OUTSIDE the boundary, as the condition of a
+482 [423309]     // `<Show>` wrapping it would: created before the owner's context names it.
+483 [423309]     // A source of it going pending re-runs it (CONFIG_REDERIVE) rather than
+484 [423309]     // marking it: the pass catches the NotReady — it is a notification, it
+485 [423309]     // does not suspend the parent — and re-arms.
+486 [423309]         if (o) {
+506 [423309]     const u = {
+507 [423309]         ...t.A,
+508 [423309]         [BOUNDARY]: l
+509 [423309]     };
+510 [423309]     if (revealHooks !== null) u[REVEAL] = null;
+511 [423309]     t.A = u;
+512 [423309]     const i = runWithOwner(t, () => {
+513 [423309]         const e = false ? computed(r, {
+516 [423309]         return false ? computed(() => flatten(read(e)), {
+519 [423309]     });
+520 [423309]     l.K = i;
+521 [423309]     // A slot of the reveal order in its context (reveal.ts): gated until the
+522 [423309]     // controller releases it — before the output's first pass.
+523 [423309]         if (revealHooks && a) revealHooks.te(a, l);
+524 [423308]     const s = computed(() => {
+525 [424320]         // Structure, not a derivation of its content (CONFIG_FRAME, #4283): it
+526 [424320]         // reads a hold it is not part of as the screen, as the render effect
+527 [424320]         // flattening the same children without a boundary would. Not while a
+528 [424320]         // re-arm's swap is the change's work (`arm`), until that swap commits
+529 [424320]         // (D-13, #3540).
+530 [424320]         const r = getOwner();
+531 [424320]         if (!l.h && !(r.l & CONFIG_HELD)) r.l |= CONFIG_FRAME;
+532 [424320]         // Reveal order (reveal.ts): a gated slot shows its fallback — or, in a
+533 [424320]         // collapsed tail, nothing — whatever its content's state; the
+534 [424320]         // controller is told the pass ran (its readiness may have changed) and
+535 [424320]         // releases it in turn.
+536 [424320]                 if (l.$) {
+552 [424320]         // A tree carrying a status is not read: an errored memo's reactive
+553 [424320]         // re-read retries it (`read`), and neither a fallback re-rendering nor
+554 [424320]         // passing the error by may re-run the content; a pending one read as
+555 [424320]         // lane work would serve its committed value (A31) — the swap a
+556 [424320]         // display-ahead `on` causes is the lane's, and must still be the
+557 [424320]         // fallback. Linked, so its recovery re-derives this pass; read again
+558 [424320]         // once clean.
+559 [424320]                 const n = i.m & (STATUS_PENDING | STATUS_ERROR);
+560 [424320]         if (n !== 0) {
+561 [367553]             link(i, r);
+562 [367553]             if (n & e) {
+563 [314896]                 if (isCollecting(l)) {
+564 [314811]                     caught(l, i, undefined);
+565 [314811]                     return fallback(l);
+566 [314811]                 }
+567 [85]                 // Forwarded: a loading boundary showing content keeps it and
+568 [85]                 // holds the frame like any reader (recorded for its `on`).
+569 [85]                                 record(l, i);
+570 [85]             }
+571 [52742]             // A pending passes an error boundary by (A6); an error, a loading
+572 [52742]             // one; a loading boundary showing content forwards its pending.
+573 [52742]                         throw i.T.U;
+574 [52742]         }
+575 [56767]         if (isCollecting(l)) {
+576 [56606]             // A29's boundary exemption (#3540): a boundary MOUNTED over a held
+577 [56606]             // value (its first pass; a first pass under it that read a hold was
+578 [56606]             // collected, `joinPass` — the tree's own, or a render effect's that
+579 [56606]             // binds the content) shows its fallback now and the content at the
+580 [56606]             // commit — entering the transaction would make the output itself
+581 [56606]             // born held, and nothing would show until the commit. The seam
+582 [56606]             // keeps a held reader until it is committed, then re-derives this
+583 [56606]             // pass. A boundary with a committed value reads a held tree and
+584 [56606]             // enters: the outside sees its committed value until the landing,
+585 [56606]             // which reveals the content — a fallback staged earlier is replaced
+586 [56606]             // ahead of the commit and never shown.
+587 [56606]             if (l.F.size !== 0 && r.m & STATUS_UNINITIALIZED && !(r.l & CONFIG_HELD)) return fallback(l);
+588 [56306]             // Readers under it still unready: the fallback, the tree untouched.
+589 [56306]             // The seam re-derives this pass when they settle.
+590 [56306]                         if (prune(l, true) !== 0) return fallback(l);
+591 [56606]         }
+592 [56394]         let o;
+593 [56394]         try {
+594 [56394]             o = read(i);
+595 [56394]         } catch (r) {
+596 [12]             if (r instanceof NotReadyError ? e === STATUS_PENDING : e === STATUS_ERROR) {
+605 [12]             // A pending passes an error boundary by (A6).
+606 [12]                         throw r;
+607 [12]         }
+608 [56382]         // Readers under it still unready (caught before, or while the read
+609 [56382]         // ran the content at a mount): the fallback.
+610 [56382]                 if (isCollecting(l) && l.F.size !== 0) return fallback(l);
+611 [56382]         l.D = true;
+612 [56382]         l.L = false;
+613 [56382]         // The fallback dies when the content that replaces it is on screen —
+614 [56382]         // with this flush's commits when the pass is the frame's, at the
+615 [56382]         // landing when the frame parks (the run is held with it, as the old
+616 [56382]         // children of a held pass are) — not now: a held swap keeps the
+617 [56382]         // fallback on screen, live, until it commits. A pass back to the
+618 [56382]         // fallback before then finds it still built and keeps it. A fallback
+619 [56382]         // the screen does not show (a swap staged with a held frame, replaced
+620 [56382]         // before it commits) dies now: what it reads holds nothing (S-22 row
+621 [56382]         // 3′, #4268).
+622 [56382]                 const t = l.re;
+623 [56382]         const drop = () => {
+624 [253]             if (!l.L && l.re === t) {
+625 [237]                 // A fallback that threw (a rethrow the boundary does not
+626 [237]                 // handle) is what an enclosing boundary waits on: it died, and
+627 [237]                 // the seam of another round drops it there (#4270).
+628 [237]                 if (t.m & STATUS_ERROR) schedule();
+629 [237]                 dispose(t);
+630 [237]                 l.re = null;
+631 [237]             }
+632 [253]         };
+633 [56382]         if (t !== null) l.j.le !== t.le ? drop() : globalQueue.enqueue(EFFECT_RENDER, drop);
+634 [56382]         release(l);
+635 [56382]         // Shown: the slot leaves its reveal order (a later re-arm gates nobody
+636 [56382]         // else; the frontier moves on).
+637 [56382]                 if (revealHooks && l.v !== null) {
+642 [56382]         return o;
+643 [424320]     },
+644 [423308]     // Boundary structure, not a user source: its value is fallback-or-content
+645 [423308]     // and legitimately swaps mid-hydration (resume), so it must never be
+646 [423308]     // frozen by snapshot capture.
+647 [423308]     {
+648 [423308]         ae: true
+649 [423308]     });
+650 [423308]     s.l |= CONFIG_REDERIVE;
+651 [423308]     // The tree is structure too (the output's pass marks the output).
+652 [423308]         i.l |= CONFIG_FRAME;
+653 [423308]     l.j = s;
+654 [423308]     return accessor(s);
+655 [423309] }
+657 [315184] function fallback(e) {
+658 [315184]     // (The output's pass.)
+659 [315184]     const r = getOwner();
+660 [315184]     // The swap a display-ahead re-arm asked for: this pass is the lane's — a
+661 [315184]     // lane read by construction (REACTIVE_LANE_READ: `recompute`'s tail keeps
+662 [315184]     // the pass in the lane).
+663 [315184]         if (e.P !== null) {
+668 [315184]     e.L = true;
+669 [315184]     // Built in its own scope, like `Show`'s function child, once per show
+670 [315184]     // (D-39: the fallback is the display until a new answer replaces the
+671 [315184]     // error): a re-derive of the output while it shows — a second reader
+672 [315184]     // caught, the same error propagated again through a sibling's re-run, a
+673 [315184]     // retry pending after `reset()`, a later error — keeps the built
+674 [315184]     // fallback, its DOM and focus with it (#3991). A later error reaches it
+675 [315184]     // through the error accessor; only a fallback reading the accessor at its
+676 [315184]     // top level is rebuilt by it. Created beside the output — in its owner,
+677 [315184]     // outside the boundary, as the output is: its errors and runs are the
+678 [315184]     // enclosing boundary's — with the output's id, so what it builds gets the
+679 [315184]     // ids a build under the output would; disposed once content is on screen.
+680 [315184]     // Lazy (`1`: a byte under `true`), so its first pass runs in the output's
+681 [315184]     // read below: the pass that creates it is the output's, and born held asks
+682 [315184]     // the output — what it read — not the owner the fallback lives in (D-27;
+683 [315184]     // #4428: an enclosing pass that joined a hold, while the output read nothing
+684 [315184]     // held). (Lazy also releases it when its one reader, the output, stops
+685 [315184]     // reading it: where `drop` below disposes it, or with the commit of a held
+686 [315184]     // swap.)
+687 [315184]         if (e.re === null) e.re = runWithOwner(r._parent, () => computed(() => e.ne(e), {
+688 [315061]         id: r.id,
+689 [315061]         lazy: 1
+690 [315061]     }));
+691 [315184]     // The swap is structure (#3540): what the fallback reads ahead — a
+692 [315184]     // verdict (`latest()`), a lane — is the fallback's display-ahead, not the
+693 [315184]     // swap's: the output's pass stays where it was (F-6 stays inside the
+694 [315184]     // fallback, #4337).
+695 [315184]         const n = passLane;
+696 [315184]     const o = r.R;
+697 [315184]     const t = read(e.re);
+698 [315184]     setPassLane(n);
+699 [315184]     r.R ^= (r.R ^ o) & (REACTIVE_PROBED | REACTIVE_LANE_READ);
+700 [315184]     return t;
+701 [315184] }
+750 [315283]     return createBoundary(STATUS_PENDING, e, () => r(), n?.on);
+751 [315283] }
+776 [108026]     return createBoundary(STATUS_ERROR, e, e => r(accessor(e.U), () => reset(e)));
+777 [108026] }
+== signals/dist/prod/core/lanes.js
+292 [833297]     return e.Pe ??= newLane(e);
+293 [833297] }
+612 [13]                 return n.ue;
+613 [13]             }
+877 [1]     return false;
+962 [2]             if (isThenable(t.T?.Ee)) {
+966 [2]             // A sync reader's lane pass re-derives the async memos over it (a
+967 [2]             // memo over a verdict memo is a verdict reader, D-25 #4050; D-22:
+968 [2]             // `latest()` extracted into a memo reads as inline). The flight
+969 [2]             // each asked over its frame staging, up and held by `t`, is the
+970 [2]             // frame's answer too: the landing adopts it (F-9).
+972 [2]             if (e?.Pe && n.indexOf(e.Pe) === -1) n.push(e.Pe);
+973 [2]         }
+== signals/dist/prod/core/heap.js
+57 [8] function insertIntoHeapHeight(e, t) {
+58 [8]     let E = e.R;
+59 [8]     if (E & (REACTIVE_IN_HEAP | REACTIVE_RECOMPUTING_DEPS | REACTIVE_IN_HEAP_HEIGHT)) return;
+60 [8]     e.R = E | REACTIVE_IN_HEAP_HEIGHT;
+61 [8]     actualInsertIntoHeap(e, t);
+62 [8] }
+111 [8] function adjustHeight(e, t) {
+112 [8]     deleteFromHeap(e, t);
+113 [8]     let E = e.he;
+114 [8]     for (let t = e.C; t; t = t.G) {
+115 [8]         const e = t.S;
+116 [8]         if (e.X && e.he >= E) E = e.he + 1;
+117 [8]     }
+118 [8]     if (e.he !== E) {
+119 [8]         e.he = E;
+120 [8]         for (let E = e.o; E !== null; E = E.t) insertIntoHeapHeight(E.u, t);
+121 [8]     }
+122 [8] }
+== signals/dist/prod/affects-marks.js
+30 [4468]     for (let t = e.o; t !== null; t = t.t) {
+31 [6928]         const e = t.u;
+32 [6928]         if (r.has(e)) continue;
+33 [6910]         r.add(e);
+34 [6910]         if (e.l & o) enqueueSub(e);
+35 [6910]         if (!e.i) repoll(e, r, o);
+36 [6910]         // A derived store's derive: its leaves' readers derive from it too
+37 [6910]         // (store/projection.ts; a live target's property, has and keys nodes).
+38 [6910]                 const n = e.rr;
+39 [6910]         if (n) for (const e of n.live) for (const o of [ e.n, e.h, {
+43 [6928]     }
+44 [4468] }
+53 [1405230]     if (e.T !== null && e.T.I !== 0) return true;
+54 [350641]     const o = e;
+55 [350641]     if (o.m & STATUS_ERROR || r.has(e)) return false;
+56 [350634]     r.add(e);
+57 [350634]     if (o.l & CONFIG_SLOT_NODE) {
+61 [350634]     const t = o.R & REACTIVE_RECOMPUTING_DEPS ? o._ : undefined;
+62 [1405230]     if (t !== null) for (let e = o.C ?? null; e !== null; e = e.G) {
+63 [350498]         if (marked(e.S, r)) return true;
+64 [55]         if (e === t) break;
+65 [350498]     }
+66 [191]     return false;
+67 [1405230] }
+70 [450]     ext(e).I++;
+71 [450]     active++;
+72 [450] }
+76 [358]     active--;
+77 [358]     if (--e.T.I !== 0) return false;
+78 [219]     repoll(e);
+79 [219]     return true;
+80 [358] }
+== signals/dist/prod/store/affects.js
+136 [219]     const o = scopes.get(e);
+137 [219]     if (o === undefined) return;
+140 [219] }

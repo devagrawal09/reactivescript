@@ -1,0 +1,122 @@
+[
+ {
+  "op": "signal",
+  "id": "s",
+  "value": 1
+ },
+ {
+  "op": "memo",
+  "id": "a",
+  "expr": {
+   "op": "mod",
+   "a": {
+    "op": "read",
+    "id": "s"
+   },
+   "b": 3
+  },
+  "flight": "q"
+ },
+ {
+  "op": "memo",
+  "id": "m",
+  "expr": {
+   "op": "add",
+   "a": {
+    "op": "read",
+    "id": "a"
+   },
+   "b": {
+    "op": "read",
+    "id": "s"
+   }
+  }
+ },
+ {
+  "op": "errored",
+  "id": "E0",
+  "children": [
+   {
+    "errored": {
+     "id": "NE4",
+     "children": [],
+     "expr": {
+      "op": "add",
+      "a": {
+       "op": "read",
+       "id": "m"
+      },
+      "b": {
+       "op": "read",
+       "id": "a"
+      }
+     },
+     "fallback": []
+    }
+   },
+   {
+    "effect": "show8",
+    "render": true,
+    "expr": {
+     "op": "local",
+     "id": "NE4"
+    }
+   }
+  ],
+  "expr": {
+   "op": "choose",
+   "test": {
+    "op": "pending",
+    "of": {
+     "op": "read",
+     "id": "m"
+    }
+   },
+   "yes": 100,
+   "no": {
+    "op": "read",
+    "id": "m"
+   }
+  },
+  "fallback": []
+ },
+ {
+  "op": "action",
+  "id": "act0",
+  "slices": [
+   {
+    "steps": [
+     {
+      "affects": "a"
+     }
+    ],
+    "writes": [],
+    "flight": "f0"
+   },
+   {
+    "steps": [
+     {
+      "write": "s",
+      "value": 4
+     }
+    ],
+    "writes": []
+   }
+  ]
+ },
+ {
+  "op": "write",
+  "id": "s",
+  "value": 3
+ },
+ {
+  "op": "reject",
+  "flight": "q:0",
+  "message": "load-failed"
+ },
+ {
+  "op": "resolve",
+  "flight": "f0",
+  "value": 1
+ }
+]

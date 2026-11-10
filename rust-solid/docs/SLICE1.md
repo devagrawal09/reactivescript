@@ -36,6 +36,7 @@ The slice runtime is a **structural port of the Solid scheduler, store and list 
   - in the driver: the `owner`, `cleanup` and `dispose` ops, `list` (mapArray and For), `show` (the three memos of solid-js `Show`, element, function and keyed children), memo/effect `children` and `cleanup`, the row/child kinds, the expressions `item`, `index`, `call`, `local`, `concat`, `reverse`, the `moveKey` edit, and the `row`, `fallback`, `branch` events and `{f}` values.
 
   The measured Solid delta is in [SLICE2C-COVERAGE.md](SLICE2C-COVERAGE.md): each of the 55 functions the valid programs reach (`coverage-delta-lines-valid-only.txt`) has a cited Rust counterpart (below). The 6 more that only invalid seed 493 reaches are Solid's halt path (`haltReactivity`, `notifyHalted`, `escalate`'s halt), which the port records as an error instead, as before.
+- Tier D (plan v2.1's runtime, [BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md)) adds `Loading` and `Errored`: `boundaries.rs` is the whole of boundaries.ts's reached paths (the status protocol `catchStatus`, `prune`, the seam, `hiddenBy`, `heldRun` and `release`, the output's pass and its lazy fallback, `reset`), with solid-js's `Loading`/`Errored` in `flow.rs`; tracked verdict readers (`verdict.rs`: a pass that calls `isPending`/`latest` is CONFIG_VERDICT, routed into the holder's verdict lane; `observeFlight`, `provisionalVerdict`, `watchVerdict`, `holdStaging`, F-6's REACTIVE_AHEAD); verdict lanes in `lanes.rs` (`verdictLane`, `enterLane`, `laneRead`, `laneSeams` with `ahead`/`entered`, `heldBy`); `affects()` and the mark core (`affects.rs`); an error held as a value (`Value::Error`: an error boundary's signal, a staged error a lane read serves); the reawakening of a dormant memo; and the `--boundaries` fuzz mode (985/1000 and 1979/2000: every valid program).
 
 Results on the exact-trace fuzzer (worker oracle, generators and comparator as committed; no filtering or normalization). The run summaries are in [slice2c-fuzz/port](slice2c-fuzz/port/) (and [slice2b-fuzz/port](slice2b-fuzz/port/), [slice2a-fuzz/port](slice2a-fuzz/port/) for the earlier ports).
 
@@ -73,7 +74,7 @@ Results on the exact-trace fuzzer (worker oracle, generators and comparator as c
 - Async memo `a` is held when its flight `q:2` rejects. `stageError` stages the `StatusError` in `a._pendingValue`, and `stageMark` copies it onto `m = a + o`. `m` is a derivation in the guess lane of `o` (CONFIG_OVERRIDE).
 - The user effect `watch` then reads `m`. `read` → `laneRead` → `laneValueOf(m)` returns `_pendingValue` for a non-guess node, with no CONFIG_STAGED_ERROR test. Solid hands the reader the error **object** as a value.
 - `watch` computes `"Error: memo-failed41"`, a string; this was checked by logging the computed value on `dist/prod`. The commit then publishes the error, and `watch` runs its error handler instead of applying the string. So the string never reaches the trace, and the oracle counts the program as valid.
-- Values in the port are integers. `read` panics "a staged error served as a lane value (truth.ts:24) is not ported" (`core.rs` `served_as_value`) instead of inventing a value.
+- The port serves the `StatusError` object as Solid does since tier D (`Value::Error`; plan v2.1 seed 70 reaches the same arm through a Show's condition). The slice-1 driver's op language has no `Error + n` (JS gives the string `"Error: memo-failed4"`): it panics there, so seed 629 stays `rust-panic` and the slice-2a summary is unchanged.
 - This is the same reference behaviour as the "error object becomes a memo's value" shape in the invalid seeds. It looks like a missing CONFIG_STAGED_ERROR test in `laneValueOf`/`laneRead`, and was not triaged further.
 - Slice 2b reaches `laneValueOf` returning a staged error in 5 `store-provenance` seeds (89, 521, 593, 905, 930), but only through `dissolveLane`'s `latest` (where the staging stays the staging); no read serves it, and those seeds agree. The read arm still fails closed.
 
@@ -160,7 +161,7 @@ The port is a separate module, **beside M1**. The module reuses nothing from `li
 | scheduler.ts:586-592 `removalStagedBy` (in `onScreen`); 605-612 `deferredZombies`, `deferZombie`; 644-653 `holdFrame`; 1048-1072 the park's `holdFrame` and zombie sort; 1157-1164 zombies re-run at a commit; 1278-1281 `reruns` voiding the children's runs; 1552-1559 the commit retiring the parked frame | `scheduler.rs` |
 | lanes.ts:676-677 a never-shown lane's dissolve retiring a frame; 896-898 `laneSeam` retiring it; async.ts:581 `handleError`'s zombie drain; graph.ts:50-56, 95-96 `deferredReleases` | `lanes.rs`, `async.rs`, `graph.rs` |
 | store.ts:1492-1496 `serveShallow`, its trap sites (1820, 2138, 2248, 2252; 2209 is the accessor arm, not ported), 2350/2383 the `set` trap's raw value and `markRawOne`, 2594-2596 `createStore({shallow})`, 2623-2627 `shallowView`, 2100-2110 the `get` trap's `$TRACK`; types.ts:111-145 `rawValues`, `isRawValue`, `markRawOne`, `markRawIngest`; reconcile.ts:105-107, 120, 196, 244, 330 the shallow and raw arms | `store/store.rs`, `store/types.rs`, `store/reconcile.rs` |
-| boundaries.ts:251-334, 1080-1084 `catchStatus`, `armedOver`, `hiddenBy`, `freshHook` (no boundary) | `boundaries.rs` |
+| boundaries.ts (the reached paths; table in [BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md)); affects.ts, affects-marks.ts; solid/src/client/flow.ts:442-461, 530-543 `Errored`, `Loading` | `boundaries.rs`, `affects.rs`, `flow.rs` |
 | signals.ts:413-654 `createSignal`, `createOptimistic`, `createMemo` (+`loadingValue`), `createEffect` (+`error`), `createRenderEffect` | `mod.rs` / `effect.rs` public API |
 | signals.ts:800-851 `watch`; 923-1004 `refresh` | `signals.rs` `watch`, `waiter_body`, `refresh`, `refresh_waiter`; a store's (`$REFRESH`, its derive): `store/mod.rs` `refresh_store` |
 | store/target.ts `StoreTarget`, `StoreFamily`, `setLookup`, `isOwned`, `lookupTarget`, `markDescendants` | `store/target.rs` |
@@ -177,12 +178,11 @@ The port is a separate module, **beside M1**. The module reuses nothing from `li
 
 **Not ported, because these slices keep them constant.** Each is noted at its site:
 
-- tracked verdict readers: CONFIG_VERDICT, `verdictRead`, `route`, `watchVerdict`, `provisionalVerdict`, `observeFlight`, verdict lanes `_verdict`, `ahead`/`entered`;
-- boundaries (only their inert hook answers are ported), `affects()` marks, snapshots;
+- snapshots; Loading's `on` and `<Reveal>` (tier D: [BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md), "Not ported"); the store half of `affects()`;
 - async iterators, synchronously settled thenables;
 - in the stores: accessor properties (getters/setters on store data, `acc`, FORCE), prototype-overlay drafts (records over 32 keys), chained backings (a store over another store's proxy, §7b), shallow stores and families, the deep witness (`deep()`), `snapshot`, the `ownKeys`/`getOwnPropertyDescriptor`/`defineProperty` traps, `optimisticOwnDescriptor`, `latestView`, a derive that writes its draft (the write override's `mutate`, `pairRows`), `wrapCommit`/`aroundDraftWrite`, and a user's `reconcile` on an optimistic store (`reconcileDraft`);
 - `adoptParked`'s parked flight (only `laneSeams`' unanswered-probe arm parks one);
-- the dormant-node sweep and reawakening;
+- the dormant-node sweep (reawakening a dormant memo is ported: tier D reaches it through a boundary's lazy fallback);
 - the dev/observe tiers; owner ids and `_childCount`, context;
 - `repeat`/`updateRepeat`, the observe tier's list census (`listChurn`) and the dev name wrapper of `mapArray`;
 - the cleanup-error channel (`cleanupError`: no cleanup here throws);
@@ -192,10 +192,10 @@ For these graphs, Solid's hooks for them are reached but compute nothing.
 
 **Fail-closed panics.** Arms these programs never enter panic with a "not ported" message, so a fuzz run reports `rust-panic` instead of silently diverging:
 
-- reawakening a dormant memo, and the dormant-node sweep;
+- the dormant-node sweep;
 - a verdict window inside a pass (three arms in `verdict.rs`), and `observeFlight`;
 - a `NotReadyError` rejection of a loading node;
-- applying a staged error as a value, a lane seam over one, and a lane read serving one (seed 629, above);
+- applying a staged error as a committed value (`applyStaged`); a lane read serving one and a lane seam moving one are ported (tier D: the `StatusError` object is the value, as in Solid);
 - each store arm in the list above (the message names it);
 - `txOf` of a held node with no transaction (the suspected Solid bug above: Solid throws a `TypeError` there);
 - in the driver: a key function over an `undefined` row (the array-hole family: Solid's `x => x.id` throws), and the `message` of a thrown string read where JS gives `undefined`.
@@ -227,7 +227,7 @@ The host drains the queue and then calls `flush()`, as `fuzz/solid.mjs`'s `drain
 
 **Lists.** `MapData`'s JS arrays: `_items` and `_mappings` are `JsObj` arrays (`_mappings`' identity is the change signal, `_items` keeps holes), the bookkeeping and stage arrays (`_nodes`, `_rows`, `_indexes`, `tempNodes`) are `Vec<Option<NodeId>>`, and `newIndices` is a `Map` kept as a vector in insertion order (keys compared with `===`; lists are small). The mapper, key function, list accessor and fallback are host closures (`MapFn`, `KeyFn`, `ListFn`, `FallbackFn`); a mapper argument is a raw value or an accessor (`MapArg`). `_disposal` is a `Vec` of `FnOnce` cleanups (a single function and an array of one run alike). A user comparator is an index into `Runtime::comparators` (`Equals::User`).
 
-**Values.** A value is a JS value (`value.rs`): `undefined`, a boolean, an integer, a raw object or array (an `Rc`, compared by identity, with JS property order and the `$OWNER` stamp), a store proxy (one per target, compared by target), a projection draft wrapper, a `LaneView`, a prototype function (`constructor` and the array methods the ops call, `slice` included, as a store's `get` trap answers them), a host function value (`Builtin::Host`: a For accessor a Show hands out, compared by identity; the renderer tier's function values, `function.rs`, are of this kind), Solid's `NOT_PENDING` sentinel where JS assigns it as a value (`laneStage`'s `el._value = display(el)`), and, since the renderer tier ([RENDERER.md](RENDERER.md)), a string (`Value::Str`, `===` by content) and a renderer host node (`Value::Node`, by identity). Raw objects carry ids; the WeakMaps keyed by them (`storeLookup`, `fam.map`, `frameRaws`) are maps by id. `Symbol.asyncIterator` is `Key::Sym`. An Error used as a value cannot be represented: the one site where Solid makes one is a fail-closed panic (seed 629). Comparators are `isEqual`, an effect's `false`, and the store's `slotNodeEquals`/`containerEquals`; custom user equality is not ported.
+**Values.** A value is a JS value (`value.rs`): `undefined`, a boolean, an integer, a raw object or array (an `Rc`, compared by identity, with JS property order and the `$OWNER` stamp), a store proxy (one per target, compared by target), a projection draft wrapper, a `LaneView`, a prototype function (`constructor` and the array methods the ops call, `slice` included, as a store's `get` trap answers them), a host function value (`Builtin::Host`: a For accessor a Show hands out, compared by identity; the renderer tier's function values, `function.rs`, are of this kind), Solid's `NOT_PENDING` sentinel where JS assigns it as a value (`laneStage`'s `el._value = display(el)`), and, since the renderer tier ([RENDERER.md](RENDERER.md)), a string (`Value::Str`, `===` by content) and a renderer host node (`Value::Node`, by identity). Raw objects carry ids; the WeakMaps keyed by them (`storeLookup`, `fam.map`, `frameRaws`) are maps by id. `Symbol.asyncIterator` is `Key::Sym`. An Error object is a value too since tier D (`Value::Error`, by identity): an error boundary's signal holds one, and a lane read serves a staged one. Comparators are `isEqual`, an effect's `false`, and the store's `slotNodeEquals`/`containerEquals`; custom user equality is not ported.
 
 **Proxy traps and JS semantics.** Solid's internal property reads of a value that may be a proxy (a key fn over a row, `valueInserts`, `handleAsync`'s thenable probe) go through `js_get`/`js_has`, so a trap's side effects (`pullFamily`, `readSource`'s staging reads, node creation) happen as in JS. Reads of a backing (always raw) are direct.
 
@@ -291,7 +291,7 @@ node docs/slice2b-fuzz/port/solid-bug-take-held.mjs                             
 
 Validation:
 
-- `cargo test`: **114 tests pass** (the 80 below; 19 of the renderer tier, [RENDERER.md](RENDERER.md): 13 in `tests/render.rs`, 11 Solid-logged renderer programs and 2 API tests, and 6 in `tests/strings.rs`, 4 Solid-traced string programs and 2 API tests; and the 15 plan v2 tests in `tests/tracker.rs`, [PLAN-V2-CONSUMER.md](PLAN-V2-CONSUMER.md)).
+- `cargo test`: **166 tests pass** (132 before tier D, plus 14 in `tests/boundaries.rs`, [BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md): 13 Solid-traced op programs and 1 API test, 10 in `tests/plan_v21.rs`, [PLAN-V2-CONSUMER.md](PLAN-V2-CONSUMER.md) "Plan v2.1", 6 in `tests/ssr_async.rs` and 4 unit tests in `src/ssr/js.rs` and `src/ssr/seroval.rs`, [SSR.md](SSR.md) "Async data and streaming"). When slice 2c landed it was 114: the 80 below; 19 of the renderer tier, [RENDERER.md](RENDERER.md): 13 in `tests/render.rs`, 11 Solid-logged renderer programs and 2 API tests, and 6 in `tests/strings.rs`, 4 Solid-traced string programs and 2 API tests; and the 15 plan v2 tests in `tests/tracker.rs`, [PLAN-V2-CONSUMER.md](PLAN-V2-CONSUMER.md).
   - 2 library tests, M1's 15, and the 10 slice-1 tests.
   - 11 slice-2a tests (`tests/slice2a.rs`).
     - Nine run op programs through the driver and compare Solid's traces: first load holding a render effect, rejection to an error handler, loading values, same-key promise reuse with `refresh`, an action entangled with a flight, chained async memos, linked lanes, the pass-scoped transaction, and a staged error.
@@ -318,7 +318,7 @@ Validation:
 - `generate-slice2b.mjs` (tier B, [SLICE2B-COVERAGE.md](SLICE2B-COVERAGE.md)) adds plain stores (path edits, `returns`, `reconcile`), stores in actions, optimistic memos over store rows, optimistic stores with per-row claims, derived optimistic stores over a server model, provenance (older answers under newer guesses) and the tracker demo's shape.
 - `generate-slice2c.mjs` (tier C, [SLICE2C-COVERAGE.md](SLICE2C-COVERAGE.md)) adds mapArray/For lists in every keying mode and arity (over int signals, plain, shallow and optimistic stores, optimistic memos, nested lists, 66–100-row windows), Show (element, function and keyed children), children and cleanups built inside memos and effects, owners and their disposal, and the tracker with Show + For.
 
-Excluded from all four: laziness of memos, the legacy `equals` option, tracked `latest`/`isPending`, `repeat`, `Switch`/`Match`, `children()`, and boundaries.
+Excluded from all four: laziness of memos, the legacy `equals` option, tracked `latest`/`isPending`, `repeat`, `Switch`/`Match`, `children()`, and boundaries. `generate-boundaries.mjs` (`--boundaries`, tier D) adds Loading and Errored boundaries, tracked `latest`/`isPending` in memos and effects, `affects` and an Errored's `reset` ([BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md)). The driver's `drain` runs the host's 32 microtask turns and the op loop's own `await` (it ran every queued microtask before; the same on every earlier program, and the earlier summaries are byte-identical).
 
 History:
 
@@ -329,7 +329,7 @@ History:
 
 ## Next risks
 
-- **Tracked verdict readers.** `latest`/`isPending` inside a computation make it a verdict reader: CONFIG_VERDICT, verdict lanes, `route`, `watchVerdict`, `observeFlight`, `ahead`/`entered`, `holdStaging`. These arms panic here. They need an expression form of `latest`/`pending` in the op language (an additive op) and the same coverage-first method.
+- **Tracked verdict readers** are ported (tier D, [BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md)); `adoptParked` (an unanswered probe's parked frame flight) still panics.
 - **Tier C sites that are thin or unobservable.** `removalStagedBy` runs in 6 seeds of 1–1000; making it always false changes the trace of seed 980 only, and of its seed-980 unit program, not of the seed-37 one; a parked frame dying with its owner (3 seeds), a lane dissolve retiring a frame (2), zombies re-run at a commit (8), the small-move duplicate decline (2) and the #2903 abort (3) are thin. `adoptParked`'s parked flight, the zombie park's CONFIG_VERDICT recompute and promoted writes are ported or constant but never taken. Not in the op language: `repeat`/`Repeat`, `Switch`/`Match`, `children()`, boundaries, hydration.
 - **Store arms tiers B and C do not reach** (fail-closed here): a derive that writes its draft after an `await` (`pairRows`, D-34 per-key pairing, the write override's `mutate`), a user's `reconcile` on an optimistic store, `ownKeys`/descriptor reads (`optimisticOwnDescriptor`, `membershipChanged` over an observed key set), `latestView`, `deep`/`snapshot`, shallow derived families, accessors, prototype overlays (records over 32 keys) and chained stores. `laneOutcome`'s stale arm and a lane seam over a staged error are ported but never run.
 - **The array-hole family** makes some optimistic and held plain-store list programs invalid; a fix upstream changes those traces, and the driver's fail-closed key function there would become a path to compare.
@@ -341,5 +341,5 @@ History:
   - `assignIssue` as a host function returning a promise of a string, and rejections carrying the error message the catch formats.
 - **The suspected Solid bug** (`take` of a held slot) makes some `nav`-variant derived-store programs invalid; any fix upstream changes those traces, and the port's fail-closed panic there would become a path to port.
 - **Lazy async memos and dormant reawakening.** These are excluded because of the parked oracle hang and the `deleteFromHeap` TypeError.
-- **JS values.** Strings are values now ([RENDERER.md](RENDERER.md)); Error objects as values are still not representable: the Error-as-value traces of the 2a invalid seeds and of seed 629 stay out of reach.
+- **JS values.** Strings and Error objects are values now; the slice-1 driver's op language still has no arithmetic on an Error, so the Error-as-value traces of the 2a invalid seeds and of seed 629 stay out of reach there.
 - **Reclamation.** Transaction, lane, link-group and pending-source-set records are never reclaimed (arena indices). This is fine for tests, not for a long-running host.

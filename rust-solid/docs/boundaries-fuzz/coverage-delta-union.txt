@@ -1,0 +1,44 @@
+union new lines 655 {
+  'solid/dist/solid.js': 10,
+  'universal/dist/universal.js': 14,
+  'signals/dist/prod/core/verdict.js': 101,
+  'signals/dist/prod/core/core.js': 23,
+  'signals/dist/prod/core/scheduler.js': 2,
+  'signals/dist/prod/core/effect.js': 8,
+  'signals/dist/prod/core/error-hooks.js': 15,
+  'signals/dist/prod/affects.js': 58,
+  'signals/dist/prod/flatten.js': 10,
+  'signals/dist/prod/boundaries.js': 348,
+  'signals/dist/prod/core/lanes.js': 13,
+  'signals/dist/prod/core/heap.js': 18,
+  'signals/dist/prod/affects-marks.js': 32,
+  'signals/dist/prod/store/affects.js': 3
+}
+async plan only {
+  'solid/dist/solid.js': 10,
+  'universal/dist/universal.js': 14,
+  'signals/dist/prod/core/verdict.js': 2,
+  'signals/dist/prod/core/core.js': 2,
+  'signals/dist/prod/flatten.js': 10
+}
+boundaries fuzz only {
+  'signals/dist/prod/core/core.js': 8,
+  'signals/dist/prod/boundaries.js': 4,
+  'signals/dist/prod/core/lanes.js': 10,
+  'signals/dist/prod/core/heap.js': 18
+}
+new functions: async 50 boundaries 46 union 53
+functions only in boundaries fuzz: [
+  'signals/dist/prod/boundaries.js|433 reset',
+  'signals/dist/prod/core/heap.js|57 insertIntoHeapHeight',
+  'signals/dist/prod/core/heap.js|111 adjustHeight'
+]
+functions only in async plan: [
+  'solid/dist/solid.js|954 createErrorBoundary',
+  'solid/dist/solid.js|1236 createLoadingBoundary',
+  'solid/dist/solid.js|1603 Errored',
+  'solid/dist/solid.js|1604 Errored.f',
+  'solid/dist/solid.js|1604 (anon)',
+  'solid/dist/solid.js|1609 Loading',
+  'solid/dist/solid.js|1613 (anon)'
+]

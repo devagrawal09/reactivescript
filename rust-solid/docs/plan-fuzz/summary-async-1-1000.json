@@ -1,0 +1,250 @@
+{
+ "schema": "2.1",
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "agree": 878,
+ "upstream": 0,
+ "divergent": 0,
+ "refused": 122,
+ "invalid": 0,
+ "generator-bug": 0,
+ "rust-unsupported": 0,
+ "agreeing": {
+  "scenarioSteps": 17015,
+  "logEntriesPerLeg": 232260
+ },
+ "families": {
+  "scalar": {
+   "total": 126,
+   "agree": 126
+  },
+  "list": {
+   "total": 269,
+   "agree": 269
+  },
+  "two": {
+   "total": 244,
+   "agree": 244
+  },
+  "args": {
+   "total": 126,
+   "agree": 126
+  },
+  "outside": {
+   "total": 122,
+   "agree": 0
+  },
+  "nested": {
+   "total": 113,
+   "agree": 113
+  }
+ },
+ "classes": {},
+ "refusals": {
+  "unsupported operator -": {
+   "count": 58,
+   "seeds": [
+    11,
+    45,
+    47,
+    53,
+    55,
+    79,
+    83,
+    91,
+    108,
+    110,
+    114,
+    116,
+    127,
+    130,
+    131,
+    220,
+    239,
+    267,
+    289,
+    296
+   ]
+  },
+  "unsupported operator *": {
+   "count": 64,
+   "seeds": [
+    17,
+    20,
+    34,
+    37,
+    41,
+    61,
+    65,
+    68,
+    102,
+    104,
+    132,
+    133,
+    142,
+    146,
+    185,
+    190,
+    195,
+    229,
+    234,
+    249
+   ]
+  }
+ },
+ "refusedClasses": {},
+ "yieldTwins": {},
+ "scenarioFeatures": {
+  "a pure host awaited in an action": 72,
+  "action without an await (affects, refresh)": 137,
+  "argument change while pending": 245,
+  "boundary toggled while pending": 193,
+  "mutation rejected": 457,
+  "overlapping requests": 836,
+  "plain refresh racing an action": 147,
+  "query rejected": 648,
+  "retry from the errored fallback": 167,
+  "settled out of order": 801,
+  "superseded query settled": 754,
+  "two mutations in flight": 489
+ },
+ "coverage": {
+  "action": {
+   "programs": 855,
+   "nodes": 1582
+  },
+  "event:onClick": {
+   "programs": 876,
+   "nodes": 3637
+  },
+  "expr:add": {
+   "programs": 861,
+   "nodes": 4796
+  },
+  "expr:and": {
+   "programs": 85,
+   "nodes": 85
+  },
+  "expr:cond": {
+   "programs": 687,
+   "nodes": 923
+  },
+  "expr:eq": {
+   "programs": 468,
+   "nodes": 555
+  },
+  "expr:filter": {
+   "programs": 519,
+   "nodes": 665
+  },
+  "expr:get": {
+   "programs": 752,
+   "nodes": 3469
+  },
+  "expr:gt": {
+   "programs": 234,
+   "nodes": 234
+  },
+  "expr:latest": {
+   "programs": 117,
+   "nodes": 123
+  },
+  "expr:length": {
+   "programs": 531,
+   "nodes": 738
+  },
+  "expr:literal": {
+   "programs": 878,
+   "nodes": 17378
+  },
+  "expr:local": {
+   "programs": 848,
+   "nodes": 7821
+  },
+  "expr:ne": {
+   "programs": 247,
+   "nodes": 265
+  },
+  "expr:not": {
+   "programs": 311,
+   "nodes": 328
+  },
+  "expr:or": {
+   "programs": 752,
+   "nodes": 762
+  },
+  "expr:pending": {
+   "programs": 671,
+   "nodes": 863
+  },
+  "expr:read": {
+   "programs": 878,
+   "nodes": 6029
+  },
+  "memo": {
+   "programs": 610,
+   "nodes": 835
+  },
+  "memo:async": {
+   "programs": 878,
+   "nodes": 1279
+  },
+  "source:signal": {
+   "programs": 878,
+   "nodes": 1432
+  },
+  "step:affects": {
+   "programs": 754,
+   "nodes": 1218
+  },
+  "step:await": {
+   "programs": 848,
+   "nodes": 1423
+  },
+  "step:call": {
+   "programs": 820,
+   "nodes": 1676
+  },
+  "step:refresh": {
+   "programs": 876,
+   "nodes": 3463
+  },
+  "step:try": {
+   "programs": 848,
+   "nodes": 1423
+  },
+  "step:write:signal": {
+   "programs": 861,
+   "nodes": 3434
+  },
+  "view:element": {
+   "programs": 878,
+   "nodes": 11671
+  },
+  "view:errored": {
+   "programs": 878,
+   "nodes": 1165
+  },
+  "view:for": {
+   "programs": 752,
+   "nodes": 752
+  },
+  "view:loading": {
+   "programs": 878,
+   "nodes": 1329
+  },
+  "view:show": {
+   "programs": 426,
+   "nodes": 565
+  },
+  "view:text:dynamic": {
+   "programs": 878,
+   "nodes": 4453
+  },
+  "view:text:static": {
+   "programs": 878,
+   "nodes": 7938
+  }
+ }
+}

@@ -1,0 +1,72 @@
+43 scripts -> cov-bnd.json
+functions reached only in A: 46
+signals/dist/prod/core/verdict.js
+  35 watchVerdict x170
+  48 route x991142
+  74 observeFlight x13
+  109 verdictRead x991139
+  133 provisionalVerdict x52905
+signals/dist/prod/core/core.js
+  883 creatorReads x2603747
+signals/dist/prod/core/effect.js
+  63 escalate x247
+signals/dist/prod/core/error-hooks.js
+  27 hookFor x36
+  51 reportClientError x277
+signals/dist/prod/affects.js
+  35 release x209902
+  46 register x450
+  56 affects x450
+  75 e.I x209811
+  108 inFlight x1028401
+signals/dist/prod/boundaries.js
+  84 behindError x2083
+  90 isCollecting x1096407
+  92 record x1457682
+  99 caught x982070
+  144 redraw x743913
+  237 release x56382
+  251 caughtBelow x526716
+  259 reads x157265
+  285 prune x743072
+  365 (anon) x203
+  433 reset x2
+  453 createBoundary x423309
+  477 (anon) x423290
+  512 (anon) x423309
+  518 (anon) x423887
+  524 computed.ae x424320
+  623 drop x253
+  657 fallback x315184
+  687 (anon) x315061
+  687 computed.id x315061
+  749 createLoadingBoundary x315283
+  750 (anon) x315026
+  775 createErrorBoundary x108026
+  776 (anon) x37
+signals/dist/prod/core/lanes.js
+  291 verdictLane x833297
+signals/dist/prod/core/heap.js
+  57 insertIntoHeapHeight x8
+  111 adjustHeight x8
+signals/dist/prod/affects-marks.js
+  29 repoll x4468
+  52 marked x1405230
+  69 mark x450
+  75 unmark x358
+signals/dist/prod/store/affects.js
+  135 releaseMarkScope x219
+lines reached only in A: 617
+{
+  'signals/dist/prod/core/verdict.js': 99,
+  'signals/dist/prod/core/core.js': 21,
+  'signals/dist/prod/core/scheduler.js': 2,
+  'signals/dist/prod/core/effect.js': 8,
+  'signals/dist/prod/core/error-hooks.js': 15,
+  'signals/dist/prod/affects.js': 58,
+  'signals/dist/prod/boundaries.js': 348,
+  'signals/dist/prod/core/lanes.js': 13,
+  'signals/dist/prod/core/heap.js': 18,
+  'signals/dist/prod/affects-marks.js': 32,
+  'signals/dist/prod/store/affects.js': 3
+}

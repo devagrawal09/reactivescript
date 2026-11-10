@@ -1,7 +1,7 @@
 # The plan v2 consumer and the scenario v2 runner
 
-The Rust side of slice 2. A v2 plan is the JSON that `frontend/plan/emit.ts` emits from the
-`.rx`, `.tsx` or `.yield.tsx` tracker. Its schema is `frontend/plan/docs/PLAN-V2.md`, and
+The Rust side of slice 2, and of plan v2.1's async data ("Plan v2.1", below). A v2 plan is the
+JSON that `frontend/plan/emit.ts` emits from the `.rx`, `.tsx` or `.yield.tsx` tracker. Its schema is `frontend/plan/docs/PLAN-V2.md`, and
 `slices/tracker/tracker.scenario.json` (format version 2, `docs/SCENARIO-FORMAT.md` there) is its
 contract. The consumer builds the plan with the ported Solid 2 primitives (`slice1/`) and renders
 it with the port of `@solidjs/universal` (docs/RENDERER.md). It does no scheduling of its own.
@@ -27,9 +27,10 @@ Reference: solid-next `2105ffb8` (2.0.0-rc.21), production builds.
 | --- | --- |
 | `crates/runtime/src/plan_v2.rs` | the schema (serde, unknown fields refused), `validate` (static refusals), the evaluator, the action body, the markup builder, `App` |
 | `crates/runtime/src/scenario.rs` | `ScenarioV2`/`StepV2`/`Target`, `run_v2`, `trace_v2` (version 1 is unchanged: `Scenario`, `run`) |
-| `crates/runtime/src/bin/scenario.rs` | `scenario PLAN SCENARIO`. The plan's `version` picks the consumer: 1 goes to `plan.rs` (version-1 scenarios), 2 goes to `plan_v2.rs` (version-1 or -2 scenarios), and any other version is refused |
+| `crates/runtime/src/bin/scenario.rs` | `scenario PLAN SCENARIO`. The plan's `version` picks the consumer: 1 goes to `plan.rs` (version-1 scenarios), 2 and 2.1 go to `plan_v2.rs` (version-1, -2 or -2.1 scenarios), and any other version is refused |
 | `crates/runtime/src/bin/plan-trace.rs` | `plan-trace PLAN SCENARIO`: the result plus the recording host's log |
-| `fuzz/plan-oracle.mjs` | the same plan and scenario on Solid 2's own primitives, `@solidjs/universal` and `@solidjs/web` delegation, over the recording host of `fuzz/universal.mjs`; prints the same log |
+| `fuzz/plan-oracle.mjs` | the same plan and scenario on Solid 2's own primitives (`Loading`, `Errored`, `isPending`, `latest`, `refresh` and `affects` for v2.1), `@solidjs/universal` and `@solidjs/web` delegation, over the recording host of `fuzz/universal.mjs`; prints the same log |
+| `crates/runtime/tests/plan_v21.rs` | 10 tests: plan v2.1 ("Plan v2.1", below) |
 | `fuzz/plan-diff.mjs` | runs both and compares them exactly |
 | `crates/runtime/tests/tracker.rs` | 16 tests (below) |
 | `crates/runtime/tests/plan_fuzz.rs` | 2 tests: the recorded plan-fuzz programs give native Solid's host log; they cover every plan node kind |
@@ -224,6 +225,95 @@ emitted from each frontend`. `RUST_SOLID=/workspace/rx-tsx-refresh/rust-tracker 
 verify:subset` passed 83 of 83 when slice 2 landed (106 of 106 now, with plain `npm run verify:subset`). A v1-only
 consumer fails the tracker leg, because it refuses the plan with ``unknown field `component` ``.
 
+Plan v2.1 adds three Rust legs to the gate: `slices/tracker-async.test.ts :: plan v2.1: Rust consumes
+the tracker-async plan freshly emitted from each accepted frontend (TSX, RX)` (the `scenario`
+binary, all 18 frames from each plan), the tracker-async host-log test (the 399-entry log on all
+four legs), and the async plan and eval fuzz steps (seeds 1..100: 84 agree and 16 refused each;
+a Rust refusal of the version, `rust-unsupported`, fails the gate). `npm run verify:subset` passes
+124 of 124.
+
+## Plan v2.1 (async data)
+
+Plan v2.1 (frontend `plan/docs/PLAN-V2.md`, "v2.1: async data") adds async memos over host calls,
+the `loading` and `errored` views, the `pending` and `latest` probes, the `refresh` and `affects`
+steps, and pure or structured hosts. Its contract is the format-2.1 scenario
+`slices/tracker-async/tracker-async.scenario.json` (frontend `docs/SCENARIO-FORMAT.md`,
+"Version 2.1"). This consumer reads it with the same builder: a plan says `"version": 2.1`
+exactly when it uses a v2.1 form (`validate` refuses either mismatch), and the `scenario` binary
+sends 2.1 to `plan_v2.rs` as it sends 2.
+
+**Readiness, kept apart.**
+
+- *Syntax we recognize:* the frontends' (RX, and TSX in its async tier; the yield twin is refused).
+- *Verified subset:* the tracker-async slice (18 frames; native Solid's 399-entry host log), the
+  frontend's plan v2.1 fuzz (seeds 1..3000: every program the emitter accepts gives native
+  Solid's result and full host log, entry for entry, on this consumer's `plan-trace`) and its
+  async eval fuzz (seeds 1..3000, with the host's eval table). The runtime under it is checked
+  directly by the `--boundaries` fuzz ([BOUNDARIES-COVERAGE.md](BOUNDARIES-COVERAGE.md)).
+- *Full readiness:* not claimed. Loading's `on`, Errored's `reset` from a plan, `<Reveal>` and
+  hydration are not part of it. Async server rendering is the server renderer's
+  ([SSR.md](SSR.md), "Async data and streaming"), not this consumer's.
+
+**How the forms are built** (mirrors `frontend/plan/solid-plan.ts`):
+
+| form | built as | Rust |
+| --- | --- | --- |
+| async memo `{name, await: {host, args}}` | `createMemo(() => host(...args))`: each computation evaluates the arguments (tracked) and issues one new request, whose flight is the memo's promise (`handleAsync`) | `memo_with` over a body returning `Out::Flight` |
+| `pending` / `latest` | `isPending(() => value)` / `latest(() => value)` in the reactive context: a tracked verdict window, the pass a verdict reader | `is_pending_of` / `latest_of` (verdict.rs) |
+| `refresh` / `affects` | `refresh(accessor)` (actions and plain handlers) / `affects(accessor)` (actions only) | `Runtime::refresh` / `Runtime::affects` (affects.rs) |
+| `loading` view | `createComponent(Loading, { get fallback(), get children() })` | `loading_component` → `createLoadingBoundary` (boundaries.rs) |
+| `errored` view | `createComponent(Errored, { fallback: (err) => …, get children() })` | `errored_component` → `createErrorBoundary` |
+| structured host result | the scenario's JSON, checked against the declared type (`HostType::parse`, `conforms_json`) and handed over as fresh plain arrays and records per resolution (`structuredClone`) | `HostType::value_of` |
+
+A read of an async memo in a handler or an action step, `affects` in a plain handler, a probe in
+an imperative context, `refresh`/`affects` of anything but an async memo, a host type not printed
+canonically, `pure: false`, a memo with both or neither of `value` and `await`, and text directly
+in a boundary's children or fallback are refused statically by `validate`. The server renderer
+(`ssr`) renders v2.1 plans with `renderToString` and `renderToStream` ([SSR.md](SSR.md), "Async
+data and streaming"); it used to refuse them.
+
+**Results.**
+
+| run | result |
+| --- | --- |
+| tracker-async, `scenario PLAN SCENARIO` on the plan emitted from `.tsx` and from `.rx` | all 18 frames |
+| tracker-async, `node --conditions=browser fuzz/plan-diff.mjs` (`fuzz/plan-oracle.mjs` now builds v2.1 too) | 399 of 399 log entries identical |
+| frontend plan v2.1 fuzz, seeds 1..1000 | 878 agree on all four legs (Rust included), 0 rust-unsupported, 122 refused (the `outside` family), 0 divergent |
+| frontend plan v2.1 fuzz, held out 1001..3000 | 1748 agree, 0 rust-unsupported, 252 refused, 0 divergent |
+| frontend async eval fuzz, seeds 1..1000 / 1001..3000 | 878 / 1748 agree (Rust with the host's eval table), 0 rust-unsupported, 122 / 252 refused (every leg, Rust's included, fails with the refusal) |
+| frontend gate, async plan and eval fuzz seeds 1..100 | 84 agree and 16 refused each (`baselines/plan-fuzz-async.json`, `eval-fuzz-async.json`) |
+
+The agreeing plan-fuzz programs replay 17,015 scenario steps and 232,260 host-log entries per leg
+(1..1000), 33,514 steps and 462,103 entries (held out). The v2 fuzzes, the tracker (453/453) and
+like (34/34) are unchanged.
+
+**Root causes found on the way** (each fixed in the port, never in a comparison):
+
+1. *A staged error served as a value.* `laneValueOf` hands a derivation's `_pendingValue` to a
+   reader with no CONFIG_STAGED_ERROR test, so a Show's condition memo in a guess's lane read the
+   `StatusError` object as its value (async plan seed 70). The port had failed closed there
+   (`served_as_value`, the slice-2a seed 629 note). Errors are values now (`Value::Error`, by
+   identity), so a lane read and a lane seam serve and move the object as Solid does
+   (`pending_value`, `lane_value_served`).
+2. *A dormant fallback reawakened.* A boundary's fallback computed is lazy and auto-disposed;
+   once its output stopped reading it, a later swap back read it again (held-out seed 2852).
+   `prepareComputed`'s reawakening arm is ported.
+3. *A first effect run's lane.* `effect()` queues a user effect's first run with
+   `enqueue(type, run, node._x?._transaction)`: without an extension the argument is `undefined`
+   and the lane defaults to `passLane`, the creator's seat. The port passed the (null)
+   transaction, so a user effect created by a boundary's content pass seated in a verdict lane
+   ran with the parked frame instead of at the lane's reveal (`--boundaries` seeds 652, 957). Nodes
+   now record whether their extension exists (`Node::x`).
+
+**Tests** (`crates/runtime/tests/plan_v21.rs`, 10): the tracker-async frames and its host log
+(`fixtures/tracker-async.{plan,scenario,oracle}.json`, byte copies of the frontend artifacts and
+`plan-oracle.mjs` output); twelve plan v2.1 fuzz programs (`fixtures/plan-fuzz-async/`) and two
+async eval fuzz programs (`fixtures/eval-async/`), each against native Solid's full trace; the
+corpus covers every v2.1 form; the binaries (`scenario`, `plan-trace`); the static refusals; the
+format-2.1 scenario rules; the host type grammar; the server renderer's renderToString of
+tracker-async (it was the refusal, `the_server_renderer_refuses_plan_v21`; now
+`the_server_renderer_renders_plan_v21_to_a_string`).
+
 ## Gaps
 
 Toward a native window (slice 4):
@@ -249,7 +339,7 @@ Toward a native window (slice 4):
 - **Values.** Integers only, with no floats. Strings are UTF-8 with UTF-16 length, and lone
   surrogates panic. Host errors panic instead of returning errors.
 - **Components and coverage.** A plan has one component with no props: no child components,
-  context, Switch/Match, Repeat, Loading/Errored, Portal or Dynamic. `spread`, `mergeProps` and
+  context, Switch/Match, Repeat, Portal or Dynamic (Loading and Errored are plan v2.1's). `spread`, `mergeProps` and
   `ref` are not ported. The tracker scenario does not exercise a filter toggle while a claim is
   pending, two claims on one row, a store change under a live guess or non-overlapping
   transactions; the plan fuzz does, and there the consumer agrees with native Solid (verified by
@@ -264,10 +354,11 @@ like). Still open there:
 
 - **Hydration in Rust.** The client that hydrates is Solid's: no Rust hydration path is ported
   (For's hydrating `create()`, the `insertExpression` claim pass, event replay).
-- **Async SSR.** Plan v2 has no async source, so no `Loading` boundaries, streaming or
-  resolved-data transfer (seroval) are ported.
-- **The document.** Only body fragments render; `</head>` splices, nonces and streaming are not
-  ported.
+- **Async SSR** is ported since ([SSR.md](SSR.md), "Async data and streaming"): `renderToString`
+  and `renderToStream` of v2.1 plans, server `Loading`/`Errored`, the hydration serializer
+  (seroval); verified on tracker-async and the async generator's programs. Still open: root holes,
+  reveal groups, deferred streams, the server error hook (SSR.md, "Next").
+- **The document.** Only body fragments render; `</head>` splices and nonces are not ported.
 
 ## Reproduce
 
@@ -277,4 +368,9 @@ cargo test --test plan_fuzz
 cargo run --bin scenario -- crates/runtime/tests/fixtures/tracker.plan.json crates/runtime/tests/fixtures/tracker.scenario.json
 node --conditions=browser fuzz/plan-diff.mjs crates/runtime/tests/fixtures/tracker.plan.json crates/runtime/tests/fixtures/tracker.scenario.json
 node --conditions=browser fuzz/plan-oracle.mjs crates/runtime/tests/fixtures/tracker.plan.json crates/runtime/tests/fixtures/tracker.scenario.json > crates/runtime/tests/fixtures/tracker.oracle.json
+# plan v2.1
+cargo test --test plan_v21
+cargo run --bin scenario -- crates/runtime/tests/fixtures/tracker-async.plan.json crates/runtime/tests/fixtures/tracker-async.scenario.json
+node --conditions=browser fuzz/plan-diff.mjs crates/runtime/tests/fixtures/tracker-async.plan.json crates/runtime/tests/fixtures/tracker-async.scenario.json
+node --conditions=browser fuzz/plan-oracle.mjs crates/runtime/tests/fixtures/tracker-async.plan.json crates/runtime/tests/fixtures/tracker-async.scenario.json > crates/runtime/tests/fixtures/tracker-async.oracle.json
 ```

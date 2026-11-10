@@ -8,6 +8,9 @@
 // Solid calls in the same order, which is the order Solid's universal compiler emits for the TSX twin (templates, static
 // props, markers, condition memos; PLAN-V2.md "Markup"). Its host log is native Solid's: frontend's plan fuzz
 // compares native, compiled RX, solid-plan.ts and this port's `plan-trace` (docs/plan-fuzz/README.md).
+// Plan v2.1 (async data: frontend plan/docs/PLAN-V2.md, "v2.1: async data"): async memos (createMemo over a host
+// call), isPending/latest probes, refresh/affects steps, Loading/Errored views and structured, pure hosts, against a
+// version 2.1 scenario (structured results handed over as fresh copies), as solid-plan.ts builds them.
 // Load with `--conditions=browser` (production client builds, the files the other oracles use).
 // Usage: node --conditions=browser fuzz/plan-oracle.mjs PLAN.json SCENARIO.json
 import {readFileSync} from 'node:fs';
@@ -75,6 +78,14 @@ export async function tracePlan(plan,scenario){
  // ---- hosts: every call is a new pending request ----
  const requests=[];
  const typeOk=(v,t)=>typeof v===t&&(t!=='number'||Number.isInteger(v));
+ // v2.1: a host result type (frontend eval/interface.ts parseType) and exact conformance (plan/types.ts conforms).
+ const parseType=text=>{let i=0;const t=text.trim();const ws=()=>{while(/\s/.test(t[i]??''))i++};
+  const one=()=>{ws();let r;if(t[i]==='{'){i++;const fields=[];ws();while(t[i]!=='}'){const k=/^[A-Za-z_$][\w$]*/.exec(t.slice(i))[0];i+=k.length;ws();i++;fields.push([k,one()]);ws();if(t[i]===','||t[i]===';'){i++;ws()}}i++;r={k:'record',fields}}
+   else if(t[i]==='('){i++;r=one();ws();i++}else{const w=/^(number|string|boolean)\b/.exec(t.slice(i))[0];i+=w.length;r={k:w}}
+   ws();while(t.slice(i,i+2)==='[]'){i+=2;r={k:'array',item:r};ws()}return r};return one()};
+ const conforms=(v,t)=>t.k==='number'?typeof v==='number'&&Number.isInteger(v):t.k==='string'||t.k==='boolean'?typeof v===t.k
+  :t.k==='array'?Array.isArray(v)&&v.every(x=>conforms(x,t.item))
+  :!!v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).length===t.fields.length&&t.fields.every(([k,ft])=>Object.prototype.hasOwnProperty.call(v,k)&&conforms(v[k],ft));
  const api=Object.fromEntries(plan.hosts.map(h=>[h.name,(...args)=>{
   if(args.length!==h.params.length||args.some((a,i)=>!typeOk(a,h.params[i])))throw new Error(h.name+' called with '+JSON.stringify(args));
   const number=requests.filter(r=>r.host===h.name).length+1;log.push(['request',h.name,number,args.map(enc)]);
@@ -106,6 +117,9 @@ export async function tracePlan(plan,scenario){
    case 'or':{const l=evaluate(e.left,env);return truthy(l)?l:evaluate(e.right,env)}
    case 'not':return !truthy(evaluate(e.value,env));
    case 'cond':return truthy(evaluate(e.test,env))?evaluate(e.then,env):evaluate(e.else,env);
+   // v2.1: the probes, evaluated inside Solid's own windows.
+   case 'pending':return S.isPending(()=>evaluate(e.value,env));
+   case 'latest':return S.latest(()=>evaluate(e.value,env));
    default:throw fail('unknown expression op '+e.op);
   }};
  // A host rejection thrown in at an await is caught by the nearest `try`; an evaluator error is not.
@@ -127,12 +141,16 @@ export async function tracePlan(plan,scenario){
     setters.get(s.source)('updater'in s?lambda(s.updater.param,s.updater.body,env):(()=>{const v=evaluate(s.value,env);return()=>v})());
    }else if(s.op==='await'){
     let v;try{v=yield api[s.host](...s.args.map(a=>evaluate(a,env)))}catch(e){throw {[rejection]:e}}
-    const r=plan.hosts.find(h=>h.name===s.host).returns;if(!typeOk(v,r))throw fail('a host result is not a '+r);env.set(s.bind,v);
+    const r=plan.hosts.find(h=>h.name===s.host).returns;if(!conforms(v,parseType(r)))throw fail('a host result is not a '+r);env.set(s.bind,v);
    }else if(s.op==='try'){
     try{yield* exec(s.body,new Map(env))}catch(e){if(!(e&&e[rejection]))throw e;yield* exec(s.catch,new Map(env))}
    }else if(s.op==='call'){
     const a=actions.get(s.action);if(!a)throw fail('unknown action '+s.action);
     a(...s.args.map(x=>evaluate(x,env))).then(()=>log.push(['action',s.action,null]),e=>{const m=e&&e[rejection]?e[rejection].message:e instanceof Error?e.message:String(e);log.push(['action',s.action,m]);uncaught.push('uncaught failure in action '+s.action+': '+m)});
+   }else if(s.op==='refresh'||s.op==='affects'){
+    // v2.1: Solid's refresh(memo) / affects(memo) on an async memo's accessor.
+    if(kinds.get(s.source)!=='async')throw fail(s.op+' targets an async memo');
+    if(s.op==='refresh')void S.refresh(reads.get(s.source)).catch(()=>{});else S.affects(reads.get(s.source));
    }else throw fail('unknown step op '+s.op);
   }}
  const uncaught=[];
@@ -142,7 +160,10 @@ export async function tracePlan(plan,scenario){
    else if(s.kind==='store'){const[store,set]=S.createStore(evaluate(s.seed,new Map()));reads.set(s.name,()=>store);setters.set(s.name,set)}
    else if(s.kind==='optimistic'){const[get,set]=S.createOptimistic(()=>evaluate(s.seed,new Map()));reads.set(s.name,get);setters.set(s.name,set)}
    else throw fail('unknown source kind '+s.kind)}
-  for(const m of plan.memos){kinds.set(m.name,'memo');reads.set(m.name,S.createMemo(()=>evaluate(m.value,new Map())))}
+  for(const m of plan.memos){
+   // v2.1: an async memo, createMemo(() => host(...args)): each computation is one new request.
+   if(m.await){kinds.set(m.name,'async');reads.set(m.name,S.createMemo(()=>api[m.await.host](...m.await.args.map(a=>evaluate(a,new Map())))));continue}
+   kinds.set(m.name,'memo');reads.set(m.name,S.createMemo(()=>evaluate(m.value,new Map())))}
   for(const a of plan.actions)actions.set(a.name,S.action(function*(...args){if(args.length!==a.params.length)throw fail(a.name+' arity');yield* exec(a.steps,new Map(a.params.map((p,i)=>[p,args[i]])))}));
   const handler=(steps,env)=>()=>{const run=exec(steps,new Map(env));if(!run.next().done)throw fail('a plain handler never awaits')};
   // An element tree is one template, lowered as Solid's universal compiler lowers JSX (solid-next packages/compiler
@@ -168,7 +189,7 @@ export async function tracePlan(plan,scenario){
   // the TSX twin has a call or member access (a read of a signal, memo or optimistic source, get, length, array methods).
   const dyn=e=>{switch(e.op){case 'literal':case 'local':return false;case 'read':return kinds.get(e.source)!=='store';
    case 'get':case 'length':case 'filter':case 'map':case 'findIndex':return true;case 'array':return e.items.some(dyn);
-   case 'object':return e.fields.some(f=>dyn(f.value));case 'not':return dyn(e.value);case 'cond':return dyn(e.test)||dyn(e.then)||dyn(e.else);
+   case 'object':return e.fields.some(f=>dyn(f.value));case 'not':return dyn(e.value);case 'pending':case 'latest':return true;case 'cond':return dyn(e.test)||dyn(e.then)||dyn(e.else);
    default:return dyn(e.left)||dyn(e.right)}};
   const comparison=e=>['eq','ne','lt','le','gt','ge','not'].includes(e.op);
   const memoized=f=>R.memo(f)();
@@ -187,6 +208,9 @@ export async function tracePlan(plan,scenario){
     :{get when(){return condition(v.when,env)},get children(){return fragment(v.children,env)}});
    if(v.kind==='for'){if(v.key!=='identity')throw fail('For keys rows by identity');
     return R.createComponent(S.For,{get each(){const xs=condition(v.each,env);if(!Array.isArray(xs))throw fail('For of a non-array');return xs},children:item=>fragment(v.children,new Map(env).set(v.item,item))})}
+   // v2.1: Loading's fallback is a getter, Errored's a function of the error (which the plan does not read).
+   if(v.kind==='loading')return R.createComponent(S.Loading,{get fallback(){return fragment(v.fallback,env)},get children(){return fragment(v.children,env)}});
+   if(v.kind==='errored')return R.createComponent(S.Errored,{fallback:_error=>fragment(v.fallback,env),get children(){return fragment(v.children,env)}});
    throw fail('unknown view kind '+v.kind)};
   const fragment=(views,env)=>{const parts=views.map(v=>{if(v.kind==='element')return element(v,env);if(v.kind==='text')throw fail('text directly in a component position (the markup, a Show branch, a For row)');return dynamic(v,env)});return parts.length===1?parts[0]:parts};
   return fragment(plan.markup,new Map());
@@ -210,7 +234,9 @@ export async function tracePlan(plan,scenario){
     if(!r)throw new Error('step '+index+': '+step.host+' call #'+step.call+' was not issued');
     if(!r.pending)throw new Error('step '+index+': '+step.host+' call #'+step.call+' is already settled');
     if(step.args&&JSON.stringify(r.args)!==JSON.stringify(step.args))throw new Error('step '+index+': arguments');
-    r.pending=false;if(step.type==='resolve')r.resolve(step.value);else r.reject(new Error(step.error));
+    // Format 2.1: a structured result conforms exactly and is handed over as a fresh copy.
+    if(step.type==='resolve'&&!conforms(step.value,parseType(r.returns)))throw new Error('step '+index+': '+step.host+' resolved with a value outside '+r.returns);
+    r.pending=false;if(step.type==='resolve')r.resolve(typeof step.value==='object'?structuredClone(step.value):step.value);else r.reject(new Error(step.error));
    }
    await settle();
    try{check()}catch(e){throw new Error('step '+index+': '+e.message)}

@@ -1,0 +1,236 @@
+{
+ "schema": "2.1",
+ "start": 1,
+ "seeds": 1000,
+ "total": 1000,
+ "dev": true,
+ "agree": 878,
+ "stream": 0,
+ "html": 0,
+ "hydration": 0,
+ "ssr-refused": 0,
+ "refused": 122,
+ "invalid": 0,
+ "generator-bug": 0,
+ "agreeing": {
+  "streamBytes": 1950289,
+  "chunks": 1685,
+  "multiChunkStreams": 629,
+  "errorFragments": 106,
+  "serverRejections": 201,
+  "htmlBytes": 180607,
+  "hydrationKeys": 5351,
+  "hydrations": 7024,
+  "continuationSteps": 16146,
+  "fromMountSteps": 17015
+ },
+ "families": {
+  "scalar": {
+   "total": 126,
+   "agree": 126
+  },
+  "list": {
+   "total": 269,
+   "agree": 269
+  },
+  "two": {
+   "total": 244,
+   "agree": 244
+  },
+  "args": {
+   "total": 126,
+   "agree": 126
+  },
+  "outside": {
+   "total": 122,
+   "agree": 0
+  },
+  "nested": {
+   "total": 113,
+   "agree": 113
+  }
+ },
+ "classes": {},
+ "refusals": {
+  "refused: unsupported operator -": {
+   "count": 58,
+   "seeds": [
+    11,
+    45,
+    47,
+    53,
+    55,
+    79,
+    83,
+    91,
+    108,
+    110,
+    114,
+    116,
+    127,
+    130,
+    131,
+    220,
+    239,
+    267,
+    289,
+    296
+   ]
+  },
+  "refused: unsupported operator *": {
+   "count": 64,
+   "seeds": [
+    17,
+    20,
+    34,
+    37,
+    41,
+    61,
+    65,
+    68,
+    102,
+    104,
+    132,
+    133,
+    142,
+    146,
+    185,
+    190,
+    195,
+    229,
+    234,
+    249
+   ]
+  }
+ },
+ "notes": {
+  "solid-stream-dev console": {
+   "count": 203,
+   "seeds": [
+    3,
+    4,
+    9,
+    13,
+    14,
+    15,
+    16,
+    18,
+    24,
+    28,
+    30,
+    32,
+    44,
+    57,
+    59,
+    62,
+    66,
+    75,
+    81,
+    85
+   ]
+  },
+  "solid-stream fresh": {
+   "count": 106,
+   "seeds": [
+    4,
+    21,
+    29,
+    40,
+    58,
+    78,
+    90,
+    98,
+    101,
+    106,
+    107,
+    109,
+    124,
+    126,
+    140,
+    154,
+    175,
+    181,
+    191,
+    199
+   ]
+  },
+  "solid-stream-end fresh": {
+   "count": 39,
+   "seeds": [
+    4,
+    28,
+    29,
+    58,
+    98,
+    101,
+    221,
+    241,
+    256,
+    262,
+    294,
+    318,
+    356,
+    384,
+    401,
+    436,
+    490,
+    497,
+    499,
+    502
+   ]
+  },
+  "solid-stream-dev fresh": {
+   "count": 106,
+   "seeds": [
+    4,
+    21,
+    29,
+    40,
+    58,
+    78,
+    90,
+    98,
+    101,
+    106,
+    107,
+    109,
+    124,
+    126,
+    140,
+    154,
+    175,
+    181,
+    191,
+    199
+   ]
+  },
+  "solid-stream-end continuation": {
+   "count": 16,
+   "seeds": [
+    28,
+    58,
+    111,
+    221,
+    241,
+    356,
+    384,
+    401,
+    497,
+    502,
+    552,
+    605,
+    628,
+    739,
+    962,
+    985
+   ]
+  },
+  "solid-stream-dev continuation": {
+   "count": 2,
+   "seeds": [
+    497,
+    552
+   ]
+  }
+ }
+}

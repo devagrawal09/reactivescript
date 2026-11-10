@@ -1,0 +1,258 @@
+{
+ "schema": "2.1",
+ "start": 1001,
+ "seeds": 2000,
+ "total": 2000,
+ "dev": true,
+ "agree": 1747,
+ "stream": 0,
+ "html": 0,
+ "hydration": 0,
+ "ssr-refused": 0,
+ "refused": 252,
+ "invalid": 1,
+ "generator-bug": 0,
+ "agreeing": {
+  "streamBytes": 3958861,
+  "chunks": 3427,
+  "multiChunkStreams": 1309,
+  "errorFragments": 228,
+  "serverRejections": 386,
+  "htmlBytes": 359378,
+  "hydrationKeys": 10657,
+  "hydrations": 13976,
+  "continuationSteps": 32186,
+  "fromMountSteps": 33502
+ },
+ "families": {
+  "list": {
+   "total": 498,
+   "agree": 498
+  },
+  "two": {
+   "total": 488,
+   "agree": 488
+  },
+  "args": {
+   "total": 244,
+   "agree": 244
+  },
+  "nested": {
+   "total": 251,
+   "agree": 250
+  },
+  "outside": {
+   "total": 252,
+   "agree": 0
+  },
+  "scalar": {
+   "total": 267,
+   "agree": 267
+  }
+ },
+ "classes": {
+  "oracle-hydration (solid-string): step 5: frame \"togglerefetch\", expected \"readyrowstogglerefetch\"": {
+   "count": 1,
+   "seeds": [
+    1916
+   ]
+  }
+ },
+ "refusals": {
+  "refused: unsupported operator *": {
+   "count": 134,
+   "seeds": [
+    1005,
+    1008,
+    1030,
+    1035,
+    1036,
+    1037,
+    1077,
+    1093,
+    1094,
+    1099,
+    1113,
+    1114,
+    1117,
+    1118,
+    1123,
+    1125,
+    1131,
+    1136,
+    1137,
+    1149
+   ]
+  },
+  "refused: unsupported operator -": {
+   "count": 118,
+   "seeds": [
+    1013,
+    1027,
+    1032,
+    1071,
+    1097,
+    1109,
+    1111,
+    1129,
+    1140,
+    1153,
+    1183,
+    1192,
+    1199,
+    1238,
+    1262,
+    1264,
+    1286,
+    1290,
+    1302,
+    1313
+   ]
+  }
+ },
+ "notes": {
+  "solid-stream-dev console": {
+   "count": 419,
+   "seeds": [
+    1012,
+    1015,
+    1028,
+    1033,
+    1034,
+    1041,
+    1042,
+    1043,
+    1044,
+    1045,
+    1063,
+    1064,
+    1066,
+    1085,
+    1086,
+    1091,
+    1095,
+    1096,
+    1110,
+    1112
+   ]
+  },
+  "solid-stream fresh": {
+   "count": 214,
+   "seeds": [
+    1028,
+    1029,
+    1033,
+    1042,
+    1061,
+    1063,
+    1064,
+    1069,
+    1070,
+    1089,
+    1108,
+    1110,
+    1112,
+    1119,
+    1142,
+    1157,
+    1165,
+    1167,
+    1168,
+    1181
+   ]
+  },
+  "solid-stream-dev fresh": {
+   "count": 215,
+   "seeds": [
+    1028,
+    1029,
+    1033,
+    1042,
+    1061,
+    1063,
+    1064,
+    1069,
+    1070,
+    1089,
+    1108,
+    1110,
+    1112,
+    1119,
+    1142,
+    1157,
+    1165,
+    1167,
+    1168,
+    1181
+   ]
+  },
+  "solid-stream-end fresh": {
+   "count": 81,
+   "seeds": [
+    1029,
+    1033,
+    1042,
+    1061,
+    1063,
+    1064,
+    1089,
+    1106,
+    1145,
+    1181,
+    1195,
+    1239,
+    1266,
+    1358,
+    1411,
+    1426,
+    1430,
+    1512,
+    1513,
+    1514
+   ]
+  },
+  "solid-stream-end continuation": {
+   "count": 42,
+   "seeds": [
+    1106,
+    1163,
+    1195,
+    1228,
+    1266,
+    1358,
+    1368,
+    1426,
+    1430,
+    1512,
+    1542,
+    1582,
+    1657,
+    1700,
+    1717,
+    1735,
+    1788,
+    1789,
+    1880,
+    1953
+   ]
+  },
+  "solid-stream-dev continuation": {
+   "count": 7,
+   "seeds": [
+    1195,
+    1266,
+    1582,
+    1657,
+    1735,
+    2973,
+    2977
+   ]
+  },
+  "rust-string failed exactly as solid-string": {
+   "count": 1,
+   "seeds": [
+    1916
+   ]
+  }
+ }
+}
