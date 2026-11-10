@@ -82,8 +82,12 @@
       "status": "done"
     },
     {
+      "name": "Async data tier, plan v2.1: async sources, Loading/Errored, isPending, refresh/affects end to end; Rust boundaries and byte-identical renderToStream hydrated by Solid (frontend 131/131, cargo test 166; plan v2.1 fuzz 878/1000 + 1748/2000, SSR fuzz v2.1 878/1000 + 1747/2000, 0 divergent; --boundaries 985/1000; pushed to solid-model 2026-11-10)",
+      "status": "done"
+    },
+    {
       "name": "Slice 6: inferred server components (Frames)",
-      "status": "planned"
+      "status": "in progress"
     }
   ],
   "slice1": {
@@ -153,27 +157,31 @@
     "Suspected Solid rc.21 bug: a store array's has/get disagree and hand mapArray an undefined row (not filed)",
     "Suspected Solid rc.21 bug: universal reconcileArrays removes a node without an isLive check (universal.ts:313, map-fallback removal) (not filed)",
     "Suspected Solid rc.21 bug: slice 2a non-scalar values (undefined / error objects) and seed 629, a held error read back as a plain value (not filed)",
+    "Suspected Solid rc.21 bug (issue 5): a flush that never ends: an Errored whose content calls isPending, over a nested boundary on a pending memo, after an affects() action writes again; each landing re-derives the verdict reader, which opens a new unblocked transaction (scheduler.ts:1220). The prod build hangs; the dev build throws 'Potential Infinite Loop Detected'. Explains all 36 --boundaries timeouts of 1-3000; repro docs/scratch/solid-rc21-repros/5-errored-pending-hang.mjs (not filed)",
+    "Five suspected Solid rc.21 bugs in the local issue draft (issues 1-5, API-only repros with recorded prod/dev outputs); issues 6 and 7 (streamed / string hydration of Errored over Loading, SSR fuzz v2.1) are noted but not triaged",
     "Eval (slice 3, built): eval / createEval with explicit bindings typed from the checked enclosing component; keyed Show semantics; typed EvalRefused for Errored; the plan as the evaluation IR on JS and Rust; preserve, place and yield syntax refused (deferred)",
     "Environment: Tembo sandbox; the working copy is /workspace/rx-tsx-refresh/solid-model (branch solid-model); git push fails (HTTP 500), tembo commit works but can't create a branch (the user creates new branches on GitHub, then tembo commit fills them); collect.mjs reads paths relative to the repository",
     "Slice 5: a plan cannot tell {n()} from {\"\" + n()}, which Solid SSR keys differently; Rust renders the canonical twin, so idiomatic tracker.tsx hydration keys differ (_hk=8000 vs 7000)",
     "Slice 5: async server data is not expressible in plan v2 (no async source or Loading); Rust hydration, renderToStream and attributes are not ported",
     "Integration: slice 3's plan v2 eval forms broke slice 5's exhaustive server lowering; the server renderer now refuses eval sites with a diagnostic",
-    "--slice2c with reduction crashes reducing seed 493 (known store-hole Solid bug throws uncaught); recorded summaries use --no-reduce"
+    "--slice2c with reduction crashes reducing seed 493 (known store-hole Solid bug throws uncaught); recorded summaries use --no-reduce",
+    "Async tier: TSX async is opt-in (async: true or scenario v2.1); the saving indicator needs affects(issues) since a bare refresh doesn't make isPending true; Errored retry uses refresh (RX has no reset); the yield twin is refused, each site pinned",
+    "Async SSR: Rust renderToStream equals Solid's chunk for chunk and byte for byte (seroval 1.7.0 port, JS microtask model); Chromium hydrates it with Solid's client after the shell and after the last chunk"
   ],
   "parked": [
     "Generative UI on top of the live evaluator (primitive built in slice 3; place deferred)",
     "Placement inference",
     "solid-yield P/E/W/R type cross-check",
-    "Triage of 15 Solid JS hangs in rust-solid fuzz"
+    "Filing the Solid issues (the 15 Solid JS hangs in the --boundaries fuzz are explained: issue 5)"
   ],
   "decisions": [
     "File the Solid rc.21 issue (draft local in docs/scratch/solid-rc21-issues.md)?",
+    "After slice 6: native window (4), eval polish (preserve, eval on the server), Rust hydration, or triaging the five suspected Solid bugs for filing?",
     "SSR canonical twin: accept it, or record a hole's TSX spelling in the plan?",
     "Eval follow-ups first: preserve, place, yield syntax, Errored in Rust, or eval on the server?",
-    "Next slice: native window (4), async server data, Rust hydration, or server components (6)?",
     "Pull ~/solid: fork next or official next? (3 untracked dirs)",
     "Server wire/hydration research pass",
     "Architecture issue scope"
   ],
-  "next": "Slices 3 (live evaluator) and 5 (Rust SSR + Solid hydration) are integrated and, with everything else, consolidated into one branch, solid-model (frontend/ and rust-solid/; the old branches are not deleted yet, the user will delete them on GitHub after verification): frontend 106/106, cargo test 132, plan/eval/SSR fuzz and all six Rust fuzz summaries on 1-1000 byte-identical. Decide: file the Solid issue, and pick the next slice."
+  "next": "The async data tier (plan v2.1: async sources, Loading/Errored, isPending, refresh/affects; Rust boundaries and byte-identical async SSR streaming hydrated by Solid) is pushed to solid-model: frontend 131/131, cargo test 166, plan/eval/SSR fuzz v2.1 0 divergent, --boundaries 985/1000 (the rest Solid's infinite flush), all earlier fuzz summaries byte-identical. Next (approved): slice 6, inferred server components over Frames, research first; results stay local until a push is OKed. Open: file the five suspected Solid bugs."
 }

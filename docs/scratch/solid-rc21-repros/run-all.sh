@@ -20,3 +20,6 @@ for f in 3-universal-shared-node 3b-bulk-removal-arm; do
   rm -f out/.$f.dev.mjs
 done
 node --conditions=browser 3-dom-comparison.mjs > out/3-dom-comparison.prod.txt 2>&1; echo "[exit code $?]" >> out/3-dom-comparison.prod.txt
+# Issue 5 runs the program in a worker and reports the hang itself.
+node 5-errored-pending-hang.mjs > out/5-errored-pending-hang.prod.txt 2>&1; echo "[exit code $?]" >> out/5-errored-pending-hang.prod.txt
+SOLID_JS=${PKG}solid/dist/solid.dev.js node --conditions=development 5-errored-pending-hang.mjs > out/5-errored-pending-hang.dev.txt 2>&1; echo "[exit code $?]" >> out/5-errored-pending-hang.dev.txt

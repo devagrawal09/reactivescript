@@ -13,7 +13,7 @@ Everything here is a verified subset, not full readiness: each claim below is a 
 | Path | What |
 | --- | --- |
 | [`frontend/`](frontend/README.md) | The TSX and yield frontends onto RX, the differential fuzzer, plan schemas v1 and v2 and their emitter, the plan fuzz, the live evaluator (slice 3, [`docs/EVAL.md`](frontend/docs/EVAL.md)), the SSR and hydration oracle (slice 5) and the gate. Results: [`frontend/docs/RESULTS.md`](frontend/docs/RESULTS.md) |
-| [`rust-solid/`](rust-solid/README.md) | A Rust port of Solid 2's runtime: the scheduler (slice 1), async memos, stores and lists (tiers 2a–2c), the `@solidjs/universal` renderer, the plan v2 consumer, the eval table and the server renderer |
+| [`rust-solid/`](rust-solid/README.md) | A Rust port of Solid 2's runtime: the scheduler (slice 1), async memos, stores and lists (tiers 2a–2c), the `@solidjs/universal` renderer, the plan v2 consumer, the eval table and the server renderer (`renderToString`, and `renderToStream` with async data) |
 | [`docs/`](docs/HANDOFF.md) | [`HANDOFF.md`](docs/HANDOFF.md), [`HISTORY.md`](docs/HISTORY.md) (the branches this repository was consolidated from) and `scratch/` research notes and drafts |
 | [`dashboard/`](dashboard/README.md) | A local status dashboard; [`notes.json`](dashboard/notes.json) is the narrative state |
 | [`scripts/setup.sh`](scripts/setup.sh) | Clones and builds the pinned checkouts below, links `frontend/upstream` and installs the folders' dependencies. Run it with `sh` |
@@ -56,14 +56,22 @@ result; a run that differs is a failure, not a tolerance.
 ### Frontend (`frontend/`)
 
 ```sh
-npm run verify:subset   # Result: PASS, Tests: 106, pass 106, fail 0
+npm run verify:subset   # Result: PASS, Tests: 131, pass 131, fail 0
 ```
 
 `scripts/verify-pinned.sh --subset` checks the pins (both checkouts clean, at `pins.json`'s commits and reactivescript's
 `ref/SOLID_NEXT`), builds `scenario`, `plan-trace` and `ssr` in `RUST_SOLID` (default `../rust-solid`), and runs strict
-types (0 package diagnostics, the 12 baseline upstream ones), the 106 listed tests, the TSX fuzz on seeds 0–199 (179
-agree, 21 listed interpreter-only differences), and the plan, eval and SSR fuzz on seeds 1–100 (85 agree and 15 refused
-each; the SSR fuzz hydrates in Chromium, on PATH or `$CHROMIUM`). `report.ts` checks each against `baselines/`.
+types (0 package diagnostics, the 12 baseline upstream ones), the 131 listed tests (106, plus 18 for plan v2.1:
+`slices/tracker-async.test.ts` 11, the Rust tracker-async leg among them, `slices/eval-async.test.ts` 2, two each in
+`plan/plan-fuzz.test.ts` and `eval/eval.test.ts`, one in `tsx/verifier.test.ts`, `frontend/plan/docs/PLAN-V2.md`,
+"v2.1: async data"; plus 7 for slice 5's async data, `ssr/ssr-async.test.ts`, `rust-solid/docs/SSR.md`, "Async data
+and streaming"), the TSX fuzz
+on seeds 0–199 (179 agree, 21 listed interpreter-only differences), the plan, eval and SSR fuzz on seeds 1–100 (85
+agree and 15 refused each; the SSR fuzz hydrates in Chromium, on PATH or `$CHROMIUM`), and the plan v2.1 and async eval
+fuzz on seeds 1–100 (84 agree on every leg, Rust's included, and 16 refused each; a Rust refusal of the version,
+`rust-unsupported`, fails), and the SSR fuzz v2.1 on seeds 1–100 (84 agree, 16 refused: Rust's renderToStream chunks
+and renderToString HTML equal Solid's, and each stream, fed chunk by chunk, hydrates in Chromium as Solid's does).
+`report.ts` checks each against `baselines/`.
 
 Longer runs, whose summaries are recorded in `rust-solid/docs/` (byte-identical on seeds 1–1000):
 
@@ -75,17 +83,26 @@ RUST_SOLID=$PWD/../rust-solid npm run ssr-fuzz -- --seeds 1000 --start 1 --dev  
 
 The held-out seeds 1001–3000 are recorded beside each (`summary-1001-3000.json`).
 
+The plan v2.1 runs (`frontend/plan/docs/PLAN-V2.md`, "Plan fuzz v2.1"; `frontend/docs/EVAL.md`, "Async data") write to
+`frontend/.out/`; their results are in those documents and `frontend/docs/RESULTS.md`:
+
+```sh
+RUST_SOLID=$PWD/../rust-solid npm run plan-fuzz -- --async --seeds 1000 --start 1   # 878 agree (Rust included), 0 rust-unsupported, 122 refused
+RUST_SOLID=$PWD/../rust-solid npm run eval-fuzz -- --async --seeds 1000 --start 1   # 878 agree (Rust included), 0 rust-unsupported, 122 refused
+RUST_SOLID=$PWD/../rust-solid npm run ssr-fuzz -- --async --seeds 1000 --start 1 --dev   # rust-solid docs/ssr-fuzz/summary-async-1-1000.json: 878 agree, 0 stream, HTML or hydration differences, 122 refused
+```
+
 ### Rust (`rust-solid/`)
 
 ```sh
-cargo test                                              # 132 passed
+cargo test                                              # 166 passed
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 git diff --check
 ```
 
-The scenarios: the tracker plan (v2) and the like plans (v1 and v2) give the native frames, and the Rust host log
-equals Solid's entry for entry (`plan-diff`: 453/453 and 34/34).
+The scenarios: the tracker plan (v2), the like plans (v1 and v2) and the tracker-async plan (v2.1) give the native
+frames, and the Rust host log equals Solid's entry for entry (`plan-diff`: 453/453, 34/34 and 399/399).
 
 ```sh
 F=crates/runtime/tests/fixtures
@@ -94,6 +111,8 @@ cargo run -q --bin scenario -- $F/like.plan.json $F/like.scenario.json         #
 cargo run -q --bin scenario -- $F/like.plan-v2.json $F/like.scenario.json      # ["0","1","0","1","1"]
 node --conditions=browser fuzz/plan-diff.mjs $F/tracker.plan.json $F/tracker.scenario.json   # entries 453/453
 node --conditions=browser fuzz/plan-diff.mjs $F/like.plan-v2.json $F/like.scenario.json      # entries 34/34
+cargo run -q --bin scenario -- $F/tracker-async.plan.json $F/tracker-async.scenario.json   # the 18 tracker-async frames
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker-async.plan.json $F/tracker-async.scenario.json   # entries 399/399
 ```
 
 The fuzz modes compare the Rust port with Solid JS exactly, trace for trace (`node fuzz/run.mjs MODE --seeds 1000 --start 1
@@ -107,8 +126,10 @@ The fuzz modes compare the Rust port with Solid JS exactly, trace for trace (`no
 | `--slice2c --no-reduce` | mapArray/For, Show, parked frames | 999/1000 (seed 493 invalid) | `docs/slice2c-fuzz/port/summary-1-1000.json` |
 | `--render` | the universal renderer | 993/1000 (7 invalid: they throw in Solid) | `docs/render-fuzz/port/summary-1-1000.json` |
 | `--strings` | string values and the tracker's strings | 1000/1000 | `docs/strings-fuzz/port/summary-1-1000.json` |
+| `--boundaries --no-reduce` | Loading/Errored boundaries, tracked isPending/latest, affects | 985/1000 (15 invalid: Solid's prod build hangs; dev throws "Potential Infinite Loop Detected") | `docs/boundaries-fuzz/summary-1-1000.json` |
 
-Held-out ranges (`summary-1001-3000.json`, and 3001–8000 for 2b and 2c) are recorded beside them. `--slice2c` with
+Held-out ranges (`summary-1001-3000.json`, and 3001–8000 for 2b and 2c) are recorded beside them (`--boundaries`
+1001–3000: 1979/2000, 21 invalid). `--slice2c` with
 reduction crashes while reducing seed 493 (a Solid bug throws uncaught), so its summaries use `--no-reduce`.
 
 ### Dashboard (`dashboard/`)

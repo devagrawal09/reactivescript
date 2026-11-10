@@ -40,6 +40,9 @@ It holds our assessment, the evidence behind the pointer, and what we checked up
 | 4a | A user effect's callback runs with `undefined` (a value its compute never returned) after an error | signals | **likely bug** (high) | `--slice2a` 16 of the 24 `oracle-nonscalar` seeds of 1–3000 |
 | 4b | A staged error is served as a value: a memo read returns the `StatusError` object, and a memo gets it as `prev` | signals | **likely bug** (high) | `--slice2a` seed 629 + 7 of the 24 (488, 663, 1778, 1950, 2558, 2583, 2667) |
 | 4c | `latest(memo)` returns `undefined` for a held memo whose first answer was an error | signals | **likely bug** (medium-high) | `--slice2a` 873, 2582 |
+| 5 | A flush never returns: an error boundary's content pass that calls `isPending` re-derives at every landing, and each pass opens a transaction that lands at once | signals | **likely bug** (high: the prod build hangs, the dev build throws "Potential Infinite Loop Detected") | `--boundaries` 36 of 1–3000 (15 of 1–1000: 21, 90, 141, …) |
+| 6 | Streamed hydration: an `<Errored>` over two `<Loading>`s, one failing and the other landing after it, ends differently by when the client hydrates (after the shell: the second boundary's content and no fallback; after the last chunk: the fallback) | web / solid (client hydration) | **suspected** (not triaged, no standalone repro) | frontend SSR fuzz v2.1: the continuation after the last chunk differs from the one after the shell in 16 of 1–1000 (28, 58, 111, …) and 42 of 1001–3000 |
+| 7 | A renderToString page, hydrated, does not behave as the same app mounted on the client: a `Show` toggled off and on around `Errored` > `Loading` > `Loading`, after a rejected request, shows nothing | web / solid (client hydration) | **suspected** (not triaged, no standalone repro) | frontend SSR fuzz v2.1: seed 1916 of 1–3000 |
 
 The 4x rows are three separate defects. The 24 `--slice2a` seeds split 16 / 7 / 2, and 873 shows both 4a and 4c.
 
@@ -855,6 +858,119 @@ latest(a)   throws StatusError("failed")
 
 ---------------------------------------------------------------------------------------------------
 
+## Issue 5
+
+**Title:** `[2.0 / next] A flush never ends: an error boundary whose content calls isPending, over a nested boundary on a pending memo, after an affects() action re-writes`
+
+### Environment
+
+solid-js 2.0.0-rc.21 (`2105ffb8`), prod and dev builds, Node 24.11.1. No DOM: `createErrorBoundary` and `createRenderEffect` from `solid-js`.
+The prod build hangs; the dev build throws "Potential Infinite Loop Detected" from the flush loop's guard.
+
+### Repro
+
+`docs/scratch/solid-rc21-repros/5-errored-pending-hang.mjs` (runs the program in a worker; prints `hang` if the last
+step has not returned after 20 s, or `threw: …` and exits 1 if the worker throws):
+
+```js
+const [s, setS] = S.createSignal(1);
+let a;
+S.createRoot(() => {
+  a = S.createMemo(() => q[s() % 3].promise);          // three deferred promises
+  const m = S.createMemo(() => a() + s());
+  S.createErrorBoundary(() => {
+    const inner = S.createErrorBoundary(() => m() + a(), () => -1);
+    S.createRenderEffect(() => inner(), () => {});
+    return S.isPending(() => m()) ? 100 : m();
+  }, () => -1);
+});
+S.action(function* () { S.affects(a); yield f0.promise; setS(4); })();
+setS(3);
+q[0].reject(new Error("load-failed")); await drain();   // drain: 32 microtask turns, then flush()
+f0.resolve(1); await drain();                          // never returns (prod) / throws (dev)
+```
+
+### Actual
+
+Prod build (`solid.js`, `out/5-errored-pending-hang.prod.txt`): the last `flush()` never returns.
+
+```
+rejected the new question; resolving the action
+hang: the last step did not return within 20 s
+[exit code 0]
+```
+
+Dev build (`solid.dev.js`, `--conditions=development`, `out/5-errored-pending-hang.dev.txt`): after 1e5 rounds (about
+3.5 s here) the flush loop's guard throws.
+
+```
+rejected the new question; resolving the action
+threw: Potential Infinite Loop Detected. Kept alive by scheduled work; last staged node: effect
+[exit code 1]
+```
+
+### Expected
+
+The flush ends (the outer boundary shows its content or its fallback; `isPending` reads `true` until the re-ask lands).
+
+### Where it seems to come from
+
+From a structural port of rc.21 (rust-solid, which hangs the same way, traced with `SLICE1_TRACE=1`): the outer boundary's
+children computed is a verdict reader (CONFIG_VERDICT with its own window). Every landing re-derives it (`reruns`). Its
+pass builds a new inner boundary and render effect over `m`, whose flight is up. The effect goes pending and opens a new
+transaction (`GlobalQueue.notify` → `joinFuture(null)`). Nothing blocks that transaction: the effect is behind the new
+boundary's fallback (`hiddenBy`), so `blocked` is false and it lands at the same seam. Its landing re-derives the verdict
+reader again. Each round creates one more transaction (they count up without end).
+
+Pointers in rc.21 (`packages/signals/src/core/scheduler.ts`):
+- `GlobalQueue.notify`, lines 1199-1225: a pass that went pending outside a lane calls `joinFuture(null)` (line 1220).
+- `joinFuture`, lines 421-429: with no flush transaction it creates a new one (`newTransaction(false)`) and schedules.
+- `blocked` / `blockedBy`, lines 466-475 and 516-540: a pending render effect holds its transaction only while it is
+  `onScreen`; the fresh inner boundary's effect is behind that boundary's fallback, so the transaction is not blocked
+  and lands at once.
+- `reruns`, line 1235: the landing re-derives the stale verdict reader (the outer boundary's content), which starts the
+  next round.
+- `flush`, lines 1666-1676: the loop that never exits (prod), and its `__DEV__` guard at 1e5 rounds (dev).
+
+### How found
+
+`node fuzz/run.mjs --boundaries` in rust-solid (an exact-trace fuzzer of Loading/Errored, tracked `isPending`/`latest` and
+`affects` against Solid). 15 of seeds 1–1000 and 21 of 1001–3000 time out in Solid. Every one has an `isPending` window
+in a boundary's content pass and an `affects` mark. Reduced: rust-solid `docs/boundaries-fuzz/solid-bug-errored-pending-hang.json` (8 ops).
+
+---
+
+**Notes for us (not for the issue):**
+- Verdict: **likely bug, high confidence**: no user code loops; `S.flush()` never returns on the prod build, and the
+  dev build's own guard calls it a potential infinite loop. Both builds agree that the scheduler, not the program,
+  keeps the loop alive.
+- The Rust port hangs on all 36 programs too (it is not special-cased); the fuzz counts them `oracle-timeout` (invalid).
+- Not re-run on current `next`.
+
+---------------------------------------------------------------------------------------------------
+
+## Issues 6 and 7 (suspected, from slice 5's async SSR oracle)
+
+Found 2026-11-09 by the frontend's SSR fuzz v2.1 (`frontend/scripts/ssr-fuzz.ts --async`, `frontend/ssr/run-async.ts`,
+rust-solid `docs/SSR.md`, "Async data and streaming"), which feeds Solid's own `renderToStream` output to Chromium chunk
+by chunk and hydrates it with Solid's client (rc.21 dist builds), and hydrates Solid's `renderToString` HTML. Both are
+about Solid's own output and client; rust-solid's server output is byte for byte the same and behaves the same. Neither
+has a standalone repro yet (each needs a browser page fed a stream).
+
+- **6.** In seed 28 (`section` > `Errored` > [`Loading` > (a scalar memo's readers), `Loading` > `For` rows]): the
+  server's answers reject the scalar memo first, then resolve the list. The stream is the shell, a failure fragment for
+  the first `Loading` (carrying the `Errored` fallback, `<template id=… e>`), then the second `Loading`'s rows.
+  Hydrated after the shell, the final page shows the rows and neither the first boundary's content nor the fallback;
+  hydrated after the last chunk, the `Errored` fallback alone. The fallback is the expected outcome (the boundary holds
+  an error). Reproduce: `npm run ssr-fuzz -- --async --seeds 1 --start 28 --dev --rust ../rust-solid/target/debug/ssr`
+  in `frontend/`; `summary.json`'s notes list `solid-stream-end continuation` for it.
+- **7.** In seed 1916 (`div` > `Show when={shown()}` > `Errored` > `Loading` > [`b`, `Loading` > `For`], a toggle and a
+  refetch button): native Solid, mounted on the client, shows `ready` and the inner fallback `rows` when the `Show` is
+  toggled back on after a rejected re-ask; the same app hydrated from its renderToString HTML shows nothing there.
+  Reproduce: the same command with `--start 1916` (status `invalid`, class `oracle-hydration (solid-string)`).
+
+---------------------------------------------------------------------------------------------------
+
 ## Reproducing everything
 
 ```sh
@@ -863,4 +979,5 @@ nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh   # 
 
 This writes `out/<repro>.prod.txt` and `out/<repro>.dev.txt` (the dev runs use `solid.dev.js` and
 `--conditions=development`; issue 3 also uses `--conditions=browser`). It also writes `out/3-dom-comparison.prod.txt`. The outputs quoted
-above come from the run on 2026-11-08, Node v24.11.1.
+above come from the run on 2026-11-08, Node v24.11.1 (issue 5's from 2026-11-10, same Node). Issue 5 takes about 25 s:
+its prod run waits out the 20 s timeout.
