@@ -22,6 +22,7 @@ import { loadTsxModules } from '../../tsx/modules.ts';
 import { checkModules, STRING_RENDERER } from '../../tsx/rx/compiler.ts';
 import { resolvePlanV2, type Plan } from '../../plan/resolve-v2.ts';
 import type { HostSig, Scenario, ScenarioStep, Trace } from '../../plan/fuzz/host.ts';
+import { RUST_UNSUPPORTED, RUST_UNSUPPORTED_CLASS } from '../../plan/fuzz/run.ts';
 import { compileEval, type EvalRequest } from '../compile.ts';
 import { injectInterfaces } from '../inject.ts';
 
@@ -40,6 +41,11 @@ export type EvalProgram = {
   /** Replay this scenario, or record one on the static leg: explicit steps (frames observed) or the plan fuzz's
    *  chooser for a generated case. */
   scenario?: Scenario; script?: ScenarioStep[]; record?: unknown;
+  /** Plan v2.1 (docs/EVAL.md, "Async data"): the enclosing program is emitted with the v2.1 builder and the TSX async
+   *  tier, a recorded scenario is format 2.1, and a Rust refusal of a v2.1 plan is `rust-unsupported`. */
+  async?: boolean;
+  /** Recording with another generator's chooser (plan/fuzz/gen-async.ts). */
+  chooser?: string;
 };
 /** The host's table for the Rust leg (docs/EVAL.md, "Rust"): every eval request and its compiled plan or refusal. */
 export type EvalTable = { version: 1; evals: (EvalRequest & ({ plan: Plan } | { refused: { code: string; message: string; line?: number }[] }))[] };
@@ -48,8 +54,10 @@ export type EvalOutcome = {
   /** agree: every leg equals the static leg. refused: the code was refused (every eval leg fails with the refusal).
    *  divergent: a leg differs otherwise. invalid: the static leg (the oracle) failed while recording. generator-bug:
    *  the program does not load, or App.rx and App.tsx emit different plans. */
-  status: 'agree' | 'refused' | 'divergent' | 'invalid' | 'generator-bug';
+  status: 'agree' | 'refused' | 'divergent' | 'invalid' | 'generator-bug' | 'rust-unsupported';
   classes: string[]; detail?: string;
+  /** rust-unsupported (plan v2.1 only): the JS legs agree with the static twin and Rust refused a v2.1 plan. */
+  rustUnsupported?: string;
   plan?: Plan; scenario?: Scenario; table?: EvalTable; traces?: Partial<Record<EvalLeg, Trace>>;
 };
 
@@ -74,15 +82,15 @@ export function compileNative(tsx: string, filename: string): string {
 }
 
 /** The plan of a program with eval sites, from App.rx and from App.tsx: they must be byte-identical. */
-export function emitPlans(files: Record<string, string>): { plan: string } | { error: string } {
+export function emitPlans(files: Record<string, string>, async = false): { plan: string } | { error: string } {
   const plans: string[] = [];
   for (const name of ['App.rx', 'App.tsx']) {
     try {
-      const set = loadTsxModules(name, p => files[p]);
+      const set = loadTsxModules(name, p => files[p], async ? { async } : {});
       if (set.diags.length) throw new Error(set.diags.map(d => d.code + ': ' + d.msg).join('; '));
       const diags = checkModules(set).diags;
       if (diags.length) throw new Error(diags.map(d => d.code + ' (' + d.line + '): ' + d.msg).join('; '));
-      plans.push(JSON.stringify(resolvePlanV2(set), null, 2));
+      plans.push(JSON.stringify(resolvePlanV2(set, async ? { async } : {}), null, 2));
     } catch (e) { return { error: name + ': ' + (e as Error).message }; }
   }
   if (plans[0] !== plans[1]) return { error: 'App.rx and App.tsx emit different plans' };
@@ -102,12 +110,12 @@ const strip = (t: Trace & { steps?: unknown; created?: unknown; requests?: unkno
 export async function runEvalProgram(p: EvalProgram, opts: { rust?: string; timeoutMs?: number; keep?: string } = {}): Promise<EvalOutcome> {
   const timeoutMs = opts.timeoutMs ?? 30000;
   const out: EvalOutcome = { name: p.name, status: 'agree', classes: [] };
-  const emitted = emitPlans(p.files);
+  const emitted = emitPlans(p.files, p.async);
   if ('error' in emitted) return { ...out, status: 'generator-bug', classes: ['outer plan'], detail: emitted.error };
   const plan = JSON.parse(emitted.plan) as Plan;
   out.plan = plan;
   let evalTsx: string;
-  try { evalTsx = injectInterfaces('App.tsx', f => p.files[f]); } catch (e) { return { ...out, status: 'generator-bug', classes: ['inject'], detail: (e as Error).message }; }
+  try { evalTsx = injectInterfaces('App.tsx', f => p.files[f], p.async ? { async: true } : {}); } catch (e) { return { ...out, status: 'generator-bug', classes: ['inject'], detail: (e as Error).message }; }
   mkdirSync(tmpRoot, { recursive: true });
   const dir = opts.keep ?? mkdtempSync(tmpRoot + 'case-');
   mkdirSync(dir, { recursive: true });
@@ -122,10 +130,10 @@ export async function runEvalProgram(p: EvalProgram, opts: { rust?: string; time
     let scenario: Scenario, record: Trace | undefined;
     if (p.scenario) scenario = p.scenario;
     else {
-      const rec = await leg({ ...common, leg: 'native', entry: dir + '/static.mts', ...(p.record ? { record: { case: p.record, maxSteps: 200 } } : { script: p.script }) }, timeoutMs);
+      const rec = await leg({ ...common, leg: 'native', entry: dir + '/static.mts', ...(p.record ? { record: { case: p.record, maxSteps: 200, ...(p.chooser ? { chooser: p.chooser } : {}) } } : { script: p.script }) }, timeoutMs);
       if ('invalid' in rec) return { ...out, status: 'invalid', classes: ['oracle-' + rec.invalid], detail: rec.detail };
       if ('error' in rec.result) return { ...out, status: 'invalid', classes: [/reactivity halted/.test(rec.result.error) ? 'oracle-halted' : 'oracle-error'], detail: rec.result.error };
-      scenario = { version: 2, name: p.name, fixture: 'app', host: p.hosts, steps: rec.steps! };
+      scenario = { version: p.async ? 2.1 : 2, name: p.name, fixture: 'app', host: p.hosts, steps: rec.steps! };
       record = strip(rec);
     }
     out.scenario = scenario;
@@ -143,11 +151,19 @@ export async function runEvalProgram(p: EvalProgram, opts: { rust?: string; time
     traces['eval-plan'] = viaPlan.trace;
     out.table = evalTable(viaPlan.requests);
     writeFileSync(dir + '/app.evals.json', JSON.stringify(out.table) + '\n');
+    // Plan v2.1: a v2.1 plan (the enclosing one, or one in the table) the Rust consumer refuses by its version is
+    // reported as rust-unsupported, never compared and never agreement.
+    const v21 = plan.version === 2.1 || out.table.evals.some(e => 'plan' in e && e.plan.version === 2.1);
+    let rustUnsupported: string | undefined;
     if (opts.rust) {
       const r = spawnSync(opts.rust, [dir + '/app.plan.json', dir + '/app.scenario.json', dir + '/app.evals.json'], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1 << 28 });
-      if ((r.status !== 0 && r.status !== 1) || !r.stdout) traces.rust = { result: { error: 'plan-trace failed: ' + r.status + ' ' + r.signal + ' ' + r.stderr }, log: [] };
-      else traces.rust = JSON.parse(r.stdout);
+      if ((r.status !== 0 && r.status !== 1) || !r.stdout) {
+        if (p.async && v21 && r.status === 1 && !r.stdout && RUST_UNSUPPORTED.test(r.stderr)) rustUnsupported = r.stderr.trim();
+        else traces.rust = { result: { error: 'plan-trace failed: ' + r.status + ' ' + r.signal + ' ' + r.stderr }, log: [] };
+      } else traces.rust = JSON.parse(r.stdout);
     }
+    const unsupported = (o: EvalOutcome): EvalOutcome => rustUnsupported === undefined ? o
+      : { ...o, rustUnsupported, classes: [...o.classes, RUST_UNSUPPORTED_CLASS], status: o.status === 'agree' ? 'rust-unsupported' : o.status };
     out.traces = traces;
     const refusals = out.table.evals.filter(e => 'refused' in e);
     for (const l of ['eval-native', 'eval-plan', 'rust'] as const) {
@@ -165,9 +181,9 @@ export async function runEvalProgram(p: EvalProgram, opts: { rust?: string; time
       const wrong: string[] = legs.filter(l => !message(traces[l]).includes(expected));
       // The two JS legs fail identically, log included (Rust's log ends where its run fails: compared by message).
       if (JSON.stringify(traces['eval-native']) !== JSON.stringify(traces['eval-plan'])) wrong.push('eval-native and eval-plan');
-      return { ...out, status: wrong.length ? 'divergent' : 'refused', classes: wrong.map(l => l + ': not the refusal'), detail: expected };
+      return unsupported({ ...out, status: wrong.length ? 'divergent' : 'refused', classes: wrong.map(l => l + ': not the refusal'), detail: expected });
     }
     if (out.classes.length) out.status = 'divergent';
-    return out;
+    return unsupported(out);
   } finally { if (!opts.keep) rmSync(dir, { recursive: true, force: true }); }
 }

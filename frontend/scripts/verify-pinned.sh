@@ -58,12 +58,32 @@ cp "$OUT/plan-fuzz/summary.json" "$OUT/plan-fuzz.json" 2>/dev/null || echo '{}' 
 node --experimental-strip-types --conditions=browser scripts/eval-fuzz.ts --seeds 100 --start 1 --rust "$RUST_PLAN_TRACE" --out "$OUT/eval-fuzz/" > "$OUT/eval-fuzz.log" 2>&1
 record eval-fuzz $?
 cp "$OUT/eval-fuzz/summary.json" "$OUT/eval-fuzz.json" 2>/dev/null || echo '{}' > "$OUT/eval-fuzz.json"
+# Plan v2.1 (plan/docs/PLAN-V2.md, "Plan fuzz v2.1"; docs/EVAL.md, "Async data"): the async plan fuzz and the async eval
+# fuzz, seeds 1..100 each. Native Solid (the static twin), compiled RX / createEval, solid-plan.ts and Rust's plan-trace
+# (the plan v2.1 consumer) must agree, full host logs; a Rust refusal of the version (rust-unsupported) is never
+# agreement and is not in the baselines. report.ts checks the summaries against baselines/plan-fuzz-async.json and
+# baselines/eval-fuzz-async.json.
+node --experimental-strip-types --conditions=browser scripts/plan-fuzz.ts --async --seeds 100 --start 1 --rust "$RUST_PLAN_TRACE" --out "$OUT/plan-fuzz-async/" > "$OUT/plan-fuzz-async.log" 2>&1
+record plan-fuzz-async $?
+cp "$OUT/plan-fuzz-async/summary.json" "$OUT/plan-fuzz-async.json" 2>/dev/null || echo '{}' > "$OUT/plan-fuzz-async.json"
+node --experimental-strip-types --conditions=browser scripts/eval-fuzz.ts --async --seeds 100 --start 1 --rust "$RUST_PLAN_TRACE" --out "$OUT/eval-fuzz-async/" > "$OUT/eval-fuzz-async.log" 2>&1
+record eval-fuzz-async $?
+cp "$OUT/eval-fuzz-async/summary.json" "$OUT/eval-fuzz-async.json" 2>/dev/null || echo '{}' > "$OUT/eval-fuzz-async.json"
 # The SSR fuzz (docs/RESULTS.md, "Slice 5"): seeds 1..100 of the plan fuzz's generator; Rust's server HTML must be
 # Solid's byte for byte, and Chromium must hydrate both (production builds, and the Rust HTML again on the dev builds)
 # and replay the recorded scenario. report.ts checks the summary against baselines/ssr-fuzz.json.
 node --experimental-strip-types scripts/ssr-fuzz.ts --seeds 100 --start 1 --dev --rust "$RUST_SSR" --out "$OUT/ssr-fuzz/" > "$OUT/ssr-fuzz.log" 2>&1
 record ssr-fuzz $?
 cp "$OUT/ssr-fuzz/summary.json" "$OUT/ssr-fuzz.json" 2>/dev/null || echo '{}' > "$OUT/ssr-fuzz.json"
+# The SSR fuzz v2.1 (docs/RESULTS.md, "Slice 5: async data"): seeds 1..100 of the async generator; Rust's renderToStream
+# chunks and event log under Solid's realized server answers, and its renderToString HTML, must be Solid's byte for byte;
+# Chromium feeds each stream chunk by chunk, hydrates it (after the shell and after the last chunk; the dev builds after
+# the shell), and every Rust run must observe what the run of Solid's own stream observed; each renderToString HTML
+# replays the scenario native Solid recorded from mount. report.ts checks the summary against
+# baselines/ssr-fuzz-async.json.
+node --experimental-strip-types scripts/ssr-fuzz.ts --async --seeds 100 --start 1 --dev --rust "$RUST_SSR" --out "$OUT/ssr-fuzz-async/" > "$OUT/ssr-fuzz-async.log" 2>&1
+record ssr-fuzz-async $?
+cp "$OUT/ssr-fuzz-async/summary.json" "$OUT/ssr-fuzz-async.json" 2>/dev/null || echo '{}' > "$OUT/ssr-fuzz-async.json"
 if [ $SUBSET = 0 ]; then
   for s in test oracle compiled types ssr; do
     (cd "$RX/ref" && NODE_PATH="$HERE/node_modules" npm run -s "$s" > "$OUT/upstream-$s.log" 2>&1); record upstream-$s $?

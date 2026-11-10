@@ -1,0 +1,11 @@
+{
+  "note": "The gate's SSR fuzz v2.1 (docs/RESULTS.md, 'Slice 5: async data'): scripts/ssr-fuzz.ts --async --seeds 100 --start 1 --dev at fdbcad92 / Solid rc.21. On every program the emitter accepts, rust-ssr's renderToStream chunks and event log under the server answers Solid's own render realized (the SSR fuzz's chooser), and its renderToString HTML, are Solid's byte for byte; Chromium feeds each stream chunk by chunk and hydrates it with Solid's client (after the shell and after the last chunk on the production builds, after the shell on the dev builds), and every Rust run observes what the run of Solid's own stream observed (the continuation recorded there, the hydrated DOM, the elements created or left unclaimed, the console); each renderToString HTML replays the scenario native Solid recorded from mount. The refused programs are the generator's 'outside' family, refused by the emitter; Solid's own server renders of them are still required to succeed.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 84,
+  "refused": 16,
+  "refusals": [
+    "refused: unsupported operator -",
+    "refused: unsupported operator *"
+  ]
+}

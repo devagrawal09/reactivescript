@@ -8,6 +8,7 @@
     "solid-plan.ts",
     "plan-fuzz.test.ts",
     "fuzz/gen.ts",
+    "fuzz/gen-async.ts",
     "fuzz/run.ts",
     "fuzz/host.ts",
     "fuzz/leg.ts",

@@ -23,7 +23,7 @@ export type LegInput = {
    *  where the TSX twin evaluates `draft.a[i].b = v`. Never used for a verdict of agreement. */
   pathInSetter?: boolean;
   /** Recording: the case the generator's chooser is rebuilt from. */
-  record?: { case: unknown; maxSteps: number };
+  record?: { case: unknown; maxSteps: number; chooser?: string };
   /** plan only (docs/EVAL.md): compile eval sites with eval/compile.ts; the leg reports every request it compiled. */
   compile?: boolean;
   /** Recording without a generated case: explicit steps whose frames are observed (the eval slice). */
@@ -108,7 +108,8 @@ if (input.leg === 'native') {
 }
 let chooser;
 if (input.record) {
-  const { chooserFor } = await import('./gen.ts');
+  // The generator's chooser: gen.ts's, or another generator module's (gen-async.ts, plan v2.1).
+  const { chooserFor } = await import(input.record.chooser ? pathToFileURL(input.record.chooser).href : './gen.ts');
   chooser = chooserFor(input.record.case as never);
 } else if (input.script) {
   const script = input.script;

@@ -136,6 +136,8 @@ host save(number): string
 ```
 
 (types: `number` (an integer), `string`, `boolean`, `T[]`, `{ k: T, … }`; parameter names are accepted and dropped).
+Plan v2.1 adds `pure host loadIssues(): { id: number, title: string }[]`: a pure host, whose result may be structured
+("Async data", below).
 It is written into the plan's eval node and, for TSX, into the `createEval` call (`eval/inject.ts`, the one source edit
 between the frontend and Solid's compiler). The code is then checked against exactly that interface. A site that writes
 `interface` itself must equal the derived one (same names, kinds and types; order and parameter names do not count).
@@ -351,12 +353,82 @@ Results (`.out/eval-fuzz/run-*/summary.json`; rust-solid keeps copies in `docs/e
   refuses; it is now a memo. A site with no bindings has the empty interface, which the injection took for a missing
   one. A write or guess to a read binding is reported as `READ_ONLY` before the checker's `OPTIMISTIC_NO_QUESTION`.
 
+## Async data (plan v2.1)
+
+Evaluated code may use plan v2.1's async data (`plan/docs/PLAN-V2.md`, "v2.1: async data"), and an enclosing v2.1
+program may hold eval sites.
+
+- **Interface.** `pure host name(params): type` declares a pure host (the `.d.rx`'s `export pure fn`), whose result may
+  be any type of the grammar; `host` results may be structured too. The canonical print keeps `pure`, and a written
+  interface must match it (purity, parameters, and the result by type). The checker derives `pure host` for a pure host
+  binding, and a read binding's type for an async memo of the enclosing component (its host's result).
+- **Compiling.** `eval/compile.ts` always compiles code with the v2.1 builder and the TSX async tier (the synthetic TSX
+  module also imports `Loading`, `Errored`, `isPending`, `latest`, `refresh` and `affects`). Code that uses none of
+  their forms, against an interface without a pure or structured host, gets its v2 plan byte for byte; a pure or
+  structured host binding alone makes the code's plan v2.1, as it does for any plan. `plan/types.ts` types the new
+  forms: an async memo and an await by the host's result, `pending` as a boolean, `latest` as its value, `refresh` and
+  `affects` of async memos only, and `loading`/`errored` views by their children.
+- **Bindings stay read-only.** `refresh x` and `affects x` are writes (CP-6 write facts), so code cannot do them to a
+  binding (the checker refuses `refresh` of a non-question, `INVALID_REFRESH_TARGET`); an async memo of the enclosing
+  component is read through a read binding, and its loading, pending state and errors reach the code as they reach a
+  native component that reads it (the nearest `loading`/`errored` above the reader, in the code or around the site).
+- **Enclosing programs.** The v2.1 builder accepts eval sites (it refused them before): `eval/harness/run.ts`,
+  `eval/inject.ts` and the fuzz take `async` to emit and inject the enclosing component with the v2.1 builder.
+- **Rust.** rust-solid's `plan-trace` consumes v2.1 plans, the enclosing one and those in the host's table (its
+  `docs/PLAN-V2-CONSUMER.md`, "Plan v2.1"); a v2-only `plan-trace` would refuse them by their version, which the eval
+  legs report as `rust-unsupported`, never as agreement.
+
+**The async eval slice** (`slices/eval-async/`, `slices/eval-async.test.ts`, 2 tests): `eval-async.rx`, its TSX twin
+and static twin, three code strings (`programs.json`) and the saved plan, format-2.1 scenario (19 steps) and eval table.
+One code string (RX) loads its own data through the `pure host` binding: an async memo, Errored with a retry, Loading,
+an `isPending` indicator, an action with `affects` and a `refresh` after its await; one reads the enclosing component's
+async memo through a read binding, under the enclosing component's Errored (with its own retry); one is TSX-syntax code
+with its own async memo. The steps switch code while a request is pending (the subtree is disposed and the request
+settled after), reject the enclosing memo's re-ask and retry it, reject the code's own first load and retry it, and
+reject a mutation. The static twin's frames are recorded on native Solid; createEval and the plan (`.rx` and `.tsx`
+emit it byte for byte) give the same frames and the same 295-entry host log; every evaluated code compiles to a v2.1
+plan; Rust's `plan-trace` with the host's eval table gives the same log. `scripts/eval-slice.ts --async` records it.
+
+**The async eval fuzz** (`eval/fuzz/gen.ts` `generateEvalAsync`, `npm run eval-fuzz -- --async`): each seed takes the
+plan v2.1 fuzz's program (`plan/fuzz/gen-async.ts`) and splits it as the eval fuzz does (half whole, half split; an
+Errored around the whole markup is one child; the `outside` family is whole, so the code holds its refused form).
+Pure hosts are bound as `pure host`; async memos move with the code or stay outside as read bindings; refresh and
+affects count as writes when the split is closed. The scenario is recorded with gen-async's chooser (format 2.1).
+Outcomes are the eval fuzz's plus `rust-unsupported` (for a v2-only Rust). Results
+(`.out/eval-fuzz/async-run-*/summary.json`, with rust-solid's v2.1 consumer):
+
+| seeds | agree | rust-unsupported | refused | divergent | invalid | generator bug |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1..1000 | 878 | 0 | 122 (64 `*`, 58 `-`) | 0 | 0 | 0 |
+| 1001..3000 (held out) | 1748 | 0 | 252 (134 `*`, 118 `-`) | 0 | 0 | 0 |
+| 1..100 (gate) | 84 | 0 | 16 (8 `*`, 8 `-`) | 0 | 0 | 0 |
+
+(Before rust-solid consumed v2.1 the same runs gave 878, 1748 and 84 `rust-unsupported` programs whose JS legs agreed.)
+
+- On every program, the static twin, createEval, the plan and Rust give one result and one full host log: 16,081 scenario
+  steps (1,475 clicks on `reload`, which disposes and recreates the evaluated subtree, pending requests and all) and
+  240,093 host log entries per leg (1..1000); held out, 32,027 steps (2,819 reloads) and 479,170 entries.
+- Shapes (1..1000): 478 whole and 400 split; 430 with RX-syntax code and 448 with TSX-syntax code; 469 with `reload`.
+  Bindings: 1,437 host (pure and mutation), 457 read (131 of them an async memo of the enclosing component, in 110 programs), 150 action.
+  524 evaluated codes compiled to a v2.1 plan, 480 of them with an async memo of their own.
+- The refused programs are the plan v2.1 fuzz's `outside` family, refused with its own diagnostic; every eval leg,
+  Rust's included, fails with it. No program diverged on any leg.
+
+The gate: `eval/eval.test.ts` has two v2.1 tests (the `pure host` grammar, async code in RX and TSX compiling to one
+v2.1 plan, v2 plans kept, the refusals: an impure host in reactive scope, a refresh of a binding, an async memo read in
+a handler, a type error over a structured result; and seeds 1..8 of the async eval fuzz on every leg, Rust's included), the slice's
+two tests (every leg, Rust's included), and `verify-pinned.sh` runs the async eval fuzz on seeds 1..100
+(`baselines/eval-fuzz-async.json`: 84 agree, 0 `rust-unsupported`). The v2
+eval slice and eval fuzz are unchanged, summaries byte for byte (`rust-solid/docs/eval/summary-1-1000.json`).
+
 ## Deferred and not verified
 
 - `preserve` (REPL state retention) and `place` (server placement): refused, with the design above.
 - `syntax: "yield"`: refused. The yield frontend lowers actions without parameter types, so a yield-authored enclosing
   component cannot yet derive an action binding's type.
-- Error boundaries in Rust: the port has no `Errored`/`createErrorBoundary`, so a refusal there fails the run.
+- Error boundaries in Rust: the port has `Errored` (plan v2.1), but an eval refusal still fails the Rust run (the
+  evaluator's fatal error) instead of being thrown into the graph for an `Errored` to catch; no generated program
+  puts a refused site under one.
 - Eval sites in a component position (the markup root, a Show branch, a For row), and `const v = createEval(…)` used as
   `{v}`: refused; the compiler lowers those children differently.
 - Nested eval (an eval site inside evaluated code) is recognized only when its bindings are the code's own declarations;

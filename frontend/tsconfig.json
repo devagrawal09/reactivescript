@@ -40,7 +40,10 @@
     "eval/fuzz/run.ts",
     "eval/eval.test.ts",
     "slices/eval.test.ts",
+    "slices/tracker-async.test.ts",
     "slices/eval/load.ts",
+    "slices/eval-async.test.ts",
+    "slices/eval-async/load.ts",
     "scripts/eval-fuzz.ts",
     "scripts/eval-slice.ts",
     "scripts/eval-fuzz-corpus.ts"

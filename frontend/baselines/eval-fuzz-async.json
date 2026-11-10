@@ -1,0 +1,13 @@
+{
+  "note": "The gate's async eval fuzz (docs/EVAL.md, 'Async data'): scripts/eval-fuzz.ts --async --seeds 100 --start 1 at fdbcad92 / Solid rc.21. The static twin on native Solid, createEval on native Solid, the plan on solid-plan.ts and rust-solid's plan-trace with the host's eval table give one result and one full host log on every program. A Rust refusal of a v2.1 plan (rust-unsupported) is not agreement and fails the gate. The refused programs are the plan v2.1 fuzz's 'outside' family, refused with its own diagnostic; every eval leg, Rust's included, fails with it.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 84,
+  "rust-unsupported": 0,
+  "refused": 16,
+  "refusals": [
+    "eval refused: PLAN: unsupported operator *",
+    "eval refused: PLAN: unsupported operator -"
+  ],
+  "classes": []
+}

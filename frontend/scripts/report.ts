@@ -106,6 +106,28 @@ export function checkEvalFuzz(run: any, baseline: any): string[] {
   return problems;
 }
 
+/** The gate's plan v2.1 fuzz runs (scripts/plan-fuzz.ts --async and scripts/eval-fuzz.ts --async; PLAN-V2.md "Plan fuzz
+ *  v2.1", docs/EVAL.md "Async data") against baselines/plan-fuzz-async.json and baselines/eval-fuzz-async.json: the
+ *  fixed seeds all ran as v2.1; no leg diverged, no oracle run was invalid and no program was a generator bug; the
+ *  agreeing, rust-unsupported and refused counts are the baseline's (a Rust consumer of v2.1 turns rust-unsupported
+ *  programs into agreeing or divergent ones, and the baseline is updated with it); every refusal is a listed
+ *  diagnostic; and every class is a listed one. */
+export function checkAsyncFuzz(what: string, run: any, baseline: any): string[] {
+  const problems: string[] = [];
+  if (run.schema !== "2.1" || run.start !== baseline.start || run.seeds !== baseline.seeds || run.total !== baseline.seeds)
+    problems.push(what + " run is incomplete");
+  for (const k of ["divergent", "invalid", "generator-bug"])
+    if (run[k] !== 0) problems.push(what + " " + k + ": " + run[k]);
+  for (const k of ["agree", "rust-unsupported", "refused"])
+    if (run[k] !== baseline[k]) problems.push(what + " " + k + " " + run[k] + ", baseline " + baseline[k]);
+  if ((run.upstream ?? 0) !== 0) problems.push(what + " upstream: " + run.upstream);
+  for (const k of Object.keys(run.refusals ?? {}))
+    if (!baseline.refusals.includes(k)) problems.push("unlisted " + what + " refusal: " + k);
+  for (const k of Object.keys(run.classes ?? {}))
+    if (!baseline.classes.includes(k)) problems.push(what + " class is not listed: " + k);
+  return problems;
+}
+
 /** The gate's SSR fuzz run (scripts/ssr-fuzz.ts, docs/RESULTS.md "Slice 5") against baselines/ssr-fuzz.json: the fixed
  *  seeds all ran with the dev-build hydration too; no HTML differs, no hydration failed, the Rust renderer refused
  *  nothing, no oracle run was invalid and no program was a generator bug; the agreeing and refused counts are the
@@ -120,6 +142,23 @@ export function checkSsrFuzz(run: any, baseline: any): string[] {
   if (run.refused !== baseline.refused) problems.push("ssr fuzz refused " + run.refused + ", baseline " + baseline.refused);
   for (const k of Object.keys(run.refusals ?? {}))
     if (!baseline.refusals.includes(k)) problems.push("unlisted ssr fuzz refusal: " + k);
+  return problems;
+}
+
+/** The gate's SSR fuzz v2.1 run (scripts/ssr-fuzz.ts --async, docs/RESULTS.md "Slice 5: async data") against
+ *  baselines/ssr-fuzz-async.json: the fixed seeds all ran as v2.1 with the dev-build hydration too; no stream or HTML
+ *  differs, no hydration failed, the Rust renderer refused nothing, no oracle run was invalid and no program was a
+ *  generator bug; the agreeing and refused counts are the baseline's; and every refusal is a listed diagnostic. */
+export function checkSsrFuzzAsync(run: any, baseline: any): string[] {
+  const problems: string[] = [];
+  if (run.schema !== "2.1" || run.start !== baseline.start || run.seeds !== baseline.seeds || run.total !== baseline.seeds || run.dev !== true)
+    problems.push("ssr fuzz v2.1 run is incomplete");
+  for (const k of ["stream", "html", "hydration", "ssr-refused", "invalid", "generator-bug"])
+    if (run[k] !== 0) problems.push("ssr fuzz v2.1 " + k + ": " + run[k]);
+  if (run.agree !== baseline.agree) problems.push("ssr fuzz v2.1 agree " + run.agree + ", baseline " + baseline.agree);
+  if (run.refused !== baseline.refused) problems.push("ssr fuzz v2.1 refused " + run.refused + ", baseline " + baseline.refused);
+  for (const k of Object.keys(run.refusals ?? {}))
+    if (!baseline.refusals.includes(k)) problems.push("unlisted ssr fuzz v2.1 refusal: " + k);
   return problems;
 }
 
@@ -153,6 +192,9 @@ if (
   problems.push(...checkPlanFuzz(json(out + "/plan-fuzz.json"), json(new URL("../baselines/plan-fuzz.json", import.meta.url).pathname)));
   problems.push(...checkEvalFuzz(json(out + "/eval-fuzz.json"), json(new URL("../baselines/eval-fuzz.json", import.meta.url).pathname)));
   problems.push(...checkSsrFuzz(json(out + "/ssr-fuzz.json"), json(new URL("../baselines/ssr-fuzz.json", import.meta.url).pathname)));
+  problems.push(...checkSsrFuzzAsync(json(out + "/ssr-fuzz-async.json"), json(new URL("../baselines/ssr-fuzz-async.json", import.meta.url).pathname)));
+  problems.push(...checkAsyncFuzz("plan fuzz v2.1", json(out + "/plan-fuzz-async.json"), json(new URL("../baselines/plan-fuzz-async.json", import.meta.url).pathname)));
+  problems.push(...checkAsyncFuzz("eval fuzz v2.1", json(out + "/eval-fuzz-async.json"), json(new URL("../baselines/eval-fuzz-async.json", import.meta.url).pathname)));
   const exits = new Map(
     readFileSync(out + "/exits.txt", "utf8")
       .trim()
@@ -171,6 +213,9 @@ if (
     "plan-fuzz",
     "eval-fuzz",
     "ssr-fuzz",
+    "ssr-fuzz-async",
+    "plan-fuzz-async",
+    "eval-fuzz-async",
     ...(!subset
       ? [
           "upstream-test",
@@ -215,6 +260,9 @@ if (
     "Plan fuzz: " + (() => { const p = json(out + "/plan-fuzz.json"); return JSON.stringify({ total: p.total, agree: p.agree, upstream: p.upstream, refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
     "Eval fuzz: " + (() => { const p = json(out + "/eval-fuzz.json"); return JSON.stringify({ total: p.total, agree: p.agree, refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
     "SSR fuzz: " + (() => { const p = json(out + "/ssr-fuzz.json"); return JSON.stringify({ total: p.total, agree: p.agree, refused: p.refused, html: p.html, hydration: p.hydration, "ssr-refused": p["ssr-refused"], invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
+    "SSR fuzz v2.1: " + (() => { const p = json(out + "/ssr-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, refused: p.refused, stream: p.stream, html: p.html, hydration: p.hydration, "ssr-refused": p["ssr-refused"], invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
+    "Plan fuzz v2.1: " + (() => { const p = json(out + "/plan-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, "rust-unsupported": p["rust-unsupported"], refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
+    "Eval fuzz v2.1: " + (() => { const p = json(out + "/eval-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, "rust-unsupported": p["rust-unsupported"], refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
     ...runners,
     "",
     ...problems.map((p) => "- " + p),

@@ -61,7 +61,7 @@ const HOSTS = 'eval-hosts.d.rx';
 function source(req: Required<Pick<EvalRequest, 'syntax'>> & EvalRequest, ds: BindingDecl[]): Record<string, string> {
   const hosts = ds.filter(d => d.kind === 'host') as Extract<BindingDecl, { kind: 'host' }>[];
   const files: Record<string, string> = {};
-  if (hosts.length) files[HOSTS] = hosts.map(h => 'export fn ' + h.name + '(' + h.params.map((p, i) => 'a' + i + ': ' + p).join(', ') + '): ' + h.returns).join('\n') + '\n';
+  if (hosts.length) files[HOSTS] = hosts.map(h => 'export ' + (h.pure ? 'pure ' : '') + 'fn ' + h.name + '(' + h.params.map((p, i) => 'a' + i + ': ' + p).join(', ') + '): ' + h.returns).join('\n') + '\n';
   const hostImport = hosts.length ? 'import { ' + hosts.map(h => h.name).join(', ') + ' } from "./eval-hosts"; ' : '';
   // Interior newlines would shift the code's lines: the preamble is one line.
   if (req.code.includes('\r')) throw new InterfaceError('eval code uses \\n line breaks');
@@ -79,7 +79,8 @@ function source(req: Required<Pick<EvalRequest, 'syntax'>> & EvalRequest, ds: Bi
       : 'const [' + d.name + ', $evalSet' + n++ + '] = createSignal(' + placeholder(d.type) + ');']
       : d.kind === 'store' ? ['const [' + d.name + ', $evalSet' + n++ + '] = createStore(' + placeholder(d.type) + ');']
       : d.kind === 'action' ? ['const ' + d.name + ' = action(function* (' + d.params.map((p, i) => 'a' + i + ': ' + p).join(', ') + ') {});'] : []);
-    const solid = 'import { action, createMemo, createOptimistic, createSignal, createStore, For, Show } from "solid-js"; ';
+    // Plan v2.1's async primitives too: evaluated code is compiled with the TSX async tier (below).
+    const solid = 'import { action, affects, createMemo, createOptimistic, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from "solid-js"; ';
     files[MODULE.tsx] = solid + hostImport + 'export default function Eval() { ' + pre.join(' ') +
       (req.type ? ' const $value = createMemo(() => (\n' + req.code + '\n)); return <></>;\n}\n' : '\n' + req.code + '\n}\n');
   }
@@ -119,7 +120,9 @@ export function compileEval(request: EvalRequest): Compiled {
     const ds = parseInterface(req.interface);
     const files = source(req, ds);
     const entry = MODULE[req.syntax];
-    const set = loadTsxModules(entry, p => files[p]);
+    // Evaluated code is compiled with plan v2.1's builder and the TSX async tier (PLAN-V2.md, "v2.1: async data"; EVAL.md,
+    // "Async data"): code that uses none of their forms gets its v2 plan byte for byte.
+    const set = loadTsxModules(entry, p => files[p], { async: true });
     if (set.diags.length) throw new CheckError(set.diags);
     if (set.order.length !== 1 || set.order[0] !== entry) throw new Error('evaluated code is one component body: it imports nothing');
     const program = set.programs.get(entry)!;
@@ -145,10 +148,10 @@ export function compileEval(request: EvalRequest): Compiled {
     if (written.length) return { ok: false, diagnostics: written };
     const checked = checkModules(set);
     if (checked.diags.length) throw new CheckError(checked.diags);
-    const plan = resolvePlanV2(set, { bindings: ds });
+    const plan = resolvePlanV2(set, { bindings: ds, async: true });
     if (req.type) {
       const memo = plan.memos.find(m => m.name === '$value');
-      if (!memo || plan.memos.length !== 1 || plan.sources.length || plan.actions.length || plan.markup.length)
+      if (!memo || !('value' in memo) || plan.memos.length !== 1 || plan.sources.length || plan.actions.length || plan.markup.length)
         throw new Error('a value eval is one expression');
       plan.memos = [];
       plan.value = memo.value;

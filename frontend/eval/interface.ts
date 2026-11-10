@@ -7,6 +7,8 @@
 //   store issues: { list: { id: number }[] }   a store root, read by path (TSX `issues.list`)
 //   action claim(number)                       an action: callable from a handler, never awaited
 //   host assignIssue(number): string           a host function: awaited in an action of the evaluated code
+//   pure host loadIssues(): { id: number }[]    (plan v2.1) a pure host: the evaluated code may call it in an async
+//                                              memo (`issues = await loadIssues()`); its result may be structured
 //
 // Types: number (an integer), string, boolean, T[], { key: T, … }. Parameter names are allowed (`action claim(id:
 // number)`) and dropped. The canonical form (printInterface) keeps declaration order and prints no names.
@@ -16,7 +18,9 @@ import type { HostType } from '../plan/resolve-v2.ts';
 export type BindingDecl =
   | { name: string; kind: 'read' | 'store'; type: Type }
   | { name: string; kind: 'action'; params: HostType[] }
-  | { name: string; kind: 'host'; params: HostType[]; returns: HostType };
+  /** `returns`: a scalar type name, or (plan v2.1) a structured type printed canonically (plan/types.ts printType).
+   *  `pure`: (plan v2.1) declared `pure host`, the .d.rx's `export pure fn`. */
+  | { name: string; kind: 'host'; params: HostType[]; returns: string; pure?: true };
 
 const SCALAR = new Set(['number', 'string', 'boolean']);
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -28,9 +32,10 @@ export function parseInterface(text: string): BindingDecl[] {
   const out: BindingDecl[] = [];
   const lines = text.split(/\n|;/).map(l => l.trim()).filter(l => l && !l.startsWith('//'));
   for (const line of lines) {
-    const m = /^(read|store|action|host)\s+([A-Za-z_$][\w$]*)\s*(.*)$/.exec(line);
-    if (!m) throw new InterfaceError('interface: expected `read|store|action|host name …`, got ' + JSON.stringify(line));
-    const kind = m[1] as BindingDecl['kind'], name = m[2], rest = m[3];
+    const m = /^(read|store|action|host|pure\s+host)\s+([A-Za-z_$][\w$]*)\s*(.*)$/.exec(line);
+    if (!m) throw new InterfaceError('interface: expected `read|store|action|host|pure host name …`, got ' + JSON.stringify(line));
+    const pure = m[1] !== 'host' && m[1].startsWith('pure');
+    const kind = (pure ? 'host' : m[1]) as BindingDecl['kind'], name = m[2], rest = m[3];
     if (!IDENT.test(name)) throw new InterfaceError('interface: binding names are identifiers without `$`: ' + name);
     if (out.some(d => d.name === name)) throw new InterfaceError('interface: ' + name + ' is declared twice');
     if (kind === 'read' || kind === 'store') {
@@ -40,7 +45,7 @@ export function parseInterface(text: string): BindingDecl[] {
       if (kind === 'store' && type.k !== 'record' && type.k !== 'array') throw new InterfaceError('interface: store ' + name + ' is a record or an array');
       out.push({ name, kind, type });
     } else {
-      const p = /^\(([^)]*)\)\s*(?::\s*(\w+))?$/.exec(rest);
+      const p = /^\(([^)]*)\)\s*(?::\s*(.+))?$/.exec(rest);
       if (!p) throw new InterfaceError('interface: ' + kind + ' ' + name + ' needs `(types)`' + (kind === 'host' ? ' and `: type`' : ''));
       const params = p[1].trim() ? p[1].split(',').map(x => {
         const t = x.includes(':') ? x.slice(x.indexOf(':') + 1).trim() : x.trim();
@@ -51,8 +56,10 @@ export function parseInterface(text: string): BindingDecl[] {
         if (p[2]) throw new InterfaceError('interface: an action returns nothing a caller sees: ' + name);
         out.push({ name, kind, params });
       } else {
-        if (!p[2] || !SCALAR.has(p[2])) throw new InterfaceError('interface: host ' + name + ' returns number, string or boolean');
-        out.push({ name, kind, params, returns: p[2] as HostType });
+        // A scalar, or (plan v2.1) a structured type in the grammar above, kept in its canonical print.
+        if (!p[2]) throw new InterfaceError('interface: host ' + name + ' needs `: type`');
+        const returns = SCALAR.has(p[2].trim()) ? p[2].trim() : printType(parseType(p[2]));
+        out.push({ name, kind, params, returns, ...(pure ? { pure: true as const } : {}) });
       }
     }
   }
@@ -106,7 +113,7 @@ export function printDecl(d: BindingDecl): string {
   if (d.kind === 'read' || d.kind === 'store') return d.kind + ' ' + d.name + ': ' + printType(d.type);
   if (d.kind === 'action') return 'action ' + d.name + '(' + d.params.join(', ') + ')';
   if (d.kind !== 'host') throw new InterfaceError('unknown binding kind');
-  return 'host ' + d.name + '(' + d.params.join(', ') + '): ' + d.returns;
+  return (d.pure ? 'pure ' : '') + 'host ' + d.name + '(' + d.params.join(', ') + '): ' + d.returns;
 }
 
 export const printInterface = (ds: BindingDecl[]) => ds.map(printDecl).join('\n');
@@ -120,7 +127,8 @@ export function sameInterface(a: BindingDecl[], b: BindingDecl[]): boolean {
     if (x.kind === 'read' || x.kind === 'store') return sameType(x.type, (y as typeof x).type);
     if (x.kind === 'action') return JSON.stringify(x.params) === JSON.stringify((y as typeof x).params);
     if (x.kind !== 'host') return false;
-    return JSON.stringify(x.params) === JSON.stringify((y as typeof x).params) && x.returns === (y as typeof x).returns;
+    const z = y as typeof x;
+    return JSON.stringify(x.params) === JSON.stringify(z.params) && sameType(parseType(x.returns), parseType(z.returns)) && !!x.pure === !!z.pure;
   });
 }
 

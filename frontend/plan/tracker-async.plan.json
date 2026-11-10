@@ -1,0 +1,323 @@
+{
+  "version": 2.1,
+  "component": "TrackerAsync",
+  "hosts": [
+    {
+      "name": "assignIssue",
+      "params": [
+        "number"
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "loadIssues",
+      "params": [],
+      "returns": "{ id: number, title: string, assignee: string }[]",
+      "pure": true
+    }
+  ],
+  "sources": [
+    {
+      "name": "status",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": ""
+      }
+    }
+  ],
+  "memos": [
+    {
+      "name": "issues",
+      "await": {
+        "host": "loadIssues",
+        "args": []
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "claim",
+      "params": [
+        "id"
+      ],
+      "steps": [
+        {
+          "op": "affects",
+          "source": "issues"
+        },
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "host": "assignIssue",
+              "args": [
+                {
+                  "op": "local",
+                  "name": "id"
+                }
+              ],
+              "bind": "$await0"
+            },
+            {
+              "op": "refresh",
+              "source": "issues"
+            },
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "add",
+                    "left": {
+                      "op": "literal",
+                      "value": "Assigned #"
+                    },
+                    "right": {
+                      "op": "local",
+                      "name": "id"
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": " to "
+                  }
+                },
+                "right": {
+                  "op": "local",
+                  "name": "$await0"
+                }
+              }
+            }
+          ],
+          "catch": [
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": "Could not assign #"
+                },
+                "right": {
+                  "op": "local",
+                  "name": "id"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "section",
+      "events": [],
+      "children": [
+        {
+          "kind": "errored",
+          "fallback": [
+            {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "literal",
+                    "value": "Could not load issues"
+                  }
+                },
+                {
+                  "kind": "element",
+                  "tag": "button",
+                  "events": [
+                    {
+                      "name": "onClick",
+                      "steps": [
+                        {
+                          "op": "refresh",
+                          "source": "issues"
+                        }
+                      ]
+                    }
+                  ],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "literal",
+                        "value": "retry"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "loading",
+              "fallback": [
+                {
+                  "kind": "element",
+                  "tag": "i",
+                  "events": [],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "literal",
+                        "value": "Loading issues…"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "children": [
+                {
+                  "kind": "element",
+                  "tag": "b",
+                  "events": [],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "cond",
+                        "test": {
+                          "op": "pending",
+                          "value": {
+                            "op": "read",
+                            "source": "issues"
+                          }
+                        },
+                        "then": {
+                          "op": "literal",
+                          "value": "saving…"
+                        },
+                        "else": {
+                          "op": "literal",
+                          "value": "ready"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "kind": "for",
+                  "each": {
+                    "op": "read",
+                    "source": "issues"
+                  },
+                  "item": "issue",
+                  "key": "identity",
+                  "children": [
+                    {
+                      "kind": "element",
+                      "tag": "p",
+                      "events": [],
+                      "children": [
+                        {
+                          "kind": "text",
+                          "value": {
+                            "op": "get",
+                            "object": {
+                              "op": "local",
+                              "name": "issue"
+                            },
+                            "key": "title"
+                          }
+                        },
+                        {
+                          "kind": "text",
+                          "value": {
+                            "op": "literal",
+                            "value": ": "
+                          }
+                        },
+                        {
+                          "kind": "text",
+                          "value": {
+                            "op": "or",
+                            "left": {
+                              "op": "get",
+                              "object": {
+                                "op": "local",
+                                "name": "issue"
+                              },
+                              "key": "assignee"
+                            },
+                            "right": {
+                              "op": "literal",
+                              "value": "nobody"
+                            }
+                          }
+                        },
+                        {
+                          "kind": "element",
+                          "tag": "button",
+                          "events": [
+                            {
+                              "name": "onClick",
+                              "steps": [
+                                {
+                                  "op": "call",
+                                  "action": "claim",
+                                  "args": [
+                                    {
+                                      "op": "get",
+                                      "object": {
+                                        "op": "local",
+                                        "name": "issue"
+                                      },
+                                      "key": "id"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          "children": [
+                            {
+                              "kind": "text",
+                              "value": {
+                                "op": "literal",
+                                "value": "take"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "em",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "read",
+                "source": "status"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

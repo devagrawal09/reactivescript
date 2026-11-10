@@ -1,0 +1,43 @@
+import { assignIssue, loadIssues } from "./api";
+
+// The async eval slice (docs/EVAL.md, "Async data"): evaluated code that loads its own data through a pure host
+// binding, code that reads the enclosing component's async memo through a read binding, and TSX-syntax code.
+export default component Board() {
+  source code := "issues = await loadIssues();
+source status := \"\";
+action take(id: number) {
+  affects issues;
+  try {
+    let who = await assignIssue(id);
+    refresh issues;
+    status := \"Assigned #\" + id + \" to \" + who;
+  } catch (error) {
+    status := \"Could not assign #\" + id;
+  }
+}
+<div>{errored fallback { <p>Could not load<button onClick={() => { refresh issues }}>retry</button></p> } { loading fallback { <i>Loading</i> } { <b>{pending? issues ? \"saving\" : \"ready\"}</b>{for issue in issues { <p>{issue.title}: {issue.owner || \"nobody\"}<button onClick={() => { take(issue.id) }}>take</button></p> }} } }}<em>{status}</em></div>";
+  source code2 := "const issues = createMemo(() => loadIssues());
+return (<p><Errored fallback={() => <i>failed</i>}><Loading fallback={<i>counting</i>}><u>{\"\" + issues().length + \" issues\"}</u></Loading></Errored></p>);";
+  list = await loadIssues();
+
+  <section>
+    <button onClick={() => { code := "issues = await loadIssues();
+source status := \"\";
+action take(id: number) {
+  affects issues;
+  try {
+    let who = await assignIssue(id);
+    refresh issues;
+    status := \"Assigned #\" + id + \" to \" + who;
+  } catch (error) {
+    status := \"Could not assign #\" + id;
+  }
+}
+<div>{errored fallback { <p>Could not load<button onClick={() => { refresh issues }}>retry</button></p> } { loading fallback { <i>Loading</i> } { <b>{pending? issues ? \"saving\" : \"ready\"}</b>{for issue in issues { <p>{issue.title}: {issue.owner || \"nobody\"}<button onClick={() => { take(issue.id) }}>take</button></p> }} } }}<em>{status}</em></div>" }}>one</button>
+    <button onClick={() => { code := "<ul>{loading fallback { <i>outer loading</i> } { <b>{pending? list ? \"busy\" : \"idle\"}</b>{for it in list { <li>{it.title}</li> }} }}</ul>" }}>two</button>
+    <button onClick={() => { code := "" }}>none</button>
+    <button onClick={() => { refresh list }}>reload</button>
+    {errored fallback { <p>list failed<button onClick={() => { refresh list }}>again</button></p> } { <div>{eval(code, { list, loadIssues, assignIssue })}</div> }}
+    <aside>{eval(code2, { loadIssues }, { syntax: "tsx" })}</aside>
+  </section>
+}

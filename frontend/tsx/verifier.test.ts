@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkTests, checkFuzz, checkPlanFuzz, checkEvalFuzz, checkSsrFuzz, type Row } from "../scripts/report.ts";
+import { checkTests, checkFuzz, checkPlanFuzz, checkEvalFuzz, checkSsrFuzz, checkAsyncFuzz, type Row } from "../scripts/report.ts";
 const row: Row = { file: "/tmp/work/tsx/a.test.ts", name: "one", status: "pass" };
 const expected = ["tsx/a.test.ts :: one"];
 const summary = "ℹ tests 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n";
@@ -59,4 +59,18 @@ test("verifier: the SSR fuzz summary must be complete, free of differences and m
     { seeds: 9 }, { total: 9 }, { dev: false }, { html: 1 }, { hydration: 1 }, { "ssr-refused": 1 }, { invalid: 1 }, { "generator-bug": 1 },
     { agree: 7 }, { refused: 3 }, { refusals: { "ssr-refused: a text hole whose type is not known statically": { count: 1, seeds: [3] } } },
   ]) assert.ok(checkSsrFuzz({ ...run, ...change }, baseline).length, JSON.stringify(change));
+});
+test("verifier: a plan v2.1 fuzz summary must be complete, divergence-free and match its baseline; rust-unsupported is counted apart", () => {
+  const unsupported = "rust-unsupported: plan-trace refuses plan version 2.1";
+  const baseline = { start: 1, seeds: 10, agree: 0, "rust-unsupported": 8, refused: 2, refusals: ["unsupported operator *"], classes: [unsupported] };
+  const run = { schema: "2.1", start: 1, seeds: 10, total: 10, agree: 0, upstream: 0, divergent: 0, refused: 2, invalid: 0, "generator-bug": 0, "rust-unsupported": 8,
+    classes: { [unsupported]: { count: 8, seeds: [1, 2] } }, refusals: { "unsupported operator *": { count: 2, seeds: [3, 9] } } };
+  assert.deepEqual(checkAsyncFuzz("plan fuzz v2.1", run, baseline), []);
+  for (const change of [
+    { schema: undefined }, { seeds: 9 }, { total: 9 }, { divergent: 1 }, { invalid: 1 }, { "generator-bug": 1 }, { upstream: 1 },
+    // A program counted as agreement instead of rust-unsupported (or the reverse) is a change of the baseline.
+    { agree: 1, "rust-unsupported": 7 }, { refused: 3 },
+    { refusals: { "unsupported operator -": { count: 2, seeds: [3, 9] } } },
+    { classes: { "plan: request-step": { count: 1, seeds: [4] } } },
+  ]) assert.ok(checkAsyncFuzz("plan fuzz v2.1", { ...run, ...change }, baseline).length, JSON.stringify(change));
 });

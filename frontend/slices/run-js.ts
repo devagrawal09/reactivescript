@@ -8,15 +8,21 @@ import { loadYieldModules } from "../yield/lower.ts";
 import { checkModules, compileModules, lowerViews, STRING_RENDERER, type ModuleSet } from "../tsx/rx/compiler.ts";
 import { createApp, flush } from "../tsx/rx/runtime.ts";
 import { planComponent } from "../plan/solid-plan.ts";
+import { parseType } from "../eval/interface.ts";
+import { conforms, type Type } from "../plan/types.ts";
+export { conforms };
 
 export type Scalar = string | number | boolean;
-export type Host = { name: string; parameters: ("string" | "number" | "boolean")[]; returns: "string" | "number" | "boolean"; async: true };
+/** A host value: a scalar, or (format 2.1) an array or record of host values, as JSON. */
+export type HostValue = Scalar | HostValue[] | { [key: string]: HostValue };
+/** `returns` is a scalar type name; format 2.1 also allows a structured type (docs/SCENARIO-FORMAT.md, version 2.1). */
+export type Host = { name: string; parameters: ("string" | "number" | "boolean")[]; returns: string; async: true };
 /** Version 2: select a live clickable by its exact rendered text, optionally within a parent of exact text (a row). */
 export type Target = { text: string; parent?: string; index: number };
 export type Step = ({ type: "mount" } | { type: "click"; element: number } | { type: "click"; target: Target } |
-  { type: "resolve"; host: string; call: number; args?: Scalar[]; value: Scalar } |
+  { type: "resolve"; host: string; call: number; args?: Scalar[]; value: HostValue } |
   { type: "reject"; host: string; call: number; args?: Scalar[]; error: string }) & { frame: string };
-export type Scenario = { version: 1 | 2; name: string; fixture: string; host: Host[]; steps: Step[] };
+export type Scenario = { version: 1 | 2 | 2.1; name: string; fixture: string; host: Host[]; steps: Step[] };
 /** plan: a v2 plan JSON (docs/PLAN-V2.md) built with Solid's primitives by plan/solid-plan.ts. */
 export type Leg = "native" | "tsx" | "rx" | "yield" | "plan";
 export type RunOptions = { record?: boolean; plan?: string };
@@ -24,9 +30,15 @@ const read = (path: string) => { try { return readFileSync(path, "utf8"); } catc
 const renderer = fileURLToPath(new URL("../tsx/test-renderer.ts", import.meta.url));
 const outRoot = fileURLToPath(new URL("../.out/", import.meta.url));
 
+/** The host's result type: a scalar name (every version), or a structured type (format 2.1 only). */
+export const returnType = (s: Scenario, h: Host): Type => {
+  if (s.version !== 2.1) assert.ok(["number", "string", "boolean"].includes(h.returns), "host results are scalars before version 2.1");
+  return parseType(h.returns);
+};
+
 export function loadScenario(path: string): Scenario {
   const s = JSON.parse(readFileSync(path, "utf8")) as Scenario;
-  assert.ok(s.version === 1 || s.version === 2, "scenario version 1 or 2");
+  assert.ok(s.version === 1 || s.version === 2 || s.version === 2.1, "scenario version 1 or 2, or 2.1");
   assert.equal(typeof s.name, "string");
   assert.match(s.fixture, /^[a-z][a-z0-9-]*$/);
   assert.equal(s.steps[0]?.type, "mount");
@@ -35,7 +47,8 @@ export function loadScenario(path: string): Scenario {
   for (const h of s.host) {
     assert.match(h.name, /^[A-Za-z_][A-Za-z0-9_]*$/);
     assert.equal(h.async, true);
-    assert.ok(["number", "string", "boolean"].includes(h.returns));
+    if (s.version === 2.1) { assert.equal(typeof h.returns, "string"); returnType(s, h); }
+    else assert.ok(["number", "string", "boolean"].includes(h.returns), "host results are scalars before version 2.1");
     assert.ok(h.parameters.every(p => ["number", "string", "boolean"].includes(p)));
   }
   for (const step of s.steps) {
@@ -43,7 +56,7 @@ export function loadScenario(path: string): Scenario {
     assert.ok(["mount", "click", "resolve", "reject"].includes(step.type));
     if (step.type === "click" && "target" in step) {
       // Version 2 only: exactly one of element / target.
-      assert.equal(s.version, 2, "click targets are version 2");
+      assert.ok(s.version === 2 || s.version === 2.1, "click targets are version 2");
       assert.ok(!("element" in step), "a click has element or target, not both");
       const t = step.target;
       assert.deepEqual(Object.keys(t).filter(k => !["text", "parent", "index"].includes(k)), [], "target fields");
@@ -61,7 +74,8 @@ export function loadScenario(path: string): Scenario {
         assert.ok(Array.isArray(step.args) && step.args.length === h.parameters.length, "args match " + h.name);
         step.args.forEach((a, i) => assert.equal(typeof a, h.parameters[i]));
       }
-      if (step.type === "resolve") assert.equal(typeof step.value, h.returns);
+      if (step.type === "resolve" && s.version === 2.1) assert.ok(conforms(step.value, returnType(s, h)), "resolved value conforms to " + h.returns);
+      else if (step.type === "resolve") assert.equal(typeof step.value, h.returns);
       else assert.equal(typeof step.error, "string");
     }
   }
@@ -71,13 +85,15 @@ export function loadScenario(path: string): Scenario {
 export function loadFixture(scenarioPath: string, leg: Exclude<Leg, "native" | "plan">, source?: string): ModuleSet {
   const s = loadScenario(scenarioPath);
   const entry = resolve(dirname(scenarioPath), s.fixture + (leg === "yield" ? ".yield.tsx" : "." + leg));
-  const set = (leg === "yield" ? loadYieldModules : loadTsxModules)(entry, p => p === entry && source !== undefined ? source : read(p));
+  // Format 2.1 drives a plan v2.1 program: the TSX frontend's async tier is on (tsx/lower.ts LowerOptions).
+  const reader = (p: string) => p === entry && source !== undefined ? source : read(p);
+  const set = leg === "yield" ? loadYieldModules(entry, reader) : loadTsxModules(entry, reader, { async: s.version === 2.1 });
   assert.deepEqual(set.diags, [], leg + " loads");
   assert.deepEqual(checkModules(set).diags, [], leg + " checks");
   return set;
 }
 
-type Call = { args: unknown[]; resolve: (value: Scalar) => void; reject: (error: Error) => void; done: boolean };
+type Call = { args: unknown[]; resolve: (value: HostValue) => void; reject: (error: Error) => void; done: boolean };
 function hosts(s: Scenario) {
   const calls = new Map<string, Call[]>();
   const api = Object.fromEntries(s.host.map(h => {
@@ -86,7 +102,7 @@ function hosts(s: Scenario) {
       assert.equal(args.length, h.parameters.length, h.name + " argument count");
       args.forEach((a, i) => assert.equal(typeof a, h.parameters[i]));
       // Never key requests by arguments: every invocation owns a new promise (SF-2c).
-      return new Promise<Scalar>((resolve, reject) => calls.get(h.name)!.push({ args, resolve, reject, done: false }));
+      return new Promise<HostValue>((resolve, reject) => calls.get(h.name)!.push({ args, resolve, reject, done: false }));
     }];
   }));
   return { api, calls };
@@ -118,7 +134,10 @@ export async function runScenario(scenarioPath: string, leg: Leg, { record = fal
     if (leg === "plan") {
       // The plan's hosts must be the scenario's, in order, with the same types.
       const p = JSON.parse(readFileSync(plan!, "utf8"));
-      assert.deepEqual(p.hosts, s.host.map(h => ({ name: h.name, params: h.parameters, returns: h.returns })), "plan hosts are the scenario's");
+      // A v2.1 plan also says which hosts are pure (`"pure": true`), which a scenario's signature does not.
+      if (s.version === 2.1) assert.ok(p.hosts.every((h: { pure?: unknown }) => h.pure === undefined || h.pure === true), "pure is true or absent");
+      const signature = (h: { pure?: unknown }) => { if (s.version !== 2.1) return h; const { pure, ...rest } = h; return rest; };
+      assert.deepEqual(p.hosts.map(signature), s.host.map(h => ({ name: h.name, params: h.parameters, returns: h.returns })), "plan hosts are the scenario's");
     } else if (leg === "native") {
       const input = resolve(dirname(scenarioPath), s.fixture + ".tsx");
       const native = transform(readFileSync(input, "utf8"), { filename: basename(input), generate: "universal", moduleName: STRING_RENDERER }).code;

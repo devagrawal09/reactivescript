@@ -77,9 +77,15 @@ const NODES = new Set([
   "TSArrayType",
 ]);
 
+/** Plan v2.1's async tier (plan/docs/PLAN-V2.md, "v2.1: async data"): Solid's async data primitives, recognized only
+ *  when the caller opts in (`{ async: true }`, from a format-2.1 scenario or `emit.ts --schema 2.1`). Without it they
+ *  stay outside the verified subset, exactly as before. */
+export const ASYNC_PRIMITIVES = new Set(["Loading", "Errored", "isPending", "latest", "refresh", "affects"]);
+
 export function verifySyntax(
   program: Node,
   fail: (at: Span, message: string) => never,
+  options: { async?: boolean } = {},
 ): void {
   const imports = new Map<string, string>();
   const tree = program as Ast;
@@ -152,7 +158,7 @@ export function verifySyntax(
     if (n.type === "ImportDeclaration") {
       if (n.source.value === "solid-js") {
         for (const s of n.specifiers)
-          if (!PRIMITIVES.has(s.imported?.name)) {
+          if (!PRIMITIVES.has(s.imported?.name) && !(options.async && ASYNC_PRIMITIVES.has(s.imported?.name))) {
             if (s.imported?.name === "createEffect")
               fail(
                 s,

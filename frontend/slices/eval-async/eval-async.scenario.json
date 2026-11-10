@@ -1,0 +1,232 @@
+{
+  "version": 2.1,
+  "name": "eval-async: code that loads its own data, code that reads the enclosing async memo, TSX-syntax code",
+  "fixture": "eval-async",
+  "host": [
+    {
+      "name": "assignIssue",
+      "parameters": [
+        "number"
+      ],
+      "returns": "string",
+      "async": true
+    },
+    {
+      "name": "loadIssues",
+      "parameters": [],
+      "returns": "{ id: number, title: string, owner: string }[]",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "onetwononereloadLoadingcounting"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 2,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash",
+          "owner": ""
+        },
+        {
+          "id": 2,
+          "title": "Slow",
+          "owner": "ana"
+        }
+      ],
+      "frame": "onetwononereloadreadyCrash: nobodytakeSlow: anatakecounting"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 3,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash",
+          "owner": ""
+        },
+        {
+          "id": 2,
+          "title": "Slow",
+          "owner": "ana"
+        },
+        {
+          "id": 3,
+          "title": "Typo",
+          "owner": ""
+        }
+      ],
+      "frame": "onetwononereloadreadyCrash: nobodytakeSlow: anatake3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Crash: nobodytake",
+        "index": 0
+      },
+      "frame": "onetwononereloadsavingCrash: nobodytakeSlow: anatake3 issues"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 1,
+      "args": [
+        1
+      ],
+      "value": "dev",
+      "frame": "onetwononereloadsavingCrash: nobodytakeSlow: anatake3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "two",
+        "index": 0
+      },
+      "frame": "onetwononereloadouter loading3 issues"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 1,
+      "args": [],
+      "value": [
+        {
+          "id": 4,
+          "title": "Docs",
+          "owner": "bo"
+        }
+      ],
+      "frame": "onetwononereloadidleDocs3 issues"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 4,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash",
+          "owner": "dev"
+        }
+      ],
+      "frame": "onetwononereloadidleDocs3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "reload",
+        "index": 0
+      },
+      "frame": "onetwononereloadidleDocs3 issues"
+    },
+    {
+      "type": "reject",
+      "host": "loadIssues",
+      "call": 5,
+      "args": [],
+      "error": "offline",
+      "frame": "onetwononereloadlist failedagain3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "again",
+        "index": 0
+      },
+      "frame": "onetwononereloadlist failedagain3 issues"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 6,
+      "args": [],
+      "value": [
+        {
+          "id": 4,
+          "title": "Docs",
+          "owner": "bo"
+        },
+        {
+          "id": 5,
+          "title": "Leak",
+          "owner": ""
+        }
+      ],
+      "frame": "onetwononereloadidleDocsLeak3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "one",
+        "index": 0
+      },
+      "frame": "onetwononereloadLoading3 issues"
+    },
+    {
+      "type": "reject",
+      "host": "loadIssues",
+      "call": 7,
+      "args": [],
+      "error": "denied",
+      "frame": "onetwononereloadCould not loadretry3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "retry",
+        "index": 0
+      },
+      "frame": "onetwononereloadCould not loadretry3 issues"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 8,
+      "args": [],
+      "value": [
+        {
+          "id": 2,
+          "title": "Slow",
+          "owner": ""
+        }
+      ],
+      "frame": "onetwononereloadreadySlow: nobodytake3 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "index": 0
+      },
+      "frame": "onetwononereloadsavingSlow: nobodytake3 issues"
+    },
+    {
+      "type": "reject",
+      "host": "assignIssue",
+      "call": 2,
+      "args": [
+        2
+      ],
+      "error": "offline",
+      "frame": "onetwononereloadreadySlow: nobodytakeCould not assign #23 issues"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "none",
+        "index": 0
+      },
+      "frame": "onetwononereload3 issues"
+    }
+  ]
+}

@@ -28,6 +28,12 @@ Callback props may carry typed parameters. External JS functions use .d.rx decla
 shared with yield and handwritten RX tests; arbitrary RX syntax is not necessarily supported as authored TSX.
 Builds target the universal renderer only.
 
+Plan v2.1's **async tier** (plan/docs/PLAN-V2.md, "v2.1: async data") is opt-in: `loadTsxModules(…, { async: true })`,
+which a format-2.1 scenario and `emit.ts --schema 2.1` select. It accepts an async memo over a declared host
+(`createMemo(() => host(…))`), `<Loading fallback>`, `<Errored fallback={(err) => …}>`, `isPending(() => e)`,
+`latest(() => e)`, `refresh(memo)` and `affects(memo)`, and refuses Loading's `on`, Errored's `reset` and reading the
+error. Without the opt-in, everything below is refused as before.
+
 Removed forms fail at the authored location with **outside the verified subset: <construct>**. This includes source
 contexts (withdrawn upstream O-4 / RG-7c), server functions/memos/actions, effects and cleanups, previous values,
 projections, deferred values, async memos/stores, general setup helpers/constants, contexts, Loading/Errored,

@@ -1,8 +1,10 @@
-# Scenario format, versions 1 and 2
+# Scenario format, versions 1, 2 and 2.1
 
 Version 1 is defined first and is unchanged. [Version 2](#version-2-slice-2-the-tracker) is a strict extension for
 lists: it adds click targets by rendered text and settled-request arguments. A version 1 file validates exactly as
-before, and must not use version 2 fields.
+before, and must not use version 2 fields. [Version 2.1](#version-21-async-data) extends version 2 for async data:
+structured host results, and frames that show `Loading` and `Errored` fallbacks; a version 2 file validates exactly as
+before.
 
 A scenario is JSON data, not executable code. It contains no source text and names no runtime APIs.
 The fixture key selects a separately stored program; each backend supplies its own program loader.
@@ -168,3 +170,69 @@ guess. A consumer must not infer their behaviour from this trace.
 `run-js.ts` accepts versions 1 and 2. Besides the four legs above it has a `plan` leg: `runScenario(path, "plan", {
 plan: PLAN.json })` builds a [v2 plan](../plan/docs/PLAN-V2.md) with Solid's own primitives and checks the same frames.
 It requires the plan's `hosts` to equal the scenario's `host` signatures.
+
+## Version 2.1 (async data)
+
+`"version": 2.1` (a JSON number) keeps every version 2 rule and changes only these. It drives a
+[plan v2.1](../plan/docs/PLAN-V2.md#v21-async-data) program: `run-js.ts` turns on the TSX frontend's async tier for it,
+and `emit.ts` picks the v2.1 builder.
+
+- **Host results.** A host's `returns` is a scalar type name, as before, or a structured type in the eval interface
+  grammar (`docs/EVAL.md`, "Typing"): `number`, `string`, `boolean`, `T[]`, `{ key: T, … }`, e.g.
+  `"{ id: number, title: string, assignee: string }[]"`. A `resolve` step's `value` is the JSON of a value that
+  conforms exactly: integers for `number`, arrays, and records with exactly the type's keys. The runner checks it
+  before running (`slices/run-js.ts`; the plan fuzz's recording host, `plan/fuzz/host.ts`, checks it at the step and
+  hands the program a fresh copy). Each `resolve` step passes its own value, parsed from the file. Parameters stay scalars, and a
+  host may take none (`"parameters": []`, `"args": []`). Versions 1 and 2 still require scalar results ("host results
+  are scalars before version 2.1").
+- **Fallbacks in frames.** Rule 5 of "Exact frame text" excluded suspense markers and error fallbacks. In version 2.1 a
+  `Loading` or `Errored` fallback is ordinary content: the frame is the text of the nodes on screen, by rules 1–4,
+  whichever of content and fallback is shown. Only text counts, so a boundary adds nothing to the frame beyond the
+  content or fallback it shows. Portals are still excluded.
+- **Timing.** Unchanged. A request a re-ask supersedes is still a request: it must be settled by the end like any
+  other, and settling it is an ordinary step (its answer may change nothing).
+
+### Tracker-async trace
+
+`slices/tracker-async/tracker-async.scenario.json` runs `tracker-async.tsx` and `tracker-async.rx` (hosts
+`assignIssue(number): string` and `loadIssues(): { id: number, title: string, assignee: string }[]`, both async; the
+`.d.rx` declares `loadIssues` pure). Frames were recorded from native Solid (`node … slices/run-js.ts SCENARIO --record
+native`) and are checked, never regenerated, on native Solid, compiled TSX, compiled RX, the plan and rust-solid's
+`scenario` runner, which reads format 2.1 (`slices/tracker-async.test.ts`). The frame starts with the indicator (`ready` or `saving…`, `isPending` of the list)
+when the list is on screen; `Loading issues…` and `Could not load issuesretry` are the fallbacks; the status is last.
+
+| # | step | expected frame |
+| --- | --- | --- |
+| 0 | mount → `loadIssues` #1 `()` | `Loading issues…` |
+| 1 | resolve `loadIssues` #1 `()` with [1:"", 2:"ana", 3:""] | `readyCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake` |
+| 2 | click `take` in `Crash on save: nobodytake` → `claim(1)`: `affects`, `assignIssue` #1 `(1)` | `saving…Crash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake` |
+| 3 | resolve `assignIssue` #1 `(1)` with "dev" → `refresh`: `loadIssues` #2 | `saving…Crash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake` |
+| 4 | resolve `loadIssues` #2 `()` with [1:"dev", 2:"ana", 3:""] | `readyCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev` |
+| 5 | click `take` in `Typo in footer: nobodytake` → `claim(3)`, `assignIssue` #2 `(3)` | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev` |
+| 6 | resolve `assignIssue` #2 `(3)` with "bo" → `loadIssues` #3 | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev` |
+| 7 | reject `loadIssues` #3 `()`, `"offline"` | `Could not load issuesretryAssigned #3 to bo` |
+| 8 | click `retry` (the `errored` fallback) → plain `refresh`: `loadIssues` #4 | `Could not load issuesretryAssigned #3 to bo` |
+| 9 | resolve `loadIssues` #4 `()` with [1:"dev", 2:"ana", 3:"bo"] | `readyCrash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo` |
+| 10 | click `take` in `Slow search: anatake` → `claim(2)`, `assignIssue` #3 `(2)` | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo` |
+| 11 | click `take` in `Crash on save: devtake` → `claim(1)`, `assignIssue` #4 `(1)` | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo` |
+| 12 | resolve `assignIssue` #4 `(1)` with "ana" → `loadIssues` #5 | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo` |
+| 13 | resolve `assignIssue` #3 `(2)` with "cy" → `loadIssues` #6 | `saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo` |
+| 14 | resolve `loadIssues` #6 `()` with [1:"ana", 2:"cy", 3:"bo"] | `readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy` |
+| 15 | resolve `loadIssues` #5 `()` with [1:"ana", 2:"ana", 3:"bo"] | `readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy` |
+| 16 | click `take` in `Typo in footer: botake` → `claim(3)`, `assignIssue` #5 `(3)` | `saving…Crash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy` |
+| 17 | reject `assignIssue` #5 `(3)`, `"offline"` | `readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeCould not assign #3` |
+
+What it exercises: the first load behind `Loading` (0–1); a claim whose `refresh` after its await holds the claim's
+status write until the re-ask lands (2–4); a re-ask that rejects inside a claim's transaction, so `Errored` shows its
+fallback and the claim's write lands with it (5–7); a retry from the fallback (a plain `refresh`) that keeps the
+failure on screen while in flight (8) and recovers the boundary when it lands (9); two overlapping claims whose
+re-asks are settled out of order: the newer request (#6) lands both claims' writes (14), and the superseded one (#5)
+changes nothing (15); a claim that fails before any re-ask: its catch writes the status and the pending mark goes
+(16–17). The indicator is `affects` + `isPending`: true from each claim's start until its transaction lands.
+
+Not exercised: `latest`; an async memo with arguments; `Loading` falling back again after content has shown; nested or
+sibling boundaries; a re-ask while the first load is still in flight; a rejection of the first load. A consumer must
+not infer their behaviour from this trace. The plan v2.1 fuzz's generated format-2.1 scenarios
+(`plan/docs/PLAN-V2.md`, "Plan fuzz v2.1") exercise `latest`, async memos with arguments, nested and sibling boundaries,
+re-asks while a first load is in flight and first-load rejections, and the JS legs agree there; those scenarios are
+recorded per run, not saved as contracts.

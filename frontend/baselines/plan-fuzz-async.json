@@ -1,0 +1,13 @@
+{
+  "note": "The gate's plan v2.1 fuzz (plan/docs/PLAN-V2.md, 'Plan fuzz v2.1'): scripts/plan-fuzz.ts --async --seeds 100 --start 1 at fdbcad92 / Solid rc.21. Native Solid, compiled RX, solid-plan.ts and rust-solid's plan-trace (the plan v2.1 consumer: rust-solid docs/PLAN-V2-CONSUMER.md, 'Plan v2.1') give one result and one full host log on every program the emitter accepts. A Rust refusal of the version (rust-unsupported) is not agreement and is not in this baseline: it fails the gate. The refused programs are the generator's 'outside' family.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 84,
+  "rust-unsupported": 0,
+  "refused": 16,
+  "refusals": [
+    "unsupported operator *",
+    "unsupported operator -"
+  ],
+  "classes": []
+}

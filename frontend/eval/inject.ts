@@ -9,14 +9,15 @@ import { checkModules, CheckError } from '../tsx/rx/compiler.ts';
 import { resolvePlanV2 } from '../plan/resolve-v2.ts';
 import { evalSitesOf } from './sites.ts';
 
-export function injectInterfaces(entry: string, read: (path: string) => string | undefined): string {
+/** `async`: the enclosing component is plan v2.1 (the TSX async tier and the v2.1 builder; PLAN-V2.md, "v2.1"). */
+export function injectInterfaces(entry: string, read: (path: string) => string | undefined, options: { async?: boolean } = {}): string {
   const source = read(entry);
   if (source === undefined) throw new Error('no module ' + entry);
-  const set = loadTsxModules(entry, read);
+  const set = loadTsxModules(entry, read, options.async ? { async: true } : {});
   if (set.diags.length) throw new CheckError(set.diags);
   const checked = checkModules(set);
   if (checked.diags.length) throw new CheckError(checked.diags);
-  resolvePlanV2(set);
+  resolvePlanV2(set, options.async ? { async: true } : {});
   const sites = [...evalSitesOf(set.programs.get(set.entry)!).values()];
   const calls: { start: number; end: number; options?: { start: number; end: number; empty: boolean } }[] = [];
   const walk = (n: any): void => {

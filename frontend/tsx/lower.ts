@@ -41,10 +41,16 @@ export class TsxError extends Error {
 export type LowerOptions = {
   modules?: Map<string, { path: string; program: Program }>;
   declarations?: Map<string, JsDecl[]>;
+  /** Plan v2.1's async tier (plan/docs/PLAN-V2.md, "v2.1: async data"): an async memo over a declared host
+   *  (`createMemo(() => host(…))`), `<Loading>`, `<Errored>`, `isPending`, `latest`, `refresh` and `affects`. Off by
+   *  default: then those forms are refused as before. */
+  async?: boolean;
 };
 
 /** A bounded TSX spelling of executable RX. Kinds below only guard supported value/call/render forms. */
 import { verifySyntax, EVAL_MODULE } from "./subset.ts";
+import { parseType } from "../eval/interface.ts";
+import type { Type } from "../plan/types.ts";
 
 export function lowerTsx(
   source: string,
@@ -73,7 +79,7 @@ export function lowerTsx(
     const e = parsed.errors[0];
     fail(e.labels[0] ?? { start: 0, end: 0 }, e.message);
   }
-  verifySyntax(parsed.program, fail);
+  verifySyntax(parsed.program, fail, { async: options.async });
   const line = (n: Span) => source.slice(0, n.start).split("\n").length;
   type Shape = {
     kind:
@@ -105,6 +111,10 @@ export function lowerTsx(
     props?: boolean; // a component's props: reads are tracked in Solid
 
     actionParams?: Shape[];
+    /** v2.1: an async memo over a host (createMemo(() => host(…))): the target of refresh and affects. */
+    async?: boolean;
+    /** v2.1: a name that may not be read here (an Errored fallback's error), with the reason. */
+    unreadable?: string;
   };
   type Scope = {
     bindings: Map<string, Binding>;
@@ -352,6 +362,21 @@ export function lowerTsx(
   const functions = new Map<string, Fn>();
   const primitives = new Map<string, string>();
   const jsFunctions = new Map<string, number | undefined>();
+  /** v2.1: each declared host's .d.rx contract, for an async memo's result shape. */
+  const jsContracts = new Map<string, Extract<JsDecl, { kind: "fn" }>>();
+  /** v2.1: a declared result type (eval/interface.ts grammar) as a lowering shape. */
+  const typeShape = (t: Type): Shape =>
+    t.k === "array"
+      ? { kind: "array", item: typeShape(t.item) }
+      : t.k === "record"
+        ? { kind: "record", fields: new Map(t.fields.map(([k, v]) => [k, typeShape(v)])) }
+        : { kind: t.k === "never" ? "scalar" : t.k };
+  /** v2.1: the accessor an async primitive targets (refresh(x), affects(x)): an async memo binding, by name. */
+  const asyncTarget = (n: Node, scope: Scope, what: string): string => {
+    if (n?.type !== "Identifier" || !scope.bindings.get(n.name)?.async)
+      return fail(n ?? parsed.program, what + " takes an async memo (createMemo(() => host(…))) by name");
+    return n.name;
+  };
   /** docs/EVAL.md: local names of `createEval` imported from the eval module. */
   const evalFunctions = new Set<string>();
 
@@ -485,6 +510,7 @@ export function lowerTsx(
         if (contract && contract.kind !== "fn")
           return fail(spec, "only JS function imports are supported");
         jsFunctions.set(local, contract?.params.length);
+        if (contract?.kind === "fn") jsContracts.set(local, contract);
         names.push({ name: imported, alias: local });
       }
       if (names.length)
@@ -595,6 +621,7 @@ export function lowerTsx(
       if (n.name === "undefined" && !scope.bindings.has(n.name))
         return { e: { k: "lit", v: undefined }, shape: { kind: "undefined" } };
       const b = scope.bindings.get(n.name);
+      if (b?.unreadable) return fail(n, b.unreadable);
       if (
         b?.kind === "accessor" &&
         expected?.kind === "accessor" &&
@@ -841,6 +868,20 @@ export function lowerTsx(
       if (n.callee.type === "Identifier") {
         const name = n.callee.name;
         const b = scope.bindings.get(name);
+        if (b?.unreadable) return fail(n, b.unreadable);
+        // v2.1: isPending(() => e) is RX's probe `pending? e`; latest(() => e) is `latest e` (both R-9/R-12).
+        const probe = options.async && !b ? primitives.get(name) : undefined;
+        if (probe === "isPending" || probe === "latest") {
+          if (n.arguments.length !== 1)
+            return fail(n, probe + " takes one () => expression");
+          const fn = arrow(n.arguments[0]);
+          if (fn.body.type === "BlockStatement")
+            return fail(fn.body, probe + " takes one () => expression");
+          const v = value(fn.body, copy(scope), expected);
+          return probe === "isPending"
+            ? { e: { k: "pending", e: v.e }, shape: { kind: "boolean" } }
+            : { e: { k: "latest", e: v.e }, shape: v.shape };
+        }
 
         if (b?.kind === "accessor" && !n.arguments.length)
           return {
@@ -1078,6 +1119,16 @@ export function lowerTsx(
         return [{ k: "action", body: statements(fn.body!.body, inner) }];
       }
 
+      // v2.1: refresh(x) is RX's `refresh x` (AC-4); affects(x) is `affects x` (AC-5).
+      const verb =
+        options.async && n.callee.type === "Identifier" && !scope.bindings.has(n.callee.name)
+          ? primitives.get(n.callee.name)
+          : undefined;
+      if (verb === "refresh" || verb === "affects") {
+        if (n.arguments.length !== 1)
+          return fail(n, verb + " takes one async memo");
+        return [{ k: verb, name: asyncTarget(n.arguments[0], scope, verb) }];
+      }
       if (n.callee.type === "Identifier" && jsFunctions.has(n.callee.name)) {
         const arity = jsFunctions.get(n.callee.name);
         if (arity !== undefined && arity !== n.arguments.length)
@@ -1721,6 +1772,54 @@ export function lowerTsx(
           ]
         : [loop];
     }
+    if (options.async && (primitive === "Loading" || primitive === "Errored")) {
+      // v2.1: <Loading fallback>…</Loading> is RX's `loading fallback { … } { … }` (H-5); <Errored fallback={(err) =>
+      // …}>…</Errored> is `errored fallback(err) { … } { … }` (H-12). Loading's `on` and Errored's `reset` have no
+      // spelling in the verified subset; a fallback may not read the error.
+      if ([...attrs.keys()].some((k) => k !== "fallback") || !attrs.has("fallback"))
+        return fail(
+          opening,
+          primitive + " supports one fallback prop" + (primitive === "Loading" ? " (on is outside the verified subset)" : ""),
+        );
+      const fallback = attrs.get("fallback")!.node;
+      const body = n.children.flatMap((c) => markup(c, scope, owner));
+      if (primitive === "Loading")
+        return [{ k: "loading", fallback: markup(fallback, scope, owner), decls: [], body, line: line(n) }];
+      if (
+        fallback.type !== "ArrowFunctionExpression" ||
+        fallback.async ||
+        fallback.typeParameters ||
+        fallback.returnType ||
+        fallback.params.length > 1 ||
+        fallback.body.type === "BlockStatement"
+      )
+        return fail(
+          fallback,
+          fallback.type === "ArrowFunctionExpression" && fallback.params.length > 1
+            ? "Errored's reset has no ReactiveScript spelling; retry with refresh(source) instead"
+            : "Errored's fallback is (err) => JSX",
+        );
+      const inner = copy(scope);
+      let errName: string | undefined;
+      if (fallback.params.length) {
+        errName = bind(fallback.params[0], inner.names);
+        inner.bindings.set(errName, {
+          kind: "value",
+          shape: { kind: "undefined" },
+          unreadable: "reading an Errored fallback's error is outside the verified subset",
+        });
+      }
+      return [
+        {
+          k: "errored",
+          fallback: markup(fallback.body, inner, owner),
+          decls: [],
+          body,
+          ...(errName ? { errName } : {}),
+          line: line(n),
+        },
+      ];
+    }
     if (primitive)
       return fail(
         opening,
@@ -1899,6 +1998,37 @@ export function lowerTsx(
             ? memo.body.body[0].argument
             : memo.body;
         if (!body) return fail(memo, "memo without a value");
+        if (
+          options.async &&
+          body.type === "CallExpression" &&
+          body.callee.type === "Identifier" &&
+          jsFunctions.has(body.callee.name)
+        ) {
+          // v2.1: an async memo, Solid's createMemo(() => host(…)): RX's `name = await host(…)` (R-1). Its value is the
+          // host's declared result type.
+          const host = body.callee.name;
+          const contract = jsContracts.get(host);
+          if (!contract?.ret)
+            return fail(body, "an async memo's host needs a .d.rx declaration with a result type");
+          let ret: Type;
+          try {
+            ret = parseType(contract.ret);
+          } catch (e) {
+            return fail(body, "an async memo's host result type is outside the plan's types: " + contract.ret);
+          }
+          if (body.optional || body.typeArguments || contract.params.length !== body.arguments.length)
+            return fail(body, "JS call argument count does not match its declaration");
+          const args = body.arguments.map((a) => value(a, scope).e);
+          const name = bind(d.id, scope.names);
+          scope.bindings.set(name, { kind: "accessor", shape: typeShape(ret), async: true });
+          decls.push({
+            k: "eq",
+            name,
+            e: { k: "await", e: { k: "call", f: { k: "id", name: host }, args } },
+            line: line(node),
+          });
+          continue;
+        }
         const expected = memo.returnType
           ? readType(memo.returnType.typeAnnotation)
           : undefined;

@@ -1,0 +1,263 @@
+{
+  "version": 2.1,
+  "component": "Board",
+  "hosts": [
+    {
+      "name": "assignIssue",
+      "params": [
+        "number"
+      ],
+      "returns": "string"
+    },
+    {
+      "name": "loadIssues",
+      "params": [],
+      "returns": "{ id: number, title: string, owner: string }[]",
+      "pure": true
+    }
+  ],
+  "sources": [
+    {
+      "name": "code",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "issues = await loadIssues();\nsource status := \"\";\naction take(id: number) {\n  affects issues;\n  try {\n    let who = await assignIssue(id);\n    refresh issues;\n    status := \"Assigned #\" + id + \" to \" + who;\n  } catch (error) {\n    status := \"Could not assign #\" + id;\n  }\n}\n<div>{errored fallback { <p>Could not load<button onClick={() => { refresh issues }}>retry</button></p> } { loading fallback { <i>Loading</i> } { <b>{pending? issues ? \"saving\" : \"ready\"}</b>{for issue in issues { <p>{issue.title}: {issue.owner || \"nobody\"}<button onClick={() => { take(issue.id) }}>take</button></p> }} } }}<em>{status}</em></div>"
+      }
+    },
+    {
+      "name": "code2",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "const issues = createMemo(() => loadIssues());\nreturn (<p><Errored fallback={() => <i>failed</i>}><Loading fallback={<i>counting</i>}><u>{\"\" + issues().length + \" issues\"}</u></Loading></Errored></p>);"
+      }
+    }
+  ],
+  "memos": [
+    {
+      "name": "list",
+      "await": {
+        "host": "loadIssues",
+        "args": []
+      }
+    }
+  ],
+  "actions": [],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "section",
+      "events": [],
+      "children": [
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": "issues = await loadIssues();\nsource status := \"\";\naction take(id: number) {\n  affects issues;\n  try {\n    let who = await assignIssue(id);\n    refresh issues;\n    status := \"Assigned #\" + id + \" to \" + who;\n  } catch (error) {\n    status := \"Could not assign #\" + id;\n  }\n}\n<div>{errored fallback { <p>Could not load<button onClick={() => { refresh issues }}>retry</button></p> } { loading fallback { <i>Loading</i> } { <b>{pending? issues ? \"saving\" : \"ready\"}</b>{for issue in issues { <p>{issue.title}: {issue.owner || \"nobody\"}<button onClick={() => { take(issue.id) }}>take</button></p> }} } }}<em>{status}</em></div>"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "one"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": "<ul>{loading fallback { <i>outer loading</i> } { <b>{pending? list ? \"busy\" : \"idle\"}</b>{for it in list { <li>{it.title}</li> }} }}</ul>"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "two"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "code",
+                  "value": {
+                    "op": "literal",
+                    "value": ""
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "none"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "refresh",
+                  "source": "list"
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "literal",
+                "value": "reload"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "errored",
+          "fallback": [
+            {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "literal",
+                    "value": "list failed"
+                  }
+                },
+                {
+                  "kind": "element",
+                  "tag": "button",
+                  "events": [
+                    {
+                      "name": "onClick",
+                      "steps": [
+                        {
+                          "op": "refresh",
+                          "source": "list"
+                        }
+                      ]
+                    }
+                  ],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "literal",
+                        "value": "again"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "element",
+              "tag": "div",
+              "events": [],
+              "children": [
+                {
+                  "kind": "eval",
+                  "code": {
+                    "op": "read",
+                    "source": "code"
+                  },
+                  "bindings": [
+                    {
+                      "name": "list",
+                      "target": "list"
+                    },
+                    {
+                      "name": "loadIssues",
+                      "target": "loadIssues"
+                    },
+                    {
+                      "name": "assignIssue",
+                      "target": "assignIssue"
+                    }
+                  ],
+                  "interface": "read list: { id: number, title: string, owner: string }[]\npure host loadIssues(): { id: number, title: string, owner: string }[]\nhost assignIssue(number): string",
+                  "syntax": "rx",
+                  "check": "strict"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "aside",
+          "events": [],
+          "children": [
+            {
+              "kind": "eval",
+              "code": {
+                "op": "read",
+                "source": "code2"
+              },
+              "bindings": [
+                {
+                  "name": "loadIssues",
+                  "target": "loadIssues"
+                }
+              ],
+              "interface": "pure host loadIssues(): { id: number, title: string, owner: string }[]",
+              "syntax": "tsx",
+              "check": "strict"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

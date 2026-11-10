@@ -14,6 +14,7 @@ import { checkModules, compileModules, lowerViews, STRING_RENDERER, type ModuleS
 import { resolvePlanV2 } from '../resolve-v2.ts';
 import type { HostSig, Scenario, ScenarioStep, Trace } from './host.ts';
 import { emit, emitYield, HOST_TYPE, lastNoYield, type Case } from './gen.ts';
+import { asyncHostSigs, emitAsync, type AsyncCase } from './gen-async.ts';
 import { loadYieldModules } from '../../yield/lower.ts';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -25,6 +26,10 @@ export const LEGS = ['native', 'rx', 'plan', 'rust'] as const;
 export const UPSTREAM_RX = 'upstream: RX optimistic source is a guess layer over a computed signal (AC-3)';
 export const UPSTREAM_RX_PATH = 'upstream: RX evaluates a path write\'s keys and value before the store setter';
 const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH];
+/** Plan v2.1 on a v2-only Rust consumer: `plan-trace` refuses the plan's `version` (an integer field: serde's
+ *  "invalid type: floating point `2.1`, expected u32", or the scenario binary's "unsupported plan version"). */
+export const RUST_UNSUPPORTED_CLASS = 'rust-unsupported: plan-trace refuses plan version 2.1';
+export const RUST_UNSUPPORTED = /^(invalid type: floating point `2\.1`, expected u32|unsupported plan version \S+)\s*$/;
 
 /** The probe's rewrite of compiled RX: `w$x.path(keys, value)` becomes `w$x.pathIn(() => (keys), () => (value))`. */
 export function pathsInSetter(code: string): string {
@@ -51,7 +56,10 @@ export type Outcome = {
    *  the plan legs agree. divergent: some leg differs otherwise. refused: the emitter refused (diagnostic).
    *  invalid: the oracle (native Solid, recording) failed (class as the rust fuzzers: oracle-error, -halted, -timeout).
    *  generator-bug: a twin does not load or check, or the twins' plans differ. */
-  status: 'agree' | 'upstream' | 'divergent' | 'refused' | 'invalid' | 'generator-bug';
+  status: 'agree' | 'upstream' | 'divergent' | 'refused' | 'invalid' | 'generator-bug' | 'rust-unsupported';
+  /** rust-unsupported (plan v2.1 only): every JS leg equals native (or differs by a probed upstream class), and the
+   *  Rust consumer refused the plan; its message. Never agreement. */
+  rustUnsupported?: string;
   classes: string[]; detail?: string; refusedClasses?: string[];
   files: Record<string, string>; plan?: unknown; scenario?: Scenario; traces?: Partial<Record<Leg, Trace>>;
   nodes?: Record<string, number>; features?: string[];
@@ -60,8 +68,8 @@ export type Outcome = {
   yield?: string;
 };
 
-function load(name: string, files: Record<string, string>): ModuleSet {
-  const set = loadTsxModules(name, p => files[p]);
+function load(name: string, files: Record<string, string>, async = false): ModuleSet {
+  const set = loadTsxModules(name, p => files[p], async ? { async } : {});
   if (set.diags.length) throw new Error(set.diags.map(d => d.code + ': ' + d.msg).join('; '));
   const checked = checkModules(set).diags;
   if (checked.length) throw new Error(checked.map(d => d.code + ' (' + d.file + ':' + d.line + '): ' + d.msg).join('; '));
@@ -112,7 +120,11 @@ export function planNodes(plan: any): Record<string, number> {
     }
   };
   for (const s of plan.sources) { count('source:' + s.kind); walk(s.seed, 'expr'); }
-  for (const m of plan.memos) { count('memo'); walk(m.value, 'expr'); }
+  for (const m of plan.memos) {
+    // v2.1: an async memo (its host call's arguments are expressions).
+    if ('await' in m) { count('memo:async'); walk(m.await.args, 'expr'); continue; }
+    count('memo'); walk(m.value, 'expr');
+  }
   for (const a of plan.actions) { count('action'); walk(a.steps, 'step'); }
   walk(plan.markup, 'view');
   return out;
@@ -151,11 +163,57 @@ export function scenarioFeatures(c: Case, scenario: Scenario, log: unknown[]): s
   return [...out].sort();
 }
 
+/** What a recorded v2.1 scenario exercised (plan v2.1 fuzz), from its steps and native's log: overlapping requests, a
+ *  settlement out of issue order, a rejection (and of a query), a superseded query request settled after a newer one
+ *  was issued, two mutations in flight, a plain re-ask while a mutation is in flight, the Errored fallback's retry, an
+ *  argument change or a boundary toggle while a request is pending. */
+export function asyncFeatures(c: AsyncCase, scenario: Scenario, log: unknown[]): string[] {
+  const out = new Set<string>();
+  const pending: { host: string; call: number }[] = [];
+  const role = (h: string) => c.hosts.find(x => x.name === h)?.role;
+  const issued = new Map<string, number>();
+  // A program feature: an action awaits a pure query host (its requests are numbered with the async memo's).
+  const awaitsQuery = (ss: unknown): boolean => JSON.stringify(ss).match(/"k":"await","bind":"[^"]*","host":"([^"]+)"/g)?.some(m => role(m.slice(m.lastIndexOf(':') + 2, -1)) === 'query') ?? false;
+  if (c.decls.some(d => d.k === 'action' && awaitsQuery(d.body))) out.add('a pure host awaited in an action');
+  for (const e of log as unknown[][]) {
+    if (e[0] === 'request') {
+      pending.push({ host: e[1] as string, call: e[2] as number });
+      issued.set(e[1] as string, e[2] as number);
+      if (pending.length > 1) out.add('overlapping requests');
+      if (pending.filter(p => role(p.host) === 'mutate').length > 1) out.add('two mutations in flight');
+    }
+    if (e[0] !== 'step') continue;
+    const next = scenario.steps[(e[1] as number) + 1];
+    if (!next) continue;
+    if (next.type === 'resolve' || next.type === 'reject') {
+      const i = pending.findIndex(p => p.host === next.host && p.call === next.call);
+      if (i > 0) out.add('settled out of order');
+      if (next.type === 'reject') out.add(role(next.host) === 'query' ? 'query rejected' : 'mutation rejected');
+      if (role(next.host) === 'query' && (issued.get(next.host) ?? 0) > next.call) out.add('superseded query settled');
+      pending.splice(i, 1);
+    } else if (next.type === 'click' && 'target' in next) {
+      const t = next.target.text;
+      if (t === 'retry') out.add('retry from the errored fallback');
+      if (t === 'reask') out.add('action without an await (affects, refresh)');
+      if (!pending.length) continue;
+      if (t === 'refetch' && pending.some(p => role(p.host) === 'mutate')) out.add('plain refresh racing an action');
+      if (t === 'next' || t.startsWith('Filter: ')) out.add('argument change while pending');
+      if (t === 'toggle') out.add('boundary toggled while pending');
+    }
+  }
+  return [...out].sort();
+}
+
 /** One program for the four legs: its TSX and RX twins (App.tsx, App.rx) and host declarations (api.d.rx), and either
  *  a scenario to replay or the generated case whose chooser records one on native Solid. */
 export type Program = {
   seed: number; family: string; files: Record<string, string>; hosts: HostSig[]; actions: string[];
   scenario?: Scenario; record?: Case;
+  /** Plan v2.1 (PLAN-V2.md, "v2.1: async data"): the TSX async tier and the v2.1 builder are on, and a recorded scenario
+   *  is format 2.1. */
+  async?: boolean;
+  /** Recording with another generator's chooser (gen-async.ts): the worker imports `chooserFor` from this module. */
+  chooser?: string;
 };
 
 export const hostSigs = (c: Case): HostSig[] => c.hosts.map(h => ({ name: h.name, parameters: h.params.map(p => HOST_TYPE[p]), returns: HOST_TYPE[h.returns], async: true }));
@@ -176,18 +234,25 @@ export async function runCase(c: Case, opts: { rust?: string; timeoutMs?: number
   return { ...o, yield: 'differs', status: 'divergent', classes: [...o.classes, 'emitter: the yield twin\'s plan differs'] };
 }
 
+/** Plan v2.1 (gen-async.ts): one generated async program on the four legs. Its scenario is format 2.1, recorded with
+ *  gen-async.ts's chooser. The yield frontend lowers no async data, so there is no yield twin. */
+export async function runAsyncCase(c: AsyncCase, opts: { rust?: string; timeoutMs?: number; keep?: string } = {}): Promise<Outcome> {
+  return runProgram({ seed: c.seed, family: c.family, files: emitAsync(c), hosts: asyncHostSigs(c), actions: c.actions.map(a => a.name), record: c as unknown as Case, async: true, chooser: GEN_ASYNC }, opts);
+}
+const GEN_ASYNC = here('./gen-async.ts');
+
 export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: number; keep?: string } = {}): Promise<Outcome> {
   const timeoutMs = opts.timeoutMs ?? 20000;
   const files = p.files;
   const out: Outcome = { seed: p.seed, family: p.family, status: 'agree', classes: [], files };
   const api = { 'api.d.rx': files['api.d.rx'] };
   let tsxSet: ModuleSet, rxSet: ModuleSet;
-  try { tsxSet = load('App.tsx', { 'App.tsx': files['App.tsx'], ...api }); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: TSX'], detail: String((e as Error).message) }; }
-  try { rxSet = load('App.rx', { 'App.rx': files['App.rx'], ...api }); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: RX'], detail: String((e as Error).message) }; }
+  try { tsxSet = load('App.tsx', { 'App.tsx': files['App.tsx'], ...api }, p.async); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: TSX'], detail: String((e as Error).message) }; }
+  try { rxSet = load('App.rx', { 'App.rx': files['App.rx'], ...api }, p.async); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: RX'], detail: String((e as Error).message) }; }
   let plan: unknown, refused: string | undefined;
   const plans: string[] = [];
   for (const set of [rxSet, tsxSet]) {
-    try { plans.push(JSON.stringify(resolvePlanV2(set), null, 2)); } catch (e) { plans.push('refused: ' + (e as Error).message); }
+    try { plans.push(JSON.stringify(resolvePlanV2(set, p.async ? { async: true } : {}), null, 2)); } catch (e) { plans.push('refused: ' + (e as Error).message); }
   }
   if (plans[0] !== plans[1]) return { ...out, status: 'generator-bug', classes: ['emitter: TSX and RX plans differ'], detail: plans.join('\n----\n') };
   if (plans[0].startsWith('refused: ')) refused = plans[0].slice(9); else { plan = JSON.parse(plans[0]); out.plan = plan; out.nodes = planNodes(plan); }
@@ -209,19 +274,20 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
     let scenario: Scenario, record: Trace | undefined;
     if (p.scenario) scenario = p.scenario;
     else {
-      const rec = await leg({ ...common, leg: 'native', entry: dir + '/native.mts', record: { case: p.record, maxSteps: 200 } }, timeoutMs);
+      const rec = await leg({ ...common, leg: 'native', entry: dir + '/native.mts', record: { case: p.record, maxSteps: 200, ...(p.chooser ? { chooser: p.chooser } : {}) } }, timeoutMs);
       if ('invalid' in rec) return { ...out, status: 'invalid', classes: ['oracle-' + rec.invalid], detail: rec.detail };
       if ('error' in rec.result) {
         const halted = /reactivity halted/.test(rec.result.error);
         return { ...out, status: 'invalid', classes: [halted ? 'oracle-halted' : 'oracle-error'], detail: rec.result.error };
       }
       if (rec.created !== p.actions.length) return { ...out, status: 'generator-bug', classes: ['generator: native created ' + rec.created + ' actions'] };
-      scenario = { version: 2, name: 'plan fuzz seed ' + p.seed, fixture: 'app', host: p.hosts, steps: rec.steps! };
+      scenario = { version: p.async ? 2.1 : 2, name: 'plan fuzz seed ' + p.seed, fixture: 'app', host: p.hosts, steps: rec.steps! };
       record = strip(rec);
     }
     out.scenario = scenario;
     writeFileSync(dir + '/app.scenario.json', JSON.stringify(scenario, null, 2) + '\n');
     const traces: Partial<Record<Leg, Trace>> = {};
+    let rustUnsupported: string | undefined;
     const replay = async (l: 'native' | 'rx' | 'plan') => {
       const r = await leg({ ...common, leg: l, steps: scenario.steps, entry: l === 'native' ? dir + '/native.mts' : l === 'rx' ? dir + '/' + built.entry : undefined, plan }, timeoutMs);
       return 'invalid' in r ? { result: { error: 'leg ' + r.invalid + ': ' + (r.detail ?? '') }, log: [] } : strip(r);
@@ -235,12 +301,16 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
       writeFileSync(dir + '/app.plan.json', plans[0] + '\n');
       if (opts.rust) {
         const r = spawnSync(opts.rust, [dir + '/app.plan.json', dir + '/app.scenario.json'], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1 << 28 });
-        if ((r.status !== 0 && r.status !== 1) || !r.stdout) traces.rust = { result: { error: 'plan-trace failed: ' + r.status + ' ' + r.signal + ' ' + r.stderr }, log: [] };
-        else traces.rust = JSON.parse(r.stdout);
+        if ((r.status !== 0 && r.status !== 1) || !r.stdout) {
+          // A v2.1 plan the Rust consumer cannot read (its plan and scenario `version` are integers): reported as
+          // unsupported, never compared and never agreement. Any other failure is a failure.
+          if ((plan as { version: unknown }).version === 2.1 && r.status === 1 && !r.stdout && RUST_UNSUPPORTED.test(r.stderr)) rustUnsupported = r.stderr.trim();
+          else traces.rust = { result: { error: 'plan-trace failed: ' + r.status + ' ' + r.signal + ' ' + r.stderr }, log: [] };
+        } else traces.rust = JSON.parse(r.stdout);
       }
     }
     out.traces = traces;
-    if (p.record) out.features = scenarioFeatures(p.record, scenario, traces.native!.log);
+    if (p.record) out.features = p.async ? asyncFeatures(p.record as unknown as AsyncCase, scenario, traces.native!.log) : scenarioFeatures(p.record, scenario, traces.native!.log);
     for (const l of ['rx', 'plan', 'rust'] as const) {
       const t = traces[l];
       if (!t) continue;
@@ -265,6 +335,12 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
     // A refused program has no plan legs; native and RX are still compared, and their differences kept apart.
     if (refused) return { ...out, status: 'refused', detail: refused, classes: [], refusedClasses: out.classes };
     if (out.classes.length) out.status = out.classes.every(k => UPSTREAM.includes(k)) ? 'upstream' : 'divergent';
+    // The JS legs agree (or differ only by a probed upstream class) and Rust refused the plan's version: reported apart.
+    if (rustUnsupported !== undefined) {
+      out.classes.push(RUST_UNSUPPORTED_CLASS);
+      out.rustUnsupported = rustUnsupported;
+      if (out.status !== 'divergent') out.status = 'rust-unsupported';
+    }
     return out;
   } finally { if (!opts.keep) rmSync(dir, { recursive: true, force: true }); }
 }

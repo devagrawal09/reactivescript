@@ -38,7 +38,10 @@ export type E =
   | { k: 'bin'; op: '+' | '==' | '!=' | '<' | '<=' | '>' | '>=' | '&&' | '||' | '*' | '-'; l: E; r: E }
   | { k: 'not'; e: E }
   | { k: 'cond'; c: E; t: E; f: E }
-  | { k: 'rec'; fields: [string, E][] };
+  | { k: 'rec'; fields: [string, E][] }
+  /** Plan v2.1 (gen-async.ts only): Solid's isPending(() => e) / RX `pending? e`, and latest(() => e) / `latest e`;
+   *  `e` is a memo read. */
+  | { k: 'pending' | 'latest'; e: E };
 export type Seg = { key: string } | { index: E };
 export type S =
   | { k: 'set'; name: string; e: E }
@@ -46,13 +49,19 @@ export type S =
   | { k: 'guess'; name: string; p?: string; body?: E; value?: E }
   | { k: 'await'; bind: string; host: string; args: E[] }
   | { k: 'try'; body: S[]; handler: S[] }
-  | { k: 'call'; action: string; args: E[] };
+  | { k: 'call'; action: string; args: E[] }
+  /** Plan v2.1 (gen-async.ts only): Solid's refresh(x) / RX `refresh x`, and affects(x) / `affects x`, of an async memo. */
+  | { k: 'refresh' | 'affects'; name: string };
 export type V =
   | { k: 'el'; tag: string; click?: S[]; kids: V[] }
   | { k: 'text'; s: string }
   | { k: 'hole'; e: E; ty: Ty }
   | { k: 'show'; c: E; then: V[]; else: V[] }
-  | { k: 'for'; each: E; item: string; body: V[] };
+  | { k: 'for'; each: E; item: string; body: V[] }
+  /** Plan v2.1 (gen-async.ts only): <Loading fallback>…</Loading> / RX `loading fallback { … } { … }`, and
+   *  <Errored fallback={(err) => …}> (`err`: the fallback names the error, unread) / `errored fallback(err) { … } { … }`. */
+  | { k: 'loading'; fallback: V[]; body: V[] }
+  | { k: 'errored'; fallback: V[]; body: V[]; err: boolean };
 export type Decl =
   | { k: 'signal'; name: string; v: string | number | boolean }
   | { k: 'store'; name: string; v: Record<string, unknown> }
@@ -422,6 +431,8 @@ export function pe(e: E, c: Pr): string {
     case 'not': return '!' + pe(e.e, c);
     case 'cond': return '(' + pe(e.c, c) + ' ? ' + pe(e.t, c) + ' : ' + pe(e.f, c) + ')';
     case 'rec': return '{ ' + e.fields.map(([k, v]) => k + ': ' + pe(v, c)).join(', ') + ' }';
+    case 'pending': return c.tsx ? 'isPending(() => ' + pe(e.e, c) + ')' : '(pending? ' + pe(e.e, c) + ')';
+    case 'latest': return c.tsx ? 'latest(() => ' + pe(e.e, c) + ')' : '(latest ' + pe(e.e, c) + ')';
   }
 }
 export const setter = (name: string) => 'set' + name[0].toUpperCase() + name.slice(1);
@@ -444,6 +455,7 @@ export function ps(s: S, c: Pr, hosts: Host[], indent: string): string[] {
     }
     case 'try': return [indent + 'try {', ...s.body.flatMap(x => ps(x, c, hosts, indent + '  ')), indent + '} catch (error) {', ...s.handler.flatMap(x => ps(x, c, hosts, indent + '  ')), indent + '}'];
     case 'call': return [indent + s.action + '(' + s.args.map(a => pe(a, c)).join(', ') + ');'];
+    case 'refresh': case 'affects': return [indent + (c.tsx ? s.k + '(' + s.name + ');' : s.k + ' ' + s.name + ';')];
   }
 }
 function handler(body: S[], c: Pr, hosts: Host[]): string {
@@ -468,6 +480,13 @@ export function pv(v: V, c: Pr, hosts: Host[]): string {
       const body = v.body.map(k => pv(k, c, hosts)).join('');
       if (!c.tsx) return '{for ' + v.item + ' in ' + pe(v.each, c) + ' { ' + body + ' }}';
       return '<For each={' + pe(v.each, c) + '}>{(' + v.item + ') => ' + (v.body.length === 1 ? body : '<>' + body + '</>') + '}</For>';
+    }
+    case 'loading': case 'errored': {
+      const list = (vs: V[]) => vs.map(k => pv(k, c, hosts)).join('');
+      const fb = v.fallback.length === 1 ? list(v.fallback) : '<>' + list(v.fallback) + '</>';
+      if (!c.tsx) return '{' + v.k + ' fallback' + (v.k === 'errored' && v.err ? '(err)' : '') + ' { ' + list(v.fallback) + ' } { ' + list(v.body) + ' }}';
+      if (v.k === 'loading') return '<Loading fallback={' + fb + '}>' + list(v.body) + '</Loading>';
+      return '<Errored fallback={' + (v.err ? '(err)' : '()') + ' => ' + fb + '}>' + list(v.body) + '</Errored>';
     }
   }
 }
@@ -540,6 +559,7 @@ function py(e: E, c: YCtx): string {
     case 'cond': return '(' + py(e.c, c) + ' ? ' + py(e.t, c) + ' : ' + py(e.f, c) + ')';
     case 'rec': return '{ ' + e.fields.map(([k, v]) => k + ': ' + py(v, c)).join(', ') + ' }';
     case 'src': throw new Error('a source read has a key');
+    case 'pending': case 'latest': throw new NoYield('async data (the yield subset lowers none)');
   }
 }
 /** An event's statements; `waited`: after an attempt, where no source is read. */
@@ -569,6 +589,7 @@ function ys(ss: S[], c: YCtx, hosts: Host[], indent: string, waited: boolean): s
         break;
       }
       case 'await': throw new NoYield('an await outside a try');
+      case 'refresh': case 'affects': throw new NoYield('async data (the yield subset lowers none)');
     }
   });
   return out;

@@ -48,6 +48,11 @@ frontend; and the plan fuzz on seeds 1..100 (four legs, full host logs) matches 
 value), an evaluated plan's `bindings` and `value`, and the host's eval table for the Rust consumer. They are new keys
 and node kinds only: a plan without eval sites is unchanged byte for byte, and every gate artifact here is.
 
+**Async data (v2.1).** "v2.1: async data" (the last section) adds an async memo over a host call, `loading` and
+`errored` views, the `pending` and `latest` probes and the `refresh` and `affects` steps, and structured, pure hosts.
+They are new keys and node kinds only, behind `"version": 2.1`: a program that uses none of them is emitted as the v2
+plan byte for byte, by either builder.
+
 ## Emitting: which schema
 
 `plan/emit.ts [--schema 1|2] INPUT [OUTPUT]` loads INPUT (`.rx`, `.tsx` or `.yield.tsx`) through its frontend and runs
@@ -509,6 +514,18 @@ not), so the plan alone cannot give the idiomatic tracker's keys; `ssr/` here is
 Chromium hydration, the scenario's frames), and `docs/RESULTS.md` has the results. Plans with eval sites (slice 3) are refused by the
 server renderer with a diagnostic.
 
+**v2.1 on the server** (rust-solid `docs/SSR.md`, "Async data and streaming"; `docs/RESULTS.md`, "Slice 5: async
+data"). A v2.1 plan renders on the server too, as Solid's `renderToString` (the Loading fallback and `"$$f"`) and as
+Solid's `renderToStream` (the shell, then each Loading boundary's content or failure as it lands, with the async memos'
+answers serialized for the client), chunk for chunk, under a server answer script: each server request (host, call per
+host, arguments) answered `now` (a settled promise) or `idle` (settled when the render is idle, in order). The plan
+fixes everything else: the async memo's request is `host(...args)` at the memo's creation, the boundaries are
+`createComponent(Loading|Errored, …)` as the TSX twin compiles them, the probes are `isPending`/`latest` arrows; the
+twin's text holes are the canonical ones above. Verified on tracker-async under four scripts and on the async
+generator's programs (seeds 1..3000) under the SSR fuzz's chooser; Chromium hydrates each stream after its shell and
+after its last chunk, and the client's requests continue the server's numbering (tracker-async's continuation is the
+recorded scenario from step 2).
+
 ## Gate
 
 `npm run verify:subset` runs `plan/plan.test.ts` (12 tests), `plan/plan-fuzz.test.ts` (5) and
@@ -551,3 +568,324 @@ checkout without a v2 consumer, `plan-trace` or `ssr` fails the Rust build step,
 ```sh
 npm run verify:subset   # PASS 106/106
 ```
+
+## v2.1: async data
+
+Plan v2.1 adds Solid 2's async data to plan v2: an **async memo** over one host call, the **`loading`** and
+**`errored`** views, the **`pending`** and **`latest`** probes, the **`refresh`** and **`affects`** steps, and hosts that
+are **pure** or return a **structured** type. It is additive. Every v2 plan is a v2.1 plan; the v2.1 builder emits a
+program that uses none of these forms as its v2 plan, byte for byte, still `"version": 2`; a plan that uses any of them
+says `"version": 2.1`, so a v2-only consumer refuses it by its version (a consumer whose `version` is an integer: a
+v2-only `scenario` prints `unsupported plan version None`, a v2-only `plan-trace` stops when it parses the plan,
+`invalid type: floating point `2.1`, expected u32`, and the fuzzers report that as `rust-unsupported`, never as
+agreement). rust-solid consumes v2.1 (its `docs/PLAN-V2-CONSUMER.md`, "Plan v2.1": Solid's `Loading` and `Errored`
+boundaries, tracked `isPending`/`latest` and `affects` are ported). The contract is the format-2.1 scenario
+`slices/tracker-async/tracker-async.scenario.json` (`docs/SCENARIO-FORMAT.md`, "Version 2.1").
+
+Solid 2 has no `createAsync` or `createResource` (solid `src/index.ts`, "Not Implemented": `createResource // all
+computations`): an async memo is `createMemo` whose function returns a promise (`signals/src/signals.ts:511`; the
+promise is handled by `handleAsync`, `core/async.ts:458`). `Loading` is the old `Suspense`, `Errored` the old
+`ErrorBoundary` (`solid/src/client/flow.ts:530`, `:442`, over `createLoadingBoundary` and `createErrorBoundary`,
+`signals/src/boundaries.ts:1038`, `:1069`).
+
+| File | What it is |
+| --- | --- |
+| `slices/tracker-async/tracker-async.tsx`, `.rx` | The slice in Solid TSX and RX. Equal canonical facts; they emit one plan. |
+| `slices/tracker-async/tracker-async.yield.tsx` | The yield twin. Refused, with documented diagnostics (below). |
+| `slices/tracker-async/api.d.rx` | `export pure fn loadIssues(): { id: number, title: string, assignee: string }[]` and `export fn assignIssue(id: number): string`. |
+| `slices/tracker-async/tracker-async.scenario.json` | Format 2.1, 18 steps, frames recorded from native Solid. |
+| `plan/tracker-async.plan.json` | The emitted v2.1 plan. Never handwritten; `.rx` and `.tsx` emit it byte for byte. |
+| `slices/tracker-async.test.ts` | The 9 gate tests (below). |
+
+**What is verified, and what is not.**
+
+- **Syntax we recognize.** RX: `x = await host(…)` as a memo's whole value, `loading fallback { … } { … }`, `errored
+  fallback(e) { … } { … }` (or `fallback { … }`), `pending? e`, `latest e`, `refresh x`, `affects x`. TSX, in the
+  frontend's **async tier** only (below): `const x = createMemo(() => host(…))`, `<Loading fallback={…}>`, `<Errored
+  fallback={(err) => …}>` (or `() => …`), `isPending(() => e)`, `latest(() => e)`, `refresh(x)`, `affects(x)`. The
+  builder accepts them under the rules of this section, minus its refusals.
+- **The verified subset** is the tracker-async slice plus the programs of the plan v2.1 fuzz ("Plan fuzz v2.1", below),
+  on the JS legs only:
+  - The slice: one async memo with no arguments, read by a `for` and by a `pending` probe, both inside one `loading`
+    inside one `errored`, an element child; `affects` at the head of an action, `refresh` after the action's await; a
+    plain `refresh` in the `errored` fallback's handler; the 18-step scenario. Native Solid, compiled TSX, compiled RX,
+    the plan built by `solid-plan.ts` and rust-solid running the plan emitted from TSX and from RX give every frame of it
+    (the gate runs Solid's dev builds; the production builds give the same frames), and on the recording host native
+    Solid, compiled RX, the plan and rust-solid's `plan-trace` give the same full host log, 399 entries.
+  - The fuzz's shapes (seeds 1..3000): one or two async memos (a list of records, a scalar) over pure hosts, with no
+    argument, a signal argument, or another async memo as argument; sync memos over them (a filter, a count, a sum of
+    two async memos); `loading`/`errored` as Errored > Loading, Loading > Errored, two Loadings under one Errored, a
+    Loading of its own around rows, a Loading (sometimes inside an Errored) inside a `for` row, an Errored around the
+    whole markup; as an element child (alone, beside a static sibling), a Show branch or fallback that toggles; `pending`
+    of an async memo, a derived memo or a sum, in text holes and in a `show.when` the compiler memoizes; `latest` of an
+    async or derived memo in a text hole; actions with `affects`, `refresh` before or after an await, a write of an async
+    memo's argument after an await, an action with no await, an action awaiting the scalar's own pure host; plain
+    refreshes racing actions, retries in Errored
+    fallbacks, argument changes and boundary toggles while requests are in flight; query and mutation rejections,
+    superseded requests settled late. Native Solid, compiled RX, `solid-plan.ts` and rust-solid's `plan-trace` give the
+    same frames and full host log, entry for entry.
+- **Recognized, not verified:** an async memo read in a probe of another expression shape than the fuzz's; a `loading` or `errored` in a position the fuzz does not generate (a direct `for` row, a
+  boundary's fallback); `latest` outside a text hole. The prose below says what Solid does on the slice's steps, with
+  the step numbers that show it; it is not a specification of Solid's async scheduler.
+- **Full readiness** is not claimed.
+
+**Selecting v2.1.** `emit.ts` runs the v2.1 builder for `--schema 2.1` or a slice scenario with `"version": 2.1`, and
+turns on the TSX frontend's async tier (`loadTsxModules(…, { async: true })`, `tsx/lower.ts` `LowerOptions.async`;
+`slices/run-js.ts` does the same for a format-2.1 scenario). Without it nothing changes: the v2 builder (`--schema 2`, a
+version-2 scenario) refuses every form here as before (`host loadIssues must be declared fn loadIssues(scalar…):
+scalar`, `unsupported expression await`, `refresh/affects are outside plan v2`, …), and the default TSX subset refuses
+`Loading`, `Errored`, `isPending`, `latest`, `refresh` and `affects` at their import ("outside the verified subset"),
+as `tsx/boundary.test.ts` requires. `--schema 3` and scenario version 3 are still refused.
+
+### Top level and hosts
+
+```json
+{ "version": 2.1, "component": "TrackerAsync",
+  "hosts": [{ "name": "assignIssue", "params": ["number"], "returns": "string" },
+            { "name": "loadIssues", "params": [], "returns": "{ id: number, title: string, assignee: string }[]", "pure": true }],
+  "sources": [Source…], "memos": [Memo…], "actions": [Action…], "markup": [View…] }
+```
+
+- `version`: `2.1` (a JSON number) when any form of this section occurs, else `2`.
+- `hosts[].returns`: a scalar type name, as in v2, or a structured type in `docs/EVAL.md`'s type grammar (`number`,
+  `string`, `boolean`, `T[]`, `{ key: T, … }`), printed canonically (`plan/types.ts` `printType`: `{ a: T, b: U }`,
+  `T[]`, an array item that is an array parenthesized). It comes from the `.d.rx` declaration. A resolved value must
+  conform exactly (integers; booleans; strings; arrays; records with exactly the type's keys); the scenario runner checks
+  it. In the program it is a fresh plain value: arrays and records, not store nodes, a new identity per resolution.
+- `hosts[].pure`: `true` when the declaration is `export pure fn`, absent otherwise. RX calls only pure hosts in
+  reactive scope (IO-2, `IO_IN_REACTIVE`), so an async memo's host is pure. `params` stay scalars.
+- A structured host or a pure host makes the plan v2.1.
+
+### Async memo
+
+```json
+{ "name": "issues", "await": { "host": "loadIssues", "args": [Expr…] } }
+```
+
+A `memos` entry, in declaration order with the others. Solid `createMemo(() => loadIssues(…args))`; RX `issues = await
+loadIssues(…)` (R-1); TSX `const issues = createMemo(() => loadIssues(…))`. The value is the whole awaited call: a
+first-paint value (`await … -> v`), a stream (`await*`), and an `await` inside a larger expression (upstream hoists it
+into its own memo) are refused.
+
+1. **Requests.** Each computation evaluates `args` in a reactive context (tracked, like a memo's value) and calls the host
+   once: a new pending request, numbered per host per mount as in v2. The memo computes when Solid creates it (call #1
+   is issued at mount, step 0), again when a tracked argument changes (not in the slice), and on `refresh`.
+2. **First load.** Until its first request resolves the memo has no value. A reactive read of it is *loading*: the
+   reading computation does not render, and the nearest enclosing `loading` view shows its fallback (step 0: `Loading
+   issues…`). A `pending` probe of a value that has none yet is loading too, not pending (`isPending`'s doc comment; the
+   slice's probe is inside the `loading`). Observed, not gated: with no `loading` above a loading read, nothing of the
+   root renders until it resolves (the frame is empty).
+3. **Landing.** On resolution the memo's value is the host's value and its readers recompute (step 1). A `for` over it
+   keys rows by identity, so every landing creates new rows (fresh records); frames do not show identity.
+4. **Rejection.** A read of the memo throws the error. The nearest enclosing `errored` view shows its fallback in place
+   of its content (step 7). With no `errored` above, Solid halts (`[REACTIVITY_HALTED]`) and the run fails, as any
+   uncaught error does in v2 (observed on a first-load rejection, not gated).
+5. **Re-asks.** Once content has shown, a recomputation keeps the previous value on screen until the new one lands; the
+   `loading` view does not fall back again (steps 3, 6, 11–13). A newer request supersedes an older one: the older
+   answer is discarded when it lands, whatever the order (step 14 lands request #6; step 15, request #5, changes
+   nothing).
+6. **Reactive reads only.** The builder refuses a read of an async memo in a handler or an action step.
+
+### Expressions
+
+| op | shape | value | Solid / RX |
+| --- | --- | --- | --- |
+| `pending` | `value`: Expr | `true` while a read inside `value` depends on an in-flight change of a value that already exists (a held write, a recomputation after a dependency changed, an `affects` mark; not a bare `refresh`), else `false`. Tracked: the context re-evaluates when it flips. `value` is evaluated inside the probe and its result dropped. | `isPending(() => value)` (`core/verdict.ts:384`); RX `pending? e` (R-9) |
+| `latest` | `value`: Expr | `value` read ahead of the held frame: an in-flight value where one exists. Recognized, **not verified**. | `latest(() => value)` (`core/verdict.ts:338`); RX `latest e` (R-12) |
+
+Both occur only in reactive contexts; each read inside is a CP-6 read with `probe: "pending"` or `"latest"`. For the
+compiler's condition rewrite (Markup, "Construction order") both count as dynamic: they are calls in the TSX twin.
+
+### Steps
+
+| op | shape | semantics | Solid / RX |
+| --- | --- | --- | --- |
+| `refresh` | `source`: an async memo | Re-ask: the memo recomputes, a new request. Quiet: by itself it does not make `pending` true. In an action it joins the action's transaction: the action's held writes land only with the refreshed value (step 3 holds `Assigned #1 to dev` until request #2 lands in step 4), and a rejected re-ask lands the transaction with its error (step 7: the `errored` fallback and the status write appear in one frame). Both claims' writes in steps 12–13 land together with the newest request (step 14; the status shows the later write). In a plain handler it is a plain re-ask: the failure stays on screen while it is in flight (step 8), and its landing recovers the `errored` view (step 9). Allowed in actions and plain handlers. | `refresh(issues)` (`signals/src/signals.ts:923`); RX `refresh issues` (AC-4) |
+| `affects` | `source`: an async memo | Marks the memo pending: `pending` of it reads `true` from this step until the action's transaction lands, or, if the memo's own request is still in flight then, until that request lands (steps 2–4, 5–7, 10–14, 16–17). Holds nothing and merges nothing. Actions only (RX infers a handler with `affects` as an action, AC-1b, so it reaches the plan as a lifted action). | `affects(issues)` (`signals/src/affects.ts:93`); RX `affects issues` (AC-5) |
+
+The slice's indicator needs `affects`: a bare `refresh` does not flip `isPending` (`isPending`'s doc comment: "pair it
+with `affects()`").
+
+### Views
+
+| kind | shape | semantics | Solid |
+| --- | --- | --- | --- |
+| `loading` | `fallback`: [View], `children`: [View] | Renders `children`; while a read under them is loading and they have not shown content yet, renders `fallback` instead. After content has shown, a re-ask keeps it (a held frame, no fallback). | `createComponent(Loading, { get fallback() {…}, get children() {…} })` (`flow.ts:530`); RX `loading fallback { … } { … }` (H-5) |
+| `errored` | `fallback`: [View], `children`: [View] | Renders `children`; while a read under them holds an error, renders `fallback` instead, its content gone. Recovers when the source that threw settles with a value (a `refresh` that lands: step 9). The error is not bound: a fallback that reads it is refused. Solid's `reset` is not in the schema. | `createComponent(Errored, { fallback: (err) => …, get children() {…} })` (`flow.ts:442`); RX `errored fallback(err) { … } { … }` (H-12) |
+
+- **Positions.** Either view is an element child, inserted as a dynamic child (`insert(el, createComponent(…), marker)`,
+  v2's marker rule), or sits in a component position (the markup, a Show branch, a For row, another boundary's
+  `children` or `fallback`). Its own `children` and `fallback` are component positions: text directly there is refused,
+  as in v2.
+- **Construction.** As the compiler emits the TSX twin: `Loading`'s `fallback` is a getter, `Errored`'s a function of
+  the error (one parameter: Solid's dev build logs the error of a fallback that cannot see it), and `children` a getter
+  on both. The host log is verified: the slice's (399 entries) and the plan v2.1 fuzz's, on production builds.
+- **Frames.** A fallback is ordinary content: its text is in the frame by v2's text rule, and since only text counts a
+  boundary adds nothing beyond what it shows (`docs/SCENARIO-FORMAT.md`, version 2.1).
+
+### The tracker-async plan
+
+The whole plan (`plan/tracker-async.plan.json`), one node per line:
+
+```json
+{"name": "status", "kind": "signal", "seed": {"op": "literal", "value": ""}}
+{"name": "issues", "await": {"host": "loadIssues", "args": []}}
+{"name": "claim", "params": ["id"], "steps": [
+ {"op": "affects", "source": "issues"},
+ {"op": "try", "body": [
+   {"op": "await", "host": "assignIssue", "args": [{"op": "local", "name": "id"}], "bind": "$await0"},
+   {"op": "refresh", "source": "issues"},
+   {"op": "write", "source": "status", "value": {"op": "add", "left": {"op": "add", "left": {"op": "add", "left": {"op": "literal", "value": "Assigned #"}, "right": {"op": "local", "name": "id"}}, "right": {"op": "literal", "value": " to "}}, "right": {"op": "local", "name": "$await0"}}}],
+  "catch": [{"op": "write", "source": "status", "value": {"op": "add", "left": {"op": "literal", "value": "Could not assign #"}, "right": {"op": "local", "name": "id"}}}]}]}
+{"kind": "element", "tag": "section", "events": [], "children": [
+ {"kind": "errored",
+  "fallback": [{"kind": "element", "tag": "p", "events": [], "children": [{"kind": "text", "value": {"op": "literal", "value": "Could not load issues"}}, {"kind": "element", "tag": "button", "events": [{"name": "onClick", "steps": [{"op": "refresh", "source": "issues"}]}], "children": [{"kind": "text", "value": {"op": "literal", "value": "retry"}}]}]}],
+  "children": [{"kind": "loading",
+   "fallback": [{"kind": "element", "tag": "i", "events": [], "children": [{"kind": "text", "value": {"op": "literal", "value": "Loading issues…"}}]}],
+   "children": [
+    {"kind": "element", "tag": "b", "events": [], "children": [{"kind": "text", "value": {"op": "cond", "test": {"op": "pending", "value": {"op": "read", "source": "issues"}}, "then": {"op": "literal", "value": "saving…"}, "else": {"op": "literal", "value": "ready"}}}]},
+    {"kind": "for", "each": {"op": "read", "source": "issues"}, "item": "issue", "key": "identity", "children": [{"kind": "element", "tag": "p", "events": [], "children": [{"kind": "text", "value": {"op": "get", "object": {"op": "local", "name": "issue"}, "key": "title"}}, {"kind": "text", "value": {"op": "literal", "value": ": "}}, {"kind": "text", "value": {"op": "or", "left": {"op": "get", "object": {"op": "local", "name": "issue"}, "key": "assignee"}, "right": {"op": "literal", "value": "nobody"}}}, {"kind": "element", "tag": "button", "events": [{"name": "onClick", "steps": [{"op": "call", "action": "claim", "args": [{"op": "get", "object": {"op": "local", "name": "issue"}, "key": "id"}]}]}], "children": [{"kind": "text", "value": {"op": "literal", "value": "take"}}]}]}]}]}]},
+ {"kind": "element", "tag": "em", "events": [], "children": [{"kind": "text", "value": {"op": "read", "source": "status"}}]}]}
+```
+
+### How the builder reads CP-6 for v2.1
+
+- An async memo is a `memo` computation whose call fact is the host; its arguments' reads are its read facts.
+- `loading` and `errored` open regions of those kinds. CP-6 walks a boundary's fallback in the **enclosing** region
+  first, then its content in the boundary's own region; the builder matches markup computations in that order. An
+  `errored` fallback's handlers are therefore computations of the enclosing region.
+- `refresh x` and `affects x` are write facts with op `refresh` / `affects` on the memo's `eq` symbol; `pending?` and
+  `latest` reads carry `probe`. Both directions are checked as in v2: every fact is encoded, every encoded read, write
+  and call is a fact.
+- New gaps, beyond v2's: the host's result type and purity come from the `.d.rx`, not CP-6; the async memo's shape (a
+  whole `await host(…)`) is AST-only; the `errored` error name is AST-only (refused if it shadows a resolved name).
+
+### Refused by the v2.1 builder
+
+Everything v2 refuses, and: `loading on(…)`; typed `errored fallback(e: A | B)`; branch declarations in a boundary; an
+`errored` error name that shadows a resolved name, and a fallback that reads the error (`unresolved err`); an async memo
+whose value is not exactly `await host(…)` (a first-paint value, a stream, a hoisted inner await); `refresh` or `affects`
+of anything but an async memo (`refresh targets an async memo in plan v2.1`; a source: `refresh/affects target an async
+memo in plan v2.1`; the checker itself refuses a refresh of a signal, `INVALID_REFRESH_TARGET`, and that diagnostic is
+never turned into a plan); `affects` in a plain handler; a read of an async memo in a handler or an action; a host not
+declared `[pure] fn name(scalar…): type`. Eval sites are allowed in a v2.1 plan (`docs/EVAL.md`, "Async data"): an
+async memo is typed by its host's result, so a site may bind it, and a pure host is bound as `pure host`. The TSX async tier also refuses `Errored`'s `reset`
+(a two-parameter fallback: "Errored's reset has no ReactiveScript spelling; retry with refresh(source) instead"),
+`Loading`'s `on`, an `Errored` fallback that is not `(err) => JSX` or `() => JSX`, reading the fallback's error, a block-bodied probe, and
+`refresh`/`affects` of anything but an async memo; async arrows stay refused as before (issue #20).
+
+**Yield.** The yield frontend lowers no async data, and solid-yield's documented dialect names no `isPending` or
+`affects`. `tracker-async.yield.tsx` is refused at its first async import, and the gate pins each refusal in turn:
+`affects` ("not in the yield subset: affects"), `Errored` ("Errored and typed failures are not in the yield subset
+yet"), `isPending` ("not in the yield subset: isPending"), `Loading` ("Loading needs async sources, which the yield
+subset does not lower"), `refresh` ("refresh needs a question source, which the yield subset does not lower"), and the
+async `$memo` ("async memos (attempt in $memo) are not in the yield subset"). `emit.ts` prints no plan for it.
+
+### Gate (v2.1)
+
+`slices/tracker-async.test.ts`, 11 tests, listed in `baselines/subset-tests.json`:
+
+1. TSX and RX have equal canonical facts (the async memo's call, `affects`/`refresh` writes, the pending probe, the
+   `errored`/`loading` regions, the fallback's handler in the component region).
+2. –4. The scenario's exact frames on native Solid, compiled TSX and compiled RX.
+5. The yield twin is refused with each documented diagnostic, at its site; `emit.ts` prints nothing for it.
+6. `.rx` and `.tsx` emit one plan through `emit.ts` (by scenario version and by `--schema 2.1`), byte-identical to
+   `plan/tracker-async.plan.json`, with the hosts above.
+7. The plan alone, built by `solid-plan.ts` with Solid's `createMemo`, `isPending`, `latest`, `refresh`, `affects`,
+   `Loading` and `Errored`, renders the scenario's exact frames.
+8. Additivity: `--schema 2.1` emits `tracker.plan.json` and `like.plan-v2.json` byte for byte from all three frontends;
+   the v2.1 builder with the TSX async tier gives the v2 builder's plan or refusal, byte for byte, for the RX and TSX
+   twins of plan-fuzz seeds 1..40; the v2 builder refuses the async program and the default TSX subset its imports; a
+   version-2 scenario may not declare a structured host result.
+9. The refusals above, by the builder and by the TSX async tier.
+10. Rust consumes the tracker-async plan freshly emitted from each accepted frontend (TSX, RX): rust-solid's `scenario`
+    binary gives the scenario's 18 frames from each (gated: `RUST_SCENARIO`).
+11. On the plan fuzz's recording host (`plan/fuzz/host.ts`, production builds), native Solid, compiled RX, the plan and
+    rust-solid's `plan-trace` give one full host log (399 entries) and the scenario's frames.
+
+Beside them, `plan/plan-fuzz.test.ts` has two v2.1 tests (generation is deterministic and the twins emit one plan or
+one refusal, seeds 1..12; seeds 1..10 on every leg, Rust included, full host logs), `tsx/verifier.test.ts`
+checks the v2.1 summary check, and `verify-pinned.sh` runs `scripts/plan-fuzz.ts --async` on seeds 1..100, checked by
+`report.ts` against `baselines/plan-fuzz-async.json` (below). `docs/EVAL.md`, "Async data", has the eval side.
+
+### Plan fuzz v2.1
+
+`plan/fuzz/gen-async.ts` generates async programs, twin for twin in TSX (the async tier) and RX, with their `.d.rx`
+(pure query hosts with structured or scalar results, mutation hosts), and a chooser that records a format-2.1 scenario
+on native Solid: clicks on live targets, and resolutions and rejections of pending requests in any order. Query
+requests resolve with fresh lists of 0..4 records (distinct ids) or scalars; they may be rejected, because the RX
+checker requires an `errored` above every reader of an async memo (`UNHANDLED_FAILURE`: a pure host may fail), so every
+generated reader has one. Mutation requests are awaited in a `try` and may be rejected. The shapes are listed under
+"What is verified". Family `outside` carries `*` or `-` over an async memo's count, which both frontends accept and the
+builder refuses.
+
+It is additive: `gen.ts` is unchanged except for the printers' new cases (`pending`, `latest`, `refresh`, `affects`,
+`loading`, `errored`), which v2 programs never reach, and the v2 fuzz's summaries are byte-identical (seeds 1..1000:
+`rust-solid/docs/plan-fuzz/summary-1-1000.json`). `npm run plan-fuzz -- --async --seeds N --start S` runs it
+(`.out/plan-fuzz/async-run-S-N/`), through the same `run.ts`, `leg.ts` and `host.ts` as v2: the recording host checks
+that a resolved value conforms exactly to the host's declared type, and hands the program a fresh copy per resolution.
+
+**Legs and outcomes.** Native Solid (the TSX twin), compiled RX (upstream's compiler and runtime), the plan built by
+`solid-plan.ts`, and rust-solid's `plan-trace`, each with full host logs. Outcomes are v2's plus one, kept for a
+v2-only Rust: `rust-unsupported`, when every JS leg equals native and `plan-trace` refuses the v2.1 plan by its
+version (exit 1, no trace, `invalid type: floating point `2.1`, expected u32` or `unsupported plan version …`). It is
+never agreement, and any other Rust failure is a failure. A JS leg that differs makes the program `divergent` whatever
+Rust does. Every program that does not agree gets a directory in the run's output with its files, plan, format-2.1
+scenario and every leg's trace. rust-solid's `plan-trace` consumes v2.1, so the gate's baseline
+(`baselines/plan-fuzz-async.json`) requires 0 `rust-unsupported`.
+
+**Results** (`.out/plan-fuzz/async-run-*/summary.json`; Solid's production builds):
+
+| seeds | agree | rust-unsupported | refused | divergent | invalid | generator bug |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1..1000 | 878 | 0 | 122 (64 `*`, 58 `-`) | 0 | 0 | 0 |
+| 1001..3000 (held out) | 1748 | 0 | 252 (134 `*`, 118 `-`) | 0 | 0 | 0 |
+| 1..100 (gate) | 84 | 0 | 16 (8 `*`, 8 `-`) | 0 | 0 | 0 |
+
+(Before rust-solid consumed v2.1 the same runs gave 878, 1748 and 84 `rust-unsupported` programs whose JS legs agreed.)
+On every program the emitter accepted, native Solid, compiled RX, `solid-plan.ts` and rust-solid give one result and one
+full host log: 17,015 scenario steps and 232,260 host log entries per leg (1..1000), 33,514 steps and 462,103 entries (held
+out). On the refused programs native and compiled RX agree too. Scenario features (1..1000, of 878 programs):
+overlapping requests 836, settled out of order 801, a superseded query request settled after the newer one 754, a query
+rejected 648 (a first load rejected 240), two mutations in flight 489, a mutation rejected 457, a re-ask while a first
+load is in flight 381, an argument change while a request is pending 245, a boundary toggled by a Show while pending
+193, a retry from an Errored fallback 167, an action without an await 137, a plain refresh racing an action 147, and
+(a program feature) a pure host awaited in an action 72. Coverage (1..1000, programs / occurrences): async memo
+878 / 1279, `loading` 878 / 1329, `errored` 878 / 1165, `refresh` 876 / 3463, `affects` 754 / 1218, `pending` 671 / 863,
+`latest` 117 / 123, sync memo 610 / 835, `for` 752 / 752, `show` 426 / 565.
+
+**Divergences found, by root cause: none.** No program diverged on any JS leg, before or after the generator gained
+its later shapes (chained queries, sums of two async memos, probes in memoized `show.when` conditions, row-level
+boundaries, boundaries in Show fallbacks, an Errored around the whole markup, actions with no await). To check that
+agreement is not vacuous, two deliberate consumer bugs were planted in `solid-plan.ts` and run on the fuzz (as the
+generator was then): a plain
+handler's `refresh` made a no-op (30 of 60 seeds divergent, `plan: request-step`), and `loading`'s fallback built
+eagerly instead of as a getter (23 of 30 divergent, `plan: createElement-createElement`). Both were reverted.
+`solid-plan.ts` was hardened where the schema says so and no valid plan reaches: a read of an async memo in a handler
+or action step, and `affects` in a plain handler, now fail the run.
+
+**Divergences on the Rust leg.** None in these runs. The Rust consumer was built against this fuzz's recorded traces;
+the root causes it found in the port (a staged error served as a value, a dormant fallback reawakened, a first effect
+run's lane) are in rust-solid's `docs/PLAN-V2-CONSUMER.md`, "Plan v2.1".
+
+**Remaining classes.**
+
+- *Refused* (the `outside` family): `unsupported operator *` and `-`; native and compiled RX agree on them.
+- No upstream (compiled-RX-only) class occurred: upstream's async memos, boundaries, probes, `refresh` and `affects`
+  give native's host log on every generated program.
+- *Not generated:* Loading's `on`, Errored's `reset`, a first-paint value or a stream, stores or optimistic sources
+  beside async memos (an optimistic source over an async memo is an async question, outside plan v2), and a reader of
+  an async memo with no `loading` above it (Solid then renders nothing of the root until the first value lands).
+
+**Reproduce.**
+
+```sh
+nix shell nixpkgs#nodejs_24 -c sh -c '
+  export RUST_SOLID=$PWD/../rust-solid
+  npm run plan-fuzz -- --async --seeds 1000 --start 1
+  npm run plan-fuzz -- --async --seeds 2000 --start 1001'
+```
+
+**Next (not done here):** `latest` in a scenario's held frames beyond text holes; Loading's `on` and Errored's `reset`
+in the schema (the Rust boundaries port has `reset`, not `on`). Done since: server rendering of async data, streamed and
+hydrated (rust-solid `docs/SSR.md`, "Async data and streaming"; "Server rendering (slice 5)" above).

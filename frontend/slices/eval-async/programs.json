@@ -1,0 +1,5 @@
+{
+  "A1": "issues = await loadIssues();\nsource status := \"\";\naction take(id: number) {\n  affects issues;\n  try {\n    let who = await assignIssue(id);\n    refresh issues;\n    status := \"Assigned #\" + id + \" to \" + who;\n  } catch (error) {\n    status := \"Could not assign #\" + id;\n  }\n}\n<div>{errored fallback { <p>Could not load<button onClick={() => { refresh issues }}>retry</button></p> } { loading fallback { <i>Loading</i> } { <b>{pending? issues ? \"saving\" : \"ready\"}</b>{for issue in issues { <p>{issue.title}: {issue.owner || \"nobody\"}<button onClick={() => { take(issue.id) }}>take</button></p> }} } }}<em>{status}</em></div>",
+  "B1": "<ul>{loading fallback { <i>outer loading</i> } { <b>{pending? list ? \"busy\" : \"idle\"}</b>{for it in list { <li>{it.title}</li> }} }}</ul>",
+  "T1": "const issues = createMemo(() => loadIssues());\nreturn (<p><Errored fallback={() => <i>failed</i>}><Loading fallback={<i>counting</i>}><u>{\"\" + issues().length + \" issues\"}</u></Loading></Errored></p>);"
+}

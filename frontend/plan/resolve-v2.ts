@@ -6,7 +6,7 @@ import { checkModules, type ModuleSet } from '../tsx/rx/compiler.ts';
 import { actionInference } from '../tsx/rx/infer.ts';
 import type { Expr, Stmt, Markup } from '../tsx/rx/ast.ts';
 import { evalSitesOf, type EvalSite } from '../eval/sites.ts';
-import { parseInterface, printInterface, sameInterface, type BindingDecl } from '../eval/interface.ts';
+import { InterfaceError, parseInterface, parseType, printInterface, sameInterface, type BindingDecl } from '../eval/interface.ts';
 import { printType, typePlan } from './types.ts';
 
 export type Scalar = string | number | boolean;
@@ -23,6 +23,8 @@ export type Expression =
   | { op: 'add' | 'eq' | 'ne' | 'lt' | 'le' | 'gt' | 'ge' | 'and' | 'or'; left: Expression; right: Expression }
   | { op: 'not'; value: Expression }
   | { op: 'cond'; test: Expression; then: Expression; else: Expression }
+  /** v2.1 (PLAN-V2.md, "v2.1: async data"): Solid's isPending(() => value) and latest(() => value). */
+  | { op: 'pending' | 'latest'; value: Expression }
   /** docs/EVAL.md: a value eval, the whole value of a memo. */
   | ({ op: 'eval' } & EvalNode & { type: HostType });
 /** An eval site in the enclosing plan (docs/EVAL.md): its code (a reactive string), each binding's inner name and the
@@ -37,23 +39,32 @@ export type Step =
   | { op: 'optimistic'; source: string; updater: Lambda }
   | { op: 'await'; host: string; args: Expression[]; bind: string }
   | { op: 'try'; body: Step[]; catch: Step[] }
-  | { op: 'call'; action: string; args: Expression[] };
+  | { op: 'call'; action: string; args: Expression[] }
+  /** v2.1: Solid's refresh(memo) and affects(memo), on an async memo. */
+  | { op: 'refresh' | 'affects'; source: string };
 export type View =
   | { kind: 'element'; tag: string; events: { name: string; steps: Step[] }[]; children: View[] }
   | { kind: 'text'; value: Expression }
   | { kind: 'show'; when: Expression; children: View[]; fallback: View[] }
   | { kind: 'for'; each: Expression; item: string; key: 'identity'; children: View[] }
   /** docs/EVAL.md: a markup eval, an element child. */
-  | ({ kind: 'eval' } & EvalNode);
+  | ({ kind: 'eval' } & EvalNode)
+  /** v2.1: Solid's <Loading fallback>children</Loading> and <Errored fallback={(err) => …}>children</Errored>. */
+  | { kind: 'loading' | 'errored'; fallback: View[]; children: View[] };
 export type HostType = 'number' | 'string' | 'boolean';
+/** A memo: a derived value, or (v2.1) an async memo over one host call, Solid's createMemo(() => host(…args)). */
+export type Memo = { name: string; value: Expression } | { name: string; await: { host: string; args: Expression[] } };
+/** A host's result: a scalar type name, or (v2.1) a structured type in the eval interface grammar (printType's form). */
+export type Host = { name: string; params: HostType[]; returns: string; pure?: true };
 export type Plan = {
-  version: 2;
+  /** 2, or 2.1 when the plan uses any v2.1 form (PLAN-V2.md, "v2.1: async data"). */
+  version: 2 | 2.1;
   component: string;
-  hosts: { name: string; params: HostType[]; returns: HostType }[];
+  hosts: Host[];
   /** Evaluated code only (docs/EVAL.md). */
   bindings?: InnerBinding[];
   sources: { name: string; kind: 'signal' | 'store' | 'optimistic'; seed: Expression }[];
-  memos: { name: string; value: Expression }[];
+  memos: Memo[];
   actions: { name: string; params: string[]; steps: Step[] }[];
   markup: View[];
   /** A value eval's code (docs/EVAL.md): its one expression. */
@@ -94,7 +105,9 @@ export function confident(e: Expr): Confident {
 /** `bindings`: the plan is evaluated code (docs/EVAL.md, eval/compile.ts). The frontend declared each binding at the top
  *  of the component (a placeholder source, or an action with an empty body); they become the plan's `bindings`, and any
  *  write to one is refused. */
-export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] } = {}): Plan {
+/** `async`: also accept plan v2.1's forms (PLAN-V2.md, "v2.1: async data"); a plan that uses none of them is the v2
+ *  plan byte for byte. Without it (the v2 builder) they are refused as before. */
+export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean } = {}): Plan {
   const checked = checkModules(set);
   if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
   if (set.order.length !== 1) throw new Error('plan v2 supports one RX module plus host imports');
@@ -111,6 +124,9 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
   const symbol = (name: string) => { const s = symbols.find(s => s.name === name); if (!s) throw new Error('unresolved ' + name); return s; };
   type Comp = typeof model.computations[number];
   type Sym = typeof model.symbols[number];
+  // v2.1: the async memos (`x = await host(…)`), known before any body that refreshes or probes them is read.
+  const asyncNames = new Set(opts.async ? entry.decls.flatMap(d => d.k === 'eq' && d.e.k === 'await' ? [d.name] : []) : []);
+  let v21 = false;
   const comp = (kind: string, name: string) => { const c = model.computations.find(c => c.region === region.id && c.kind === kind && c.name === name); if (!c) throw new Error('missing computation ' + kind + ':' + name); return c; };
 
   // Each used computation collects the facts its plan encodes; finish() requires them to equal CP-6's exactly.
@@ -144,6 +160,8 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
         if (locals.has(e.name)) return locals.get(e.name)!;
         const sym = symbol(e.name);
         if (!reactive(sym)) throw new Error('not a value: ' + e.name);
+        if (asyncNames.has(sym.name) && (s.c.kind === 'handler' || s.c.kind === 'action'))
+          throw new Error('an async memo is read only in reactive contexts in plan v2.1: ' + e.name);
         if (!s.c.reads.some(r => r.sym === sym.id)) throw new Error('read absent from CP-6: ' + e.name);
         s.reads.add(sym.id);
         return { op: 'read', source: sym.name };
@@ -162,6 +180,10 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
         if (e.op === '!') return { op: 'not', value: expression(e.e, s, locals) };
         throw new Error('unsupported operator ' + e.op);
       case 'if': return { op: 'cond', test: expression(e.c, s, locals), then: expression(e.t, s, locals), else: expression(e.f, s, locals) };
+      case 'pending': case 'latest':
+        if (!opts.async) throw new Error('unsupported expression ' + e.k);
+        v21 = true;
+        return { op: e.k, value: expression(e.e, s, locals) };
       case 'call': {
         if (e.f.k !== 'id' || !BUILTIN[e.f.name] || symbols.some(x => x.name === (e.f as { name: string }).name) || e.args.length !== 2) throw new Error('unsupported call');
         return { op: BUILTIN[e.f.name], array: expression(e.args[0], s, locals), ...lambda(e.args[1], s, locals) } as Expression;
@@ -203,6 +225,17 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
       if (a.kind !== 'action' || !s.c.calls.includes(a.id)) throw new Error('action call absent from CP-6');
       s.calls.add(a.id);
       return [{ op: 'call', action: a.name, args: call.args.map(x => expression(x, s, locals)) }];
+    }
+    if ((st.k === 'refresh' || st.k === 'affects') && opts.async) {
+      // v2.1: Solid's refresh(memo) / affects(memo), on an async memo. affects marks pending until the action's
+      // transaction lands, so it is an action step; a plain refresh is a quiet re-ask.
+      if (st.k === 'affects' && !inAction) throw new Error('affects is an action step');
+      const target = symbol(st.name);
+      if (target.kind !== 'eq' || !asyncNames.has(target.name)) throw new Error(st.k + ' targets an async memo in plan v2.1: ' + st.name);
+      if (!s.c.writes.some(w => w.sym === target.id && w.op === st.k && !w.path)) throw new Error(st.k + ' absent from CP-6');
+      s.writes.add(target.id + ' ' + st.k);
+      v21 = true;
+      return [{ op: st.k, source: target.name }];
     }
     if (st.k !== 'write' && st.k !== 'optimistic') throw new Error('unsupported step ' + st.k);
     if (st.target.ctx) throw new Error('context writes are outside plan v2');
@@ -251,10 +284,13 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
     if (!imp || imp.k !== 'import' || !imp.declared) throw new Error('host ' + sym.name + ' needs a declaration file');
     const name = imp.names.find(n => n.alias === sym.name)!.name;
     const decl = set.declarations?.get(imp.declared)?.find(d => d.name === name);
-    if (!decl || decl.kind !== 'fn' || decl.pure || decl.rejects || decl.side || !decl.ret || !TYPES.has(decl.ret) || decl.ptypes?.length !== decl.params.length || !decl.ptypes.every(t => t && TYPES.has(t)))
-      throw new Error('host ' + sym.name + ' must be declared fn ' + name + '(scalar…): scalar');
+    // v2.1: a host may be pure (a query: RX calls only pure hosts in reactive scope, IO-2) and return a structured type.
+    const returns = decl?.kind === 'fn' && decl.ret && opts.async ? hostResult(decl.ret) : decl?.kind === 'fn' && decl.ret && TYPES.has(decl.ret) ? decl.ret : undefined;
+    if (!decl || decl.kind !== 'fn' || (decl.pure && !opts.async) || decl.rejects || decl.side || !returns || decl.ptypes?.length !== decl.params.length || !decl.ptypes.every(t => t && TYPES.has(t)))
+      throw new Error('host ' + sym.name + ' must be declared fn ' + name + '(scalar…): ' + (opts.async ? 'type (pure allowed)' : 'scalar'));
     if (name !== sym.name) throw new Error('aliased host imports are outside plan v2');
-    plan.hosts.push({ name, params: decl.ptypes as HostType[], returns: decl.ret as HostType });
+    if (decl.pure || !TYPES.has(returns)) v21 = true;
+    plan.hosts.push({ name, params: decl.ptypes as HostType[], returns, ...(decl.pure ? { pure: true as const } : {}) });
   }
   for (const sym of symbols.filter(s => s.region === region.id)) {
     const d = entry.decls.find(d => 'name' in d && d.name === sym.name);
@@ -284,7 +320,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
       if (!d || d.k !== 'source' || d.key || d.type) throw new Error('source shape unsupported: ' + sym.name);
       const writes = model.computations.flatMap(c => c.writes.filter(w => w.sym === sym.id));
       const optimistic = writes.some(w => w.op === 'optimistic'), store = writes.some(w => w.path);
-      if (writes.some(w => w.op !== 'write' && w.op !== 'optimistic')) throw new Error('refresh/affects are outside plan v2');
+      if (writes.some(w => w.op !== 'write' && w.op !== 'optimistic')) throw new Error(opts.async ? 'refresh/affects target an async memo in plan v2.1: ' + sym.name : 'refresh/affects are outside plan v2');
       if (!!sym.question !== !!d.question) throw new Error('question mismatch');
       if (sym.question !== optimistic) throw new Error(optimistic ? 'an optimistic source must be derived (createOptimistic(fn))' : 'async questions are outside plan v2');
       if (optimistic && store) throw new Error('optimistic stores are outside plan v2');
@@ -300,7 +336,12 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
     } else if (sym.kind === 'eq') {
       if (!d || d.k !== 'eq' || d.deferred || d.key) throw new Error('memo shape unsupported: ' + sym.name);
       const site = sites.get(d);
-      if (site) {
+      if (asyncNames.has(sym.name) && d.e.k === 'await') {
+        // v2.1: an async memo, the whole value one awaited host call (R-1): Solid's createMemo(() => host(…args)).
+        if (d.e.init || d.e.stream) throw new Error('an async memo is await host(…), without a first-paint value or a stream: ' + sym.name);
+        plan.memos.push({ name: sym.name, await: host(d.e.e, seen(comp('memo', sym.name)), new Map()) });
+        v21 = true;
+      } else if (site) {
         plan.memos.push({ name: sym.name, value: evalNode({ op: 'eval' as const }, site, seen(comp('memo', sym.name)), new Map(), { type: site.options.type! }) as Expression });
       } else plan.memos.push({ name: sym.name, value: expression(d.e, seen(comp('memo', sym.name)), new Map()) });
     } else if (sym.kind === 'action') {
@@ -325,7 +366,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
     return c;
   };
   const opened = new Map<string, number>();
-  const child = (parent: number, kind: 'then' | 'else' | 'for'): number => {
+  const child = (parent: number, kind: 'then' | 'else' | 'for' | 'loading' | 'errored'): number => {
     const key = parent + ' ' + kind, n = opened.get(key) ?? 0;
     const r = model.regions.filter(x => x.parent === parent && x.kind === kind)[n];
     if (!r) throw new Error(kind + ' region absent from CP-6');
@@ -401,6 +442,17 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
         const each = expression(m.xs, seen(take('reader', /^for$/, r)), locals);
         const rows = new Map(locals).set(m.name, { op: 'local', name: m.name });
         out.push({ kind: 'for', each, item: m.name, key: 'identity', children: markup(m.body, child(r, 'for'), rows) });
+      } else if ((m.k === 'loading' || m.k === 'errored') && opts.async) {
+        // v2.1: CP-6 walks the fallback in the enclosing region, then the content in the boundary's own region.
+        if (m.decls.length) throw new Error(m.k + ' declarations are outside plan v2.1');
+        if (m.k === 'loading' && m.on) throw new Error('loading on(…) is outside plan v2.1');
+        if (m.k === 'errored' && m.classes) throw new Error('typed errored boundaries are outside plan v2.1');
+        // The error is not bound: a fallback that reads it is refused (it fails to resolve), as a catch's is.
+        if (m.k === 'errored' && m.errName && (locals.has(m.errName) || symbols.some(x => x.name === m.errName)))
+          throw new Error('an errored fallback\'s error name shadows a resolved name: ' + m.errName);
+        const fallback = markup(m.fallback, r, locals);
+        out.push({ kind: m.k, fallback, children: markup(m.body, child(r, m.k), locals) });
+        v21 = true;
       } else throw new Error('unsupported markup ' + m.k);
     }
     return out;
@@ -417,6 +469,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
     if (v.kind === 'element') v.children.forEach(visit);
     else if (v.kind === 'show') { component(v.children); component(v.fallback); }
     else if (v.kind === 'for') component(v.children);
+    else if (v.kind === 'loading' || v.kind === 'errored') { component(v.children); component(v.fallback); }
   };
   plan.markup = markup(entry.view, region.id, new Map());
   component(plan.markup);
@@ -425,7 +478,13 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[] }
   if (missing.length) throw new Error('CP-6 computations absent from the plan: ' + missing.map(c => c.kind + ':' + (c.name ?? c.at)).join(', '));
   finish();
   if (evalNodes.length) deriveInterfaces(plan, entry.decls, evalNodes);
+  if (v21) plan.version = 2.1;
   return plan;
+}
+
+/** v2.1: a host's declared result, printed canonically (eval/interface.ts's type grammar; a scalar is its name). */
+function hostResult(ret: string): string | undefined {
+  try { return printType(parseType(ret)); } catch (e) { if (e instanceof InterfaceError) return undefined; throw e; }
 }
 
 /** docs/EVAL.md, "Bindings and their types": each eval site's interface is derived from the enclosing plan's types
@@ -437,7 +496,7 @@ function deriveInterfaces(plan: Plan, decls: { k: string; name?: string; ptypes?
   for (const { node, site } of nodes) {
     const ds: BindingDecl[] = node.bindings.map(b => {
       const host = plan.hosts.find(h => h.name === b.target);
-      if (host) return { name: b.name, kind: 'host', params: [...host.params], returns: host.returns };
+      if (host) return { name: b.name, kind: 'host', params: [...host.params], returns: host.returns, ...(host.pure ? { pure: true as const } : {}) };
       const t = typed.names.get(b.target);
       if (!t) throw new Error('eval binding ' + b.name + ': the type of ' + b.target + ' cannot be derived (' + (typed.errors.join('; ') || 'untyped') + ')');
       if (t.kind === 'action') return { name: b.name, kind: 'action', params: t.params.map(p => p.k as HostType) };

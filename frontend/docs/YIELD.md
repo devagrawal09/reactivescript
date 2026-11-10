@@ -66,6 +66,11 @@ Outside the subset: `$effect`, `$cleanup`, `$optimisticStore`, `$projection`, co
 async memos, derived `$signal`/`$store` bodies, options, row setup other than parameterless row events, `For`'s index,
 and attributes other than event bindings.
 
+Plan v2.1's async data (`slices/tracker-async/`, plan/docs/PLAN-V2.md "v2.1: async data") has no yield lowering: its
+yield twin, `tracker-async.yield.tsx`, is refused at each async import in turn (`affects`, `Errored`, `isPending`,
+`Loading`, `refresh`) and at its async `$memo`, and `slices/tracker-async.test.ts` pins every one of those diagnostics.
+solid-yield's documented dialect names no `isPending` or `affects`, so the slice's indicator has no yield spelling.
+
 Accepted yield code that would behave differently from its RX lowering is refused, as #20 refuses ordinary async
 callbacks:
 

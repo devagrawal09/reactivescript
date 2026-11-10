@@ -4,7 +4,11 @@
     "browser.ts",
     "run.ts",
     "server-leg.ts",
+    "run-async.ts",
+    "stream-leg.ts",
+    "stream-core.ts",
     "ssr.test.ts",
+    "ssr-async.test.ts",
     "../scripts/ssr-fuzz.ts",
     "../scripts/ssr-corpus.ts"
   ]

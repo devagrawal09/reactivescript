@@ -10,14 +10,19 @@
 import * as S from 'solid-js';
 import * as U from '@solidjs/universal';
 import * as W from '@solidjs/web';
+import { parseType } from '../../eval/interface.ts';
+import { conforms } from '../types.ts';
 
 export type Scalar = string | number | boolean;
-export type HostSig = { name: string; parameters: ('number' | 'string' | 'boolean')[]; returns: 'number' | 'string' | 'boolean'; async: true };
+/** A host value: a scalar, or (scenario format 2.1) an array or record of host values. */
+export type HostValue = Scalar | HostValue[] | { [key: string]: HostValue };
+/** `returns`: a scalar type name, or (format 2.1, plan v2.1) a structured type in docs/EVAL.md's grammar. */
+export type HostSig = { name: string; parameters: ('number' | 'string' | 'boolean')[]; returns: string; async: true };
 export type Target = { text: string; parent?: string; index: number };
 export type ScenarioStep = ({ type: 'mount' } | { type: 'click'; element: number } | { type: 'click'; target: Target } |
-  { type: 'resolve'; host: string; call: number; args?: Scalar[]; value: Scalar } |
+  { type: 'resolve'; host: string; call: number; args?: Scalar[]; value: HostValue } |
   { type: 'reject'; host: string; call: number; args?: Scalar[]; error: string }) & { frame: string };
-export type Scenario = { version: 2; name: string; fixture: string; host: HostSig[]; steps: ScenarioStep[] };
+export type Scenario = { version: 2 | 2.1; name: string; fixture: string; host: HostSig[]; steps: ScenarioStep[] };
 export type Trace = { result: { frames: string[] } | { error: string }; log: unknown[] };
 /** What the recording driver may choose from after each step (the generator's chooser decides). */
 export type Live = {
@@ -108,13 +113,13 @@ export function createHost() {
   };
 
   // ---- hosts: every call is a new pending request ----
-  type Request = { host: string; number: number; args: Scalar[]; resolve: (v: Scalar) => void; reject: (e: Error) => void; pending: boolean };
+  type Request = { host: string; number: number; args: Scalar[]; resolve: (v: HostValue) => void; reject: (e: Error) => void; pending: boolean };
   const requests: Request[] = [];
   const typeOk = (v: unknown, t: string) => typeof v === t && (t !== 'number' || Number.isInteger(v));
   const api = (sigs: HostSig[]) => Object.fromEntries(sigs.map(h => [h.name, (...args: Scalar[]) => {
     if (args.length !== h.parameters.length || args.some((a, i) => !typeOk(a, h.parameters[i]))) throw new Error(h.name + ' called with ' + JSON.stringify(args));
     const number = requests.filter(r => r.host === h.name).length + 1; log.push(['request', h.name, number, args.map(enc)]);
-    return new Promise<Scalar>((resolve, reject) => requests.push({ host: h.name, number, args, resolve, reject, pending: true }));
+    return new Promise<HostValue>((resolve, reject) => requests.push({ host: h.name, number, args, resolve, reject, pending: true }));
   }]));
 
   // ---- settled actions: ['action', name, null | message], attached when the action is called ----
@@ -172,7 +177,13 @@ export function createHost() {
           if (!r) throw new Error('step ' + index + ': ' + step.host + ' call #' + step.call + ' was not issued');
           if (!r.pending) throw new Error('step ' + index + ': ' + step.host + ' call #' + step.call + ' is already settled');
           if (step.args && JSON.stringify(r.args) !== JSON.stringify(step.args)) throw new Error('step ' + index + ': arguments');
-          r.pending = false; if (step.type === 'resolve') r.resolve(step.value); else r.reject(new Error(step.error));
+          // The resolved value must be the host's declared type exactly (format 2.1: structured results; records with
+          // exactly the type's keys). Each resolution hands the program a fresh copy, as a host's JSON would be.
+          if (step.type === 'resolve') {
+            const sig = scenario.host.find(h => h.name === step.host);
+            if (!sig || !conforms(step.value, parseType(sig.returns))) throw new Error('step ' + index + ': ' + step.host + ' resolved with a value outside ' + (sig?.returns ?? 'an undeclared host'));
+          }
+          r.pending = false; if (step.type === 'resolve') r.resolve(typeof step.value === 'object' ? structuredClone(step.value) : step.value); else r.reject(new Error(step.error));
         }
         await settle();
         try { check(() => null); } catch (e) { throw new Error('step ' + index + ': ' + (e as Error).message); }

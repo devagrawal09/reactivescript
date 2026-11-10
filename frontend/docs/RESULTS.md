@@ -6,6 +6,117 @@ runs the integrated gate. The checkout names below (frontend-tracker, rust-track
 `/workspace/rx-tsx-refresh/...` paths) record where each measurement was taken; `docs/HISTORY.md` at the repository
 root records the branches they came from.
 
+## Slice 5: async data (renderToStream, renderToString, streamed hydration)
+
+Measured 2026-11-09 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Chromium 143, Solid 2105ffb8 rc.21,
+reactivescript fdbcad92), uncommitted, on top of the sections below. rust-solid's server renderer now renders plan v2.1
+apps (async memos, `Loading`, `Errored`, `isPending`, `latest`) as Solid's `renderToString` and, under a server answer
+script, as Solid's `renderToStream`, chunk for chunk (rust-solid `docs/SSR.md`, "Async data and streaming": a structural
+port of the server builds' async paths, of `renderToStream`, of the hydration serializer and of seroval 1.7.0's
+`crossSerializeStream`, over a ported JS event loop). The oracle is `ssr/stream-core.ts`, `ssr/stream-leg.ts`,
+`ssr/run-async.ts` and `ssr/browser.ts`'s `hydrateStream`; the fuzz is `scripts/ssr-fuzz.ts --async`. The gate, the
+tests and both SSR fuzz v2.1 ranges ran on the final code (the summaries are rust-solid `docs/ssr-fuzz/summary-async-*.json`);
+the Rust tiers, `plan-diff` and the 1–1000 runs of the existing fuzzers ran on it before a last dead-code cleanup in
+`ssr/boundary.rs`, after which the v2 SSR fuzz 1–1000 was rerun (byte-identical).
+
+| Check | Result |
+| --- | --- |
+| Kept tests | `npm run verify:subset`: PASS 131/131 (124 before, plus the 7 of `ssr/ssr-async.test.ts`), 0 failed/skipped/todo/cancelled; the new gate step, the SSR fuzz v2.1 on seeds 1–100, 84 agree and 16 refused (`baselines/ssr-fuzz-async.json`); every other summary unchanged (fuzz 179 + 21 listed; plan, eval, SSR fuzz 85 + 15; plan and eval fuzz v2.1 84 + 16); strict types 0 package diagnostics, 12 upstream (baseline) |
+| rust-solid | `cargo test` 166 (156 before, none deleted, plus 6 in `tests/ssr_async.rs` and 4 unit tests in `src/ssr/js.rs` and `src/ssr/seroval.rs`; `tests/plan_v21.rs`'s refusal test now pins the renderToString HTML); `--slice1/2a/2b/2c/--render/--strings` and `--boundaries` on 1–1000 `--no-reduce` byte-identical to the recorded summaries; tracker, like and tracker-async scenarios pass; `plan-diff` tracker 453/453, like 34/34, tracker-async 399/399; fmt, clippy `-D warnings`, `git diff --check` clean |
+| Tracker-async, four server answer scripts | `idle` (loadIssues #1 answered after the shell: 2 chunks), `now` (before it: 1 chunk), `idle-reject`, `now-reject`: Rust's stream equals Solid's event for event (chunks, settlements, end) and byte for byte; renderToString HTML equal (the Loading fallback and `"$$f"`) |
+| Tracker-async in Chromium | Rust's and Solid's streams fed chunk by chunk and hydrated after the shell and after the last chunk (production builds) and after the shell (dev builds): no element created, none unclaimed, nothing on the console; stream frames `Loading issues…` then step 1's (`idle`) or step 1's (`now`); then the scenario continues from step 2 (the client's `loadIssues #2` is the scenario's), all 16 frames equal to native Solid's recording. Each renderToString HTML hydrates and replays all 18 steps from mount |
+| Tracker-async, rejected first load | the failure fragment carries `Errored`'s fallback (`<template id="200" e>`) and the wire error `new Error("Internal Server Error")` under the boundary's id; hydrated, `retry` asks the client's `loadIssues #2` and shows the issues; after the shell Solid's client renders that fallback fresh (by design, #4287), after the last chunk it claims it, and Rust's stream is treated the same in each mode |
+| Fail closed | a changed byte is a stream difference; a changed key in a chunk makes the client build the row fresh (prod) and warn "Hydration key miss" (dev); a changed text fails a frame |
+| SSR fuzz v2.1, seeds 1–1000 | 878 agree, 0 stream, HTML or hydration differences, 0 Rust refusals, 122 refused by the emitter (64 `*`, 58 `-`), 0 invalid; 1,950,289 stream bytes in 1,685 chunks (629 multi-chunk streams, 106 failure fragments, 201 server rejections), 180,607 renderToString bytes, 7,024 hydrations (16,146 continuation steps, 17,015 from mount) |
+| SSR fuzz v2.1, seeds 1001–3000 (held out) | 1747 agree, 0 differences, 0 Rust refusals, 252 refused (134 `*`, 118 `-`), 1 invalid: seed 1916, where Solid's own renderToString HTML, hydrated, does not replay native Solid's scenario (a `Show` toggled around `Errored` > `Loading` > `Loading` after a rejection shows nothing); Rust's HTML fails the same way; 3,958,861 stream bytes in 3,427 chunks, 13,976 hydrations |
+| SSR fuzz v2.1, gate (1–100) | 84 agree, 16 refused, 0 differences (`baselines/ssr-fuzz-async.json`) |
+| Existing fuzz, 1–1000 | v2 plan, eval and SSR (`--dev`) fuzz, and the plan v2.1 and async eval fuzz: summaries byte-identical to rust-solid `docs/plan-fuzz/summary-1-1000.json`, `docs/eval/summary-1-1000.json`, `docs/ssr-fuzz/summary-1-1000.json`, `docs/plan-fuzz/summary-async-1-1000.json`, `docs/eval/summary-async-1-1000.json` |
+
+What a hydration run compares: each Rust run (after the shell and after the last chunk, production builds; after the
+shell, dev builds) against the run of Solid's own stream in the same mode, which records the continuation with the
+program's chooser: the frames after the shell and after each chunk, every continuation frame, the hydrated DOM, the
+elements the client created instead of claiming, the keyed elements it left unclaimed, and the console. Solid's own
+runs are not uniform, and the summary keeps what they observed as notes (`notes` in `summary.json`): the dev builds log
+the errors the client's boundaries catch (rejections in the continuation, and the server's wire error the client
+adopts); after the shell, a streamed failure's fallback is
+rendered fresh; and an `<Errored>` over two `<Loading>`s, one failing and the other landing after it, ends with the
+second boundary's content and no fallback when hydrated after the shell, with the fallback when hydrated after the last
+chunk (a suspected Solid rc.21 bug, not filed). Every Rust run observed exactly what Solid's did.
+
+## Plan v2.1 on Rust: the v2.1 consumer and Solid's boundaries ported
+
+Measured 2026-11-09 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Solid 2105ffb8 rc.21, reactivescript
+fdbcad92), uncommitted, on top of the two sections below. rust-solid now consumes plan v2.1 (its
+`docs/PLAN-V2-CONSUMER.md`, "Plan v2.1"): Solid's `Loading`/`Errored` boundaries, tracked `isPending`/`latest` and
+`affects()` are ported structurally (its `docs/BOUNDARIES-COVERAGE.md`), and a `--boundaries` fuzz checks the boundaries
+against Solid directly.
+
+| Check | Result |
+| --- | --- |
+| Kept tests | `npm run verify:subset`: PASS 124/124 (123 before, plus `slices/tracker-async.test.ts :: plan v2.1: Rust consumes the tracker-async plan freshly emitted from each accepted frontend (TSX, RX)`); the four v2.1 tests that had Rust `rust-unsupported` now require Rust's trace to equal native's (renamed in `baselines/subset-tests.json`); strict types 0 package diagnostics, 12 upstream (baseline) |
+| Tracker-async, Rust | rust-solid's `scenario` gives all 18 frames from the plan emitted by `.tsx` and by `.rx`; `plan-trace` gives native Solid's 399-entry host log (the yield twin is refused, so TSX and RX are the accepted syntaxes) |
+| Plan v2.1 fuzz 1–1000 | 878 agree on all four legs (Rust included), 0 `rust-unsupported`, 122 refused, 0 divergent, invalid or generator bug; 17,015 steps, 232,260 host log entries per leg |
+| Plan v2.1 fuzz 1001–3000 (held out) | 1748 agree, 0 `rust-unsupported`, 252 refused, 0 divergent, invalid or generator bug; 33,514 steps, 462,103 entries per leg |
+| Async eval fuzz 1–1000 / 1001–3000 | 878 / 1748 agree (Rust with the host's eval table), 0 `rust-unsupported`, 122 / 252 refused (every leg, Rust's included, fails with the refusal), 0 divergent |
+| Plan v2.1 and async eval fuzz (gate, 1–100) | 84 agree, 0 `rust-unsupported`, 16 refused each (`baselines/plan-fuzz-async.json`, `baselines/eval-fuzz-async.json` updated) |
+| v2 plan, eval and SSR fuzz (gate, 1–100), TSX fuzz 0–199 | unchanged: 85 agree and 15 refused each; 179 agree and 21 listed |
+| rust-solid | `cargo test` 156 (132 + 14 `tests/boundaries.rs` + 10 `tests/plan_v21.rs`); `--slice1/2a/2b/2c/--render/--strings` 1–1000 `--no-reduce` byte-identical to the recorded summaries; `--boundaries` 985/1000 and 1979/2000 (every valid program; the 36 others hang in Solid itself, a suspected Solid bug); `plan-diff` tracker 453/453, like 34/34, tracker-async 399/399; fmt, clippy `-D warnings`, `git diff --check` clean |
+
+Root causes found in the Rust port (none in the frontend): a staged error served as a value (Solid hands a lane reader the
+`StatusError` object; the port had failed closed there), a dormant lazy fallback reawakened, and a user effect's first
+run queued in the creator's lane when the node has no extension (`node._x?._transaction` is `undefined`, so `enqueue`
+defaults to `passLane`). Rust's slice-1 driver now runs the host's 32 microtask turns per `drain` as `fuzz/solid.mjs`
+does (a never-ending microtask chain stops being observed, as in JS).
+
+## Plan v2.1: the JS consumer's host log, the plan v2.1 fuzz, async data in evaluated code
+
+Measured 2026-11-09 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Solid 2105ffb8 rc.21, reactivescript
+fdbcad92), uncommitted, on top of the tracker-async slice below. Schema, fuzz and root causes: `plan/docs/PLAN-V2.md`,
+"Plan fuzz v2.1"; evaluated code: `docs/EVAL.md`, "Async data".
+
+| Check | Result |
+| --- | --- |
+| Kept tests | `npm run verify:subset`: PASS 123/123 (115 before, plus 8: the tracker-async host log, 2 plan v2.1 fuzz tests, 2 eval v2.1 tests, the 2 tests of `slices/eval-async.test.ts`, the v2.1 summary check in `tsx/verifier.test.ts`), 0 failed/skipped/todo/cancelled |
+| Tracker-async host log | On the plan fuzz's recording host (production builds) native Solid, compiled RX and the plan on `solid-plan.ts` give one full host log, 399 entries, and the 18 frames; Rust: `rust-unsupported` |
+| Plan v2.1 fuzz 1–1000 | 0 agree, 878 `rust-unsupported` (every JS leg equals native, full host logs), 122 refused (64 `*`, 58 `-`), 0 upstream, divergent, invalid or generator bug; 17,015 scenario steps and 232,260 host log entries per leg |
+| Plan v2.1 fuzz 1001–3000 (held out) | 0 agree, 1748 `rust-unsupported`, 252 refused (134 `*`, 118 `-`), 0 upstream, divergent, invalid or generator bug; 33,514 steps, 462,103 entries per leg |
+| Plan v2.1 fuzz (gate, 1–100) | 0 agree, 84 `rust-unsupported`, 16 refused (8 `*`, 8 `-`), 0 divergent (`baselines/plan-fuzz-async.json`) |
+| Async eval slice | 19 steps, 3 code strings (each compiled to a v2.1 plan), static twin, createEval and the plan: one 295-entry host log and the frames; Rust: `rust-unsupported` |
+| Async eval fuzz 1–1000 | 0 agree, 878 `rust-unsupported` (static twin, createEval and the plan agree, full host logs), 122 refused (the `outside` family, each eval leg failing with the plan's diagnostic), 0 divergent, invalid or generator bug; 16,081 steps (1,475 code reloads), 240,093 entries per leg; 524 codes compiled to v2.1 plans, 480 with their own async memo |
+| Async eval fuzz 1001–3000 (held out) | 0 agree, 1748 `rust-unsupported`, 252 refused, 0 divergent, invalid or generator bug; 32,027 steps, 479,170 entries per leg |
+| Async eval fuzz (gate, 1–100) | 0 agree, 84 `rust-unsupported`, 16 refused, 0 divergent (`baselines/eval-fuzz-async.json`) |
+| v2 plan, eval and SSR fuzz 1–1000 | summaries byte-identical to rust-solid `docs/plan-fuzz/summary-1-1000.json`, `docs/eval/summary-1-1000.json` and `docs/ssr-fuzz/summary-1-1000.json` (`--dev`), run on the final code |
+| Fuzz seeds 0–199; plan, eval, SSR fuzz (gate, 1–100) | 179 agree and 21 listed; 85 agree and 15 refused each; summaries byte-identical to the previous gate run |
+| Strict types | 0 package diagnostics (new files in `tsconfig.json` and `plan/tsconfig.json`); unchanged baseline of 12 upstream diagnostics |
+| rust-solid | untouched (no file changed): `cargo test` 132, `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` clean; the 1000-seed tier runs were not repeated, since neither Rust nor any input they read changed |
+
+Divergences found: none, on any JS leg (two planted consumer bugs were caught: PLAN-V2.md). The consumer was hardened
+where the schema says so (an async memo read in a handler or action, `affects` in a plain handler). Remaining classes:
+`rust-unsupported` on every program the v2.1 builder accepts (rust-solid's `plan-trace` stops at the plan's `version`:
+`invalid type: floating point `2.1`, expected u32`); the `outside` family's refusals (`*`, `-`); no compiled-RX-only
+class.
+
+## Plan v2.1: async data (tracker-async)
+
+Measured 2026-11-09 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Solid 2105ffb8 rc.21, reactivescript
+fdbcad92), uncommitted. Schema and semantics: `plan/docs/PLAN-V2.md`, "v2.1: async data"; scenario:
+`docs/SCENARIO-FORMAT.md`, "Version 2.1".
+
+| Check | Result |
+| --- | --- |
+| Kept tests | `npm run verify:subset`: PASS 115/115 (106 before, plus the 9 of `slices/tracker-async.test.ts`), 0 failed/skipped/todo/cancelled |
+| Tracker-async slice | 18 frames recorded from native Solid; compiled TSX, compiled RX and the v2.1 plan on `solid-plan.ts` give them all (dev builds in the gate; production builds by hand, the same); TSX and RX have equal canonical facts and emit one plan byte for byte (`plan/tracker-async.plan.json`); the yield twin is refused at each async import and its async `$memo`, every diagnostic pinned |
+| Additivity | `--schema 2.1` emits `tracker.plan.json` and `like.plan-v2.json` byte for byte from all three frontends; RX and TSX twins of plan-fuzz seeds 1–40 give the v2 builder's plan or refusal through the v2.1 builder and the TSX async tier |
+| Fuzz seeds 0–199 | 179 agree, 21 listed interpreter-only differences (unchanged) |
+| Plan, eval, SSR fuzz (gate, 1–100) | 85 agree, 15 refused each (unchanged) |
+| Plan, eval, SSR fuzz 1–1000 | summaries byte-identical to rust-solid `docs/plan-fuzz/summary-1-1000.json`, `docs/eval/summary-1-1000.json`, `docs/ssr-fuzz/summary-1-1000.json` (`--dev`) |
+| Strict types | 0 package diagnostics (`slices/tracker-async.test.ts` added to `tsconfig.json`); unchanged baseline of 12 upstream diagnostics |
+| rust-solid (untouched) | `cargo test` 132; `--slice1/--slice2a/--slice2b/--slice2c/--render/--strings` seeds 1–1000 `--no-reduce` byte-identical to the recorded summaries (`--slice2c` run alone: with all six in parallel on 4 cores, seed 493, the known Solid store-hole seed, was classed `oracle-error` instead of `oracle-halted`); tracker 13/13 and like 5/5 frames, `plan-diff` 453/453; fmt, clippy `-D warnings`, `git diff --check` clean |
+
+Not done here: a Rust consumer of v2.1 (rust-solid's `scenario` prints `unsupported plan version None`; `plan-trace`
+stops at the plan's `version`), `latest` in a scenario, server rendering of async data. Done since (above): the host-log
+comparison for the slice, the plan v2.1 fuzz, async data in evaluated code.
+
 ## Slices 3 and 5 integrated (frontend-tracker, rust-tracker)
 
 Slice 3 (the live evaluator, `docs/EVAL.md`) and slice 5 (server rendering, below) were built in separate copies of

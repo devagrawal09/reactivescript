@@ -6,7 +6,7 @@
 // static sibling (docs/PLAN-V2.md, "Markup"). It checks that the plan alone carries what the scenario's frames need, and
 // the plan fuzz (plan/fuzz/) that it makes the same host calls as native Solid. It is not a second runtime: Solid does
 // the scheduling. Every op outside the schema, and every value outside its types, throws.
-import { action, createMemo, createOptimistic, createSignal, createStore, For, Show } from 'solid-js';
+import { action, affects, createMemo, createOptimistic, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from 'solid-js';
 import * as testRenderer from '../tsx/test-renderer.ts';
 import type { EvalNode, Expression, HostType, Plan, Step, View } from './resolve-v2.ts';
 
@@ -56,7 +56,7 @@ export function planValue(plan: Plan, api: Api, options: Options = {}): () => un
 }
 
 function check(plan: Plan, api: Api, options: Options) {
-  if (plan.version !== 2) throw new Error('plan version 2');
+  if (plan.version !== 2 && plan.version !== 2.1) throw new Error('plan version 2 or 2.1');
   for (const h of plan.hosts) if (typeof api[h.name] !== 'function') throw new Error('missing host ' + h.name);
   const want = plan.bindings ?? [], given = options.bindings ?? new Map();
   if (want.length !== given.size || want.some(b => given.get(b.name)?.kind !== b.kind)) throw new Error('the bindings given are not the plan\'s: ' + want.map(b => b.kind + ' ' + b.name).join(', '));
@@ -110,7 +110,12 @@ function instance(plan: Plan, api: Api, options: Options) {
         case 'literal': return e.value;
         case 'array': return e.items.map(x => evaluate(x, env));
         case 'object': return Object.fromEntries(e.fields.map(f => [f.key, evaluate(f.value, env)]));
-        case 'read': { const r = reads.get(e.source); if (!r) throw new Error('unknown source ' + e.source); return r(); }
+        case 'read': {
+          const r = reads.get(e.source); if (!r) throw new Error('unknown source ' + e.source);
+          // v2.1: an async memo is read only in reactive contexts (PLAN-V2.md, "Async memo" 6).
+          if (imperative && kinds.get(e.source) === 'async') throw new Error('an async memo is read only in reactive contexts: ' + e.source);
+          return r();
+        }
         case 'local': { if (!env.has(e.name)) throw new Error('unbound local ' + e.name); return env.get(e.name); }
         case 'get': {
           // `o.key` alone, as the TSX twin reads it (a store's `get` trap, never `has`): no plan value is undefined, so
@@ -145,6 +150,9 @@ function instance(plan: Plan, api: Api, options: Options) {
         case 'or': { const l = evaluate(e.left, env); return truthy(l) ? l : evaluate(e.right, env); }
         case 'not': return !truthy(evaluate(e.value, env));
         case 'cond': return truthy(evaluate(e.test, env)) ? evaluate(e.then, env) : evaluate(e.else, env);
+        // v2.1 (PLAN-V2.md, "v2.1: async data"): the probes, evaluated inside Solid's own windows.
+        case 'pending': return isPending(() => evaluate(e.value, env));
+        case 'latest': return latest(() => evaluate(e.value, env));
         case 'eval': {
           // docs/EVAL.md: the code, then the compiled expression over the bindings, in this reactive context.
           const code = evaluate(e.code, env);
@@ -157,14 +165,17 @@ function instance(plan: Plan, api: Api, options: Options) {
       }
     };
 
+    // Set while a handler or action step evaluates its expressions (an imperative context).
+    let imperative = 0;
+    const now = (e: Expression, env: Env): unknown => { imperative++; try { return evaluate(e, env); } finally { imperative--; } };
     const rejections = new WeakSet<object>();
     // Steps run as a generator: an await yields the host's promise to Solid's action runner, which resumes the body in
     // the action's transaction with the value, or throws the rejection at that point (into the enclosing try).
-    function* exec(steps: Step[], env: Env): Generator<unknown, void, unknown> {
+    function* exec(steps: Step[], env: Env, where: 'action' | 'handler'): Generator<unknown, void, unknown> {
       for (const s of steps) {
         if (s.op === 'write') {
           if (!s.path) {
-            const value = evaluate(s.value, env);
+            const value = now(s.value, env);
             if (kinds.get(s.source) !== 'signal') throw new Error('a plain write targets a signal');
             setters.get(s.source)!(() => value);
             continue;
@@ -178,32 +189,39 @@ function instance(plan: Plan, api: Api, options: Options) {
             let o = draft;
             for (const [i, p] of path.entries()) {
               if (typeof o !== 'object' || o === null) throw new Error('store path does not exist');
-              const k = 'key' in p ? p.key : integer(evaluate(p.index, env));
+              const k = 'key' in p ? p.key : integer(now(p.index, env));
               if (typeof k === 'number' && (!Array.isArray(o) || k < 0 || k >= o.length)) throw new Error('store path index ' + k);
               if (i < path.length - 1) { o = o[k]; continue; }
-              o[k] = evaluate(write.value, env);
+              o[k] = now(write.value, env);
             }
           });
         } else if (s.op === 'optimistic') {
           if (kinds.get(s.source) !== 'optimistic') throw new Error('an optimistic write targets an optimistic source');
-          setters.get(s.source)!('updater' in s ? lambda(s.updater.param, s.updater.body, env) : (() => { const v = evaluate(s.value, env); return () => v; })());
+          setters.get(s.source)!('updater' in s ? lambda(s.updater.param, s.updater.body, env) : (() => { const v = now(s.value, env); return () => v; })());
         } else if (s.op === 'await') {
           const host = api[s.host];
           if (!host) throw new Error('unknown host ' + s.host);
           let result: unknown;
-          try { result = yield host(...s.args.map(a => evaluate(a, env))); } catch (e) { if (typeof e === 'object' && e !== null) rejections.add(e); throw e; }
+          try { result = yield host(...s.args.map(a => now(a, env))); } catch (e) { if (typeof e === 'object' && e !== null) rejections.add(e); throw e; }
           env.set(s.bind, result);
         } else if (s.op === 'try') {
           // Only a host rejection thrown in at an await is caught; a runtime error fails the run (PLAN-V2.md).
-          try { yield* exec(s.body, new Map(env)); } catch (e) { if (!rejections.has(e as object)) throw e; yield* exec(s.catch, new Map(env)); }
+          try { yield* exec(s.body, new Map(env), where); } catch (e) { if (!rejections.has(e as object)) throw e; yield* exec(s.catch, new Map(env), where); }
         } else if (s.op === 'call') {
           const b = bound.get(s.action);
-          if (b) { void b(...s.args.map(x => evaluate(x, env))); continue; }
+          if (b) { void b(...s.args.map(x => now(x, env))); continue; }
           const a = actions.get(s.action);
           if (!a) throw new Error('unknown action ' + s.action);
           // An uncaught failure is a run failure: it surfaces as an unhandled rejection, or through onAction.
-          const run = a(...s.args.map(x => evaluate(x, env)));
+          const run = a(...s.args.map(x => now(x, env)));
           if (options.onAction) options.onAction(s.action, run); else void run;
+        } else if (s.op === 'refresh' || s.op === 'affects') {
+          // v2.1: Solid's refresh(memo) / affects(memo) on an async memo's accessor.
+          if (kinds.get(s.source) !== 'async') throw new Error(s.op + ' targets an async memo');
+          // affects marks pending until the action's transaction lands: an action step only.
+          if (s.op === 'affects' && where !== 'action') throw new Error('affects is an action step');
+          const target = reads.get(s.source)! as () => unknown;
+          if (s.op === 'refresh') void refresh(target as never); else affects(target);
         } else throw new Error('unknown step op ' + (s as { op: string }).op);
       }
     }
@@ -221,15 +239,25 @@ function instance(plan: Plan, api: Api, options: Options) {
         reads.set(s.name, get); setters.set(s.name, set as never);
       } else throw new Error('unknown source kind ' + (s as { kind: string }).kind);
     }
-    for (const m of plan.memos) { kinds.set(m.name, 'memo'); reads.set(m.name, createMemo(() => evaluate(m.value, new Map()))); }
+    for (const m of plan.memos) {
+      if ('await' in m) {
+        // v2.1: an async memo, Solid's createMemo(() => host(…args)): each computation is one new host request.
+        const host = api[m.await.host], call = m.await;
+        if (!host) throw new Error('unknown host ' + call.host);
+        kinds.set(m.name, 'async');
+        reads.set(m.name, createMemo(() => host(...call.args.map(a => evaluate(a, new Map())))));
+        continue;
+      }
+      kinds.set(m.name, 'memo'); reads.set(m.name, createMemo(() => evaluate(m.value, new Map())));
+    }
     for (const a of plan.actions)
       actions.set(a.name, action(function* (...args: unknown[]) {
         if (args.length !== a.params.length) throw new Error(a.name + ' arity');
-        yield* exec(a.steps, new Map(a.params.map((p, i) => [p, args[i]])));
+        yield* exec(a.steps, new Map(a.params.map((p, i) => [p, args[i]])), 'action');
       }));
 
     const handler = (steps: Step[], env: Env) => () => {
-      const run = exec(steps, new Map(env));
+      const run = exec(steps, new Map(env), 'handler');
       if (!run.next().done) throw new Error('a plain handler never awaits');
     };
     // An element tree is one template, lowered as Solid's universal compiler lowers JSX (compiler
@@ -290,7 +318,7 @@ function instance(plan: Plan, api: Api, options: Options) {
         case 'get': case 'length': case 'filter': case 'map': case 'findIndex': return true;
         case 'array': return e.items.some(dyn);
         case 'object': return e.fields.some(f => dyn(f.value));
-        case 'not': return dyn(e.value);
+        case 'not': case 'pending': case 'latest': return e.op === 'not' ? dyn(e.value) : true;
         case 'cond': return dyn(e.test) || dyn(e.then) || dyn(e.else);
         default: return dyn(e.left) || dyn(e.right);
       }
@@ -328,6 +356,17 @@ function instance(plan: Plan, api: Api, options: Options) {
         get children() { return fragment(v.children, env); },
       } : {
         get when() { return condition(v.when, env); },
+        get children() { return fragment(v.children, env); },
+      });
+      // v2.1: the compiler passes Loading's fallback as a getter and Errored's as a function of the error (and reset),
+      // which the plan does not bind. The function takes the error, as the TSX twin's `(err) => …` does: Solid's dev
+      // build logs the error of a fallback that cannot see it (a value or a zero-arity thunk).
+      if (v.kind === 'loading') return createComponent(Loading, {
+        get fallback() { return fragment(v.fallback, env); },
+        get children() { return fragment(v.children, env); },
+      });
+      if (v.kind === 'errored') return createComponent(Errored, {
+        fallback: (_error: unknown) => fragment(v.fallback, env),
         get children() { return fragment(v.children, env); },
       });
       if (v.kind === 'for') {

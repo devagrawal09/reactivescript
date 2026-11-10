@@ -1,0 +1,27 @@
+import { assignIssue, loadIssues } from "./api";
+
+export default component TrackerAsync() {
+  issues = await loadIssues();
+  source status := "";
+
+  action claim(id: number) {
+    affects issues;
+    try {
+      let owner = await assignIssue(id);
+      refresh issues;
+      status := "Assigned #" + id + " to " + owner;
+    } catch (error) {
+      status := "Could not assign #" + id;
+    }
+  }
+
+  <section>
+    {errored fallback(err) { <p>Could not load issues<button onClick={() => { refresh issues }}>retry</button></p> } {
+      loading fallback { <i>Loading issues…</i> } {
+        <b>{pending? issues ? "saving…" : "ready"}</b>
+        for issue in issues { <p>{issue.title}: {issue.assignee || "nobody"}<button onClick={() => { claim(issue.id) }}>take</button></p> }
+      }
+    }}
+    <em>{status}</em>
+  </section>
+}

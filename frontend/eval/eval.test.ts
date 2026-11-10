@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { compileEval } from './compile.ts';
 import { compileNative, emitPlans, runEvalProgram } from './harness/run.ts';
-import { generateEval } from './fuzz/gen.ts';
+import { generateEval, generateEvalAsync } from './fuzz/gen.ts';
+import { RUST_UNSUPPORTED_CLASS } from '../plan/fuzz/run.ts';
 import { runEvalSeed } from './fuzz/run.ts';
 import { loadTsxModules } from '../tsx/modules.ts';
 import { resolvePlanV2 } from '../plan/resolve-v2.ts';
@@ -207,4 +208,53 @@ test('eval harness: a leg that differs from the static twin is divergent, never 
   const o = await runEvalProgram({ name: 'divergent', files, hosts: [], script: [{ type: 'mount' } as never] }, { rust });
   assert.equal(o.status, 'divergent');
   assert.ok(o.classes.includes('eval-native: result') && o.classes.includes('eval-plan: result'), o.classes.join(', '));
+});
+
+// Plan v2.1 (docs/EVAL.md, "Async data"): evaluated code may load data through a pure host binding, with Loading,
+// Errored, isPending, latest, refresh and affects, and an enclosing v2.1 program may hold eval sites.
+const AIFACE = 'read page: number\npure host loadRows(number): { id: number, title: string }[]\nhost save(number): string';
+test('eval v2.1: pure host bindings, async code in RX and TSX, v2 plans byte for byte, and its refusals', () => {
+  // The interface grammar: `pure host` with a structured result, printed canonically and compared by type.
+  const ds = parseInterface('pure host loadRows(n: number): {id: number,title: string}[]\nhost save(number): string');
+  assert.equal(printInterface(ds), 'pure host loadRows(number): { id: number, title: string }[]\nhost save(number): string');
+  assert.throws(() => parseInterface('host save(number): strin'), /type: number, string, boolean/);
+  const rx = 'rows = await loadRows(page);\nsource status := "";\naction take(id: number) {\n  affects rows;\n  try {\n    let r = await save(id);\n    refresh rows;\n    status := r;\n  } catch (e) {\n    status := "failed";\n  }\n}\n' +
+    '<div>{errored fallback { <p>failed<button onClick={() => { refresh rows }}>retry</button></p> } { loading fallback { <i>wait</i> } { <b>{(pending? rows) ? "saving" : "ready"}</b>{for row in rows { <p>{row.title}<button onClick={() => { take(row.id) }}>take</button></p> }} } }}<em>{status}</em></div>';
+  const tsx = 'const rows = createMemo(() => loadRows(page()));\nconst [status, setStatus] = createSignal("");\nconst take = action(function* (id: number) {\n  affects(rows);\n  try {\n    const r: string = yield save(id);\n    refresh(rows);\n    setStatus(r);\n  } catch (e) {\n    setStatus("failed");\n  }\n});\n' +
+    'return (<div><Errored fallback={() => <p>failed<button onClick={() => refresh(rows)}>retry</button></p>}><Loading fallback={<i>wait</i>}><b>{"" + (isPending(() => rows()) ? "saving" : "ready")}</b><For each={rows()}>{(row) => <p>{row.title}<button onClick={() => take(row.id)}>take</button></p>}</For></Loading></Errored><em>{status()}</em></div>);';
+  const plans = ([['rx', rx], ['tsx', tsx]] as const).map(([syntax, code]) => { const r = compileEval({ code, interface: AIFACE, syntax }); assert.ok(r.ok, syntax + ': ' + JSON.stringify(!r.ok && r.diagnostics)); return r.ok ? r.plan : undefined; });
+  assert.deepEqual(plans[1], plans[0], 'RX and TSX code compile to one plan');
+  assert.equal(plans[0]!.version, 2.1);
+  assert.deepEqual(plans[0]!.hosts, [{ name: 'loadRows', params: ['number'], returns: '{ id: number, title: string }[]', pure: true }, { name: 'save', params: ['number'], returns: 'string' }]);
+  assert.deepEqual(plans[0]!.memos, [{ name: 'rows', await: { host: 'loadRows', args: [{ op: 'read', source: 'page' }] } }]);
+  // Code without async forms keeps its v2 plan; a pure or structured host binding alone makes it v2.1.
+  const plain = compileEval({ code: '<p>{"" + count}</p>', interface: IFACE });
+  assert.ok(plain.ok && plain.plan.version === 2);
+  const hosted = compileEval({ code: '<p>{"" + page}</p>', interface: AIFACE });
+  assert.ok(hosted.ok && hosted.plan.version === 2.1);
+  // Refusals: an impure host in reactive scope (the checker's IO-2), a refresh of a binding (READ_ONLY), a read of the
+  // async memo in a handler, a type error over the structured result.
+  const no = (code: string, iface = AIFACE) => { const r = compileEval({ code, interface: iface }); assert.ok(!r.ok, code); return r.diagnostics.map(d => d.code + ' ' + d.message).join('; '); };
+  assert.match(no('rows = await loadRows(page);\n<div>{errored fallback { <p>x</p> } { loading fallback { <i>w</i> } { <b>{"" + rows.length}</b> } }}</div>', AIFACE.replace('pure host', 'host')), /IO_IN_REACTIVE/);
+  assert.equal(no('<p onClick={() => { refresh page }}>x</p>'), 'CHECK INVALID_REFRESH_TARGET: page has no question to re-ask');
+  assert.match(no('rows = await loadRows(page);\nsource s := 0;\n<div>{errored fallback { <p>x</p> } { loading fallback { <i>w</i> } { <b onClick={() => { s := rows.length }}>{"" + s}</b> } }}</div>'), /async memo is read only in reactive contexts/);
+  assert.match(no('rows = await loadRows(page);\n<div>{errored fallback { <p>x</p> } { loading fallback { <i>w</i> } { <ul>{for row in rows { <li>{row.owner}</li> }}</ul> } }}</div>'), /^TYPE markup: no field owner in \{ id: number, title: string \}$/);
+});
+
+test('eval fuzz v2.1: the static twin, createEval, the plan and Rust agree on generated async programs (seeds 1..8)', async () => {
+  const seen = new Set<string>();
+  for (let seed = 1; seed <= 8; seed++) {
+    assert.deepEqual(generateEvalAsync(seed), generateEvalAsync(seed));
+    const o = await runEvalSeed(seed, { rust, async: true });
+    seen.add(o.status + ' ' + o.mode);
+    if (o.status === 'refused') { assert.ok(o.baseRefusal && o.detail!.endsWith(': ' + o.baseRefusal)); continue; }
+    // Rust consumes the v2.1 plans with the host's eval table: compared like every other leg.
+    assert.equal(o.status, 'agree', 'seed ' + seed + ': ' + o.classes.join(', ') + ' ' + (o.detail ?? ''));
+    assert.ok(!o.classes.includes(RUST_UNSUPPORTED_CLASS), 'a Rust refusal of the version is not agreement');
+    assert.deepEqual(o.classes, []);
+    assert.deepEqual(Object.keys(o.traces!), rust ? ['static', 'eval-native', 'eval-plan', 'rust'] : ['static', 'eval-native', 'eval-plan']);
+    for (const l of rust ? ['eval-native', 'eval-plan', 'rust'] as const : ['eval-native', 'eval-plan'] as const) assert.equal(JSON.stringify(o.traces![l]), JSON.stringify(o.traces!.static), 'seed ' + seed + ' ' + l);
+    assert.equal(o.scenario!.version, 2.1);
+  }
+  assert.ok([...seen].some(k => k.endsWith('split')) && [...seen].some(k => k.endsWith('whole')), [...seen].join(', '));
 });

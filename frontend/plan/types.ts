@@ -6,6 +6,7 @@
 // and `?:` whose values have different types. It is used to derive an eval site's binding interface from the enclosing
 // component, and to check evaluated code against that interface. It does not refuse ordinary (non-eval) plans.
 import type { Expression, Plan, Step, View, HostType } from './resolve-v2.ts';
+import { parseType } from '../eval/interface.ts';
 
 export type Type =
   | { k: 'number' } | { k: 'string' } | { k: 'boolean' }
@@ -25,6 +26,17 @@ export function printType(t: Type): string {
   }
 }
 
+/** Format 2.1: a host value conforms to its declared type exactly (integers; records with exactly the type's keys). */
+export function conforms(v: unknown, t: Type): boolean {
+  switch (t.k) {
+    case 'number': return typeof v === 'number' && Number.isInteger(v);
+    case 'string': case 'boolean': return typeof v === t.k;
+    case 'array': return Array.isArray(v) && v.every(x => conforms(x, t.item));
+    case 'record': return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === t.fields.length &&
+      t.fields.every(([k, ft]) => Object.prototype.hasOwnProperty.call(v, k) && conforms((v as Record<string, unknown>)[k], ft));
+    default: return false;
+  }
+}
 /** Equal types: records compare by their field set, not field order. */
 export function sameType(a: Type, b: Type): boolean {
   if (a.k !== b.k) return false;
@@ -95,7 +107,14 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
     if (pending.has(name)) fail('the memo ' + name + ' depends on itself');
     pending.add(name);
     try {
-      const t = expr(m!.value, new Map());
+      // Plan v2.1: an async memo's value is its host's declared result (its arguments are its host's parameters).
+      let t: Type;
+      if ('await' in m!) {
+        const h = hosts.get(m!.await.host) ?? fail('unknown host ' + m!.await.host);
+        if (h.params.length !== m!.await.args.length) fail(h.name + ' takes ' + h.params.length + ' arguments');
+        m!.await.args.forEach((a, i) => want(expr(a, new Map()), scalarType(h.params[i]), 'argument ' + (i + 1) + ' of ' + h.name));
+        t = parseType(h.returns);
+      } else t = expr(m!.value, new Map());
       names.set(name, { kind: 'value', type: t });
       return t;
     } finally { pending.delete(name); }
@@ -153,6 +172,9 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
         if (expr(e.code, locals).k !== 'string') fail('eval code is a string');
         return scalarType(e.type);
       }
+      // Plan v2.1's probes: isPending is a boolean, latest the value's own type.
+      case 'pending': expr(e.value, locals); return BOOLEAN;
+      case 'latest': return expr(e.value, locals);
       default: return fail('unknown op ' + (e as { op: string }).op);
     }
   };
@@ -177,9 +199,13 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
         const h = hosts.get(s.host) ?? fail('unknown host ' + s.host);
         if (h.params.length !== s.args.length) fail(s.host + ' takes ' + h.params.length + ' arguments');
         s.args.forEach((a, i) => want(expr(a, locals), scalarType(h.params[i]), 'argument ' + (i + 1) + ' of ' + s.host));
-        locals.set(s.bind, scalarType(h.returns));
+        locals.set(s.bind, parseType(h.returns));
       } else if (s.op === 'try') { steps(s.body, new Map(locals)); steps(s.catch, new Map(locals)); }
-      else if (s.op === 'call') {
+      else if (s.op === 'refresh' || s.op === 'affects') {
+        // Plan v2.1: of an async memo only.
+        const m = memos.get(s.source);
+        if (!m || !('await' in m)) fail(s.op + ' of ' + s.source + ', not an async memo');
+      } else if (s.op === 'call') {
         const a = names.get(s.action);
         if (!a || a.kind !== 'action') return fail('call of ' + s.action + ', not an action');
         if (a.params.length !== s.args.length) fail(s.action + ' takes ' + a.params.length + ' arguments');
@@ -194,6 +220,7 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
       else if (v.kind === 'show') { expr(v.when, locals); views(v.children, locals); views(v.fallback, locals); }
       else if (v.kind === 'for') views(v.children, new Map(locals).set(v.item, arrayItem(expr(v.each, locals), 'For')));
       else if (v.kind === 'eval') { if (expr(v.code, locals).k !== 'string') fail('eval code is a string'); }
+      else if (v.kind === 'loading' || v.kind === 'errored') { views(v.fallback, locals); views(v.children, locals); }
     });
   };
 
