@@ -1,0 +1,257 @@
+{
+ "seed": 6,
+ "plan": {
+  "version": 2.1,
+  "component": "App",
+  "hosts": [
+   {
+    "name": "loadTotal",
+    "params": [],
+    "returns": "number",
+    "pure": true
+   },
+   {
+    "name": "h0",
+    "params": [],
+    "returns": "number"
+   }
+  ],
+  "sources": [
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "total",
+    "await": {
+     "host": "loadTotal",
+     "args": []
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "bump",
+    "params": [],
+    "steps": [
+     {
+      "op": "affects",
+      "source": "total"
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h0",
+        "args": [],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "total"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "bumped "
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": "oops"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "refresh",
+          "source": "total"
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "refetch"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "errored",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "failed"
+            }
+           },
+           {
+            "kind": "element",
+            "tag": "button",
+            "events": [
+             {
+              "name": "onClick",
+              "steps": [
+               {
+                "op": "refresh",
+                "source": "total"
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "retry"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "loading",
+          "fallback": [
+           {
+            "kind": "element",
+            "tag": "i",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "wait"
+              }
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "element",
+            "tag": "u",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "read",
+               "source": "total"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "end"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "answers": [
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": [],
+   "mode": "now",
+   "value": 0
+  }
+ ],
+ "events": [
+  {
+   "chunk": "<section _hk=1><button>refetch</button><div><!--$--><u _hk=200000>0</u><!--/-->end</div><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"200_fr\"]=$R[3]=($R[4]=$R[2]()).p;($R[5]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],0);$R[5]($R[4],!0);</script>"
+  },
+  {
+   "end": true
+  }
+ ],
+ "html": "<section _hk=1><button>refetch</button><div><!--$--><i _hk=2000>wait</i><!--/-->end</div><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"200\"]=\"$$f\";</script>",
+ "requests": [
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": []
+  }
+ ]
+}

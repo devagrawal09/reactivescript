@@ -1,0 +1,444 @@
+{
+ "seed": 5,
+ "plan": {
+  "version": 2.1,
+  "component": "App",
+  "hosts": [
+   {
+    "name": "loadItems",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string, done: boolean }[]",
+    "pure": true
+   },
+   {
+    "name": "h0",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   }
+  ],
+  "sources": [
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "items",
+    "await": {
+     "host": "loadItems",
+     "args": []
+    }
+   },
+   {
+    "name": "open",
+    "value": {
+     "op": "length",
+     "array": {
+      "op": "filter",
+      "array": {
+       "op": "read",
+       "source": "items"
+      },
+      "param": "x0",
+      "body": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "x0"
+        },
+        "key": "owner"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "claim",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "affects",
+      "source": "items"
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h0",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "items"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "ok "
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "fail "
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "element",
+        "tag": "h2",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "List"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "errored",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "failed"
+            }
+           },
+           {
+            "kind": "element",
+            "tag": "button",
+            "events": [
+             {
+              "name": "onClick",
+              "steps": [
+               {
+                "op": "refresh",
+                "source": "items"
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "retry"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "loading",
+          "fallback": [
+           {
+            "kind": "element",
+            "tag": "i",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "wait"
+              }
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "element",
+            "tag": "small",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "read",
+               "source": "open"
+              }
+             },
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": " open"
+              }
+             }
+            ]
+           },
+           {
+            "kind": "for",
+            "each": {
+             "op": "read",
+             "source": "items"
+            },
+            "item": "issue",
+            "key": "identity",
+            "children": [
+             {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "get",
+                 "object": {
+                  "op": "local",
+                  "name": "issue"
+                 },
+                 "key": "title"
+                }
+               },
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": ": "
+                }
+               },
+               {
+                "kind": "text",
+                "value": {
+                 "op": "or",
+                 "left": {
+                  "op": "get",
+                  "object": {
+                   "op": "local",
+                   "name": "issue"
+                  },
+                  "key": "owner"
+                 },
+                 "right": {
+                  "op": "literal",
+                  "value": "nobody"
+                 }
+                }
+               },
+               {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                 {
+                  "name": "onClick",
+                  "steps": [
+                   {
+                    "op": "call",
+                    "action": "claim",
+                    "args": [
+                     {
+                      "op": "get",
+                      "object": {
+                       "op": "local",
+                       "name": "issue"
+                      },
+                      "key": "id"
+                     }
+                    ]
+                   }
+                  ]
+                 }
+                ],
+                "children": [
+                 {
+                  "kind": "text",
+                  "value": {
+                   "op": "literal",
+                   "value": "take"
+                  }
+                 }
+                ]
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "refresh",
+          "source": "items"
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "refetch"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "answers": [
+  {
+   "host": "loadItems",
+   "call": 1,
+   "args": [],
+   "mode": "idle",
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo",
+     "owner": "bo",
+     "done": false
+    },
+    {
+     "id": 3,
+     "title": "Docs",
+     "owner": "",
+     "done": true
+    },
+    {
+     "id": 5,
+     "title": "Crash",
+     "owner": "ana",
+     "done": true
+    }
+   ],
+   "at": 0
+  }
+ ],
+ "events": [
+  {
+   "chunk": "<section _hk=2><div><h2>List</h2><!--$--><template id=\"pl-300\"></template><i _hk=3000>wait</i><!--pl-300--><!--/--></div><button>refetch</button><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"300_fr\"]=$R[3]=($R[4]=$R[2]()).p;</script>"
+  },
+  {
+   "settle": "loadItems#1"
+  },
+  {
+   "chunk": "<template id=\"300\"><small _hk=300000><!--$-->1<!--/--> open</small><p _hk=30000100><!--$-->Typo<!--/-->: <!--$-->bo<!--/--><button>take</button></p><p _hk=30000110><!--$-->Docs<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=30000120><!--$-->Crash<!--/-->: <!--$-->ana<!--/--><button>take</button></p></template><script>($R[9]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[5]=[$R[6]={id:1,title:\"Typo\",owner:\"bo\",done:!1},$R[7]={id:3,title:\"Docs\",owner:\"\",done:!0},$R[8]={id:5,title:\"Crash\",owner:\"ana\",done:!0}]);$df(\"300\");function $df(e){return _$HY.f?_$HY.f(e):$dfr(e)}function $dfr(e,n,o,t){if(!(n=document.getElementById(e)))return 0;if(!(o=document.getElementById(\"pl-\"+e)))return(_$HY.dq=_$HY.dq||{})[e]=1,0;for(;o&&(8!==o.nodeType||o.nodeValue!==\"pl-\"+e);)t=o.nextSibling,o.remove(),o=t;t=o.parentNode,(_$HY.v=_$HY.v||{})[e]=n.hasAttribute(\"e\")?[...n.content.childNodes]:1,o.replaceWith(n.content),n.remove(),_$HY.fe(e,t),_$HY.hp&&_$HY.hp[e]&&($dh(_$HY.hp[e]),delete _$HY.hp[e]),$dfd();return 1}function $dfl(e,o,n){if(!(o=document.getElementById(\"pl-\"+e)))return(_$HY.dlq=_$HY.dlq||{})[e]=1,0;if(o._$fl)return 1;for(n=o.nextSibling;n;){if(8===n.nodeType&&n.nodeValue===\"pl-\"+e){o.parentNode&&o.parentNode.insertBefore(o.content.cloneNode(!0),n),o._$fl=1,$dfd();return 1}n=n.nextSibling}return 0}function $dflj(e,i){for(i=0;i<e.length;i++)$dfl(e[i])}function $dfd(e,i){if(e=_$HY.dq){_$HY.dq=0;for(i in e)$df(i)}if(e=_$HY.dlq){_$HY.dlq=0;for(i in e)$dfl(i)}}function $dfs(e,c,d){(_$HY.sc=_$HY.sc||{})[e]=c,d&&((_$HY.sd=_$HY.sd||{})[e]=1)}function $dfg(e,g,i,k){if(!(g=_$HY.sg&&_$HY.sg[e]))return;for(i=0;i<g.length;i++)if(_$HY.sc&&_$HY.sc[g[i]]>0)return;for(i=0;i<g.length;i++)k=g[i],delete _$HY.sg[k],$df(k)}function $dfc(e){if(--_$HY.sc[e]<=0){delete _$HY.sc[e],_$HY.sg&&_$HY.sg[e]?$dfg(e):!(_$HY.sd&&_$HY.sd[e])&&$df(e);_$HY.sd&&delete _$HY.sd[e]}}function $dfj(e,i,n){for(i=0;i<e.length;i++)if(_$HY.sc&&_$HY.sc[e[i]]>0){for(n=0;n<e.length;n++)(_$HY.sg=_$HY.sg||{})[e[n]]=e;return}for(i=0;i<e.length;i++)$df(e[i])}function $dfe(e,t,k){(t=e.target)&&t.getAttribute&&!t._$dc&&(k=t.getAttribute(\"data-dfc\"))&&(t._$dc=1,$dfc(k))}document.addEventListener(\"load\",$dfe,!0);document.addEventListener(\"error\",$dfe,!0);</script><script>$R[9]($R[4],!0);</script>"
+  },
+  {
+   "end": true
+  }
+ ],
+ "html": "<section _hk=2><div><h2>List</h2><!--$--><i _hk=3000>wait</i><!--/--></div><button>refetch</button><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"300\"]=\"$$f\";</script>",
+ "requests": [
+  {
+   "host": "loadItems",
+   "call": 1,
+   "args": []
+  }
+ ]
+}

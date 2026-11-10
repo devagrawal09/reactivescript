@@ -1,0 +1,927 @@
+{
+ "seed": 7,
+ "plan": {
+  "version": 2.1,
+  "component": "App",
+  "hosts": [
+   {
+    "name": "loadRows",
+    "params": [
+     "number"
+    ],
+    "returns": "{ id: number, title: string, owner: string, n: number }[]",
+    "pure": true
+   },
+   {
+    "name": "loadTotal",
+    "params": [
+     "number"
+    ],
+    "returns": "number",
+    "pure": true
+   },
+   {
+    "name": "loadExtra",
+    "params": [
+     "number"
+    ],
+    "returns": "string",
+    "pure": true
+   },
+   {
+    "name": "h0",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "h1",
+    "params": [],
+    "returns": "number"
+   }
+  ],
+  "sources": [
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   },
+   {
+    "name": "page",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 1
+    }
+   },
+   {
+    "name": "shown",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": true
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "rows",
+    "await": {
+     "host": "loadRows",
+     "args": [
+      {
+       "op": "add",
+       "left": {
+        "op": "read",
+        "source": "page"
+       },
+       "right": {
+        "op": "literal",
+        "value": 1
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "total",
+    "await": {
+     "host": "loadTotal",
+     "args": [
+      {
+       "op": "add",
+       "left": {
+        "op": "read",
+        "source": "page"
+       },
+       "right": {
+        "op": "literal",
+        "value": 1
+       }
+      }
+     ]
+    }
+   },
+   {
+    "name": "extra",
+    "await": {
+     "host": "loadExtra",
+     "args": [
+      {
+       "op": "read",
+       "source": "total"
+      }
+     ]
+    }
+   },
+   {
+    "name": "open",
+    "value": {
+     "op": "length",
+     "array": {
+      "op": "filter",
+      "array": {
+       "op": "read",
+       "source": "rows"
+      },
+      "param": "x0",
+      "body": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "x0"
+        },
+        "key": "owner"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   },
+   {
+    "name": "both",
+    "value": {
+     "op": "add",
+     "left": {
+      "op": "length",
+      "array": {
+       "op": "filter",
+       "array": {
+        "op": "read",
+        "source": "rows"
+       },
+       "param": "x1",
+       "body": {
+        "op": "ne",
+        "left": {
+         "op": "get",
+         "object": {
+          "op": "local",
+          "name": "x1"
+         },
+         "key": "owner"
+        },
+        "right": {
+         "op": "literal",
+         "value": ""
+        }
+       }
+      }
+     },
+     "right": {
+      "op": "read",
+      "source": "total"
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "claim",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "refresh",
+        "source": "rows"
+       },
+       {
+        "op": "refresh",
+        "source": "extra"
+       },
+       {
+        "op": "await",
+        "host": "h0",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "ok "
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "fail "
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "turn",
+    "params": [],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h1",
+        "args": [],
+        "bind": "$await1"
+       },
+       {
+        "op": "write",
+        "source": "page",
+        "value": {
+         "op": "local",
+         "name": "$await1"
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": "stuck"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "shown",
+          "value": {
+           "op": "not",
+           "value": {
+            "op": "read",
+            "source": "shown"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "toggle"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "action": "turn",
+          "args": []
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "turn"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "show",
+        "when": {
+         "op": "read",
+         "source": "shown"
+        },
+        "children": [
+         {
+          "kind": "loading",
+          "fallback": [
+           {
+            "kind": "element",
+            "tag": "i",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "Loading"
+              }
+             }
+            ]
+           },
+           {
+            "kind": "element",
+            "tag": "sub",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "soon"
+              }
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "errored",
+            "fallback": [
+             {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "failed"
+                }
+               },
+               {
+                "kind": "element",
+                "tag": "button",
+                "events": [
+                 {
+                  "name": "onClick",
+                  "steps": [
+                   {
+                    "op": "refresh",
+                    "source": "total"
+                   },
+                   {
+                    "op": "refresh",
+                    "source": "extra"
+                   }
+                  ]
+                 }
+                ],
+                "children": [
+                 {
+                  "kind": "text",
+                  "value": {
+                   "op": "literal",
+                   "value": "retry"
+                  }
+                 }
+                ]
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "element",
+              "tag": "u",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "latest",
+                 "value": {
+                  "op": "read",
+                  "source": "total"
+                 }
+                }
+               }
+              ]
+             },
+             {
+              "kind": "element",
+              "tag": "var",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "read",
+                 "source": "extra"
+                }
+               }
+              ]
+             },
+             {
+              "kind": "element",
+              "tag": "b",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "cond",
+                 "test": {
+                  "op": "pending",
+                  "value": {
+                   "op": "read",
+                   "source": "total"
+                  }
+                 },
+                 "then": {
+                  "op": "literal",
+                  "value": "busy"
+                 },
+                 "else": {
+                  "op": "literal",
+                  "value": "ready"
+                 }
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "hidden"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "show",
+        "when": {
+         "op": "read",
+         "source": "shown"
+        },
+        "children": [
+         {
+          "kind": "errored",
+          "fallback": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "failed"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "refresh",
+                  "source": "rows"
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "retry"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "loading",
+            "fallback": [
+             {
+              "kind": "element",
+              "tag": "i",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "Loading"
+                }
+               }
+              ]
+             }
+            ],
+            "children": [
+             {
+              "kind": "element",
+              "tag": "b",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "cond",
+                 "test": {
+                  "op": "pending",
+                  "value": {
+                   "op": "read",
+                   "source": "rows"
+                  }
+                 },
+                 "then": {
+                  "op": "literal",
+                  "value": "saving"
+                 },
+                 "else": {
+                  "op": "literal",
+                  "value": "ready"
+                 }
+                }
+               }
+              ]
+             },
+             {
+              "kind": "element",
+              "tag": "small",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "read",
+                 "source": "open"
+                }
+               },
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": " open"
+                }
+               }
+              ]
+             },
+             {
+              "kind": "for",
+              "each": {
+               "op": "read",
+               "source": "rows"
+              },
+              "item": "issue",
+              "key": "identity",
+              "children": [
+               {
+                "kind": "element",
+                "tag": "p",
+                "events": [],
+                "children": [
+                 {
+                  "kind": "text",
+                  "value": {
+                   "op": "get",
+                   "object": {
+                    "op": "local",
+                    "name": "issue"
+                   },
+                   "key": "title"
+                  }
+                 },
+                 {
+                  "kind": "text",
+                  "value": {
+                   "op": "literal",
+                   "value": ": "
+                  }
+                 },
+                 {
+                  "kind": "text",
+                  "value": {
+                   "op": "or",
+                   "left": {
+                    "op": "get",
+                    "object": {
+                     "op": "local",
+                     "name": "issue"
+                    },
+                    "key": "owner"
+                   },
+                   "right": {
+                    "op": "literal",
+                    "value": "nobody"
+                   }
+                  }
+                 },
+                 {
+                  "kind": "element",
+                  "tag": "button",
+                  "events": [
+                   {
+                    "name": "onClick",
+                    "steps": [
+                     {
+                      "op": "call",
+                      "action": "claim",
+                      "args": [
+                       {
+                        "op": "get",
+                        "object": {
+                         "op": "local",
+                         "name": "issue"
+                        },
+                        "key": "id"
+                       }
+                      ]
+                     }
+                    ]
+                   }
+                  ],
+                  "children": [
+                   {
+                    "kind": "text",
+                    "value": {
+                     "op": "literal",
+                     "value": "take"
+                    }
+                   }
+                  ]
+                 }
+                ]
+               }
+              ]
+             },
+             {
+              "kind": "element",
+              "tag": "small",
+              "events": [],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "read",
+                 "source": "both"
+                }
+               },
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": " both"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ],
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "hidden"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "page",
+          "value": {
+           "op": "add",
+           "left": {
+            "op": "read",
+            "source": "page"
+           },
+           "right": {
+            "op": "literal",
+            "value": 1
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "next"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "answers": [
+  {
+   "host": "loadRows",
+   "call": 1,
+   "args": [
+    2
+   ],
+   "mode": "now",
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo",
+     "owner": "bo",
+     "n": 7
+    },
+    {
+     "id": 2,
+     "title": "Typo",
+     "owner": "",
+     "n": 3
+    },
+    {
+     "id": 3,
+     "title": "Docs",
+     "owner": "bo",
+     "n": 3
+    },
+    {
+     "id": 4,
+     "title": "Build",
+     "owner": "bo",
+     "n": 5
+    }
+   ]
+  },
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": [
+    2
+   ],
+   "mode": "now",
+   "value": 2
+  },
+  {
+   "host": "loadExtra",
+   "call": 1,
+   "args": [
+    2
+   ],
+   "mode": "now",
+   "error": "denied"
+  }
+ ],
+ "events": [
+  {
+   "chunk": "<section _hk=5><button>toggle</button><button>turn</button><div><p _hk=800010>failed<button>retry</button></p></div><div><b _hk=b000000>ready</b><small _hk=b000001><!--$-->1<!--/--> open</small><p _hk=b00000200><!--$-->Typo<!--/-->: <!--$-->bo<!--/--><button>take</button></p><p _hk=b00000210><!--$-->Typo<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=b00000220><!--$-->Docs<!--/-->: <!--$-->bo<!--/--><button>take</button></p><p _hk=b00000230><!--$-->Build<!--/-->: <!--$-->bo<!--/--><button>take</button></p><small _hk=b000004><!--$-->5<!--/--> both</small></div><button>next</button><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"80_fr\"]=$R[5]=($R[6]=$R[2]()).p;_$HY.r[\"b000_fr\"]=$R[7]=($R[8]=$R[2]()).p;_$HY.r[\"2\"]=$R[9]=($R[10]=$R[2]()).p;($R[16]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[11]=[$R[12]={id:1,title:\"Typo\",owner:\"bo\",n:7},$R[13]={id:2,title:\"Typo\",owner:\"\",n:3},$R[14]={id:3,title:\"Docs\",owner:\"bo\",n:3},$R[15]={id:4,title:\"Build\",owner:\"bo\",n:5}]);$R[16]($R[4],2);_$HY.r[\"80000\"]=$R[17]=new Error(\"Internal Server Error\");($R[18]=(resolver, data) => {\n\tresolver.f(data);\n\tresolver.p.s = 2;\n\tresolver.p.v = data;\n})($R[10],$R[17]);$R[16]($R[8],!0);$R[16]($R[6],!0);</script>"
+  },
+  {
+   "end": true
+  }
+ ],
+ "html": "<section _hk=5><button>toggle</button><button>turn</button><div><i _hk=800>Loading</i><sub _hk=801>soon</sub></div><div><i _hk=b0000>Loading</i></div><button>next</button><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"80\"]=\"$$f\";_$HY.r[\"b000\"]=\"$$f\";</script>",
+ "requests": [
+  {
+   "host": "loadRows",
+   "call": 1,
+   "args": [
+    2
+   ]
+  },
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": [
+    2
+   ]
+  }
+ ]
+}

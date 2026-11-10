@@ -1,0 +1,258 @@
+{
+  "version": 2.1,
+  "name": "tracker-async: loading, refresh after a claim, an errored load and its retry, overlapping claims and refreshes",
+  "fixture": "tracker-async",
+  "host": [
+    {
+      "name": "assignIssue",
+      "parameters": [
+        "number"
+      ],
+      "returns": "string",
+      "async": true
+    },
+    {
+      "name": "loadIssues",
+      "parameters": [],
+      "returns": "{ id: number, title: string, assignee: string }[]",
+      "async": true
+    }
+  ],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "Loading issues…"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 1,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash on save",
+          "assignee": ""
+        },
+        {
+          "id": 2,
+          "title": "Slow search",
+          "assignee": "ana"
+        },
+        {
+          "id": 3,
+          "title": "Typo in footer",
+          "assignee": ""
+        }
+      ],
+      "frame": "readyCrash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Crash on save: nobodytake",
+        "index": 0
+      },
+      "frame": "saving…Crash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 1,
+      "args": [
+        1
+      ],
+      "value": "dev",
+      "frame": "saving…Crash on save: nobodytakeSlow search: anatakeTypo in footer: nobodytake"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 2,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash on save",
+          "assignee": "dev"
+        },
+        {
+          "id": 2,
+          "title": "Slow search",
+          "assignee": "ana"
+        },
+        {
+          "id": 3,
+          "title": "Typo in footer",
+          "assignee": ""
+        }
+      ],
+      "frame": "readyCrash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Typo in footer: nobodytake",
+        "index": 0
+      },
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 2,
+      "args": [
+        3
+      ],
+      "value": "bo",
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: nobodytakeAssigned #1 to dev"
+    },
+    {
+      "type": "reject",
+      "host": "loadIssues",
+      "call": 3,
+      "args": [],
+      "error": "offline",
+      "frame": "Could not load issuesretryAssigned #3 to bo"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "retry",
+        "index": 0
+      },
+      "frame": "Could not load issuesretryAssigned #3 to bo"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 4,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash on save",
+          "assignee": "dev"
+        },
+        {
+          "id": 2,
+          "title": "Slow search",
+          "assignee": "ana"
+        },
+        {
+          "id": 3,
+          "title": "Typo in footer",
+          "assignee": "bo"
+        }
+      ],
+      "frame": "readyCrash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Slow search: anatake",
+        "index": 0
+      },
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Crash on save: devtake",
+        "index": 0
+      },
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 4,
+      "args": [
+        1
+      ],
+      "value": "ana",
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo"
+    },
+    {
+      "type": "resolve",
+      "host": "assignIssue",
+      "call": 3,
+      "args": [
+        2
+      ],
+      "value": "cy",
+      "frame": "saving…Crash on save: devtakeSlow search: anatakeTypo in footer: botakeAssigned #3 to bo"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 6,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash on save",
+          "assignee": "ana"
+        },
+        {
+          "id": 2,
+          "title": "Slow search",
+          "assignee": "cy"
+        },
+        {
+          "id": 3,
+          "title": "Typo in footer",
+          "assignee": "bo"
+        }
+      ],
+      "frame": "readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy"
+    },
+    {
+      "type": "resolve",
+      "host": "loadIssues",
+      "call": 5,
+      "args": [],
+      "value": [
+        {
+          "id": 1,
+          "title": "Crash on save",
+          "assignee": "ana"
+        },
+        {
+          "id": 2,
+          "title": "Slow search",
+          "assignee": "ana"
+        },
+        {
+          "id": 3,
+          "title": "Typo in footer",
+          "assignee": "bo"
+        }
+      ],
+      "frame": "readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Typo in footer: botake",
+        "index": 0
+      },
+      "frame": "saving…Crash on save: anatakeSlow search: cytakeTypo in footer: botakeAssigned #2 to cy"
+    },
+    {
+      "type": "reject",
+      "host": "assignIssue",
+      "call": 5,
+      "args": [
+        3
+      ],
+      "error": "offline",
+      "frame": "readyCrash on save: anatakeSlow search: cytakeTypo in footer: botakeCould not assign #3"
+    }
+  ]
+}

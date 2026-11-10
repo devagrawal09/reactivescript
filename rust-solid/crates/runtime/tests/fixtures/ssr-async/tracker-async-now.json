@@ -1,0 +1,367 @@
+{
+ "name": "tracker-async-now",
+ "plan": {
+  "version": 2.1,
+  "component": "TrackerAsync",
+  "hosts": [
+   {
+    "name": "assignIssue",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "loadIssues",
+    "params": [],
+    "returns": "{ id: number, title: string, assignee: string }[]",
+    "pure": true
+   }
+  ],
+  "sources": [
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "issues",
+    "await": {
+     "host": "loadIssues",
+     "args": []
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "claim",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "affects",
+      "source": "issues"
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "assignIssue",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "issues"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "Assigned #"
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Could not assign #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "errored",
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Could not load issues"
+          }
+         },
+         {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+           {
+            "name": "onClick",
+            "steps": [
+             {
+              "op": "refresh",
+              "source": "issues"
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "retry"
+            }
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading issues…"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "element",
+          "tag": "b",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "cond",
+             "test": {
+              "op": "pending",
+              "value": {
+               "op": "read",
+               "source": "issues"
+              }
+             },
+             "then": {
+              "op": "literal",
+              "value": "saving…"
+             },
+             "else": {
+              "op": "literal",
+              "value": "ready"
+             }
+            }
+           }
+          ]
+         },
+         {
+          "kind": "for",
+          "each": {
+           "op": "read",
+           "source": "issues"
+          },
+          "item": "issue",
+          "key": "identity",
+          "children": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "issue"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": ": "
+              }
+             },
+             {
+              "kind": "text",
+              "value": {
+               "op": "or",
+               "left": {
+                "op": "get",
+                "object": {
+                 "op": "local",
+                 "name": "issue"
+                },
+                "key": "assignee"
+               },
+               "right": {
+                "op": "literal",
+                "value": "nobody"
+               }
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "call",
+                  "action": "claim",
+                  "args": [
+                   {
+                    "op": "get",
+                    "object": {
+                     "op": "local",
+                     "name": "issue"
+                    },
+                    "key": "id"
+                   }
+                  ]
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "take"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "answers": [
+  {
+   "host": "loadIssues",
+   "call": 1,
+   "args": [],
+   "mode": "now",
+   "value": [
+    {
+     "id": 1,
+     "title": "Crash on save",
+     "assignee": ""
+    },
+    {
+     "id": 2,
+     "title": "Slow search",
+     "assignee": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Typo in footer",
+     "assignee": ""
+    }
+   ]
+  }
+ ],
+ "events": [
+  {
+   "chunk": "<section _hk=1><!--$--><b _hk=200000>ready</b><p _hk=20000100><!--$-->Crash on save<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=20000110><!--$-->Slow search<!--/-->: <!--$-->ana<!--/--><button>take</button></p><p _hk=20000120><!--$-->Typo in footer<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"200_fr\"]=$R[3]=($R[4]=$R[2]()).p;($R[9]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[5]=[$R[6]={id:1,title:\"Crash on save\",assignee:\"\"},$R[7]={id:2,title:\"Slow search\",assignee:\"ana\"},$R[8]={id:3,title:\"Typo in footer\",assignee:\"\"}]);$R[9]($R[4],!0);</script>"
+  },
+  {
+   "end": true
+  }
+ ],
+ "html": "<section _hk=1><!--$--><i _hk=2000>Loading issues&#8230;</i><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"200\"]=\"$$f\";</script>",
+ "requests": [
+  {
+   "host": "loadIssues",
+   "call": 1,
+   "args": []
+  }
+ ]
+}

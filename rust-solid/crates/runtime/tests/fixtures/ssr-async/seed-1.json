@@ -1,0 +1,331 @@
+{
+ "seed": 1,
+ "plan": {
+  "version": 2.1,
+  "component": "App",
+  "hosts": [
+   {
+    "name": "loadTotal",
+    "params": [],
+    "returns": "number",
+    "pure": true
+   },
+   {
+    "name": "h0",
+    "params": [],
+    "returns": "string"
+   }
+  ],
+  "sources": [
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "total",
+    "await": {
+     "host": "loadTotal",
+     "args": []
+    }
+   },
+   {
+    "name": "label",
+    "value": {
+     "op": "add",
+     "left": {
+      "op": "literal",
+      "value": "v "
+     },
+     "right": {
+      "op": "read",
+      "source": "total"
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "bump",
+    "params": [],
+    "steps": [
+     {
+      "op": "affects",
+      "source": "total"
+     },
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "host": "h0",
+        "args": [],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "total"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "bumped "
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "literal",
+         "value": "failed"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "reask",
+    "params": [],
+    "steps": [
+     {
+      "op": "affects",
+      "source": "total"
+     },
+     {
+      "op": "refresh",
+      "source": "total"
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "action": "reask",
+          "args": []
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "reask"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "refresh",
+          "source": "total"
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "refetch"
+        }
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "element",
+        "tag": "h2",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "List"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading"
+            }
+           }
+          ]
+         },
+         {
+          "kind": "element",
+          "tag": "sub",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "soon"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "errored",
+          "fallback": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "literal",
+               "value": "Could not load"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "refresh",
+                  "source": "total"
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "retry"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ],
+          "children": [
+           {
+            "kind": "element",
+            "tag": "u",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "read",
+               "source": "total"
+              }
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "answers": [
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": [],
+   "mode": "now",
+   "value": 1
+  }
+ ],
+ "events": [
+  {
+   "chunk": "<section _hk=2><button>reask</button><button>refetch</button><div><h2>List</h2><!--$--><u _hk=300000>1</u><!--/--></div><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"3_fr\"]=$R[3]=($R[4]=$R[2]()).p;($R[5]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],1);$R[5]($R[4],!0);</script>"
+  },
+  {
+   "end": true
+  }
+ ],
+ "html": "<section _hk=2><button>reask</button><button>refetch</button><div><h2>List</h2><!--$--><i _hk=30>Loading</i><sub _hk=31>soon</sub><!--/--></div><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"3\"]=\"$$f\";</script>",
+ "requests": [
+  {
+   "host": "loadTotal",
+   "call": 1,
+   "args": []
+  }
+ ]
+}
