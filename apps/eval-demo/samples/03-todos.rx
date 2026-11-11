@@ -1,0 +1,1 @@
+<div><ul>{for t in todos.list { <li onClick={() => { toggleTodo(t.id) }}>{if t.done { <s>{t.text}</s> } else { <span>{t.text}</span> }}</li> }}</ul><button onClick={() => { addTodo("todo from eval") }}>add</button></div>

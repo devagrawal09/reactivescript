@@ -1,0 +1,1 @@
+return (<p><button onClick={() => increment()}>+1</button>{"TSX sees " + count()}</p>);

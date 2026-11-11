@@ -1,0 +1,2 @@
+source clicks := 0;
+<p><button onClick={() => { clicks := clicks + 1 }}>click</button>{" local clicks " + clicks + ", shared count " + count}</p>

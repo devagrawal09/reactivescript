@@ -1,0 +1,2 @@
+user = await fetchUser(count);
+<div>{errored fallback { <b>fetch failed</b> } { loading fallback { <i>fetching user…</i> } { <p>{"user " + user.id + " is " + user.name}</p> } }}<button onClick={() => { increment() }}>next user</button></div>

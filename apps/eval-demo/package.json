@@ -1,0 +1,15 @@
+{
+  "name": "reactivescript-eval-demo",
+  "private": true,
+  "type": "module",
+  "description": "A local page that renders ReactiveScript POSTed to /eval, through createEval (frontend/eval).",
+  "scripts": {
+    "build": "node --experimental-strip-types scripts/build.ts",
+    "start": "npm run build && node --experimental-strip-types src/server.ts",
+    "post": "node --experimental-strip-types scripts/post-samples.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}

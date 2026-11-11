@@ -1,0 +1,1 @@
+<p><button onClick={() => { count := 5 }}>reset</button></p>
