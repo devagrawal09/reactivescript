@@ -20,10 +20,12 @@ cargo test --test ssr         # the server renderer against Solid's renderToStri
 cargo test --test ssr_async   # async data on the server: renderToStream chunks and renderToString HTML against Solid's (docs/SSR.md, "Async data and streaming")
 cargo test --test plan_v21    # plan v2.1 (async data): tracker-async, plan v2.1 fuzz programs (docs/PLAN-V2-CONSUMER.md, "Plan v2.1")
 cargo test --test boundaries  # Loading/Errored boundaries, tracked isPending/latest, affects (docs/BOUNDARIES-COVERAGE.md)
+cargo test --test frames      # slice 6: the frames server against Solid's own server, request for request (docs/FRAMES.md)
 cargo run --bin scenario -- crates/runtime/tests/fixtures/tracker-async.plan.json crates/runtime/tests/fixtures/tracker-async.scenario.json
 node fuzz/run.mjs --boundaries --seeds 1000 --no-reduce --out out/boundaries   # docs/BOUNDARIES-COVERAGE.md
 cargo run --bin ssr -- crates/runtime/tests/fixtures/tracker.plan.json   # a plan's server HTML
 cargo run --bin ssr -- PLAN.json --stream ANSWERS.json   # a v2.1 plan's renderToStream chunks under a server answer script
+cargo run --bin frames-server -- PLAN.json ANSWERS.json   # serve a plan v2.2 (prints {"port":N})
 ```
 
 The fuzzer exits nonzero for any mismatch or invalid reference program. That is expected while the port is incomplete. It writes coverage, exact expected/actual logs, full failing programs, and reduced programs. No log filtering is used to improve agreement.
@@ -41,6 +43,7 @@ The fuzzer exits nonzero for any mismatch or invalid reference program. That is 
 - fuzz/solid.mjs — rc.21 reference runner
 - fuzz/generate.mjs — deterministic seeded program generation
 - fuzz/run.mjs — exact comparison, reduction, and coverage
+- crates/runtime/src/frames/ — slice 6: the frames server for plan v2.2 (server functions and server components, the server-function endpoint, frame streams, the t=0 document with `frameTransformDirectResult` and `createDocumentSlotProps`), each body ported with its `// Solid: file.ts:lines`; crates/runtime/src/bin/frames-server.rs — `frames-server PLAN ANSWERS` (docs/FRAMES.md)
 - docs/ — design, current results, quirks, and checked-in counterexamples
 
 No RX compiler work, frontend changes (the frontends are ../frontend), pushes, or GitHub setup are part of this folder. The renderer is a port of Solid 2's own `@solidjs/universal` (docs/RENDERER.md). The plan v2 consumer (`crates/runtime/src/plan_v2.rs`, `scenario` with a version-2 plan) runs the slice-2 tracker plan to its native-Solid frames and Solid's host log (docs/PLAN-V2-CONSUMER.md); it also consumes plan v2.1 (async data: async memos, Loading/Errored, `isPending`/`latest`, `refresh`/`affects`), the tracker-async slice and the frontend's plan v2.1 fuzz (docs/PLAN-V2-CONSUMER.md, "Plan v2.1"). The frontend's plan fuzz replays generated plans through `plan-trace` against native Solid's full host log (docs/plan-fuzz/README.md): a verified subset of the generated program shapes, not full readiness. Eval sites (frontend `docs/EVAL.md`) run from the host's table of compiled plans: `plan-trace PLAN SCENARIO EVALS` (docs/EVAL-CONSUMER.md). The server renderer (`crates/runtime/src/ssr/`, `ssr`) renders a v2 plan to the HTML Solid's `renderToString` renders for the plan's canonical TSX twin, byte for byte, and the frontend's oracle hydrates it with Solid's client in Chromium and replays the scenario (docs/SSR.md): verified on the plan fuzz's programs, seeds 1..3000, the tracker and like. For a plan v2.1 (async data) it renders `renderToString`'s HTML and, under a server answer script, `renderToStream`'s chunks, both byte for byte Solid's, and the oracle hydrates each stream chunk by chunk and continues the scenario (docs/SSR.md, "Async data and streaming"): verified on tracker-async and the async plan fuzz's programs, seeds 1..3000.
