@@ -73,6 +73,53 @@ pub struct Server {
     /// does (`console.error`): a failure no boundary took, which fails the
     /// request but still ends the stream.
     pub(crate) render_errors: Vec<String>,
+    /// Frames (slice 6, `crate::frames`): the brands Solid's frames runtime
+    /// writes on functions and objects, by identity. Empty outside frames
+    /// renders.
+    pub(crate) brands: Brands,
+    /// The live-hole engine's `suppressed` count (server.ts:4330): fills,
+    /// slot ranges and in-tag holes resolve outside it. Frames only.
+    pub(crate) live_suppressed: u32,
+}
+
+/// Frames' brands, by object identity: a server component binding
+/// (`SERVER_COMPONENT`: its function id, `SERVER_COMPONENT_ADDRESS`: its
+/// call's address), and the document's live channel (a `ReadableStream`).
+#[derive(Default)]
+/// Each brand keeps its object alive (the identity of a dropped object could
+/// be another's later).
+pub struct Brands {
+    pub components: HashMap<usize, (String, String, JsVal)>,
+    pub streams: HashMap<usize, (Rc<dyn LiveChannel>, JsVal)>,
+    /// `$rows`: a `For`'s rows in a live render (signals.ts:3615).
+    pub rows: HashMap<usize, JsVal>,
+    /// `$slot`: a slot range (frame-sink.ts:1232-1237, 1609-1619).
+    pub slots: HashMap<usize, JsVal>,
+}
+
+impl Brands {
+    pub fn brand_rows(&mut self, v: &JsVal) {
+        self.rows
+            .insert(v.identity().expect("an object"), v.clone());
+    }
+    pub fn brand_slot(&mut self, v: &JsVal) {
+        self.slots
+            .insert(v.identity().expect("an object"), v.clone());
+    }
+    pub fn is_rows(&self, v: &JsVal) -> bool {
+        v.identity().is_some_and(|k| self.rows.contains_key(&k))
+    }
+    pub fn is_slot(&self, v: &JsVal) -> bool {
+        v.identity().is_some_and(|k| self.slots.contains_key(&k))
+    }
+}
+
+/// A `ReadableStream` the hydration serializer can carry (seroval-plugins
+/// web `ReadableStreamPlugin`): its reader's pull, as an async iterator.
+pub trait LiveChannel {
+    /// `reader.read()`: a promise of whether the stream is done (`true` once
+    /// it closed).
+    fn read(&self, s: &mut Server) -> Rc<js::JsPromise>;
 }
 
 impl Server {

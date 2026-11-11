@@ -43,6 +43,21 @@ const SERIALIZED_PROMISE_SUCCESS: &str =
 const SERIALIZED_PROMISE_FAILURE: &str =
     "(resolver, data) => {\n\tresolver.f(data);\n\tresolver.p.s = 2;\n\tresolver.p.v = data;\n}";
 
+// seroval index.js:697-766 (`STREAM_CONSTRUCTOR`): its `toString()`, the
+// special reference 4.
+const SERIALIZED_STREAM_CONSTRUCTOR: &str = include_str!("seroval_stream_constructor.txt");
+// seroval-plugins web.js:421-437 (`READABLE_STREAM_FACTORY_CONSTRUCTOR`): its
+// `toString()`, what the ReadableStreamFactory plugin serializes as.
+const SERIALIZED_READABLE_STREAM_FACTORY: &str =
+    include_str!("seroval_readable_stream_factory.txt");
+// frames frame-sink.ts:299-302 (`SERVER_COMPONENT_BOOTSTRAP_EXPR`): the `_$SC`
+// registry, carried by the first server-component reference of each
+// serialized script (frame-sink.ts:306-311, `bootstrappedScripts`).
+const SERVER_COMPONENT_BOOTSTRAP_EXPR: &str = "(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}}))";
+/// The identity the ReadableStream factory singleton (`READABLE_STREAM_FACTORY`,
+/// one object per process) takes in a serializer's `refs`.
+const READABLE_STREAM_FACTORY_KEY: usize = usize::MAX - 7;
+
 /// A seroval node (seroval `createSerovalNode`), the kinds a plan app's data
 /// produces.
 #[derive(Clone, Debug)]
@@ -84,6 +99,30 @@ pub enum Node {
         factory: Box<Node>,
         value: Box<Node>,
     },
+    /// t 25 (frames' `ServerComponentPlugin`, frame-transport.ts:524-568): a
+    /// server component reference, `registry.r(id, address)`.
+    ServerComponent {
+        i: usize,
+        id: String,
+        address: String,
+    },
+    /// t 25 (seroval-plugins web `ReadableStreamPlugin`): `(factory)(stream)`.
+    ReadableStream {
+        i: usize,
+        factory: Box<Node>,
+        stream: Box<Node>,
+    },
+    /// t 25 (seroval-plugins web `ReadableStreamFactoryPlugin`): the factory.
+    StreamFactory { i: usize },
+    /// t 31 (`createStreamConstructorNode`): `$R[i]=(constructor)(1)` for a
+    /// live stream source.
+    StreamConstructor {
+        i: usize,
+        factory: Box<Node>,
+        live: bool,
+    },
+    /// t 34 (`createStreamEventNode`, return): `$R[i].return(value)`.
+    StreamReturn { i: usize, value: Box<Node> },
 }
 
 impl Node {
@@ -95,6 +134,11 @@ impl Node {
             | Node::PromiseConstructor { i, .. }
             | Node::Special { i, .. }
             | Node::PromiseResult { i, .. }
+            | Node::ServerComponent { i, .. }
+            | Node::ReadableStream { i, .. }
+            | Node::StreamFactory { i }
+            | Node::StreamConstructor { i, .. }
+            | Node::StreamReturn { i, .. }
             | Node::Indexed(i) => Some(*i),
             _ => None,
         }
@@ -132,6 +176,17 @@ impl Refs {
             return Ok(Node::Indexed(*id));
         }
         Err(self.create_index(Some(value.clone())))
+    }
+
+    /// A process-wide singleton object (the ReadableStream factory): its
+    /// index, or a new one.
+    fn singleton(&mut self, key: usize) -> Result<Node, usize> {
+        if let Some((id, _)) = self.by_identity.get(&key) {
+            return Ok(Node::Indexed(*id));
+        }
+        let id = self.create_index(None);
+        self.by_identity.insert(key, (id, JsVal::Undefined));
+        Err(id)
     }
 
     // seroval index.js:1236-1240 (`parseSpecialReference`)
@@ -267,6 +322,58 @@ fn parse_sos(s: &mut Server, ctx: &Rc<StreamParse>, current: JsVal) -> Res<Node>
                 Err(id) => parse_object(s, ctx, id, current)?,
             }
         }
+        // seroval index.js:2886-2892 (`parseFunction`): a function is a
+        // reference or a plugin's; frames' ServerComponentPlugin takes a
+        // branded server component (`parseServerComponent`).
+        JsVal::Fn(_)
+            if s.brands
+                .components
+                .contains_key(&current.identity().expect("an object")) =>
+        {
+            let (fid, address, _) =
+                s.brands.components[&current.identity().expect("an object")].clone();
+            match ctx.refs.borrow_mut().node_for(&current) {
+                Ok(indexed) => indexed,
+                Err(id) => Node::ServerComponent {
+                    i: id,
+                    id: serialize_string(&fid),
+                    address: serialize_string(&address),
+                },
+            }
+        }
+        // The document's live channel: seroval-plugins web
+        // `ReadableStreamPlugin.parse.stream` (web.js:539-544).
+        JsVal::Deferred(_)
+            if s.brands
+                .streams
+                .contains_key(&current.identity().expect("an object")) =>
+        {
+            let channel = s.brands.streams[&current.identity().expect("an object")]
+                .0
+                .clone();
+            let id = match ctx.refs.borrow_mut().node_for(&current) {
+                Ok(indexed) => return Ok(indexed),
+                Err(id) => id,
+            };
+            let factory = match ctx.refs.borrow_mut().singleton(READABLE_STREAM_FACTORY_KEY) {
+                Ok(indexed) => indexed,
+                Err(i) => Node::StreamFactory { i },
+            };
+            // `parseStreamSource` (index.js:2939-2952): an index, the stream
+            // constructor reference, and the async pull (`iterateAsync`).
+            let stream_id = ctx.refs.borrow_mut().create_index(None);
+            let ctor = ctx.refs.borrow_mut().special(4);
+            iterate_async(s, ctx, stream_id, channel);
+            Node::ReadableStream {
+                i: id,
+                factory: Box::new(factory),
+                stream: Box::new(Node::StreamConstructor {
+                    i: stream_id,
+                    factory: Box::new(ctor),
+                    live: true,
+                }),
+            }
+        }
         other => {
             return Err(Thrown::msg(format!(
                 "Seroval Error (specific: 1): {other:?} is not serializable here"
@@ -386,6 +493,75 @@ fn parse_event(s: &mut Server, ctx: &Rc<StreamParse>, value: JsVal, success: boo
             // The queue only grows at its back while this record waits; the
             // record is still at `index` (drainOutput does not run while
             // `parsing > 0`).
+            ctx.state.borrow_mut().queue[index].node = Some(node);
+            drain_output(s, ctx);
+        }
+        Err(e) => stop_stream_parse(s, ctx, Some(e)),
+    }
+}
+
+// seroval index.js:3076-3110 (`iterateAsync`) over seroval-plugins web
+// `toAsyncIterable` (web.js:461-516): each pull is `reader.read()` awaited in
+// the iterator's async `next()`, whose promise the pull's `.then` reads. The
+// live channel only closes (the document's live holes never re-emit in the
+// frames subset): a chunk is refused.
+fn iterate_async(
+    s: &mut Server,
+    ctx: &Rc<StreamParse>,
+    id: usize,
+    channel: Rc<dyn super::LiveChannel>,
+) {
+    push_pending_state(ctx);
+    let read = channel.read(s);
+    let next = super::js::with_resolvers();
+    let (n1, n2) = (next.clone(), next.clone());
+    super::js::await_value(
+        s,
+        JsVal::Promise(read),
+        move |s, v| n1.resolve(s, v),
+        move |s, e| n2.reject(s, e),
+    );
+    let (a, b) = (ctx.clone(), ctx.clone());
+    then(
+        s,
+        &next.promise,
+        Some(Rc::new(move |s, done| {
+            if !matches!(done, JsVal::Bool(true)) {
+                stop_stream_parse(s, &a, Some(Thrown::msg("a chunk on the document's live channel (a live hole re-emitted) is outside the frames subset")));
+                return Ok(JsVal::Undefined);
+            }
+            // `listener.return(undefined)` (streamListener, index.js:3004-3028).
+            if a.state.borrow().alive {
+                parse_stream_event(s, &a, JsVal::Undefined, id);
+            }
+            pop_pending_state(s, &a);
+            Ok(JsVal::Undefined)
+        })),
+        Some(Rc::new(move |s, e| {
+            stop_stream_parse(s, &b, Some(Thrown(e)));
+            Ok(JsVal::Undefined)
+        })),
+    );
+}
+
+// seroval index.js:3154-3175 (`parseEvent`) with a stream return node.
+fn parse_stream_event(s: &mut Server, ctx: &Rc<StreamParse>, value: JsVal, id: usize) {
+    let index = {
+        let mut st = ctx.state.borrow_mut();
+        st.queue.push_back(Record {
+            node: None,
+            initial: false,
+        });
+        st.parsing += 1;
+        st.queue.len() - 1
+    };
+    let parsed = parse_sos(s, ctx, value).map(|node| Node::StreamReturn {
+        i: id,
+        value: Box::new(node),
+    });
+    ctx.state.borrow_mut().parsing -= 1;
+    match parsed {
+        Ok(node) => {
             ctx.state.borrow_mut().queue[index].node = Some(node);
             drain_output(s, ctx);
         }
@@ -515,6 +691,9 @@ struct Ser<'a> {
     stack: Vec<usize>,
     assignments: Vec<(String, String)>,
     _scope: Option<&'a str>,
+    /// This script already carries the `_$SC` bootstrap (frames'
+    /// `bootstrappedScripts`, one per serializer context).
+    bootstrapped: bool,
 }
 
 // seroval index.js:2112-2114 (`getCrossRefParam`)
@@ -687,9 +866,38 @@ impl Ser<'_> {
                 let text = match s {
                     1 => SERIALIZED_PROMISE_CONSTRUCTOR,
                     2 => SERIALIZED_PROMISE_SUCCESS,
+                    4 => SERIALIZED_STREAM_CONSTRUCTOR,
                     _ => SERIALIZED_PROMISE_FAILURE,
                 };
                 assign_indexed_value(*i, text)
+            }
+            // frame-transport.ts:539-557 (`ServerComponentPlugin.serialize`)
+            Node::ServerComponent { i, id, address } => {
+                let registry = if self.bootstrapped {
+                    "self._$SC"
+                } else {
+                    self.bootstrapped = true;
+                    SERVER_COMPONENT_BOOTSTRAP_EXPR
+                };
+                assign_indexed_value(*i, &format!("{registry}.r(\"{id}\",\"{address}\")"))
+            }
+            // web.js:546-548 (`ReadableStreamPlugin.serialize`)
+            Node::ReadableStream { i, factory, stream } => {
+                let f = self.serialize(factory);
+                let st = self.serialize(stream);
+                assign_indexed_value(*i, &format!("({f})({st})"))
+            }
+            Node::StreamFactory { i } => {
+                assign_indexed_value(*i, SERIALIZED_READABLE_STREAM_FACTORY)
+            }
+            // seroval index.js:2592-2601 (`serializeStreamConstructor`)
+            Node::StreamConstructor { i, factory, live } => {
+                let c = self.constructor(factory);
+                assign_indexed_value(*i, &format!("{c}{}", if *live { "(1)" } else { "()" }))
+            }
+            // seroval index.js:2602-2604 (`serializeStreamCall`, "return")
+            Node::StreamReturn { i, value } => {
+                format!("{}.return({})", ref_param(*i), self.serialize(value))
             }
         }
     }
@@ -729,6 +937,7 @@ fn serialize_top_cross(tree: &Node, scope_id: Option<&str>) -> String {
         stack: vec![],
         assignments: vec![],
         _scope: scope_id,
+        bootstrapped: false,
     };
     let result = ctx.serialize(tree);
     let Some(id) = (match tree {

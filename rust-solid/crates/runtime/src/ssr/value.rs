@@ -127,12 +127,15 @@ pub type Body = dyn Fn(&mut Server, &[JsVal]) -> Res<JsVal>;
 /// A JS function: its declared arity (`fn.length`, which `Show` and
 /// `mapArray` read) and its body, plus the expando brands the server reads:
 /// `esc` is web/src/server.ts's `$esc` on an `escapeLate` wrapper, `rw` the
-/// `$rw` of a `buildAsyncWrap` re-owned hole, `lh_skip` `$lhSkip`.
+/// `$rw` of a `buildAsyncWrap` re-owned hole, `lh_skip` `$lhSkip`, `inner` the
+/// `$fn` of an `escapeLate` wrapper (the function it escapes, which a live hole
+/// reads, frames only).
 pub struct JsFn {
     pub arity: usize,
     pub esc: bool,
     pub rw: bool,
     pub lh_skip: Cell<bool>,
+    pub inner: Option<JsVal>,
     pub body: Box<Body>,
 }
 
@@ -211,6 +214,7 @@ impl JsVal {
             esc: false,
             rw: false,
             lh_skip: Cell::new(false),
+            inner: None,
             body: Box::new(body),
         }))
     }

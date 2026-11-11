@@ -150,7 +150,36 @@ fn resolve_promise(s: &mut Server, promise: &Rc<JsPromise>, resolution: JsVal) {
         }));
         return;
     }
+    // A thenable that is not a promise (an object with a callable `then`:
+    // frames' dynamic() flight box, solid/src/server/dynamic.ts:152-163) is
+    // adopted the same way, calling its own `then`.
+    if let Some(then_fn) = thenable_then(&resolution) {
+        let promise = promise.clone();
+        s.queue_microtask(Box::new(move |s| {
+            let r = Resolvers::new(promise);
+            let (a, b) = (r.clone(), r.clone());
+            let res = call(s, &then_fn, &[a.resolve_fn(), b.reject_fn()]);
+            if let Err(e) = res {
+                r.reject(s, e.0);
+            }
+        }));
+        return;
+    }
     fulfill_promise(s, promise, resolution);
+}
+
+/// The callable `then` of a plain record (a thenable that is not a promise).
+pub fn thenable_then(v: &JsVal) -> Option<JsVal> {
+    let JsVal::Rec(r) = v else { return None };
+    let found = r
+        .borrow()
+        .iter()
+        .find(|(k, _)| k == "then")
+        .map(|(_, f)| f.clone());
+    match found {
+        Some(f @ JsVal::Fn(_)) => Some(f),
+        _ => None,
+    }
 }
 
 // §27.2.1.4 FulfillPromise

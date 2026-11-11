@@ -538,6 +538,7 @@ pub fn create_error_boundary(s: &mut Server, children: JsVal, fallback: Fallback
         esc: false,
         rw: false,
         lh_skip: Cell::new(true),
+        inner: None,
         body: Box::new(move |s, _| b.pull(s)),
     })))
 }
@@ -957,6 +958,7 @@ fn skip_live(f: impl Fn(&mut Server) -> Res<JsVal> + 'static) -> JsVal {
         esc: false,
         rw: false,
         lh_skip: Cell::new(true),
+        inner: None,
         body: Box::new(move |s, _| f(s)),
     }))
 }

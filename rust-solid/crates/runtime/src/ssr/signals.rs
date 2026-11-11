@@ -273,6 +273,13 @@ fn process_result(s: &mut Server, comp: &Rc<MemoNode>, result: JsVal) -> Res<()>
     // `noHydrate`: `getContext(NoHydrateContext, owner)`, false in a plan app.
     let no_hydrate = s.no_hydrate(comp.owner);
     let ctx = comp.ctx.clone();
+    // A thenable that is not a promise (frames' dynamic() flight box): its
+    // `Promise.resolve` adoption (settleServerAsync's), taken here.
+    let result = if super::js::thenable_then(&result).is_some() {
+        JsVal::Promise(promise_resolve(s, result))
+    } else {
+        result
+    };
     let JsVal::Promise(result) = result else {
         let mut st = comp.st.borrow_mut();
         st.value = result;
@@ -824,7 +831,15 @@ pub fn map_array(s: &mut Server, list: JsVal, map_fn: JsVal, options: MapOptions
                 let o = s.owner_mut(row_owner);
                 o.id = orig;
                 o.child_count = len as u64;
-                out.map(|_| JsVal::array(rows))
+                out.map(|_| {
+                    let a = JsVal::array(rows);
+                    // In a live render (frames) the rows are tagged as rows
+                    // (signals.ts:3612-3615).
+                    if s.ctx.as_ref().is_some_and(|c| c.live_holes() != 0) {
+                        s.brands.brand_rows(&a);
+                    }
+                    a
+                })
             })
         } else if let Some(fallback) = &options.fallback {
             let fo = s.run_with_owner(Some(row_owner), |s| s.create_owner(None, false))?;

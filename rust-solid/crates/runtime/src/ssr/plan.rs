@@ -904,7 +904,7 @@ fn confident(e: &Expr) -> Option<Konst> {
 }
 
 /// Solid: compiler shared/constants.rs:285-302 (`void_elements`)
-fn void_element(tag: &str) -> bool {
+pub(crate) fn void_element(tag: &str) -> bool {
     matches!(
         tag,
         "area"
@@ -927,7 +927,7 @@ fn void_element(tag: &str) -> bool {
 /// A static text's raw JSX spelling. The compiler inlines
 /// `trim_jsx_text(raw)` unescaped (ssr/transform.rs:2776-2783); a text the
 /// trim would change, or that has no raw spelling, has no unique twin.
-fn raw_text(value: &J) -> Result<String, String> {
+pub(crate) fn raw_text(value: &J) -> Result<String, String> {
     let t = match value {
         J::String(s) => s.clone(),
         J::Number(n) => n.to_string(),
@@ -953,7 +953,7 @@ fn fail<T>(message: impl Into<String>) -> Res<T> {
     throw(message)
 }
 
-fn literal(value: &J) -> Res<JsVal> {
+pub(crate) fn literal(value: &J) -> Res<JsVal> {
     match value {
         J::String(s) => Ok(JsVal::str(s)),
         J::Bool(b) => Ok(JsVal::Bool(*b)),
@@ -965,7 +965,7 @@ fn literal(value: &J) -> Res<JsVal> {
     }
 }
 
-fn truthy(v: &JsVal) -> Res<bool> {
+pub(crate) fn truthy(v: &JsVal) -> Res<bool> {
     match v {
         JsVal::Bool(_) | JsVal::Num(_) | JsVal::Str(_) | JsVal::Arr(_) | JsVal::Rec(_) => {
             Ok(v.truthy())
@@ -974,7 +974,7 @@ fn truthy(v: &JsVal) -> Res<bool> {
     }
 }
 
-fn integer(v: &JsVal) -> Res<i64> {
+pub(crate) fn integer(v: &JsVal) -> Res<i64> {
     match v {
         JsVal::Num(n) => Ok(*n),
         other => fail(format!("expected an integer, got {other:?}")),
@@ -983,7 +983,7 @@ fn integer(v: &JsVal) -> Res<i64> {
 
 /// ToString for text and concatenation: a string is itself, an integer is
 /// base ten; anything else is outside the plan's types.
-fn to_text(v: &JsVal) -> Res<String> {
+pub(crate) fn to_text(v: &JsVal) -> Res<String> {
     match v {
         JsVal::Str(s) => Ok(s.to_string()),
         JsVal::Num(n) => Ok(n.to_string()),
@@ -992,9 +992,9 @@ fn to_text(v: &JsVal) -> Res<String> {
 }
 
 /// `Number.MAX_SAFE_INTEGER`.
-const MAX_SAFE: i64 = (1 << 53) - 1;
+pub(crate) const MAX_SAFE: i64 = (1 << 53) - 1;
 
-fn add(l: &JsVal, r: &JsVal) -> Res<JsVal> {
+pub(crate) fn add(l: &JsVal, r: &JsVal) -> Res<JsVal> {
     if matches!(l, JsVal::Str(_)) || matches!(r, JsVal::Str(_)) {
         return Ok(JsVal::str(&(to_text(l)? + &to_text(r)?)));
     }
@@ -1020,7 +1020,7 @@ fn compare(e: &Expr, l: &JsVal, r: &JsVal) -> Res<JsVal> {
     }))
 }
 
-fn array_items(v: &JsVal, what: &str) -> Res<Vec<JsVal>> {
+pub(crate) fn array_items(v: &JsVal, what: &str) -> Res<Vec<JsVal>> {
     match v {
         JsVal::Arr(a) => Ok(a.borrow().clone()),
         other => fail(format!("{what} of {other:?}, not an array")),
@@ -1362,7 +1362,7 @@ fn lower<'v>(v: &'v View, root: bool, parts: &mut Vec<String>, holes: &mut Vec<H
 /// `&#N;` (the SSR output stays one-byte in V8). A plan's templates have no
 /// attributes, comments with such characters, or raw-text elements, so every
 /// character outside the tags is text.
-fn ascii_template_part(part: &str) -> String {
+pub(crate) fn ascii_template_part(part: &str) -> String {
     if part.chars().all(|c| (c as u32) <= 0xff) {
         return part.to_string();
     }
@@ -1415,7 +1415,7 @@ fn text_hole(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env, tys: &Types) -> R
 
 /// A getter of the compiler's hoisted props (`_P$`): evaluated where the
 /// component reads it.
-fn getter(f: impl Fn(&mut Server) -> Res<JsVal> + 'static) -> JsVal {
+pub(crate) fn getter(f: impl Fn(&mut Server) -> Res<JsVal> + 'static) -> JsVal {
     JsVal::func(0, move |s, _| f(s))
 }
 

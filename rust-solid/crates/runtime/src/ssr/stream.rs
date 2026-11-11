@@ -290,7 +290,9 @@ struct St {
     writing: usize,
     registry: Vec<RegistryEntry>,
     pending_serialized: Vec<(String, Callback)>,
-    guarded: Vec<(usize, JsVal)>,
+    /// `guardedChannels` (a WeakMap): each source with its guarded channel.
+    /// The source is kept too, so its identity cannot be another object's.
+    guarded: Vec<(usize, JsVal, JsVal)>,
     last_blocking_size: i64,
     last_registry_size: i64,
     drain_turn: u32,
@@ -306,6 +308,13 @@ pub struct StreamRender {
     serializer: RefCell<Option<Rc<HydrationSerializer>>>,
     out: Rc<RefCell<StreamOut>>,
     render_id: String,
+    /// The root context's `live` slot (frames' document face): whether a
+    /// server component armed the channel, and its end.
+    pub live_armed: Cell<bool>,
+    pub live_end: RefCell<Option<Callback>>,
+    /// `context.edges` (server.ts:2880): a render with the server-component
+    /// codec among its plugins names its signals and tracks fill reads.
+    pub edges: Cell<bool>,
 }
 
 const MIN_DRAIN_TURNS: u32 = 8;
@@ -459,13 +468,16 @@ impl StreamRender {
             return p;
         };
         let k = p.identity().expect("an object");
-        if let Some((_, g)) = self.st.borrow().guarded.iter().find(|(i, _)| *i == k) {
+        if let Some((_, _, g)) = self.st.borrow().guarded.iter().find(|(i, _, _)| *i == k) {
             return g.clone();
         }
         let border: Handler = Rc::new(|_, v| Ok(v));
         let verdict: Handler = Rc::new(|s, e| Err(Thrown(ssr_sanitize_error(s, &e))));
         let guarded = JsVal::Promise(then(s, pr, Some(border), Some(verdict)));
-        self.st.borrow_mut().guarded.push((k, guarded.clone()));
+        self.st
+            .borrow_mut()
+            .guarded
+            .push((k, p.clone(), guarded.clone()));
         guarded
     }
 
@@ -760,6 +772,13 @@ impl StreamRender {
         queue(s, move |s| {
             let me = me.clone();
             JsVal::Promise(queue(s, move |s| {
+                // The document face's live-hole latch (frames, server.ts:
+                // 2602-2610): the channel closes before the serializer
+                // flushes. Unset outside frames documents.
+                let end = me.live_end.borrow_mut().take();
+                if let Some(end) = end {
+                    end(s);
+                }
                 me.flush_stub_batch(s);
                 me.serializer().flush(s);
                 JsVal::Undefined
@@ -1032,6 +1051,9 @@ pub fn render_to_stream(
         serializer: RefCell::new(None),
         out: out.clone(),
         render_id: String::new(),
+        live_armed: Cell::new(false),
+        live_end: RefCell::new(None),
+        edges: Cell::new(false),
     });
     let (r1, r2) = (render.clone(), render.clone());
     let serializer = HydrationSerializer::new(

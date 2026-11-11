@@ -46,6 +46,10 @@ pub enum CtxKind {
     String(Rc<StringRender>),
     Stream(Rc<StreamRender>),
     Buffered(Rc<SerializeBuffer>),
+    /// `Object.create(page)` with a `frameId` (frames
+    /// `frameTransformDirectResult`, frame-sink.ts:2395-2405): every field
+    /// and method reads through to the page's context. Frames only.
+    Derived(String),
 }
 
 /// `sharedConfig.context`: a render's context object. `proto` is the
@@ -54,6 +58,10 @@ pub struct RenderCtx {
     pub proto: Option<Rc<RenderCtx>>,
     pub kind: CtxKind,
     slots: RefCell<Option<SlotStore>>,
+    /// `ctx.liveHoles` (frames' live-hole engine, server.ts:3981): 0 unset,
+    /// 1 the document face's (scope-gated to server-component interiors), 2
+    /// a frame render's (every hole). Read through the prototype chain.
+    pub live: Cell<u8>,
 }
 
 /// A Loading boundary's serialize buffer (solid/src/server/hydration.ts:343-381): writes made
@@ -70,7 +78,16 @@ impl RenderCtx {
             proto,
             kind,
             slots: RefCell::new(None),
+            live: Cell::new(0),
         })
+    }
+
+    /// `ctx.liveHoles`, through the prototype chain.
+    pub fn live_holes(&self) -> u8 {
+        match self.live.get() {
+            0 => self.proto.as_ref().map_or(0, |p| p.live_holes()),
+            n => n,
+        }
     }
 
     /// `ctx.async`: true for `renderToStream`'s context.
@@ -79,6 +96,7 @@ impl RenderCtx {
             CtxKind::String(_) => false,
             CtxKind::Stream(_) => true,
             CtxKind::Buffered(b) => b.ctx.is_async(),
+            CtxKind::Derived(_) => self.proto.as_ref().is_some_and(|p| p.is_async()),
         }
     }
 
@@ -88,6 +106,7 @@ impl RenderCtx {
             CtxKind::Stream(st) => Some(st.clone()),
             CtxKind::String(_) => None,
             CtxKind::Buffered(b) => b.ctx.stream(),
+            CtxKind::Derived(_) => self.proto.as_ref().and_then(|p| p.stream()),
         }
     }
 
@@ -105,6 +124,10 @@ impl RenderCtx {
                     Ok(())
                 }
             }
+            CtxKind::Derived(_) => match &self.proto {
+                Some(p) => p.serialize(s, id, value, defer),
+                None => throw("a derived context without its page"),
+            },
         }
     }
 
@@ -208,11 +231,13 @@ fn escape_late(f: &Rc<JsFn>) -> JsVal {
         return JsVal::Fn(f.clone());
     }
     let inner = JsVal::Fn(f.clone());
+    let fn_ = inner.clone();
     JsVal::Fn(Rc::new(JsFn {
         arity: 0,
         esc: true,
         rw: false,
         lh_skip: Cell::new(f.lh_skip.get()),
+        inner: Some(fn_),
         body: Box::new(move |s, _| Ok(escape(&call(s, &inner, &[])?))),
     }))
 }
@@ -265,6 +290,7 @@ fn build_async_wrap(s: &mut Server, err: Thrown, node: &JsVal) -> Res<Option<(Js
         esc: false,
         rw: true,
         lh_skip: Cell::new(f.lh_skip.get()),
+        inner: None,
         body: Box::new(move |s, _| s.run_with_owner(Some(owner), |s| call(s, &inner, &[]))),
     }));
     Ok(Some((wrapped, p)))
@@ -421,7 +447,41 @@ pub fn ssr(s: &mut Server, template: &[String], holes: &[JsVal]) -> Res<JsVal> {
     }
     let mut out = template[0].clone();
     let mut result: Option<Rc<SsrRes>> = None;
+    let live = s.ctx.as_ref().map_or(0, |c| c.live_holes()) != 0;
+    let positions = if live {
+        content_positions(template)
+    } else {
+        vec![]
+    };
     for (i, hole) in holes.iter().enumerate() {
+        // Live frame renders route thunk content holes through the engine
+        // (server.ts:4893-4910).
+        if live && matches!(hole, JsVal::Fn(_)) && positions[i] {
+            if let Some(node) = live_content(s, hole) {
+                match node? {
+                    LiveNode::Str(text) => match &result {
+                        None => out.push_str(&text),
+                        Some(r) => push_text(r, &text),
+                    },
+                    LiveNode::Tmpl(t) => {
+                        let r = match &result {
+                            Some(r) => r.clone(),
+                            None => {
+                                let r = SsrRes::new(std::mem::take(&mut out));
+                                result = Some(r.clone());
+                                r
+                            }
+                        };
+                        resolve_ssr_node(s, &JsVal::Res(t), &r, false, false)?;
+                    }
+                }
+                match &result {
+                    None => out.push_str(&template[i + 1]),
+                    Some(r) => push_text(r, &template[i + 1]),
+                }
+                continue;
+            }
+        }
         match hole {
             JsVal::Str(v) => match &result {
                 None => out.push_str(v),
@@ -495,12 +555,26 @@ pub fn resolve_ssr_node(
         JsVal::Undefined | JsVal::Null | JsVal::Bool(_) => {}
         JsVal::Arr(a) => {
             let items = a.borrow().clone();
+            // A slot range resolves mint-suppressed (server.ts:6301-6318).
+            let slot =
+                s.ctx.as_ref().is_some_and(|c| c.live_holes() != 0) && s.brands.is_slot(node);
+            if slot {
+                s.live_suppressed += 1;
+            }
+            let mut r = Ok(());
             for item in &items {
                 if top {
                     s.ssr_text_tail = false;
                 }
-                resolve_ssr_node(s, item, result, false, true)?;
+                r = resolve_ssr_node(s, item, result, false, true);
+                if r.is_err() {
+                    break;
+                }
             }
+            if slot {
+                s.live_suppressed -= 1;
+            }
+            r?;
         }
         JsVal::Res(r) => {
             merge_template_into(result, r);
@@ -512,14 +586,31 @@ pub fn resolve_ssr_node(
         }
         // An object that is not a template: the dev build warns.
         JsVal::Rec(_) | JsVal::Promise(_) | JsVal::Error(_) | JsVal::Deferred(_) => {}
-        JsVal::Fn(_) => match call(s, node, &[]) {
-            Ok(v) => {
-                if let Err(err) = resolve_ssr_node(s, &v, result, false, true) {
-                    push_ssr_async_hole(s, result, err, node)?;
+        JsVal::Fn(_) => {
+            // A live render routes function nodes through the engine
+            // (server.ts:6332-6352): its text counts as text.
+            if let Some(node) = live_content(s, node) {
+                match node? {
+                    LiveNode::Str(text) => {
+                        if s.ssr_text_tail {
+                            push_text(result, TEXT_SEPARATOR);
+                        }
+                        push_text(result, &text);
+                        s.ssr_text_tail = true;
+                    }
+                    LiveNode::Tmpl(t) => resolve_ssr_node(s, &JsVal::Res(t), result, false, true)?,
                 }
+                return Ok(());
             }
-            Err(err) => push_ssr_async_hole(s, result, err, node)?,
-        },
+            match call(s, node, &[]) {
+                Ok(v) => {
+                    if let Err(err) = resolve_ssr_node(s, &v, result, false, true) {
+                        push_ssr_async_hole(s, result, err, node)?;
+                    }
+                }
+                Err(err) => push_ssr_async_hole(s, result, err, node)?,
+            }
+        }
     }
     Ok(())
 }
@@ -543,6 +634,133 @@ fn push_ssr_async_hole(s: &mut Server, result: &Rc<SsrRes>, err: Thrown, node: &
         s.ssr_text_tail = true;
     }
     Ok(())
+}
+
+// ---- the live-hole engine's content path (frames only) ----
+
+/// What `live.content(hole)` returned: rendered text, or a template.
+enum LiveNode {
+    Str(String),
+    Tmpl(Rc<SsrRes>),
+}
+
+/// Whether a value is slot-tagged (`$slot`) or a `$lhSkip` function.
+fn slot_tagged(s: &Server, v: &JsVal) -> bool {
+    match v {
+        JsVal::Fn(f) => f.lh_skip.get(),
+        other => s.brands.is_slot(other),
+    }
+}
+
+// Solid: server.ts:4093-4111 (`resolveValue`): a `For`'s rows (`$rows`) each
+// behind `<!--lr-->`; anything else resolved into `res`.
+fn resolve_live_value(s: &mut Server, value: &JsVal, res: &Rc<SsrRes>) -> Res<()> {
+    let rows = matches!(value, JsVal::Arr(_)) && s.brands.is_rows(value);
+    if !rows {
+        return resolve_ssr_node(s, value, res, false, false);
+    }
+    let JsVal::Arr(items) = value else {
+        unreachable!("an array")
+    };
+    let items = items.borrow().clone();
+    for row in &items {
+        let r = resolve_fresh(s, &escape(row))?;
+        let first = r.t.borrow()[0].clone();
+        res.t
+            .borrow_mut()
+            .last_mut()
+            .expect("a part")
+            .push_str(&format!("<!--lr-->{first}"));
+        if !r.h.borrow().is_empty() {
+            res.t.borrow_mut().extend(r.t.borrow()[1..].iter().cloned());
+            res.h.borrow_mut().extend(r.h.borrow().iter().cloned());
+            res.p.borrow_mut().extend(r.p.borrow().iter().cloned());
+        }
+    }
+    Ok(())
+}
+
+// Solid: server.ts:4285-4524 (the live-hole engine's `content`), for the
+// frames subset: every hole there reads final values (`settled`), so a hole
+// that resolves synchronously ships unmarked and unbound; only a `For`'s
+// rows are marked (`<!--lr-->`). Returns None where the engine defers to the
+// normal path: no engine, a suppressed window, a `$lhSkip` hole, or (the
+// document face) a hole outside every server component.
+fn live_content(s: &mut Server, hole: &JsVal) -> Option<Res<LiveNode>> {
+    let mode = s.ctx.as_ref().map_or(0, |c| c.live_holes());
+    if mode == 0 || s.live_suppressed > 0 {
+        return None;
+    }
+    let JsVal::Fn(f) = hole else { return None };
+    if f.lh_skip.get() || (mode == 1 && !s.in_server_component_scope()) {
+        return None;
+    }
+    let f = f.clone();
+    Some((|| {
+        // `holeValue`: an escape wrapper's own function, its rows kept.
+        let value = match &f.inner {
+            Some(inner) => match call(s, inner, &[]) {
+                Ok(v) => {
+                    let rows = matches!(v, JsVal::Arr(_)) && s.brands.is_rows(&v);
+                    Ok(if rows { v } else { escape(&v) })
+                }
+                Err(e) => Err(e),
+            },
+            None => call(s, hole, &[]),
+        };
+        let value = match value {
+            Ok(v) => v,
+            Err(err) => {
+                return match build_async_wrap(s, err, hole)? {
+                    // A suspended hole inside a server component: its
+                    // escalated mint is outside the frames subset.
+                    Some(_) => throw("a suspended live hole inside a server component is outside the frames subset"),
+                    // A real error contributes nothing.
+                    None => Ok(LiveNode::Str(String::new())),
+                };
+            }
+        };
+        if slot_tagged(s, &value) {
+            s.live_suppressed += 1;
+            let r = resolve_fresh(s, &value);
+            s.live_suppressed -= 1;
+            let r = r?;
+            return Ok(if r.h.borrow().is_empty() {
+                LiveNode::Str(r.t.borrow()[0].clone())
+            } else {
+                LiveNode::Tmpl(r)
+            });
+        }
+        let res = SsrRes::new(String::new());
+        resolve_live_value(s, &value, &res)?;
+        Ok(if res.h.borrow().is_empty() {
+            LiveNode::Str(res.t.borrow()[0].clone())
+        } else {
+            LiveNode::Tmpl(res)
+        })
+    })())
+}
+
+/// `holeContentPositions` (server.ts:3920-3965), for the templates a plan
+/// lowers to (no attribute values): whether hole `i` sits outside a tag.
+fn content_positions(template: &[String]) -> Vec<bool> {
+    let mut in_tag = false;
+    let mut out = vec![];
+    for (i, seg) in template.iter().enumerate() {
+        for c in seg.chars() {
+            if in_tag {
+                if c == '>' {
+                    in_tag = false;
+                }
+            } else if c == '<' {
+                in_tag = true;
+            }
+        }
+        if i < template.len() - 1 {
+            out.push(!in_tag);
+        }
+    }
+    out
 }
 
 // Solid: server.ts:6376-6380 (`resolveSSRSync`)

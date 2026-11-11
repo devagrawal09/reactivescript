@@ -32,6 +32,9 @@ pub struct OwnerCtx {
     /// `NoHydrateContext` (shared.ts:187-190): `false` by default. No plan
     /// app sets it.
     pub no_hydrate: Option<bool>,
+    /// `ServerComponentContext` (signals.ts:4635-4669): inside a server
+    /// component's render scope (frames only).
+    pub server_component: bool,
 }
 
 pub struct SsrOwner {
@@ -198,6 +201,29 @@ impl Server {
         let mut ctx = (*self.owners[owner].context).clone();
         ctx.error = handler;
         self.owners[owner].context = Rc::new(ctx);
+    }
+
+    // Solid: signals.ts:524-541 (`setContext`, `NoHydrateContext`): a new
+    // record. Set by `NoHydration` and `Hydration` (hydration.ts:886-930),
+    // which only frames renders reach (frames/).
+    pub fn set_no_hydrate(&mut self, owner: OwnerId, value: bool) {
+        let mut ctx = (*self.owners[owner].context).clone();
+        ctx.no_hydrate = Some(value);
+        self.owners[owner].context = Rc::new(ctx);
+    }
+
+    // Solid: signals.ts:4635-4655 (`runInServerComponentScope`): the scope
+    // owner's context record names the server-component scope.
+    pub fn set_server_component(&mut self, owner: OwnerId) {
+        let mut ctx = (*self.owners[owner].context).clone();
+        ctx.server_component = true;
+        self.owners[owner].context = Rc::new(ctx);
+    }
+
+    // Solid: signals.ts:4667-4669 (`inServerComponentScope`)
+    pub fn in_server_component_scope(&self) -> bool {
+        self.current
+            .is_some_and(|o| self.owners[o].context.server_component)
     }
 
     // Solid: signals.ts:507-522 (`getContext(NoHydrateContext)`)
