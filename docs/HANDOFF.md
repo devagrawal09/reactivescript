@@ -69,15 +69,18 @@ nix shell nixpkgs#nodejs_24 -c <node/npm cmd>      # Node 24.11.1 (pin 24.18.0);
   # per chunk: index = HEAD + this area's paths from $T, then commit
   git checkout $T -- . && git read-tree HEAD
   git ls-tree -r $T -- frontend | git update-index --index-info
+  # also stage this area's deletions: ls-tree only adds and updates, and the index still holds HEAD's removed files
+  git diff -z --name-only --diff-filter=D HEAD $T -- frontend | xargs -0 -r git rm --cached -q --
   tembo commit -m "feat(solid-model): <tier> — frontend (1/N)"
   git ls-remote origin solid-model; git fetch origin; git diff --stat HEAD $T -- frontend   # must be empty
   # ...repeat for each area; at the end:
   test "$(git rev-parse origin/solid-model^{tree})" = "$T"
   ```
-- **Disk:** the disk filled up once, and a fuzz run hit `ENOSPC` and had to be rerun. The root filesystem is about 91%
-  full (about 4 GB free). `rust-solid/target` is about 2.6 GB. Clean `target/` dirs in old worktrees and stale `/tmp`
-  run directories regularly, but leave `/tmp/async-tier-backup.tar` and other sessions' files alone unless you know
-  what they are.
+- **Disk:** the disk filled up once, and a fuzz run hit `ENOSPC` and had to be rerun. The root filesystem (49 GB) runs
+  88-91% full: 4-5.5 GB free (5.4 GB on 2026-11-11 after clearing `/tmp/sm*`). `rust-solid/target` is about 2.6 GB.
+  **When less than 5 GB is free**, clean `target/` dirs in old worktrees and stale `/tmp` run directories, but leave
+  `/tmp/async-tier-backup.tar`, `/tmp/sm-slice6-backup.tar` and other sessions' files alone unless you know what they
+  are.
 - Dashboard: `cd dashboard && nohup node server.mjs > server.log 2>&1 &` (port 4173). `collect.mjs` reads paths relative
   to the repository (set `DASHBOARD_GATE_BRANCH` to override the gate branch). Edit `notes.json` by hand.
 
@@ -228,7 +231,10 @@ N's host log. Only three PL pins exist (PL-3c, PL-3d, PL-5). The design's open c
 request parity) were built as proposed but never put to the user.
 
 ## Suspected Solid rc.21 bugs (none filed; draft `docs/scratch/solid-rc21-issues.md`, repros `docs/scratch/solid-rc21-repros/`)
-Run them all with `nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh`. Outputs go to `out/*.{prod,dev}.txt`. None of the repros has been rerun on current `next` (`a01fd92`).
+Run them all with `nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh`. Outputs go to `out/*.{prod,dev}.txt`, which are tracked. A rerun rewrites 6 of them with absolute
+stack-trace paths (`1-take-held`, `3-universal-shared-node` and `3b-bulk-removal-arm`, prod and dev; the recorded ones
+read `file:///workspace/rx-tsx-refresh/docs/scratch/…`), so unless the rerun is meant to be committed, restore them
+with `git checkout -- docs/scratch/solid-rc21-repros/out`. None of the repros has been rerun on current `next` (`a01fd92`).
 | # | Bug | Repro | Confidence |
 |---|---|---|---|
 | 1 | `take(n,l,true)` (lanes.ts:174-181) keeps CONFIG_HELD with a null tx, so the next `txOf` throws | `1-take-held.mjs` | high |
@@ -293,7 +299,7 @@ filing, rerun every repro on current `next`. Frames there has moved (`8138dabe` 
    - (a) slice 4, the native window;
    - (b) close the slice-6 gaps (U legs, structured slots, children, the placement-fuzz reproducibility fix);
    - (c) repin Solid to `next` HEAD. Frames is experimental and its wire format may change, so a repin regenerates
-     every recorded byte. RX `main` has also moved: `5d8dfeb` vs the pin `fdbcad92`.
+     every recorded byte. RX `main` has also moved: `08255de` (#49, 2026-11-10) vs the pin `fdbcad92`.
 4. **Eval polish:** `preserve` (REPL state) and `place` (server placement; slice 6 now gives it a target), plus eval on
    the server.
 5. Smaller choices:
@@ -314,7 +320,8 @@ filing, rerun every repro on current `next`. Frames there has moved (`8138dabe` 
 | `claude/project-thread-*` (13) | — | not ours to touch |
 
 **solidjs/reactivescript** (formerly ryansolid/reactivescript; the old name redirects). Pins: RX `fdbcad92`; upstream
-`main` is now `5d8dfeb`.
+`main` is now `08255de` (#49, 2026-11-10; `git ls-remote https://github.com/solidjs/reactivescript main` on
+2026-11-11).
 - **PR #21**: draft, open, head `devagrawal09:tsx-frontend-demo` `cc1e6e9`. Two frontends, the counter in three
   syntaxes, the tracker, stale-write, the fuzzer. Our last status comment is from 2026-11-06; no review yet.
 - **#20** (explicit ordinary async callbacks?): **closed, not planned** by Ryan on 2026-11-09. A held write is Solid's
@@ -337,7 +344,7 @@ filing, rerun every repro on current `next`. Frames there has moved (`8138dabe` 
 1. `cd /workspace/rx-tsx-refresh/solid-model && git fetch origin && git status`. The tree must be clean and
    `HEAD == origin/solid-model`. Read this file, then `dashboard/notes.json`.
 2. `nix shell nixpkgs#nodejs_24 -c sh scripts/setup.sh --check` (run it without `--check` if anything is missing).
-3. `df -h /`. If less than 5 GB is free, clean old `target/` dirs and stale `/tmp` runs.
+3. `df -h /`. If less than 5 GB is free, clean old `target/` dirs and stale `/tmp` runs (Environment, "Disk").
 4. Start a **background** verifier for the gates above (frontend 149/149, cargo 175, fmt, clippy, scenarios,
    plan-diff 453/34/399). Read its report critically.
 5. Ask the user the first two open decisions: deleting the 7 branches, and filing the Solid issues. Then the next

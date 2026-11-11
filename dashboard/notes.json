@@ -174,7 +174,7 @@
     "Slice 6: placement is inferred from RX checker facts (plan/placement.ts, rules PL-1..PL-9, marks M1..M9) and written into plan v2.2; plan/split.ts prints the canonical Frames split; legs T (all-client twin), N (Solid's server, explicit split), J (plan split), R (rust-solid frames-server); G1 placement, G2 bytes, G3 behaviour, G4 zero client JS all pass on tracker-frames",
     "Suspected Solid rc.21 frames bugs 8-11 (not filed): 8 a server component's switch waits for an action's refresh of another (seed 19); 9 an island handler throws NotReadyError while its frame's refetch is staged; 10 a server component re-shown by Show renders its old answer; 11 a refetched frame lands one frame late (no standalone repro). Repros frontend/frames/repros/",
     "Placement-fuzz summaries are not byte-reproducible: Solid's client is timing-dependent on some seeds (unstable 932, 1595, 1632, 2540; R != N on 675, 932, 1595, 2077 because N itself varies). Proposed fix: replay each seed and classify unstable ones in the runner",
-    "Published state 2026-11-11: solidjs/reactivescript #20 closed not planned (held writes are Solid's own hold semantics, H-2), #33 closed completed, #1 closed completed (CP-6 is the resolved model, not a stable IR); PR #21 still an open draft at tsx-frontend-demo cc1e6e9. Upstream RX main is 5d8dfeb (pin fdbcad92); Solid next a01fd92 (pin 2105ffb8)",
+    "Published state 2026-11-11: solidjs/reactivescript #20 closed not planned (held writes are Solid's own hold semantics, H-2), #33 closed completed, #1 closed completed (CP-6 is the resolved model, not a stable IR); PR #21 still an open draft at tsx-frontend-demo cc1e6e9. Upstream RX main is 08255de (#49, 2026-11-10; pin fdbcad92); Solid next a01fd92 (pin 2105ffb8)",
     "The 7 consolidated branches still exist on GitHub as of 2026-11-11 (the user deletes them)"
   ],
   "parked": [
@@ -185,7 +185,7 @@
   "decisions": [
     "Delete the 7 consolidated branches on GitHub (all still exist; the user deletes them)?",
     "Triage and file the suspected Solid rc.21 issues 1-11 (rerun repros on current next first)?",
-    "Next slice: 4 (native window), close slice-6 gaps, or repin Solid to next HEAD (Frames is experimental; its wire format may change; RX main moved to 5d8dfeb)?",
+    "Next slice: 4 (native window), close slice-6 gaps, or repin Solid to next HEAD (Frames is experimental; its wire format may change; RX main moved to 08255de)?",
     "Eval polish first: preserve (REPL) or place (server placement, now possible over Frames)?",
     "SSR canonical twin: accept it, or record a hole's TSX spelling in the plan?",
     "Slice 6: accept the minimal-request rule and request parity as built?",

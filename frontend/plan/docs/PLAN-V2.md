@@ -571,7 +571,7 @@ The default `../rust-solid` (the repository's `rust-solid/`) holds all three sin
 checkout without a v2 consumer, `plan-trace` or `ssr` fails the Rust build step, as it should:
 
 ```sh
-npm run verify:subset   # PASS 106/106
+npm run verify:subset   # PASS 149/149
 ```
 
 ## v2.1: async data

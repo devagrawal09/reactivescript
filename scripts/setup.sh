@@ -118,11 +118,11 @@ done
 cat <<'EOF'
 
 Setup done. The gates (README.md, "Gates"):
-  cd frontend && npm run verify:subset            # PASS 106/106 (default RUST_SOLID=../rust-solid)
-  cd rust-solid && cargo test                     # 132 passed
+  cd frontend && npm run verify:subset            # PASS 149/149 (default RUST_SOLID=../rust-solid)
+  cd rust-solid && cargo test                     # 175 passed
   cd rust-solid && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
   cd rust-solid && cargo run -q --bin scenario -- crates/runtime/tests/fixtures/tracker.plan.json crates/runtime/tests/fixtures/tracker.scenario.json
   cd rust-solid && cargo run -q --bin scenario -- crates/runtime/tests/fixtures/like.plan.json crates/runtime/tests/fixtures/like.scenario.json
-  cd rust-solid && node fuzz/run.mjs --slice1 --seeds 1000 --start 1 --out out/slice1   # also --slice2a/--slice2b/--slice2c/--render/--strings
+  cd rust-solid && node fuzz/run.mjs --slice1 --seeds 1000 --start 1 --out out/slice1   # also --slice2a/--slice2b/--slice2c/--render/--strings/--boundaries
 Prefix node and npm commands with `nix shell nixpkgs#nodejs_24 -c` in the Tembo sandbox.
 EOF
