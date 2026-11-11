@@ -22,6 +22,8 @@
     "eval-slice": "node --experimental-strip-types --conditions=browser scripts/eval-slice.ts",
     "ssr-fuzz": "node --experimental-strip-types scripts/ssr-fuzz.ts",
     "ssr-corpus": "node --experimental-strip-types scripts/ssr-corpus.ts",
+    "frames-fuzz": "node --experimental-strip-types --no-warnings scripts/frames-fuzz.ts",
+    "frames-corpus": "node --experimental-strip-types --no-warnings scripts/frames-corpus.ts",
     "build": "node --experimental-strip-types tsx/build.ts",
     "verify:pinned": "sh scripts/verify-pinned.sh",
     "canary": "sh scripts/canary.sh"

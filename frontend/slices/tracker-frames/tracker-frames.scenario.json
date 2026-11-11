@@ -1,0 +1,120 @@
+{
+  "version": 2.2,
+  "name": "tracker-frames: client filters, server-component refetches by argument, a claim from an island inside a server component with its refreshes staged in one frame, a rejected claim",
+  "fixture": "tracker-frames",
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowCrash on saveStack trace attachedtake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "Filter: all",
+        "index": 0
+      },
+      "frame": "Filter: open2 openCrash on saveshowTypo in footershowCrash on saveStack trace attachedtake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "Filter: open",
+        "index": 0
+      },
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowCrash on saveStack trace attachedtake"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "show",
+        "parent": "Slow searchshow",
+        "index": 0
+      },
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowCrash on saveStack trace attachedtake"
+    },
+    {
+      "type": "deliver",
+      "site": "issue",
+      "call": 2,
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowSlow searchp95 is 4staken by ana"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "show",
+        "parent": "Typo in footershow",
+        "index": 0
+      },
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowSlow searchp95 is 4staken by ana"
+    },
+    {
+      "type": "deliver",
+      "site": "issue",
+      "call": 3,
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'take"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "take",
+        "parent": "Typo in footer'Copyrigth'take",
+        "index": 0
+      },
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'take"
+    },
+    {
+      "type": "deliver",
+      "site": "take/claim",
+      "call": 1,
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'take"
+    },
+    {
+      "type": "deliver",
+      "site": "open",
+      "call": 2,
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'take"
+    },
+    {
+      "type": "deliver",
+      "site": "issues",
+      "call": 2,
+      "frame": "Filter: all2 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'take"
+    },
+    {
+      "type": "deliver",
+      "site": "issue",
+      "call": 4,
+      "frame": "Filter: all1 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'taken by meAssigned #3 to me"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "show",
+        "parent": "Slow searchshow",
+        "index": 0
+      },
+      "frame": "Filter: all1 openCrash on saveshowSlow searchshowTypo in footershowTypo in footer'Copyrigth'taken by meAssigned #3 to me"
+    },
+    {
+      "type": "deliver",
+      "site": "issue",
+      "call": 5,
+      "frame": "Filter: all1 openCrash on saveshowSlow searchshowTypo in footershowSlow searchp95 is 4staken by anaAssigned #3 to me"
+    },
+    {
+      "type": "click",
+      "target": {
+        "text": "taken by ana",
+        "parent": "Slow searchp95 is 4staken by ana",
+        "index": 0
+      },
+      "frame": "Filter: all1 openCrash on saveshowSlow searchshowTypo in footershowSlow searchp95 is 4staken by anaAssigned #3 to me"
+    },
+    {
+      "type": "deliver",
+      "site": "take/claim",
+      "call": 2,
+      "frame": "Filter: all1 openCrash on saveshowSlow searchshowTypo in footershowSlow searchp95 is 4staken by anaCould not assign #2"
+    }
+  ]
+}

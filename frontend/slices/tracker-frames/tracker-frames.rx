@@ -1,0 +1,62 @@
+import { getIssue, listIssues, countOpen, assignIssue } from "./db";
+
+server fn loadList() {
+  let xs = await listIssues();
+  return xs;
+}
+server fn loadIssue(id: number) {
+  let i = await getIssue(id);
+  return { id: i.id, title: i.title, body: i.body, assignee: i.assignee };
+}
+server fn loadSummary() {
+  let n = await countOpen();
+  return n;
+}
+server fn claim(id: number) {
+  let who = await assignIssue(id);
+  return who;
+}
+
+component ClaimButton(props) {
+  <button onClick={() => { props.take(props.id) }}>{props.assignee == "" ? "take" : "taken by " + props.assignee}</button>
+}
+
+component Detail(props) {
+  <article><h2>{props.issue.title}</h2><p>{props.issue.body}</p><ClaimButton id={props.issue.id} assignee={props.issue.assignee} take={props.take} /></article>
+}
+
+component Summary(props) {
+  <p>{"" + props.open + " open"}</p>
+}
+
+export default component Tracker() {
+  source mode := "all";
+  source selected := 1;
+  source status := "";
+  issues = await loadList();
+  issue = await loadIssue(selected);
+  open = await loadSummary();
+  visible = filter(issues, row => mode == "all" || row.assignee == "");
+  action take(id: number) {
+    try {
+      let who = await claim(id);
+      refresh issues;
+      refresh issue;
+      refresh open;
+      status := "Assigned #" + id + " to " + who;
+    } catch (e) {
+      status := "Could not assign #" + id;
+    }
+  }
+  <section>
+    <button onClick={() => { mode := mode == "all" ? "open" : "all" }}>{"Filter: " + mode}</button>
+    {errored fallback(e) { <p>Could not load</p> } {
+      loading fallback { <i>Loading…</i> } {
+        <Summary open={open} />
+        for row in visible { <p>{row.title}<button onClick={() => { selected := row.id }}>show</button></p> }
+        <Detail issue={issue} take={take} />
+      }
+    }}
+    <em>{status}</em>
+  </section>
+}

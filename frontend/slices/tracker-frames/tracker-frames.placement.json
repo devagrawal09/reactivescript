@@ -1,0 +1,97 @@
+{
+  "client": [
+    {
+      "component": "ClaimButton",
+      "reason": "M2",
+      "site": [
+        "Detail",
+        0,
+        2
+      ]
+    },
+    {
+      "component": "Tracker",
+      "reason": "entry",
+      "site": [
+        "Tracker"
+      ]
+    }
+  ],
+  "server": [
+    {
+      "component": "Summary",
+      "fn": "Summary$server",
+      "inline": [],
+      "props": {
+        "open": "question"
+      },
+      "question": {
+        "args": [],
+        "kind": "sunk",
+        "memo": "open",
+        "serverFn": "loadSummary"
+      },
+      "site": [
+        "Tracker",
+        0,
+        1,
+        0,
+        0
+      ],
+      "slots": []
+    },
+    {
+      "component": "Detail",
+      "fn": "Detail$server",
+      "inline": [],
+      "props": {
+        "issue": "question",
+        "take": "through"
+      },
+      "question": {
+        "args": [
+          {
+            "op": "read",
+            "source": "selected"
+          }
+        ],
+        "kind": "sunk",
+        "memo": "issue",
+        "serverFn": "loadIssue"
+      },
+      "site": [
+        "Tracker",
+        0,
+        1,
+        0,
+        2
+      ],
+      "slots": [
+        {
+          "args": [
+            "assignee",
+            "id"
+          ],
+          "component": "ClaimButton",
+          "name": "ClaimButton",
+          "through": [
+            "take"
+          ]
+        }
+      ]
+    }
+  ],
+  "serverFns": [
+    "claim",
+    "loadIssue",
+    "loadList",
+    "loadSummary"
+  ],
+  "serverHosts": [
+    "assignIssue",
+    "countOpen",
+    "getIssue",
+    "listIssues"
+  ],
+  "version": 1
+}

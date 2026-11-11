@@ -1,0 +1,939 @@
+{
+  "version": 2.2,
+  "component": "Tracker",
+  "hosts": [],
+  "serverHosts": [
+    {
+      "name": "getIssue",
+      "params": [
+        "number"
+      ],
+      "returns": "{ id: number, title: string, body: string, assignee: string }",
+      "pure": true
+    },
+    {
+      "name": "listIssues",
+      "params": [],
+      "returns": "{ id: number, title: string, assignee: string }[]",
+      "pure": true
+    },
+    {
+      "name": "countOpen",
+      "params": [],
+      "returns": "number",
+      "pure": true
+    },
+    {
+      "name": "assignIssue",
+      "params": [
+        "number"
+      ],
+      "returns": "string"
+    }
+  ],
+  "serverFns": [
+    {
+      "name": "loadList",
+      "id": "loadList-59b2922c",
+      "params": [],
+      "returns": "{ id: number, title: string, assignee: string }[]",
+      "steps": [
+        {
+          "op": "await",
+          "serverHost": "listIssues",
+          "args": [],
+          "bind": "xs"
+        },
+        {
+          "op": "return",
+          "value": {
+            "op": "local",
+            "name": "xs"
+          }
+        }
+      ]
+    },
+    {
+      "name": "loadIssue",
+      "id": "loadIssue-59b2922c",
+      "params": [
+        {
+          "name": "id",
+          "type": "number"
+        }
+      ],
+      "returns": "{ id: number, title: string, body: string, assignee: string }",
+      "steps": [
+        {
+          "op": "await",
+          "serverHost": "getIssue",
+          "args": [
+            {
+              "op": "local",
+              "name": "id"
+            }
+          ],
+          "bind": "i"
+        },
+        {
+          "op": "return",
+          "value": {
+            "op": "object",
+            "fields": [
+              {
+                "key": "id",
+                "value": {
+                  "op": "get",
+                  "object": {
+                    "op": "local",
+                    "name": "i"
+                  },
+                  "key": "id"
+                }
+              },
+              {
+                "key": "title",
+                "value": {
+                  "op": "get",
+                  "object": {
+                    "op": "local",
+                    "name": "i"
+                  },
+                  "key": "title"
+                }
+              },
+              {
+                "key": "body",
+                "value": {
+                  "op": "get",
+                  "object": {
+                    "op": "local",
+                    "name": "i"
+                  },
+                  "key": "body"
+                }
+              },
+              {
+                "key": "assignee",
+                "value": {
+                  "op": "get",
+                  "object": {
+                    "op": "local",
+                    "name": "i"
+                  },
+                  "key": "assignee"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "loadSummary",
+      "id": "loadSummary-59b2922c",
+      "params": [],
+      "returns": "number",
+      "steps": [
+        {
+          "op": "await",
+          "serverHost": "countOpen",
+          "args": [],
+          "bind": "n"
+        },
+        {
+          "op": "return",
+          "value": {
+            "op": "local",
+            "name": "n"
+          }
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "id": "claim-59b2922c",
+      "io": true,
+      "params": [
+        {
+          "name": "id",
+          "type": "number"
+        }
+      ],
+      "returns": "string",
+      "steps": [
+        {
+          "op": "await",
+          "serverHost": "assignIssue",
+          "args": [
+            {
+              "op": "local",
+              "name": "id"
+            }
+          ],
+          "bind": "who"
+        },
+        {
+          "op": "return",
+          "value": {
+            "op": "local",
+            "name": "who"
+          }
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "name": "ClaimButton",
+      "props": [
+        {
+          "name": "id",
+          "type": "number"
+        },
+        {
+          "name": "assignee",
+          "type": "string"
+        },
+        {
+          "name": "take",
+          "type": "action"
+        }
+      ],
+      "sources": [],
+      "memos": [],
+      "actions": [],
+      "markup": [
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "call",
+                  "prop": "take",
+                  "args": [
+                    {
+                      "op": "prop",
+                      "name": "id"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "cond",
+                "test": {
+                  "op": "eq",
+                  "left": {
+                    "op": "prop",
+                    "name": "assignee"
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": ""
+                  }
+                },
+                "then": {
+                  "op": "literal",
+                  "value": "take"
+                },
+                "else": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": "taken by "
+                  },
+                  "right": {
+                    "op": "prop",
+                    "name": "assignee"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Detail",
+      "props": [
+        {
+          "name": "issue",
+          "type": "{ id: number, title: string, body: string, assignee: string }"
+        },
+        {
+          "name": "take",
+          "type": "action"
+        }
+      ],
+      "sources": [],
+      "memos": [],
+      "actions": [],
+      "markup": [
+        {
+          "kind": "element",
+          "tag": "article",
+          "events": [],
+          "children": [
+            {
+              "kind": "element",
+              "tag": "h2",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "get",
+                    "object": {
+                      "op": "prop",
+                      "name": "issue"
+                    },
+                    "key": "title"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "get",
+                    "object": {
+                      "op": "prop",
+                      "name": "issue"
+                    },
+                    "key": "body"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "component",
+              "name": "ClaimButton",
+              "props": [
+                {
+                  "name": "id",
+                  "value": {
+                    "op": "get",
+                    "object": {
+                      "op": "prop",
+                      "name": "issue"
+                    },
+                    "key": "id"
+                  }
+                },
+                {
+                  "name": "assignee",
+                  "value": {
+                    "op": "get",
+                    "object": {
+                      "op": "prop",
+                      "name": "issue"
+                    },
+                    "key": "assignee"
+                  }
+                },
+                {
+                  "name": "take",
+                  "forward": "take"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Summary",
+      "props": [
+        {
+          "name": "open",
+          "type": "number"
+        }
+      ],
+      "sources": [],
+      "memos": [],
+      "actions": [],
+      "markup": [
+        {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "literal",
+                    "value": ""
+                  },
+                  "right": {
+                    "op": "prop",
+                    "name": "open"
+                  }
+                },
+                "right": {
+                  "op": "literal",
+                  "value": " open"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "name": "mode",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": "all"
+      }
+    },
+    {
+      "name": "selected",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": 1
+      }
+    },
+    {
+      "name": "status",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": ""
+      }
+    }
+  ],
+  "memos": [
+    {
+      "name": "issues",
+      "await": {
+        "serverFn": "loadList",
+        "args": []
+      }
+    },
+    {
+      "name": "issue",
+      "await": {
+        "serverFn": "loadIssue",
+        "args": [
+          {
+            "op": "read",
+            "source": "selected"
+          }
+        ]
+      },
+      "sunk": "Detail$server"
+    },
+    {
+      "name": "open",
+      "await": {
+        "serverFn": "loadSummary",
+        "args": []
+      },
+      "sunk": "Summary$server"
+    },
+    {
+      "name": "visible",
+      "value": {
+        "op": "filter",
+        "array": {
+          "op": "read",
+          "source": "issues"
+        },
+        "param": "row",
+        "body": {
+          "op": "or",
+          "left": {
+            "op": "eq",
+            "left": {
+              "op": "read",
+              "source": "mode"
+            },
+            "right": {
+              "op": "literal",
+              "value": "all"
+            }
+          },
+          "right": {
+            "op": "eq",
+            "left": {
+              "op": "get",
+              "object": {
+                "op": "local",
+                "name": "row"
+              },
+              "key": "assignee"
+            },
+            "right": {
+              "op": "literal",
+              "value": ""
+            }
+          }
+        }
+      }
+    }
+  ],
+  "actions": [
+    {
+      "name": "take",
+      "params": [
+        "id"
+      ],
+      "steps": [
+        {
+          "op": "try",
+          "body": [
+            {
+              "op": "await",
+              "serverFn": "claim",
+              "args": [
+                {
+                  "op": "local",
+                  "name": "id"
+                }
+              ],
+              "bind": "$await0"
+            },
+            {
+              "op": "refresh",
+              "source": "issues"
+            },
+            {
+              "op": "refresh",
+              "source": "issue"
+            },
+            {
+              "op": "refresh",
+              "source": "open"
+            },
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "add",
+                  "left": {
+                    "op": "add",
+                    "left": {
+                      "op": "literal",
+                      "value": "Assigned #"
+                    },
+                    "right": {
+                      "op": "local",
+                      "name": "id"
+                    }
+                  },
+                  "right": {
+                    "op": "literal",
+                    "value": " to "
+                  }
+                },
+                "right": {
+                  "op": "local",
+                  "name": "$await0"
+                }
+              }
+            }
+          ],
+          "catch": [
+            {
+              "op": "write",
+              "source": "status",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": "Could not assign #"
+                },
+                "right": {
+                  "op": "local",
+                  "name": "id"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "section",
+      "events": [],
+      "children": [
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "write",
+                  "source": "mode",
+                  "value": {
+                    "op": "cond",
+                    "test": {
+                      "op": "eq",
+                      "left": {
+                        "op": "read",
+                        "source": "mode"
+                      },
+                      "right": {
+                        "op": "literal",
+                        "value": "all"
+                      }
+                    },
+                    "then": {
+                      "op": "literal",
+                      "value": "open"
+                    },
+                    "else": {
+                      "op": "literal",
+                      "value": "all"
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": "Filter: "
+                },
+                "right": {
+                  "op": "read",
+                  "source": "mode"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "errored",
+          "fallback": [
+            {
+              "kind": "element",
+              "tag": "p",
+              "events": [],
+              "children": [
+                {
+                  "kind": "text",
+                  "value": {
+                    "op": "literal",
+                    "value": "Could not load"
+                  }
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "loading",
+              "fallback": [
+                {
+                  "kind": "element",
+                  "tag": "i",
+                  "events": [],
+                  "children": [
+                    {
+                      "kind": "text",
+                      "value": {
+                        "op": "literal",
+                        "value": "Loading…"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "children": [
+                {
+                  "kind": "component",
+                  "name": "Summary",
+                  "props": [
+                    {
+                      "name": "open",
+                      "value": {
+                        "op": "read",
+                        "source": "open"
+                      }
+                    }
+                  ],
+                  "place": "server",
+                  "server": "Summary$server"
+                },
+                {
+                  "kind": "for",
+                  "each": {
+                    "op": "read",
+                    "source": "visible"
+                  },
+                  "item": "row",
+                  "key": "identity",
+                  "children": [
+                    {
+                      "kind": "element",
+                      "tag": "p",
+                      "events": [],
+                      "children": [
+                        {
+                          "kind": "text",
+                          "value": {
+                            "op": "get",
+                            "object": {
+                              "op": "local",
+                              "name": "row"
+                            },
+                            "key": "title"
+                          }
+                        },
+                        {
+                          "kind": "element",
+                          "tag": "button",
+                          "events": [
+                            {
+                              "name": "onClick",
+                              "steps": [
+                                {
+                                  "op": "write",
+                                  "source": "selected",
+                                  "value": {
+                                    "op": "get",
+                                    "object": {
+                                      "op": "local",
+                                      "name": "row"
+                                    },
+                                    "key": "id"
+                                  }
+                                }
+                              ]
+                            }
+                          ],
+                          "children": [
+                            {
+                              "kind": "text",
+                              "value": {
+                                "op": "literal",
+                                "value": "show"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "kind": "component",
+                  "name": "Detail",
+                  "props": [
+                    {
+                      "name": "issue",
+                      "value": {
+                        "op": "read",
+                        "source": "issue"
+                      }
+                    },
+                    {
+                      "name": "take",
+                      "action": "take"
+                    }
+                  ],
+                  "place": "server",
+                  "server": "Detail$server"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "em",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "read",
+                "source": "status"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "serverComponents": [
+    {
+      "name": "Summary$server",
+      "id": "Summary$server-59b2922c",
+      "component": "Summary",
+      "params": [],
+      "question": {
+        "memo": "open",
+        "kind": "sunk"
+      },
+      "slots": [],
+      "inline": []
+    },
+    {
+      "name": "Detail$server",
+      "id": "Detail$server-59b2922c",
+      "component": "Detail",
+      "params": [
+        "number"
+      ],
+      "question": {
+        "memo": "issue",
+        "kind": "sunk"
+      },
+      "slots": [
+        {
+          "name": "ClaimButton",
+          "component": "ClaimButton",
+          "views": [
+            [
+              0,
+              2
+            ]
+          ],
+          "args": [
+            "id",
+            "assignee"
+          ],
+          "through": [
+            "take"
+          ],
+          "from": {
+            "take": "take"
+          }
+        }
+      ],
+      "inline": []
+    }
+  ],
+  "placement": {
+    "client": [
+      {
+        "component": "ClaimButton",
+        "reason": "M2",
+        "site": [
+          "Detail",
+          0,
+          2
+        ]
+      },
+      {
+        "component": "Tracker",
+        "reason": "entry",
+        "site": [
+          "Tracker"
+        ]
+      }
+    ],
+    "server": [
+      {
+        "component": "Summary",
+        "fn": "Summary$server",
+        "inline": [],
+        "props": {
+          "open": "question"
+        },
+        "question": {
+          "args": [],
+          "kind": "sunk",
+          "memo": "open",
+          "serverFn": "loadSummary"
+        },
+        "site": [
+          "Tracker",
+          0,
+          1,
+          0,
+          0
+        ],
+        "slots": []
+      },
+      {
+        "component": "Detail",
+        "fn": "Detail$server",
+        "inline": [],
+        "props": {
+          "issue": "question",
+          "take": "through"
+        },
+        "question": {
+          "args": [
+            {
+              "op": "read",
+              "source": "selected"
+            }
+          ],
+          "kind": "sunk",
+          "memo": "issue",
+          "serverFn": "loadIssue"
+        },
+        "site": [
+          "Tracker",
+          0,
+          1,
+          0,
+          2
+        ],
+        "slots": [
+          {
+            "args": [
+              "assignee",
+              "id"
+            ],
+            "component": "ClaimButton",
+            "name": "ClaimButton",
+            "through": [
+              "take"
+            ]
+          }
+        ]
+      }
+    ],
+    "serverFns": [
+      "claim",
+      "loadIssue",
+      "loadList",
+      "loadSummary"
+    ],
+    "serverHosts": [
+      "assignIssue",
+      "countOpen",
+      "getIssue",
+      "listIssues"
+    ],
+    "version": 1
+  }
+}

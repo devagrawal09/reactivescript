@@ -24,7 +24,10 @@ export class TsxError extends Error {
   column: number;
   start: number;
   end: number;
-  constructor(filename: string, source: string, span: Span, message: string) {
+  /** Set when the form is one plan v2.2 refuses (docs/SLICE6-FRAMES.md 4.6): the builder's diagnostic code, so a TSX
+   *  boundary refusal and the RX builder's refusal of the same form compare by code. */
+  code?: string;
+  constructor(filename: string, source: string, span: Span, message: string, code?: string) {
     const before = source.slice(0, span.start);
     const line = before.split("\n").length;
     const column = span.start - before.lastIndexOf("\n");
@@ -35,6 +38,7 @@ export class TsxError extends Error {
     this.column = column;
     this.start = span.start;
     this.end = span.end;
+    if (code) this.code = code;
   }
 }
 
@@ -45,10 +49,14 @@ export type LowerOptions = {
    *  (`createMemo(() => host(…))`), `<Loading>`, `<Errored>`, `isPending`, `latest`, `refresh` and `affects`. Off by
    *  default: then those forms are refused as before. */
   async?: boolean;
+  /** Slice 6's frames tier (plan/docs/PLAN-V2.md, "v2.2"; implies `async`): module-level `"use server"` functions
+   *  lowered to RX `server fn`s, async memos and action yields over them, and callback props with typed parameters (an
+   *  action passed to a child component). Off by default. */
+  frames?: boolean;
 };
 
 /** A bounded TSX spelling of executable RX. Kinds below only guard supported value/call/render forms. */
-import { verifySyntax, EVAL_MODULE } from "./subset.ts";
+import { verifySyntax, isServerFunction, EVAL_MODULE } from "./subset.ts";
 import { parseType } from "../eval/interface.ts";
 import type { Type } from "../plan/types.ts";
 
@@ -57,7 +65,7 @@ export function lowerTsx(
   filename = "input.tsx",
   options: LowerOptions = {},
 ): Program {
-  const fail = (n: Span, message: string): never => {
+  const fail = (n: Span, message: string, code?: string): never => {
     const semantic =
       message.includes("issues/20") ||
       message.startsWith("createEffect") ||
@@ -69,6 +77,7 @@ export function lowerTsx(
       semantic || message.startsWith("outside the verified subset:")
         ? message
         : "outside the verified subset: " + message,
+      code,
     );
   };
   const parsed = parseSync(filename, source, {
@@ -79,7 +88,7 @@ export function lowerTsx(
     const e = parsed.errors[0];
     fail(e.labels[0] ?? { start: 0, end: 0 }, e.message);
   }
-  verifySyntax(parsed.program, fail, { async: options.async });
+  verifySyntax(parsed.program, fail, { async: options.async || options.frames, frames: options.frames });
   const line = (n: Span) => source.slice(0, n.start).split("\n").length;
   type Shape = {
     kind:
@@ -390,6 +399,8 @@ export function lowerTsx(
   const result: Program = { decls: [], view: [] };
 
   let declarationsStarted = false;
+  /** Frames tier: the module's `"use server"` functions, in source order. */
+  const serverFunctions: { fn: OxcFunction; exported: boolean }[] = [];
   /** The module's `export default function Name` component: its entry (upstream MO-1c). */
   let defaultComponent: string | undefined;
   const collectFunction = (
@@ -460,7 +471,9 @@ export function lowerTsx(
               );
             if (
               (meta.fields.get(key)!.kind === "callback") !==
-              handlerName(key)
+                handlerName(key) &&
+              // Frames tier: an action passed to a child component is a callback prop with typed parameters.
+              !(options.frames && meta.fields.get(key)!.kind === "callback" && meta.fields.get(key)!.params?.length)
             )
               return fail(
                 field,
@@ -548,7 +561,11 @@ export function lowerTsx(
       (item.source || item.specifiers.length || item.exportKind === "type")
     )
       return fail(item, "Only inline named exports are supported");
-    if (d?.type === "FunctionDeclaration")
+    if (options.frames && d && isServerFunction(d as never, (exported ? item : parsed.program) as never)) {
+      serverFunctions.push({ fn: d as OxcFunction, exported });
+      const name = bind((d as OxcFunction).id!, moduleNames);
+      jsFunctions.set(name, (d as OxcFunction).params.length);
+    } else if (d?.type === "FunctionDeclaration")
       collectFunction(d, exported, moduleNames);
     else
       return fail(
@@ -2088,6 +2105,62 @@ export function lowerTsx(
     }
     return decls;
   };
+  // Frames tier: each `"use server"` function as RX `server fn name(params) { let x = await f(…); … return e; }`. Its
+  // result type (the plan's wire type) is the returned value's shape; an async memo or an action yield over it reads
+  // that, as one over a declared host reads the host's .d.rx result.
+  const shapeType = (sh: Shape, at: Span): string =>
+    sh.kind === "number" || sh.kind === "string" || sh.kind === "boolean"
+      ? sh.kind
+      : sh.kind === "array"
+        ? (sh.item!.kind === "array" ? "(" + shapeType(sh.item!, at) + ")" : shapeType(sh.item!, at)) + "[]"
+        : sh.kind === "record"
+          ? "{ " + [...sh.fields!].map(([k, v]) => k + ": " + shapeType(v, at)).join(", ") + " }"
+          : fail(at, "a server function's result must have a wire type (number, string, boolean, arrays, records)", "FRAMES_WIRE_TYPE");
+  for (const { fn, exported } of serverFunctions) {
+    const name = fn.id!.name;
+    const scope = copy(moduleScope);
+    const params = fn.params.map((p) => {
+      if (p.type !== "Identifier" || !p.typeAnnotation) return fail(p, "server function parameters need explicit types", "FRAMES_WIRE_TYPE");
+      const shape = readType(p.typeAnnotation.typeAnnotation);
+      if (!["number", "string", "boolean"].includes(shape.kind)) return fail(p, "server function parameters are number, string or boolean", "FRAMES_WIRE_TYPE");
+      const n = bind(p, scope.names, true);
+      scope.bindings.set(n, { kind: "value", shape });
+      return { name: n, type: shape.kind };
+    });
+    const body: Stmt[] = [];
+    let ret: Shape | undefined;
+    for (const st of fn.body!.body.slice(1)) {
+      if (st.type === "ReturnStatement" && st.argument) {
+        const v = value(st.argument, scope);
+        ret = v.shape;
+        body.push({ k: "return", e: v.e });
+        continue;
+      }
+      const d = (st as import("oxc-parser").VariableDeclaration).declarations[0];
+      const call = (d.init as import("oxc-parser").AwaitExpression).argument as import("oxc-parser").CallExpression;
+      const callee = (call.callee as import("oxc-parser").IdentifierReference).name;
+      const contract = jsContracts.get(callee);
+      if (!jsFunctions.has(callee) || !contract?.ret) return fail(call, "a server function awaits a declared server host or an earlier server function", "FRAMES_SERVER_FN_BODY");
+      if (contract.params.length !== call.arguments.length) return fail(call, "JS call argument count does not match its declaration");
+      let rt: Type;
+      try { rt = parseType(contract.ret); } catch { return fail(call, "the result type of " + callee + " is outside the plan's types: " + contract.ret, "FRAMES_WIRE_TYPE"); }
+      const args = call.arguments.map((a) => value(a, scope).e);
+      const local = bind(d.id, scope.names);
+      scope.bindings.set(local, { kind: "value", shape: typeShape(rt) });
+      body.push({ k: "let", name: local, e: { k: "await", e: { k: "call", f: { k: "id", name: callee }, args } } });
+    }
+    if (!ret) return fail(fn, "a server function returns a value", "FRAMES_SERVER_FN_BODY");
+    jsContracts.set(name, { kind: "fn", name, pure: false, params: params.map(p => p.name), ptypes: params.map(p => p.type), ret: shapeType(ret, fn), line: line(fn) } as Extract<JsDecl, { kind: "fn" }>);
+    result.decls.push({
+      k: "server",
+      name,
+      params: params.map(p => p.name),
+      ptypes: params.map(p => p.type),
+      body,
+      line: line(fn),
+      ...(exported ? { exported: true } : {}),
+    });
+  }
   for (const [name, meta] of functions) {
     if (!meta.fn) continue;
     if (!meta.component) {

@@ -162,6 +162,30 @@ export function checkSsrFuzzAsync(run: any, baseline: any): string[] {
   return problems;
 }
 
+/** The gate's placement fuzz run (scripts/frames-fuzz.ts, docs/RESULTS.md "Slice 6", "Placement fuzz") against
+ *  baselines/frames-fuzz.json: the fixed seeds all ran with the Rust leg; no T run was invalid and no program was a
+ *  generator bug; the agreeing, client-only and refused counts are the baseline's; every refusal is a listed code; and
+ *  the divergent seeds are exactly the baseline's listed ones (each a suspected Solid issue with its own repro), with
+ *  listed classes. */
+export function checkFramesFuzz(run: any, baseline: any): string[] {
+  const problems: string[] = [];
+  if (run.start !== baseline.start || run.seeds !== baseline.seeds || run.total !== baseline.seeds || run.rust !== true)
+    problems.push("placement fuzz run is incomplete");
+  for (const k of ["invalid", "generator-bug"])
+    if (run[k] !== 0) problems.push("placement fuzz " + k + ": " + run[k]);
+  for (const k of ["agree", "client-only", "refused"])
+    if (run[k] !== baseline[k]) problems.push("placement fuzz " + k + " " + run[k] + ", baseline " + baseline[k]);
+  for (const k of Object.keys(run.refusals ?? {}))
+    if (!baseline.refusals.includes(k)) problems.push("unlisted placement fuzz refusal: " + k);
+  const known = Object.keys(baseline.divergent ?? {}).map(Number);
+  for (const seed of run.divergentSeeds ?? []) if (!known.includes(seed)) problems.push("unlisted placement fuzz divergence: seed " + seed);
+  for (const seed of known) if (!(run.divergentSeeds ?? []).includes(seed)) problems.push("listed placement fuzz divergence did not reproduce: seed " + seed);
+  const classes = Object.values(baseline.divergent ?? {}).flatMap((d: any) => d.classes);
+  for (const k of Object.keys(run.classes ?? {}))
+    if (!classes.includes(k)) problems.push("placement fuzz class is not listed: " + k);
+  return problems;
+}
+
 if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
@@ -193,6 +217,7 @@ if (
   problems.push(...checkEvalFuzz(json(out + "/eval-fuzz.json"), json(new URL("../baselines/eval-fuzz.json", import.meta.url).pathname)));
   problems.push(...checkSsrFuzz(json(out + "/ssr-fuzz.json"), json(new URL("../baselines/ssr-fuzz.json", import.meta.url).pathname)));
   problems.push(...checkSsrFuzzAsync(json(out + "/ssr-fuzz-async.json"), json(new URL("../baselines/ssr-fuzz-async.json", import.meta.url).pathname)));
+  problems.push(...checkFramesFuzz(json(out + "/frames-fuzz.json"), json(new URL("../baselines/frames-fuzz.json", import.meta.url).pathname)));
   problems.push(...checkAsyncFuzz("plan fuzz v2.1", json(out + "/plan-fuzz-async.json"), json(new URL("../baselines/plan-fuzz-async.json", import.meta.url).pathname)));
   problems.push(...checkAsyncFuzz("eval fuzz v2.1", json(out + "/eval-fuzz-async.json"), json(new URL("../baselines/eval-fuzz-async.json", import.meta.url).pathname)));
   const exits = new Map(
@@ -263,6 +288,7 @@ if (
     "SSR fuzz v2.1: " + (() => { const p = json(out + "/ssr-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, refused: p.refused, stream: p.stream, html: p.html, hydration: p.hydration, "ssr-refused": p["ssr-refused"], invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
     "Plan fuzz v2.1: " + (() => { const p = json(out + "/plan-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, "rust-unsupported": p["rust-unsupported"], refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
     "Eval fuzz v2.1: " + (() => { const p = json(out + "/eval-fuzz-async.json"); return JSON.stringify({ total: p.total, agree: p.agree, "rust-unsupported": p["rust-unsupported"], refused: p.refused, divergent: p.divergent, invalid: p.invalid, "generator-bug": p["generator-bug"] }); })(),
+    "Placement fuzz: " + (() => { const p = json(out + "/frames-fuzz.json"); return JSON.stringify({ total: p.total, agree: p.agree, "client-only": p["client-only"], refused: p.refused, divergent: p.divergent, divergentSeeds: p.divergentSeeds, invalid: p.invalid, "generator-bug": p["generator-bug"], rustEqual: p.rustEqual }); })(),
     ...runners,
     "",
     ...problems.map((p) => "- " + p),

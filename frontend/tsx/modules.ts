@@ -8,7 +8,7 @@ import { extractEvalSites } from "../eval/sites.ts";
 
 /** File extensions are explicit, just as they are for the RX module loader. */
 /** `async`: plan v2.1's async tier for TSX modules (tsx/lower.ts LowerOptions); RX modules are parsed as always. */
-export function loadTsxModules(entry: string, read: (path: string) => string | undefined, options: { async?: boolean } = {}): ModuleSet {
+export function loadTsxModules(entry: string, read: (path: string) => string | undefined, options: { async?: boolean; frames?: boolean } = {}): ModuleSet {
   entry = joinPath("", entry);
   const programs = new Map<string, Program>();
   const order: string[] = [];
@@ -79,7 +79,7 @@ export function loadTsxModules(entry: string, read: (path: string) => string | u
     if (diags.length !== before || imports.some(imp => isModule(imp.from) && !modules.has(imp.from))) {
       state.set(path, "done"); return;
     }
-    if (!program) program = lowerTsx(source, path, { modules, declarations: jsDeclarations, async: options.async });
+    if (!program) program = lowerTsx(source, path, { modules, declarations: jsDeclarations, async: options.async || options.frames, frames: options.frames });
     // Eval sites (docs/EVAL.md) are recorded and replaced by their code before the pinned checker sees the program.
     extractEvalSites(program, path);
     for (const d of program.decls) {

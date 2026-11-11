@@ -82,10 +82,18 @@ const NODES = new Set([
  *  stay outside the verified subset, exactly as before. */
 export const ASYNC_PRIMITIVES = new Set(["Loading", "Errored", "isPending", "latest", "refresh", "affects"]);
 
+/** Slice 6's frames tier (plan/docs/PLAN-V2.md, "v2.2"): a module-level `async function f(…) { "use server"; … }` is a
+ *  server function (RX `server fn`, SF-1): its parameters typed, its body `const x = await h(…)`… then `return e`. */
+export function isServerFunction(n: Ast, parent?: Ast): boolean {
+  return n.type === "FunctionDeclaration" && n.async && !n.generator &&
+    (parent?.type === "Program" || parent?.type === "ExportNamedDeclaration") &&
+    n.body?.body?.[0]?.type === "ExpressionStatement" && n.body.body[0].directive === "use server";
+}
+
 export function verifySyntax(
   program: Node,
-  fail: (at: Span, message: string) => never,
-  options: { async?: boolean } = {},
+  fail: (at: Span, message: string, code?: string) => never,
+  options: { async?: boolean; frames?: boolean } = {},
 ): void {
   const imports = new Map<string, string>();
   const tree = program as Ast;
@@ -111,6 +119,7 @@ export function verifySyntax(
   };
   // Give the semantic async guidance even inside a form that is otherwise outside the subset.
   const asyncs = (n: Ast, parent?: Ast): void => {
+    if (options.frames && isServerFunction(n, parent)) return;
     if (n.async) {
       const p = primitive(parent);
       if (p === "action") fail(n, ASYNC_ACTION);
@@ -121,8 +130,8 @@ export function verifySyntax(
     children(n, asyncs);
   };
   asyncs(tree);
-  const outside = (n: Ast, construct: string): never =>
-    fail(n, "outside the verified subset: " + construct);
+  const outside = (n: Ast, construct: string, code?: string): never =>
+    fail(n, "outside the verified subset: " + construct, code);
   const seed = (n: Ast): boolean =>
     n.type === "Literal" ||
     (n.type === "UnaryExpression" && seed(n.argument)) ||
@@ -153,7 +162,26 @@ export function verifySyntax(
         outside(n, "setup binding or statement");
     }
   };
+  const serverFunction = (n: Ast) => {
+    for (const p of n.params)
+      if (p.type !== "Identifier" || !p.typeAnnotation || p.optional) outside(p, "a server function parameter without an explicit type", "FRAMES_WIRE_TYPE");
+    const body = n.body.body.slice(1);
+    for (const [i, st] of body.entries()) {
+      const last = i === body.length - 1;
+      if (last && st.type === "ReturnStatement" && st.argument) { walk(st.argument, st); continue; }
+      const d = st.type === "VariableDeclaration" && st.kind === "const" && st.declarations.length === 1 ? st.declarations[0] : undefined;
+      if (!last && d && d.id.type === "Identifier" && d.init?.type === "AwaitExpression" && d.init.argument.type === "CallExpression" && d.init.argument.callee.type === "Identifier") {
+        for (const a of d.init.argument.arguments) walk(a, d.init.argument);
+        continue;
+      }
+      outside(st, "a server function body other than `const x = await f(…)`… `return e`", "FRAMES_SERVER_FN_BODY");
+    }
+  };
   const walk = (n: Ast, parent?: Ast): void => {
+    if (options.frames && isServerFunction(n, parent)) { serverFunction(n); return; }
+    // Plan v2.2 refuses component children (FRAMES_CHILDREN); the frames tier says so by code at the prop's contract.
+    if (options.frames && n.type === "TSPropertySignature" && n.key?.type === "Identifier" && n.key.name === "children")
+      outside(n, "component children (props.children)", "FRAMES_CHILDREN");
     if (!NODES.has(n.type)) outside(n, n.type);
     if (n.type === "ImportDeclaration") {
       if (n.source.value === "solid-js") {
@@ -214,7 +242,9 @@ export function verifySyntax(
       if (
         n.callee.type === "MemberExpression" &&
         !["map", "filter", "findIndex"].includes(n.callee.property?.name) &&
-        !/^on[A-Z]/.test(n.callee.property?.name ?? "")
+        !/^on[A-Z]/.test(n.callee.property?.name ?? "") &&
+        // Frames tier: a callback prop's call (`props.take(props.id)`); the lowering checks it against the prop's contract.
+        !(options.frames && n.callee.object?.type === "Identifier" && !n.callee.computed)
       )
         outside(n, "method call");
     }

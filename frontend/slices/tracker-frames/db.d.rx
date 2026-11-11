@@ -1,0 +1,4 @@
+export server pure fn getIssue(id: number): { id: number, title: string, body: string, assignee: string }
+export server pure fn listIssues(): { id: number, title: string, assignee: string }[]
+export server pure fn countOpen(): number
+export server fn assignIssue(id: number): string

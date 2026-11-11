@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkTests, checkFuzz, checkPlanFuzz, checkEvalFuzz, checkSsrFuzz, checkAsyncFuzz, type Row } from "../scripts/report.ts";
+import { checkTests, checkFuzz, checkPlanFuzz, checkEvalFuzz, checkSsrFuzz, checkAsyncFuzz, checkFramesFuzz, type Row } from "../scripts/report.ts";
 const row: Row = { file: "/tmp/work/tsx/a.test.ts", name: "one", status: "pass" };
 const expected = ["tsx/a.test.ts :: one"];
 const summary = "ℹ tests 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n";
@@ -73,4 +73,17 @@ test("verifier: a plan v2.1 fuzz summary must be complete, divergence-free and m
     { refusals: { "unsupported operator -": { count: 2, seeds: [3, 9] } } },
     { classes: { "plan: request-step": { count: 1, seeds: [4] } } },
   ]) assert.ok(checkAsyncFuzz("plan fuzz v2.1", { ...run, ...change }, baseline).length, JSON.stringify(change));
+});
+test("verifier: the placement fuzz summary must be complete with the Rust leg, match its baseline, and diverge only on its listed seeds", () => {
+  const baseline = { start: 1, seeds: 10, agree: 5, "client-only": 3, refused: 1, refusals: ["FRAMES_CHILDREN"],
+    divergent: { "4": { issue: "a suspected Solid issue", classes: ["J: frame", "N: frame"] } } };
+  const run = { start: 1, seeds: 10, total: 10, rust: true, agree: 5, "client-only": 3, refused: 1, divergent: 1, invalid: 0, "generator-bug": 0,
+    refusals: { FRAMES_CHILDREN: 1 }, classes: { "J: frame": 1, "N: frame": 1 }, divergentSeeds: [4] };
+  assert.deepEqual(checkFramesFuzz(run, baseline), []);
+  for (const change of [
+    { seeds: 9 }, { total: 9 }, { rust: false }, { invalid: 1 }, { "generator-bug": 1 },
+    { agree: 4, "client-only": 4 }, { refused: 2 }, { refusals: { FRAMES_WIRE_TYPE: 1 } },
+    // A new divergent seed, a listed one that no longer diverges, and an unlisted class all fail.
+    { divergentSeeds: [4, 7] }, { divergentSeeds: [] }, { classes: { "R/N: wire": 1 } },
+  ]) assert.ok(checkFramesFuzz({ ...run, ...change }, baseline).length, JSON.stringify(change));
 });

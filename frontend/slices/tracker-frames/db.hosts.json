@@ -1,0 +1,13 @@
+{
+  "table": [
+    { "id": 1, "title": "Crash on save", "body": "Stack trace attached", "assignee": "" },
+    { "id": 2, "title": "Slow search", "body": "p95 is 4s", "assignee": "ana" },
+    { "id": 3, "title": "Typo in footer", "body": "'Copyrigth'", "assignee": "" }
+  ],
+  "hosts": [
+    { "name": "getIssue", "kind": "record", "fields": ["id", "title", "body", "assignee"] },
+    { "name": "listIssues", "kind": "list", "fields": ["id", "title", "assignee"] },
+    { "name": "countOpen", "kind": "count", "field": "assignee", "equals": "" },
+    { "name": "assignIssue", "kind": "assign", "field": "assignee", "value": "me" }
+  ]
+}

@@ -6,6 +6,152 @@ runs the integrated gate. The checkout names below (frontend-tracker, rust-track
 `/workspace/rx-tsx-refresh/...` paths) record where each measurement was taken; `docs/HISTORY.md` at the repository
 root records the branches they came from.
 
+## Slice 6: inferred server components over Solid 2's Frames
+
+Measured 2026-11-10 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Chromium 143, Solid 2105ffb8 rc.21,
+reactivescript fdbcad92), uncommitted, on top of the sections below. Design: `docs/SLICE6-FRAMES.md` at the repository
+root. Schema: `plan/docs/PLAN-V2.md`, "v2.2". Rust server: rust-solid `docs/FRAMES.md`. A program is written once, as
+an all-client app (`slices/tracker-frames/tracker-frames.rx` and its TSX twin); the v2.2 builder infers which component
+sites render on the server as Solid 2 server components (`"use server"` functions returning components, mounted with
+`dynamicComponent`, client-required components inside them as islands, i.e. slot props) and writes the decision into
+the plan; `plan/split.ts` prints the canonical split, and rust-solid's frames server answers it as Solid's own server
+does.
+
+| Check | Result |
+| --- | --- |
+| Kept tests | `npm run verify:subset`: PASS 149/149 (131 before, plus `slices/tracker-frames.test.ts` 10, `plan/frames.test.ts` 7 and one verifier test for the new summary check), 0 failed/skipped/todo/cancelled; the new gate step, the placement fuzz on seeds 1–100 with the Rust leg, matches `baselines/frames-fuzz.json`; every other summary unchanged (fuzz 179 + 21 listed; plan, eval, SSR fuzz 85 + 15; plan, eval and SSR fuzz v2.1 84 + 16); strict types 0 package diagnostics, 12 upstream (baseline) |
+| rust-solid | `cargo test` 175 (166 before, none deleted: + 6 in `tests/frames.rs`, 3 unit tests in `src/frames/shared.rs`); fmt, clippy `-D warnings`, `git diff --check` clean |
+| Tracker-frames, G1 | placement(RX) = placement(TSX) = the saved table = extract(N) (the oracle's explicit split, read from its TSX alone); the plan's `placement` block equals its own recomputation. Detail and Summary are server roots (sunk questions `issue`, `open`), ClaimButton an island (M2) with two server arguments and the through `take` |
+| Tracker-frames, G3 | the 16-step scenario recorded on T (the authored all-client TSX): N's frames and server host log equal T's at every step, requests equal apart from the wire id (`issue` is `Detail$server` on N, `loadIssue` on T); J (the plan's split) and R (rust-solid, J's client) equal N on frames, frames seen within steps, requests, host log and DOM after every step |
+| Tracker-frames, G2 | J and R equal N byte for byte on every wire record: the t=0 document (inline `<solid-frame>`s, `sc-` keys, `_$SC`, `sc:live`, `sc:slot:*`, `sc:deps:*`), every frame stream (`start`, `slot:*`, `""` with digest, `:complete`), data responses, the sanitized 500 of a rejected claim, and a request without fetch metadata refused 403 by both servers |
+| Tracker-frames, dev builds | T, N, J and R hydrate on Solid's dev client builds and replay the scenario with no warning, no element created fresh, no key left unclaimed |
+| Tracker-frames, G4 | zero client JS for the server-only Detail and Summary: no module N, J or R fetches contains their compiled client templates, nor the server-only `./db`, and the client compile of the server module is exactly one `createServerReference` per server fn and server component; the twin's graph does contain the templates (the control) |
+| Placement fuzz, seeds 1–1000 | 454 agree, 406 client-only (the legs still run and agree), 109 refused by code from RX and TSX alike (FRAMES_CHILDREN 22, FRAMES_SERVER_FN_BODY 24, FRAMES_SITE_AMBIGUOUS 29, FRAMES_WIRE_TYPE 34), 31 divergent, 0 invalid, 0 generator bugs; G1 holds on every placed program; R equals N on 889 of the 891 programs the legs ran (the other 2 are timing-dependent in Solid's client, below); 10,490 scenario steps, 3,037 requests, 578 server roots in the agreeing programs |
+| Placement fuzz, seeds 1001–3000 (held out) | 913 agree, 825 client-only, 210 refused (FRAMES_CHILDREN 62, FRAMES_SERVER_FN_BODY 44, FRAMES_SITE_AMBIGUOUS 61, FRAMES_WIRE_TYPE 43), 52 divergent, 0 invalid, 0 generator bugs; R equals N on 1788 of 1790; 20,951 steps, 5,939 requests, 1140 server roots |
+| Placement fuzz, gate (1–100) | 50 agree, 42 client-only, 7 refused, 1 divergent (seed 19, issue 8, listed in `baselines/frames-fuzz.json`); R equals N on all 93 programs the legs ran; the same result on three runs |
+| Existing fuzz | seeds 1–1000 of the v2 plan, eval and SSR (`--dev`) fuzz and of the plan, eval and SSR fuzz v2.1 rerun on the final code: all six summaries byte-identical to rust-solid `docs/plan-fuzz/summary-1-1000.json`, `docs/eval/summary-1-1000.json`, `docs/ssr-fuzz/summary-1-1000.json` and their `summary-async-1-1000.json` (the SSR port's additions for frames change no slice 5 output) |
+
+### Legs
+
+- **T**, the twin: the authored TSX on Solid (every component a client component, server fns as `"use server"` data
+  functions). The scenario is recorded on it.
+- **N**, the oracle: an explicit split written by hand (the slice) or by the fuzz generator from its own placement model,
+  on Solid's frames server wiring (`frames/leg-server.ts`: `handleServerFunctionRequest`, `frameTransformResult`,
+  `frameTransformDirectResult`, `ServerComponentPlugin`, `renderToStream`).
+- **J**, the plan's canonical split (`plan/split.ts`) on the same wiring.
+- **R**, rust-solid's `frames-server` for the plan, with Solid's build of J's client, its server hosts answered by the
+  script recorded from N's host log.
+
+Each leg runs in Chromium on Solid's production client builds (the slice also on the dev builds) behind a holding
+proxy: every server-function request is held until the scenario delivers it (`deliver` steps addressed by site and
+call, `frames/sites.ts`), and requests are forwarded to the leg server one at a time in issue order. The harness starts
+the scenario only after `onHydrationEnd` (an adopted server component's slot occurrences mount in idle slices after
+first paint), and every console error or warning, page error, unclaimed or fresh element, network error not accounted
+for by a released 4xx/5xx response, and request left held fails a run. Nothing is filtered or normalized.
+
+### Placement fuzz
+
+`frames/fuzz/gen.ts` generates frames programs (a client root with a row list, a filter and a mode toggle, a claim
+action that refreshes the questions, sometimes with `affects`, and 1–4 component sites in a `loading` inside an
+`errored`, some under a `Show`), each printed four ways: the placement-free RX, its TSX twin, the `db.d.rx`, and N, the
+explicit split from the generator's own placement model (written from the PL rules, never calling `plan/placement.ts`).
+Its site recipes exercise every rule: a sunk record with a stateless island (variants: the question read elsewhere,
+PL-3c; a prop the markup reads from client state, PL-3d; a structured island argument, PL-5; an inline component,
+PL-6), a sunk count, two questions in one component (PL-3c), an owned question, an owned question whose prop the markup
+reads too (PL-3d), static components (the minimal-request rule), a stateful component (M1), a component with its own
+boundary (M8), a component in a client row (PL-3b), top lists of stateless (placed) and stateful (PL-5) islands under a
+server `For`. A tenth of the programs carry one refused form (the refusal family: an ambiguous site, a server fn body,
+`props.children`, a non-scalar server fn parameter), which RX and TSX must refuse with its code.
+
+Per seed (`frames/fuzz/run.ts`): emit v2.2 from RX and from TSX (one plan or one refusal code); G1 (the placement
+equals the generator's model and the extract of N); record the scenario on T with the generator's chooser (clicks on
+live targets and deliveries of held requests in any order, then everything left delivered); replay it on N, J and R;
+compare N against T (frames, frames seen, server host log, requests apart from the wire id) and J and R against N (all
+of that, the DOM, every wire record byte for byte, and each leg's problems); G4 on every server-only component.
+Outcomes: `agree`; `refused` (by code); `client-only` (nothing placed on the server, counted by PL reason; the legs
+still run); `invalid` (T failed); `generator-bug`; `divergent`. When N or J diverges from T, N and J are replayed again
+without the frame check and J and R are compared with that run of N, so R is checked against Solid's own server on
+every program, the divergent ones included.
+
+| seeds | agree | client-only | refused | divergent | invalid | generator bug | R = N |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1..1000 | 454 | 406 | 109 | 31 | 0 | 0 | 889 / 891 |
+| 1001..3000 (held out) | 913 | 825 | 210 | 52 | 0 | 0 | 1788 / 1790 |
+| 1..100 (gate) | 50 | 42 | 7 | 1 | 0 | 0 | 93 / 93 |
+
+Client-only programs by the PL reason that kept their sites client (a program counts once per reason; 1..1000):
+M1 113, M8 119, PL-1 137, PL-3b 92, PL-3c 298, PL-3d 109, PL-5 113. Site recipes covered by agreeing and client-only programs
+(1..1000, programs): boundary+show 52, boundary 158, count+elsewhere 33, count+show+elsewhere 18, count+show 29, count 104, owned+show 52, owned 144, owned-reactive+show 41, owned-reactive 124, pair+show 45, pair 123, record+elsewhere 24, record+inline 22, record+reactive 17, record+show+elsewhere 5, record+show+inline 4, record+show+reactive 7, record+show+structured 13, record+show 10, record+structured 30, record 50, stateful+show 51, stateful 170, static+show 60, static 188, static-literal+show 51, static-literal 170, top+show 38, top 125, top-stateful+show 49, top-stateful 136. The summaries are copied to rust-solid
+`docs/frames-fuzz/` (`summary-1-1000.json`, `summary-1001-3000.json`, and the classifier's `families-*.json`).
+
+**R against N.** rust-solid's server equals Solid's on every program the legs ran except four, the divergent ones
+included (R is compared with N's own run there): 889 + 1788 programs, every document, frame stream, data and error
+response byte for byte, with the same frames, frames seen, requests, host log and DOM. The four (675, 932, 1595, 2077)
+are timing-dependent in Solid's client, not in the server: replayed on the same steps, the oracle split N itself ends
+differently from run to run (seed 675: after issue 9's `NotReadyError` the action's refreshes are issued in one replay
+of three, on N and on J alike; seed 1595: N diverges from the twin in two of four replays, J in three of four; seed 932's twin
+flips one replay in five), and R's run simply took the other branch.
+
+**Divergences, by suspected Solid issue** (`scripts/frames-classify.ts`; issues in
+`docs/scratch/solid-rc21-issues.md` at the repository root). In every one, the oracle split N and the plan's split J
+diverge from the twin T alike, at the same step, and rust-solid's server equals N; nothing of ours is in it, and none is
+worked around. The classifier sorts by symptom (it does not root-cause each seed) and first replays each divergent seed
+three times on T and on N against T's recording: a seed whose own twin does not replay would be `unstable`.
+
+| family | 1..1000 | 1001..3000 |
+| --- | --- | --- |
+| Issue 8: a server component's switch and an action's refresh hold each other (N keeps showing a change T has shown, until the other lands) | 11: 19, 283, 332, 397, 411, 578, 656, 796, 862, 881, 907 | 12: 1121, 1168, 1293, 1299, 1390, 1441, 1560, 1644, 1855, 2002, 2097, 2924 |
+| Issue 9: an island's handler throws `NotReadyError` (the click does nothing, so the next delivery has no request to deliver) | 9: 204, 230, 339, 459, 471, 593, 675, 723, 813 | 26: 1086, 1124, 1167, 1198, 1216, 1381, 1472, 1520, 1548, 1608, 1963, 1989, 2077, 2123, 2165, 2203, 2229, 2282, 2299, 2314, 2499, 2518, 2716, 2778, 2888, 2942 |
+| Issue 10: a server root shown again by a `Show` renders its old answer (or holds the toggle) | 8: 246, 261, 282, 774, 901, 931, 982, 985 | 10: 1032, 1509, 1516, 1591, 1822, 1897, 2101, 2417, 2498, 2568 |
+| Issue 11: an intermediate frame within one step (a refetched frame lands one frame after its transaction) | 2: 367, 934 | 1: 2267 |
+| `unstable`: the twin itself does not replay its recording every time (Solid's outcome depends on timing there, on the all-client app too) | 1: 932 | 3: 1595, 1632, 2540 |
+
+Every classified seed (all but the `unstable` ones) diverged on all three replays of N and replayed clean on all three
+of T (issue 11's are about the frames seen within a step, which a replay's frame check does not see; their N frames
+match). The gate's one divergent seed, 19, is issue 8; the minimal repros of issues 8, 9 and 10 are
+`frames/repros/{switch-held,island-not-ready,reshow-stale}.ts`.
+
+**Found and fixed on our side during the runs** (not divergences any more): owned-question roots made extra requests
+when their site was under a `Show` (seeds 47, 70, 151), first with the call memo hoisted into the entry and then with a
+`lazy` memo (a lazy async memo is not released while pending); owned roots are now applied as a client stub that owns
+the call (`plan/split.ts`, PLAN-V2.md "The canonical split"). The harness checked the adoption of server-rendered keyed
+elements before the deferred slot occurrences had mounted (seeds 589, 805 under load); it now waits for
+`onHydrationEnd`. A run during which the disk filled up (`ENOSPC`) was discarded and rerun.
+
+**Reproduce.**
+
+```sh
+nix shell nixpkgs#nodejs_24 -c sh -c '
+  (cd ../rust-solid && cargo build --bin frames-server)
+  npm run frames-fuzz -- --seeds 1000 --start 1 --rust $PWD/../rust-solid/target/debug/frames-server
+  npm run frames-fuzz -- --seeds 2000 --start 1001 --rust $PWD/../rust-solid/target/debug/frames-server
+  node --experimental-strip-types --no-warnings scripts/frames-classify.ts .out/frames-fuzz/run-1-1000
+  npm run frames-corpus -- --out $PWD/../rust-solid/crates/runtime/tests/fixtures/frames'
+```
+
+### Deviations from the design (`docs/SLICE6-FRAMES.md`)
+
+- **Owned roots** are applied as a client stub `<C>$frame` with the twin's props, not as a call memo in the entry (the
+  design's spelling made extra requests under a `Show`; above).
+- **The answer script** R replays is recorded from N's server host log at run time (`frames/slice.ts` `answerScript`),
+  not stored in the scenario file; a call the script does not answer fails the Rust server.
+- **The TSX refusals**: the frames tier refuses the forms plan v2.2 cannot represent at the TSX boundary
+  (`TsxError.code`) where the RX builder refuses them in the plan (`FramesRefusal`); RX and TSX are compared by code.
+  `FRAMES_EVAL_PLACE` is not implemented (no eval site reaches the frames builder in any test).
+- **The PL pins** are three (PL-3c, PL-3d, PL-5, `plan/frames.test.ts`); the C15 pin (a staged refetch inside an action)
+  was not built: the fuzz found the C15 class of difference in Solid instead (issue 11).
+- **Not built:** the U legs (plan v2.2 with its placement ignored on `solid-plan.ts` and `plan-trace`).
+- **The Rust server** is a std `TcpListener` server answering one request at a time (the harness forwards one at a
+  time); its live-hole engine is the part the subset reaches (holes stay settled; every `sc:deps:` batch is `{}` or `!`);
+  structured slot arguments, regions and parked fills are refused (v1).
+- **The fuzz's divergent seeds** are listed in `baselines/frames-fuzz.json` with their classes; a new divergence, or a
+  listed one that stops reproducing, fails the gate.
+
+### Deferred
+
+U legs; structured slot arguments and `props.children` (v1 refusals); server roots under a client `For`; eval sites
+with `place`; filing issues 8–11 (drafts only); repinning when Solid's frames move.
+
 ## Slice 5: async data (renderToStream, renderToString, streamed hydration)
 
 Measured 2026-11-09 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Chromium 143, Solid 2105ffb8 rc.21,

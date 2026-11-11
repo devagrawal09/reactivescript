@@ -1,0 +1,23 @@
+{
+  "note": "The gate's placement fuzz (docs/RESULTS.md, 'Slice 6', 'Placement fuzz'): scripts/frames-fuzz.ts --seeds 100 --start 1 --rust frames-server at fdbcad92 / Solid rc.21. On every program: RX and TSX emit one plan v2.2 or refuse it with one code; the inferred placement equals the generator's own model and the oracle split's (G1); the all-client twin T records the scenario, and the oracle split N, the plan's split J and rust-solid's frames server R (J's client) replay it: N against T on frames, frames seen, the server host log and the requests apart from the wire id; J and R against N on all of that, the DOM and every wire record byte for byte; G4 on every server-only component. Refused programs are the generator's refusal family (each refused with its form's code). Client-only programs place nothing on the server (counted by PL reason); their legs still run. A divergent seed must be listed here with its classes: seed 19 is suspected Solid issue 8 (docs/scratch/solid-rc21-issues.md; repro frontend/frames/repros/switch-held.ts): a server component's argument switch is held until an action's pending refresh of another server component lands, where the twin's client component shows it at once. N and J diverge from T alike; nothing of ours is in it.",
+  "start": 1,
+  "seeds": 100,
+  "agree": 50,
+  "client-only": 42,
+  "refused": 7,
+  "refusals": [
+    "FRAMES_CHILDREN",
+    "FRAMES_SERVER_FN_BODY",
+    "FRAMES_SITE_AMBIGUOUS",
+    "FRAMES_WIRE_TYPE"
+  ],
+  "divergent": {
+    "19": {
+      "issue": "suspected Solid issue 8 (server component switch held by another server component's refresh)",
+      "classes": [
+        "J: frame",
+        "N: frame"
+      ]
+    }
+  }
+}

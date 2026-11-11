@@ -31,7 +31,8 @@ carried forward.
 
 - **npm run verify:subset**: pins, strict types, every kept TSX/yield test, fuzz seeds 0–199, plan fuzz seeds 1–100,
   eval fuzz seeds 1–100, SSR fuzz seeds 1–100 (Chromium: on PATH or `$CHROMIUM`), the plan v2.1 and async eval
-  fuzz seeds 1–100, and the SSR fuzz v2.1 seeds 1–100.
+  fuzz seeds 1–100, the SSR fuzz v2.1 seeds 1–100, and the placement fuzz seeds 1–100 (slice 6, with rust-solid's
+  `frames-server`).
 - **OUT=.out/repin-fdbcad92 sh scripts/verify-pinned.sh --rust**: also run upstream and Rust checks.
   This full check fails at the pin: upstream's interpreter fails S-store-8. No exit code is waived.
 - **npm run fuzz -- --seeds 200 --start 0 --no-reduce**: write five-backend traces and a summary.
@@ -43,6 +44,10 @@ carried forward.
 - **RUST_SOLID=$PWD/../rust-solid npm run plan-fuzz -- --async --seeds 1000 --start 1** and **npm run eval-fuzz -- --async …**:
   the plan v2.1 fuzz and the async eval fuzz (the gate runs seeds 1–100 of each); `npm run eval-slice -- --async`
   re-records the async eval slice.
+- **npm run frames-fuzz -- --seeds 1000 --start 1 --rust $PWD/../rust-solid/target/debug/frames-server**: the placement
+  fuzz (slice 6; the gate runs seeds 1–100); `node --experimental-strip-types scripts/frames-classify.ts RUN_DIR` groups
+  its divergent seeds by suspected Solid issue; `npm run frames-corpus -- --out …/rust-solid/crates/runtime/tests/fixtures/frames`
+  re-records rust-solid's frames fixtures.
 - **sh scripts/canary.sh REV [--dry-run] [--rust]**: check committed HEAD against another revision in a fresh layout.
 
 The subset gate permits only listed interpreter-only fuzz differences in baselines/fuzz-upstream.json. It rejects

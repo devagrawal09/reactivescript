@@ -53,6 +53,11 @@ and node kinds only: a plan without eval sites is unchanged byte for byte, and e
 They are new keys and node kinds only, behind `"version": 2.1`: a program that uses none of them is emitted as the v2
 plan byte for byte, by either builder.
 
+**Server functions, components and placement (v2.2).** "v2.2: server functions, components and placement" (the last
+section) adds `server fn`s over server JS, non-entry components with props, and the placement of component sites on
+the server as Solid 2 server components (Frames), inferred, as annotations over the all-client plan. Behind
+`"version": 2.2`; a program with none of these forms is emitted as its v2.1 or v2 plan byte for byte.
+
 ## Emitting: which schema
 
 `plan/emit.ts [--schema 1|2] INPUT [OUTPUT]` loads INPUT (`.rx`, `.tsx` or `.yield.tsx`) through its frontend and runs
@@ -889,3 +894,146 @@ nix shell nixpkgs#nodejs_24 -c sh -c '
 **Next (not done here):** `latest` in a scenario's held frames beyond text holes; Loading's `on` and Errored's `reset`
 in the schema (the Rust boundaries port has `reset`, not `on`). Done since: server rendering of async data, streamed and
 hydrated (rust-solid `docs/SSR.md`, "Async data and streaming"; "Server rendering (slice 5)" above).
+
+## v2.2: server functions, components and placement
+
+Plan v2.2 is slice 6 (`docs/SLICE6-FRAMES.md` at the repository root, the design; `docs/RESULTS.md`, "Slice 6", the
+measurements; rust-solid `docs/FRAMES.md`, the Rust server). It adds what a program needs to be split between Solid 2's
+server and client by **placement inference**: RX `server fn`s (12 SF-1) over `server` JS hosts (SF-5a, `export server
+[pure] fn` in a `.d.rx`), non-entry components with typed props and their applications, async memos and action awaits
+over server fns, and a call of an action passed as a prop. **Placement is annotation over an all-client plan**: the
+builder builds the all-client plan, `plan/placement.ts` decides which component sites render on the server, and the
+decision is written into the plan as `sunk` (on a memo), `place`/`server` (on a component view), `serverComponents` and
+`placement`. A consumer that ignores those keys runs the all-client twin; a placement-aware consumer derives the split
+(`plan/split.ts`, below). The authored program has no placement in it: `slices/tracker-frames/tracker-frames.rx` and
+its TSX twin are written as one client app.
+
+| File | What it is |
+| --- | --- |
+| `plan/resolve-frames.ts` | The v2.2 builder: checked RX AST + CP-6 → the all-client plan, then the placement; `FramesRefusal(code)` refusals. A program with no v2.2 form goes to `resolve-v2.ts` with the async tier. |
+| `plan/placement.ts` | The inference: rules PL-1..PL-9 and client marks M1..M9 over the all-client plan (its header has the rules as implemented; the design's 4.3 has the rationale). |
+| `plan/split.ts` | The JS consumer of the placement: the canonical split, `src/<stem>.server.tsx` (every server fn and server component) and `src/<stem>.split.tsx` (the client). |
+| `frames/sites.ts` | Request sites (a memo's name, `Comp.memo`, `action/serverFn`): the scenario addresses requests by site and call. |
+| `frames/extract.ts` | G1's oracle side: the placement an explicit split states, read from its TSX alone. |
+| `plan/tracker-frames.plan.json` | The emitted v2.2 plan of the slice. Never handwritten; `.rx` and `.tsx` emit it byte for byte. |
+| `plan/frames.test.ts` | Additivity, refusals by code from RX and TSX, the frames tier's TSX boundary, and the PL pins (below). |
+| `slices/tracker-frames.test.ts` | The slice's 10 gate tests (`docs/RESULTS.md`, "Slice 6"). |
+
+**What is verified, and what is not.**
+
+- **Syntax we recognize.** RX: `server fn f(p: T, …) { let x = await h(…); … return e; }`, `export server [pure] fn` in
+  a `.d.rx`, components with `props`, `<C a={e} k={action}/>`, `x = await f(…)` over a server fn, `let w = await f(…)`
+  in an action, `props.k(…)` of an action prop. TSX, in the **frames tier** only (`loadTsxModules(…, { frames: true })`,
+  `tsx/lower.ts` `LowerOptions.frames`, on top of the async tier): a module-level `async function f(…) { "use server";
+  const x = await h(…); … return e; }` with typed parameters, imports from a `.d.rx`-declared module, components with
+  typed props (`(props: { … })`), callback props with parameters.
+- **The verified subset** is the tracker-frames slice and the programs of the placement fuzz (`frames/fuzz/gen.ts`,
+  seeds 1..3000; `docs/RESULTS.md`, "Slice 6", "Placement fuzz"): a client root with a row list, a filter and a mode
+  toggle, a claim action that refreshes questions (sometimes `affects`), and 1–4 component sites in a `loading` inside an
+  `errored`, some under a `Show`: a sunk record with a stateless island (with structured or reactive arguments, an
+  inline component, or the record also read elsewhere), a sunk count, two questions in one component, an owned
+  question, an owned question whose prop the markup reads too, static components, a stateful component, a component
+  with its own boundary, a component in a client row, top lists of stateless and stateful islands; and the refusal
+  family. On each, the placement equals the generator's own model and the oracle split's (G1); the all-client twin,
+  the oracle's split, the plan's split and rust-solid's server give the same frames, server host log and requests
+  apart from the wire id (and J and R equal N on the DOM and every wire byte).
+- **Recognized, not verified:** placement shapes the generator does not build (a server root under a `for`, more than
+  one owned prop, inline components with their own islands, server fns calling server fns in the fuzz).
+- **Full readiness** is not claimed.
+
+**Selecting v2.2.** `emit.ts` runs the frames builder for `--schema 2.2` or a slice scenario with `"version": 2.2`,
+with the TSX async and frames tiers on. Without it nothing changes: the v2/v2.1 builders and the default TSX subset
+refuse `"use server"` functions as before ("outside the verified subset"; the async tier alone refuses them as async
+functions). Through the frames builder, a program with no v2.2 form gives its v2.1 or v2 plan byte for byte: the saved
+`tracker.plan.json`, `like.plan-v2.json` and `tracker-async.plan.json` from RX and TSX, and the RX and TSX twins of
+plan fuzz seeds 1..60 and plan fuzz v2.1 seeds 1..60, plan or refusal (`plan/frames.test.ts`).
+
+### Top level
+
+```json
+{ "version": 2.2, "component": "Tracker", "hosts": [],
+  "serverHosts": [{ "name": "getIssue", "params": ["number"], "returns": "{ id: number, … }", "pure": true }, …],
+  "serverFns": [{ "name": "loadIssue", "id": "loadIssue-59b2922c", "params": [{ "name": "id", "type": "number" }],
+                  "returns": "{ … }", "steps": [{ "op": "await", "serverHost": "getIssue", "args": [ … ], "bind": "i" },
+                                                { "op": "return", "value": { … } }] }, …],
+  "components": [{ "name": "Detail", "props": [{ "name": "issue", "type": "{ … }" }, { "name": "take", "type": "action" }],
+                   "sources": [], "memos": [], "actions": [], "markup": [ … ] }, …],
+  "sources": [ … ], "memos": [ … ], "actions": [ … ], "markup": [ … ],
+  "serverComponents": [ … ], "placement": { "version": 1, "client": [ … ], "server": [ … ], "serverFns": [ … ], "serverHosts": [ … ] } }
+```
+
+- `serverHosts`: the `.d.rx`'s `server` hosts the program imports (scalar parameters, a wire result type, `pure`).
+- `serverFns`: `name`, the wire `id` (Solid's `transformDirectives` on the canonical split's server module path,
+  `src/<stem>.server.tsx`, taken verbatim by every consumer), typed `params`, `returns`, `io` when a host it awaits is
+  not pure, and `steps`: `await` of a server host or an earlier server fn with `bind`, then `return`.
+- `components`: every non-entry component, typed props (a wire type or `"action"`), and the v2/v2.1 body and markup.
+- **Expressions:** `{ "op": "prop", "name" }` (a prop read through the props getter); `{ "op": "local" }` in server fn
+  bodies. **Views:** `{ "kind": "component", "name", "props": [{ "name", "value" } | { "name", "action" } | { "name",
+  "forward" }] }`, plus `place: "server"` and `server: <C$server>` on a placed site. **Async memo:** `await.serverFn`
+  beside v2.1's `await.host`, and `sunk: <C$server>` on a question the placement sinks. **Action step:** `{ "op":
+  "await", "serverFn", "args", "bind" }`; `{ "op": "call", "prop", "args" }` in a component's handler.
+- `serverComponents`: `name`, wire `id`, `component`, `params` (types), `question` (`{ memo, kind: "sunk" | "owned" }`),
+  `slots` (`name`, the island `component`, its `views` in the server subtree, server `args`, `through` props and the
+  root props they come `from`), `inline` (server-only components it renders).
+- `placement` (version 1): the table, client sites with the reason that keeps them client (`entry`, `M1`…`M9`, `PL-*`),
+  server roots with their question, props (`question`, `wire`, `through`), inline components and slots. The consumers
+  recompute it from the rest of the plan and refuse a plan whose block differs.
+
+### The canonical split (`plan/split.ts`)
+
+`src/<stem>.server.tsx`: every server fn as an exported `"use server"` function; every server component as `export
+async function C$server(…params) { "use server"; const q = await f(…); …memos as consts…; return (props) => <markup/>; }`,
+its islands as `<props.K …args/>` and its inline components as server-only functions. `src/<stem>.split.tsx`: the
+client components still rendered on the client (sites placed client, and islands), and the entry with its sources and
+memos (a sunk memo keeps its name and place and calls `C$server(…)`), then one `dynamicComponent(() => memo())` per
+sunk root in site order, then actions; a sunk site is `<FrameK K={(p) => <K a={p.a} t={take}/>}/>`. **An owned root is
+applied as its client stub** `<C$frame …wireProps …fills/>`, `function C$frame(props) { const frame = createMemo(() =>
+C$server(props.…)); const Frame = dynamicComponent(() => frame()); return <Frame K={props.K}/>; }`: the question belongs
+to the component instance, as on the twin, so a site under a `Show` that is hidden asks nothing and showing it asks
+again. (Hoisting the owned call memo into the entry, or making it `lazy`, made extra requests: the placement fuzz's
+seeds 47, 70 and 151.) The oracle's explicit splits (`slices/tracker-frames/*.split.tsx`, `frames/fuzz/gen.ts`) are
+written the same way, and `frames/extract.ts` reads both forms.
+
+### Refused by the v2.2 builder
+
+Each refusal is a `FramesRefusal` with a code; the TSX frames tier refuses the same forms at its boundary with the same
+code (`TsxError.code`), so RX and TSX refuse alike, by code (`plan/frames.test.ts`, and the placement fuzz's refusal
+family):
+
+| Code | Form |
+| --- | --- |
+| `FRAMES_SERVER_FN_BODY` | a server fn body outside `let x = await h(…)`* `return e` (an `if`, a loop, a non-await `let`, …) |
+| `FRAMES_WRAPPED_SERVER_FN` | a wrapped server fn (`GET(server fn …)`, SF-1d) |
+| `FRAMES_CLIENT_JS` | `client` JS, or a JS host without a side |
+| `FRAMES_WIRE_TYPE` | a server fn or host parameter or result outside the wire types; untyped names and props |
+| `FRAMES_ERROR_CLASS` | declared rejections and typed `errored`/`catch` |
+| `FRAMES_CHILDREN` | `props.children`, component children, function-valued props, props as a value |
+| `FRAMES_MODULES` | more than one RX module, aliased imports, an unknown, recursive or never-applied component |
+| `FRAMES_SITE_AMBIGUOUS` | a server fn awaited at more than one site, or a component that asks the server applied more than once |
+
+`FRAMES_EVAL_PLACE` (the design's eval sites with `place`) is not implemented: the v2.2 builder has no eval-site path,
+and no test puts an eval site in a frames program (deferred).
+
+### Gate (v2.2)
+
+`slices/tracker-frames.test.ts` (10 tests) and `plan/frames.test.ts` (7 tests), listed in
+`baselines/subset-tests.json`, and the placement fuzz on seeds 1..100 (`scripts/frames-fuzz.ts`, checked by
+`report.ts` against `baselines/frames-fuzz.json`; `tsx/verifier.test.ts` checks that check). `plan/frames.test.ts`:
+
+1. Additivity: `like`, `tracker` and `tracker-async` (`.rx` and `.tsx`) emit their saved plans through `--schema 2.2`.
+2. Additivity: plan fuzz and plan fuzz v2.1 seeds 1..60 give the v2/v2.1 builder's plan or refusal through the frames
+   builder, from RX and TSX.
+3. Refusals: seven forms (an ambiguous site, a server fn body, children, a wire type, a host without a side, declared
+   rejections, a never-applied component) refused with their code from RX and TSX.
+4. –6. The PL pins (`frames/pins.ts`): a minimal program in two prints, the all-client twin and the site forced to the
+   server by hand, run on the same clicks, showing the difference each rule prevents. **PL-3c** (two questions): the
+   forced root re-asks both hosts when one question changes (host log `1:countOpen`, `4:rowOf` extra). **PL-3d** (markup
+   reads client state): the forced root makes a request per mode change and its frame lags one step behind. **PL-5**
+   (a stateful island under a server row): after a refresh the twin's `For` re-creates its rows and the toggle starts
+   over, while the server row's island keeps its state.
+7. The frames tier's TSX boundary: a `"use server"` function is outside the subset without the tier; with it, an
+   untyped parameter is `FRAMES_WIRE_TYPE` and a non-await binding `FRAMES_SERVER_FN_BODY`.
+
+Not built: the U legs (the plan with its placement ignored on `solid-plan.ts` and `plan-trace`); the design's sixth
+pin (C15, a staged refetch inside an action) is not a rule of the inference, and the placement fuzz found a divergence
+in that area instead (suspected Solid issue 8, `docs/RESULTS.md`, "Slice 6").

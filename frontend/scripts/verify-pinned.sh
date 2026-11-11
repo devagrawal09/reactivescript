@@ -29,12 +29,16 @@ cd "$HERE"
 # version) from the sibling rust-solid folder (the repository's rust-solid/), or from RUST_SOLID; a missing build fails
 # the suite.
 RUST_SOLID=${RUST_SOLID:-$HERE/../rust-solid}
-(cd "$RUST_SOLID" && cargo build -q --bin scenario --bin plan-trace --bin ssr) > "$OUT/rust-solid-build.log" 2>&1; record rust-solid-build $?
+(cd "$RUST_SOLID" && cargo build -q --bin scenario --bin plan-trace --bin ssr --bin frames-server) > "$OUT/rust-solid-build.log" 2>&1; record rust-solid-build $?
 export RUST_SCENARIO=$RUST_SOLID/target/debug/scenario
 # The plan fuzz's Rust leg (plan/plan-fuzz.test.ts and the plan-fuzz step below): rust-solid's plan-trace.
 export RUST_PLAN_TRACE=$RUST_SOLID/target/debug/plan-trace
 # Slice 5 (docs/RESULTS.md, "Slice 5: server rendering"): rust's server renderer, for ssr/ssr.test.ts and the SSR fuzz.
 export RUST_SSR=$RUST_SOLID/target/debug/ssr
+# Slice 6 (docs/RESULTS.md, "Slice 6: inferred server components"): rust's frames server (R), for
+# slices/tracker-frames.test.ts and the placement fuzz; baselines/subset-tests.json lists the R test, so a run without
+# it fails.
+export RUST_FRAMES=$RUST_SOLID/target/debug/frames-server
 # The gate requires a plan v2 consumer. RUST_PLAN_V2=1 makes plan/plan.test.ts register the tracker's Rust leg, which
 # baselines/subset-tests.json lists, so a run that does not run it, or whose binary refuses v2, fails
 # (plan/docs/PLAN-V2.md, Gate).
@@ -84,6 +88,13 @@ cp "$OUT/ssr-fuzz/summary.json" "$OUT/ssr-fuzz.json" 2>/dev/null || echo '{}' > 
 node --experimental-strip-types scripts/ssr-fuzz.ts --async --seeds 100 --start 1 --dev --rust "$RUST_SSR" --out "$OUT/ssr-fuzz-async/" > "$OUT/ssr-fuzz-async.log" 2>&1
 record ssr-fuzz-async $?
 cp "$OUT/ssr-fuzz-async/summary.json" "$OUT/ssr-fuzz-async.json" 2>/dev/null || echo '{}' > "$OUT/ssr-fuzz-async.json"
+# The placement fuzz (docs/RESULTS.md, "Slice 6", "Placement fuzz"): seeds 1..100 of frames/fuzz/gen.ts; RX and TSX
+# emit one v2.2 plan (or refuse by one code), its placement is the generator's own model's and the oracle split's, and
+# the twin (T), the oracle split (N), the plan's split (J) and rust's frames server (R) replay the scenario recorded on
+# T. report.ts checks the summary against baselines/frames-fuzz.json.
+node --experimental-strip-types scripts/frames-fuzz.ts --seeds 100 --start 1 --jobs 4 --rust "$RUST_FRAMES" --out "$OUT/frames-fuzz/" > "$OUT/frames-fuzz.log" 2>&1
+record frames-fuzz $?
+cp "$OUT/frames-fuzz/summary.json" "$OUT/frames-fuzz.json" 2>/dev/null || echo '{}' > "$OUT/frames-fuzz.json"
 if [ $SUBSET = 0 ]; then
   for s in test oracle compiled types ssr; do
     (cd "$RX/ref" && NODE_PATH="$HERE/node_modules" npm run -s "$s" > "$OUT/upstream-$s.log" 2>&1); record upstream-$s $?
