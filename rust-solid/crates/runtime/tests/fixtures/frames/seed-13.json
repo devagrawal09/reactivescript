@@ -1,0 +1,723 @@
+{
+ "name": "seed-13",
+ "plan": {
+  "version": 2.2,
+  "component": "App",
+  "hosts": [],
+  "serverHosts": [
+   {
+    "name": "rowsOf",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "pure": true
+   },
+   {
+    "name": "claimRow",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "countOpen",
+    "params": [],
+    "returns": "number",
+    "pure": true
+   }
+  ],
+  "serverFns": [
+   {
+    "name": "loadRows",
+    "id": "loadRows-109cc172",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "rowsOf",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadTotal",
+    "id": "loadTotal-109cc172",
+    "params": [],
+    "returns": "number",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "countOpen",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "act",
+    "id": "act-109cc172",
+    "io": true,
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "string",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "claimRow",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   }
+  ],
+  "components": [
+   {
+    "name": "CountView",
+    "props": [
+     {
+      "name": "n",
+      "type": "number"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "p",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "literal",
+           "value": ""
+          },
+          "right": {
+           "op": "prop",
+           "name": "n"
+          }
+         },
+         "right": {
+          "op": "literal",
+          "value": " open"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "sources": [
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "selected",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 4
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "rows",
+    "await": {
+     "serverFn": "loadRows",
+     "args": []
+    }
+   },
+   {
+    "name": "total",
+    "await": {
+     "serverFn": "loadTotal",
+     "args": []
+    },
+    "sunk": "CountView$server"
+   },
+   {
+    "name": "shown",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "rows"
+     },
+     "param": "r",
+     "body": {
+      "op": "or",
+      "left": {
+       "op": "eq",
+       "left": {
+        "op": "read",
+        "source": "mode"
+       },
+       "right": {
+        "op": "literal",
+        "value": "all"
+       }
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "r"
+        },
+        "key": "owner"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "take",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "serverFn": "act",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "rows"
+       },
+       {
+        "op": "refresh",
+        "source": "total"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "#"
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "failed #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Mode: "
+         },
+         "right": {
+          "op": "read",
+          "source": "mode"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "kind": "errored",
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Could not load"
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading…"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "component",
+          "name": "CountView",
+          "props": [
+           {
+            "name": "n",
+            "value": {
+             "op": "read",
+             "source": "total"
+            }
+           }
+          ],
+          "place": "server",
+          "server": "CountView$server"
+         },
+         {
+          "kind": "for",
+          "each": {
+           "op": "read",
+           "source": "shown"
+          },
+          "item": "r",
+          "key": "identity",
+          "children": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "r"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "write",
+                  "source": "selected",
+                  "value": {
+                   "op": "get",
+                   "object": {
+                    "op": "local",
+                    "name": "r"
+                   },
+                   "key": "id"
+                  }
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "show"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "serverComponents": [
+   {
+    "name": "CountView$server",
+    "id": "CountView$server-109cc172",
+    "component": "CountView",
+    "params": [],
+    "question": {
+     "memo": "total",
+     "kind": "sunk"
+    },
+    "slots": [],
+    "inline": []
+   }
+  ],
+  "placement": {
+   "client": [
+    {
+     "component": "App",
+     "reason": "entry",
+     "site": [
+      "App"
+     ]
+    }
+   ],
+   "server": [
+    {
+     "component": "CountView",
+     "fn": "CountView$server",
+     "inline": [],
+     "props": {
+      "n": "question"
+     },
+     "question": {
+      "args": [],
+      "kind": "sunk",
+      "memo": "total",
+      "serverFn": "loadTotal"
+     },
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      0
+     ],
+     "slots": []
+    }
+   ],
+   "serverFns": [
+    "act",
+    "loadRows",
+    "loadTotal"
+   ],
+   "serverHosts": [
+    "claimRow",
+    "countOpen",
+    "rowsOf"
+   ],
+   "version": 1
+  }
+ },
+ "answers": [
+  {
+   "host": "rowsOf",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Slow search",
+     "owner": ""
+    },
+    {
+     "id": 2,
+     "title": "Typo in footer",
+     "owner": ""
+    },
+    {
+     "id": 3,
+     "title": "Dark mode",
+     "owner": ""
+    },
+    {
+     "id": 4,
+     "title": "Login loop",
+     "owner": ""
+    }
+   ]
+  },
+  {
+   "host": "countOpen",
+   "call": 1,
+   "args": [],
+   "value": 4
+  }
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "target": "/",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:39569"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "upgrade-insecure-requests",
+      "1"
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "accept",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+     ],
+     [
+      "sec-fetch-site",
+      "none"
+     ],
+     [
+      "sec-fetch-mode",
+      "navigate"
+     ],
+     [
+      "sec-fetch-user",
+      "?1"
+     ],
+     [
+      "sec-fetch-dest",
+      "document"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "content-type",
+      "text/html; charset=utf-8"
+     ]
+    ],
+    "chunks": [
+     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=4><button>Mode: all</button><!--$--><solid-frame data-fid=\"CountView$server-109cc172\" style=\"display:contents\"><p>4 open</p></solid-frame><!--!$--><p _hk=50000200><!--$-->Slow search<!--/--><button>show</button></p><p _hk=50000210><!--$-->Typo in footer<!--/--><button>show</button></p><p _hk=50000220><!--$-->Dark mode<!--/--><button>show</button></p><p _hk=50000230><!--$-->Login loop<!--/--><button>show</button></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"500_fr\"]=$R[5]=($R[6]=$R[2]()).p;($R[12]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[7]=[$R[8]={id:1,title:\"Slow search\",owner:\"\"},$R[9]={id:2,title:\"Typo in footer\",owner:\"\"},$R[10]={id:3,title:\"Dark mode\",owner:\"\"},$R[11]={id:4,title:\"Login loop\",owner:\"\"}]);$R[12]($R[4],$R[13]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"CountView$server-109cc172\",\"CountView$server-109cc172\"));_$HY.r[\"sc:live\"]=$R[14]=($R[15]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[16]=($R[17]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));$R[12]($R[6],!0);$R[16].return(void 0);</script></div></body></html>"
+    ]
+   }
+  }
+ ],
+ "hosts": [
+  {
+   "host": "rowsOf",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Slow search",
+     "owner": ""
+    },
+    {
+     "id": 2,
+     "title": "Typo in footer",
+     "owner": ""
+    },
+    {
+     "id": 3,
+     "title": "Dark mode",
+     "owner": ""
+    },
+    {
+     "id": 4,
+     "title": "Login loop",
+     "owner": ""
+    }
+   ]
+  },
+  {
+   "host": "countOpen",
+   "args": [],
+   "value": 4
+  }
+ ],
+ "document": [
+  {
+   "id": "loadRows-109cc172",
+   "args": []
+  },
+  {
+   "id": "CountView$server-109cc172",
+   "args": []
+  }
+ ]
+}

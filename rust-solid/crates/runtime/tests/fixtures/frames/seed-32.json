@@ -1,0 +1,1421 @@
+{
+ "name": "seed-32",
+ "plan": {
+  "version": 2.2,
+  "component": "App",
+  "hosts": [],
+  "serverHosts": [
+   {
+    "name": "rowsOf",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "pure": true
+   },
+   {
+    "name": "claimRow",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "topOf",
+    "params": [],
+    "returns": "{ id: number, title: string }[]",
+    "pure": true
+   }
+  ],
+  "serverFns": [
+   {
+    "name": "loadRows",
+    "id": "loadRows-109cc172",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "rowsOf",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadTop",
+    "id": "loadTop-109cc172",
+    "params": [],
+    "returns": "{ id: number, title: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "topOf",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "act",
+    "id": "act-109cc172",
+    "io": true,
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "string",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "claimRow",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   }
+  ],
+  "components": [
+   {
+    "name": "Banner",
+    "props": [],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "h3",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "literal",
+         "value": "Open issues"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Notice",
+    "props": [
+     {
+      "name": "text",
+      "type": "string"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "h4",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Note: "
+         },
+         "right": {
+          "op": "prop",
+          "name": "text"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Chip",
+    "props": [
+     {
+      "name": "id",
+      "type": "number"
+     },
+     {
+      "name": "label",
+      "type": "string"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "prop": "act",
+          "args": [
+           {
+            "op": "prop",
+            "name": "id"
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "prop",
+         "name": "label"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "TopList",
+    "props": [
+     {
+      "name": "items",
+      "type": "{ id: number, title: string }[]"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "ul",
+      "events": [],
+      "children": [
+       {
+        "kind": "for",
+        "each": {
+         "op": "prop",
+         "name": "items"
+        },
+        "item": "x",
+        "key": "identity",
+        "children": [
+         {
+          "kind": "element",
+          "tag": "li",
+          "events": [],
+          "children": [
+           {
+            "kind": "component",
+            "name": "Chip",
+            "props": [
+             {
+              "name": "id",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x"
+               },
+               "key": "id"
+              }
+             },
+             {
+              "name": "label",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "name": "act",
+              "forward": "act"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "RowTag",
+    "props": [
+     {
+      "name": "label",
+      "type": "string"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "small",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "prop",
+         "name": "label"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "sources": [
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "selected",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 3
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "rows",
+    "await": {
+     "serverFn": "loadRows",
+     "args": []
+    }
+   },
+   {
+    "name": "top",
+    "await": {
+     "serverFn": "loadTop",
+     "args": []
+    },
+    "sunk": "TopList$server"
+   },
+   {
+    "name": "shown",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "rows"
+     },
+     "param": "r",
+     "body": {
+      "op": "or",
+      "left": {
+       "op": "eq",
+       "left": {
+        "op": "read",
+        "source": "mode"
+       },
+       "right": {
+        "op": "literal",
+        "value": "all"
+       }
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "r"
+        },
+        "key": "owner"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "take",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "serverFn": "act",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "rows"
+       },
+       {
+        "op": "refresh",
+        "source": "top"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "#"
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "failed #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Mode: "
+         },
+         "right": {
+          "op": "read",
+          "source": "mode"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "kind": "errored",
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Could not load"
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading…"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "show",
+          "when": {
+           "op": "eq",
+           "left": {
+            "op": "read",
+            "source": "mode"
+           },
+           "right": {
+            "op": "literal",
+            "value": "all"
+           }
+          },
+          "children": [
+           {
+            "kind": "component",
+            "name": "Banner",
+            "props": []
+           }
+          ],
+          "fallback": []
+         },
+         {
+          "kind": "component",
+          "name": "Notice",
+          "props": [
+           {
+            "name": "text",
+            "value": {
+             "op": "literal",
+             "value": "read me"
+            }
+           }
+          ]
+         },
+         {
+          "kind": "component",
+          "name": "TopList",
+          "props": [
+           {
+            "name": "items",
+            "value": {
+             "op": "read",
+             "source": "top"
+            }
+           },
+           {
+            "name": "act",
+            "action": "take"
+           }
+          ],
+          "place": "server",
+          "server": "TopList$server"
+         },
+         {
+          "kind": "for",
+          "each": {
+           "op": "read",
+           "source": "shown"
+          },
+          "item": "r",
+          "key": "identity",
+          "children": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "r"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "write",
+                  "source": "selected",
+                  "value": {
+                   "op": "get",
+                   "object": {
+                    "op": "local",
+                    "name": "r"
+                   },
+                   "key": "id"
+                  }
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "show"
+                }
+               }
+              ]
+             },
+             {
+              "kind": "component",
+              "name": "RowTag",
+              "props": [
+               {
+                "name": "label",
+                "value": {
+                 "op": "get",
+                 "object": {
+                  "op": "local",
+                  "name": "r"
+                 },
+                 "key": "title"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "serverComponents": [
+   {
+    "name": "TopList$server",
+    "id": "TopList$server-109cc172",
+    "component": "TopList",
+    "params": [],
+    "question": {
+     "memo": "top",
+     "kind": "sunk"
+    },
+    "slots": [
+     {
+      "name": "Chip",
+      "component": "Chip",
+      "views": [
+       [
+        0,
+        0,
+        0,
+        0
+       ]
+      ],
+      "args": [
+       "id",
+       "label"
+      ],
+      "through": [
+       "act"
+      ],
+      "from": {
+       "act": "act"
+      }
+     }
+    ],
+    "inline": []
+   }
+  ],
+  "placement": {
+   "client": [
+    {
+     "component": "App",
+     "reason": "entry",
+     "site": [
+      "App"
+     ]
+    },
+    {
+     "component": "Banner",
+     "reason": "PL-3c",
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "component": "Chip",
+     "reason": "M2",
+     "site": [
+      "TopList",
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "component": "Notice",
+     "reason": "PL-3c",
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      1
+     ]
+    },
+    {
+     "component": "RowTag",
+     "reason": "PL-3b",
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      3,
+      0,
+      2
+     ]
+    }
+   ],
+   "server": [
+    {
+     "component": "TopList",
+     "fn": "TopList$server",
+     "inline": [],
+     "props": {
+      "act": "through",
+      "items": "question"
+     },
+     "question": {
+      "args": [],
+      "kind": "sunk",
+      "memo": "top",
+      "serverFn": "loadTop"
+     },
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      2
+     ],
+     "slots": [
+      {
+       "args": [
+        "id",
+        "label"
+       ],
+       "component": "Chip",
+       "name": "Chip",
+       "through": [
+        "act"
+       ]
+      }
+     ]
+    }
+   ],
+   "serverFns": [
+    "act",
+    "loadRows",
+    "loadTop"
+   ],
+   "serverHosts": [
+    "claimRow",
+    "rowsOf",
+    "topOf"
+   ],
+   "version": 1
+  }
+ },
+ "answers": [
+  {
+   "host": "rowsOf",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo in footer",
+     "owner": "bo"
+    },
+    {
+     "id": 2,
+     "title": "Dark mode",
+     "owner": ""
+    },
+    {
+     "id": 3,
+     "title": "Login loop",
+     "owner": "bo"
+    }
+   ]
+  },
+  {
+   "host": "topOf",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo in footer"
+    },
+    {
+     "id": 2,
+     "title": "Dark mode"
+    },
+    {
+     "id": 3,
+     "title": "Login loop"
+    }
+   ]
+  },
+  {
+   "host": "claimRow",
+   "call": 1,
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "call": 2,
+   "args": [
+    3
+   ],
+   "error": "#3 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "call": 3,
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  }
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "target": "/",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:36049"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "upgrade-insecure-requests",
+      "1"
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "accept",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+     ],
+     [
+      "sec-fetch-site",
+      "none"
+     ],
+     [
+      "sec-fetch-mode",
+      "navigate"
+     ],
+     [
+      "sec-fetch-user",
+      "?1"
+     ],
+     [
+      "sec-fetch-dest",
+      "document"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "content-type",
+      "text/html; charset=utf-8"
+     ]
+    ],
+    "chunks": [
+     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=4><button>Mode: all</button><!--$--><h3 _hk=5000020>Open issues</h3><h4 _hk=500003>Note: read me</h4><solid-frame data-fid=\"TopList$server-109cc172\" style=\"display:contents\"><ul><!--lr--><li><!--slot:Chip#0:start--><button _hk=sc-TopList$server-109cc172-Chip#0-0>Typo in footer</button><!--slot:Chip#0:end--></li><!--lr--><li><!--slot:Chip#1:start--><button _hk=sc-TopList$server-109cc172-Chip#1-0>Dark mode</button><!--slot:Chip#1:end--></li><!--lr--><li><!--slot:Chip#2:start--><button _hk=sc-TopList$server-109cc172-Chip#2-0>Login loop</button><!--slot:Chip#2:end--></li></ul></solid-frame><!--!$--><p _hk=50000600><!--$-->Typo in footer<!--/--><button>show</button><!--$--><small _hk=50000602>Typo in footer</small><!--/--></p><p _hk=50000610><!--$-->Dark mode<!--/--><button>show</button><!--$--><small _hk=50000612>Dark mode</small><!--/--></p><p _hk=50000620><!--$-->Login loop<!--/--><button>show</button><!--$--><small _hk=50000622>Login loop</small><!--/--></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"500_fr\"]=$R[5]=($R[6]=$R[2]()).p;($R[11]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[7]=[$R[8]={id:1,title:\"Typo in footer\",owner:\"bo\"},$R[9]={id:2,title:\"Dark mode\",owner:\"\"},$R[10]={id:3,title:\"Login loop\",owner:\"bo\"}]);$R[11]($R[4],$R[12]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"TopList$server-109cc172\",\"TopList$server-109cc172\"));_$HY.r[\"sc:live\"]=$R[13]=($R[14]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[15]=($R[16]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));_$HY.r[\"sc:deps:TopList$server-109cc172:0\"]=($R[17]={});$R[11]($R[6],!0);_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#0\"]=$R[18]=($R[19]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#1\"]=$R[20]=($R[21]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#2\"]=$R[22]=($R[23]=$R[2]()).p;$R[11]($R[19],$R[24]={id:1,label:\"Typo in footer\"});$R[11]($R[21],$R[25]={id:2,label:\"Dark mode\"});$R[11]($R[23],$R[26]={id:3,label:\"Login loop\"});$R[15].return(void 0);</script></div></body></html>"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:36049"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:36049"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:36049/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:36049"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:36049"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:36049/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:36049"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:36049"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:36049/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  }
+ ],
+ "hosts": [
+  {
+   "host": "rowsOf",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo in footer",
+     "owner": "bo"
+    },
+    {
+     "id": 2,
+     "title": "Dark mode",
+     "owner": ""
+    },
+    {
+     "id": 3,
+     "title": "Login loop",
+     "owner": "bo"
+    }
+   ]
+  },
+  {
+   "host": "topOf",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Typo in footer"
+    },
+    {
+     "id": 2,
+     "title": "Dark mode"
+    },
+    {
+     "id": 3,
+     "title": "Login loop"
+    }
+   ]
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    3
+   ],
+   "error": "#3 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  }
+ ],
+ "document": [
+  {
+   "id": "loadRows-109cc172",
+   "args": []
+  },
+  {
+   "id": "TopList$server-109cc172",
+   "args": []
+  }
+ ]
+}

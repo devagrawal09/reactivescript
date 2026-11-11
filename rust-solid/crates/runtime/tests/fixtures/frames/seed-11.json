@@ -1,0 +1,2639 @@
+{
+ "name": "seed-11",
+ "plan": {
+  "version": 2.2,
+  "component": "App",
+  "hosts": [],
+  "serverHosts": [
+   {
+    "name": "rowsOf",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "pure": true
+   },
+   {
+    "name": "claimRow",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   },
+   {
+    "name": "rowOf",
+    "params": [
+     "number"
+    ],
+    "returns": "{ id: number, title: string, body: string, owner: string }",
+    "pure": true
+   },
+   {
+    "name": "topOf",
+    "params": [],
+    "returns": "{ id: number, title: string }[]",
+    "pure": true
+   },
+   {
+    "name": "titleOf",
+    "params": [
+     "number"
+    ],
+    "returns": "string",
+    "pure": true
+   }
+  ],
+  "serverFns": [
+   {
+    "name": "loadRows",
+    "id": "loadRows-109cc172",
+    "params": [],
+    "returns": "{ id: number, title: string, owner: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "rowsOf",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadPick",
+    "id": "loadPick-109cc172",
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "{ id: number, title: string, body: string, owner: string }",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "rowOf",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "object",
+       "fields": [
+        {
+         "key": "id",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "v"
+          },
+          "key": "id"
+         }
+        },
+        {
+         "key": "title",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "v"
+          },
+          "key": "title"
+         }
+        },
+        {
+         "key": "body",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "v"
+          },
+          "key": "body"
+         }
+        },
+        {
+         "key": "owner",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "v"
+          },
+          "key": "owner"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadTop",
+    "id": "loadTop-109cc172",
+    "params": [],
+    "returns": "{ id: number, title: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "topOf",
+      "args": [],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadOne",
+    "id": "loadOne-109cc172",
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "{ title: string }",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "titleOf",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "object",
+       "fields": [
+        {
+         "key": "title",
+         "value": {
+          "op": "local",
+          "name": "v"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "act",
+    "id": "act-109cc172",
+    "io": true,
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "string",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "claimRow",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "v"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "v"
+      }
+     }
+    ]
+   }
+  ],
+  "components": [
+   {
+    "name": "ActButton",
+    "props": [
+     {
+      "name": "item",
+      "type": "{ id: number, title: string, body: string, owner: string }"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "prop": "act",
+          "args": [
+           {
+            "op": "get",
+            "object": {
+             "op": "prop",
+             "name": "item"
+            },
+            "key": "id"
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "cond",
+         "test": {
+          "op": "eq",
+          "left": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "item"
+           },
+           "key": "owner"
+          },
+          "right": {
+           "op": "literal",
+           "value": ""
+          }
+         },
+         "then": {
+          "op": "literal",
+          "value": "take"
+         },
+         "else": {
+          "op": "add",
+          "left": {
+           "op": "literal",
+           "value": "taken by "
+          },
+          "right": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "item"
+           },
+           "key": "owner"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "RecordView",
+    "props": [
+     {
+      "name": "item",
+      "type": "{ id: number, title: string, body: string, owner: string }"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "article",
+      "events": [],
+      "children": [
+       {
+        "kind": "element",
+        "tag": "h2",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "item"
+           },
+           "key": "title"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "item"
+           },
+           "key": "body"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "component",
+        "name": "ActButton",
+        "props": [
+         {
+          "name": "item",
+          "value": {
+           "op": "prop",
+           "name": "item"
+          }
+         },
+         {
+          "name": "act",
+          "forward": "act"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Card",
+    "props": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "sources": [],
+    "memos": [
+     {
+      "name": "c",
+      "await": {
+       "serverFn": "loadOne",
+       "args": [
+        {
+         "op": "prop",
+         "name": "id"
+        }
+       ]
+      }
+     }
+    ],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+       {
+        "kind": "element",
+        "tag": "b",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "read",
+            "source": "c"
+           },
+           "key": "title"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "element",
+        "tag": "i",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "#"
+           },
+           "right": {
+            "op": "prop",
+            "name": "id"
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Chip",
+    "props": [
+     {
+      "name": "id",
+      "type": "number"
+     },
+     {
+      "name": "label",
+      "type": "string"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "prop": "act",
+          "args": [
+           {
+            "op": "prop",
+            "name": "id"
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "prop",
+         "name": "label"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "TopList",
+    "props": [
+     {
+      "name": "items",
+      "type": "{ id: number, title: string }[]"
+     },
+     {
+      "name": "act",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "ul",
+      "events": [],
+      "children": [
+       {
+        "kind": "for",
+        "each": {
+         "op": "prop",
+         "name": "items"
+        },
+        "item": "x",
+        "key": "identity",
+        "children": [
+         {
+          "kind": "element",
+          "tag": "li",
+          "events": [],
+          "children": [
+           {
+            "kind": "component",
+            "name": "Chip",
+            "props": [
+             {
+              "name": "id",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x"
+               },
+               "key": "id"
+              }
+             },
+             {
+              "name": "label",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "x"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "name": "act",
+              "forward": "act"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "sources": [
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "selected",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 1
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "rows",
+    "await": {
+     "serverFn": "loadRows",
+     "args": []
+    }
+   },
+   {
+    "name": "pick",
+    "await": {
+     "serverFn": "loadPick",
+     "args": [
+      {
+       "op": "read",
+       "source": "selected"
+      }
+     ]
+    }
+   },
+   {
+    "name": "top",
+    "await": {
+     "serverFn": "loadTop",
+     "args": []
+    },
+    "sunk": "TopList$server"
+   },
+   {
+    "name": "shown",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "rows"
+     },
+     "param": "r",
+     "body": {
+      "op": "or",
+      "left": {
+       "op": "eq",
+       "left": {
+        "op": "read",
+        "source": "mode"
+       },
+       "right": {
+        "op": "literal",
+        "value": "all"
+       }
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "r"
+        },
+        "key": "owner"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "take",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "serverFn": "act",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "rows"
+       },
+       {
+        "op": "refresh",
+        "source": "pick"
+       },
+       {
+        "op": "refresh",
+        "source": "top"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "#"
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "failed #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Mode: "
+         },
+         "right": {
+          "op": "read",
+          "source": "mode"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "kind": "errored",
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Could not load"
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading…"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "component",
+          "name": "RecordView",
+          "props": [
+           {
+            "name": "item",
+            "value": {
+             "op": "read",
+             "source": "pick"
+            }
+           },
+           {
+            "name": "act",
+            "action": "take"
+           }
+          ]
+         },
+         {
+          "kind": "component",
+          "name": "Card",
+          "props": [
+           {
+            "name": "id",
+            "value": {
+             "op": "read",
+             "source": "selected"
+            }
+           }
+          ]
+         },
+         {
+          "kind": "component",
+          "name": "TopList",
+          "props": [
+           {
+            "name": "items",
+            "value": {
+             "op": "read",
+             "source": "top"
+            }
+           },
+           {
+            "name": "act",
+            "action": "take"
+           }
+          ],
+          "place": "server",
+          "server": "TopList$server"
+         },
+         {
+          "kind": "for",
+          "each": {
+           "op": "read",
+           "source": "shown"
+          },
+          "item": "r",
+          "key": "identity",
+          "children": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "r"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "write",
+                  "source": "selected",
+                  "value": {
+                   "op": "get",
+                   "object": {
+                    "op": "local",
+                    "name": "r"
+                   },
+                   "key": "id"
+                  }
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "show"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "serverComponents": [
+   {
+    "name": "TopList$server",
+    "id": "TopList$server-109cc172",
+    "component": "TopList",
+    "params": [],
+    "question": {
+     "memo": "top",
+     "kind": "sunk"
+    },
+    "slots": [
+     {
+      "name": "Chip",
+      "component": "Chip",
+      "views": [
+       [
+        0,
+        0,
+        0,
+        0
+       ]
+      ],
+      "args": [
+       "id",
+       "label"
+      ],
+      "through": [
+       "act"
+      ],
+      "from": {
+       "act": "act"
+      }
+     }
+    ],
+    "inline": []
+   }
+  ],
+  "placement": {
+   "client": [
+    {
+     "component": "ActButton",
+     "reason": "PL-1",
+     "site": [
+      "RecordView",
+      0,
+      2
+     ]
+    },
+    {
+     "component": "App",
+     "reason": "entry",
+     "site": [
+      "App"
+     ]
+    },
+    {
+     "component": "Card",
+     "reason": "PL-3d",
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      1
+     ]
+    },
+    {
+     "component": "Chip",
+     "reason": "M2",
+     "site": [
+      "TopList",
+      0,
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "component": "RecordView",
+     "reason": "PL-5",
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "server": [
+    {
+     "component": "TopList",
+     "fn": "TopList$server",
+     "inline": [],
+     "props": {
+      "act": "through",
+      "items": "question"
+     },
+     "question": {
+      "args": [],
+      "kind": "sunk",
+      "memo": "top",
+      "serverFn": "loadTop"
+     },
+     "site": [
+      "App",
+      0,
+      1,
+      0,
+      2
+     ],
+     "slots": [
+      {
+       "args": [
+        "id",
+        "label"
+       ],
+       "component": "Chip",
+       "name": "Chip",
+       "through": [
+        "act"
+       ]
+      }
+     ]
+    }
+   ],
+   "serverFns": [
+    "act",
+    "loadOne",
+    "loadPick",
+    "loadRows",
+    "loadTop"
+   ],
+   "serverHosts": [
+    "claimRow",
+    "rowOf",
+    "rowsOf",
+    "titleOf",
+    "topOf"
+   ],
+   "version": 1
+  }
+ },
+ "answers": [
+  {
+   "host": "rowsOf",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Broken link",
+     "owner": "ana"
+    },
+    {
+     "id": 2,
+     "title": "Crash on save",
+     "owner": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Slow search",
+     "owner": "ana"
+    },
+    {
+     "id": 4,
+     "title": "Typo in footer",
+     "owner": "bo"
+    }
+   ]
+  },
+  {
+   "host": "rowOf",
+   "call": 1,
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Broken link",
+    "body": "Stack trace attached",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "topOf",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Broken link"
+    },
+    {
+     "id": 2,
+     "title": "Crash on save"
+    },
+    {
+     "id": 3,
+     "title": "Slow search"
+    },
+    {
+     "id": 4,
+     "title": "Typo in footer"
+    }
+   ]
+  },
+  {
+   "host": "titleOf",
+   "call": 1,
+   "args": [
+    1
+   ],
+   "value": "Broken link"
+  },
+  {
+   "host": "rowOf",
+   "call": 2,
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Crash on save",
+    "body": "p95 is 4s",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "titleOf",
+   "call": 2,
+   "args": [
+    2
+   ],
+   "value": "Crash on save"
+  },
+  {
+   "host": "claimRow",
+   "call": 1,
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "call": 2,
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "rowOf",
+   "call": 3,
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Broken link",
+    "body": "Stack trace attached",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "titleOf",
+   "call": 3,
+   "args": [
+    1
+   ],
+   "value": "Broken link"
+  },
+  {
+   "host": "rowOf",
+   "call": 4,
+   "args": [
+    4
+   ],
+   "value": {
+    "id": 4,
+    "title": "Typo in footer",
+    "body": "Too bright",
+    "owner": "bo"
+   }
+  },
+  {
+   "host": "titleOf",
+   "call": 4,
+   "args": [
+    4
+   ],
+   "value": "Typo in footer"
+  },
+  {
+   "host": "claimRow",
+   "call": 3,
+   "args": [
+    3
+   ],
+   "error": "#3 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "call": 4,
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  }
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "target": "/",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "upgrade-insecure-requests",
+      "1"
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "accept",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+     ],
+     [
+      "sec-fetch-site",
+      "none"
+     ],
+     [
+      "sec-fetch-mode",
+      "navigate"
+     ],
+     [
+      "sec-fetch-user",
+      "?1"
+     ],
+     [
+      "sec-fetch-dest",
+      "document"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "content-type",
+      "text/html; charset=utf-8"
+     ]
+    ],
+    "chunks": [
+     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=5><button>Mode: all</button><!--$--><article _hk=600000><h2>Broken link</h2><p>Stack trace attached</p><!--$--><button _hk=600003>taken by ana</button><!--/--></article><div _hk=600005><b>Broken link</b><i>#1</i></div><solid-frame data-fid=\"TopList$server-109cc172\" style=\"display:contents\"><ul><!--lr--><li><!--slot:Chip#0:start--><button _hk=sc-TopList$server-109cc172-Chip#0-0>Broken link</button><!--slot:Chip#0:end--></li><!--lr--><li><!--slot:Chip#1:start--><button _hk=sc-TopList$server-109cc172-Chip#1-0>Crash on save</button><!--slot:Chip#1:end--></li><!--lr--><li><!--slot:Chip#2:start--><button _hk=sc-TopList$server-109cc172-Chip#2-0>Slow search</button><!--slot:Chip#2:end--></li><!--lr--><li><!--slot:Chip#3:start--><button _hk=sc-TopList$server-109cc172-Chip#3-0>Typo in footer</button><!--slot:Chip#3:end--></li></ul></solid-frame><!--!$--><p _hk=60000900><!--$-->Broken link<!--/--><button>show</button></p><p _hk=60000910><!--$-->Crash on save<!--/--><button>show</button></p><p _hk=60000920><!--$-->Slow search<!--/--><button>show</button></p><p _hk=60000930><!--$-->Typo in footer<!--/--><button>show</button></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"2\"]=$R[5]=($R[6]=$R[2]()).p;_$HY.r[\"600_fr\"]=$R[7]=($R[8]=$R[2]()).p;_$HY.r[\"600004\"]=$R[9]=($R[10]=$R[2]()).p;($R[16]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[11]=[$R[12]={id:1,title:\"Broken link\",owner:\"ana\"},$R[13]={id:2,title:\"Crash on save\",owner:\"ana\"},$R[14]={id:3,title:\"Slow search\",owner:\"ana\"},$R[15]={id:4,title:\"Typo in footer\",owner:\"bo\"}]);$R[16]($R[4],$R[17]={id:1,title:\"Broken link\",body:\"Stack trace attached\",owner:\"ana\"});$R[16]($R[10],$R[18]={title:\"Broken link\"});$R[16]($R[6],$R[19]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"TopList$server-109cc172\",\"TopList$server-109cc172\"));_$HY.r[\"sc:live\"]=$R[20]=($R[21]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[22]=($R[23]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));_$HY.r[\"sc:deps:TopList$server-109cc172:0\"]=($R[24]={});$R[16]($R[8],!0);_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#0\"]=$R[25]=($R[26]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#1\"]=$R[27]=($R[28]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#2\"]=$R[29]=($R[30]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#3\"]=$R[31]=($R[32]=$R[2]()).p;$R[16]($R[26],$R[33]={id:1,label:\"Broken link\"});$R[16]($R[28],$R[34]={id:2,label:\"Crash on save\"});$R[16]($R[30],$R[35]={id:3,label:\"Slow search\"});$R[16]($R[32],$R[36]={id:4,label:\"Typo in footer\"});$R[22].return(void 0);</script></div></body></html>"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadPick-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[2]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"id\":2,\"title\":\"Crash on save\",\"body\":\"p95 is 4s\",\"owner\":\"ana\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadOne-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[2]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"title\":\"Crash on save\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadPick-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"id\":1,\"title\":\"Broken link\",\"body\":\"Stack trace attached\",\"owner\":\"ana\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadOne-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"title\":\"Broken link\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadPick-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[4]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"id\":4,\"title\":\"Typo in footer\",\"body\":\"Too bright\",\"owner\":\"bo\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadOne-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[4]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "{\"title\":\"Typo in footer\"}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/act-109cc172",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:46003"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:46003"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:46003/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[1]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  }
+ ],
+ "hosts": [
+  {
+   "host": "rowsOf",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Broken link",
+     "owner": "ana"
+    },
+    {
+     "id": 2,
+     "title": "Crash on save",
+     "owner": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Slow search",
+     "owner": "ana"
+    },
+    {
+     "id": 4,
+     "title": "Typo in footer",
+     "owner": "bo"
+    }
+   ]
+  },
+  {
+   "host": "rowOf",
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Broken link",
+    "body": "Stack trace attached",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "topOf",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Broken link"
+    },
+    {
+     "id": 2,
+     "title": "Crash on save"
+    },
+    {
+     "id": 3,
+     "title": "Slow search"
+    },
+    {
+     "id": 4,
+     "title": "Typo in footer"
+    }
+   ]
+  },
+  {
+   "host": "titleOf",
+   "args": [
+    1
+   ],
+   "value": "Broken link"
+  },
+  {
+   "host": "rowOf",
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Crash on save",
+    "body": "p95 is 4s",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "titleOf",
+   "args": [
+    2
+   ],
+   "value": "Crash on save"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  },
+  {
+   "host": "rowOf",
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Broken link",
+    "body": "Stack trace attached",
+    "owner": "ana"
+   }
+  },
+  {
+   "host": "titleOf",
+   "args": [
+    1
+   ],
+   "value": "Broken link"
+  },
+  {
+   "host": "rowOf",
+   "args": [
+    4
+   ],
+   "value": {
+    "id": 4,
+    "title": "Typo in footer",
+    "body": "Too bright",
+    "owner": "bo"
+   }
+  },
+  {
+   "host": "titleOf",
+   "args": [
+    4
+   ],
+   "value": "Typo in footer"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    3
+   ],
+   "error": "#3 is already assigned"
+  },
+  {
+   "host": "claimRow",
+   "args": [
+    1
+   ],
+   "error": "#1 is already assigned"
+  }
+ ],
+ "document": [
+  {
+   "id": "loadRows-109cc172",
+   "args": []
+  },
+  {
+   "id": "loadPick-109cc172",
+   "args": [
+    1
+   ]
+  },
+  {
+   "id": "TopList$server-109cc172",
+   "args": []
+  },
+  {
+   "id": "loadOne-109cc172",
+   "args": [
+    1
+   ]
+  }
+ ]
+}

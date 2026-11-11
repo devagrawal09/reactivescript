@@ -1,0 +1,2233 @@
+{
+ "name": "tracker-frames",
+ "plan": {
+  "version": 2.2,
+  "component": "Tracker",
+  "hosts": [],
+  "serverHosts": [
+   {
+    "name": "getIssue",
+    "params": [
+     "number"
+    ],
+    "returns": "{ id: number, title: string, body: string, assignee: string }",
+    "pure": true
+   },
+   {
+    "name": "listIssues",
+    "params": [],
+    "returns": "{ id: number, title: string, assignee: string }[]",
+    "pure": true
+   },
+   {
+    "name": "countOpen",
+    "params": [],
+    "returns": "number",
+    "pure": true
+   },
+   {
+    "name": "assignIssue",
+    "params": [
+     "number"
+    ],
+    "returns": "string"
+   }
+  ],
+  "serverFns": [
+   {
+    "name": "loadList",
+    "id": "loadList-59b2922c",
+    "params": [],
+    "returns": "{ id: number, title: string, assignee: string }[]",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "listIssues",
+      "args": [],
+      "bind": "xs"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "xs"
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadIssue",
+    "id": "loadIssue-59b2922c",
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "{ id: number, title: string, body: string, assignee: string }",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "getIssue",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "i"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "object",
+       "fields": [
+        {
+         "key": "id",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "i"
+          },
+          "key": "id"
+         }
+        },
+        {
+         "key": "title",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "i"
+          },
+          "key": "title"
+         }
+        },
+        {
+         "key": "body",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "i"
+          },
+          "key": "body"
+         }
+        },
+        {
+         "key": "assignee",
+         "value": {
+          "op": "get",
+          "object": {
+           "op": "local",
+           "name": "i"
+          },
+          "key": "assignee"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "loadSummary",
+    "id": "loadSummary-59b2922c",
+    "params": [],
+    "returns": "number",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "countOpen",
+      "args": [],
+      "bind": "n"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "n"
+      }
+     }
+    ]
+   },
+   {
+    "name": "claim",
+    "id": "claim-59b2922c",
+    "io": true,
+    "params": [
+     {
+      "name": "id",
+      "type": "number"
+     }
+    ],
+    "returns": "string",
+    "steps": [
+     {
+      "op": "await",
+      "serverHost": "assignIssue",
+      "args": [
+       {
+        "op": "local",
+        "name": "id"
+       }
+      ],
+      "bind": "who"
+     },
+     {
+      "op": "return",
+      "value": {
+       "op": "local",
+       "name": "who"
+      }
+     }
+    ]
+   }
+  ],
+  "components": [
+   {
+    "name": "ClaimButton",
+    "props": [
+     {
+      "name": "id",
+      "type": "number"
+     },
+     {
+      "name": "assignee",
+      "type": "string"
+     },
+     {
+      "name": "take",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "call",
+          "prop": "take",
+          "args": [
+           {
+            "op": "prop",
+            "name": "id"
+           }
+          ]
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "cond",
+         "test": {
+          "op": "eq",
+          "left": {
+           "op": "prop",
+           "name": "assignee"
+          },
+          "right": {
+           "op": "literal",
+           "value": ""
+          }
+         },
+         "then": {
+          "op": "literal",
+          "value": "take"
+         },
+         "else": {
+          "op": "add",
+          "left": {
+           "op": "literal",
+           "value": "taken by "
+          },
+          "right": {
+           "op": "prop",
+           "name": "assignee"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Detail",
+    "props": [
+     {
+      "name": "issue",
+      "type": "{ id: number, title: string, body: string, assignee: string }"
+     },
+     {
+      "name": "take",
+      "type": "action"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "article",
+      "events": [],
+      "children": [
+       {
+        "kind": "element",
+        "tag": "h2",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "issue"
+           },
+           "key": "title"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "issue"
+           },
+           "key": "body"
+          }
+         }
+        ]
+       },
+       {
+        "kind": "component",
+        "name": "ClaimButton",
+        "props": [
+         {
+          "name": "id",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "issue"
+           },
+           "key": "id"
+          }
+         },
+         {
+          "name": "assignee",
+          "value": {
+           "op": "get",
+           "object": {
+            "op": "prop",
+            "name": "issue"
+           },
+           "key": "assignee"
+          }
+         },
+         {
+          "name": "take",
+          "forward": "take"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Summary",
+    "props": [
+     {
+      "name": "open",
+      "type": "number"
+     }
+    ],
+    "sources": [],
+    "memos": [],
+    "actions": [],
+    "markup": [
+     {
+      "kind": "element",
+      "tag": "p",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "literal",
+           "value": ""
+          },
+          "right": {
+           "op": "prop",
+           "name": "open"
+          }
+         },
+         "right": {
+          "op": "literal",
+          "value": " open"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "sources": [
+   {
+    "name": "mode",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": "all"
+    }
+   },
+   {
+    "name": "selected",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": 1
+    }
+   },
+   {
+    "name": "status",
+    "kind": "signal",
+    "seed": {
+     "op": "literal",
+     "value": ""
+    }
+   }
+  ],
+  "memos": [
+   {
+    "name": "issues",
+    "await": {
+     "serverFn": "loadList",
+     "args": []
+    }
+   },
+   {
+    "name": "issue",
+    "await": {
+     "serverFn": "loadIssue",
+     "args": [
+      {
+       "op": "read",
+       "source": "selected"
+      }
+     ]
+    },
+    "sunk": "Detail$server"
+   },
+   {
+    "name": "open",
+    "await": {
+     "serverFn": "loadSummary",
+     "args": []
+    },
+    "sunk": "Summary$server"
+   },
+   {
+    "name": "visible",
+    "value": {
+     "op": "filter",
+     "array": {
+      "op": "read",
+      "source": "issues"
+     },
+     "param": "row",
+     "body": {
+      "op": "or",
+      "left": {
+       "op": "eq",
+       "left": {
+        "op": "read",
+        "source": "mode"
+       },
+       "right": {
+        "op": "literal",
+        "value": "all"
+       }
+      },
+      "right": {
+       "op": "eq",
+       "left": {
+        "op": "get",
+        "object": {
+         "op": "local",
+         "name": "row"
+        },
+        "key": "assignee"
+       },
+       "right": {
+        "op": "literal",
+        "value": ""
+       }
+      }
+     }
+    }
+   }
+  ],
+  "actions": [
+   {
+    "name": "take",
+    "params": [
+     "id"
+    ],
+    "steps": [
+     {
+      "op": "try",
+      "body": [
+       {
+        "op": "await",
+        "serverFn": "claim",
+        "args": [
+         {
+          "op": "local",
+          "name": "id"
+         }
+        ],
+        "bind": "$await0"
+       },
+       {
+        "op": "refresh",
+        "source": "issues"
+       },
+       {
+        "op": "refresh",
+        "source": "issue"
+       },
+       {
+        "op": "refresh",
+        "source": "open"
+       },
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "add",
+          "left": {
+           "op": "add",
+           "left": {
+            "op": "literal",
+            "value": "Assigned #"
+           },
+           "right": {
+            "op": "local",
+            "name": "id"
+           }
+          },
+          "right": {
+           "op": "literal",
+           "value": " to "
+          }
+         },
+         "right": {
+          "op": "local",
+          "name": "$await0"
+         }
+        }
+       }
+      ],
+      "catch": [
+       {
+        "op": "write",
+        "source": "status",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Could not assign #"
+         },
+         "right": {
+          "op": "local",
+          "name": "id"
+         }
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "markup": [
+   {
+    "kind": "element",
+    "tag": "section",
+    "events": [],
+    "children": [
+     {
+      "kind": "element",
+      "tag": "button",
+      "events": [
+       {
+        "name": "onClick",
+        "steps": [
+         {
+          "op": "write",
+          "source": "mode",
+          "value": {
+           "op": "cond",
+           "test": {
+            "op": "eq",
+            "left": {
+             "op": "read",
+             "source": "mode"
+            },
+            "right": {
+             "op": "literal",
+             "value": "all"
+            }
+           },
+           "then": {
+            "op": "literal",
+            "value": "open"
+           },
+           "else": {
+            "op": "literal",
+            "value": "all"
+           }
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "add",
+         "left": {
+          "op": "literal",
+          "value": "Filter: "
+         },
+         "right": {
+          "op": "read",
+          "source": "mode"
+         }
+        }
+       }
+      ]
+     },
+     {
+      "kind": "errored",
+      "fallback": [
+       {
+        "kind": "element",
+        "tag": "p",
+        "events": [],
+        "children": [
+         {
+          "kind": "text",
+          "value": {
+           "op": "literal",
+           "value": "Could not load"
+          }
+         }
+        ]
+       }
+      ],
+      "children": [
+       {
+        "kind": "loading",
+        "fallback": [
+         {
+          "kind": "element",
+          "tag": "i",
+          "events": [],
+          "children": [
+           {
+            "kind": "text",
+            "value": {
+             "op": "literal",
+             "value": "Loading…"
+            }
+           }
+          ]
+         }
+        ],
+        "children": [
+         {
+          "kind": "component",
+          "name": "Summary",
+          "props": [
+           {
+            "name": "open",
+            "value": {
+             "op": "read",
+             "source": "open"
+            }
+           }
+          ],
+          "place": "server",
+          "server": "Summary$server"
+         },
+         {
+          "kind": "for",
+          "each": {
+           "op": "read",
+           "source": "visible"
+          },
+          "item": "row",
+          "key": "identity",
+          "children": [
+           {
+            "kind": "element",
+            "tag": "p",
+            "events": [],
+            "children": [
+             {
+              "kind": "text",
+              "value": {
+               "op": "get",
+               "object": {
+                "op": "local",
+                "name": "row"
+               },
+               "key": "title"
+              }
+             },
+             {
+              "kind": "element",
+              "tag": "button",
+              "events": [
+               {
+                "name": "onClick",
+                "steps": [
+                 {
+                  "op": "write",
+                  "source": "selected",
+                  "value": {
+                   "op": "get",
+                   "object": {
+                    "op": "local",
+                    "name": "row"
+                   },
+                   "key": "id"
+                  }
+                 }
+                ]
+               }
+              ],
+              "children": [
+               {
+                "kind": "text",
+                "value": {
+                 "op": "literal",
+                 "value": "show"
+                }
+               }
+              ]
+             }
+            ]
+           }
+          ]
+         },
+         {
+          "kind": "component",
+          "name": "Detail",
+          "props": [
+           {
+            "name": "issue",
+            "value": {
+             "op": "read",
+             "source": "issue"
+            }
+           },
+           {
+            "name": "take",
+            "action": "take"
+           }
+          ],
+          "place": "server",
+          "server": "Detail$server"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "kind": "element",
+      "tag": "em",
+      "events": [],
+      "children": [
+       {
+        "kind": "text",
+        "value": {
+         "op": "read",
+         "source": "status"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "serverComponents": [
+   {
+    "name": "Summary$server",
+    "id": "Summary$server-59b2922c",
+    "component": "Summary",
+    "params": [],
+    "question": {
+     "memo": "open",
+     "kind": "sunk"
+    },
+    "slots": [],
+    "inline": []
+   },
+   {
+    "name": "Detail$server",
+    "id": "Detail$server-59b2922c",
+    "component": "Detail",
+    "params": [
+     "number"
+    ],
+    "question": {
+     "memo": "issue",
+     "kind": "sunk"
+    },
+    "slots": [
+     {
+      "name": "ClaimButton",
+      "component": "ClaimButton",
+      "views": [
+       [
+        0,
+        2
+       ]
+      ],
+      "args": [
+       "id",
+       "assignee"
+      ],
+      "through": [
+       "take"
+      ],
+      "from": {
+       "take": "take"
+      }
+     }
+    ],
+    "inline": []
+   }
+  ],
+  "placement": {
+   "client": [
+    {
+     "component": "ClaimButton",
+     "reason": "M2",
+     "site": [
+      "Detail",
+      0,
+      2
+     ]
+    },
+    {
+     "component": "Tracker",
+     "reason": "entry",
+     "site": [
+      "Tracker"
+     ]
+    }
+   ],
+   "server": [
+    {
+     "component": "Summary",
+     "fn": "Summary$server",
+     "inline": [],
+     "props": {
+      "open": "question"
+     },
+     "question": {
+      "args": [],
+      "kind": "sunk",
+      "memo": "open",
+      "serverFn": "loadSummary"
+     },
+     "site": [
+      "Tracker",
+      0,
+      1,
+      0,
+      0
+     ],
+     "slots": []
+    },
+    {
+     "component": "Detail",
+     "fn": "Detail$server",
+     "inline": [],
+     "props": {
+      "issue": "question",
+      "take": "through"
+     },
+     "question": {
+      "args": [
+       {
+        "op": "read",
+        "source": "selected"
+       }
+      ],
+      "kind": "sunk",
+      "memo": "issue",
+      "serverFn": "loadIssue"
+     },
+     "site": [
+      "Tracker",
+      0,
+      1,
+      0,
+      2
+     ],
+     "slots": [
+      {
+       "args": [
+        "assignee",
+        "id"
+       ],
+       "component": "ClaimButton",
+       "name": "ClaimButton",
+       "through": [
+        "take"
+       ]
+      }
+     ]
+    }
+   ],
+   "serverFns": [
+    "claim",
+    "loadIssue",
+    "loadList",
+    "loadSummary"
+   ],
+   "serverHosts": [
+    "assignIssue",
+    "countOpen",
+    "getIssue",
+    "listIssues"
+   ],
+   "version": 1
+  }
+ },
+ "answers": [
+  {
+   "host": "listIssues",
+   "call": 1,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Crash on save",
+     "assignee": ""
+    },
+    {
+     "id": 2,
+     "title": "Slow search",
+     "assignee": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Typo in footer",
+     "assignee": ""
+    }
+   ]
+  },
+  {
+   "host": "getIssue",
+   "call": 1,
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Crash on save",
+    "body": "Stack trace attached",
+    "assignee": ""
+   }
+  },
+  {
+   "host": "countOpen",
+   "call": 1,
+   "args": [],
+   "value": 2
+  },
+  {
+   "host": "getIssue",
+   "call": 2,
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Slow search",
+    "body": "p95 is 4s",
+    "assignee": "ana"
+   }
+  },
+  {
+   "host": "getIssue",
+   "call": 3,
+   "args": [
+    3
+   ],
+   "value": {
+    "id": 3,
+    "title": "Typo in footer",
+    "body": "'Copyrigth'",
+    "assignee": ""
+   }
+  },
+  {
+   "host": "assignIssue",
+   "call": 1,
+   "args": [
+    3
+   ],
+   "value": "me"
+  },
+  {
+   "host": "listIssues",
+   "call": 2,
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Crash on save",
+     "assignee": ""
+    },
+    {
+     "id": 2,
+     "title": "Slow search",
+     "assignee": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Typo in footer",
+     "assignee": "me"
+    }
+   ]
+  },
+  {
+   "host": "getIssue",
+   "call": 4,
+   "args": [
+    3
+   ],
+   "value": {
+    "id": 3,
+    "title": "Typo in footer",
+    "body": "'Copyrigth'",
+    "assignee": "me"
+   }
+  },
+  {
+   "host": "countOpen",
+   "call": 2,
+   "args": [],
+   "value": 1
+  },
+  {
+   "host": "getIssue",
+   "call": 5,
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Slow search",
+    "body": "p95 is 4s",
+    "assignee": "ana"
+   }
+  },
+  {
+   "host": "assignIssue",
+   "call": 2,
+   "args": [
+    2
+   ],
+   "error": "#2 is already assigned"
+  }
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "target": "/",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "upgrade-insecure-requests",
+      "1"
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "accept",
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+     ],
+     [
+      "sec-fetch-site",
+      "none"
+     ],
+     [
+      "sec-fetch-mode",
+      "navigate"
+     ],
+     [
+      "sec-fetch-user",
+      "?1"
+     ],
+     [
+      "sec-fetch-dest",
+      "document"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "content-type",
+      "text/html; charset=utf-8"
+     ]
+    ],
+    "chunks": [
+     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=6><button>Filter: all</button><!--$--><solid-frame data-fid=\"Summary$server-59b2922c\" style=\"display:contents\"><p>2 open</p></solid-frame><!--!$--><p _hk=70000200><!--$-->Crash on save<!--/--><button>show</button></p><p _hk=70000210><!--$-->Slow search<!--/--><button>show</button></p><p _hk=70000220><!--$-->Typo in footer<!--/--><button>show</button></p><!--!$--><solid-frame data-fid=\"Detail$server-59b2922c\" data-fa=\"1wpz\" style=\"display:contents\"><article><h2>Crash on save</h2><p>Stack trace attached</p><!--$--><!--slot:ClaimButton#0:start--><button _hk=sc-Detail$server-59b2922c-ClaimButton#0-0>take</button><!--slot:ClaimButton#0:end--><!--/--></article></solid-frame><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"2\"]=$R[5]=($R[6]=$R[2]()).p;_$HY.r[\"700_fr\"]=$R[7]=($R[8]=$R[2]()).p;($R[13]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[9]=[$R[10]={id:1,title:\"Crash on save\",assignee:\"\"},$R[11]={id:2,title:\"Slow search\",assignee:\"ana\"},$R[12]={id:3,title:\"Typo in footer\",assignee:\"\"}]);$R[13]($R[4],$R[14]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"Detail$server-59b2922c\",\"Detail$server-59b2922c:1wpz\"));$R[13]($R[6],$R[15]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"Summary$server-59b2922c\",\"Summary$server-59b2922c\"));_$HY.r[\"sc:live\"]=$R[16]=($R[17]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[18]=($R[19]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));_$HY.r[\"sc:deps:Detail$server-59b2922c:0\"]=($R[20]={});$R[13]($R[8],!0);_$HY.r[\"sc:slot:Detail$server-59b2922c:ClaimButton#0\"]=$R[21]=($R[22]=$R[2]()).p;$R[13]($R[22],$R[23]={id:1,assignee:\"\"});$R[18].return(void 0);</script></div></body></html>"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/Detail%24server-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[2]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/x-frame-stream"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-raw",
+      "1"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-frame-stream",
+      "Detail$server-59b2922c"
+     ]
+    ],
+    "chunks": [
+     ";0x0000003a;{\"type\":\"start\",\"id\":\"Detail$server-59b2922c\",\"version\":1}",
+     ";0x00000077;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"slot:ClaimButton#0\":{\"kind\":\"slot\",\"args\":{\"id\":2,\"assignee\":\"ana\"}}}}",
+     ";0x000000ee;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"\":{\"kind\":\"html\",\"value\":\"<article><h2>Slow search</h2><p>p95 is 4s</p><!--$--><!--slot:ClaimButton#0:start--><!--slot:ClaimButton#0:end--><!--/--></article>\",\"digest\":\"d3f8990ee34a16a0\"}}}",
+     ";0x00000042;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\":complete\":true}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/Detail%24server-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/x-frame-stream"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-raw",
+      "1"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-frame-stream",
+      "Detail$server-59b2922c"
+     ]
+    ],
+    "chunks": [
+     ";0x0000003a;{\"type\":\"start\",\"id\":\"Detail$server-59b2922c\",\"version\":1}",
+     ";0x00000074;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"slot:ClaimButton#0\":{\"kind\":\"slot\",\"args\":{\"id\":3,\"assignee\":\"\"}}}}",
+     ";0x000000f3;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"\":{\"kind\":\"html\",\"value\":\"<article><h2>Typo in footer</h2><p>'Copyrigth'</p><!--$--><!--slot:ClaimButton#0:start--><!--slot:ClaimButton#0:end--><!--/--></article>\",\"digest\":\"b7788d7567c1a8db\"}}}",
+     ";0x00000042;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\":complete\":true}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/claim-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "1"
+     ]
+    ],
+    "chunks": [
+     "me"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/loadList-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ]
+    ],
+    "chunks": [
+     "[{\"id\":1,\"title\":\"Crash on save\",\"assignee\":\"\"},{\"id\":2,\"title\":\"Slow search\",\"assignee\":\"ana\"},{\"id\":3,\"title\":\"Typo in footer\",\"assignee\":\"me\"}]"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/Detail%24server-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/x-frame-stream"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-raw",
+      "1"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-frame-stream",
+      "Detail$server-59b2922c"
+     ]
+    ],
+    "chunks": [
+     ";0x0000003a;{\"type\":\"start\",\"id\":\"Detail$server-59b2922c\",\"version\":1}",
+     ";0x00000076;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"slot:ClaimButton#0\":{\"kind\":\"slot\",\"args\":{\"id\":3,\"assignee\":\"me\"}}}}",
+     ";0x000000f3;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"\":{\"kind\":\"html\",\"value\":\"<article><h2>Typo in footer</h2><p>'Copyrigth'</p><!--$--><!--slot:ClaimButton#0:start--><!--slot:ClaimButton#0:end--><!--/--></article>\",\"digest\":\"b7788d7567c1a8db\"}}}",
+     ";0x00000042;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\":complete\":true}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/Summary%24server-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "0"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": ""
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/x-frame-stream"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-raw",
+      "1"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-frame-stream",
+      "Summary$server-59b2922c"
+     ]
+    ],
+    "chunks": [
+     ";0x0000003b;{\"type\":\"start\",\"id\":\"Summary$server-59b2922c\",\"version\":1}",
+     ";0x00000079;{\"id\":\"Summary$server-59b2922c\",\"version\":1,\"r\":{\"\":{\"kind\":\"html\",\"value\":\"<p>1 open</p>\",\"digest\":\"fdd3af1b7ae0d17d\"}}}",
+     ";0x00000043;{\"id\":\"Summary$server-59b2922c\",\"version\":1,\"r\":{\":complete\":true}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/Detail%24server-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[2]"
+   },
+   "response": {
+    "status": 200,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "application/x-frame-stream"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-raw",
+      "1"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-frame-stream",
+      "Detail$server-59b2922c"
+     ]
+    ],
+    "chunks": [
+     ";0x0000003a;{\"type\":\"start\",\"id\":\"Detail$server-59b2922c\",\"version\":1}",
+     ";0x00000077;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"slot:ClaimButton#0\":{\"kind\":\"slot\",\"args\":{\"id\":2,\"assignee\":\"ana\"}}}}",
+     ";0x000000ee;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\"\":{\"kind\":\"html\",\"value\":\"<article><h2>Slow search</h2><p>p95 is 4s</p><!--$--><!--slot:ClaimButton#0:start--><!--slot:ClaimButton#0:end--><!--/--></article>\",\"digest\":\"d3f8990ee34a16a0\"}}}",
+     ";0x00000042;{\"id\":\"Detail$server-59b2922c\",\"version\":1,\"r\":{\":complete\":true}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/claim-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:40229"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "content-length",
+      "3"
+     ],
+     [
+      "sec-ch-ua-platform",
+      "\"Linux\""
+     ],
+     [
+      "user-agent",
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+     ],
+     [
+      "sec-ch-ua",
+      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+     ],
+     [
+      "content-type",
+      "application/json"
+     ],
+     [
+      "sec-ch-ua-mobile",
+      "?0"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "origin",
+      "http://127.0.0.1:40229"
+     ],
+     [
+      "sec-fetch-site",
+      "same-origin"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "sec-fetch-dest",
+      "empty"
+     ],
+     [
+      "referer",
+      "http://127.0.0.1:40229/"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate, br, zstd"
+     ],
+     [
+      "accept-language",
+      "en-US,en;q=0.9"
+     ]
+    ],
+    "body": "[2]"
+   },
+   "response": {
+    "status": 500,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "content-type",
+      "text/plain"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ],
+     [
+      "x-server-function-error",
+      "Internal Server Error"
+     ],
+     [
+      "x-server-function-format",
+      "0"
+     ]
+    ],
+    "chunks": [
+     ";0x00000044;{\"t\":13,\"i\":0,\"s\":0,\"m\":\"Internal Server Error\",\"p\":{\"k\":[],\"v\":[]}}"
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "POST",
+    "target": "/_server/data/claim-59b2922c",
+    "headers": [
+     [
+      "host",
+      "127.0.0.1:41717"
+     ],
+     [
+      "connection",
+      "keep-alive"
+     ],
+     [
+      "x-server-function-format",
+      "8"
+     ],
+     [
+      "content-type",
+      "text/plain;charset=UTF-8"
+     ],
+     [
+      "accept",
+      "*/*"
+     ],
+     [
+      "accept-language",
+      "*"
+     ],
+     [
+      "sec-fetch-mode",
+      "cors"
+     ],
+     [
+      "user-agent",
+      "node"
+     ],
+     [
+      "accept-encoding",
+      "gzip, deflate"
+     ],
+     [
+      "content-length",
+      "3"
+     ]
+    ],
+    "body": "[3]"
+   },
+   "response": {
+    "status": 403,
+    "headers": [
+     [
+      "cache-control",
+      "no-store"
+     ],
+     [
+      "vary",
+      "Sec-Fetch-Site, Origin, Referer"
+     ],
+     [
+      "x-content-type-options",
+      "nosniff"
+     ]
+    ],
+    "chunks": []
+   }
+  }
+ ],
+ "hosts": [
+  {
+   "host": "listIssues",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Crash on save",
+     "assignee": ""
+    },
+    {
+     "id": 2,
+     "title": "Slow search",
+     "assignee": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Typo in footer",
+     "assignee": ""
+    }
+   ]
+  },
+  {
+   "host": "getIssue",
+   "args": [
+    1
+   ],
+   "value": {
+    "id": 1,
+    "title": "Crash on save",
+    "body": "Stack trace attached",
+    "assignee": ""
+   }
+  },
+  {
+   "host": "countOpen",
+   "args": [],
+   "value": 2
+  },
+  {
+   "host": "getIssue",
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Slow search",
+    "body": "p95 is 4s",
+    "assignee": "ana"
+   }
+  },
+  {
+   "host": "getIssue",
+   "args": [
+    3
+   ],
+   "value": {
+    "id": 3,
+    "title": "Typo in footer",
+    "body": "'Copyrigth'",
+    "assignee": ""
+   }
+  },
+  {
+   "host": "assignIssue",
+   "args": [
+    3
+   ],
+   "value": "me"
+  },
+  {
+   "host": "listIssues",
+   "args": [],
+   "value": [
+    {
+     "id": 1,
+     "title": "Crash on save",
+     "assignee": ""
+    },
+    {
+     "id": 2,
+     "title": "Slow search",
+     "assignee": "ana"
+    },
+    {
+     "id": 3,
+     "title": "Typo in footer",
+     "assignee": "me"
+    }
+   ]
+  },
+  {
+   "host": "getIssue",
+   "args": [
+    3
+   ],
+   "value": {
+    "id": 3,
+    "title": "Typo in footer",
+    "body": "'Copyrigth'",
+    "assignee": "me"
+   }
+  },
+  {
+   "host": "countOpen",
+   "args": [],
+   "value": 1
+  },
+  {
+   "host": "getIssue",
+   "args": [
+    2
+   ],
+   "value": {
+    "id": 2,
+    "title": "Slow search",
+    "body": "p95 is 4s",
+    "assignee": "ana"
+   }
+  },
+  {
+   "host": "assignIssue",
+   "args": [
+    2
+   ],
+   "error": "#2 is already assigned"
+  }
+ ],
+ "document": [
+  {
+   "id": "loadList-59b2922c",
+   "args": []
+  },
+  {
+   "id": "Detail$server-59b2922c",
+   "args": [
+    1
+   ]
+  },
+  {
+   "id": "Summary$server-59b2922c",
+   "args": []
+  }
+ ]
+}
