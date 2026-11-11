@@ -1,0 +1,15 @@
+== client
+ 0 {"type":"mount"}                                             | togglepickcard One
+ 1 {"type":"click","target":{"text":"toggle","index":0}}        | togglepick
+ 2 {"type":"click","target":{"text":"pick","index":0}}          | togglepick
+ 3 {"type":"deliver","site":"card","call":2}                    | togglepick
+ 4 {"type":"click","target":{"text":"toggle","index":0}}        | togglepickcard Three
+requests card#2[3]
+== frames
+ 0 {"type":"mount"}                                             | togglepickcard One
+ 1 {"type":"click","target":{"text":"toggle","index":0}}        | togglepick
+ 2 {"type":"click","target":{"text":"pick","index":0}}          | togglepick
+ 3 {"type":"deliver","site":"card","call":2}                    | togglepick
+ 4 {"type":"click","target":{"text":"toggle","index":0}}        | togglepickcard One
+requests card#2[3]
+[exit code 0]

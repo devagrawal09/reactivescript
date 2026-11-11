@@ -1,0 +1,22 @@
+== client
+ 0 {"type":"mount"}                                             | takepickcard Onetop 3
+ 1 {"type":"click","target":{"text":"take","index":0}}          | takepickcard Onetop 3
+ 2 {"type":"deliver","site":"act","call":1}                     | takepickcard Onetop 3
+ 3 {"type":"click","target":{"text":"pick","index":0}}          | takepickcard Onetop 3
+ 4 {"type":"deliver","site":"card","call":2}                    | takepickcard Threetop 3
+ 5 {"type":"deliver","site":"top","call":2}                     | takepickcard Threetop 3
+== frames
+ 0 {"type":"mount"}                                             | takepickcard Onetop 3
+ 1 {"type":"click","target":{"text":"take","index":0}}          | takepickcard Onetop 3
+ 2 {"type":"deliver","site":"act","call":1}                     | takepickcard Onetop 3
+ 3 {"type":"click","target":{"text":"pick","index":0}}          | takepickcard Onetop 3
+ 4 {"type":"deliver","site":"card","call":2}                    | takepickcard Onetop 3
+ 5 {"type":"deliver","site":"top","call":2}                     | takepickcard Threetop 3
+== mixed
+ 0 {"type":"mount"}                                             | takepickcard Onetop 3
+ 1 {"type":"click","target":{"text":"take","index":0}}          | takepickcard Onetop 3
+ 2 {"type":"deliver","site":"act","call":1}                     | takepickcard Onetop 3
+ 3 {"type":"click","target":{"text":"pick","index":0}}          | takepickcard Onetop 3
+ 4 {"type":"deliver","site":"card","call":2}                    | takepickcard Threetop 3
+ 5 {"type":"deliver","site":"top","call":2}                     | takepickcard Threetop 3
+[exit code 0]

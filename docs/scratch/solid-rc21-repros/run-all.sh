@@ -23,3 +23,13 @@ node --conditions=browser 3-dom-comparison.mjs > out/3-dom-comparison.prod.txt 2
 # Issue 5 runs the program in a worker and reports the hang itself.
 node 5-errored-pending-hang.mjs > out/5-errored-pending-hang.prod.txt 2>&1; echo "[exit code $?]" >> out/5-errored-pending-hang.prod.txt
 SOLID_JS=${PKG}solid/dist/solid.dev.js node --conditions=development 5-errored-pending-hang.mjs > out/5-errored-pending-hang.dev.txt 2>&1; echo "[exit code $?]" >> out/5-errored-pending-hang.dev.txt
+# Issues 8, 9 and 10 (frames) need a server and a browser: the repro modules live in the frontend
+# (frontend/frames/repros/), whose harness serves Solid's own frames wiring and drives Chromium (the
+# frontend's `npm ci` provides Playwright's Chromium). Each prints both apps' frames per step.
+for f in 8:switch-held 9:island-not-ready; do
+  n=${f%%:*}; m=${f#*:}
+  (cd ../../../frontend && node --experimental-strip-types --no-warnings frames/repros/$m.ts) > out/$n-frames-$m.prod.txt 2>&1; echo "[exit code $?]" >> out/$n-frames-$m.prod.txt
+  (cd ../../../frontend && node --experimental-strip-types --no-warnings frames/repros/$m.ts --dev) > out/$n-frames-$m.dev.txt 2>&1; echo "[exit code $?]" >> out/$n-frames-$m.dev.txt
+done
+(cd ../../../frontend && node --experimental-strip-types --no-warnings frames/repros/reshow-stale.ts) > out/10-frames-reshow-stale.prod.txt 2>&1; echo "[exit code $?]" >> out/10-frames-reshow-stale.prod.txt
+(cd ../../../frontend && node --experimental-strip-types --no-warnings frames/repros/reshow-stale.ts --dev) > out/10-frames-reshow-stale.dev.txt 2>&1; echo "[exit code $?]" >> out/10-frames-reshow-stale.dev.txt

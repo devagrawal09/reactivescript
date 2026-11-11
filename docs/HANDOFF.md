@@ -1,137 +1,346 @@
-# Handoff: ReactiveScript frontends and Solid-model work
+# Handoff: the Solid model (ReactiveScript frontends, rust-solid, Frames)
 
-Updated 2026-11-10 (the async data tier, plan v2.1, pushed to `solid-model`; before that, 2026-11-09, all project work consolidated into that one branch). Read this first, then `dashboard/notes.json`. The work runs in a Tembo sandbox; the working copy is `/workspace/rx-tsx-refresh/solid-model`, on branch `solid-model`, not on the Mac (see "Environment").
+Updated 2026-11-11. Everything below is on branch `solid-model` of `devagrawal09/reactivescript`, including slice 6
+(Frames), which was pushed with this file. A fresh session should read this file, then `dashboard/notes.json`, then
+work through "Start here" at the bottom. The work runs in a Tembo sandbox. The working copy is
+`/workspace/rx-tsx-refresh/solid-model`, not a checkout on the Mac.
 
-## Goal
-Write Solid-style code in other syntaxes (Solid TSX, solid-yield's generator syntax), lower it onto ReactiveScript's (RX) existing AST, and accept a program only if it behaves exactly like native Solid; refuse everything else, with a diagnostic.
-The broader direction: **"Solid" is a semantic model plus a conformance suite.** Syntaxes, host languages, runtimes (Solid JS, a Rust port), renderers and client/server placement are plugins around that core.
+## Goal and thesis
+- **The thesis: "Solid" is a semantic model plus a conformance suite.** Syntaxes (Solid TSX, RX, solid-yield's
+  generators), host languages, runtimes (Solid JS, the Rust port), renderers (universal, server, Frames) and
+  client/server placement are plugins around that core. A plugin is accepted only where it is identical to native
+  Solid 2.
+- **In practice:** Solid-style code is written in another syntax and lowered onto ReactiveScript's (RX) AST and checker.
+  A program is accepted only if it behaves exactly like native Solid 2 (rc.21); everything else is refused with a
+  diagnostic. Plans (JSON IR, `frontend/plan/docs/PLAN-V2.md`) carry a program to any runtime. Differential fuzzers
+  compare every leg with native Solid trace for trace, byte for byte.
+- **Three levels, always kept apart:** *syntax we recognize* (what the frontends parse and lower), *the verified subset*
+  (what a gate or fuzz compares with native Solid), and *full readiness*, which is never claimed.
 
 ## How the user works
-- **You plan and design; implementation goes to background subagents** (background workflows in the sandbox; on the Mac it was Codex: `sol`, `astra`, `luna`). Delegate everything, including verification reruns and push retries; never block on a foreground agent. Use **several cheap agents at once, with different but overlapping focuses.** Don't pass `model: 'sonnet'` to workflow agents here: it resolves to an unavailable model and fails silently. Omit the model and lower the effort instead.
-- Ask decisions two at a time.
-- Keep answers concise and code-heavy. Keep three things distinct: syntax we recognize, the verified subset, and full readiness.
-- Prefer vertical slices (tracer bullets) to horizontal layers.
-- Give every agent its own git worktree of `solid-model` (`git -C /workspace/reactivescript worktree add`, directly under `rx-tsx-refresh/`), with `reactivescript` and `solid-next` symlinked at its root to the shared checkouts (gitignored) and `frontend/upstream` created by setup's symlink step (`[ -L frontend/upstream ] || ln -s ../reactivescript frontend/upstream`, from the root; also gitignored), so `frontend/upstream` and the `../solid-next` paths resolve without rebuilding Solid. Review, rerun the gates, then merge.
-- **Never publish** (push, open PRs or issues, comment) without the user's explicit OK.
-- **Never touch:** `/workspace/reactivescript` (the main clone; every `rx-tsx-refresh/` worktree hangs off it) and `/workspace/solid` (the user's fork, on `main`; don't pull it without asking). On the Mac the equivalents were `/Users/devagr/reactivescript` (an intentional uncommitted experiment: HEAD `f3c6771`, 13 changes), `/Users/devagr/solid-next`, `/Users/devagr/solid-yield` and `/Users/devagr/solid`.
-- The shared checkouts `rx-tsx-refresh/{reactivescript,solid-next}` are read-only for agents. A fresh clone gets its own with `sh scripts/setup.sh`.
-- Verify agents' claims yourself before reporting them. Their results are sometimes truncated or incomplete.
+- **You plan and design. ALL work goes to background subagents** (background Workflow): implementation, gate reruns,
+  verification, pushes and retries. Never block on a foreground agent. Use several cheap agents in parallel with
+  different but overlapping focuses. Use an **independent verifier** for every result. **Check agents' claims yourself
+  before reporting them**: their output is sometimes truncated or wrong.
+- Don't pass `model: 'sonnet'` (or any model) to workflow agents here. It resolves to an unavailable model and fails
+  silently, returning null. Omit `model` and lower `effort` instead, and check that a phase's agents returned results
+  before later phases use them.
+- Answers are **concise and code-heavy**. Ask **two decisions at a time**. Work in **vertical slices** (tracer bullets),
+  not horizontal layers.
+- **Never publish without an explicit OK**: no push, PR, issue or comment. An OK covers the action it names, nothing
+  later.
+- **Solid 2 only.** No dom-expressions, solid-start, solid-meta, solid-refresh or Solid 1. Renderers are ports of Solid
+  2's `@solidjs/universal` and `@solidjs/web`.
+- **Never pull, modify, force-push or reset the user's repos or forks**: `/workspace/reactivescript` (the main clone;
+  every `rx-tsx-refresh/` worktree hangs off it), `/workspace/solid` (the user's fork, on `main`), and on the Mac
+  `~/reactivescript` (an intentional uncommitted experiment), `~/solid-next`, `~/solid-yield`, `~/solid`. Never delete
+  remote branches; the user deletes branches on GitHub. Never touch `main`, `tsx-frontend-demo`, `pr21-*` or
+  `claude/project-thread-*`.
+- The pinned checkouts (`rx-tsx-refresh/{reactivescript,solid-next}`) are **read-only**. Give each agent its own git
+  worktree of `solid-model` under `rx-tsx-refresh/`, with `reactivescript` and `solid-next` symlinked at its root and
+  `frontend/upstream` created by setup's link step. Review the result, rerun the gates (through a background verifier),
+  then merge.
+- Mask **all** values when reading config files. A Mac-era read printed a password from
+  `~/.config/ocpp/service-local.json`, and the user should rotate it.
 
 ## Environment (Tembo sandbox)
-- Node 24 comes from nix: prefix node commands with `nix shell nixpkgs#nodejs_24 -c` (that gives 24.11.1, not the pinned 24.18.0). rustc is 1.96.0, not the pinned 1.97.1. solid-next is built with pnpm 11.1.1.
-- **`git push` fails**: the sandbox's git credentials return HTTP 500. `tembo commit` pushes through the API and works: it creates a verified commit on `origin/<current local branch>`, which must already exist: `tembo commit` can't create a branch, so the user creates each new branch on GitHub and it is then filled with `tembo commit`. `tembo merge` still needs git credentials.
-- **The `tembo commit` API rejects any file with mode 100755 (executable) or 120000 (symlink).** So `scripts/setup.sh` and `docs/scratch/solid-rc21-repros/run-all.sh` are committed as 100644 and always run as `sh scripts/setup.sh` and `sh docs/scratch/solid-rc21-repros/run-all.sh`, and `frontend/upstream -> ../reactivescript` is not committed: it is gitignored and `scripts/setup.sh` creates it before `npm ci` and the gates. The frontend's `"#rx/*"` imports (`./upstream/ref/*`), its type check, `verify-pinned.sh` and `tsx/boundary.test.ts` all go through it, so the frontend gate fails without it.
-- The layout was rebuilt on 2026-11-07 as worktrees of the GitHub backup branches, and consolidated on 2026-11-09 into one repository layout on the `solid-model` branch (below).
-- `dashboard/collect.mjs` reads paths relative to the repository (its frontend gate checks the `solid-model` branch; `DASHBOARD_GATE_BRANCH` overrides it). Start it with `cd dashboard && nohup node server.mjs > server.log 2>&1 &` (port 4173).
+```sh
+cd /workspace/rx-tsx-refresh/solid-model           # branch solid-model; the only working copy
+nix shell nixpkgs#nodejs_24 -c sh scripts/setup.sh # idempotent; --check changes nothing
+nix shell nixpkgs#nodejs_24 -c <node/npm cmd>      # Node 24.11.1 (pin 24.18.0); rustc 1.96.0 (pin 1.97.1)
+```
+- `reactivescript -> /workspace/rx-tsx-refresh/reactivescript` (RX `fdbcad92`), `solid-next ->
+  /workspace/rx-tsx-refresh/solid-next` (Solid `2105ffb8`, 2.0.0-rc.21, built with pnpm 11.1.1), and `frontend/upstream
+  -> ../reactivescript` are gitignored symlinks. setup.sh creates the last one. Without it the frontend gate fails,
+  because it carries the `#rx/*` imports, the upstream type check, `verify-pinned.sh` and `tsx/boundary.test.ts`.
+- **Plain `git push` is broken**: the credential refresh returns HTTP 500. **Use `tembo commit` only.** It runs `git
+  commit -m` of the **index**, POSTs the tree to `internal.tembo.io/sandbox/commit` (which makes a verified commit), and
+  then runs `git fetch` and **`git reset --hard origin/<branch>`**. That reset discards every uncommitted change to
+  tracked files, so always stage from a saved `git write-tree`. Its limits:
+  - it only works on branches that already exist on GitHub, so the user creates any new branch first;
+  - it rejects any file with mode **100755** or **120000** (scripts are committed as 100644 and run with `sh`, and
+    symlinks come from setup.sh);
+  - keep each commit to **about 1 MB of blobs or less**;
+  - on an API error it falls back to `git push`, which then also fails.
+  `tembo merge` needs git credentials and doesn't work.
+  ```sh
+  git add -A && git diff --cached --summary | grep -E '100755|120000' && exit 1
+  T=$(git write-tree); B=$(git commit-tree $T -p HEAD -m backup)   # keep $T and $B
+  # per chunk: index = HEAD + this area's paths from $T, then commit
+  git checkout $T -- . && git read-tree HEAD
+  git ls-tree -r $T -- frontend | git update-index --index-info
+  tembo commit -m "feat(solid-model): <tier> — frontend (1/N)"
+  git ls-remote origin solid-model; git fetch origin; git diff --stat HEAD $T -- frontend   # must be empty
+  # ...repeat for each area; at the end:
+  test "$(git rev-parse origin/solid-model^{tree})" = "$T"
+  ```
+- **Disk:** the disk filled up once, and a fuzz run hit `ENOSPC` and had to be rerun. The root filesystem is about 91%
+  full (about 4 GB free). `rust-solid/target` is about 2.6 GB. Clean `target/` dirs in old worktrees and stale `/tmp`
+  run directories regularly, but leave `/tmp/async-tier-backup.tar` and other sessions' files alone unless you know
+  what they are.
+- Dashboard: `cd dashboard && nohup node server.mjs > server.log 2>&1 &` (port 4173). `collect.mjs` reads paths relative
+  to the repository (set `DASHBOARD_GATE_BRANCH` to override the gate branch). Edit `notes.json` by hand.
 
-## Where things live: the `solid-model` branch (`/workspace/rx-tsx-refresh/solid-model`)
-One repository layout, on one branch of `devagrawal09/reactivescript`. The root `README.md` has the setup and every gate.
+## Layout
 | Path | What |
 |---|---|
-| `frontend/` (was `frontend-tracker/`) | The TSX and yield frontends, the differential fuzzer, the gate. Slice 1 (like), slice 2 (the tracker, scenario v2, plan v2, `plan/docs/PLAN-V2.md`), the plan fuzz (`plan/fuzz/`), slice 3's live evaluator (`docs/EVAL.md`, `eval/`, `slices/eval/`) and slice 5's SSR oracle (`ssr/`, Chromium hydration). Since 2026-11-10 also the async data tier: plan v2.1 (`async: true` TSX, async sources, `Loading`/`Errored`, `isPending`, `refresh`/`affects`), the tracker-async slice, the plan, eval and SSR fuzz v2.1 (`--async`) and the streamed-SSR oracle (`ssr/stream-*.ts`, `ssr/run-async.ts`). `npm run verify:subset` gives **PASS 131/131** with the default `RUST_SOLID=../rust-solid`; results in `docs/RESULTS.md` |
-| `rust-solid/` (was `rust-tracker/`) | The Rust runtime: the slice-1 scheduler port, tiers 2a, 2b, 2c, strings, the universal renderer, the plan v2 consumer, the eval table (`plan-trace PLAN SCENARIO EVALS`, `docs/EVAL-CONSUMER.md`) and the server renderer (`src/ssr/`, `ssr` binary, `docs/SSR.md`). Since 2026-11-10 also the plan v2.1 consumer, Solid's `Loading`/`Errored` boundaries, tracked `isPending`/`latest` and `affects` (`slice1/boundaries.rs`, `slice1/affects.rs`, `docs/BOUNDARIES-COVERAGE.md`, `--boundaries` fuzz), and async SSR: `renderToString` and `renderToStream` byte for byte, with seroval 1.7.0 and a JS event-loop model (`src/ssr/{boundary,stream,seroval,js}.rs`, `docs/SSR.md` "Async data and streaming"). `cargo test`: 166 pass |
-| `docs/` (was `docs/`, branch `project-docs`) | This handoff, `HISTORY.md` (the consolidated branches' SHAs, logs and ancestry), and `scratch/` research notes and drafts: `slice1/*`, `compiler-architecture-review.md`, `interp-issue/`, `solid-rc21-issues.md` and `solid-rc21-repros/` |
-| `dashboard/` (was `dashboard/`, branch `project-dashboard`) | The status dashboard. Edit `notes.json` by hand when the state changes; `node --test test.mjs` checks it |
-| `scripts/setup.sh` (run with `sh`) | Creates `frontend/upstream -> ../reactivescript` if missing, clones `reactivescript/` and `solid-next/` at the pins, builds Solid as reactivescript's `ref/scripts/solid-next.sh` does, `npm ci` in `reactivescript/ref` and `frontend/`, `cargo build` in `rust-solid/`. Idempotent; `--check` changes nothing |
-| `reactivescript/`, `solid-next/` (gitignored) | The pinned checkouts: RX `fdbcad92`, Solid `2105ffb8` (rc.21). In the sandbox they are symlinks to the shared `rx-tsx-refresh/{reactivescript,solid-next}` |
+| `frontend/` | TSX and yield frontends onto RX; plan v1/v2/v2.1/v2.2 emitter (`plan/`); TSX fuzz; plan fuzz (`plan/fuzz/`); slice 3 evaluator (`eval/`, `docs/EVAL.md`); slice 5 SSR and streamed-hydration oracle (`ssr/`); slice 6 Frames harness and placement fuzz (`frames/`, `plan/placement.ts`, `plan/split.ts`); slices (`slices/{like,tracker,tracker-async,eval,eval-async,tracker-frames}/`); gate `scripts/verify-pinned.sh`; results `docs/RESULTS.md` |
+| `rust-solid/` | Rust port of Solid 2: scheduler (`slice1/`), tiers 2a–2c, boundaries/`affects` (tier D), universal renderer, plan v1/v2/v2.1 consumer (`scenario`, `plan-trace`), server renderer (`src/ssr/`, `ssr` bin), frames server (`src/frames/`, `frames-server` bin); differential fuzz `fuzz/run.mjs`; docs and recorded summaries `docs/` |
+| `docs/` | this file; `HISTORY.md` (the 7 consolidated branches' SHAs, logs and ancestry); `SLICE6-FRAMES.md` (slice 6 design); `scratch/solid-rc21-issues.md` + `scratch/solid-rc21-repros/` (the Solid issue draft) |
+| `dashboard/` | local status dashboard; `notes.json` is the narrative state; `node --test test.mjs` |
+| `scripts/setup.sh` | clones and builds the pins, links `frontend/upstream`, `npm ci`, `cargo build` |
 
-The folder names are the old sibling directories' names, so the relative paths (`../reactivescript`, `../solid-next`, `../rust-solid`, `frontend/upstream -> ../reactivescript`, which `scripts/setup.sh` creates because it is not committed) keep working.
+## Gates (exact numbers; anything different is a failure, not a tolerance)
+```sh
+# frontend/  (about 10 min; Chromium from Playwright)
+nix shell nixpkgs#nodejs_24 -c npm run verify:subset
+#   Result: PASS, Tests 149, pass 149. Steps: pins; builds scenario/plan-trace/ssr/frames-server in RUST_SOLID
+#   (default ../rust-solid); strict types 0 package + 12 baseline upstream diagnostics; TSX fuzz 0-199: 179 + 21 listed;
+#   plan/eval/SSR fuzz 1-100: 85 agree + 15 refused each; plan/eval/SSR fuzz v2.1 1-100: 84 + 16 each;
+#   placement fuzz 1-100: 50 agree, 42 client-only, 7 refused, 1 listed divergent (seed 19, issue 8), R = N 93/93.
+#   report.ts checks each against baselines/.
 
-**The old checkouts under `/workspace/rx-tsx-refresh/` are superseded** and kept only until the user says otherwise: `frontend-tracker/` and `rust-tracker/` (copied into `solid-model` as `frontend/` and `rust-solid/`), `docs/` and `dashboard/` (copied likewise), `frontend/` (`frontend-main`, the local slice-1 merge `56feaff`), `frontend-eval/`, `rust-eval/`, `frontend-ssr/`, `rust-ssr/` (slices 3 and 5 as they were built), `frontend-publish/`, `rust-parity/`, `rust-tierb/`, `rust-tierc/`, `rust-solid/` (`rust-slice1`, `012b5de`, the pre-port v1 consumer), `rust-solid-main/` (`4a1090c`, M1), `slice1-js/` and `slice1-plan/`.
+# rust-solid/
+cargo test                                   # 175 passed
+cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && git diff --check
+F=crates/runtime/tests/fixtures
+cargo run -q --bin scenario -- $F/tracker.plan.json $F/tracker.scenario.json             # 13 tracker frames
+cargo run -q --bin scenario -- $F/like.plan.json $F/like.scenario.json                   # ["0","1","0","1","1"]
+cargo run -q --bin scenario -- $F/like.plan-v2.json $F/like.scenario.json                # ["0","1","0","1","1"]
+cargo run -q --bin scenario -- $F/tracker-async.plan.json $F/tracker-async.scenario.json # 18 frames
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker.plan.json $F/tracker.scenario.json             # 453/453
+node --conditions=browser fuzz/plan-diff.mjs $F/like.plan-v2.json $F/like.scenario.json                # 34/34
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker-async.plan.json $F/tracker-async.scenario.json # 399/399
+# tracker-frames (16-step scenario, legs T/N/J/R): inside both gates
+cargo test --test frames                                                       # 6 (10 fixtures, 59 exchanges)
+(cd ../frontend && RUST_FRAMES=$PWD/../rust-solid/target/debug/frames-server \
+  node --experimental-strip-types --conditions=browser --test slices/tracker-frames.test.ts)  # 10/10 (without RUST_FRAMES the R test skips)
 
-## Branches on GitHub (devagrawal09/reactivescript)
-| Branch | Contents |
-|---|---|
-| [`solid-model`](https://github.com/devagrawal09/reactivescript/tree/solid-model) | **Everything**: the layout above. It starts at `tsx-frontend-workspace`'s `7791984`, so the frontend keeps its history |
-| `tsx-frontend-workspace` (`7791984`), `tsx-frontend-slice1-like` (`158bea5`), `tsx-frontend-slice1-plan` (`f315116`), `rust-solid-main` (`4a1090c`), `rust-solid-slice1` (`4276aba`), `project-docs` (`f920b7b`), `project-dashboard` (`41639f9`) | **Consolidated** into `solid-model`, **not deleted yet**: the user will delete them on GitHub after verifying `solid-model`. `docs/HISTORY.md` records each one's final SHA, full log and ancestry; only `tsx-frontend-workspace`'s history is an ancestor of `solid-model`, so the others' commits exist only as that record once they are deleted |
-| [`tsx-frontend-demo`](https://github.com/devagrawal09/reactivescript/tree/tsx-frontend-demo) | PR #21's current head (`cc1e6e9`). Not part of the consolidation |
-| [`pr21-v1-archive`](https://github.com/devagrawal09/reactivescript/tree/pr21-v1-archive), [`pr21-v2-archive`](https://github.com/devagrawal09/reactivescript/tree/pr21-v2-archive) | Earlier PR #21 versions (`2d74222`, `00f84fe`). Not part of the consolidation |
+node --test dashboard/test.mjs               # 3/3 (from the root)
+```
+Long fuzz runs: summaries in `rust-solid/docs/`. Each `summary.json` must be byte-identical, except the placement fuzz
+(see "Caveats"). Run them through a background verifier.
+```sh
+# rust-solid/: node fuzz/run.mjs MODE --seeds 1000 --start 1 --out out/MODE
+--slice1                 1000/1000          docs/slice1-fuzz/parity/      (1001-3000: 2000/2000)
+--slice2a --no-reduce     991/1000 (8 inv)  docs/slice2a-fuzz/port/       (1984/2000)
+--slice2b                1000/1000          docs/slice2b-fuzz/port/       (1999/2000; 3001-8000 4997/5000)
+--slice2c --no-reduce     999/1000 (493)    docs/slice2c-fuzz/port/       (1998/2000; 3001-8000 4988/5000)
+--render                  993/1000 (7 inv)  docs/render-fuzz/port/        (1979/2000)
+--strings                1000/1000          docs/strings-fuzz/port/       (2000/2000)
+--boundaries --no-reduce  985/1000 (15 hang, issue 5) docs/boundaries-fuzz/ (1979/2000)
+# frontend/: RUST_SOLID=$PWD/../rust-solid npm run <x> -- --seeds 1000 --start 1   (summaries in rust-solid/docs/)
+plan-fuzz                861 agree, 8 upstream (RX only), 131 refused, 0 divergent   (1001-3000: 1694/19/287)
+eval-fuzz                869 agree, 131 refused, 0 divergent                         (1713/287)
+ssr-fuzz --dev           869 agree, 0 HTML / 0 hydration failures, 131 refused       (1713/287)
+plan-fuzz --async        878 agree (Rust incl.), 0 rust-unsupported, 122 refused     (1748/252)
+eval-fuzz --async        878 agree, 122 refused                                      (1748/252)
+ssr-fuzz --async --dev   878 agree, 0 stream/HTML/hydration diffs, 122 refused       (1747/252, seed 1916 invalid: issue 7)
+frames-fuzz --rust ../rust-solid/target/debug/frames-server
+                         454 agree, 406 client-only, 109 refused, 31 divergent, 0 invalid, R = N 889/891
+                         (1001-3000: 913, 825, 210, 52, R = N 1788/1790)
+```
 
-Not uploaded: `scratch/rune` (a clone of a third-party repo), `scratch/original-suite-run` and `scratch/pr-v2-ignored-leftovers` (old run output).
+## Status per slice (all of it is a verified subset; none of it is full readiness)
+**Slice 1, like** (`frontend/slices/like/`, `rust-solid/docs/SLICE1.md`). A like button in TSX, RX and yield gives
+identical plans and frames `0→1→0→1→1` on native Solid, compiled RX and Rust. The Rust scheduler is a structural port
+of Solid's transition paths (`slice1/`, call map `SLICE1-PARITY.md`); exact-trace fuzz went from 7/1000 to 1000/1000.
+*Not verified:* the like host log against native Solid (see "Caveats").
 
-## Published (ryansolid/reactivescript): no replies from Ryan yet
-- **#21:** draft demo PR. Two frontends, the same counter in three syntaxes, the tracker, stale-write, the fuzzer. 58 files, on clean `main`.
-- **#20:** should ordinary async callbacks get an explicit form? The frontend refuses them meanwhile.
-- **#33:** the interpreter and compiler disagree on writes around pending actions. Found by our fuzzer, 46 of 500 seeds.
-- **#1:** Ryan's architecture issue: lowering should consume checker facts; no stable IR.
+**Tiers 2a/2b/2c and the universal renderer** (`SLICE1.md`, `SLICE2*-COVERAGE.md`, `RENDERER.md`). 2a covers async
+memos, pending and error status, `refresh`, `latest`/`isPending`. 2b covers stores, reconcile, optimistic and derived
+stores. 2c covers `mapArray`/`For`, `Show`, owners and parked frames. Coverage-first: every Solid function the valid
+programs reach has a cited Rust counterpart (`// Solid: file.ts:lines`). The renderer is a line-for-line port of
+`@solidjs/universal`; every valid program agrees. *Invalid seeds are Solid's own bugs (issues 1–4).*
 
-## Current state: the async data tier (plan v2.1) is on `solid-model`, every gate passes
-- **Built 2026-11-09/10** (workflow `wf_c16204d4-993`, independently verified: PASS), **pushed 2026-11-10** at the user's OK ("1 yes") with `tembo commit`, in five commits `feat(solid-model): async data tier — <area> (i/5)` (frontend; rust-solid crates, sources; rust-solid crates, tests; rust-solid docs and fuzz; docs and dashboard), each under about 1 MB of blobs. The remote tree equals the local tree.
-- **What works end to end:** the async tracker (`frontend/slices/tracker-async/`): issues load through an async source, `Loading` and `Errored` with retry (`refresh`, RX has no `reset`), claims refresh the list after their server call, and an `isPending`-driven "saving…" indicator (needs `affects(issues)`: a bare `refresh` doesn't make `isPending` true in Solid 2). Its 18-frame scenario (a failed load with retry, two claims racing their refreshes, a rejected claim) gives identical frames on native Solid, compiled TSX and RX, the JS plan consumer and Rust; the host logs match 399/399. TSX async is opt-in (`async: true` or scenario version 2.1): the default subset still refuses `Loading`, `Errored` and the rest. The yield twin is refused, each site pinned (yield has no `isPending`/`affects`).
-- **Server:** Rust's `renderToStream` equals Solid's chunk for chunk and byte for byte (shell, Loading fallback, streamed chunks, serialized data), and its `renderToString` HTML too; Chromium hydrates the Rust stream with Solid's client after the shell and after the last chunk with no mismatch, and the scenario continues on native frames.
-- **Gates (rerun in place before the push):**
-  - Frontend `npm run verify:subset`: **PASS 131/131** (106 before: + tracker-async, eval-async, the four v2.1 Rust tests, and the 7 of `ssr/ssr-async.test.ts`).
-  - Rust: `cargo test` **166** (132 before, none deleted: + 14 `tests/boundaries.rs`, 10 `tests/plan_v21.rs`, 6 `tests/ssr_async.rs`, 4 unit tests in `src/ssr/{js,seroval}.rs`); fmt, clippy `-D warnings`, `git diff --check` clean; tracker, like and tracker-async scenarios; `plan-diff` 453/453, 34/34, 399/399.
-  - Plan v2.1 fuzz (native, RX, JS plan, Rust): 878/1000 and 1748/2000 (held out) agree, 0 divergent, the rest refused by the emitter. Async eval fuzz the same (878 / 1748).
-  - Rust SSR fuzz v2.1 (stream bytes, renderToString HTML, 8 hydrations each): 878/1000 and 1747/2000, 0 stream, HTML or hydration differences (seed 1916 invalid: Solid's own HTML fails to hydrate, issue 7).
-  - New `--boundaries` fuzz (Loading/Errored, tracked `isPending`/`latest`, `affects`): 985/1000 and 1979/2000; every program Solid finishes agrees; the 15 (36) others are Solid's infinite flush (issue 5).
-  - All earlier fuzz summaries byte-identical (`--slice1/2a/2b/2c/--render/--strings`, plan, eval and SSR fuzz v2).
-- **Five suspected Solid rc.21 bugs, none filed** (draft `docs/scratch/solid-rc21-issues.md`, API-only repros and recorded prod/dev outputs in `docs/scratch/solid-rc21-repros/`, `sh run-all.sh`):
-  1. `take(n, l, true)` (lanes.ts:174-181) leaves CONFIG_HELD with a null transaction, so the next `txOf` throws.
-  2. A store array's `has` and `get` disagree, so `mapArray` gets an `undefined` row.
-  3. Universal's `reconcileArrays` removes a node without an `isLive` check (universal.ts:313).
-  4. Slice 2a values Solid should never produce: an effect run with `undefined`, a staged error served as a value (seed 629), `latest` of a held errored memo returning `undefined` (4a/4b/4c).
-  5. **New:** a flush that never ends: an `Errored` whose content calls `isPending`, over a nested boundary on a pending memo, after an `affects` action writes again. Each landing re-derives the verdict reader, whose pass opens a new unblocked transaction (`notify` → `joinFuture(null)`, scheduler.ts:1220). **The prod build hangs; the dev build throws "Potential Infinite Loop Detected"** (its 1e5-round guard). Repro `5-errored-pending-hang.mjs`; the Rust port loops the same way (not masked).
-  - Also noted, not triaged (no standalone repro, need a browser fed a stream): issues 6 (streamed hydration of `Errored` over two `Loading`s ends differently by hydration time) and 7 (seed 1916).
-- **Next (approved 2026-11-10, "2 go"):** slice 6, inferred server components over Solid's Frames, research first; it stops if Frames isn't usable at rc.21 (moving the pin is the user's call). Its results stay local until the user OKs a push.
+**Slice 2, tracker** (`frontend/slices/tracker/`, `plan/docs/PLAN-V2.md`, `rust-solid/docs/PLAN-V2-CONSUMER.md`). The
+13-frame tracker (an optimistic claim with a server call, a filter, rows) gives identical frames on native Solid, on
+compiled TSX/RX/yield, and on Rust running the plan from each syntax. The three plans are byte-identical, and the host
+log is 453/453. *The scenario skips* a filter toggle during a pending claim, two claims on one row, a store change
+under a live guess, and non-overlapping transactions. The plan fuzz covers those.
 
-## Earlier state: everything consolidated into `solid-model`, every gate passes
-- **Consolidated 2026-11-09** into one branch, `solid-model` (the layout above), at the user's request; `docs/HISTORY.md` records the old branches, which are not deleted yet (the user will delete them on GitHub after verification). The gates were rerun in place in `solid-model` before the commit: frontend `npm run verify:subset` **PASS 106/106** with the default `RUST_SOLID`, `cargo test` 132, the like and tracker scenarios, fmt, clippy and `--slice1` seeds 1–200 (200/200).
-- **Integrated 2026-11-08** (workflow `wf_68d50fef-8ea`): slice 3 (the live evaluator) and slice 5 (Rust SSR hydrated by Solid) were built in copies of the tracker trees and applied to `frontend-tracker` and `rust-tracker` (now `frontend/` and `rust-solid/`) together.
-- **Gates on the integrated trees (2026-11-08):**
-  - Frontend `RUST_SOLID=…/rust-tracker npm run verify:subset`: **PASS 106/106** (90 + 8 eval + 8 SSR); fuzz 0–199 unchanged (179 ok, 21 listed); plan, eval and SSR fuzz seeds 1–100 each 85 agree / 15 refused; strict types 0 package diagnostics, 12 upstream.
-  - Seeds 1–1000, byte-identical to the recorded summaries: plan fuzz (861 agree, 8 upstream RX-only, 131 refused), eval fuzz (869 agree, 131 refused, 0 divergent), SSR fuzz with dev hydration (869 agree, 0 HTML differs, 0 hydration fails, 131 emitter refusals); `--slice1` 1000/1000, `--slice2a` 991, `--slice2b` 1000, `--slice2c` 999, `--render` 993, `--strings` 1000.
-  - Rust: `cargo test` 132 (117 + 5 eval + 9 SSR + 1 integration); tracker and like scenarios pass, `plan-diff` 453/453 and 34/34; fmt, clippy `-D warnings`, `git diff --check` clean. SSR Chromium tests 7/7.
-  - `--slice2c` with reduction on crashes the runner while reducing seed 493 (the known store-hole Solid bug throws uncaught); the summary is from `--no-reduce`, as the held-out runs are. Pre-existing, not caused by the integration.
-- **The one conflict:** slice 3 added `eval` forms to plan v2 and slice 5's server lowering matched plans exhaustively, so the merged crate did not compile. The server renderer now refuses any plan with an eval site, and an evaluated code's plan, with a diagnostic (`docs/SSR.md`, "Refused"; test `eval_sites_are_refused`). Everything else was a union (test globs, scripts, gate steps, `report.ts`, `baselines/subset-tests.json`, READMEs, RESULTS.md).
-- **Slice 3, live evaluator** (`frontend/docs/EVAL.md`): `{eval(code, {…})}` in RX and `createEval(() => code, {…})` in TSX, markup and value sites. Binding types are derived from the checked enclosing component (`plan/types.ts`), not TS types. A markup eval is a keyed `Show` over the compiled code; refusals are typed `EvalRefused` errors for `Errored`. JS runs the plan on `solid-plan.ts`; Rust gets the host's table of compiled plans. Upstream is untouched. Deferred: `preserve`, `place`, `syntax: "yield"`, `Errored` in Rust, component-position eval sites, nested eval (recognized, not exercised), value evals/explicit interfaces in the fuzz.
-- **Slice 5, SSR** (`rust-solid/docs/SSR.md`, `frontend/docs/RESULTS.md`): Rust renders a v2 plan to HTML byte-identical to Solid 2's `renderToString` of the plan's *canonical* TSX twin, and Solid's client hydrates it in Chromium and replays the scenario. Deviation: a plan can't tell `{n()}` from `{"" + n()}`, so the idiomatic `tracker.tsx` renders `_hk=8000…` where Rust renders `_hk=7000…`. Not ported: async server data (not expressible in plan v2), Rust hydration, `renderToStream`/document shell, attributes, eval sites.
+**Plan fuzz** (`frontend/plan/fuzz/`, `PLAN-V2.md` "Plan fuzz"). Generated plans run on native Solid (TSX twin),
+compiled RX, `solid-plan.ts` and Rust `plan-trace`, comparing results and full host logs. 0 divergent on 1–3000. The 8
+(19 held-out) `upstream` seeds differ only on compiled RX (#33-type, upstream's). Refusals are the `outside` family
+(`*`, `-`, constant holes). The plan still has 8 AST fallbacks where CP-6 lacks facts (`PLAN-V2.md` "How the builder
+uses CP-6").
 
-## Earlier state: slice 2's tracker gate passes
-- **Pushed 2026-11-08 with `tembo commit`, one ordinary commit each:** `rust-tracker` as `4276aba` on `rust-solid-slice1` (on top of `147d971`), and the frontend (slice-1 merge `56feaff` plus the tracker work) as `7791984` on `tsx-frontend-workspace` (on top of `fe650c1`). This handoff and the dashboard `notes.json` were pushed to `project-docs` and `project-dashboard` right after.
-- **Slice 1, Rust parity done:** `147d971` is a structural port of Solid's scheduler for slice 1. Exact-trace fuzz against Solid JS: **1000/1000** (it was 7/1000). Pushed to `rust-solid-slice1` with `tembo commit`.
-- **Rust tiers, all in `rust-tracker` (now `rust-solid/`):**
-  - 2a, async memos (`--slice2a`): **991/1000**: 8 invalid, plus seed 629 failing closed.
-  - 2b, stores and per-row optimistic writes (`--slice2b`): **1000/1000**.
-  - 2c, lists (mapArray/For), Show and parked frames (`--slice2c`): **999/1000**: seed 493 invalid. Every valid program agrees.
-  - Strings (`--strings`): 1000/1000.
-  - The universal renderer, a line-for-line port of Solid 2's `@solidjs/universal` (never dom-expressions): render fuzz **993/1000**, and every valid program agrees (the 7 invalid ones throw in Solid itself).
-  - Plan v2 consumer and scenario v2 runner.
-- **Slice 2 gate passes:** the 13-frame tracker scenario gives identical frames on native Solid, on compiled TSX, RX and yield, and on Rust running the plan emitted from each of the three syntaxes. The three plans are byte-identical. Rust's full host log equals Solid's, 453/453 entries. Frontend gate **PASS 83/83**.
-- **Plans are now fuzzed** (plan fuzz, see above). Earlier: only the tracker and like plans were checked. The scenario doesn't cover a filter toggle while a claim is pending, two claims on one row, a store change under a live guess, or non-overlapping transactions.
-- **Suspected Solid rc.21 bugs, none filed** (each has a standalone repro in `rust-solid/docs/`):
-  - `take(n, l, true)` (lanes.ts:174-181) clears a slot's transaction but leaves CONFIG_HELD set, so the next `txOf` throws (`slice2b-fuzz/port/solid-bug-take-held.mjs`).
-  - A store array's `has` and `get` disagree, so `mapArray` gets a hole (an `undefined` row); on optimistic and plain stores (`slice2c-fuzz/solid-bug-optimistic-hole*.mjs`, `slice2c-fuzz/port/solid-bug-plain-store-hole.mjs`).
-  - Universal's `reconcileArrays` removes a node without an `isLive` check: the map-fallback removal at universal.ts:313, when one node is shared by two regions (`render-fuzz/port/solid-bug-shared-node.mjs`).
-  - Slice 2a: Solid emits non-scalar values (`undefined` or an error object) in 8 async programs of 1–1000; and seed 629, a held error read back as a plain value.
+**Slice 3, live evaluator** (`frontend/docs/EVAL.md`, `rust-solid/docs/EVAL-CONSUMER.md`). Built and verified.
+```rx
+{eval(code, { issues, claim, loadIssue })}              // RX: a language feature
+```
+```tsx
+{createEval(() => code(), { issues, claim, loadIssue })} // TSX
+```
+Its design decisions:
+1. The code string is one more reactive source. Checking it is async, and a refusal is a typed `EvalRefused` error for
+   `Errored`.
+2. Changing the string rebuilds the subtree, like a keyed `Show`.
+3. Bindings are explicit only, like indirect eval: no ambient scope; read-only unless writes or actions are passed;
+   hosts are passed explicitly. Binding types come from the checked enclosing component (`plan/types.ts`), not from TS
+   types.
+4. The plan is the evaluation IR, run on `solid-plan.ts` or Rust (the host's table of compiled plans). It never uses
+   the interpreter (#33).
+5. RX is the default syntax; TSX code works too.
+6. One primitive with options serves AI-generated UI, a playground/REPL, and plugins.
+7. Upstream is untouched.
+The eval slice, the eval fuzz and the async eval fuzz agree on every leg. *Deferred:* `preserve`, `place`,
+`syntax: "yield"` (yield has no action parameter types); eval refusals under `Errored` in Rust; component-position
+sites; nested eval (recognized, not exercised); value evals and explicit interfaces in the fuzz; eval on the server
+(Rust `ssr` refuses eval sites).
 
-## Design discussion: eval (built as slice 3, see above)
-The user proposed `createEval(() => "...rx code...", { ...bindings })`, or `eval` as an `.rx` language feature. Where it landed:
-- **One more reactive source**, not running a string: the code string is a source, checking it is async (Loading/pending), and a checker rejection is an ordinary typed error for an error boundary. Changing the string rebuilds the subtree, like a keyed boundary.
-- **Explicit bindings only**, like indirect eval: the code never sees the surrounding scope, it is read-only unless writes or actions are passed in, and host functions are passed explicitly. The bindings' types are the checker's whole environment.
-- **The plan is the evaluation IR**: parse → check → plan → run on whichever runtime hosts it (Solid JS or Rust). Not the interpreter (#33). Eval is a strong reason to close the plan's AST fallbacks.
-- **RX is the default syntax**, `eval` a language feature there. TSX is optional, through `createEval`. Yield later, if anyone needs it.
-- **All three use cases, one primitive with options:** AI-generated UI (strict checking, capability-only bindings, may run on the server), a live playground or REPL (`preserve` state across edits), and plugins (a versioned, typed bindings interface).
-- Built as slice 3 (above), except `preserve` (REPL) and `place` (server placement), which are refused with a diagnostic and designed in `docs/EVAL.md`.
+**Slice 5, SSR** (`rust-solid/docs/SSR.md`, `frontend/docs/RESULTS.md`). Rust renders a v2 plan to HTML byte-identical
+to Solid's `renderToString` of the plan's *canonical TSX twin*. Solid's client hydrates it in Chromium (prod and dev)
+and replays the scenario. **Async (v2.1):** Rust's `renderToString` and **`renderToStream`** equal Solid's chunk for
+chunk and byte for byte (shell, `Loading` fallback, failure fragments, serialized data), with a port of **seroval
+1.7.0** and a model of the JS microtask/immediate order (`ssr/{boundary,stream,seroval,js}.rs`). Each stream, fed chunk
+by chunk, hydrates with Solid's client after the shell and after the last chunk. *Canonical-twin caveat:* a plan can't
+tell `{n()}` from `{"" + n()}`, so idiomatic `tracker.tsx` gets `_hk=8000…` where Rust renders `_hk=7000…`. *Not
+ported:* Rust hydration (the client is Solid's), root holes, `deferStream`, `<Reveal>`, `<Loading on>`, the document
+`</head>` splices, attributes/spreads/refs, the server error hook, eval sites.
 
-## Open decisions (ask the user first)
-- **Deleting the consolidated branches:** the user will delete them on GitHub after verifying `solid-model`; don't delete them from the sandbox. `solid-model` holds their trees and `docs/HISTORY.md` their histories; only `tsx-frontend-workspace`'s commits are ancestors of `solid-model`. Never touch `main`, `tsx-frontend-demo`, `pr21-v1-archive`, `pr21-v2-archive` or `claude/project-thread-*`.
-- **File the Solid issue?** The draft is local: `docs/scratch/solid-rc21-issues.md` with repros in `scratch/solid-rc21-repros/` (five suspected bugs, issues 1-5, plus untriaged 6 and 7). Nothing is filed.
-- **The SSR canonical twin:** accept that Rust renders the generator's canonical twin (integer holes coerced), so idiomatic TSX like `tracker.tsx` gets different hydration keys; or record the hole's spelling in the plan (a plan v2 change).
-- **Eval follow-ups, which first:** `preserve` (REPL state), `place` (server placement), yield syntax (needs action parameter types), an `Errored` port in Rust, eval on the server.
-- **Next slice after 6:** native window (slice 4, Blitz or Masonry), eval polish (`preserve`, eval on the server), Rust hydration, or triaging the five suspected Solid bugs for filing. (Async server data was built as the async data tier, above; slice 6 is next.)
+**v2.1 async tier** (`PLAN-V2.md` "v2.1", `rust-solid/docs/BOUNDARIES-COVERAGE.md`). It adds async sources, `Loading`,
+`Errored` (retry by `refresh`; RX has no `reset`), `isPending`, `latest`, `refresh`, `affects`. The 18-frame
+tracker-async (a failed load with retry, racing claims, a rejected claim, a "saving…" indicator that needs
+`affects(issues)`, because a bare `refresh` doesn't make `isPending` true) is identical on native Solid, compiled
+TSX/RX, `solid-plan.ts` and Rust; host log 399/399. Rust ports `Loading`/`Errored`, tracked verdicts and `affects`.
+*TSX async is opt-in* (`async: true` or scenario 2.1). *The yield twin is refused*, each site pinned.
 
-Planned slices: 4, a native window; 6, inferred server components over Solid's Frames (next). Slices 1, 2, 3 and 5 are done, and the async data tier (plan v2.1, async SSR streaming) on top of them (verified subsets, not full readiness).
+**Slice 6, Frames: inferred server components** (`docs/SLICE6-FRAMES.md`, `RESULTS.md` "Slice 6", `PLAN-V2.md`
+"v2.2", `rust-solid/docs/FRAMES.md`). A program is written once, as an all-client app
+(`slices/tracker-frames/tracker-frames.{rx,tsx}`). The v2.2 builder infers which component sites become Solid 2 server
+components (`"use server"` functions returning components, mounted with `dynamicComponent`; client-required children
+become islands, i.e. slot props) using rules PL-1..PL-9 and marks M1..M9 over RX checker facts (`plan/placement.ts`),
+and records the result as plan annotations. `plan/split.ts` prints the canonical split. Rust's `frames-server` serves
+it byte for byte as Solid's own server serves the hand-written split, and Solid's client hydrates and runs it.
+- The legs: **T** is the all-client twin (it records the scenario); **N** is the hand or generator split on Solid's
+  server; **J** is the plan's split on Solid's server; **R** is rust-solid plus J's client.
+- **G1** placement: RX = TSX = the saved table = the extract of N.
+- **G2** bytes: J = R = N on the t=0 document, frame streams, data, the sanitized 500, and the CSRF 403.
+- **G3** client behaviour: frames, host log and DOM per step.
+- **G4** zero client JS for server-only components.
+- Plan v2/v2.1 emission is unchanged byte for byte.
+*Not verified or not built:* the U legs (v2.2 with placement ignored, on `solid-plan.ts`/`plan-trace`); structured slot
+arguments; `props.children`/JSX props (refused, `FRAMES_CHILDREN`); server roots under a client `For`; owned questions
+in inline components; server `Loading` inside a frame (M8); `FRAMES_EVAL_PLACE`; single-flight mutations, `live()`,
+GET server fns, no-JS forms. Owned roots are client stubs `<C>$frame`. The answer script is recorded at run time from
+N's host log. Only three PL pins exist (PL-3c, PL-3d, PL-5). The design's open choices (the minimal-request rule and
+request parity) were built as proposed but never put to the user.
 
-## Parked (don't start without the user)
-- Generative UI on top of the live evaluator (slice 3 built the primitive; strict checking and capability bindings are there, `place` is not).
-- Placement inference.
-- solid-yield's type cross-check.
-- Filing the Solid issues (the 15 Solid JS hangs of the `--boundaries` fuzz are explained: issue 5).
-- The architecture issue (slice 2 now shows two runtimes on one plan).
-- Research into the server wire format and hydration.
+## Suspected Solid rc.21 bugs (none filed; draft `docs/scratch/solid-rc21-issues.md`, repros `docs/scratch/solid-rc21-repros/`)
+Run them all with `nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh`. Outputs go to `out/*.{prod,dev}.txt`. None of the repros has been rerun on current `next` (`a01fd92`).
+| # | Bug | Repro | Confidence |
+|---|---|---|---|
+| 1 | `take(n,l,true)` (lanes.ts:174-181) keeps CONFIG_HELD with a null tx, so the next `txOf` throws | `1-take-held.mjs` | high |
+| 2 | Store array `has`/`get` disagree, so `mapArray` gets an `undefined` row (plain and optimistic) | `2a-plain-store-hole.mjs`, `2b-optimistic-has-get.mjs`, `2c-optimistic-lasting-hole.mjs` | high (2c may be separate) |
+| 3 | universal `reconcileArrays` removes a node another region took, with no `isLive` check (universal.ts:313) | `3-universal-shared-node.mjs`, `3b-bulk-removal-arm.mjs`, `3-dom-comparison.mjs` | likely, low severity |
+| 4a | A user effect runs with `undefined` after an error | `4a-effect-undefined.mjs` | high |
+| 4b | A staged error is served as a value or as `prev` (seed 629) | `4b-error-object-as-value.mjs`, `4b-seed629.mjs`, `4d-error-object-as-prev.mjs` | high |
+| 4c | `latest(memo)` is `undefined` for a held memo whose first answer was an error | `4c-latest-undefined.mjs` | medium-high |
+| 5 | Endless flush: `Errored` content calling `isPending` + an `affects` action (scheduler.ts:1220). Prod hangs; dev throws "Potential Infinite Loop Detected" | `5-errored-pending-hang.mjs` | high |
+| 6 | Streamed hydration of `Errored` over two `Loading`s ends differently depending on hydration time | none: `ssr-fuzz --async --seeds 1 --start 28 --dev` | suspected, untriaged |
+| 7 | renderToString page hydrated ≠ client mount (`Show` around `Errored`>`Loading`>`Loading` after a reject) | none: same command, `--start 1916` | suspected, untriaged |
+| 8 | Frames: a server component's arg switch waits for an action's refresh of another server component | `frontend/frames/repros/switch-held.ts` (fuzz seed 19) | medium |
+| 9 | Frames: an island handler throws `NotReadyError` while its frame's refetch is staged | `frontend/frames/repros/island-not-ready.ts` (seed 204) | medium |
+| 10 | Frames: a server component shown again by `Show` renders its old answer | `frontend/frames/repros/reshow-stale.ts` | medium |
+| 11 | Frames: a refetched frame lands one frame after its transaction (C15) | none: `frames-fuzz -- --seeds 1 --start 367` | suspected |
 
-## Housekeeping
-- **Security:** an earlier config read on the Mac printed the `password` from `~/.config/ocpp/service-local.json`. The user should rotate it. Mask **all** values when reading config files.
-- **OC++ (the Mac):** the MCP servers (tembo, linear, codemod, workspace) connect after a service restart, but a *resumed* session doesn't get their tools back; that's why this handoff exists. `executor` needs authentication, and `aws-mcp` fails with `-32602`.
-- **Earlier subagent sessions, for reference only:** a new session can't continue them. Start fresh agents and point them at the docs listed above. Mac (OC++): astra slice 1 `ses_e4baa49f3ffePwEsafY7JAIBO0`, sol slice 1 `ses_e4baa892cffeZF5gwjFQiD0XI8`, sol dashboard `ses_e4b978801ffe5K1yVNghsHBljl`, astra architecture review `ses_e4c0f3c37ffe5kmUOzS2hEVWg3`. Sandbox: the slice-2 tracker workflow `wf_f9e75beb-08c`; push, plan fuzz, slices 3 and 5 and their integration `wf_68d50fef-8ea`; consolidation `wf_4c456a64-a8e`; the async data tier `wf_c16204d4-993`.
+Issues 8–11 are placement-observable: N and J diverge from T alike, R equals N, and nothing of ours is involved. Before
+filing, rerun every repro on current `next`. Frames there has moved (`8138dabe` changes `frame-sink.ts`).
+
+## Caveats
+- **Placement-fuzz summaries are not byte-reproducible.** On some seeds Solid's own client is timing-dependent: the
+  twin itself doesn't always replay (`unstable`: 932; held-out 1595, 1632, 2540), and R ≠ N on 675, 932, 1595 and 2077
+  because N ends differently from run to run. A rerun can move a seed between `divergent`/`agree` or flip an R = N
+  count. The gate's 1–100 is stable (3 runs alike). **Proposed fix:** replay each seed k times on T and N, classify the
+  unstable ones as `unstable` in the runner (not only in `scripts/frames-classify.ts`), and leave them out of the
+  byte-compared summary.
+- **Like host log:** like's full log is not compared with native Solid. Its TSX handler is an inline
+  `action(function* …)`, which the compiler sets with `setProp` in a render effect, while the plan has a static prop.
+  Only its frames and the Rust-vs-oracle log (34/34) are checked. The tracker's log equals native once its integer hole
+  is coerced to a string.
+- **TSX async is opt-in** (`async: true` / scenario 2.1). The default subset still refuses `Loading`, `Errored`,
+  `isPending`, `refresh` and `affects`.
+- **Yield refusals:** no async tier (each async import and async `$memo` of `tracker-async.yield.tsx` is pinned as
+  refused); also `$effect`, contexts, `Switch`, typed failures, `try`/`catch`, and the forms whose yield meaning differs
+  from RX (bare setter, setup reads, reads after `attempt`). See `frontend/docs/YIELD.md`. `attempt`'s translation
+  assumes the call never succeeds with `undefined`.
+- `--slice2c` with reduction crashes on seed 493 (issue 2 throws uncaught), so its summaries use `--no-reduce`.
+- The SSR canonical twin (slice 5, above).
+
+## Deferred, per slice
+- **1/2:** Rust components (child components, context, Switch, Portal, Dynamic), `spread`/`mergeProps`/`ref`; the 8
+  plan AST fallbacks (they need CP-6 facts; #1 says to open narrow issues); performance (the plan is interpreted and
+  nothing is measured).
+- **2a–2c, D:** Solid's halt path (recorded as errors); `<Reveal>`, `Loading on`; the seed-980 `removalStagedBy` unit
+  test.
+- **3:** `preserve`, `place`, yield syntax, `Errored` for eval refusals in Rust, eval on the server.
+- **5:** Rust hydration, document shell, root holes, `deferStream`, reveal groups, attributes, the server error hook.
+- **v2.1:** yield async; TSX async by default.
+- **6:** U legs, structured slot args, `props.children`, server roots under client `For`, server `Loading` in frames,
+  single-flight/`live()`, `FRAMES_EVAL_PLACE`, the C15 pin, and repinning when Frames moves.
+- **4 (native window, Blitz or Masonry):** not started.
+
+## Open decisions (ask two at a time)
+1. **Delete the 7 consolidated branches?** The user approved deleting them on 2026-11-09 and deletes them on GitHub
+   himself. `git ls-remote origin` on 2026-11-11 shows **all 7 still exist**: `tsx-frontend-workspace` `7791984`,
+   `tsx-frontend-slice1-like` `158bea5`, `tsx-frontend-slice1-plan` `f315116`, `rust-solid-main` `4a1090c`,
+   `rust-solid-slice1` `4276aba`, `project-docs` `f920b7b`, `project-dashboard` `41639f9`. `docs/HISTORY.md` records
+   them. Remind the user; never delete them yourself.
+2. **Triage and file the Solid issues** (1–11). First rerun the repros on current `next`, then file per issue with the
+   user's OK.
+3. **Next slice:**
+   - (a) slice 4, the native window;
+   - (b) close the slice-6 gaps (U legs, structured slots, children, the placement-fuzz reproducibility fix);
+   - (c) repin Solid to `next` HEAD. Frames is experimental and its wire format may change, so a repin regenerates
+     every recorded byte. RX `main` has also moved: `5d8dfeb` vs the pin `fdbcad92`.
+4. **Eval polish:** `preserve` (REPL state) and `place` (server placement; slice 6 now gives it a target), plus eval on
+   the server.
+5. Smaller choices:
+   - accept the SSR canonical twin, or record a hole's spelling in the plan;
+   - slice 6's minimal-request rule and request parity;
+   - whether to keep the superseded checkouts under `rx-tsx-refresh/` (`frontend-tracker`, `rust-tracker`,
+     `frontend-eval`, `rust-eval`, `frontend-ssr`, `rust-ssr`, `rust-parity`, `rust-tierb`, `rust-tierc`, …).
+
+## Published state (2026-11-11)
+**devagrawal09/reactivescript** (`git ls-remote origin`):
+| Branch | SHA | What |
+|---|---|---|
+| `solid-model` | `18e7d6a` before this push; slice 6 + this handoff on top (`git log origin/solid-model`, subjects `feat(solid-model): slice 6 frames — … (i/N)`, `docs(solid-model): handoff`) | everything |
+| `tsx-frontend-demo` | `cc1e6e9` | PR #21's head |
+| `pr21-v1-archive`, `pr21-v2-archive` | `2d74222`, `00f84fe` | earlier PR #21 versions |
+| `main` | `b787012` | untouched |
+| the 7 consolidated branches | see Open decision 1 | to be deleted by the user |
+| `claude/project-thread-*` (13) | — | not ours to touch |
+
+**solidjs/reactivescript** (formerly ryansolid/reactivescript; the old name redirects). Pins: RX `fdbcad92`; upstream
+`main` is now `5d8dfeb`.
+- **PR #21**: draft, open, head `devagrawal09:tsx-frontend-demo` `cc1e6e9`. Two frontends, the counter in three
+  syntaxes, the tracker, stale-write, the fuzzer. Our last status comment is from 2026-11-06; no review yet.
+- **#20** (explicit ordinary async callbacks?): **closed, not planned** by Ryan on 2026-11-09. A held write is Solid's
+  own hold semantics (H-2), not something action inference adds. The frontend's refusal of async callbacks stands.
+- **#33** (interpreter vs compiler on writes around pending actions): **closed, completed**, 2026-11-09.
+- **#1** (semantic core): **closed, completed**, 2026-11-09. CP-6 is the resolved model (`ref/src/model.ts`,
+  `compiler/src/model.rs`, `rxc model`). It is not a stable IR (CP-6e). Open narrow issues for missing facts.
+
+## History (short)
+- 2026-11-07: rebuilt in the sandbox from the GitHub backups; slice-1 Rust parity at 1000/1000.
+- 2026-11-08: tiers 2a/2b/2c, the renderer and the slice-2 tracker gate; pushed; plan fuzz, slices 3 and 5.
+- 2026-11-09: consolidated into `solid-model` (`docs/HISTORY.md`); async tier started.
+- 2026-11-10: async tier pushed (`00f89bf..18e7d6a`).
+- 2026-11-11: slice 6 built and verified, pushed with this handoff.
+- Workflows: `wf_f9e75beb-08c` (slice 2), `wf_68d50fef-8ea` (slices 3 and 5), `wf_4c456a64-a8e` (consolidation),
+  `wf_c16204d4-993` (async), `wf_49b2d52e-cbe` (slice 6), `wf_80a7a484-19d` (this push). A new session can't resume
+  them; start fresh agents and point them at the docs.
+
+## Start here
+1. `cd /workspace/rx-tsx-refresh/solid-model && git fetch origin && git status`. The tree must be clean and
+   `HEAD == origin/solid-model`. Read this file, then `dashboard/notes.json`.
+2. `nix shell nixpkgs#nodejs_24 -c sh scripts/setup.sh --check` (run it without `--check` if anything is missing).
+3. `df -h /`. If less than 5 GB is free, clean old `target/` dirs and stale `/tmp` runs.
+4. Start a **background** verifier for the gates above (frontend 149/149, cargo 175, fmt, clippy, scenarios,
+   plan-diff 453/34/399). Read its report critically.
+5. Ask the user the first two open decisions: deleting the 7 branches, and filing the Solid issues. Then the next
+   slice.
+6. Do new work in a fresh worktree of `solid-model` through background workflows. Publish nothing without an explicit
+   OK.

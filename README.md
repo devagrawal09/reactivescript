@@ -56,12 +56,13 @@ result; a run that differs is a failure, not a tolerance.
 ### Frontend (`frontend/`)
 
 ```sh
-npm run verify:subset   # Result: PASS, Tests: 131, pass 131, fail 0
+npm run verify:subset   # Result: PASS, Tests: 149, pass 149, fail 0
 ```
 
 `scripts/verify-pinned.sh --subset` checks the pins (both checkouts clean, at `pins.json`'s commits and reactivescript's
-`ref/SOLID_NEXT`), builds `scenario`, `plan-trace` and `ssr` in `RUST_SOLID` (default `../rust-solid`), and runs strict
-types (0 package diagnostics, the 12 baseline upstream ones), the 131 listed tests (106, plus 18 for plan v2.1:
+`ref/SOLID_NEXT`), builds `scenario`, `plan-trace`, `ssr` and `frames-server` in `RUST_SOLID` (default `../rust-solid`), and runs strict
+types (0 package diagnostics, the 12 baseline upstream ones), the 149 listed tests (131 before slice 6, plus 18 for slice 6:
+`slices/tracker-frames.test.ts` 10, `plan/frames.test.ts` 7 and one in `tsx/verifier.test.ts`, `frontend/docs/RESULTS.md`, "Slice 6"; the 131 were 106, plus 18 for plan v2.1:
 `slices/tracker-async.test.ts` 11, the Rust tracker-async leg among them, `slices/eval-async.test.ts` 2, two each in
 `plan/plan-fuzz.test.ts` and `eval/eval.test.ts`, one in `tsx/verifier.test.ts`, `frontend/plan/docs/PLAN-V2.md`,
 "v2.1: async data"; plus 7 for slice 5's async data, `ssr/ssr-async.test.ts`, `rust-solid/docs/SSR.md`, "Async data
@@ -70,7 +71,8 @@ on seeds 0–199 (179 agree, 21 listed interpreter-only differences), the plan, 
 agree and 15 refused each; the SSR fuzz hydrates in Chromium, on PATH or `$CHROMIUM`), and the plan v2.1 and async eval
 fuzz on seeds 1–100 (84 agree on every leg, Rust's included, and 16 refused each; a Rust refusal of the version,
 `rust-unsupported`, fails), and the SSR fuzz v2.1 on seeds 1–100 (84 agree, 16 refused: Rust's renderToStream chunks
-and renderToString HTML equal Solid's, and each stream, fed chunk by chunk, hydrates in Chromium as Solid's does).
+and renderToString HTML equal Solid's, and each stream, fed chunk by chunk, hydrates in Chromium as Solid's does), and
+the placement fuzz on seeds 1–100 (50 agree, 42 client-only, 7 refused, 1 listed divergence, seed 19, suspected Solid issue 8; R, rust-solid's `frames-server`, equals Solid's server on all 93 programs the legs run).
 `report.ts` checks each against `baselines/`.
 
 Longer runs, whose summaries are recorded in `rust-solid/docs/` (byte-identical on seeds 1–1000):
@@ -92,10 +94,17 @@ RUST_SOLID=$PWD/../rust-solid npm run eval-fuzz -- --async --seeds 1000 --start 
 RUST_SOLID=$PWD/../rust-solid npm run ssr-fuzz -- --async --seeds 1000 --start 1 --dev   # rust-solid docs/ssr-fuzz/summary-async-1-1000.json: 878 agree, 0 stream, HTML or hydration differences, 122 refused
 ```
 
+The placement fuzz (slice 6, `frontend/docs/RESULTS.md`, "Slice 6"; summaries copied to `rust-solid/docs/frames-fuzz/`):
+
+```sh
+npm run frames-fuzz -- --seeds 1000 --start 1 --rust $PWD/../rust-solid/target/debug/frames-server      # 454 agree, 406 client-only, 109 refused, 31 divergent (suspected Solid issues 8–11, 1 unstable), R = N on 889
+npm run frames-fuzz -- --seeds 2000 --start 1001 --rust $PWD/../rust-solid/target/debug/frames-server   # 913 agree, 825 client-only, 210 refused, 52 divergent (issues 8–11, 3 unstable), R = N on 1788
+```
+
 ### Rust (`rust-solid/`)
 
 ```sh
-cargo test                                              # 166 passed
+cargo test                                              # 175 passed
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 git diff --check

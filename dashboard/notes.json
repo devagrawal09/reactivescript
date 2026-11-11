@@ -86,8 +86,12 @@
       "status": "done"
     },
     {
-      "name": "Slice 6: inferred server components (Frames)",
-      "status": "in progress"
+      "name": "Slice 6: inferred server components over Solid 2's Frames (placement PL-1..9 into plan v2.2; Rust frames-server byte-identical to Solid's server; zero client JS for server-only components; frontend 149/149, cargo test 175; placement fuzz 1-1000: 454 agree, 406 client-only, 109 refused, 31 divergent (Solid issues 8-11, unstable), R = N 889/891; pushed to solid-model 2026-11-11 with the handoff)",
+      "status": "done"
+    },
+    {
+      "name": "Slice 6 gaps: U legs, structured slot args, props.children, placement-fuzz reproducibility (replay and classify unstable seeds)",
+      "status": "planned"
     }
   ],
   "slice1": {
@@ -166,22 +170,26 @@
     "Integration: slice 3's plan v2 eval forms broke slice 5's exhaustive server lowering; the server renderer now refuses eval sites with a diagnostic",
     "--slice2c with reduction crashes reducing seed 493 (known store-hole Solid bug throws uncaught); recorded summaries use --no-reduce",
     "Async tier: TSX async is opt-in (async: true or scenario v2.1); the saving indicator needs affects(issues) since a bare refresh doesn't make isPending true; Errored retry uses refresh (RX has no reset); the yield twin is refused, each site pinned",
-    "Async SSR: Rust renderToStream equals Solid's chunk for chunk and byte for byte (seroval 1.7.0 port, JS microtask model); Chromium hydrates it with Solid's client after the shell and after the last chunk"
+    "Async SSR: Rust renderToStream equals Solid's chunk for chunk and byte for byte (seroval 1.7.0 port, JS microtask model); Chromium hydrates it with Solid's client after the shell and after the last chunk",
+    "Slice 6: placement is inferred from RX checker facts (plan/placement.ts, rules PL-1..PL-9, marks M1..M9) and written into plan v2.2; plan/split.ts prints the canonical Frames split; legs T (all-client twin), N (Solid's server, explicit split), J (plan split), R (rust-solid frames-server); G1 placement, G2 bytes, G3 behaviour, G4 zero client JS all pass on tracker-frames",
+    "Suspected Solid rc.21 frames bugs 8-11 (not filed): 8 a server component's switch waits for an action's refresh of another (seed 19); 9 an island handler throws NotReadyError while its frame's refetch is staged; 10 a server component re-shown by Show renders its old answer; 11 a refetched frame lands one frame late (no standalone repro). Repros frontend/frames/repros/",
+    "Placement-fuzz summaries are not byte-reproducible: Solid's client is timing-dependent on some seeds (unstable 932, 1595, 1632, 2540; R != N on 675, 932, 1595, 2077 because N itself varies). Proposed fix: replay each seed and classify unstable ones in the runner",
+    "Published state 2026-11-11: solidjs/reactivescript #20 closed not planned (held writes are Solid's own hold semantics, H-2), #33 closed completed, #1 closed completed (CP-6 is the resolved model, not a stable IR); PR #21 still an open draft at tsx-frontend-demo cc1e6e9. Upstream RX main is 5d8dfeb (pin fdbcad92); Solid next a01fd92 (pin 2105ffb8)",
+    "The 7 consolidated branches still exist on GitHub as of 2026-11-11 (the user deletes them)"
   ],
   "parked": [
     "Generative UI on top of the live evaluator (primitive built in slice 3; place deferred)",
-    "Placement inference",
     "solid-yield P/E/W/R type cross-check",
     "Filing the Solid issues (the 15 Solid JS hangs in the --boundaries fuzz are explained: issue 5)"
   ],
   "decisions": [
-    "File the Solid rc.21 issue (draft local in docs/scratch/solid-rc21-issues.md)?",
-    "After slice 6: native window (4), eval polish (preserve, eval on the server), Rust hydration, or triaging the five suspected Solid bugs for filing?",
+    "Delete the 7 consolidated branches on GitHub (all still exist; the user deletes them)?",
+    "Triage and file the suspected Solid rc.21 issues 1-11 (rerun repros on current next first)?",
+    "Next slice: 4 (native window), close slice-6 gaps, or repin Solid to next HEAD (Frames is experimental; its wire format may change; RX main moved to 5d8dfeb)?",
+    "Eval polish first: preserve (REPL) or place (server placement, now possible over Frames)?",
     "SSR canonical twin: accept it, or record a hole's TSX spelling in the plan?",
-    "Eval follow-ups first: preserve, place, yield syntax, Errored in Rust, or eval on the server?",
-    "Pull ~/solid: fork next or official next? (3 untracked dirs)",
-    "Server wire/hydration research pass",
-    "Architecture issue scope"
+    "Slice 6: accept the minimal-request rule and request parity as built?",
+    "Keep or remove the superseded rx-tsx-refresh/ checkouts?"
   ],
-  "next": "The async data tier (plan v2.1: async sources, Loading/Errored, isPending, refresh/affects; Rust boundaries and byte-identical async SSR streaming hydrated by Solid) is pushed to solid-model: frontend 131/131, cargo test 166, plan/eval/SSR fuzz v2.1 0 divergent, --boundaries 985/1000 (the rest Solid's infinite flush), all earlier fuzz summaries byte-identical. Next (approved): slice 6, inferred server components over Frames, research first; results stay local until a push is OKed. Open: file the five suspected Solid bugs."
+  "next": "Everything through slice 6 (inferred server components over Frames) is pushed to solid-model with a full docs/HANDOFF.md: frontend 149/149, cargo test 175, plan-diff 453/34/399, every recorded fuzz summary byte-identical except the placement fuzz (timing-dependent seeds in Solid's client). Open: delete the 7 old branches, file the Solid issues 1-11, then pick the next slice (4 native window, slice-6 gaps, or a repin)."
 }

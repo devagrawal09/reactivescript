@@ -1,0 +1,20 @@
+== client
+ 0 {"type":"mount"}                                             | OneTworows 2
+ 1 {"type":"click","target":{"text":"One","index":0}}           | OneTworows 2
+ 2 {"type":"deliver","site":"act","call":1}                     | OneTworows 2
+ 3 {"type":"deliver","site":"top","call":2}                     | OneTworows 2
+ 4 {"type":"click","target":{"text":"Two","index":0}}           | OneTworows 2
+ 5 {"type":"deliver","site":"act","call":2}                     | OneTworows 2
+ 6 {"type":"deliver","site":"rows","call":2}                    | OneTworows 2
+ 7 {"type":"deliver","site":"rows","call":3}                    | OneTworows 2
+ 8 {"type":"deliver","site":"top","call":3}                     | OneTworows 2
+requests act#1[1] rows#2[] top#2[] act#2[2] rows#3[] top#3[]
+== frames
+ 0 {"type":"mount"}                                             | OneTworows 2
+ 1 {"type":"click","target":{"text":"One","index":0}}           | OneTworows 2
+ 2 {"type":"deliver","site":"act","call":1}                     | OneTworows 2
+ 3 {"type":"deliver","site":"top","call":2}                     | OneTworows 2
+ 4 {"type":"click","target":{"text":"Two","index":0}}           | OneTworows 2
+requests act#1[1] rows#2[] top#2[]
+problems [ 'step 5: act#2 is not a held request', 'pageerror: NotReadyError' ]
+[exit code 0]

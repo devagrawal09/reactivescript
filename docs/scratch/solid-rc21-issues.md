@@ -971,6 +971,177 @@ has a standalone repro yet (each needs a browser page fed a stream).
 
 ---------------------------------------------------------------------------------------------------
 
+## Issues 8 to 11 (suspected, from slice 6's placement fuzz)
+
+Found 2026-11-10 by the frontend's placement fuzz (`frontend/scripts/frames-fuzz.ts`, docs `frontend/docs/RESULTS.md`,
+"Slice 6"), which runs one program as an all-client app (every component a client component calling `"use server"`
+functions) and as its explicit Frames split (`"use server"` functions returning components, mounted with
+`dynamicComponent`, islands as slot props), on Solid's own server wiring (`handleServerFunctionRequest`,
+`frameTransformResult`, `frameTransformDirectResult`, `ServerComponentPlugin`, `renderToStream`) and Solid's client
+builds in Chromium, every server-function response held until the scenario delivers it. Placement is meant to be
+unobservable; these are the places where the split app does something the all-client app does not, with nothing but
+Solid in either (the oracle split N and the plan's split J diverge from the twin alike, and rust-solid's server equals
+N). Issues 8 to 10 have minimal repros whose app modules use public Solid 2 APIs only (`solid-js`, `"use server"`);
+the frontend's harness serves and drives them (`frontend/frames/repros/*.ts`, run from `frontend/`; outputs
+`out/8-*.txt` to `out/10-*.txt`, prod and dev client builds alike). Issue 11 has fuzz seeds only. None is filed. The
+fuzz seeds of each family are listed in `frontend/docs/RESULTS.md`, "Slice 6".
+
+## Issue 8
+
+**Title:** `[2.0 / next][frames] A server component's argument switch waits for an unrelated action's refresh of another server component`
+
+### Repro
+
+`frontend/frames/repros/switch-held.ts`. The split app:
+
+```tsx
+// app.server.tsx
+export async function act(id: number) { "use server"; const v = await claimRow(id); return v; }
+export async function Card$server(id: number) { "use server"; const t = await titleOf(id); return () => <b>{"card " + t}</b>; }
+export async function Top$server() { "use server"; const v = await topOf(); return () => <i>{"top " + v.length}</i>; }
+// app.split.tsx
+export default function App() {
+  const [sel, setSel] = createSignal(1);
+  const card = createMemo(() => Card$server(sel()));
+  const top = createMemo(() => Top$server());
+  const Card = dynamicComponent(() => card());
+  const Top = dynamicComponent(() => top());
+  const take = action(function* () { yield act(1); refresh(top); });
+  return <main><button onClick={() => take()}>take</button><button onClick={() => setSel(3)}>pick</button>
+    <Loading fallback="…"><Card /><Top /></Loading></main>;
+}
+```
+
+Steps: click `take`; deliver `act`'s response (the action now refreshes `top`, whose response stays held); click
+`pick`; deliver the card's new response; deliver `top`'s.
+
+### Actual
+
+The card keeps showing `card One` after its own response for `3` has landed, and switches to `card Three` only when the
+action's `Top$server` refetch lands (`out/8-frames-switch-held.prod.txt`, the `frames` run, steps 4 and 5).
+
+### Expected
+
+What the same app does with `Card` and `Top` as client components over `"use server"` data functions (the `client`
+run): `card Three` as soon as the card's response lands (step 4). The `mixed` run (Card a server component, `top`
+plain data refreshed by the action) also shows it at step 4, so it takes a server-component refresh in the action to
+hold the unrelated switch.
+
+---
+
+**Notes for us (not for the issue):**
+- Verdict: **likely bug, medium confidence.** `frame-transport.ts` stages a refetch of an address a mount is showing
+  (`stage`, committed in the transaction that read it), and a switch of the card's address is a different address and
+  a different mount; nothing in the documented model (DR-1, the identity split) ties them. Once held, the switch waits
+  for every pending refresh of the action (in the fuzz seed, plain data refreshes too).
+- Fuzz seed 19 (gate seeds 1..100): the oracle split N and the plan's split J diverge from the twin T alike at step 10;
+  rust-solid's R equals N byte for byte and on the page. Listed in `frontend/baselines/frames-fuzz.json`.
+
+## Issue 9
+
+**Title:** `[2.0 / next][frames] An island's event handler throws NotReadyError while its server component's refetch is staged in a pending action`
+
+### Repro
+
+`frontend/frames/repros/island-not-ready.ts`. The split app:
+
+```tsx
+// app.server.tsx
+export async function TopList$server() { "use server"; const top = await loadTop();
+  return (props: any) => <ul><For each={top}>{(x) => <li><props.Chip id={x.id} label={x.title} /></li>}</For></ul>; }
+// app.split.tsx
+function Chip(props: { id: number; label: string; act: (id: number) => void }) {
+  return <button onClick={() => props.act(props.id)}>{props.label}</button>;
+}
+export default function App() {
+  const rows = createMemo(() => loadRows());
+  const top = createMemo(() => TopList$server());
+  const Top = dynamicComponent(() => top());
+  const take = action(function* (id: number) { yield act(id); refresh(rows); refresh(top); });
+  return <main><Loading fallback="…"><Top Chip={(p) => <Chip id={p.id} label={p.label} act={take} />} />
+    <p>{"rows " + rows().length}</p></Loading></main>;
+}
+```
+
+Steps: click the chip `One` (`take(1)`); deliver `act`'s response; deliver the `TopList$server` refetch while the
+`loadRows` refetch is still held (the action is pending); click the chip `Two`.
+
+### Actual
+
+The click throws `NotReadyError` out of the handler (an uncaught page error) and no `act(2)` request is made
+(`out/9-frames-island-not-ready.prod.txt`, the `frames` run: `pageerror: NotReadyError`).
+
+### Expected
+
+The click runs the handler, as in the same app with `TopList` as a client component (the `client` run: `act#2[2]` is
+requested at step 4). Reading an island's props in an event handler is untracked; if the frame's slot arguments are
+staged for the pending action's commit, the handler should read the committed ones.
+
+---
+
+**Notes for us (not for the issue):**
+- Verdict: **likely bug, medium confidence.** The staged refetch's slot args are previewed into the live fills
+  (`frame-transport.ts` `stage`, "the follow effect's compute half previews the slot args into the live fills (staged
+  with the transition)"); an untracked read of a previewed arg in a handler surfaces the pending state as a throw.
+- Fuzz seed 204 (1..1000): N and J alike (`pageerror: NotReadyError`); not in the gate's seeds.
+
+## Issue 10
+
+**Title:** `[2.0 / next][frames] A server component shown again by a Show renders the answer it showed before it was hidden`
+
+### Repro
+
+`frontend/frames/repros/reshow-stale.ts`. The split app:
+
+```tsx
+// app.server.tsx
+export async function Card$server(id: number) { "use server"; const t = await loadOne(id); return () => <b>{"card " + t}</b>; }
+// app.split.tsx
+export default function App() {
+  const [sel, setSel] = createSignal(1);
+  const [shown, setShown] = createSignal(true);
+  const card = createMemo(() => Card$server(sel()));
+  const Card = dynamicComponent(() => card());
+  return <main><button onClick={() => setShown(!shown())}>toggle</button><button onClick={() => setSel(3)}>pick</button>
+    <Loading fallback="…"><Show when={shown()}><Card /></Show></Loading></main>;
+}
+```
+
+Steps: click `toggle` (hide); click `pick` (`Card$server(3)`); deliver its response; click `toggle` (show).
+
+### Actual
+
+Shown again, the frame renders `card One`, the answer for `1` it showed before it was hidden, although `card()` has
+resolved to the call for `3` (`out/10-frames-reshow-stale.prod.txt`, the `frames` run, step 4). With `--pending` (shown
+again while the response for `3` is out, then delivered) it ends on `card One` too.
+
+### Expected
+
+`card Three`, as the same app with a client `Card` over a `"use server"` data function shows (the `client` run).
+
+---
+
+**Notes for us (not for the issue):**
+- Verdict: **likely bug, medium confidence.** The mount component is per function and the binding per address
+  (DR-1); the re-created instance should bind the current address. It looks as if the new instance adopts the frame
+  element or store of the address it last showed.
+- Fuzz seeds: the divergence is at the step that shows a server root again (or delivers the answer it waits for), in
+  programs with a server root under a `Show`.
+
+## Issue 11 (no standalone repro)
+
+**Title (draft):** `[2.0 / next][frames] A refetched server component's content lands one frame after its transaction commits`
+
+The placement fuzz's seeds 367 and 934 (1..1000): within one delivered response, the split app shows an intermediate
+frame the all-client app never shows. In seed 367 the mode toggle and the action's status commit with the old
+`CountView` count ("2 open"), and the refreshed count ("1 open") lands in a second frame; in seed 934 a record's island
+shows `take` before `taken by me`. The twin lands each transaction in one frame. This is the design's C15 ("staged
+refetches inside actions: one frame where the twin's transaction lands in one frame"), which the frames transport's
+staging (`frame-transport.ts` `stage`) is meant to give. Reproduce: `npm run frames-fuzz -- --seeds 1 --start 367`
+(class `N/T: seen`).
+
+---------------------------------------------------------------------------------------------------
+
 ## Reproducing everything
 
 ```sh
@@ -980,4 +1151,4 @@ nix shell nixpkgs#nodejs_24 -c sh docs/scratch/solid-rc21-repros/run-all.sh   # 
 This writes `out/<repro>.prod.txt` and `out/<repro>.dev.txt` (the dev runs use `solid.dev.js` and
 `--conditions=development`; issue 3 also uses `--conditions=browser`). It also writes `out/3-dom-comparison.prod.txt`. The outputs quoted
 above come from the run on 2026-11-08, Node v24.11.1 (issue 5's from 2026-11-10, same Node). Issue 5 takes about 25 s:
-its prod run waits out the 20 s timeout.
+its prod run waits out the 20 s timeout. Issues 8, 9 and 10 run through the frontend's harness (a Node server per app and Chromium; `frontend/` needs its `npm ci`), about 10 s each; their outputs are from 2026-11-10.
