@@ -24,7 +24,7 @@ export const REFUSALS = {
   REACT_SET_STATE_IN_RENDER: "a setter called while rendering re-renders until it settles; RX has no render to repeat",
   REACT_STALE_READ: "after an await, a React handler still reads the render it was created in; RX reads the live value",
   REACT_URGENT_WRITE: "a setter after an await outside startTransition commits at once in React; Solid holds it with the action",
-  REACT_OPTIMISTIC_BASE_WRITE: "a state under a useOptimistic value is written outside an async transition: React rebases pending optimistic updates onto it and Solid does not",
+  REACT_OPTIMISTIC_BASE_WRITE: "a state under a useOptimistic value is written outside an async transition while one may be pending: React commits it at once and rebases the optimistic updates onto it; Solid holds it with the pending action",
   REACT_OPTIMISTIC_OUTSIDE_ACTION: "useOptimistic's setter only means something inside an async transition",
   REACT_FALSY_RENDER: "`a && <X/>` renders a falsy non-boolean `a` (0, \"\") in React; RX renders nothing",
   REACT_LAZY_STATE: "useState(fn) and computed initial state are not lowered",
