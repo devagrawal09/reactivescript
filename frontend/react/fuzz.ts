@@ -65,7 +65,9 @@ export function generate(seed: number): Generated {
 }
 
 const out = fileURLToPath(new URL("./.out/", import.meta.url));
-export type Outcome = { seed: number; result: "agree" | "refused" | "disagree"; detail?: string };
+/** batched: the first difference is a request settling while another is still open. React holds every transition
+ *  until all of them finish; Solid lands the ones that overlapped and finished. That difference is intended. */
+export type Outcome = { seed: number; result: "agree" | "refused" | "batched" | "disagree"; detail?: string };
 
 export async function check(seed: number): Promise<Outcome> {
   const { source, scenario } = generate(seed);
@@ -77,14 +79,19 @@ export async function check(seed: number): Promise<Outcome> {
     let plan: unknown;
     try { plan = resolvePlanV2(loadReactModules(dir + "/App.react.tsx", p => (p.endsWith("api.d.rx") ? "export fn save(): number\n" : p.endsWith("App.react.tsx") ? source : undefined)), { async: false }); }
     catch (e) { if (e instanceof ReactRefusal) return { seed, result: "refused", detail: e.code }; return { seed, result: "refused", detail: "PLAN: " + (e as Error).message.split("\n")[0] }; }
-    await runReact(dir + "/App.react.tsx", scenario, { prune: true });
+    const pending: number[] = [];
+    await runReact(dir + "/App.react.tsx", scenario, { prune: true, pending });
     const plain = await runReact(dir + "/App.react.tsx", structuredClone(scenario), { compiler: false, record: true });
     const compiled = scenario.steps.map(s => s.frame);
     if (JSON.stringify(plain) !== JSON.stringify(compiled)) return { seed, result: "disagree", detail: "React Compiler changed frames" };
     writeFileSync(dir + "/plan.json", JSON.stringify(plan));
     writeFileSync(dir + "/fuzz.scenario.json", JSON.stringify({ version: 2, fixture: "fuzz", ...scenario, host: scenario.host.map(h => ({ ...h, async: true })) }));
     try { await runScenario(dir + "/fuzz.scenario.json", "plan", { plan: dir + "/plan.json" }); }
-    catch (e) { return { seed, result: "disagree", detail: (e as Error).message.split("\n").slice(0, 6).join(" | ") }; }
+    catch (e) {
+      const detail = (e as Error).message.split("\n").slice(0, 6).join(" | "), at = Number(detail.match(/\/ plan \/ step (\d+)/)?.[1]);
+      const settled = scenario.steps[at]?.type === "resolve" || scenario.steps[at]?.type === "reject";
+      return { seed, result: settled && pending[at] > 0 ? "batched" : "disagree", detail };
+    }
     return { seed, result: "agree" };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
