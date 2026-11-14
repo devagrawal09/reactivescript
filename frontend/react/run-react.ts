@@ -44,8 +44,8 @@ function clickables(n: any, parent: any, out: { node: any; parent: any }[] = [])
 /** Frames of `scenario` on React. `record` returns frames without comparing them. `prune` (for generated scenarios)
  * records too, drops steps React cannot take (no such clickable, no such request yet), fills in each settled request's
  * arguments, resolves requests left open with a default value, and writes the kept steps and their frames back into
- * `scenario.steps`. */
-export async function runReact(sourcePath: string, scenario: Scenario, { compiler = true, record = false, prune = false } = {}): Promise<string[]> {
+ * `scenario.steps`. `pending` receives, for each step taken, how many requests are still open after it. */
+export async function runReact(sourcePath: string, scenario: Scenario, { compiler = true, record = false, prune = false, pending }: { compiler?: boolean; record?: boolean; prune?: boolean; pending?: number[] } = {}): Promise<string[]> {
   if (prune) record = true;
   const { act } = await import("react");
   const TestRenderer = (await import("react-test-renderer")).default;
@@ -93,6 +93,7 @@ export async function runReact(sourcePath: string, scenario: Scenario, { compile
       const frame = textOf(root.root);
       frames.push(frame);
       kept.push({ ...step, frame });
+      pending?.push([...calls.values()].flat().filter(c => !c.done).length);
       if (!record) assert.equal(frame, step.frame, scenario.name + " / react / step " + index);
     }
     if (prune) {
@@ -104,6 +105,7 @@ export async function runReact(sourcePath: string, scenario: Scenario, { compile
         const frame = textOf(root.root);
         frames.push(frame);
         kept.push({ type: "resolve", host: h.name, call: i + 1, args: call.args, value: fallback[h.returns ?? "number"], frame });
+        pending?.push([...calls.values()].flat().filter(c => !c.done).length);
       }
       scenario.steps = kept;
     }
