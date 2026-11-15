@@ -255,6 +255,11 @@ fn main() {
     if mode == "ir" {
         let (_, frame, _) = sample(&w, false);
         println!("{{\"name\":\"{name}\",\"reps\":{},\"frame\":\"{:016x}\"}}", w.reps, fnv(&frame));
+        if std::env::var("ARENAS").is_ok() {
+            // The process's peak resident memory, for the memory check.
+            let st = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            if let Some(l) = st.lines().find(|l| l.starts_with("VmHWM:")) { eprintln!("peak_kb={}", l.split_whitespace().nth(1).unwrap_or("0")); }
+        }
         return;
     }
     let mut us = vec![];
