@@ -272,6 +272,48 @@ pub enum View {
         fallback: Vec<View>,
         children: Vec<View>,
     },
+    /// The React frontend's island level (frontend `react/island.ts`): a
+    /// component kept as JS, run by a JS host's hook shim. Read so that it can
+    /// be refused by name: this runtime has no JS host ([`NEEDS_JS_HOST`]).
+    Island {
+        component: String,
+        module: String,
+        imports: Vec<IslandImport>,
+        reasons: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IslandImport {
+    pub from: String,
+    pub names: Vec<String>,
+}
+
+/// The error code of a plan with an island: it runs only where a JS host
+/// runs the island's module (the frontend's `plan/island.ts`).
+pub const NEEDS_JS_HOST: &str = "NEEDS_JS_HOST";
+
+/// The islands of a plan's markup, by component name.
+pub fn islands(plan: &Plan) -> Vec<&str> {
+    fn walk<'a>(views: &'a [View], out: &mut Vec<&'a str>) {
+        for v in views {
+            match v {
+                View::Island { component, .. } => out.push(component),
+                View::Element { children, .. } | View::For { children, .. } => walk(children, out),
+                View::Show { children, fallback, .. }
+                | View::Loading { children, fallback }
+                | View::Errored { children, fallback } => {
+                    walk(children, out);
+                    walk(fallback, out);
+                }
+                View::Text { .. } | View::Eval { .. } => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&plan.markup, &mut out);
+    out
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -1092,6 +1134,7 @@ impl<'a> Check<'a> {
                     self.views(fallback, scope, true)?;
                     self.views(children, scope, true)?;
                 }
+                View::Island { .. } => unreachable!("validate refuses islands first"),
             }
         }
         Ok(())
@@ -1110,6 +1153,13 @@ fn literal_text(v: &View) -> Option<&J> {
 
 /// Refuses a plan outside schema v2 before anything is built.
 pub fn validate(plan: &Plan) -> Result<(), String> {
+    let island = islands(plan);
+    if !island.is_empty() {
+        return Err(format!(
+            "{NEEDS_JS_HOST}: {} runs as a JS island; this runtime has no JS host",
+            island.join(", ")
+        ));
+    }
     if plan.version != 2 && !plan.version.is_v21() {
         return Err(format!("plan version {} is not 2", plan.version));
     }
@@ -2289,6 +2339,7 @@ fn condition(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Erro
 fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error> {
     match v {
         View::Element { .. } => unreachable!("an element is a template"),
+        View::Island { .. } => unreachable!("validate refuses islands"),
         View::Text { value } => {
             let (value, env) = (value.clone(), env.clone());
             let c2 = c.clone();

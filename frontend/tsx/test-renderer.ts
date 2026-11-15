@@ -7,3 +7,9 @@ export function createElement(tag: string, props: Record<string, unknown> = {}) 
   for (const [name, value] of Object.entries(props)) setProp(node, name, value);
   return node;
 }
+/** The reference renderer has no removeNode export; plan islands (plan/island.ts) reconcile their own children. */
+export function removeNode(parent: { kind: string; children?: unknown[] }, node: { parent?: unknown }) {
+  const i = parent.children?.indexOf(node) ?? -1;
+  if (i >= 0) parent.children!.splice(i, 1);
+  node.parent = undefined;
+}

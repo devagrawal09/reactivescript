@@ -107,9 +107,12 @@ export function confident(e: Expr): Confident {
  *  write to one is refused. */
 /** `async`: also accept plan v2.1's forms (PLAN-V2.md, "v2.1: async data"); a plan that uses none of them is the v2
  *  plan byte for byte. Without it (the v2 builder) they are refused as before. */
-export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean } = {}): Plan {
+/** `accept`: checker diagnostics a frontend vouches for, because what it lowered means what RX gives (react/lower.ts
+ *  checkerAccepts); every other diagnostic is refused. */
+export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean; accept?: string[] } = {}): Plan {
   const checked = checkModules(set);
-  if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
+  const diags = checked.diags.filter(d => !opts.accept?.includes(d.code));
+  if (diags.length) throw new Error(JSON.stringify(diags));
   if (set.order.length !== 1) throw new Error('plan v2 supports one RX module plus host imports');
   const file = set.order[0], program = set.programs.get(file)!, model = checked.models.get(file)!;
   const entry = program.decls.find(d => d.k === 'component' && d.isDefault);

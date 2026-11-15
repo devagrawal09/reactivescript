@@ -9,7 +9,7 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {basename,dirname,join,resolve} from 'node:path';
 import {loadTsxModules} from '../tsx/modules.ts';
 import {loadYieldModules} from '../yield/lower.ts';
-import {loadReactModules} from '../react/lower.ts';
+import {loadReactModules,reactPlan} from '../react/lower.ts';
 import {resolvePlan} from './resolve.ts';
 import {resolvePlanV2} from './resolve-v2.ts';
 import {resolvePlanFrames} from './resolve-frames.ts';
@@ -33,5 +33,5 @@ if(schema===undefined){
 }
 const async=schema==='2.1'||schema==='2.2',frames=schema==='2.2';
 const set=input.endsWith('.yield.tsx')?loadYieldModules(input,read):input.endsWith('.react.tsx')?loadReactModules(input,read):loadTsxModules(input,read,{async,frames});
-const result=JSON.stringify(schema==='1'?resolvePlan(set):frames?resolvePlanFrames(set,{stem:stem[1]}):resolvePlanV2(set,{async}),null,2)+'\n';
+const result=JSON.stringify(schema==='1'?resolvePlan(set):frames?resolvePlanFrames(set,{stem:stem[1]}):input.endsWith('.react.tsx')?reactPlan(set,{async}):resolvePlanV2(set,{async}),null,2)+'\n';
 if(args[1])writeFileSync(args[1],result);else process.stdout.write(result);

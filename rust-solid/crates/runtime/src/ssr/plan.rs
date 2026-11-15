@@ -399,6 +399,7 @@ fn refuse_evals(plan: &Plan) -> Result<(), String> {
 fn view_has_eval(v: &View) -> bool {
     match v {
         View::Eval { .. } => true,
+        View::Island { .. } => false,
         View::Element {
             events, children, ..
         } => {
@@ -781,6 +782,7 @@ impl Ctx {
                     self.check_views(children, &inner)?;
                 }
                 View::Eval { .. } => return Err(EVAL_REFUSED.into()),
+                View::Island { .. } => unreachable!("validate refuses islands"),
                 View::Loading { fallback, children } | View::Errored { fallback, children } => {
                     self.check_views(fallback, locals)?;
                     self.check_views(children, locals)?;

@@ -9,6 +9,7 @@
 import { action, affects, createMemo, createOptimistic, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from 'solid-js';
 import * as testRenderer from '../tsx/test-renderer.ts';
 import type { EvalNode, Expression, HostType, Plan, Step, View } from './resolve-v2.ts';
+import { island, type IslandRenderer, type IslandView } from './island.ts';
 
 /** The renderer helpers a plan is built with: Solid's universal renderer over some host (default: the test renderer). */
 export type Renderer = {
@@ -18,6 +19,9 @@ export type Renderer = {
   insert: (parent: unknown, value: unknown, marker?: unknown) => unknown;
   createComponent: (component: (props: any) => unknown, props: object) => unknown;
   memo: (fn: () => unknown, equal?: boolean) => () => unknown;
+  /** Islands only (plan/island.ts). */
+  setProp?: IslandRenderer['setProp'];
+  removeNode?: IslandRenderer['removeNode'];
 };
 /** An evaluated plan's bindings (docs/EVAL.md): a read is an accessor, a store its root, an action a function that
  *  starts it (whoever passes it reports the call, as the enclosing component would). */
@@ -383,6 +387,12 @@ function instance(plan: Plan, api: Api, options: Options) {
     // compiler (a string, or a memo inside an array) and is refused.
     const fragment = (views: View[], env: Env): unknown => {
       const parts = views.map(v => {
+        // The React frontend's island level: a marked node that holds JS, run with a hook shim (plan/island.ts).
+        if ((v as { kind: string }).kind === 'island') {
+          const r = (options.renderer ?? testRenderer) as Renderer;
+          if (!r.setProp || !r.removeNode) throw new Error('an island needs a renderer with setProp and removeNode');
+          return island(v as unknown as IslandView, api, { ...r, setProp: r.setProp, removeNode: r.removeNode });
+        }
         if (v.kind === 'element') return element(v, env);
         if (v.kind === 'text') throw new Error('text directly in a component position (the markup, a Show branch, a For row) is outside this consumer');
         if (v.kind === 'eval') throw new Error('an eval site directly in a component position is outside this consumer');
