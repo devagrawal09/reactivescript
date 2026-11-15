@@ -430,13 +430,12 @@ impl<R: Renderer + 'static> Universal<R> {
         let mut a_start: isize = 0;
         let mut b_start: isize = 0;
         let after = self.get_next_sibling(&at(a, a_end - 1));
-        let mut map: Option<Vec<(Value, isize)>> = None;
+        let mut map: Option<FxMap<Value, isize>> = None;
 
         // `const isLive = n => n && getParentNode(n) === parentNode;`
         let is_live = |n: &Value| n.truthy() && self.get_parent_node(n) == Value::Node(parent_node);
-        let map_get = |map: &Option<Vec<(Value, isize)>>, k: &Value| -> Option<isize> {
-            map.as_ref()
-                .and_then(|m| m.iter().find(|(x, _)| x == k).map(|(_, i)| *i))
+        let map_get = |map: &Option<FxMap<Value, isize>>, k: &Value| -> Option<isize> {
+            map.as_ref().and_then(|m| m.get(k).copied())
         };
 
         while a_start < a_end || b_start < b_end {
@@ -492,14 +491,10 @@ impl<R: Renderer + 'static> Universal<R> {
             } else {
                 if map.is_none() {
                     // `map.set(b[i], i++)`: a later duplicate overwrites.
-                    let mut m: Vec<(Value, isize)> = vec![];
+                    let mut m = FxMap::with_capacity_and_hasher((b_end - b_start) as usize, Default::default());
                     let mut i = b_start;
                     while i < b_end {
-                        let k = at(b, i);
-                        match m.iter_mut().find(|(x, _)| *x == k) {
-                            Some(slot) => slot.1 = i,
-                            None => m.push((k, i)),
-                        }
+                        m.insert(at(b, i), i);
                         i += 1;
                     }
                     map = Some(m);

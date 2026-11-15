@@ -602,7 +602,7 @@ impl Ctx {
 
     fn ty(&self, e: &Expr, locals: &Types) -> Ty {
         match e {
-            Expr::Literal { value } => literal_ty(value),
+            Expr::Literal { value, .. } => literal_ty(value),
             Expr::Array { items } => Ty::Arr(Box::new(
                 items
                     .iter()
@@ -618,7 +618,7 @@ impl Ctx {
             ),
             Expr::Read { source } => self.types.get(source).cloned().unwrap_or(Ty::Unknown),
             Expr::Local { name } => locals.get(name).cloned().unwrap_or(Ty::Unknown),
-            Expr::Get { object, key } => match self.ty(object, locals) {
+            Expr::Get { object, key, .. } => match self.ty(object, locals) {
                 Ty::Rec(fields) => fields
                     .into_iter()
                     .find(|(k, _)| k == key)
@@ -757,7 +757,7 @@ impl Ctx {
                     self.check_views(children, locals)?;
                 }
                 View::Text {
-                    value: Expr::Literal { value },
+                    value: Expr::Literal { value, .. },
                 } => {
                     raw_text(value)?;
                 }
@@ -834,7 +834,7 @@ fn konst_truthy(k: &Konst) -> bool {
 
 fn confident(e: &Expr) -> Option<Konst> {
     match e {
-        Expr::Literal { value } => match value {
+        Expr::Literal { value, .. } => match value {
             J::String(s) => Some(Konst::Str(s.clone())),
             J::Number(n) => n.as_i64().map(Konst::Num),
             J::Bool(b) => Some(Konst::Bool(*b)),
@@ -1044,7 +1044,7 @@ fn with(env: &Env, name: &str, v: JsVal) -> Env {
 
 fn eval(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
     match e {
-        Expr::Literal { value } => literal(value),
+        Expr::Literal { value, .. } => literal(value),
         Expr::Array { items } => {
             let mut out = vec![];
             for x in items {
@@ -1064,7 +1064,7 @@ fn eval(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
             Some(v) => Ok(v.clone()),
             None => fail(format!("unbound local {name}")),
         },
-        Expr::Get { object, key } => match eval(s, c, object, env)? {
+        Expr::Get { object, key, .. } => match eval(s, c, object, env)? {
             JsVal::Rec(r) => {
                 let found = r
                     .borrow()
@@ -1329,7 +1329,7 @@ fn lower<'v>(v: &'v View, root: bool, parts: &mut Vec<String>, holes: &mut Vec<H
     for child in children {
         match child {
             View::Text {
-                value: Expr::Literal { value },
+                value: Expr::Literal { value, .. },
             } => {
                 let t = raw_text(value).expect("checked before rendering");
                 parts.last_mut().expect("a part").push_str(&t);

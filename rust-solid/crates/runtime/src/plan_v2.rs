@@ -21,8 +21,8 @@ use crate::slice1::{
 use serde::Deserialize;
 use serde_json::Value as J;
 use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    cell::{OnceCell, RefCell},
+    collections::{HashMap, HashSet},
     rc::Rc,
 };
 
@@ -33,6 +33,9 @@ use std::{
 pub enum Expr {
     Literal {
         value: J,
+        /// The literal's value, made once on first use.
+        #[serde(skip)]
+        cache: OnceCell<Value>,
     },
     Array {
         items: Vec<Expr>,
@@ -47,86 +50,89 @@ pub enum Expr {
         name: String,
     },
     Get {
-        object: Box<Expr>,
+        object: Rc<Expr>,
         key: String,
+        /// The property key, made once on first use.
+        #[serde(skip)]
+        k: OnceCell<Key>,
     },
     Length {
-        array: Box<Expr>,
+        array: Rc<Expr>,
     },
     Filter {
-        array: Box<Expr>,
+        array: Rc<Expr>,
         param: String,
-        body: Box<Expr>,
+        body: Rc<Expr>,
     },
     Map {
-        array: Box<Expr>,
+        array: Rc<Expr>,
         param: String,
-        body: Box<Expr>,
+        body: Rc<Expr>,
     },
     FindIndex {
-        array: Box<Expr>,
+        array: Rc<Expr>,
         param: String,
-        body: Box<Expr>,
+        body: Rc<Expr>,
     },
     Add {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Eq {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Ne {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Lt {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Le {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Gt {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Ge {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     And {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Or {
-        left: Box<Expr>,
-        right: Box<Expr>,
+        left: Rc<Expr>,
+        right: Rc<Expr>,
     },
     Not {
-        value: Box<Expr>,
+        value: Rc<Expr>,
     },
     Cond {
-        test: Box<Expr>,
-        then: Box<Expr>,
+        test: Rc<Expr>,
+        then: Rc<Expr>,
         #[serde(rename = "else")]
-        otherwise: Box<Expr>,
+        otherwise: Rc<Expr>,
     },
     /// v2.1 (PLAN-V2.md, "v2.1: async data", Expressions): `isPending(() =>
     /// value)`, a reactive context only.
     Pending {
-        value: Box<Expr>,
+        value: Rc<Expr>,
     },
     /// v2.1: `latest(() => value)`, a reactive context only.
     Latest {
-        value: Box<Expr>,
+        value: Rc<Expr>,
     },
     /// A value eval (frontend `docs/EVAL.md`): the whole value of a memo.
     /// The code is a reactive string; the host's table gives its plan, one
     /// expression over the bindings, of the declared scalar type.
     Eval {
-        code: Box<Expr>,
+        code: Rc<Expr>,
         bindings: Vec<EvalBinding>,
         interface: String,
         syntax: String,
@@ -163,6 +169,9 @@ pub struct InnerBinding {
 pub struct Field {
     pub key: String,
     pub value: Expr,
+    /// The property key, made once on first use.
+    #[serde(skip)]
+    pub k: OnceCell<Key>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -721,7 +730,7 @@ fn literal(value: &J) -> Result<Value, String> {
 impl<'a> Check<'a> {
     fn expr(&self, e: &Expr, scope: &mut Vec<String>, reads: bool) -> Result<(), String> {
         match e {
-            Expr::Literal { value } => literal(value).map(|_| ()),
+            Expr::Literal { value, .. } => literal(value).map(|_| ()),
             Expr::Array { items } => items.iter().try_for_each(|x| self.expr(x, scope, reads)),
             Expr::Object { fields } => {
                 let mut seen = HashSet::new();
@@ -1102,7 +1111,7 @@ impl<'a> Check<'a> {
 fn literal_text(v: &View) -> Option<&J> {
     match v {
         View::Text {
-            value: Expr::Literal { value },
+            value: Expr::Literal { value, .. },
         } => Some(value),
         _ => None,
     }
@@ -1270,7 +1279,51 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
 
 // ---- the evaluator ----
 
-type Env = BTreeMap<String, Value>;
+/// The locals in scope: a persistent list, newest first, so a row's or a
+/// closure's copy is one `Rc` clone and adding a local copies nothing.
+/// Lookup sees the newest binding of a name, as an overwriting map would.
+#[derive(Clone, Default)]
+struct Env(Option<Rc<EnvNode>>);
+struct EnvNode {
+    name: Rc<str>,
+    value: Value,
+    next: Option<Rc<EnvNode>>,
+}
+impl Env {
+    fn new() -> Self {
+        Env(None)
+    }
+    fn get(&self, name: &str) -> Option<&Value> {
+        let mut n = self.0.as_deref();
+        while let Some(x) = n {
+            if &*x.name == name {
+                return Some(&x.value);
+            }
+            n = x.next.as_deref();
+        }
+        None
+    }
+    fn insert(&mut self, name: impl Into<Rc<str>>, value: Value) {
+        let next = self.0.take();
+        self.0 = Some(Rc::new(EnvNode {
+            name: name.into(),
+            value,
+            next,
+        }));
+    }
+}
+impl FromIterator<(String, Value)> for Env {
+    fn from_iter<I: IntoIterator<Item = (String, Value)>>(it: I) -> Self {
+        let mut env = Env::new();
+        for (k, v) in it {
+            env.insert(k, v);
+        }
+        env
+    }
+}
+
+/// FxHash: the names table is read on every evaluation.
+type NameHash = crate::slice1::FxBuild;
 
 #[derive(Clone)]
 enum Binding {
@@ -1298,7 +1351,7 @@ struct Ctx {
     u: Universal<TreeRenderer>,
     hosts: Vec<HostSig>,
     actions: HashMap<String, Action>,
-    names: RefCell<HashMap<String, Binding>>,
+    names: RefCell<HashMap<String, Binding, NameHash>>,
     /// Shared by an app and every plan evaluated in it: one request
     /// numbering per host, per mount.
     requests: Rc<RefCell<Vec<Request>>>,
@@ -1338,12 +1391,11 @@ fn integer(c: &Ctx, v: &Value) -> Result<i64, Error> {
         .ok_or_else(|| fail(c, format!("expected an integer, got {v:?}")))
 }
 
-/// ToString for text and concatenation: a string is itself, an integer is
-/// base ten.
-fn text(c: &Ctx, v: &Value) -> Result<String, Error> {
+/// ToString as a value: a string is shared, not copied.
+fn text_value(c: &Ctx, v: Value) -> Result<Value, Error> {
     match v {
-        Value::Str(s) => Ok(s.to_string()),
-        Value::Int(i) => Ok(i.to_string()),
+        Value::Str(_) => Ok(v),
+        Value::Int(i) => Ok(Value::str(&i.to_string())),
         other => Err(fail(c, format!("ToString of {other:?}"))),
     }
 }
@@ -1422,9 +1474,10 @@ fn array_op(
     };
     method(rt, c, &a, name)?;
     let n = length(rt, c, &a)?;
+    let param: Rc<str> = param.into();
     let f = |rt: &mut Runtime, x: Value| -> Result<Value, Error> {
         let mut env = env.clone();
-        env.insert(param.into(), x);
+        env.insert(param.clone(), x);
         eval(rt, c, body, &env)
     };
     match op {
@@ -1475,7 +1528,13 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
         Ok((l, r))
     };
     match e {
-        Expr::Literal { value } => literal(value).map_err(|m| fail(c, m)),
+        Expr::Literal { value, cache } => match cache.get() {
+            Some(v) => Ok(v.clone()),
+            None => {
+                let v = literal(value).map_err(|m| fail(c, m))?;
+                Ok(cache.get_or_init(|| v).clone())
+            }
+        },
         Expr::Array { items } => {
             let mut out = vec![];
             for x in items {
@@ -1484,18 +1543,19 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
             Ok(Value::Obj(JsObj::new_array(out)))
         }
         Expr::Object { fields } => {
-            let mut out = vec![];
+            let mut out = Vec::with_capacity(fields.len());
             for f in fields {
-                out.push((Rc::from(f.key.as_str()), eval(rt, c, &f.value, env)?));
+                let k = f.k.get_or_init(|| Key::name(&f.key)).clone();
+                out.push((k, eval(rt, c, &f.value, env)?));
             }
-            Ok(Value::Obj(JsObj::new_object(out)))
+            Ok(Value::Obj(JsObj::new_object_keyed(out)))
         }
         Expr::Read { source } => read(rt, c, source),
         Expr::Local { name } => env
             .get(name)
             .cloned()
             .ok_or_else(|| fail(c, format!("unbound local {name}"))),
-        Expr::Get { object, key } => {
+        Expr::Get { object, key, k } => {
             let o = eval(rt, c, object, env)?;
             if !record_like(&o) || rt.is_array(&o) {
                 return Err(fail(c, format!("get {key} of {o:?}, not a record")));
@@ -1503,7 +1563,7 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
             // `o.key` alone, as the TSX twin reads it: one Get (a store's `get`
             // trap), no HasProperty. No plan value is `undefined`, so an
             // `undefined` result is a missing field.
-            let v = rt.js_get(&o, &Key::name(key))?;
+            let v = rt.js_get(&o, k.get_or_init(|| Key::name(key)))?;
             if matches!(v, Value::Undef) {
                 return Err(fail(c, format!("get {key}: no such field")));
             }
@@ -1526,9 +1586,21 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
         Expr::Add { left, right } => {
             let (l, r) = bin(rt, left, right)?;
             if matches!(l, Value::Str(_)) || matches!(r, Value::Str(_)) {
-                let mut s = text(c, &l)?;
-                s.push_str(&text(c, &r)?);
-                return Ok(Value::str(&s));
+                // `"" + s` and `s + ""` are `s` itself: no copy.
+                let (l, r) = (text_value(c, l)?, text_value(c, r)?);
+                let (Value::Str(a), Value::Str(b)) = (&l, &r) else {
+                    unreachable!()
+                };
+                if b.is_empty() {
+                    return Ok(l);
+                }
+                if a.is_empty() {
+                    return Ok(r);
+                }
+                let mut s = String::with_capacity(a.len() + b.len());
+                s.push_str(a);
+                s.push_str(b);
+                return Ok(Value::Str(Rc::from(s)));
             }
             let sum = integer(c, &l)?.checked_add(integer(c, &r)?);
             match sum {
@@ -1700,7 +1772,7 @@ fn linked(c: &C, plan: &Plan, bindings: &[EvalBinding]) -> Result<C, Error> {
             .iter()
             .map(|a| (a.name.clone(), a.clone()))
             .collect(),
-        names: RefCell::new(names),
+        names: RefCell::new(names.into_iter().collect()),
         requests: c.requests.clone(),
         fatal: c.fatal.clone(),
         started: c.started.clone(),
@@ -2098,7 +2170,7 @@ fn lower(v: &View) -> Template<'_> {
 
 fn static_text(c: &C, value: &J) -> Result<Value, Error> {
     let s = literal(value).map_err(|m| fail(c, m))?;
-    Ok(Value::str(&text(c, &s)?))
+    text_value(c, s)
 }
 
 fn declare(rt: &mut Runtime, c: &C, t: &mut Template, env: &Env) -> Result<(), Error> {
@@ -2296,7 +2368,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                 0,
                 Rc::new(move |rt: &mut Runtime, _| {
                     let v = eval(rt, &c2, &value, &env)?;
-                    Ok(Value::str(&text(&c2, &v)?))
+                    text_value(&c2, v)
                 }),
             ))
         }
@@ -2328,7 +2400,8 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             ..
         } => {
             let (each, e1) = (each.clone(), env.clone());
-            let (item, kids, e2, c2) = (item.clone(), kids.clone(), env.clone(), c.clone());
+            let item: Rc<str> = item.as_str().into();
+            let (kids, e2, c2) = (kids.clone(), env.clone(), c.clone());
             // `children: (item) => fragment(children, {...env, item})`: the
             // row item itself (identity keying passes a raw value).
             let mapper = rt.function(
@@ -2549,7 +2622,16 @@ impl App {
 
     /// `mount` with the host's eval table (frontend `docs/EVAL.md`): the
     /// plans an eval site's code compiles to.
+    /// `mount` with the host's op log off (benchmarks).
+    pub fn mount_unlogged(plan: Plan) -> Result<Self, String> {
+        Self::mount_inner(plan, EvalTable::default(), false)
+    }
+
     pub fn mount_with(plan: Plan, evals: EvalTable) -> Result<Self, String> {
+        Self::mount_inner(plan, evals, true)
+    }
+
+    fn mount_inner(plan: Plan, evals: EvalTable, logging: bool) -> Result<Self, String> {
         validate(&plan)?;
         if !evals.evals.is_empty() {
             validate_table(&evals)?;
@@ -2559,6 +2641,7 @@ impl App {
         }
         let mut runtime = Runtime::default();
         let host = Rc::new(RefCell::new(TreeRenderer::new()));
+        host.borrow().set_logging(logging);
         let root = host.borrow().root();
         host.borrow_mut().register_delegated_root(root);
         let c: C = Rc::new(Ctx {
@@ -2569,7 +2652,7 @@ impl App {
                 .iter()
                 .map(|a| (a.name.clone(), a.clone()))
                 .collect(),
-            names: RefCell::new(HashMap::new()),
+            names: RefCell::new(HashMap::default()),
             requests: Rc::new(RefCell::new(vec![])),
             fatal: Rc::new(RefCell::new(None)),
             started: Rc::new(RefCell::new(vec![])),

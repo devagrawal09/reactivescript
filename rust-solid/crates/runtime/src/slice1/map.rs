@@ -473,7 +473,7 @@ impl Runtime {
         } else {
             // 0) a map of all indices in the changed window of newItems,
             // scanned backwards so they chain in natural order
-            let mut new_indices: Vec<(Value, i64)> = vec![];
+            let mut new_indices: FxMap<Value, i64> = FxMap::with_capacity_and_hasher(w_len, Default::default());
             let mut new_indices_next: Vec<i64> = vec![0; w_len];
             let mut j = new_end;
             while j >= start {
@@ -919,15 +919,12 @@ impl Runtime {
 /// `Map.prototype.get` (SameValueZero; the keys here are integers and
 /// objects, compared as `===`).
 // Solid: map.ts:633, 644 (`newIndices.get`)
-fn map_get(m: &[(Value, i64)], k: &Value) -> Option<i64> {
-    m.iter().find(|(x, _)| x == k).map(|(_, v)| *v)
+fn map_get(m: &FxMap<Value, i64>, k: &Value) -> Option<i64> {
+    m.get(k).copied()
 }
 
 /// `Map.prototype.set` (an existing key keeps its position).
 // Solid: map.ts:635, 651 (`newIndices.set`)
-fn map_set(m: &mut Vec<(Value, i64)>, k: Value, v: i64) {
-    match m.iter_mut().find(|(x, _)| *x == k) {
-        Some(e) => e.1 = v,
-        None => m.push((k, v)),
-    }
+fn map_set(m: &mut FxMap<Value, i64>, k: Value, v: i64) {
+    m.insert(k, v);
 }

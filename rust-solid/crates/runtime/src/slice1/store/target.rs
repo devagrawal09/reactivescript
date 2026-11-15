@@ -2,7 +2,6 @@
 //! raw → target lookup.
 use super::super::*;
 use super::{KeyMap, OrdSet, Wk};
-use std::collections::HashMap;
 
 /// Solid: target.ts:64-133 `StoreTarget` (the proxy's handler, built by
 /// store.ts `TargetShape`). The proxy is `Value::Proxy(id)`; `shell_array`
@@ -41,7 +40,7 @@ pub(in crate::slice1) struct Family {
     pub asked: Option<i64>,
     pub key: FamKey,
     /// `map`: raw (or a draft wrapper) → target, by identity.
-    pub map: HashMap<u64, TargetId>,
+    pub map: FxMap<u64, TargetId>,
     pub node: Option<NodeId>,
     pub live: OrdSet<TargetId>,
     pub shallow: bool,

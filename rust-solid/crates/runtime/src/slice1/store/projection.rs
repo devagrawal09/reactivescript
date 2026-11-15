@@ -12,7 +12,6 @@ use super::super::value::DraftProxy;
 use super::super::*;
 use super::target::Family;
 use super::{OrdSet, StoreKey};
-use std::collections::HashMap;
 
 /// One derive pass's closure state (`runProjectionComputed`'s locals the
 /// flight's `commit` and `onError` close over).
@@ -349,7 +348,7 @@ impl Runtime {
             overlaid: None,
             asked: None,
             key: key_option.clone(),
-            map: HashMap::new(),
+            map: Default::default(),
             node: None,
             live: OrdSet::default(),
             shallow: false,

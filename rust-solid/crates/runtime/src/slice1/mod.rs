@@ -51,6 +51,29 @@ pub use flow::{Component, ErroredProps, ForProps, Getter, LoadingProps, ShowProp
 pub use function::FnBody;
 pub use map::{FallbackFn, KeyFn, Keyed, ListFn, MapArg, MapFn};
 use std::{collections::VecDeque, rc::Rc};
+
+/// FxHash for identity-keyed tables (function ids, raw object ids): read on
+/// every call and store access, where SipHash's DoS resistance buys nothing.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct Fx(u64);
+impl std::hash::Hasher for Fx {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u64(b as u64);
+        }
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_usize(&mut self, i: usize) {
+        self.write_u64(i as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+pub(crate) type FxBuild = std::hash::BuildHasherDefault<Fx>;
+pub(crate) type FxMap<K, V> = std::collections::HashMap<K, V, FxBuild>;
 pub use store::StoreKey;
 pub use universal::{Disposer, InsertOptions, Marker, OnUpdate, Universal};
 pub use value::{from_json, new_host_fn, Builtin, JsObj, Key, Obj, Value};
@@ -545,7 +568,7 @@ pub struct Runtime {
     /// User comparators (`options.equals`), by registration.
     comparators: Vec<EqualsFn>,
     /// Host-made function values (function.rs), by identity.
-    functions: std::collections::HashMap<u64, function::JsFunction>,
+    functions: FxMap<u64, function::JsFunction>,
     /// scheduler.ts:380 `latestOpened` (reset at each seam; `openedByLatest`
     /// has no caller in rc.21, so it stays null).
     latest_opened: Option<TxId>,

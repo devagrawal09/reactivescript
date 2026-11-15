@@ -24,7 +24,7 @@ pub(super) mod target;
 pub(super) mod types;
 
 use super::*;
-use std::{cell::RefCell, collections::HashMap};
+use std::cell::RefCell;
 use target::{Family, StoreTarget};
 
 /// A family's row key option (`options.key`): a field name (`"id"` by
@@ -187,7 +187,7 @@ pub(in crate::slice1) struct StoreState {
     pub targets: Vec<StoreTarget>,
     pub families: Vec<Family>,
     /// target.ts `storeLookup` (raw → target for family-less stores).
-    pub lookup: HashMap<u64, TargetId>,
+    pub lookup: FxMap<u64, TargetId>,
     // store.ts
     pub deferred_releases: OrdSet<NodeId>,
     pub fold_list: Vec<TargetId>,
@@ -199,11 +199,11 @@ pub(in crate::slice1) struct StoreState {
     pub write_scopes: Option<Vec<ScopeKey>>,
     pub pending_notify: OrdSet<TargetId>,
     /// `frameRaws`: `Object.values(frame)` per frame, by identity.
-    pub frame_raws: HashMap<u64, Vec<Value>>,
+    pub frame_raws: FxMap<u64, Vec<Value>>,
     // types.ts
     pub write_override: bool,
     /// `rawValues` (a WeakSet, by identity) and `rawValuesUsed`.
-    pub raw_values: std::collections::HashSet<u64>,
+    pub raw_values: std::collections::HashSet<u64, FxBuild>,
     pub raw_values_used: bool,
     // optimistic.ts
     pub opt_staged: Vec<(TargetId, Obj)>,

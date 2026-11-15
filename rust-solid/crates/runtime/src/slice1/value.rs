@@ -248,6 +248,30 @@ impl PartialEq for Value {
     }
 }
 
+impl Eq for Value {}
+
+/// Consistent with `eq`: objects by identity, strings by content. Lets a JS
+/// `Map` keyed by values (map.ts `newIndices`, universal.ts `reconcileArrays`)
+/// be a hash map instead of a linear scan.
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        std::mem::discriminant(self).hash(h);
+        match self {
+            Value::Bool(b) => b.hash(h),
+            Value::Int(i) => i.hash(h),
+            Value::Obj(a) => (Rc::as_ptr(a) as *const () as usize).hash(h),
+            Value::Proxy(t) => t.hash(h),
+            Value::Draft(a) => (Rc::as_ptr(a) as *const () as usize).hash(h),
+            Value::View(a) => (Rc::as_ptr(a) as *const () as usize).hash(h),
+            Value::Func(b) => b.hash(h),
+            Value::Str(s) => s.hash(h),
+            Value::Node(n) => n.hash(h),
+            Value::Error(e) => (Rc::as_ptr(e) as *const () as usize).hash(h),
+            Value::Undef | Value::NotPending => {}
+        }
+    }
+}
+
 impl fmt::Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -302,11 +326,107 @@ pub type Obj = Rc<JsObj>;
 /// absent keys) and `len` its `length`.
 #[derive(Clone, Default)]
 pub struct Props {
-    pub idx: BTreeMap<u32, Value>,
+    pub idx: Elems,
     pub len: u32,
     pub names: Vec<(Rc<str>, Value)>,
     /// The `$OWNER` stamp (store/target.ts): the owning target.
     pub owner: Option<TargetId>,
+}
+
+/// Integer-keyed own properties: dense slots (`None` is a hole) up to the
+/// first gap too wide to fill, a sorted map past it. Every sparse key is at
+/// least the dense length, so keys come out in ascending order.
+#[derive(Clone, Default)]
+pub struct Elems {
+    dense: Vec<Option<Value>>,
+    sparse: BTreeMap<u32, Value>,
+    count: usize,
+}
+
+/// How many holes a write may open at the end of the dense part.
+const ELEMS_SLACK: usize = 64;
+
+impl Elems {
+    pub fn get(&self, i: &u32) -> Option<&Value> {
+        match self.dense.get(*i as usize) {
+            Some(v) => v.as_ref(),
+            None => self.sparse.get(i),
+        }
+    }
+    pub fn contains_key(&self, i: &u32) -> bool {
+        self.get(i).is_some()
+    }
+    pub fn len(&self) -> usize {
+        self.count
+    }
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+    pub fn insert(&mut self, i: u32, v: Value) -> Option<Value> {
+        let at = i as usize;
+        let old = if at < self.dense.len() {
+            self.dense[at].replace(v)
+        } else if at <= self.dense.len() + ELEMS_SLACK {
+            self.dense.resize(at, None);
+            self.dense.push(Some(v));
+            let old = self.sparse.remove(&i);
+            // Keys the dense part now covers move into it.
+            while let Some(e) = self.sparse.first_entry() {
+                if (*e.key() as usize) >= self.dense.len() {
+                    break;
+                }
+                let (k, x) = e.remove_entry();
+                self.dense[k as usize] = Some(x);
+            }
+            old
+        } else {
+            self.sparse.insert(i, v)
+        };
+        if old.is_none() {
+            self.count += 1;
+        }
+        old
+    }
+    pub fn remove(&mut self, i: &u32) -> Option<Value> {
+        let old = match self.dense.get_mut(*i as usize) {
+            Some(slot) => slot.take(),
+            None => self.sparse.remove(i),
+        };
+        if old.is_some() {
+            self.count -= 1;
+        }
+        old
+    }
+    pub fn retain(&mut self, mut f: impl FnMut(&u32, &mut Value) -> bool) {
+        for (k, slot) in self.dense.iter_mut().enumerate() {
+            if let Some(v) = slot {
+                if !f(&(k as u32), v) {
+                    *slot = None;
+                    self.count -= 1;
+                }
+            }
+        }
+        let before = self.sparse.len();
+        self.sparse.retain(|k, v| f(k, v));
+        self.count -= before - self.sparse.len();
+    }
+    /// The keys, ascending.
+    pub fn keys(&self) -> impl Iterator<Item = u32> + '_ {
+        self.dense
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| v.is_some())
+            .map(|(k, _)| k as u32)
+            .chain(self.sparse.keys().copied())
+    }
+    fn from_vec(items: Vec<Value>) -> Self {
+        let count = items.len();
+        Elems {
+            dense: items.into_iter().map(Some).collect(),
+            sparse: BTreeMap::new(),
+            count,
+        }
+    }
 }
 
 impl JsObj {
@@ -319,11 +439,17 @@ impl JsObj {
     }
     pub fn new_array(items: Vec<Value>) -> Obj {
         let mut p = Props::default();
-        for (i, v) in items.into_iter().enumerate() {
-            p.idx.insert(i as u32, v);
-        }
+        p.idx = Elems::from_vec(items);
         p.len = p.idx.len() as u32;
         JsObj::make(true, p)
+    }
+    /// `new_object` with the keys already made.
+    pub fn new_object_keyed(fields: Vec<(Key, Value)>) -> Obj {
+        let o = JsObj::make(false, Props::default());
+        for (k, v) in fields {
+            o.set(&k, v);
+        }
+        o
     }
     pub fn new_object(fields: Vec<(Rc<str>, Value)>) -> Obj {
         let o = JsObj::make(false, Props::default());
@@ -406,7 +532,7 @@ impl JsObj {
     /// `Reflect.ownKeys(o)` without the `$OWNER` symbol.
     pub fn own_keys(&self) -> Vec<Key> {
         let p = self.props.borrow();
-        let mut keys: Vec<Key> = p.idx.keys().map(|i| Key::Idx(*i)).collect();
+        let mut keys: Vec<Key> = p.idx.keys().map(Key::Idx).collect();
         if self.array {
             keys.push(Key::Name("length".into()));
         }
