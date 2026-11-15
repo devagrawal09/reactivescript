@@ -162,10 +162,9 @@ impl Run {
     }
 }
 
-#[inline(never)]
 /// Finding the i-th clickable is the harness's, not the runtime's: callgrind
-/// toggles collection off inside this function (`--toggle-collect=*untimed*`)
-/// and the wall clock subtracts its time.
+/// (`--toggle-collect=*timed*`, which matches this and `timed_ops`) stops
+/// collecting inside it, and the wall clock subtracts its time.
 #[inline(never)]
 fn untimed_lookup(r: &mut Run, i: usize) -> rust_solid::renderer::Node {
     let t = Instant::now();
@@ -174,6 +173,7 @@ fn untimed_lookup(r: &mut Run, i: usize) -> rust_solid::renderer::Node {
     node
 }
 
+#[inline(never)]
 fn timed_ops(r: &mut Run, w: &W, n: usize) {
     for _ in 0..n {
         for s in &w.op {
