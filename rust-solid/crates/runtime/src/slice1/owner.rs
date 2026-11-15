@@ -216,26 +216,20 @@ impl Runtime {
     /// queued microtask, is kept for a later pass. A store's slot node comes
     /// here when its store lets go of it (`release_slot`), not by disposal.
     pub(super) fn reclaim(&mut self) {
-        if self.disposed.is_empty() {
+        // A running action's body is out of `actions` while it steps.
+        if self.disposed.is_empty() || self.action_depth > 0 {
             return;
         }
-        let mut waited: Vec<NodeId> = self
-            .microtasks
-            .iter()
-            .filter_map(|m| match *m {
-                Microtask::Landing(n, ..) | Microtask::Waiter(n, _) | Microtask::Deliver(n) => Some(n),
-                _ => None,
-            })
-            .collect();
-        for f in &self.flights {
-            for r in &f.reactions {
-                if let Reaction::Memo(n, _) = *r {
-                    waited.push(n);
-                }
-            }
-        }
+        let mut waited = self.pinned_nodes();
+        waited.sort_unstable();
+        waited.dedup();
+        // A node can come here twice (a store slot that was also disposed,
+        // or one kept from an earlier pass and disposed again).
+        let mut disposed = std::mem::take(&mut self.disposed);
+        disposed.sort_unstable();
+        disposed.dedup();
         let mut keep = vec![];
-        for n in std::mem::take(&mut self.disposed) {
+        for n in disposed {
             let x = &self.nodes[n];
             if x.fam.is_some() {
                 continue;
@@ -246,13 +240,88 @@ impl Runtime {
                 || x.in_flight.is_some()
                 || x.transaction.is_some()
                 || x.pending_sources.is_some()
-                || waited.contains(&n)
+                || waited.binary_search(&n).is_ok()
             {
                 keep.push(n);
                 continue;
             }
-            self.nodes.release(n, Node::new(Kind::Root, Value::Undef, n, 0));
+            self.nodes.release(n);
         }
         self.disposed = keep;
+    }
+
+    /// Nodes that a queue, a pending microtask or flight reaction, a live
+    /// transaction, a running action or a boundary's held runs will still look
+    /// up by id. JS
+    /// reads such a node after its disposal (and skips it), so its slot
+    /// can't be reused yet.
+    fn pinned_nodes(&self) -> Vec<NodeId> {
+        let mut out: Vec<NodeId> = self
+            .microtasks
+            .iter()
+            .filter_map(|m| match *m {
+                Microtask::Landing(n, ..) | Microtask::Waiter(n, _) | Microtask::Deliver(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        for f in &self.flights {
+            for r in &f.reactions {
+                if let Reaction::Memo(n, _) = *r {
+                    out.push(n);
+                }
+            }
+        }
+        let queued = |out: &mut Vec<NodeId>, q: &[QueueCallback]| {
+            for c in q {
+                match *c {
+                    QueueCallback::RunEffect(n) | QueueCallback::DropFallback(_, n) => out.push(n),
+                    QueueCallback::ReleaseQueues(_) => {}
+                }
+            }
+        };
+        for q in &self.queues {
+            queued(&mut out, q);
+        }
+        for t in &self.txs {
+            for q in &t.queues {
+                queued(&mut out, q);
+            }
+            out.extend_from_slice(&t.nodes);
+            out.extend_from_slice(&t.reruns);
+            if let Some(m) = &t.marks {
+                out.extend_from_slice(m);
+            }
+        }
+        out.extend(self.dirty_queue.heap.iter().flatten());
+        for v in [
+            &self.pending_nodes,
+            &self.staged_readers,
+            &self.held_trims,
+            &self.deferred_zombies,
+            &self.promoted_writes,
+            &self.ahead,
+            &self.entered,
+            &self.ambient,
+        ] {
+            out.extend_from_slice(v);
+        }
+        if let Some(v) = &self.deferred_releases {
+            out.extend_from_slice(v);
+        }
+        for a in &self.actions {
+            if a.outcome.is_none() {
+                if let Some(b) = &a.body {
+                    b.held(&mut out);
+                }
+            }
+        }
+        for b in &self.boundaries {
+            if let Some(r) = &b.runs {
+                out.extend_from_slice(r);
+            }
+        }
+        out.extend(self.kept.iter().map(|k| k.0));
+        out.extend(self.pending_guesses.iter().map(|g| g.0));
+        out
     }
 }

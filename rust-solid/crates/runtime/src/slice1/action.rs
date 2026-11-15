@@ -27,12 +27,15 @@ pub enum ActionStep {
 
 pub trait ActionBody {
     fn step(&mut self, rt: &mut Runtime, input: Resume) -> ActionStep;
+    /// The nodes the body may still read or write, so a node freed by a
+    /// mounted app (`collect_disposed`) isn't reused under a running action.
+    fn held(&self, _out: &mut Vec<NodeId>) {}
 }
 
 pub(super) struct Action {
     tx: TxId,
     q: u64,
-    body: Option<Box<dyn ActionBody>>,
+    pub(super) body: Option<Box<dyn ActionBody>>,
     pub(super) waiting: Option<String>,
     pub(super) input: Option<Resume>,
     pub(super) outcome: Option<Result<(), String>>,

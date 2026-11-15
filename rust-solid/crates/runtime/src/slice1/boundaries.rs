@@ -134,7 +134,7 @@ pub(super) struct Boundary {
     fallback: bool,
     /// `_runs`: user effects (and render updates) held behind the fallback,
     /// a JS `Set`; null is `None`.
-    runs: Option<Vec<NodeId>>,
+    pub(super) runs: Option<Vec<NodeId>>,
     /// `_error`: the error signal of an error boundary.
     error: Option<NodeId>,
     show: ShowFn,

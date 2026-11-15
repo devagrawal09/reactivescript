@@ -29,9 +29,9 @@ impl NodeTable {
         self.dead.push(false);
         id
     }
-    /// Drops the node's contents (its closures and values) and frees the slot.
-    pub fn release(&mut self, id: NodeId, blank: Node) {
-        self.v[id] = blank;
+    /// Frees the slot. Its old contents (closures, values) are dropped when
+    /// the slot is reused, so a free costs nothing now.
+    pub fn release(&mut self, id: NodeId) {
         #[cfg(node_check)]
         {
             self.dead[id] = true;

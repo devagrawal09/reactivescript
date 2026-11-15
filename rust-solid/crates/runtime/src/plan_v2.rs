@@ -1389,6 +1389,24 @@ struct Ctx {
 }
 type C = Rc<Ctx>;
 
+/// The nodes a plan's names bind, and those of the plans its bound actions
+/// come from.
+fn held_by(c: &C, out: &mut Vec<NodeId>, seen: &mut Vec<*const Ctx>) {
+    if seen.contains(&Rc::as_ptr(c)) {
+        return;
+    }
+    seen.push(Rc::as_ptr(c));
+    for b in c.names.borrow().values() {
+        match *b {
+            Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n) | Binding::Async(n) => out.push(n),
+            Binding::Store(_) => {}
+        }
+    }
+    for (p, _) in c.bound.values() {
+        held_by(p, out, seen);
+    }
+}
+
 fn fail(c: &Ctx, message: String) -> Error {
     c.fatal.borrow_mut().get_or_insert_with(|| message.clone());
     user_error(message)
@@ -2024,6 +2042,10 @@ impl Execution {
 }
 
 impl ActionBody for Execution {
+    fn held(&self, out: &mut Vec<NodeId>) {
+        held_by(&self.c, out, &mut vec![]);
+    }
+
     fn step(&mut self, rt: &mut Runtime, input: Resume) -> ActionStep {
         match input {
             Resume::Start => {}
