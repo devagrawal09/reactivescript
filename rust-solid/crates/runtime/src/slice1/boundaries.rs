@@ -161,7 +161,7 @@ impl Hidden {
 impl Runtime {
     /// `boundaryOf(node)` (boundaries.ts:169-170).
     fn boundary_of(&self, node: NodeId) -> Option<BoundaryId> {
-        self.nodes[node].boundary
+        self.nodes[node].boundary.get()
     }
 
     // Solid: boundaries.ts:174-175
@@ -192,7 +192,7 @@ impl Runtime {
         let mut source = node;
         if self.boundaries[b].ty == STATUS_ERROR {
             // `error ??= node._x?._error`; `source = error?.source ?? node`.
-            let error = error.or_else(|| self.nodes[node].error.clone());
+            let error = error.or_else(|| self.nodes[node].ext.error.clone());
             if let Some(Some(s)) = error.as_ref().and_then(|e| e.source()) {
                 source = s;
             }
@@ -333,7 +333,7 @@ impl Runtime {
             } else {
                 Hidden::No
             };
-            while let Some(l) = s {
+            while let Some(l) = s.get() {
                 let sub = self.links[l].sub;
                 let set = seen.as_mut().unwrap();
                 h = if set.contains(&sub) {
@@ -404,7 +404,7 @@ impl Runtime {
     // Solid: boundaries.ts:388-392
     fn reads(&self, n: NodeId, s: NodeId, seen: &mut Option<Vec<NodeId>>) -> bool {
         let mut l = self.nodes[n].deps;
-        while let Some(link) = l {
+        while let Some(link) = l.get() {
             let h = self.links[link].dep;
             if h == s {
                 return true;
@@ -485,7 +485,7 @@ impl Runtime {
                     j += 1;
                     let Some((r, _)) = e else { continue };
                     let ns: Vec<NodeId> = if self.nodes[r].status & STATUS_PENDING != 0 {
-                        match self.nodes[r].pending_sources {
+                        match self.nodes[r].ext.pending_sources {
                             Some(ps) => self.set_values(ps),
                             None => vec![],
                         }
@@ -497,7 +497,7 @@ impl Runtime {
                             continue;
                         }
                         let mut d = self.nodes[n].deps;
-                        while let Some(l) = d {
+                        while let Some(l) = d.get() {
                             let h = self.links[l].dep;
                             if self.nodes[h].config & CONFIG_HELD != 0 && {
                                 n == r || {
@@ -584,7 +584,7 @@ impl Runtime {
         }
         // The context names the boundary; `REVEAL: null` (reveal hooks are
         // installed).
-        self.nodes[owner].boundary = Some(b);
+        self.nodes[owner].boundary = Ix::from(Some(b));
         let tree = self.with_owner(Some(owner), |rt| {
             let c = rt.computed(
                 Rc::new(move |rt: &mut Runtime, _| f(rt).map(Out::Value)),
@@ -651,7 +651,7 @@ impl Runtime {
                 self.record(b, tree, tree);
             }
             return Err(self.nodes[tree]
-                .error
+                .ext.error
                 .clone()
                 .expect("a pending or errored tree carries its error"));
         }
@@ -722,7 +722,7 @@ impl Runtime {
             // `runWithOwner(out._parent, () => computed(() => b._show(b), { id:
             // out.id, lazy: 1 }))`: ids are not ported.
             let parent = self.nodes[out].parent;
-            let fb = self.with_owner(parent, |rt| {
+            let fb = self.with_owner(parent.get(), |rt| {
                 let show = rt.boundaries[b].show.clone();
                 rt.computed_lazy(Rc::new(move |rt: &mut Runtime, _| {
                     show(rt, b).map(Out::Value)

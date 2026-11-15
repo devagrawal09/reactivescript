@@ -31,26 +31,33 @@ impl Runtime {
 
     // Solid: core.ts:229-236
     fn lane_frame_member(&self, el: NodeId) -> bool {
-        let mut o = self.nodes[el].parent.expect("a zombie has an owner");
+        let mut o = self.nodes[el].parent.get().expect("a zombie has an owner");
         while self.nodes[o].flags & REACTIVE_ZOMBIE != 0 {
-            o = self.nodes[o].parent.expect("a zombie has an owner");
+            o = self.nodes[o].parent.get().expect("a zombie has an owner");
         }
         let n = &self.nodes[o];
         n.config & (CONFIG_OVERRIDE | CONFIG_GUESS) == CONFIG_OVERRIDE
             || (n.kind != Kind::Root
                 && n.effect_type != 0
-                && n.transaction.is_some_and(|t| self.txs[t].lane))
+                && n.ext.transaction.is_some_and(|t| self.txs[t].lane))
     }
 
     /// `el._fn(value)`.
     fn call_body(&mut self, el: NodeId, prev: Value) -> Result<Out, Error> {
-        match self.nodes[el].fn_.clone().expect("computed") {
-            Body::User(f) => f(self, prev),
-            Body::Waiter { target, own } => self.waiter_body(el, target, own),
-            Body::Projection { root, derive, key } => {
+        match self.nodes[el].fn_.as_ref().expect("computed") {
+            Body::User(f) => {
+                let f = f.clone();
+                f(self, prev)
+            }
+            Body::Waiter(w) => {
+                let (target, own) = **w;
+                self.waiter_body(el, target, own)
+            }
+            Body::Projection(p) => {
+                let (root, derive, key) = (p.0, p.1.clone(), p.2.clone());
                 self.run_projection_computed(el, root, derive, key)
             }
-            Body::Map(d) => self.update_keyed_map(d).map(Out::Value),
+            &Body::Map(d) => self.update_keyed_map(d).map(Out::Value),
         }
     }
 
@@ -80,7 +87,7 @@ impl Runtime {
             None
         };
         self.lane_root = mount;
-        let own_tx = self.nodes[el].transaction.filter(|t| self.txs[*t].lane);
+        let own_tx = self.nodes[el].ext.transaction.filter(|t| self.txs[*t].lane);
         let seat = if (self.nodes[el].flags & REACTIVE_LANE_DIRTY != 0
             || self.nodes[el].config & (CONFIG_OVERRIDE | CONFIG_GUESS) == CONFIG_OVERRIDE)
             && own_tx.is_some()
@@ -111,7 +118,7 @@ impl Runtime {
             }
             // `_parked` (only `laneSeams`' unanswered-probe arm parks one)
             // and iterator teardowns: none here.
-            self.nodes[el].in_flight = None;
+            self.nodes[el].ext.when_set(|g| g.in_flight = None);
             if self.nodes[el].config & CONFIG_HELD != 0 {
                 let tx = self.tx_of(el);
                 if self.txs[tx].lane || self.nodes[el].config & CONFIG_LAGS != 0 {
@@ -151,25 +158,25 @@ impl Runtime {
         }
         let was_uninitialized = self.nodes[el].status & STATUS_UNINITIALIZED;
         let outgoing_error = if self.nodes[el].status & STATUS_ERROR != 0 {
-            self.nodes[el].error.clone()
+            self.nodes[el].ext.error.clone()
         } else {
             None
         };
         let was_pending = self.nodes[el].status & STATUS_PENDING != 0;
         let outgoing_pending_sources = if was_pending {
-            self.nodes[el].pending_sources
+            self.nodes[el].ext.pending_sources
         } else {
             None
         };
-        let was_pending_source = self.set_has(self.nodes[el].pending_sources, el);
+        let was_pending_source = self.set_has(self.nodes[el].ext.pending_sources, el);
         let mut staged_err = false;
         let reask = self.nodes[el].flags & REACTIVE_REASK != 0
             && !((self.nodes[el].status & STATUS_PENDING != 0
                 || (self.guessing && self.nodes[el].pending.is_some()))
-                && !self.nodes[el].reask);
+                && !self.nodes[el].ext.reask);
         let old_context = self.context;
         self.context = Some(el);
-        self.nodes[el].deps_tail = None;
+        self.nodes[el].deps_tail = Ix::from(None);
         self.nodes[el].dep_gen += 1;
         let release_after = self.nodes[el].flags & REACTIVE_RELEASE_AFTER;
         self.nodes[el].flags =
@@ -177,7 +184,7 @@ impl Runtime {
         self.nodes[el].time = self.clock;
         let prev_value = match self.nodes[el].pending.clone() {
             Some(v) => v,
-            None => match self.nodes[el].lane.clone() {
+            None => match self.nodes[el].ext.lane.clone() {
                 Some(l) if self.nodes[el].config & CONFIG_OVERRIDE != 0 => l,
                 _ => self.nodes[el].value.clone(),
             },
@@ -190,12 +197,12 @@ impl Runtime {
         // its own flight (`selfRegistered`); a non-object return is a sync
         // answer; an object one (a promise, an array, a store proxy) goes
         // through `handleAsync`.
-        let prev_in_flight = self.nodes[el].in_flight;
+        let prev_in_flight = self.nodes[el].ext.in_flight;
         // The CONFIG_SYNC fast arm (prod): no async-shape probe.
         let result = if self.nodes[el].config & CONFIG_SYNC != 0 {
             match self.call_body(el, prev_value) {
                 Ok(Out::Value(v)) => {
-                    self.nodes[el].in_flight = None;
+                    self.nodes[el].ext.when_set(|g| g.in_flight = None);
                     self.nodes[el].loading = false;
                     Ok(v)
                 }
@@ -207,7 +214,7 @@ impl Runtime {
         } else {
             match self.call_body(el, prev_value) {
                 Ok(out) => {
-                    let self_registered = self.nodes[el].in_flight != prev_in_flight;
+                    let self_registered = self.nodes[el].ext.in_flight != prev_in_flight;
                     let is_async_result = match &out {
                         Out::Flight(_) => true,
                         Out::Value(v) => v.is_object(),
@@ -217,7 +224,7 @@ impl Runtime {
                             unreachable!("a flight is an object")
                         };
                         if !self_registered && !is_async_result {
-                            self.nodes[el].in_flight = None;
+                            self.nodes[el].ext.when_set(|g| g.in_flight = None);
                             // `holdWorkHook` is installed.
                             self.nodes[el].config &= !CONFIG_ASYNC;
                             self.nodes[el].loading = false;
@@ -252,7 +259,7 @@ impl Runtime {
                     } {
                         if not_ready {
                             self.nodes[el].x = true;
-                            self.nodes[el].blocked = true;
+                            self.nodes[el].ext.blocked = true;
                         }
                         self.notify_status(
                             el,
@@ -263,7 +270,7 @@ impl Runtime {
                             },
                             Some(e),
                         );
-                        if not_ready && was_pending_source && self.nodes[el].in_flight.is_none() {
+                        if not_ready && was_pending_source && self.nodes[el].ext.in_flight.is_none() {
                             self.settle_pending_source(el, el);
                         }
                     }
@@ -274,7 +281,7 @@ impl Runtime {
                                 i += 1;
                                 let Some(source) = entry else { continue };
                                 if source != el
-                                    && !(self.set_has(self.nodes[el].pending_sources, source)
+                                    && !(self.set_has(self.nodes[el].ext.pending_sources, source)
                                         && (self.nodes[source].status & STATUS_PENDING != 0
                                             || self.retry_reaches(el, source)))
                                 {
@@ -337,7 +344,10 @@ impl Runtime {
                 self.release_if_settled_unobserved(node);
             }
         }
-        self.nodes[el].reask = reask && self.nodes[el].status & STATUS_PENDING != 0;
+        let reask = reask && self.nodes[el].status & STATUS_PENDING != 0;
+        if reask || self.nodes[el].ext.reask {
+            self.nodes[el].ext.reask = reask;
+        }
         if self.nodes[el].flags & REACTIVE_DISPOSED != 0 {
             self.clear_deps(el);
             self.clear_in_flight(el);
@@ -345,7 +355,7 @@ impl Runtime {
             return;
         }
         let mut lane = self.pass_lane;
-        let errored = self.nodes[el].error.is_some() || staged_err;
+        let errored = self.nodes[el].ext.error.is_some() || staged_err;
         if let Some(l) = lane {
             let e = if errored { Errored::Yes } else { Errored::No };
             if self.lane_stage(el, l, create, e) {
@@ -358,15 +368,15 @@ impl Runtime {
             let unstaged = self.nodes[el].pending.is_none();
             let compare_value = match self.nodes[el].pending.clone() {
                 Some(v) => v,
-                None => match self.nodes[el].lane.clone() {
+                None => match self.nodes[el].ext.lane.clone() {
                     Some(l) if self.nodes[el].config & CONFIG_OVERRIDE != 0 => l,
                     _ => self.nodes[el].value.clone(),
                 },
             };
             let value_changed = (unstaged && was_uninitialized != 0 && is_effect == 0)
-                || self.nodes[el].shown_error.is_some()
+                || self.nodes[el].ext.shown_error.is_some()
                 || replaced != 0
-                || self.nodes[el].pending_err.is_some()
+                || self.nodes[el].ext.pending_err.is_some()
                 || !self.is_same(el, &compare_value, &value);
             if is_effect != 0
                 && value_changed
@@ -375,7 +385,7 @@ impl Runtime {
                     && self.nodes[el].prev_value == value)
                 && unstaged
             {
-                self.nodes[el].modified = self.nodes[el].error.is_none();
+                self.nodes[el].modified = self.nodes[el].ext.error.is_none();
                 if !create {
                     self.enqueue(is_effect, QueueCallback::RunEffect(el), lane);
                 }
@@ -393,7 +403,7 @@ impl Runtime {
                     } else if is_effect != 0 || self.txs[l].shown {
                         self.set_pending(el, Some(value.clone()));
                     } else {
-                        self.nodes[el].lane = Some(value.clone());
+                        self.nodes[el].ext.lane = Some(value.clone());
                     }
                 } else if if create {
                     !((self.flush_transaction.is_some() || self.pass_tx.is_some())
@@ -408,7 +418,7 @@ impl Runtime {
                 } else {
                     self.set_pending(el, Some(value.clone()));
                     if outgoing_error.is_some() {
-                        self.nodes[el].shown_error = outgoing_error.clone();
+                        self.nodes[el].ext.shown_error = outgoing_error.clone();
                     }
                     if create {
                         let t = self
@@ -429,13 +439,13 @@ impl Runtime {
                 }
             } else if self.nodes[el].height != old_height {
                 let mut s = self.nodes[el].subs;
-                while let Some(l) = s {
+                while let Some(l) = s.get() {
                     let sub = self.links[l].sub;
                     self.insert_into_heap_height(sub);
                     s = self.links[l].next_sub;
                 }
             }
-            if !value_changed && self.nodes[el].error.is_none() {
+            if !value_changed && self.nodes[el].ext.error.is_none() {
                 if let Some(oe) = outgoing_error.clone() {
                     self.settle_errored_dependents(el, oe);
                 }
@@ -467,7 +477,7 @@ impl Runtime {
                 }
             }
         }
-        if self.nodes[el].error.is_none()
+        if self.nodes[el].ext.error.is_none()
             && self.nodes[el].pending.is_none()
             && !(is_effect != 0 && self.nodes[el].modified)
         {
@@ -478,8 +488,8 @@ impl Runtime {
             }
         }
         if self.nodes[el].pending.is_some()
-            || self.nodes[el].pending_first_child.is_some()
-            || !self.nodes[el].pending_disposal.is_empty()
+            || self.nodes[el].frame.pending_first_child.is_some()
+            || !self.nodes[el].frame.pending_disposal.is_empty()
             || (self.nodes[el].status & (STATUS_PENDING | STATUS_UNINITIALIZED) != 0
                 && (!create || self.nodes[el].status & STATUS_PENDING != 0))
         {
@@ -508,7 +518,7 @@ impl Runtime {
         }
         if self.nodes[el].flags & REACTIVE_CHECK != 0 {
             let mut d = self.nodes[el].deps;
-            while let Some(l) = d {
+            while let Some(l) = d.get() {
                 let dep = self.links[l].dep;
                 if self.nodes[dep].fn_.is_some() {
                     self.update_if_necessary(dep);
@@ -520,9 +530,9 @@ impl Runtime {
             }
         }
         if self.nodes[el].flags & REACTIVE_DIRTY != 0
-            || (self.nodes[el].error.is_some()
+            || (self.nodes[el].ext.error.is_some()
                 && self.nodes[el].time < self.clock
-                && self.nodes[el].in_flight.is_none())
+                && self.nodes[el].ext.in_flight.is_none())
         {
             self.recompute(el, false);
         }
@@ -680,7 +690,7 @@ impl Runtime {
 
     // Solid: core.ts:1426-1430 (`creatorReads`)
     pub(super) fn creator_reads(&self, p: NodeId, born: u32) -> u32 {
-        match self.creator_pass(self.nodes[p].parent) {
+        match self.creator_pass(self.nodes[p].parent.get()) {
             Some(q) if self.nodes[q].flags & REACTIVE_RECOMPUTING_DEPS != 0 => {
                 self.creator_reads(q, born | self.nodes[q].flags)
             }
@@ -692,8 +702,8 @@ impl Runtime {
     fn park_children(&mut self, el: NodeId) {
         self.nodes[el].x = true; // `ext(el)`
         self.mark_disposal(el);
-        self.nodes[el].pending_disposal = std::mem::take(&mut self.nodes[el].disposal);
-        self.nodes[el].pending_first_child = self.nodes[el].first_child.take();
+        self.nodes[el].frame.pending_disposal = std::mem::take(&mut self.nodes[el].disposal);
+        self.nodes[el].frame.pending_first_child = self.nodes[el].first_child.take();
         // `el._childCount = 0`: ids are not ported.
     }
 
@@ -724,7 +734,7 @@ impl Runtime {
         self.nodes[n].prev_heap = n;
         let parent = self.creator_pass(self.context);
         if let Some(ctx) = self.context {
-            self.nodes[n].parent = Some(ctx);
+            self.nodes[n].parent = Ix::from(Some(ctx));
             self.link_child(ctx, n);
         }
         if let Some(p) = parent {
@@ -752,7 +762,7 @@ impl Runtime {
             // A dormant observation-lifecycle node (a boundary's lazy
             // fallback its output stopped reading) reawakens: relinked under
             // its owner, unless that owner died, and recomputed.
-            if let Some(parent) = self.nodes[comp].parent {
+            if let Some(parent) = self.nodes[comp].parent.get() {
                 if self.nodes[parent].flags & REACTIVE_DISPOSED != 0 {
                     self.nodes[comp].config &= !CONFIG_AUTO_DISPOSE;
                     return;
@@ -783,8 +793,8 @@ impl Runtime {
             return None;
         }
         if n.config & CONFIG_HELD != 0 {
-            return if n.flushed_at == self.clock as i64 {
-                n.flushed.clone()
+            return if n.ext.flushed_at == self.clock as i64 {
+                n.ext.flushed.clone()
             } else {
                 None
             };
@@ -796,9 +806,9 @@ impl Runtime {
     fn stash_flushed(&mut self, el: NodeId) {
         let clock = self.clock as i64;
         let n = &mut self.nodes[el];
-        if n.flushed_at != clock {
-            n.flushed = n.pending.clone();
-            n.flushed_at = clock;
+        if n.ext.flushed_at != clock {
+            n.ext.flushed = n.pending.clone();
+            n.ext.flushed_at = clock;
             self.unflushed_staged = true;
         }
     }
@@ -894,15 +904,15 @@ impl Runtime {
         if self.nodes[c].flags & REACTIVE_MISSED_WAKE != 0 {
             return true;
         }
-        if !(self.nodes[c].pending.is_none() && self.nodes[c].served != self.clock as i64) {
+        if !(self.nodes[c].pending.is_none() && self.nodes[c].ext.served != self.clock as i64) {
             return false;
         }
         if self.nodes[c].status & STATUS_PENDING != 0 {
-            let source = match self.nodes[owner].error.as_deref() {
+            let source = match self.nodes[owner].ext.error.as_deref() {
                 Some(Thrown::NotReady(s)) => *s,
                 _ => panic!("a pending read's error is a NotReadyError"),
             };
-            let deleted = match (self.nodes[c].pending_sources, source) {
+            let deleted = match (self.nodes[c].ext.pending_sources, source) {
                 (Some(s), Some(src)) => self.set_delete(s, src),
                 _ => false,
             };
@@ -911,7 +921,7 @@ impl Runtime {
             }
         }
         self.nodes[c].x = true; // `ext(c)._served`
-        self.nodes[c].served = self.clock as i64;
+        self.nodes[c].ext.served = self.clock as i64;
         self.nodes[c].flags |= REACTIVE_MISSED_WAKE;
         true
     }
@@ -1089,14 +1099,14 @@ impl Runtime {
     /// `throw owner._x?._error` (a thrown `undefined` is not reached).
     fn thrown_error(&self, el: NodeId) -> Error {
         self.nodes[el]
-            .error
+            .ext.error
             .clone()
             .expect("a pending or errored node carries its error")
     }
 
     // Solid: core.ts:2452-2457
     fn throw_shown(&self, el: NodeId) -> Result<(), Error> {
-        match &self.nodes[el].shown_error {
+        match &self.nodes[el].ext.shown_error {
             Some(e) => Err(e.clone()),
             None => Ok(()),
         }
@@ -1137,7 +1147,7 @@ impl Runtime {
         self.staged_read(c.unwrap(), Some(el));
         if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
             return Err(self.nodes[el]
-                .pending_err
+                .ext.pending_err
                 .clone()
                 .expect("a staged error carries its error"));
         }
@@ -1195,7 +1205,7 @@ impl Runtime {
     /// object it held is replaced.
     pub(super) fn set_pending(&mut self, el: NodeId, v: Slot) {
         self.nodes[el].pending = v;
-        self.nodes[el].pending_err = None;
+        self.nodes[el].ext.when_set(|g| g.pending_err = None);
     }
 
     // Solid: core.ts:2693-2797 (default equality; no write hook, snapshot,
@@ -1230,8 +1240,8 @@ impl Runtime {
         // no value equals.
         let custom = self.nodes[el].eq != Equals::IsEqual;
         let value_changed = self.nodes[el].status & STATUS_UNINITIALIZED != 0
-            || self.nodes[el].shown_error.is_some()
-            || self.nodes[el].pending_err.is_some()
+            || self.nodes[el].ext.shown_error.is_some()
+            || self.nodes[el].ext.pending_err.is_some()
             || if custom {
                 !self.is_same(el, &current, &v)
             } else {
@@ -1251,7 +1261,7 @@ impl Runtime {
         let netted = custom
             && was_staged
             && !(self.nodes[el].status & STATUS_UNINITIALIZED != 0
-                || self.nodes[el].shown_error.is_some())
+                || self.nodes[el].ext.shown_error.is_some())
             && self.is_same(el, &self.nodes[el].value.clone(), &v);
         let staged = if netted {
             self.nodes[el].value.clone()

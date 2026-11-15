@@ -21,8 +21,8 @@ impl Runtime {
     // Solid: lanes.ts:128-135
     pub(super) fn display(&self, el: NodeId) -> Slot {
         let n = &self.nodes[el];
-        let shown = n.transaction.is_some_and(|t| self.txs[t].shown);
-        match n.lane.clone() {
+        let shown = n.ext.transaction.is_some_and(|t| self.txs[t].shown);
+        match n.ext.lane.clone() {
             Some(v) if shown => Some(v),
             _ if n.status & STATUS_UNINITIALIZED != 0 => None,
             _ => Some(n.value.clone()),
@@ -53,9 +53,9 @@ impl Runtime {
 
     // Solid: lanes.ts:174-181
     pub(super) fn take(&mut self, n: NodeId, l: TxId, d: bool) {
-        let lane = self.nodes[n].lane.clone();
-        let tx = self.nodes[n].transaction;
-        let q = self.nodes[n].q;
+        let lane = self.nodes[n].ext.lane.clone();
+        let tx = self.nodes[n].ext.transaction;
+        let q = self.nodes[n].ext.q;
         self.kept.push((n, lane, tx, q, l));
         self.rerun(n, l);
         self.nodes[n].config &= if d {
@@ -64,8 +64,8 @@ impl Runtime {
             !CONFIG_GUESS
         };
         if d {
-            self.nodes[n].transaction = None;
-            self.nodes[n].lane = None;
+            self.nodes[n].ext.when_set(|g| g.transaction = None);
+            self.nodes[n].ext.when_set(|g| g.lane = None);
         } else {
             self.list(n, l);
         }
@@ -74,7 +74,7 @@ impl Runtime {
     // Solid: lanes.ts:183-185
     fn rerun(&mut self, n: NodeId, t: TxId) {
         let mut s = self.nodes[n].subs;
-        while let Some(link) = s {
+        while let Some(link) = s.get() {
             let sub = self.links[link].sub;
             self.stale_reader(sub, t);
             s = self.links[link].next_sub;
@@ -130,7 +130,7 @@ impl Runtime {
                     self.set_pending(n, None);
                     self.nodes[n].config |= CONFIG_GUESS;
                 }
-                self.nodes[n].lane = Some(v.clone());
+                self.nodes[n].ext.lane = Some(v.clone());
                 let t = self.tx_of(n);
                 holder = self.txs[t].parent;
             } else {
@@ -152,14 +152,14 @@ impl Runtime {
                         }
                     }
                 };
-                self.nodes[n].lane = Some(v.clone());
+                self.nodes[n].ext.lane = Some(v.clone());
                 self.nodes[n].config |= CONFIG_OVERRIDE | CONFIG_GUESS;
                 self.list(n, l);
             }
             if let (Some(p), Some(h)) = (parent, holder) {
                 self.merge(p, h);
             }
-            self.nodes[n].q = q;
+            self.nodes[n].ext.q = q;
             if changed {
                 let t = self.tx_of(n);
                 self.lane_dirty(n, t);
@@ -323,7 +323,7 @@ impl Runtime {
             || self.nodes[el].flags & REACTIVE_LANE_READ != 0
             || self.nodes[el].config & CONFIG_GUESS != 0)
         {
-            if let Some(tx) = self.nodes[el].transaction.filter(|t| self.txs[*t].lane) {
+            if let Some(tx) = self.nodes[el].ext.transaction.filter(|t| self.txs[*t].lane) {
                 if self.txs[tx].shown {
                     let parent = self.resolve_tx(self.txs[tx].parent.unwrap());
                     if self.flush_transaction.is_none() || !self.blocked(parent) {
@@ -333,9 +333,9 @@ impl Runtime {
                         self.nodes[el].value = self.display(el).unwrap_or(Value::NotPending);
                     }
                 }
-                self.nodes[el].transaction = None;
+                self.nodes[el].ext.when_set(|g| g.transaction = None);
             }
-            self.nodes[el].lane = None;
+            self.nodes[el].ext.when_set(|g| g.lane = None);
             self.nodes[el].config &= !(CONFIG_OVERRIDE | CONFIG_HELD | CONFIG_HELD_FRAME);
             return false;
         }
@@ -347,7 +347,7 @@ impl Runtime {
                 self.nodes[el].x = true; // `ext(el)`
             }
             let other = self.nodes[el]
-                .transaction
+                .ext.transaction
                 .filter(|t| self.txs[*t].lane)
                 .is_some_and(|t| {
                     let a = self.resolve_tx(self.txs[t].parent.unwrap());
@@ -364,7 +364,7 @@ impl Runtime {
                 if self.nodes[src].status & STATUS_UNINITIALIZED == 0
                     && (self.nodes[el].config & CONFIG_HELD != 0
                         || self.nodes[el].flags & REACTIVE_RECOMPUTING_DEPS != 0)
-                    && !self.nodes[el].transaction.is_some_and(|t| self.txs[t].lane)
+                    && !self.nodes[el].ext.transaction.is_some_and(|t| self.txs[t].lane)
                 {
                     self.queue_pending_node(el);
                     return false;
@@ -383,7 +383,7 @@ impl Runtime {
         let mut changed = changed;
         if changed
             && self.nodes[n].config & CONFIG_SLOT_NODE != 0
-            && self.echoes_hook(self.nodes[n].lane.as_ref().unwrap_or(&Value::Undef), &value)
+            && self.echoes_hook(self.nodes[n].ext.lane.as_ref().unwrap_or(&Value::Undef), &value)
         {
             changed = false;
         }
@@ -393,10 +393,10 @@ impl Runtime {
                 self.reverted.push(l);
             }
             if self.txs[l].shown {
-                self.nodes[n].value = self.nodes[n].lane.clone().unwrap_or(Value::NotPending);
+                self.nodes[n].value = self.nodes[n].ext.lane.clone().unwrap_or(Value::NotPending);
             }
             self.nodes[n].config &= !(CONFIG_OVERRIDE | CONFIG_GUESS);
-            self.nodes[n].lane = None;
+            self.nodes[n].ext.when_set(|g| g.lane = None);
             self.hold_node(n, parent);
             if self.nodes[n].subs.is_some() {
                 self.insert_subs(n);
@@ -426,33 +426,33 @@ impl Runtime {
             let n = self.txs[l].nodes[i];
             i += 1;
             if Some(n) == except
-                || self.nodes[n].transaction != Some(l)
+                || self.nodes[n].ext.transaction != Some(l)
                 || self.nodes[n].flags & REACTIVE_DISPOSED != 0
             {
                 continue;
             }
             let effect = self.nodes[n].effect_type;
             let guess = self.nodes[n].config & CONFIG_GUESS;
-            let slot = self.nodes[n].lane.clone();
+            let slot = self.nodes[n].ext.lane.clone();
             let shown = if self.txs[l].shown && effect == 0 {
                 slot.clone()
             } else {
                 Some(self.nodes[n].value.clone())
             };
             let latest = self.lane_value_of(n);
-            self.nodes[n].lane = None;
+            self.nodes[n].ext.when_set(|g| g.lane = None);
             self.nodes[n].config &= !(CONFIG_OVERRIDE | CONFIG_GUESS);
             match into {
                 None => {
-                    self.nodes[n].transaction = None;
+                    self.nodes[n].ext.when_set(|g| g.transaction = None);
                     if effect == 0 && guess == 0 {
                         let first_load = slot.is_none()
                             && self.nodes[n].status & (STATUS_UNINITIALIZED | STATUS_PENDING)
                                 == STATUS_UNINITIALIZED | STATUS_PENDING
-                            && (self.nodes[n].in_flight.is_some()
+                            && (self.nodes[n].ext.in_flight.is_some()
                                 || loading
                                     .iter()
-                                    .any(|q| self.set_has(self.nodes[n].pending_sources, *q)));
+                                    .any(|q| self.set_has(self.nodes[n].ext.pending_sources, *q)));
                         if first_load {
                             loading.push(n);
                         } else if self.nodes[n].pending.is_none() {
@@ -477,7 +477,7 @@ impl Runtime {
                     }
                     if self.nodes[n].flags & REACTIVE_FRAME_READ != 0
                         && self.nodes[n].status & STATUS_ERROR != 0
-                        && self.nodes[n].error.as_ref().and_then(|e| e.source()) == Some(Some(n))
+                        && self.nodes[n].ext.error.as_ref().and_then(|e| e.source()) == Some(Some(n))
                     {
                         self.enqueue_sub(n);
                     }
@@ -499,13 +499,13 @@ impl Runtime {
                     self.insert_subs(n);
                 }
                 Some(_) => {
-                    self.nodes[n].transaction = None;
+                    self.nodes[n].ext.when_set(|g| g.transaction = None);
                     if effect == 0 {
                         if shown.is_some() && self.txs[l].shown {
                             self.set_pending(n, shown);
                         }
                         if self.nodes[n].status & STATUS_PENDING != 0 {
-                            self.nodes[n].in_flight = None;
+                            self.nodes[n].ext.when_set(|g| g.in_flight = None);
                             self.enqueue_sub(n);
                         }
                     }
@@ -515,8 +515,8 @@ impl Runtime {
                             self.nodes[n].config |= CONFIG_INPUTS_PUBLISHED;
                         }
                     } else {
-                        if self.nodes[n].pending_first_child.is_some()
-                            || !self.nodes[n].pending_disposal.is_empty()
+                        if self.nodes[n].frame.pending_first_child.is_some()
+                            || !self.nodes[n].frame.pending_disposal.is_empty()
                         {
                             self.dispose_children(n, false, true);
                         }
@@ -559,7 +559,7 @@ impl Runtime {
                 return Ok(self.display(el));
             }
         } else if self.nodes[c].effect_type == EFFECT_RENDER {
-            let never = pending && self.nodes[el].lane.is_none();
+            let never = pending && self.nodes[el].ext.lane.is_none();
             // A verdict lane's seat leaves the lane for a node it cannot
             // show, or another lane's.
             if let Some(p) = self.pass_lane {
@@ -606,10 +606,10 @@ impl Runtime {
 
     // Solid: lanes.ts:1245-1249 (`laneServedHook`)
     pub(super) fn lane_served(&mut self, c: NodeId, el: NodeId) {
-        let Some(from) = self.nodes[el].pending_sources else {
+        let Some(from) = self.nodes[el].ext.pending_sources else {
             return;
         };
-        if self.nodes[c].pending_sources.is_none() {
+        if self.nodes[c].ext.pending_sources.is_none() {
             return;
         }
         let mut i = 0;
@@ -636,7 +636,7 @@ impl Runtime {
     fn guess_flights(&self, l: TxId) -> bool {
         self.txs[l].nodes.iter().any(|&n| {
             self.nodes[n].config & CONFIG_GUESS != 0
-                && self.nodes[n].transaction == Some(l)
+                && self.nodes[n].ext.transaction == Some(l)
                 && self.in_flight(n)
         })
     }
@@ -663,7 +663,7 @@ impl Runtime {
             while i < self.txs[l].nodes.len() && self.lanes.contains(&l) {
                 let n = self.txs[l].nodes[i];
                 i += 1;
-                if self.nodes[n].config & CONFIG_GUESS != 0 && self.nodes[n].transaction == Some(l)
+                if self.nodes[n].config & CONFIG_GUESS != 0 && self.nodes[n].ext.transaction == Some(l)
                 {
                     let truth = match self.nodes[n].pending.clone() {
                         Some(p) => p,
@@ -673,7 +673,7 @@ impl Runtime {
                     if self.guessed {
                         self.reverting = self.nodes[n].pending.is_none();
                     }
-                    let changed = !self.equals_slot(n, &self.nodes[n].lane, &Some(truth.clone()));
+                    let changed = !self.equals_slot(n, &self.nodes[n].ext.lane, &Some(truth.clone()));
                     self.supersede(n, truth, changed);
                     if self.guessed {
                         self.reverting = false;
@@ -712,21 +712,21 @@ impl Runtime {
             if self.nodes[n].notified_at == LEFT_SHOWN {
                 self.insert_subs(n);
             }
-            if self.nodes[n].transaction != Some(l) {
+            if self.nodes[n].ext.transaction != Some(l) {
                 continue;
             }
             if self.nodes[n].config & CONFIG_GUESS == 0 && self.nodes[n].effect_type == 0 {
                 // `x._lane = n._pendingValue`: a staged error (D-41) moves as
                 // the `StatusError` object; CONFIG_STAGED_ERROR stays set.
                 if let Some(p) = self.pending_value(n) {
-                    self.nodes[n].lane = Some(p);
+                    self.nodes[n].ext.lane = Some(p);
                     self.set_pending(n, None);
                 }
             }
             // The frame this pass built is the screen's now; the one it
             // replaced goes.
-            if self.nodes[n].pending_first_child.is_some()
-                || !self.nodes[n].pending_disposal.is_empty()
+            if self.nodes[n].frame.pending_first_child.is_some()
+                || !self.nodes[n].frame.pending_disposal.is_empty()
             {
                 self.dispose_children(n, false, true);
             }
@@ -775,10 +775,10 @@ impl Runtime {
                 {
                     let g = g.unwrap();
                     self.nodes[n].x = true; // `ext(n)`
-                    if self.nodes[n].transaction.is_none() || self.tx_of(n) == u {
+                    if self.nodes[n].ext.transaction.is_none() || self.tx_of(n) == u {
                         self.commit_pending_node(n);
-                        self.nodes[n].lane = v;
-                        self.nodes[n].q = q;
+                        self.nodes[n].ext.lane = v;
+                        self.nodes[n].ext.q = q;
                         self.nodes[n].config |= CONFIG_OVERRIDE | CONFIG_GUESS;
                         self.list(n, g);
                         self.rerun(n, u);
@@ -835,7 +835,7 @@ impl Runtime {
                 self.schedule();
                 return;
             }
-            let changed = !self.equals_slot(el, &self.nodes[el].lane, &Some(v.clone()));
+            let changed = !self.equals_slot(el, &self.nodes[el].ext.lane, &Some(v.clone()));
             self.supersede(el, v, changed);
         } else {
             let l = self.tx_of(el);
@@ -845,7 +845,7 @@ impl Runtime {
             if self.txs[l].shown {
                 self.set_pending(el, Some(v.clone()));
             } else {
-                self.nodes[el].lane = Some(v);
+                self.nodes[el].ext.lane = Some(v);
             }
             if self.nodes[el].fn_.is_some() {
                 self.nodes[el].time = self.clock;
@@ -865,24 +865,24 @@ impl Runtime {
             self.nodes[el].config |= CONFIG_HELD;
             return true;
         }
-        let changed = !self.equals_slot(el, &self.nodes[el].lane, &Some(value.clone()));
+        let changed = !self.equals_slot(el, &self.nodes[el].ext.lane, &Some(value.clone()));
         self.supersede(el, value, changed);
         true
     }
 
     // Solid: lanes.ts:1028-1030
     fn stale(&self, el: NodeId, q: u64) -> bool {
-        q != 0 && q < self.nodes[el].q
+        q != 0 && q < self.nodes[el].ext.q
     }
 
     // Solid: lanes.ts:1035-1042
     fn answered(&self, el: NodeId) -> u64 {
         let mut q = 0;
         let mut l = self.nodes[el].deps;
-        while let Some(link) = l {
+        while let Some(link) = l.get() {
             let d = self.links[link].dep;
-            if self.nodes[d].q > q && self.nodes[d].time == self.clock {
-                q = self.nodes[d].q;
+            if self.nodes[d].ext.q > q && self.nodes[d].time == self.clock {
+                q = self.nodes[d].ext.q;
             }
             l = self.links[link].next_dep;
         }
@@ -900,7 +900,7 @@ impl Runtime {
     // Solid: lanes.ts:1082-1086
     fn reads_held(&self, r: NodeId) -> bool {
         let mut d = self.nodes[r].deps;
-        while let Some(l) = d {
+        while let Some(l) = d.get() {
             if self.nodes[self.links[l].dep].config & CONFIG_HELD != 0 {
                 return true;
             }
@@ -927,11 +927,11 @@ impl Runtime {
                     i += 1;
                     if n == r
                         || self.nodes[n].status & STATUS_PENDING == 0
-                        || (self.nodes[n].transaction.is_some() && self.tx_of(n) != x)
+                        || (self.nodes[n].ext.transaction.is_some() && self.tx_of(n) != x)
                     {
                         continue;
                     }
-                    let s = self.nodes[n].pending_sources;
+                    let s = self.nodes[n].ext.pending_sources;
                     let only_r =
                         s.is_some_and(|s| self.sets[s].size == 1 && self.set_has(Some(s), r));
                     if self.nodes[n].effect_type != EFFECT_RENDER || !only_r {
@@ -966,7 +966,7 @@ impl Runtime {
             while i < self.staged_readers.len() {
                 let r = self.staged_readers[i];
                 i += 1;
-                let l = self.nodes[r].transaction.or(
+                let l = self.nodes[r].ext.transaction.or(
                     if self.nodes[r].flags & REACTIVE_STAGED_READ != 0 {
                         Some(t)
                     } else {
@@ -1002,18 +1002,18 @@ impl Runtime {
                 } else if lane.is_none() && self.nodes[r].flags & REACTIVE_PROBE_UNANSWERED != 0 {
                     // R5 for an async reader: the landing adopts its frame
                     // flight (`_parked`, `adoptParked`) — not ported.
-                    if self.nodes[r].in_flight.is_some() {
+                    if self.nodes[r].ext.in_flight.is_some() {
                         if !self.blocked(t) {
                             continue;
                         }
                         panic!("a parked frame flight (lanes.ts:1176-1178, `adoptParked`) is not ported");
                     } else if self.blocked(t) {
                         let mut sl = self.nodes[r].subs;
-                        while let Some(link) = sl {
+                        while let Some(link) = sl.get() {
                             let n = self.links[link].sub;
                             sl = self.links[link].next_sub;
-                            if self.nodes[n].in_flight.is_some()
-                                && self.set_has(self.nodes[n].pending_sources, n)
+                            if self.nodes[n].ext.in_flight.is_some()
+                                && self.set_has(self.nodes[n].ext.pending_sources, n)
                                 && self.nodes[n].config & CONFIG_HELD != 0
                                 && self.tx_of(n) == t
                             {
@@ -1050,7 +1050,7 @@ impl Runtime {
         // A verdict reader that entered a lane this seam held re-derives next
         // round from the frame's seat (#4284).
         while let Some(r) = self.entered.pop() {
-            if self.nodes[r].transaction.is_some_and(|t| self.txs[t].held) {
+            if self.nodes[r].ext.transaction.is_some_and(|t| self.txs[t].held) {
                 self.nodes[r].flags &= !REACTIVE_LANE_DIRTY;
                 self.enqueue_sub(r);
             }

@@ -31,7 +31,7 @@ impl Runtime {
         // `GlobalQueue._truth = truthRead; GlobalQueue._confirmed = truthConfirmed`
         self.truth = true;
         let w = self.computed_node(
-            Body::Waiter { target, own },
+            Body::Waiter(Box::new((target, own))),
             None,
             CONFIG_FRESH_READ | CONFIG_AUTHORITATIVE,
         );
@@ -50,7 +50,7 @@ impl Runtime {
             let n = &self.nodes[target];
             if n.config & CONFIG_GUESS != 0 && n.status & (STATUS_PENDING | STATUS_ERROR) != 0 {
                 return Err(n
-                    .error
+                    .ext.error
                     .clone()
                     .expect("a pending or errored node carries its error"));
             }

@@ -10,7 +10,7 @@ impl Runtime {
         if n.config & CONFIG_GUESS == 0 && n.pending.is_some() {
             return n.pending.clone();
         }
-        match n.lane.clone() {
+        match n.ext.lane.clone() {
             Some(v) => Some(v),
             None if n.status & STATUS_UNINITIALIZED != 0 => None,
             None => Some(n.value.clone()),
@@ -21,7 +21,7 @@ impl Runtime {
     /// CONFIG_STAGED_ERROR) is the `StatusError` object itself.
     pub(super) fn pending_value(&self, el: NodeId) -> Slot {
         let n = &self.nodes[el];
-        match &n.pending_err {
+        match &n.ext.pending_err {
             Some(e) if n.pending.is_some() => Some(Value::Error(e.clone())),
             _ => n.pending.clone(),
         }
@@ -65,7 +65,7 @@ impl Runtime {
             let n = self.txs[l].nodes[i];
             i += 1;
             let mut s = self.nodes[n].subs;
-            while let Some(link) = s {
+            while let Some(link) = s.get() {
                 let sub = self.links[link].sub;
                 if self.nodes[sub].config & CONFIG_AUTHORITATIVE != 0 {
                     self.enqueue_sub(sub);
@@ -81,15 +81,15 @@ impl Runtime {
         if node.config & CONFIG_GUESS != 0 {
             // A staged error is an object no guess equals.
             return node.pending.is_some()
-                && node.pending_err.is_none()
-                && self.equals_slot(n, &node.lane, &node.pending);
+                && node.ext.pending_err.is_none()
+                && self.equals_slot(n, &node.ext.lane, &node.pending);
         }
         if node.pending.is_some() {
             return false;
         }
         if node.config & CONFIG_OVERRIDE != 0 {
             let mut d = node.deps;
-            while let Some(l) = d {
+            while let Some(l) = d.get() {
                 if !self.truth_of(self.links[l].dep) {
                     return false;
                 }

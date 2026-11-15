@@ -55,7 +55,7 @@ impl Runtime {
         }
         // `c._fam?.live.size !== 0`: a derived store's derive with no
         // reader observes nothing.
-        let live = match self.nodes[c].fam {
+        let live = match self.nodes[c].fam.get() {
             None => true,
             Some(f) => self.store.families[f].live.size() != 0,
         };
@@ -101,15 +101,15 @@ impl Runtime {
 
     // Solid: verdict.ts:240-248 (`quietPending`)
     fn quiet_pending(&self, el: NodeId) -> bool {
-        if let Some(s) = self.nodes[el].pending_sources {
+        if let Some(s) = self.nodes[el].ext.pending_sources {
             for source in self.set_values(s) {
-                if !self.nodes[source].reask {
+                if !self.nodes[source].ext.reask {
                     return false;
                 }
             }
             return true;
         }
-        self.nodes[el].reask
+        self.nodes[el].ext.reask
     }
 
     // Solid: verdict.ts:264-274 (`heldNotFinal`)
@@ -120,9 +120,9 @@ impl Runtime {
         }
         n.pending.is_some()
             && !self.latest_active
-            && !n.reask
-            && (n.shown_error.is_some()
-                || n.pending_err.is_some()
+            && !n.ext.reask
+            && (n.ext.shown_error.is_some()
+                || n.ext.pending_err.is_some()
                 || !self.equals_slot(owner, &Some(n.value.clone()), &n.pending))
     }
 
@@ -222,7 +222,7 @@ impl Runtime {
     fn staged(&self, el: NodeId) -> Result<Value, Error> {
         if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
             return Err(self.nodes[el]
-                .pending_err
+                .ext.pending_err
                 .clone()
                 .expect("a staged error carries its error"));
         }
@@ -262,7 +262,7 @@ impl Runtime {
             // #4544: asked of this staging, under its hold or this flush.
             if self.nodes[el].pending.is_some() {
                 self.nodes[el].x = true;
-                self.nodes[el].asked_in = if self.nodes[el].config & CONFIG_HELD != 0 {
+                self.nodes[el].ext.asked_in = if self.nodes[el].config & CONFIG_HELD != 0 {
                     AskedIn::Tx(self.tx_of(el))
                 } else {
                     match self.flush_transaction {
@@ -312,8 +312,8 @@ impl Runtime {
                     if self.probing
                         && (flying
                             || (n.pending.is_some()
-                                && (n.pending_err.is_some()
-                                    || !self.equals_slot(el, &n.lane, &n.pending))))
+                                && (n.ext.pending_err.is_some()
+                                    || !self.equals_slot(el, &n.ext.lane, &n.pending))))
                     {
                         self.probe_found = true;
                     }
@@ -321,16 +321,16 @@ impl Runtime {
                         return Ok(self.folded_read(None, el).expect("a folded value"));
                     }
                     return Ok(self.nodes[el]
-                        .lane
+                        .ext.lane
                         .clone()
                         .expect("a guess carries its lane value"));
                 }
                 if flying
                     && v == n.value
                     && status & STATUS_UNINITIALIZED != 0
-                    && (self.latest_active || n.shown_error.is_none())
+                    && (self.latest_active || n.ext.shown_error.is_none())
                 {
-                    return Err(n.error.clone().expect("a pending node carries its error"));
+                    return Err(n.ext.error.clone().expect("a pending node carries its error"));
                 }
                 if self.probing && flying {
                     self.probe_found = true;
@@ -364,7 +364,7 @@ impl Runtime {
                                 self.watch_verdict(cc, false);
                                 return self.staged(el);
                             }
-                            if self.nodes[cc].q == 0 {
+                            if self.nodes[cc].ext.q == 0 {
                                 self.stale_reader(cc, t);
                             }
                         }
@@ -375,7 +375,7 @@ impl Runtime {
                             if let Some(cc) = c {
                                 if owned
                                     && !tracked
-                                    && self.nodes[cc].q == 0
+                                    && self.nodes[cc].ext.q == 0
                                     && self.nodes[cc].status & STATUS_UNINITIALIZED == 0
                                 {
                                     self.watch_verdict(cc, false);
@@ -441,13 +441,13 @@ impl Runtime {
                 }
             }
             return Err(self.nodes[el]
-                .error
+                .ext.error
                 .clone()
                 .expect("a pending node carries its error"));
         }
         if self.nodes[el].fn_.is_some() && status & STATUS_ERROR != 0 {
             return Err(self.nodes[el]
-                .error
+                .ext.error
                 .clone()
                 .expect("an errored node carries its error"));
         }
@@ -465,11 +465,11 @@ impl Runtime {
         {
             return false;
         }
-        match self.nodes[el].asked_in {
+        match self.nodes[el].ext.asked_in {
             AskedIn::Clock(k) if k == self.clock => return false,
             AskedIn::Tx(t) => {
                 let held = if self.nodes[el].config & CONFIG_HELD != 0 {
-                    self.nodes[el].transaction
+                    self.nodes[el].ext.transaction
                 } else {
                     self.flush_transaction
                 };
@@ -541,7 +541,7 @@ impl Runtime {
         if self.nodes[node].effect_type != EFFECT_RENDER
             || !(self.nodes[node].config & CONFIG_VERDICT != 0
                 || self.nodes[node]
-                    .transaction
+                    .ext.transaction
                     .is_some_and(|t| self.txs[t].lane))
         {
             return false;
@@ -562,7 +562,7 @@ impl Runtime {
         let node = &self.nodes[n];
         if node.config & CONFIG_ASYNC != 0
             && (node.status & STATUS_PENDING == 0
-                || node.transaction.is_some_and(|t| self.txs[t].lane)
+                || node.ext.transaction.is_some_and(|t| self.txs[t].lane)
                 || self.nodes[source].flags & REACTIVE_REASK != 0)
         {
             self.nodes[n].config &= !CONFIG_VERDICT;
@@ -574,7 +574,7 @@ impl Runtime {
     // Solid: verdict.ts:796-813 (`keepReadersHook`)
     pub(super) fn keep_readers(&mut self, el: NodeId) {
         let mut s = self.nodes[el].subs;
-        while let Some(link) = s {
+        while let Some(link) = s.get() {
             let r = self.links[link].sub;
             s = self.links[link].next_sub;
             if self.nodes[r].config & (CONFIG_HELD | CONFIG_STAGED) != CONFIG_HELD | CONFIG_STAGED
@@ -583,7 +583,7 @@ impl Runtime {
                 continue;
             }
             let mut d = self.nodes[r].deps;
-            while let Some(l) = d {
+            while let Some(l) = d.get() {
                 let dep = self.links[l].dep;
                 if !(dep == el || self.nodes[dep].config & CONFIG_HELD == 0) {
                     break;
@@ -607,13 +607,13 @@ impl Runtime {
             && self.nodes[node].config & (CONFIG_REDERIVE | CONFIG_STAGED_ERROR | (3 << 23)) == 0
         {
             let mut d = self.nodes[node].deps;
-            while let Some(l) = d {
+            while let Some(l) = d.get() {
                 if self.nodes[self.links[l].dep].config & CONFIG_STAGED_ERROR != 0 {
                     self.nodes[node].pending = self.nodes[el].pending.clone();
-                    self.nodes[node].pending_err = self.nodes[el].pending_err.clone();
+                    self.nodes[node].ext.pending_err = self.nodes[el].ext.pending_err.clone();
                     self.nodes[node].config |= CONFIG_STAGED_ERROR;
                     self.queue_pending_node(node);
-                    if let Some(f) = self.nodes[node].fam {
+                    if let Some(f) = self.nodes[node].fam.get() {
                         self.family_status(f, STATUS_ERROR, None);
                     }
                     return self.settle_pending_source(node, node);

@@ -32,7 +32,9 @@ mod graph;
 mod heap;
 mod lanes;
 mod map;
+mod ix;
 mod node_table;
+use ix::Ix;
 mod owner;
 mod scheduler;
 mod signals;
@@ -115,18 +117,13 @@ type SetId = usize;
 #[derive(Clone)]
 enum Body {
     User(BodyFn),
-    Waiter {
-        target: NodeId,
-        own: Option<TxId>,
-    },
+    /// Boxed, like `Projection`: both are rare, and a body is on every
+    /// computed.
+    Waiter(Box<(NodeId, Option<TxId>)>),
     /// A derived store's derive (projection.ts:421-424 around
     /// `runProjectionComputed`): the store's root target, the user derive
     /// and the family's key option.
-    Projection {
-        root: TargetId,
-        derive: BodyFn,
-        key: Option<Rc<str>>,
-    },
+    Projection(Box<(TargetId, BodyFn, Option<Rc<str>>)>),
     /// `updateKeyedMap.bind(data)` (map.ts:102-105): a `mapArray`'s
     /// computed, by its `MapData`.
     Map(map::MapId),
@@ -207,9 +204,9 @@ const MAINLINE_QUESTION: u64 = 0x7fff_ffff;
 struct Link {
     dep: NodeId,
     sub: NodeId,
-    next_dep: Option<LinkId>,
-    prev_sub: Option<LinkId>,
-    next_sub: Option<LinkId>,
+    next_dep: Ix,
+    prev_sub: Ix,
+    next_sub: Ix,
     gen: u64,
 }
 
@@ -253,17 +250,17 @@ struct Node {
     pending: Slot,
     time: u64,
     notified_at: i64,
-    subs: Option<LinkId>,
-    subs_tail: Option<LinkId>,
+    subs: Ix,
+    subs_tail: Ix,
     // Computed.
     fn_: Option<Body>,
     /// `_loading`: a `loadingValue` node before its first real answer.
     loading: bool,
     height: i32,
-    next_heap: Option<NodeId>,
+    next_heap: Ix,
     prev_heap: NodeId,
-    deps: Option<LinkId>,
-    deps_tail: Option<LinkId>,
+    deps: Ix,
+    deps_tail: Ix,
     dep_gen: u64,
     // Effect.
     effect_type: u32,
@@ -273,21 +270,77 @@ struct Node {
     prev_value: Value,
     cleanup: Option<Cleanup>,
     // Owner.
-    parent: Option<NodeId>,
-    first_child: Option<NodeId>,
-    next_sibling: Option<NodeId>,
-    prev_sibling: Option<NodeId>,
+    parent: Ix,
+    first_child: Ix,
+    next_sibling: Ix,
+    prev_sibling: Ix,
     /// `_disposal`: the `onCleanup` list (owner.ts:338-344); empty is null.
     /// Run last-registered first (`runDisposal`), so a single entry and an
     /// array of one behave alike.
     disposal: Vec<Cleanup>,
     /// A root's `_parentComputed` (owner.ts:399/421, map.ts:410).
-    parent_computed: Option<NodeId>,
-    /// The parked frame (`_x._pendingFirstChild` / `_x._pendingDisposal`,
-    /// core.ts:1436-1444); an empty list is null.
-    pending_first_child: Option<NodeId>,
-    pending_disposal: Vec<Cleanup>,
-    // NodeExtension.
+    parent_computed: Ix,
+    /// A derived store's derive: `(node as any)._fam`.
+    fam: Ix,
+    /// `_context[BOUNDARY]` (boundaries.ts:133): the nearest boundary, the
+    /// context entry a node inherits from its owner at creation.
+    boundary: Ix,
+    /// Non-root nodes created before this one (its label in traces).
+    /// The cold extension's fields (`_x`, core.ts:1259-1279), boxed on first write.
+    ext: Cold<Ext>,
+    /// A store slot node's fields (core.ts:1668-1724 `slotSignal`).
+    slot: SlotFields,
+    /// The parked frame.
+    frame: Cold<Frame>,
+    serial: usize,
+    /// `_x !== null`: the cold extension was allocated (`ext()`, core.ts:
+    /// 1259). Its fields are inlined above; only an effect's first run reads
+    /// the difference (`node._x?._transaction` is undefined without one,
+    /// effect.ts:100, and `enqueue`'s lane defaults to `passLane` then).
+    x: bool,
+}
+
+/// A group of node fields most nodes never set. Reads of an unset group see
+/// its defaults; the first write allocates it.
+struct Cold<T: 'static>(Option<Box<T>>);
+
+trait ColdGroup: Sized + 'static {
+    fn empty() -> &'static Self;
+    fn fresh() -> Self;
+}
+
+impl<T: ColdGroup> std::ops::Deref for Cold<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &T {
+        match &self.0 {
+            Some(b) => b,
+            None => T::empty(),
+        }
+    }
+}
+
+impl<T: ColdGroup> Cold<T> {
+    /// Runs `f` on the group only if it was ever written; an unwritten group
+    /// already holds the defaults, so resetting a field to its default (or
+    /// taking it) needs no allocation.
+    #[inline]
+    fn when_set<R: Default>(&mut self, f: impl FnOnce(&mut T) -> R) -> R {
+        match &mut self.0 {
+            Some(b) => f(b),
+            None => R::default(),
+        }
+    }
+}
+
+impl<T: ColdGroup> std::ops::DerefMut for Cold<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.get_or_insert_with(|| Box::new(T::fresh()))
+    }
+}
+
+struct Ext {
     transaction: Option<TxId>,
     lane: Slot,
     q: u64,
@@ -305,30 +358,88 @@ struct Node {
     /// `_pendingValue` holding a `StatusError` (CONFIG_STAGED_ERROR, D-41):
     /// `pending` is then `Some(None)` and this is the staged error object.
     pending_err: Option<Error>,
-    // A store slot node (core.ts:1668-1724 `slotSignal`): its target, key,
-    // accessor verdict and wrap cache.
-    host: Option<TargetId>,
-    key: store::SlotKey,
-    acc: bool,
-    px: Value,
-    pxv: Value,
-    /// A derived store's derive: `(node as any)._fam`.
-    fam: Option<FamId>,
-    /// `_context[BOUNDARY]` (boundaries.ts:133): the nearest boundary, the
-    /// context entry a node inherits from its owner at creation.
-    boundary: Option<boundaries::BoundaryId>,
     /// `_x._marks` (affects-marks.ts): live `affects()` marks on the node.
     marks: u32,
     /// `_x._askedIn` (verdict.ts:475, #4544): the hold or flush a window
     /// asked of this node's staging in.
     asked_in: AskedIn,
-    /// Non-root nodes created before this one (its label in traces).
-    serial: usize,
-    /// `_x !== null`: the cold extension was allocated (`ext()`, core.ts:
-    /// 1259). Its fields are inlined above; only an effect's first run reads
-    /// the difference (`node._x?._transaction` is undefined without one,
-    /// effect.ts:100, and `enqueue`'s lane defaults to `passLane` then).
-    x: bool,
+}
+
+const EXT_EMPTY: Ext = Ext {
+    transaction: None,
+    lane: None,
+    q: 0,
+    error: None,
+    flushed: None,
+    flushed_at: -1,
+    in_flight: None,
+    pending_sources: None,
+    blocked: false,
+    reask: false,
+    shown_error: None,
+    served: -1,
+    pending_err: None,
+    marks: 0,
+    asked_in: AskedIn::None,
+};
+
+impl ColdGroup for Ext {
+    #[inline]
+    fn empty() -> &'static Self {
+        &EXT_EMPTY
+    }
+    fn fresh() -> Self {
+        EXT_EMPTY
+    }
+}
+
+struct SlotFields {
+    host: Option<TargetId>,
+    key: store::SlotKey,
+    acc: bool,
+    px: Value,
+    pxv: Value,
+}
+
+const SLOTFIELDS_EMPTY: SlotFields = SlotFields {
+    host: None,
+    key: store::SlotKey::Track,
+    acc: false,
+    px: Value::Undef,
+    pxv: Value::Undef,
+};
+
+impl ColdGroup for SlotFields {
+    #[inline]
+    fn empty() -> &'static Self {
+        &SLOTFIELDS_EMPTY
+    }
+    fn fresh() -> Self {
+        SLOTFIELDS_EMPTY
+    }
+}
+
+struct Frame {
+    /// The parked frame (`_x._pendingFirstChild` / `_x._pendingDisposal`,
+    /// core.ts:1436-1444); an empty list is null.
+    pending_first_child: Option<NodeId>,
+    pending_disposal: Vec<Cleanup>,
+}
+
+// ManuallyDrop: a constant that never drops can be borrowed for 'static.
+const FRAME_EMPTY: std::mem::ManuallyDrop<Frame> = std::mem::ManuallyDrop::new(Frame {
+    pending_first_child: None,
+    pending_disposal: vec![],
+});
+
+impl ColdGroup for Frame {
+    #[inline]
+    fn empty() -> &'static Self {
+        &FRAME_EMPTY
+    }
+    fn fresh() -> Self {
+        std::mem::ManuallyDrop::into_inner(FRAME_EMPTY)
+    }
 }
 
 /// `_x._askedIn`: unset, a clock tick, or a transaction.
@@ -351,15 +462,15 @@ impl Node {
             pending: None,
             time: clock,
             notified_at: -1,
-            subs: None,
-            subs_tail: None,
+            subs: Ix::NONE,
+            subs_tail: Ix::NONE,
             fn_: None,
             loading: false,
             height: 0,
-            next_heap: None,
+            next_heap: Ix::NONE,
             prev_heap: id,
-            deps: None,
-            deps_tail: None,
+            deps: Ix::NONE,
+            deps_tail: Ix::NONE,
             dep_gen: 0,
             effect_type: 0,
             effect_fn: None,
@@ -367,36 +478,17 @@ impl Node {
             modified: false,
             prev_value: Value::Undef,
             cleanup: None,
-            parent: None,
-            first_child: None,
-            next_sibling: None,
-            prev_sibling: None,
+            parent: Ix::NONE,
+            first_child: Ix::NONE,
+            next_sibling: Ix::NONE,
+            prev_sibling: Ix::NONE,
             disposal: vec![],
-            parent_computed: None,
-            pending_first_child: None,
-            pending_disposal: vec![],
-            transaction: None,
-            lane: None,
-            q: 0,
-            error: None,
-            flushed: None,
-            flushed_at: -1,
-            in_flight: None,
-            pending_sources: None,
-            blocked: false,
-            reask: false,
-            shown_error: None,
-            served: -1,
-            pending_err: None,
-            host: None,
-            key: store::SlotKey::Track,
-            acc: false,
-            px: Value::Undef,
-            pxv: Value::Undef,
-            fam: None,
-            boundary: None,
-            marks: 0,
-            asked_in: AskedIn::None,
+            parent_computed: Ix::NONE,
+            fam: Ix::NONE,
+            boundary: Ix::NONE,
+            ext: Cold(None),
+            slot: SLOTFIELDS_EMPTY,
+            frame: Cold(None),
             serial: 0,
             x: false,
         }
@@ -724,14 +816,14 @@ impl Runtime {
     fn add_node(&mut self, kind: Kind, value: Value) -> NodeId {
         // `_context: context?._context`: the nearest boundary is inherited
         // from the creating owner.
-        let boundary = self.context.and_then(|c| self.nodes[c].boundary);
+        let boundary = self.context.and_then(|c| self.nodes[c].boundary.get());
         let (clock, serial) = (self.clock, self.serials);
         if kind != Kind::Root {
             self.serials += 1;
         }
         self.nodes.alloc(|id| {
             let mut node = Node::new(kind, value, id, clock);
-            node.boundary = boundary;
+            node.boundary = Ix::from(boundary);
             node.serial = serial;
             node
         })
@@ -969,4 +1061,13 @@ impl Runtime {
             ("comparators", self.comparators.len(), 16),
         ]
     }
+}
+
+#[cfg(test)]
+#[test]
+fn nodes_stay_small() {
+    // Every reactive node is one of these; a new field belongs in a cold
+    // group (`Ext`, `Frame`) unless most nodes set it.
+    assert!(size_of::<Node>() <= 408, "Node is {} bytes", size_of::<Node>());
+    assert!(size_of::<Link>() <= 40, "Link is {} bytes", size_of::<Link>());
 }

@@ -21,11 +21,11 @@ impl Runtime {
             prev_sub,
             ..
         } = self.links[link];
-        match next_sub {
+        match next_sub.get() {
             Some(n) => self.links[n].prev_sub = prev_sub,
             None => self.nodes[dep].subs_tail = prev_sub,
         }
-        match prev_sub {
+        match prev_sub.get() {
             Some(p) => self.links[p].next_sub = next_sub,
             None => {
                 self.nodes[dep].subs = next_sub;
@@ -50,23 +50,23 @@ impl Runtime {
             }
         }
         self.free_links.push(link);
-        next_dep
+        next_dep.get()
     }
 
     // Solid: graph.ts:60-70
     pub(super) fn trim_stale_deps(&mut self, el: NodeId) {
         let deps_tail = self.nodes[el].deps_tail;
-        let mut to_remove = match deps_tail {
+        let mut to_remove = match deps_tail.get() {
             Some(t) => self.links[t].next_dep,
             None => self.nodes[el].deps,
         };
         if to_remove.is_some() {
-            while let Some(l) = to_remove {
-                to_remove = self.unlink_subs(l);
+            while let Some(l) = to_remove.get() {
+                to_remove = Ix::from(self.unlink_subs(l));
             }
-            match deps_tail {
-                Some(t) => self.links[t].next_dep = None,
-                None => self.nodes[el].deps = None,
+            match deps_tail.get() {
+                Some(t) => self.links[t].next_dep = Ix::from(None),
+                None => self.nodes[el].deps = Ix::from(None),
             }
         }
     }
@@ -74,7 +74,7 @@ impl Runtime {
     // Solid: graph.ts:77-82
     pub(super) fn clear_deps(&mut self, el: NodeId) {
         if self.nodes[el].deps.is_some() {
-            self.nodes[el].deps_tail = None;
+            self.nodes[el].deps_tail = Ix::from(None);
             self.trim_stale_deps(el);
         }
     }
@@ -89,7 +89,7 @@ impl Runtime {
     // Solid: graph.ts:149-190
     pub(super) fn link(&mut self, dep: NodeId, sub: NodeId) {
         let prev_dep = self.nodes[sub].deps_tail;
-        if let Some(p) = prev_dep {
+        if let Some(p) = prev_dep.get() {
             if self.links[p].dep == dep {
                 return;
             }
@@ -97,20 +97,20 @@ impl Runtime {
         let mut next_dep = None;
         let is_recomputing = self.nodes[sub].flags & REACTIVE_RECOMPUTING_DEPS != 0;
         if is_recomputing {
-            next_dep = match prev_dep {
-                Some(p) => self.links[p].next_dep,
-                None => self.nodes[sub].deps,
+            next_dep = match prev_dep.get() {
+                Some(p) => self.links[p].next_dep.get(),
+                None => self.nodes[sub].deps.get(),
             };
             if let Some(n) = next_dep {
                 if self.links[n].dep == dep {
                     self.links[n].gen = self.nodes[sub].dep_gen;
-                    self.nodes[sub].deps_tail = Some(n);
+                    self.nodes[sub].deps_tail = Ix::from(Some(n));
                     return;
                 }
             }
         }
         let prev_sub = self.nodes[dep].subs_tail;
-        if let Some(p) = prev_sub {
+        if let Some(p) = prev_sub.get() {
             if self.links[p].sub == sub
                 && (!is_recomputing || self.links[p].gen == self.nodes[sub].dep_gen)
             {
@@ -120,20 +120,20 @@ impl Runtime {
         let new_link = self.new_link(Link {
             dep,
             sub,
-            next_dep,
+            next_dep: Ix::from(next_dep),
             prev_sub,
-            next_sub: None,
+            next_sub: Ix::from(None),
             gen: self.nodes[sub].dep_gen,
         });
-        self.nodes[sub].deps_tail = Some(new_link);
-        self.nodes[dep].subs_tail = Some(new_link);
-        match prev_dep {
-            Some(p) => self.links[p].next_dep = Some(new_link),
-            None => self.nodes[sub].deps = Some(new_link),
+        self.nodes[sub].deps_tail = Ix::from(Some(new_link));
+        self.nodes[dep].subs_tail = Ix::from(Some(new_link));
+        match prev_dep.get() {
+            Some(p) => self.links[p].next_dep = Ix::from(Some(new_link)),
+            None => self.nodes[sub].deps = Ix::from(Some(new_link)),
         }
-        match prev_sub {
-            Some(p) => self.links[p].next_sub = Some(new_link),
-            None => self.nodes[dep].subs = Some(new_link),
+        match prev_sub.get() {
+            Some(p) => self.links[p].next_sub = Ix::from(Some(new_link)),
+            None => self.nodes[dep].subs = Ix::from(Some(new_link)),
         }
         self.bump_notify_epoch();
     }

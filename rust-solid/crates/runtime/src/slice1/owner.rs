@@ -15,9 +15,9 @@ impl Runtime {
         // `_parentComputed: parent?._root ? parent._parentComputed : parent`
         self.nodes[owner].parent_computed = match parent {
             Some(p) if self.nodes[p].kind == Kind::Root => self.nodes[p].parent_computed,
-            p => p,
+            p => Ix::from(p),
         };
-        self.nodes[owner].parent = parent;
+        self.nodes[owner].parent = Ix::from(parent);
         if let Some(p) = parent {
             self.link_child(p, owner);
         }
@@ -53,7 +53,7 @@ impl Runtime {
     // Solid: owner.ts:46-53
     pub(super) fn mark_disposal(&mut self, el: NodeId) {
         let mut child = self.nodes[el].first_child;
-        while let Some(c) = child {
+        while let Some(c) = child.get() {
             self.nodes[c].flags |= REACTIVE_ZOMBIE;
             self.mark_disposal(c);
             child = self.nodes[c].next_sibling;
@@ -109,18 +109,18 @@ impl Runtime {
     /// `_parentComputed` (owner.ts:399/421, map.ts:410).
     // Solid: owner.ts:399, 421 (`_parentComputed`); map.ts:410
     pub(super) fn parent_computed(&self, root: NodeId) -> Option<NodeId> {
-        self.nodes[root].parent_computed
+        self.nodes[root].parent_computed.get()
     }
 
     // Solid: owner.ts:204-210
     pub(super) fn link_child(&mut self, parent: NodeId, node: NodeId) {
         let head = self.nodes[parent].first_child;
-        self.nodes[node].prev_sibling = None;
+        self.nodes[node].prev_sibling = Ix::from(None);
         self.nodes[node].next_sibling = head;
-        if let Some(h) = head {
-            self.nodes[h].prev_sibling = Some(node);
+        if let Some(h) = head.get() {
+            self.nodes[h].prev_sibling = Ix::from(Some(node));
         }
-        self.nodes[parent].first_child = Some(node);
+        self.nodes[parent].first_child = Ix::from(Some(node));
     }
 
     // Solid: owner.ts:95-202
@@ -132,8 +132,8 @@ impl Runtime {
         if self_ {
             // A parked frame dies with its owner (#3024).
             if !zombie
-                && (self.nodes[node].pending_first_child.is_some()
-                    || !self.nodes[node].pending_disposal.is_empty())
+                && (self.nodes[node].frame.pending_first_child.is_some()
+                    || !self.nodes[node].frame.pending_disposal.is_empty())
             {
                 self.dispose_children(node, false, true);
             }
@@ -144,7 +144,7 @@ impl Runtime {
             if self.nodes[node].fn_.is_some() {
                 self.clear_in_flight(node);
                 if (self.nodes[node].status & STATUS_PENDING != 0
-                    && self.nodes[node].transaction.is_some())
+                    && self.nodes[node].ext.transaction.is_some())
                     || flags & REACTIVE_FRAME_READ != 0
                     || !self.pending_nodes.is_empty()
                 {
@@ -153,7 +153,7 @@ impl Runtime {
             }
         }
         let mut child = if zombie {
-            self.nodes[node].pending_first_child.take()
+            self.nodes[node].frame.when_set(|g| g.pending_first_child.take())
         } else {
             self.nodes[node].first_child.take()
         };
@@ -161,9 +161,9 @@ impl Runtime {
             self.nodes[c].config &= !CONFIG_AUTO_DISPOSE;
             self.delete_from_heap(c);
             self.clear_deps(c);
-            self.nodes[c].prev_sibling = Some(c);
+            self.nodes[c].prev_sibling = Ix::from(Some(c));
             self.dispose_children(c, true, false);
-            child = self.nodes[c].next_sibling;
+            child = self.nodes[c].next_sibling.get();
         }
         // `node._childCount = 0`: ids are not ported.
         if self_
@@ -171,20 +171,20 @@ impl Runtime {
             && flags & REACTIVE_ZOMBIE == 0
             && self.nodes[node]
                 .parent
-                .is_some_and(|p| self.nodes[p].flags & REACTIVE_DISPOSED == 0)
+                .get().is_some_and(|p| self.nodes[p].flags & REACTIVE_DISPOSED == 0)
         {
             // owner.ts:176-191: splice out of a live parent's child chain.
-            let parent = self.nodes[node].parent.unwrap();
+            let parent = self.nodes[node].parent.get().unwrap();
             let prev = self.nodes[node].prev_sibling;
             let next = self.nodes[node].next_sibling;
-            match prev {
+            match prev.get() {
                 Some(p) => self.nodes[p].next_sibling = next,
                 None => self.nodes[parent].first_child = next,
             }
-            if let Some(n) = next {
+            if let Some(n) = next.get() {
                 self.nodes[n].prev_sibling = prev;
             }
-            self.nodes[node].prev_sibling = None;
+            self.nodes[node].prev_sibling = Ix::from(None);
         }
         self.run_disposal(node, zombie);
         if self_ {
@@ -197,7 +197,7 @@ impl Runtime {
     // Solid: owner.ts:212-238
     fn run_disposal(&mut self, node: NodeId, zombie: bool) {
         let disposal = if zombie {
-            std::mem::take(&mut self.nodes[node].pending_disposal)
+            self.nodes[node].frame.when_set(|g| std::mem::take(&mut g.pending_disposal))
         } else {
             std::mem::take(&mut self.nodes[node].disposal)
         };
@@ -237,9 +237,9 @@ impl Runtime {
             if x.subs.is_some()
                 || x.deps.is_some()
                 || x.pending.is_some()
-                || x.in_flight.is_some()
-                || x.transaction.is_some()
-                || x.pending_sources.is_some()
+                || x.ext.in_flight.is_some()
+                || x.ext.transaction.is_some()
+                || x.ext.pending_sources.is_some()
                 || waited.binary_search(&n).is_ok()
             {
                 keep.push(n);
