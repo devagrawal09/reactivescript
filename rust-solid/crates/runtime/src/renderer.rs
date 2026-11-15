@@ -399,6 +399,20 @@ impl TreeRenderer {
         }
         out
     }
+    /// The `n`th node under `root` (itself included) handling `ty`, depth
+    /// first: `handlers_of(root, ty)[n]` without walking past it.
+    pub fn nth_handler(&self, root: Node, ty: &str, n: usize) -> Option<Node> {
+        fn walk(h: &TreeRenderer, at: Node, ty: &str, left: &mut usize) -> Option<Node> {
+            if h.handles(at, ty) {
+                if *left == 0 {
+                    return Some(at);
+                }
+                *left -= 1;
+            }
+            h.kids(at).find_map(|k| walk(h, k, ty, left))
+        }
+        walk(self, root, ty, &mut { n })
+    }
     /// `registerDelegatedRoot(node)` (web/src/client.ts:500-503), as
     /// `@solidjs/web`'s `render` registers its container.
     pub fn register_delegated_root(&mut self, node: Node) {
