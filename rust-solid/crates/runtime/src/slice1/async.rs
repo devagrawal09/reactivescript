@@ -330,11 +330,11 @@ impl Runtime {
 
     /// Interns a host flight by name: `flight(id)` of fuzz/solid.mjs.
     pub(super) fn flight_id(&mut self, name: &str) -> FlightId {
-        if let Some(i) = self.flights.iter().position(|f| f.name == name) {
+        if let Some(&i) = self.flight_index.get(name) {
             return i;
         }
+        self.flight_index.insert(name.to_owned(), self.flights.len());
         self.flights.push(Flight {
-            name: name.to_owned(),
             result: None,
             reactions: vec![],
         });
