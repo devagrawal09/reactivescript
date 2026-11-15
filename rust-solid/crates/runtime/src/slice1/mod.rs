@@ -466,7 +466,6 @@ pub enum Microtask {
 /// Reactions are queued in registration order when it settles, or at once
 /// when it already has (a `.then` on a settled promise).
 struct Flight {
-    name: String,
     result: Option<Result<Value, Error>>,
     reactions: Vec<Reaction>,
 }
@@ -545,6 +544,8 @@ pub struct Runtime {
     actions: Vec<action::Action>,
     microtasks: VecDeque<Microtask>,
     flights: Vec<Flight>,
+    /// `flights` by name.
+    flight_index: std::collections::HashMap<String, FlightId, FxBuild>,
     sets: Vec<JsSet>,
     errors: Vec<String>,
     /// core.ts:2005 `promotedWrites` (CONFIG_PROMOTED).
@@ -641,6 +642,7 @@ impl Default for Runtime {
             actions: vec![],
             microtasks: VecDeque::new(),
             flights: vec![],
+            flight_index: Default::default(),
             sets: vec![],
             errors: vec![],
             promoted_writes: vec![],

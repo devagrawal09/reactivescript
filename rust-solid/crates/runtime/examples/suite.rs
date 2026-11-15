@@ -66,10 +66,10 @@ impl Run {
             }
             "resolve" => {
                 let host = s["host"].as_str().unwrap();
-                let r = self.app().requests().into_iter().find(|r| r.pending && r.host == host).expect("a pending request");
+                let n = self.app().first_pending(host).expect("a pending request");
                 let ty = &w.returns.iter().find(|(h, _)| h == host).unwrap().1;
                 let v = ty.value_of(&s["value"]).unwrap_or_else(|_| from_json(&s["value"]));
-                self.app().settle(host, r.number, Ok(v)).unwrap();
+                self.app().settle(host, n, Ok(v)).unwrap();
             }
             "append" => {
                 let (key, v) = (s["key"].as_str().unwrap().to_string(), s["value"].clone());
@@ -83,8 +83,8 @@ impl Run {
             }
             "reject" => {
                 let host = s["host"].as_str().unwrap();
-                let r = self.app().requests().into_iter().find(|r| r.pending && r.host == host).expect("a pending request");
-                self.app().settle(host, r.number, Err(s["error"].as_str().unwrap().to_string())).unwrap();
+                let n = self.app().first_pending(host).expect("a pending request");
+                self.app().settle(host, n, Err(s["error"].as_str().unwrap().to_string())).unwrap();
             }
             "jfb" => {
                 let op = s["op"].as_str().unwrap();
