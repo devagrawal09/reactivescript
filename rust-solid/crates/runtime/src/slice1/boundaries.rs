@@ -76,6 +76,13 @@ impl JsMap {
         self.items.clear();
         self.size = 0;
     }
+    /// Drops the deleted entries, as a JS engine's rehash does. Only with no
+    /// iteration over this map in progress: indices move.
+    fn compact(&mut self) {
+        if self.items.len() > self.size {
+            self.items.retain(Option::is_some);
+        }
+    }
 }
 
 /// boundaries.ts:167 `collecting`, a JS `Set` of boundaries (tombstones,
@@ -97,6 +104,12 @@ impl Collecting {
         if let Some(i) = self.items.iter().position(|x| *x == Some(b)) {
             self.items[i] = None;
             self.size -= 1;
+        }
+    }
+    /// As `JsMap::compact`.
+    fn compact(&mut self) {
+        if self.items.len() > self.size {
+            self.items.retain(Option::is_some);
         }
     }
 }
@@ -500,6 +513,10 @@ impl Runtime {
                 }
             }
             self.prune(b, None);
+            // Nothing iterates `b`'s readers here (the seam runs once per
+            // flush, and its own pass over them is done): without this, every
+            // delete leaves a tombstone that later scans walk forever.
+            self.boundaries[b].readers.compact();
             let o = self.boundaries[b].output.expect("output");
             if self.boundaries[b].ty & STATUS_PENDING != 0
                 && !self.boundaries[b].initialized
@@ -528,6 +545,8 @@ impl Runtime {
                 }
             }
         }
+        // The pass above is the only iteration over `collecting`.
+        self.collecting.compact();
     }
 
     // Solid: boundaries.ts:698-930 (`createBoundary`; no `on`, no reveal
