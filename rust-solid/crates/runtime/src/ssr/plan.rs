@@ -402,7 +402,7 @@ fn view_has_eval(v: &View) -> bool {
         View::Element {
             events, children, ..
         } => {
-            events.iter().flat_map(|e| &e.steps).any(step_has_eval)
+            events.iter().flat_map(|e| e.steps.iter()).any(step_has_eval)
                 || children.iter().any(view_has_eval)
         }
         View::Text { value } => has_eval(value),
@@ -738,9 +738,7 @@ impl Ctx {
         for v in views {
             let is_static = matches!(
                 v,
-                View::Text {
-                    value: Expr::Literal { .. }
-                }
+                View::Text { value } if matches!(**value, Expr::Literal { .. })
             );
             if is_static && last_static {
                 return Err("adjacent static texts (the TSX twin has one JSX text there)".into());
@@ -756,9 +754,8 @@ impl Ctx {
                     }
                     self.check_views(children, locals)?;
                 }
-                View::Text {
-                    value: Expr::Literal { value, .. },
-                } => {
+                View::Text { value } if matches!(**value, Expr::Literal { .. }) => {
+                    let Expr::Literal { value, .. } = &**value else { unreachable!() };
                     raw_text(value)?;
                 }
                 View::Text { value } => {
@@ -1328,9 +1325,8 @@ fn lower<'v>(v: &'v View, root: bool, parts: &mut Vec<String>, holes: &mut Vec<H
     let markers = children.len() > 1;
     for child in children {
         match child {
-            View::Text {
-                value: Expr::Literal { value, .. },
-            } => {
+            View::Text { value } if matches!(**value, Expr::Literal { .. }) => {
+                let Expr::Literal { value, .. } = &**value else { unreachable!() };
                 let t = raw_text(value).expect("checked before rendering");
                 parts.last_mut().expect("a part").push_str(&t);
             }
