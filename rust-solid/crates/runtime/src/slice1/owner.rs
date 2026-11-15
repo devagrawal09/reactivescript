@@ -5,6 +5,9 @@
 //! cleanup here throws).
 use super::*;
 
+const PINNED: u32 = 1 << 30;
+const SEEN: u32 = 1 << 31;
+
 impl Runtime {
     /// `createOwner()` (owner.ts:387-449): a root under the current owner.
     // Solid: owner.ts:387-449 (prod literal; no dev diagnostics, no ids)
@@ -220,32 +223,41 @@ impl Runtime {
         if self.disposed.is_empty() || self.action_depth > 0 {
             return;
         }
-        let mut waited = self.pinned_nodes();
-        waited.sort_unstable();
-        waited.dedup();
-        // A node can come here twice (a store slot that was also disposed,
-        // or one kept from an earlier pass and disposed again).
+        // Two Rust-only bits mark nodes for this pass alone (cheaper than
+        // sorting): pinned, and already looked at (a node can come twice).
+        let pinned = self.pinned_nodes();
+        for &n in &pinned {
+            self.nodes[n].flags |= PINNED;
+        }
         let mut disposed = std::mem::take(&mut self.disposed);
-        disposed.sort_unstable();
-        disposed.dedup();
+        disposed.retain(|&n| {
+            let x = &mut self.nodes[n];
+            let first = x.flags & SEEN == 0;
+            x.flags |= SEEN;
+            first
+        });
         let mut keep = vec![];
         for n in disposed {
-            let x = &self.nodes[n];
+            let x = &mut self.nodes[n];
+            x.flags &= !SEEN;
             if x.fam.is_some() {
                 continue;
             }
-            if x.subs.is_some()
+            if x.flags & PINNED != 0
+                || x.subs.is_some()
                 || x.deps.is_some()
                 || x.pending.is_some()
                 || x.ext.in_flight.is_some()
                 || x.ext.transaction.is_some()
                 || x.ext.pending_sources.is_some()
-                || waited.binary_search(&n).is_ok()
             {
                 keep.push(n);
                 continue;
             }
             self.nodes.release(n);
+        }
+        for &n in &pinned {
+            self.nodes[n].flags &= !PINNED;
         }
         self.disposed = keep;
     }
@@ -282,7 +294,8 @@ impl Runtime {
         for q in &self.queues {
             queued(&mut out, q);
         }
-        for t in &self.txs {
+        for t in self.live_txs() {
+            let t = &self.txs[t];
             for q in &t.queues {
                 queued(&mut out, q);
             }
@@ -322,6 +335,30 @@ impl Runtime {
         }
         out.extend(self.kept.iter().map(|k| k.0));
         out.extend(self.pending_guesses.iter().map(|g| g.0));
+        out
+    }
+
+    /// Transactions something can still reach: the open ones, the lanes,
+    /// the ones a pass is running under, and those they link to. A landed or
+    /// dissolved transaction stays in `txs` (ids are indices) but nothing
+    /// walks its lists again.
+    fn live_txs(&self) -> Vec<TxId> {
+        let mut out: Vec<TxId> = self.transactions.iter().chain(&self.lanes).copied().collect();
+        out.extend(
+            [self.pass_lane, self.flush_transaction, self.judge, self.pass_tx, self.lane_root]
+                .into_iter()
+                .flatten(),
+        );
+        let mut i = 0;
+        while i < out.len() {
+            let t = &self.txs[out[i]];
+            for x in [t.into, t.parent, t.over, t.verdict].into_iter().flatten() {
+                if !out.contains(&x) {
+                    out.push(x);
+                }
+            }
+            i += 1;
+        }
         out
     }
 }
