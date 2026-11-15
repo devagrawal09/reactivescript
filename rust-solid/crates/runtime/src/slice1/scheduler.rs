@@ -38,10 +38,10 @@ impl Runtime {
     // `resolveTx(null)`, a TypeError in Solid: the suspected bug of a slot
     // `take` keeps held (docs/SLICE1.md) — fail closed.
     pub(super) fn tx_of(&mut self, n: NodeId) -> TxId {
-        let t = self.resolve_tx(self.nodes[n].transaction.expect(
+        let t = self.resolve_tx(self.nodes[n].ext.transaction.expect(
             "txOf of a node with no transaction (Solid: resolveTx(null) throws a TypeError) is not ported",
         ));
-        self.nodes[n].transaction = Some(t);
+        self.nodes[n].ext.transaction = Some(t);
         t
     }
 
@@ -134,14 +134,14 @@ impl Runtime {
 
     // Solid: scheduler.ts:507-515
     fn own_source(&mut self, n: NodeId, t: TxId) -> bool {
-        let Some(sources) = self.nodes[n].pending_sources else {
+        let Some(sources) = self.nodes[n].ext.pending_sources else {
             return true;
         };
         let mut i = 0;
         while let Some(entry) = self.set_at(sources, i) {
             i += 1;
             let Some(s) = entry else { continue };
-            match self.nodes[s].transaction {
+            match self.nodes[s].ext.transaction {
                 None => return true,
                 Some(u) if self.resolve_tx(u) == t => return true,
                 _ => {}
@@ -159,7 +159,7 @@ impl Runtime {
             if self.nodes[n].status & STATUS_PENDING == 0
                 || self.nodes[n].flags & REACTIVE_DISPOSED != 0
                 || self.nodes[n].config & CONFIG_GUESS != 0
-                || (self.nodes[n].transaction.is_some() && self.tx_of(n) != owner)
+                || (self.nodes[n].ext.transaction.is_some() && self.tx_of(n) != owner)
                 || (own && !self.own_source(n, owner))
             {
                 continue;
@@ -176,7 +176,7 @@ impl Runtime {
                 continue;
             }
             let mut s = self.nodes[n].subs;
-            while let Some(l) = s {
+            while let Some(l) = s.get() {
                 let r = self.links[l].sub;
                 let rn = &self.nodes[r];
                 if ((rn.effect_type == EFFECT_RENDER
@@ -184,7 +184,7 @@ impl Runtime {
                     && !ahead(rn))
                     || rn.flags & REACTIVE_FRAME_READ != 0
                     || (rn.config & CONFIG_REDERIVE != 0 && rn.status == STATUS_PENDING))
-                    && (self.links[l].gen == rn.dep_gen || rn.error.is_some())
+                    && (self.links[l].gen == rn.dep_gen || rn.ext.error.is_some())
                     && rn.flags & REACTIVE_DISPOSED == 0
                     && self.on_screen(r, judge)
                 {
@@ -211,13 +211,13 @@ impl Runtime {
             if self.nodes[x].flags & REACTIVE_ZOMBIE == 0 {
                 break;
             }
-            o = self.nodes[x].parent;
+            o = self.nodes[x].parent.get();
         }
         let Some(o) = o else {
             return false;
         };
         self.nodes[o].config & CONFIG_HELD != 0
-            && self.nodes[o].transaction.is_some()
+            && self.nodes[o].ext.transaction.is_some()
             && self.tx_of(o) == self.resolve_tx(t)
     }
 
@@ -243,18 +243,18 @@ impl Runtime {
     // Solid: scheduler.ts:624-629
     pub(super) fn list(&mut self, n: NodeId, t: TxId) {
         self.nodes[n].x = true; // `ext(n)`
-        if self.nodes[n].transaction == Some(t) {
+        if self.nodes[n].ext.transaction == Some(t) {
             return;
         }
-        self.nodes[n].transaction = Some(t);
+        self.nodes[n].ext.transaction = Some(t);
         self.txs[t].nodes.push(n);
     }
 
     // Solid: scheduler.ts:644-653
     fn hold_frame(&mut self, owner: NodeId, t: TxId) {
         let mut c = self.nodes[owner].first_child;
-        while let Some(n) = c {
-            if self.nodes[n].transaction.is_some_and(|x| self.txs[x].lane) {
+        while let Some(n) = c.get() {
+            if self.nodes[n].ext.transaction.is_some_and(|x| self.txs[x].lane) {
                 c = self.nodes[n].next_sibling;
                 continue;
             }
@@ -315,6 +315,7 @@ impl Runtime {
             self.dirty_queue.max >= self.dirty_queue.min || !self.pending_nodes.is_empty();
         self.run(EFFECT_RENDER);
         self.run(EFFECT_USER);
+        self.reclaim();
         self.running = false;
         self.pass_tx = None;
     }
@@ -345,7 +346,7 @@ impl Runtime {
                 let n = self.pending_nodes[i];
                 let nn = &self.nodes[n];
                 if nn.config & (CONFIG_HELD | CONFIG_OVERRIDE) == 0
-                    && nn.transaction.is_none_or(|x| !self.txs[x].lane)
+                    && nn.ext.transaction.is_none_or(|x| !self.txs[x].lane)
                 {
                     if nn.pending.is_none()
                         && nn.status & STATUS_UNINITIALIZED != 0
@@ -355,9 +356,9 @@ impl Runtime {
                     }
                     if let Some(p) = nn.pending.clone() {
                         if nn.status & (STATUS_PENDING | STATUS_UNINITIALIZED) == 0
-                            && nn.pending_first_child.is_none()
-                            && nn.pending_disposal.is_empty()
-                            && nn.pending_err.is_none()
+                            && nn.frame.pending_first_child.is_none()
+                            && nn.frame.pending_disposal.is_empty()
+                            && nn.ext.pending_err.is_none()
                             && self.is_same(n, &nn.value, &p)
                         {
                             self.set_pending(n, None);
@@ -391,7 +392,7 @@ impl Runtime {
             self.commit_pending_nodes();
             for i in 0..self.held_trims.len() {
                 let h = self.held_trims[i];
-                if self.nodes[h].error.is_none() && !self.nodes[h].modified {
+                if self.nodes[h].ext.error.is_none() && !self.nodes[h].modified {
                     self.trim_stale_deps(h);
                 }
             }
@@ -479,7 +480,7 @@ impl Runtime {
         while i < self.txs[u].reruns.len() {
             let r = self.txs[u].reruns[i];
             i += 1;
-            let s = self.nodes[r].error.as_ref().and_then(|e| e.source());
+            let s = self.nodes[r].ext.error.as_ref().and_then(|e| e.source());
             // `(s?._statusFlags ?? STATUS_ERROR) & STATUS_ERROR`: a null or
             // missing source reads as errored.
             let s_errored = match s {
@@ -509,7 +510,7 @@ impl Runtime {
                 // A run one of its children queued this flush is for the
                 // frame being replaced: void too (#3404).
                 let mut c = self.nodes[r].first_child;
-                while let Some(ch) = c {
+                while let Some(ch) = c.get() {
                     if self.nodes[ch].kind != Kind::Root && self.nodes[ch].effect_type != 0 {
                         self.nodes[ch].modified = false;
                     }
@@ -537,10 +538,10 @@ impl Runtime {
         while i < self.txs[u].nodes.len() {
             let n = self.txs[u].nodes[i];
             i += 1;
-            if self.nodes[n].transaction.is_none() || self.tx_of(n) != u {
+            if self.nodes[n].ext.transaction.is_none() || self.tx_of(n) != u {
                 continue;
             }
-            self.nodes[n].transaction = None;
+            self.nodes[n].ext.when_set(|g| g.transaction = None);
             self.commit_pending_node(n);
         }
         if self.flush_transaction == Some(u) {
@@ -587,7 +588,7 @@ impl Runtime {
         self.tr(|| format!("IS {}", self.label(node)));
         self.nodes[node].notified_at = self.notify_epoch as i64;
         let mut s = self.nodes[node].subs;
-        while let Some(l) = s {
+        while let Some(l) = s.get() {
             let link = self.links[l];
             let sub = link.sub;
             if self.nodes[sub].flags & REACTIVE_RECOMPUTING_DEPS != 0
@@ -605,18 +606,18 @@ impl Runtime {
     pub(super) fn lane_dirty(&mut self, node: NodeId, l: TxId) {
         self.insert_subs(node);
         let mut s = self.nodes[node].subs;
-        while let Some(link) = s {
+        while let Some(link) = s.get() {
             let c = self.links[link].sub;
-            let mut t = self.nodes[c].transaction;
+            let mut t = self.nodes[c].ext.transaction;
             if let Some(tc) = t {
                 if self.nodes[c].effect_type == 0
                     && self.nodes[c].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
                     && self.nodes[c].status & (STATUS_PENDING | STATUS_UNINITIALIZED)
                         == STATUS_PENDING
                     && (self.resolve_tx(tc) == self.resolve_tx(self.txs[l].parent.unwrap())
-                        || match self.nodes[c].pending_sources {
-                            Some(ps) => self.set_values(ps).iter().all(|p| self.nodes[*p].reask),
-                            None => self.nodes[c].reask,
+                        || match self.nodes[c].ext.pending_sources {
+                            Some(ps) => self.set_values(ps).iter().all(|p| self.nodes[*p].ext.reask),
+                            None => self.nodes[c].ext.reask,
                         })
                 {
                     t = Some(l);
@@ -676,7 +677,7 @@ impl Runtime {
 
     // Solid: scheduler.ts:1482-1487
     pub(super) fn apply_staged(&mut self, n: NodeId) -> bool {
-        if self.nodes[n].pending_err.is_some() {
+        if self.nodes[n].ext.pending_err.is_some() {
             panic!("applying a staged error as a value is not ported");
         }
         match self.nodes[n].pending.take() {
@@ -700,7 +701,7 @@ impl Runtime {
             self.nodes[n].pending.is_none() && self.nodes[n].status & STATUS_PENDING != 0;
         let err = self.nodes[n].config & CONFIG_STAGED_ERROR;
         if !in_flight {
-            self.nodes[n].shown_error = None;
+            self.nodes[n].ext.when_set(|g| g.shown_error = None);
         }
         self.nodes[n].config = if in_flight {
             (self.nodes[n].config & !(CONFIG_HELD | CONFIG_HELD_FRAME)) | CONFIG_INPUTS_PUBLISHED
@@ -713,21 +714,21 @@ impl Runtime {
                     | CONFIG_STAGED_ERROR)
         };
         if err != 0 {
-            let e = self.nodes[n].pending_err.take();
+            let e = self.nodes[n].ext.when_set(|g| g.pending_err.take());
             self.nodes[n].pending = None;
             self.nodes[n].time = self.clock + 1;
             self.notify_status(n, STATUS_ERROR, e);
         } else if self.apply_staged(n) {
             self.nodes[n].status &= !STATUS_UNINITIALIZED;
-            self.nodes[n].reask = false;
-            self.nodes[n].flushed = None;
+            self.nodes[n].ext.when_set(|g| g.reask = false);
+            self.nodes[n].ext.when_set(|g| g.flushed = None);
             if self.nodes[n].effect_type != 0 {
                 self.queue_effect_run(n);
             }
         }
         self.nodes[n].loading = false;
         self.nodes[n].flags &= !REACTIVE_MANUAL_WRITE;
-        if self.nodes[n].error.is_none() {
+        if self.nodes[n].ext.error.is_none() {
             self.trim_stale_deps(n);
         }
         if self.nodes[n].status & STATUS_PENDING == 0 {
@@ -736,8 +737,8 @@ impl Runtime {
         // The children this commit publishes are the frame's now: the frame
         // they replace, parked by the pass, goes.
         if !in_flight
-            && (self.nodes[n].pending_first_child.is_some()
-                || !self.nodes[n].pending_disposal.is_empty())
+            && (self.nodes[n].frame.pending_first_child.is_some()
+                || !self.nodes[n].frame.pending_disposal.is_empty())
         {
             self.dispose_children(n, false, true);
         }

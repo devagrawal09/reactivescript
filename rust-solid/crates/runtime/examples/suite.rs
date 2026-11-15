@@ -212,6 +212,13 @@ fn sample(w: &W, trace: bool) -> (f64, String, Vec<J>) {
     let t = Instant::now();
     timed_ops(&mut r, w, w.reps);
     let us = (t.elapsed().as_secs_f64() - r.untimed) * 1e6 / w.reps as f64;
+    if std::env::var("ARENAS").is_ok() {
+        let a = r.app();
+        let mut o: Vec<(&str, usize, usize)> = a.runtime.arena_sizes();
+        let (n, b) = a.host.borrow().arena_size();
+        o.push(("host_nodes", n, b));
+        eprintln!("{}", o.iter().filter(|x| x.1 > 0).map(|(k, n, b)| format!("{k}={n}x{b}B={}KB", n * b / 1024)).collect::<Vec<_>>().join(" "));
+    }
     let frame = r.app().frame();
     r.app().dispose();
     r.take_log();
@@ -248,6 +255,11 @@ fn main() {
     if mode == "ir" {
         let (_, frame, _) = sample(&w, false);
         println!("{{\"name\":\"{name}\",\"reps\":{},\"frame\":\"{:016x}\"}}", w.reps, fnv(&frame));
+        if std::env::var("ARENAS").is_ok() {
+            // The process's peak resident memory, for the memory check.
+            let st = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+            if let Some(l) = st.lines().find(|l| l.starts_with("VmHWM:")) { eprintln!("peak_kb={}", l.split_whitespace().nth(1).unwrap_or("0")); }
+        }
         return;
     }
     let mut us = vec![];

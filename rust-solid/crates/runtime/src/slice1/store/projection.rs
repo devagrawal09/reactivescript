@@ -129,11 +129,11 @@ impl Runtime {
                 return;
             }
             let mut s = rt.nodes[n].subs;
-            while let Some(l) = s {
+            while let Some(l) = s.get() {
                 let sub = rt.links[l].sub;
                 s = rt.links[l].next_sub;
                 if !(rt.nodes[sub].status & STATUS_ERROR != 0
-                    && error::same(&rt.nodes[sub].error, &error))
+                    && error::same(&rt.nodes[sub].ext.error, &error))
                 {
                     rt.enqueue_sub(sub);
                 }
@@ -178,8 +178,8 @@ impl Runtime {
         if self.question != 0 {
             return self.question;
         }
-        if self.nodes[owner].in_flight.is_some() {
-            self.nodes[owner].q
+        if self.nodes[owner].ext.in_flight.is_some() {
+            self.nodes[owner].ext.q
         } else {
             0
         }
@@ -315,7 +315,7 @@ impl Runtime {
             return Err(e);
         }
         if self.nodes[owner].status & STATUS_PENDING != 0
-            && self.nodes[owner].in_flight.is_some()
+            && self.nodes[owner].ext.in_flight.is_some()
             && !self.nodes[owner].loading
             && !first
         {
@@ -366,17 +366,13 @@ impl Runtime {
         if let Some(derive) = f {
             let loading = seed_loading.then_some(Value::Undef);
             let node = self.computed_node(
-                Body::Projection {
-                    root,
-                    derive,
-                    key: key_option,
-                },
+                Body::Projection(Box::new((root, derive, key_option))),
                 loading,
                 0,
             );
             self.nodes[node].config &= !CONFIG_AUTO_DISPOSE;
             self.store.families[fam].node = Some(node);
-            self.nodes[node].fam = Some(fam);
+            self.nodes[node].fam = Ix::from(Some(fam));
         }
         store
     }

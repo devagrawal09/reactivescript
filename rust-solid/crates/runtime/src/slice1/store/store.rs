@@ -167,12 +167,12 @@ impl Runtime {
 
     // Solid: store.ts:252-254 (`slotNodeEquals`, `this` the node)
     pub(in crate::slice1) fn slot_node_equals(&self, node: NodeId, a: &Value, b: &Value) -> bool {
-        a == b || self.same_logical_slot(self.nodes[node].host.expect("a slot node"), a, b)
+        a == b || self.same_logical_slot(self.nodes[node].slot.host.expect("a slot node"), a, b)
     }
 
     // Solid: store.ts:294-296 (`containerEquals`)
     pub(in crate::slice1) fn container_equals(&self, node: NodeId, a: &Value, b: &Value) -> bool {
-        a == b || self.arrangement(self.nodes[node].host.expect("a slot node"), a, b)
+        a == b || self.arrangement(self.nodes[node].slot.host.expect("a slot node"), a, b)
     }
 
     // Solid: store.ts:298-302
@@ -187,8 +187,8 @@ impl Runtime {
 
     // Solid: store.ts:308-328
     pub(in crate::slice1) fn release_slot(&mut self, node: NodeId) {
-        let t = self.nodes[node].host.expect("a slot node");
-        let key = self.nodes[node].key.clone();
+        let t = self.nodes[node].slot.host.expect("a slot node");
+        let key = self.nodes[node].slot.key.clone();
         let target = self.stm(t);
         match &key {
             SlotKey::Track => {
@@ -209,6 +209,9 @@ impl Runtime {
                     target.h.as_mut().unwrap().remove(k);
                 }
             }
+        }
+        if self.collect {
+            self.disposed.push(node);
         }
         let target = self.st(t);
         if let Some(f) = target.fam {
@@ -236,7 +239,7 @@ impl Runtime {
         n.pending.is_some()
             || n.config & CONFIG_OVERRIDE != 0
             || self
-                .st(n.host.expect("a slot node"))
+                .st(n.slot.host.expect("a slot node"))
                 .k
                 .is_some_and(|k| self.nodes[k].config & CONFIG_HELD != 0)
     }
@@ -263,9 +266,9 @@ impl Runtime {
         let node = &mut self.nodes[n];
         node.eq = eq;
         node.config = CONFIG_OWNED_WRITE | CONFIG_SLOT_NODE;
-        node.host = Some(host);
-        node.key = key;
-        node.acc = acc;
+        node.slot.host = Some(host);
+        node.slot.key = key;
+        node.slot.acc = acc;
         n
     }
 
@@ -323,7 +326,7 @@ impl Runtime {
             acc,
         );
         if let Some(pb) = pb {
-            if !self.nodes[created].acc {
+            if !self.nodes[created].slot.acc {
                 let deleted = self
                     .st(target)
                     .del
@@ -685,14 +688,14 @@ impl Runtime {
 
     // Solid: store.ts:941-944 (`GlobalQueue._slotFlight`)
     pub(in crate::slice1) fn slot_flight(&self, n: NodeId) -> bool {
-        let fam = self.nodes[n].host.and_then(|t| self.st(t).fam);
+        let fam = self.nodes[n].slot.host.and_then(|t| self.st(t).fam);
         fam.and_then(|f| self.store.families[f].node)
             .is_some_and(|d| self.nodes[d].status & STATUS_PENDING != 0)
     }
 
     // Solid: store.ts:949-958 (`GlobalQueue._slotCovered`)
     pub(in crate::slice1) fn slot_covered(&self, n: NodeId) -> Value {
-        let t = self.nodes[n].host.expect("a slot node");
+        let t = self.nodes[n].slot.host.expect("a slot node");
         if self.st(t).ch {
             panic!("a chained link's covered value (§7b) is not ported");
         }
@@ -860,7 +863,7 @@ impl Runtime {
                 let Some(node) = self.st(t).n.as_ref().and_then(|n| n.get(&key)) else {
                     continue;
                 };
-                if self.nodes[node].acc {
+                if self.nodes[node].slot.acc {
                     panic!("an accessor key's notification is not ported");
                 }
                 let own = pb.has_own(&key);
@@ -951,7 +954,7 @@ impl Runtime {
     // Solid: store.ts:1348-1352
     pub(in crate::slice1) fn leaf_set(&mut self, node: NodeId, v: Value) {
         self.set_signal(node, v);
-        let host = self.nodes[node].host.expect("a slot node");
+        let host = self.nodes[node].slot.host.expect("a slot node");
         if self.pass_lane.is_some() && !self.store.user_write && self.st(host).fam.is_some() {
             let lane = self.pass_lane;
             self.hold_with_derive(host, node, lane);
@@ -966,7 +969,7 @@ impl Runtime {
         old: &Obj,
         neu: &Obj,
     ) {
-        if self.nodes[node].acc {
+        if self.nodes[node].slot.acc {
             panic!("an accessor key's notification is not ported");
         }
         let ov = old.get(key);
@@ -978,7 +981,7 @@ impl Runtime {
 
     // Solid: store.ts:1390-1392
     pub(in crate::slice1) fn has_accessor_flag(&self, node: NodeId) -> bool {
-        self.nodes[node].acc
+        self.nodes[node].slot.acc
     }
 
     // Solid: store.ts:1395-1409
@@ -991,7 +994,7 @@ impl Runtime {
         old: &Obj,
         neu: &Obj,
     ) {
-        if self.nodes[node].acc {
+        if self.nodes[node].slot.acc {
             self.notify_key_diff(node, key, old, neu);
             return;
         }
@@ -1423,16 +1426,16 @@ impl Runtime {
         }
         let fam = self.st(target).fam;
         if let Some(n) = node {
-            if self.nodes[n].pxv == v && !v.is_undef() {
-                let px = self.nodes[n].px.clone();
+            if self.nodes[n].slot.pxv == v && !v.is_undef() {
+                let px = self.nodes[n].slot.px.clone();
                 return Ok(self.draft_serve(target, px));
             }
             if !self.is_wrappable(&v) {
                 return Ok(v);
             }
             let p = self.wrap(&v, Some(target), Some(key.clone()), fam);
-            self.nodes[n].px = p.clone();
-            self.nodes[n].pxv = v;
+            self.nodes[n].slot.px = p.clone();
+            self.nodes[n].slot.pxv = v;
             return Ok(self.draft_serve(target, p));
         }
         if !self.is_wrappable(&v) {
@@ -1445,7 +1448,7 @@ impl Runtime {
     // Solid: store.ts:1839-1842
     pub(in crate::slice1) fn linked_to(&self, c: NodeId, n: NodeId) -> bool {
         let mut s = self.nodes[n].subs;
-        while let Some(l) = s {
+        while let Some(l) = s.get() {
             if self.links[l].sub == c {
                 return true;
             }
@@ -1517,8 +1520,8 @@ impl Runtime {
             if self.nodes[node].pending.is_some() && self.nodes[node].config & CONFIG_OVERRIDE == 0
             {
                 self.list(node, lane);
-                self.nodes[node].lane = self.nodes[node].pending.take();
-                self.nodes[node].pending_err = None;
+                self.nodes[node].ext.lane = self.nodes[node].pending.take();
+                self.nodes[node].ext.when_set(|g| g.pending_err = None);
                 self.nodes[node].config |= CONFIG_OVERRIDE;
                 return;
             }
@@ -1530,7 +1533,7 @@ impl Runtime {
             {
                 let t = self.tx_of(fw);
                 self.hold_node(node, t);
-                self.nodes[node].reask = self.nodes[fw].reask;
+                self.nodes[node].ext.reask = self.nodes[fw].ext.reask;
             }
         }
     }
@@ -1606,7 +1609,7 @@ impl Runtime {
         let node0 = self.st(target).n.as_ref().and_then(|n| n.get(key));
         if self.store.write_scopes.is_none() && !self.store.write_override {
             if let Some(h) = node0 {
-                if !self.nodes[h].acc
+                if !self.nodes[h].slot.acc
                     && (!self.st(target).ch || self.nodes[h].config & CONFIG_OVERRIDE != 0)
                 {
                     let nv = self.node_value(h, target)?;
@@ -1616,14 +1619,14 @@ impl Runtime {
                     if self.st(target).s {
                         return Ok(self.serve_shallow(target, key, nv));
                     }
-                    if self.nodes[h].pxv == nv {
-                        return Ok(self.nodes[h].px.clone());
+                    if self.nodes[h].slot.pxv == nv {
+                        return Ok(self.nodes[h].slot.px.clone());
                     }
                     if self.is_wrappable(&nv) {
                         let fam = self.st(target).fam;
                         let p = self.wrap(&nv, Some(target), Some(key.clone()), fam);
-                        self.nodes[h].px = p.clone();
-                        self.nodes[h].pxv = nv;
+                        self.nodes[h].slot.px = p.clone();
+                        self.nodes[h].slot.pxv = nv;
                         return Ok(p);
                     }
                     return Ok(nv);
@@ -1651,7 +1654,7 @@ impl Runtime {
         }
         let mut acc_probe: i8 = -1;
         let acc = match node0 {
-            Some(n) => self.nodes[n].acc,
+            Some(n) => self.nodes[n].slot.acc,
             None if !self.in_draft(target) && self.get_observer().is_some() => {
                 let acc = self.is_own_accessor(&src, key);
                 let cur = self

@@ -1782,6 +1782,24 @@ struct Ctx {
 }
 type C = Rc<Ctx>;
 
+/// The nodes a plan's names bind, and those of the plans its bound actions
+/// come from.
+fn held_by(c: &C, out: &mut Vec<NodeId>, seen: &mut Vec<*const Ctx>) {
+    if seen.contains(&Rc::as_ptr(c)) {
+        return;
+    }
+    seen.push(Rc::as_ptr(c));
+    for b in c.names.borrow().values() {
+        match *b {
+            Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n) | Binding::Async(n) => out.push(n),
+            Binding::Store(_) => {}
+        }
+    }
+    for (p, _) in c.bound.values() {
+        held_by(p, out, seen);
+    }
+}
+
 /// v2.3: a prop as the compiler passes it: a value (a static value, a
 /// callback, an action) or a getter (a dynamic value, a function prop passed
 /// on, the children).
@@ -2438,6 +2456,10 @@ impl Execution {
 }
 
 impl ActionBody for Execution {
+    fn held(&self, out: &mut Vec<NodeId>) {
+        held_by(&self.c, out, &mut vec![]);
+    }
+
     fn step(&mut self, rt: &mut Runtime, input: Resume) -> ActionStep {
         match input {
             Resume::Start => {}
@@ -3349,6 +3371,7 @@ impl App {
             return Err("an evaluated plan is mounted by an eval site".into());
         }
         let mut runtime = Runtime::default();
+        runtime.collect_disposed();
         let host = Rc::new(RefCell::new(TreeRenderer::new()));
         host.borrow().set_logging(logging);
         let root = host.borrow().root();

@@ -12,9 +12,9 @@ impl Runtime {
 
     // Solid: heap.ts:37-52
     fn actual_insert_into_heap(&mut self, n: NodeId) {
-        let parent_height = match self.nodes[n].parent {
+        let parent_height = match self.nodes[n].parent.get() {
             Some(p) if self.nodes[p].kind == Kind::Root => {
-                self.nodes[p].parent_computed.map(|c| self.nodes[c].height)
+                self.nodes[p].parent_computed.get().map(|c| self.nodes[c].height)
             }
             Some(p) => Some(self.nodes[p].height),
             None => None,
@@ -32,7 +32,7 @@ impl Runtime {
             None => self.dirty_queue.heap[h] = Some(n),
             Some(head) => {
                 let tail = self.nodes[head].prev_heap;
-                self.nodes[tail].next_heap = Some(n);
+                self.nodes[tail].next_heap = Ix::from(Some(n));
                 self.nodes[n].prev_heap = tail;
                 self.nodes[head].prev_heap = n;
             }
@@ -85,9 +85,9 @@ impl Runtime {
         } else {
             let next = self.nodes[n].next_heap;
             let dhh = self.dirty_queue.heap[height].expect("heap row");
-            let end = next.unwrap_or(dhh);
+            let end = next.get().unwrap_or(dhh);
             if n == dhh {
-                self.dirty_queue.heap[height] = next;
+                self.dirty_queue.heap[height] = next.get();
             } else {
                 let prev = self.nodes[n].prev_heap;
                 self.nodes[prev].next_heap = next;
@@ -95,7 +95,7 @@ impl Runtime {
             self.nodes[end].prev_heap = self.nodes[n].prev_heap;
         }
         self.nodes[n].prev_heap = n;
-        self.nodes[n].next_heap = None;
+        self.nodes[n].next_heap = Ix::from(None);
     }
 
     // Solid: heap.ts:102-111
@@ -110,7 +110,7 @@ impl Runtime {
                 if self.nodes[e].flags & REACTIVE_IN_HEAP != 0 {
                     self.mark_node(e, REACTIVE_DIRTY);
                 }
-                el = self.nodes[e].next_heap;
+                el = self.nodes[e].next_heap.get();
             }
         }
     }
@@ -123,7 +123,7 @@ impl Runtime {
         }
         self.nodes[el].flags = (flags & !(REACTIVE_CHECK | REACTIVE_DIRTY)) | new_state;
         let mut link = self.nodes[el].subs;
-        while let Some(l) = link {
+        while let Some(l) = link.get() {
             let sub = self.links[l].sub;
             self.mark_node(sub, REACTIVE_CHECK);
             link = self.links[l].next_sub;
@@ -160,7 +160,7 @@ impl Runtime {
         self.delete_from_heap(el);
         let mut new_height = self.nodes[el].height;
         let mut d = self.nodes[el].deps;
-        while let Some(l) = d {
+        while let Some(l) = d.get() {
             let dep = self.links[l].dep;
             if self.nodes[dep].fn_.is_some() && self.nodes[dep].height >= new_height {
                 new_height = self.nodes[dep].height + 1;
@@ -170,7 +170,7 @@ impl Runtime {
         if self.nodes[el].height != new_height {
             self.nodes[el].height = new_height;
             let mut s = self.nodes[el].subs;
-            while let Some(l) = s {
+            while let Some(l) = s.get() {
                 let sub = self.links[l].sub;
                 self.insert_into_heap_height(sub);
                 s = self.links[l].next_sub;

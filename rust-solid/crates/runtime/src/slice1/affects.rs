@@ -98,7 +98,7 @@ impl Runtime {
     // Solid: affects-marks.ts:38-57 (`repoll`)
     fn repoll(&mut self, node: NodeId, seen: &mut Vec<NodeId>, readers: u32) {
         let mut s = self.nodes[node].subs;
-        while let Some(l) = s {
+        while let Some(l) = s.get() {
             let sub = self.links[l].sub;
             s = self.links[l].next_sub;
             if seen.contains(&sub) {
@@ -119,7 +119,7 @@ impl Runtime {
 
     // Solid: affects-marks.ts:66-83 (`marked`)
     fn marked(&self, el: NodeId, seen: &mut Vec<NodeId>) -> bool {
-        if self.nodes[el].marks != 0 {
+        if self.nodes[el].ext.marks != 0 {
             return true;
         }
         if self.nodes[el].status & STATUS_ERROR != 0 || seen.contains(&el) {
@@ -132,15 +132,15 @@ impl Runtime {
         // Mid-recompute, only the validated prefix (up to `_depsTail`) is
         // this pass's; a pass that validated none yet reads none.
         let tail = if self.nodes[el].flags & REACTIVE_RECOMPUTING_DEPS != 0 {
-            match self.nodes[el].deps_tail {
+            match self.nodes[el].deps_tail.get() {
                 None => return false,
                 t => t,
             }
         } else {
-            None
+            Ix::from(None).get()
         };
         let mut d = self.nodes[el].deps;
-        while let Some(l) = d {
+        while let Some(l) = d.get() {
             if self.marked(self.links[l].dep, seen) {
                 return true;
             }
@@ -155,15 +155,15 @@ impl Runtime {
     // Solid: affects-marks.ts:85-88 (`mark`)
     fn mark(&mut self, node: NodeId) {
         self.nodes[node].x = true; // `ext(node)._marks++`
-        self.nodes[node].marks += 1;
+        self.nodes[node].ext.marks += 1;
         self.marks_active += 1;
     }
 
     // Solid: affects-marks.ts:92-97 (`unmark`)
     fn unmark(&mut self, node: NodeId) -> bool {
         self.marks_active -= 1;
-        self.nodes[node].marks -= 1;
-        if self.nodes[node].marks != 0 {
+        self.nodes[node].ext.marks -= 1;
+        if self.nodes[node].ext.marks != 0 {
             return false;
         }
         self.repoll(node, &mut vec![], CONFIG_VERDICT | CONFIG_AUTHORITATIVE);

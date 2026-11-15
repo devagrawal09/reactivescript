@@ -69,14 +69,14 @@ impl Runtime {
     // Solid: async.ts:69-73
     pub(super) fn add_pending_source(&mut self, el: NodeId, source: NodeId) -> bool {
         self.nodes[el].x = true; // `ext(el)._pendingSources`
-        if self.set_has(self.nodes[el].pending_sources, source) {
+        if self.set_has(self.nodes[el].ext.pending_sources, source) {
             return false;
         }
-        let s = match self.nodes[el].pending_sources {
+        let s = match self.nodes[el].ext.pending_sources {
             Some(s) => s,
             None => {
                 let s = self.set_new();
-                self.nodes[el].pending_sources = Some(s);
+                self.nodes[el].ext.pending_sources = Some(s);
                 s
             }
         };
@@ -86,34 +86,34 @@ impl Runtime {
 
     // Solid: async.ts:75-80
     pub(super) fn remove_pending_source(&mut self, el: NodeId, source: NodeId) -> bool {
-        let Some(s) = self.nodes[el].pending_sources else {
+        let Some(s) = self.nodes[el].ext.pending_sources else {
             return false;
         };
         if !self.set_delete(s, source) {
             return false;
         }
         if self.sets[s].size == 0 {
-            self.nodes[el].pending_sources = None;
+            self.nodes[el].ext.when_set(|g| g.pending_sources = None);
         }
         true
     }
 
     // Solid: async.ts:84-86
     pub(super) fn clear_in_flight(&mut self, el: NodeId) {
-        self.nodes[el].in_flight = None;
+        self.nodes[el].ext.when_set(|g| g.in_flight = None);
     }
 
     // Solid: async.ts:88-92
     fn clear_pending_sources(&mut self, el: NodeId) {
-        self.nodes[el].pending_sources = None;
+        self.nodes[el].ext.when_set(|g| g.pending_sources = None);
     }
 
     // Solid: async.ts:99-105
     pub(super) fn retry_reaches(&self, el: NodeId, source: NodeId) -> bool {
         let mut d = self.nodes[el].deps;
-        while let Some(l) = d {
+        while let Some(l) = d.get() {
             let dep = self.links[l].dep;
-            if dep == source || self.set_has(self.nodes[dep].pending_sources, source) {
+            if dep == source || self.set_has(self.nodes[dep].ext.pending_sources, source) {
                 return true;
             }
             d = self.links[l].next_dep;
@@ -124,7 +124,7 @@ impl Runtime {
     // Solid: async.ts:114-122
     pub(super) fn park_loading_window(&mut self, el: NodeId, e: &Error) {
         self.nodes[el].x = true;
-        self.nodes[el].blocked = true;
+        self.nodes[el].ext.blocked = true;
         let source = e.source().flatten();
         if let Some(s) = source {
             self.add_pending_source(el, s);
@@ -142,7 +142,7 @@ impl Runtime {
         error: Option<Error>,
     ) {
         let Some(source) = source else {
-            self.nodes[el].error = None;
+            self.nodes[el].ext.when_set(|g| g.error = None);
             return;
         };
         let names = |e: &Option<Error>| {
@@ -152,9 +152,9 @@ impl Runtime {
         let current = if names(&error) {
             error
         } else {
-            self.nodes[el].error.clone()
+            self.nodes[el].ext.error.clone()
         };
-        self.nodes[el].error = Some(if names(&current) {
+        self.nodes[el].ext.error = Some(if names(&current) {
             current.unwrap()
         } else {
             error::not_ready(Some(source))
@@ -178,7 +178,7 @@ impl Runtime {
         f: &mut dyn FnMut(&mut Runtime, NodeId, bool) -> bool,
     ) {
         let mut s = self.nodes[el].subs;
-        while let Some(l) = s {
+        while let Some(l) = s.get() {
             let node = self.links[l].sub;
             // Solid: async.ts:154-160 (`visit`)
             let seen = visited.contains(&node);
@@ -234,7 +234,7 @@ impl Runtime {
             return false;
         }
         self.clear_pending_sources(el);
-        self.nodes[el].blocked = false;
+        self.nodes[el].ext.when_set(|g| g.blocked = false);
         self.nodes[el].status &= STATUS_ERROR | STATUS_UNINITIALIZED;
         if self.nodes[el].status & STATUS_ERROR == 0 {
             self.set_pending_error(el, None, None);
@@ -245,7 +245,7 @@ impl Runtime {
             error::status_error(el, error)
         };
         self.nodes[el].pending = Some(Value::Undef);
-        self.nodes[el].pending_err = Some(staged);
+        self.nodes[el].ext.pending_err = Some(staged);
         self.nodes[el].config |= CONFIG_STAGED | CONFIG_STAGED_ERROR;
         self.settle_pending_source(el, el);
         self.schedule();
@@ -257,7 +257,7 @@ impl Runtime {
         let mut scheduled = false;
         let e = Some(error);
         self.walk_dependents(el, &mut |rt, node, seen| {
-            if !seen && error::same(&rt.nodes[node].error, &e) {
+            if !seen && error::same(&rt.nodes[node].ext.error, &e) {
                 rt.enqueue_sub(node);
                 scheduled = true;
             }
@@ -288,7 +288,7 @@ impl Runtime {
                 return false;
             }
             rt.nodes[node].time = rt.clock;
-            let remaining = rt.set_first(rt.nodes[node].pending_sources);
+            let remaining = rt.set_first(rt.nodes[node].ext.pending_sources);
             let errored = rt.nodes[node].status & STATUS_ERROR != 0;
             if let Some(r) = remaining {
                 if !errored {
@@ -303,15 +303,15 @@ impl Runtime {
                     let t = rt.tx_of(node);
                     rt.join_future(Some(t));
                 }
-                if rt.nodes[node].blocked {
+                if rt.nodes[node].ext.blocked {
                     rt.enqueue_sub(node);
                     scheduled = true;
-                } else if let Some(f) = rt.nodes[node].fam {
+                } else if let Some(f) = rt.nodes[node].fam.get() {
                     // `storeParkHook` is installed: a derived store's derive
                     // settles its family (`familyStatus`, no status).
                     rt.family_status(f, 0, None);
                 }
-                rt.nodes[node].blocked = false;
+                rt.nodes[node].ext.when_set(|g| g.blocked = false);
                 if rt.nodes[node].subs.is_none() && rt.nodes[node].config & CONFIG_AUTO_DISPOSE != 0
                 {
                     released.push(node);
@@ -406,7 +406,7 @@ impl Runtime {
                         Ok::<(), Error>(())
                     })?;
                 }
-                self.nodes[el].in_flight = None;
+                self.nodes[el].ext.when_set(|g| g.in_flight = None);
                 // `holdWorkHook` is installed.
                 self.nodes[el].config &= !CONFIG_ASYNC;
                 self.nodes[el].loading = false;
@@ -431,17 +431,17 @@ impl Runtime {
         // has no traps.
         let f = self.flight_id(flight);
         self.nodes[el].x = true; // `ext(el)._inFlight`
-        self.nodes[el].in_flight = Some(f);
+        self.nodes[el].ext.in_flight = Some(f);
         // `holdWorkHook` is installed (verdict.ts).
         if self.nodes[el].flags & REACTIVE_WINDOW == 0 {
             self.nodes[el].config |= CONFIG_ASYNC;
         }
-        self.nodes[el].q = if self.question != 0 {
+        self.nodes[el].ext.q = if self.question != 0 {
             self.question
         } else {
             MAINLINE_QUESTION
         };
-        self.nodes[el].pending_sources = None;
+        self.nodes[el].ext.when_set(|g| g.pending_sources = None);
         self.on_flight(f, Reaction::Memo(el, pass));
         // `liveLanded = false`: not landed synchronously.
         if self.nodes[el].loading {
@@ -457,7 +457,7 @@ impl Runtime {
             Ok(v) => {
                 // `flattenIfIterable(v, el)`: `v[Symbol.asyncIterator]` of
                 // plain data (no traps) is undefined.
-                if self.nodes[el].in_flight == Some(f)
+                if self.nodes[el].ext.in_flight == Some(f)
                     && self.nodes[el].flags & REACTIVE_DISPOSED == 0
                 {
                     assert!(
@@ -483,7 +483,7 @@ impl Runtime {
         error: Error,
         pass: Option<&store::projection::ProjPass>,
     ) {
-        if self.nodes[el].in_flight != Some(f) {
+        if self.nodes[el].ext.in_flight != Some(f) {
             return;
         }
         let still_pending = error.is_not_ready();
@@ -525,7 +525,7 @@ impl Runtime {
         value: Value,
         pass: Option<&store::projection::ProjPass>,
     ) {
-        if self.nodes[el].in_flight != Some(f) {
+        if self.nodes[el].ext.in_flight != Some(f) {
             return;
         }
         // `holdWorkHook` is installed: an uninitialized node lands anyway.
@@ -548,7 +548,7 @@ impl Runtime {
                 return;
             }
             if self.nodes[el].config & CONFIG_HELD == 0 {
-                self.nodes[el].shown_error = None;
+                self.nodes[el].ext.when_set(|g| g.shown_error = None);
                 self.nodes[el].config &= !CONFIG_INPUTS_PUBLISHED;
             }
             if was_uninitialized {
@@ -580,12 +580,13 @@ impl Runtime {
     }
 
     // Solid: async.ts:936-943
+    #[inline]
     pub(super) fn clear_status(&mut self, el: NodeId, clear_uninitialized: bool) {
-        if self.nodes[el].pending_sources.is_some() {
+        if self.nodes[el].ext.pending_sources.is_some() {
             self.clear_pending_sources(el);
         }
-        if self.nodes[el].blocked {
-            self.nodes[el].blocked = false;
+        if self.nodes[el].ext.blocked {
+            self.nodes[el].ext.when_set(|g| g.blocked = false);
         }
         let n = &mut self.nodes[el];
         n.status = if clear_uninitialized {
@@ -593,7 +594,7 @@ impl Runtime {
         } else {
             n.status & STATUS_UNINITIALIZED
         };
-        if self.nodes[el].error.is_some() {
+        if self.nodes[el].ext.error.is_some() {
             self.set_pending_error(el, None, None);
         }
         // `statusNotifierOf(el)`: effects only.
@@ -604,10 +605,10 @@ impl Runtime {
 
     // Solid: async.ts:970-978
     pub(super) fn land_status(&mut self, el: NodeId, clear_uninitialized: bool) {
-        if let Some(s) = self.nodes[el].pending_sources {
+        if let Some(s) = self.nodes[el].ext.pending_sources {
             self.set_delete(s, el);
             if self.sets[s].size != 0 {
-                self.nodes[el].blocked = false;
+                self.nodes[el].ext.when_set(|g| g.blocked = false);
                 if clear_uninitialized {
                     self.nodes[el].status = STATUS_PENDING;
                 }
@@ -640,7 +641,7 @@ impl Runtime {
         };
         if let Some(ps) = pending_source {
             if self.nodes[el].status & STATUS_ERROR != 0 {
-                self.nodes[el].shown_error = self.nodes[el].error.clone();
+                self.nodes[el].ext.shown_error = self.nodes[el].ext.error.clone();
             }
             self.add_pending_source(el, ps);
         } else {
@@ -663,7 +664,7 @@ impl Runtime {
             self.set_pending_error(el, pending_source, error.clone());
         } else {
             self.nodes[el].x = true; // `ext(el)._error`
-            self.nodes[el].error = error.clone();
+            self.nodes[el].ext.error = error.clone();
         }
         if self.guessing && status == STATUS_PENDING && self.nodes[el].config & CONFIG_GUESS != 0 {
             if self.pass_lane.is_none() {
@@ -695,7 +696,7 @@ impl Runtime {
             None
         };
         let mut s = self.nodes[el].subs;
-        while let Some(link) = s {
+        while let Some(link) = s.get() {
             let sub = self.links[link].sub;
             self.nodes[sub].time = self.clock;
             let config = self.nodes[sub].config;
@@ -714,7 +715,7 @@ impl Runtime {
                 continue;
             }
             if let Some(ps) = pending_source {
-                if self.set_has(self.nodes[sub].pending_sources, ps) {
+                if self.set_has(self.nodes[sub].ext.pending_sources, ps) {
                     if self.pass_lane.is_none()
                         && self.nodes[sub].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
                         && self.running
@@ -729,8 +730,8 @@ impl Runtime {
             }
             if pending_source.is_some()
                 || (status != STATUS_PENDING
-                    && (!error::same(&self.nodes[sub].error, &error)
-                        || self.nodes[sub].pending_sources.is_some()))
+                    && (!error::same(&self.nodes[sub].ext.error, &error)
+                        || self.nodes[sub].ext.pending_sources.is_some()))
             {
                 // `laneStageHook` is installed (lanes.ts).
                 if let Some(l) = self.pass_lane {
@@ -748,7 +749,7 @@ impl Runtime {
                 self.notify_status(sub, status, error.clone());
                 // A derived store's derive: marked, not re-run — the family
                 // walks its leaves' readers (store/projection.ts).
-                if let Some(f) = self.nodes[sub].fam {
+                if let Some(f) = self.nodes[sub].fam.get() {
                     self.family_status(f, status, error.clone());
                 }
             }

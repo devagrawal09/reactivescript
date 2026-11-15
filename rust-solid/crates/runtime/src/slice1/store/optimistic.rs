@@ -169,7 +169,7 @@ impl Runtime {
             if view.borrow().removed.is_some()
                 && d.is_some_and(|d| {
                     self.nodes[d].status & STATUS_PENDING != 0
-                        && !(self.nodes[d].flags & REACTIVE_REASK != 0 || self.nodes[d].reask)
+                        && !(self.nodes[d].flags & REACTIVE_REASK != 0 || self.nodes[d].ext.reask)
                 })
             {
                 view.borrow_mut().g = Some(None);
@@ -318,11 +318,11 @@ impl Runtime {
     // Solid: optimistic.ts:353-374 (`GlobalQueue._slotTake`). `back`: the
     // node to give a guess back on (`Some`), or whether the re-ask took it.
     pub(in crate::slice1) fn slot_take_hook(&mut self, n: NodeId) -> bool {
-        let t = self.nodes[n].host;
+        let t = self.nodes[n].slot.host;
         let d = t
             .and_then(|t| self.st(t).fam)
             .and_then(|f| self.store.families[f].node)
-            .and_then(|d| self.nodes[d].transaction);
+            .and_then(|d| self.nodes[d].ext.transaction);
         let g = self.tx_of(n);
         let Some(d) = d.filter(|d| self.txs[*d].lane) else {
             return false;
@@ -341,8 +341,8 @@ impl Runtime {
 
     /// `_slotTake(n, true)`: the slot's node now (optimistic.ts:356-363).
     pub(in crate::slice1) fn slot_take_back(&mut self, n: NodeId) -> NodeId {
-        let t = self.nodes[n].host.expect("a slot node");
-        let k = self.nodes[n].key.clone();
+        let t = self.nodes[n].slot.host.expect("a slot node");
+        let k = self.nodes[n].slot.key.clone();
         self.mark_overlaid(t);
         match k {
             SlotKey::Track => self.get_container_node(t),
@@ -360,10 +360,10 @@ impl Runtime {
         truth: &Value,
         older: bool,
     ) -> Option<bool> {
-        let t = self.nodes[el].host;
+        let t = self.nodes[el].slot.host;
         let g_null = t
             .and_then(|t| self.st(t).k)
-            .and_then(|k| match &self.nodes[k].lane {
+            .and_then(|k| match &self.nodes[k].ext.lane {
                 Some(Value::View(v)) => Some(matches!(v.borrow().g, Some(None))),
                 _ => None,
             })
@@ -372,10 +372,10 @@ impl Runtime {
             return Some(self.fold(el, truth));
         }
         let Some(t) = t else { return Some(true) };
-        if self.nodes[el].key != SlotKey::Track {
+        if self.nodes[el].slot.key != SlotKey::Track {
             return Some(true);
         }
-        let Some(Value::View(view)) = self.nodes[el].lane.clone() else {
+        let Some(Value::View(view)) = self.nodes[el].ext.lane.clone() else {
             return None;
         };
         let truth_arr = matches!(truth, Value::Obj(o) if o.array);
@@ -407,7 +407,7 @@ impl Runtime {
         if matches!(view.borrow().g, Some(None)) {
             let d = self.store.families[fam].node.expect("a derive");
             let l = self.tx_of(el);
-            self.txs[l].over = self.nodes[d].transaction;
+            self.txs[l].over = self.nodes[d].ext.transaction;
         }
         let guessed = {
             let mut v = view.borrow_mut();
@@ -476,7 +476,7 @@ impl Runtime {
                 }
                 Some(node) => {
                     let cur = if self.nodes[node].config & CONFIG_OVERRIDE != 0 {
-                        self.nodes[node].lane.clone().unwrap_or(Value::Undef)
+                        self.nodes[node].ext.lane.clone().unwrap_or(Value::Undef)
                     } else {
                         base.get(&Key::Idx(i))
                     };
@@ -508,16 +508,16 @@ impl Runtime {
 
     // Solid: optimistic.ts:475-492
     fn fold(&mut self, el: NodeId, truth: &Value) -> bool {
-        let k = self.nodes[el].host.and_then(|t| self.st(t).k);
+        let k = self.nodes[el].slot.host.and_then(|t| self.st(t).k);
         let l = self.tx_of(el);
         let keyed = k.is_some_and(|k| {
             self.nodes[k].config & CONFIG_OVERRIDE != 0
-                && matches!(&self.nodes[k].lane, Some(Value::View(v)) if v.borrow().removed.is_some())
+                && matches!(&self.nodes[k].ext.lane, Some(Value::View(v)) if v.borrow().removed.is_some())
         });
         if !self.txs[l].shown || !keyed {
             return false;
         }
-        let guess = self.nodes[el].lane.clone();
+        let guess = self.nodes[el].ext.lane.clone();
         if !self.equals_slot(el, &guess, &Some(truth.clone()))
             && !self.echoes_hook(guess.as_ref().unwrap_or(&Value::Undef), truth)
         {
@@ -538,7 +538,7 @@ impl Runtime {
     pub(in crate::slice1) fn folded_read(&mut self, c: Option<NodeId>, el: NodeId) -> Slot {
         if let Some(c) = c {
             let derive = self.nodes[el]
-                .host
+                .slot.host
                 .and_then(|t| self.st(t).fam)
                 .and_then(|f| self.store.families[f].node);
             if self.nodes[el].config & CONFIG_GUESS == 0
@@ -583,10 +583,10 @@ impl Runtime {
         if self.nodes[node].config & CONFIG_OVERRIDE == 0 {
             self.nodes[node].config |= CONFIG_OVERRIDE;
             self.list(node, lane);
-        } else if self.nodes[node].lane.as_ref() == Some(&value) {
+        } else if self.nodes[node].ext.lane.as_ref() == Some(&value) {
             return;
         }
-        self.nodes[node].lane = Some(value);
+        self.nodes[node].ext.lane = Some(value);
         if self.nodes[node].subs.is_some() {
             self.lane_dirty(node, lane);
         }
@@ -649,10 +649,10 @@ impl Runtime {
         match skip {
             AskSkip::None => false,
             AskSkip::Reask => {
-                let first = self.nodes[n].subs.expect("a subscribed leaf");
+                let first = self.nodes[n].subs.get().expect("a subscribed leaf");
                 let sub = self.links[first].sub;
                 self.nodes[sub]
-                    .transaction
+                    .ext.transaction
                     .is_some_and(|t| self.txs[t].lane)
             }
         }
@@ -689,7 +689,7 @@ impl Runtime {
         let g_null = self
             .st(t)
             .k
-            .and_then(|k| match &self.nodes[k].lane {
+            .and_then(|k| match &self.nodes[k].ext.lane {
                 Some(Value::View(v)) => Some(matches!(v.borrow().g, Some(None))),
                 _ => None,
             })
@@ -708,7 +708,7 @@ impl Runtime {
                         self.store.held_v
                     };
                     if v != 0 {
-                        if self.nodes[d].transaction.is_some() {
+                        if self.nodes[d].ext.transaction.is_some() {
                             self.link(d, cn);
                             let td = self.tx_of(d);
                             self.stale_reader(cn, td);
@@ -753,7 +753,7 @@ impl Runtime {
     // Solid: optimistic.ts:654-663
     fn held(&self, c: NodeId, seen: &mut Vec<NodeId>) -> bool {
         let mut s = self.nodes[c].subs;
-        while let Some(l) = s {
+        while let Some(l) = s.get() {
             let r = self.links[l].sub;
             s = self.links[l].next_sub;
             if self.nodes[r].status & STATUS_PENDING != 0
@@ -851,7 +851,7 @@ impl Runtime {
                     return Some(n);
                 }
                 let mut s = self.nodes[n].subs;
-                while let Some(l) = s {
+                while let Some(l) = s.get() {
                     let sub = self.links[l].sub;
                     if self.links[l].gen == self.nodes[sub].dep_gen {
                         return Some(n);

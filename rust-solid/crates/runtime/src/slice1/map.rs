@@ -262,7 +262,7 @@ impl Runtime {
     // Solid: map.ts:403-702
     pub(super) fn update_keyed_map(&mut self, d: MapId) -> Result<Value, Error> {
         let owner = self.maps[d].owner;
-        self.nodes[owner].parent_computed = self.context;
+        self.nodes[owner].parent_computed = Ix::from(self.context);
         let list = self.maps[d].list.clone();
         let got = list(self)?;
         let mut new_items = if got.truthy() {

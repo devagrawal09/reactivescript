@@ -84,7 +84,7 @@ impl Runtime {
         if options.defer {
             self.apply_staged(node);
         } else if self.nodes[node].pending.is_none() {
-            let tx = self.nodes[node].transaction;
+            let tx = self.nodes[node].ext.transaction;
             if tx.is_some_and(|t| self.txs[t].lane) || ty == EFFECT_USER || options.schedule {
                 // `enqueue(type, run, node._x?._transaction)`: with no
                 // extension the argument is undefined and the lane defaults
@@ -116,13 +116,13 @@ impl Runtime {
             }
             let cause = error::unwrap_status_error(
                 self.nodes[node]
-                    .error
+                    .ext.error
                     .as_ref()
                     .expect("an errored effect carries its error"),
             );
             self.escalate(node, cause);
         } else if self.nodes[node].effect_type == EFFECT_RENDER {
-            let actual_error = self.nodes[node].error.clone();
+            let actual_error = self.nodes[node].ext.error.clone();
             self.notify(
                 node,
                 STATUS_PENDING | STATUS_ERROR,
@@ -160,7 +160,7 @@ impl Runtime {
         {
             let err = error::unwrap_status_error(
                 self.nodes[node]
-                    .error
+                    .ext.error
                     .as_ref()
                     .expect("an errored effect carries its error"),
             );
@@ -173,7 +173,7 @@ impl Runtime {
             }
             return;
         }
-        let clean_pass = self.nodes[node].error.is_none();
+        let clean_pass = self.nodes[node].ext.error.is_none();
         let prev_cleanup = self.nodes[node].cleanup.take();
         if let Some(c) = prev_cleanup {
             c(self);
