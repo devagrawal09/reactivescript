@@ -49,6 +49,9 @@ export type LowerOptions = {
    *  (`createMemo(() => host(…))`), `<Loading>`, `<Errored>`, `isPending`, `latest`, `refresh` and `affects`. Off by
    *  default: then those forms are refused as before. */
   async?: boolean;
+  /** Plan v2.3's composition tier (plan/docs/PLAN-V2.md, "v2.3: composition"): a component's `children: JSX.Element`
+   *  slot contract. */
+  compose?: boolean;
   /** Slice 6's frames tier (plan/docs/PLAN-V2.md, "v2.2"; implies `async`): module-level `"use server"` functions
    *  lowered to RX `server fn`s, async memos and action yields over them, and callback props with typed parameters (an
    *  action passed to a child component). Off by default. */
@@ -88,7 +91,7 @@ export function lowerTsx(
     const e = parsed.errors[0];
     fail(e.labels[0] ?? { start: 0, end: 0 }, e.message);
   }
-  verifySyntax(parsed.program, fail, { async: options.async || options.frames, frames: options.frames });
+  verifySyntax(parsed.program, fail, { async: options.async || options.frames, frames: options.frames, compose: options.compose });
   const line = (n: Span) => source.slice(0, n.start).split("\n").length;
   type Shape = {
     kind:

@@ -16,7 +16,7 @@ use crate::renderer::TreeRenderer;
 use crate::slice1::{
     user_error, ActionBody, ActionId, ActionStep, BodyFn, Builtin, Disposer, Error, ErroredProps,
     ForProps, Getter, InsertOptions, JsObj, Key, LoadingProps, Marker, NodeId, Out, Resume,
-    Runtime, ShowProps, Universal, Value,
+    Runtime, ShowProps, Universal, Value, ValueEffectFn,
 };
 use serde::Deserialize;
 use serde_json::Value as J;
@@ -128,6 +128,11 @@ pub enum Expr {
     Latest {
         value: Rc<Expr>,
     },
+    /// v2.3 (PLAN-V2.md, "v2.3: composition"): `props.name`, a value prop of
+    /// the component, read through its site's getter.
+    Prop {
+        name: String,
+    },
     /// A value eval (frontend `docs/EVAL.md`): the whole value of a memo.
     /// The code is a reactive string; the host's table gives its plan, one
     /// expression over the bindings, of the declared scalar type.
@@ -217,8 +222,13 @@ pub enum Step {
         body: Vec<Step>,
         catch: Vec<Step>,
     },
+    /// A call of an action (`action`) or (v2.3) of a function prop
+    /// (`prop`): exactly one of the two.
     Call {
-        action: String,
+        #[serde(default)]
+        action: Option<String>,
+        #[serde(default)]
+        prop: Option<String>,
         args: Vec<Expr>,
     },
     /// v2.1: `refresh(source)` of an async memo, in an action or a plain
@@ -239,14 +249,92 @@ pub struct Event {
     pub steps: Vec<Step>,
 }
 
+/// v2.3: an element attribute, in source order: a value (static, or
+/// reactive when it reads) or an event handler; exactly one of the two.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Attr {
+    pub name: String,
+    #[serde(default)]
+    pub value: Option<Expr>,
+    #[serde(default)]
+    pub steps: Option<Vec<Step>>,
+}
+
+/// v2.3: a callback prop, its parameters bound to the child's arguments.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Callback {
+    pub params: Vec<String>,
+    pub steps: Vec<Step>,
+}
+
+/// v2.3: a prop a site passes: exactly one of a value, a callback, an action
+/// of the site's component by name, or a function prop of the site's
+/// component passed on (`forward`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PropArg {
+    pub name: String,
+    #[serde(default)]
+    pub value: Option<Expr>,
+    #[serde(default)]
+    pub handler: Option<Callback>,
+    #[serde(default)]
+    pub action: Option<String>,
+    #[serde(default)]
+    pub forward: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PropKind {
+    Value,
+    Function,
+    Children,
+}
+
+/// v2.3: a prop a component reads, and how.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PropDecl {
+    pub name: String,
+    pub kind: PropKind,
+}
+
+/// v2.3: a component of the plan's module, applied at `component` views.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Component {
+    pub name: String,
+    pub props: Vec<PropDecl>,
+    pub sources: Vec<Source>,
+    pub memos: Vec<Memo>,
+    pub actions: Vec<Action>,
+    pub markup: Vec<View>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum View {
     Element {
         tag: String,
+        /// v2.3: the element's attributes; `events` is then empty.
+        #[serde(default)]
+        attrs: Option<Vec<Attr>>,
         events: Vec<Event>,
         children: Vec<View>,
     },
+    /// v2.3: `createComponent(Name, props)`, with the site's props and its
+    /// children (one text child passed as a value, any other as a getter).
+    Component {
+        name: String,
+        props: Vec<PropArg>,
+        #[serde(default)]
+        children: Option<Vec<View>>,
+    },
+    /// v2.3: `{props.children}`, an element child.
+    Children {},
     Text {
         value: Expr,
     },
@@ -348,6 +436,9 @@ impl<'de> Deserialize<'de> for PlanVersion {
 impl PlanVersion {
     pub fn is_v21(&self) -> bool {
         self.0 == 2.1
+    }
+    pub fn is_v23(&self) -> bool {
+        self.0 == 2.3
     }
 }
 
@@ -575,6 +666,9 @@ pub struct Plan {
     /// A value eval's one expression (frontend `docs/EVAL.md`).
     #[serde(default)]
     pub value: Option<Expr>,
+    /// v2.3: the module's other components, in declaration order.
+    #[serde(default)]
+    pub components: Option<Vec<Component>>,
 }
 
 /// The host's eval table (frontend `docs/EVAL.md`, "Rust"): for each eval
@@ -705,6 +799,12 @@ struct Check<'a> {
     imperative: std::cell::Cell<bool>,
     /// A v2.1 form occurs (PLAN-V2.md, "v2.1: async data").
     v21: std::cell::Cell<bool>,
+    /// v2.3: the props of the component being checked (none for the entry).
+    props: Option<HashMap<&'a str, PropKind>>,
+    /// v2.3: the plan's components, by name.
+    components: HashMap<&'a str, &'a Component>,
+    /// A v2.3 form occurs (PLAN-V2.md, "v2.3: composition").
+    v23: std::cell::Cell<bool>,
 }
 
 fn identifier(s: &str) -> bool {
@@ -771,6 +871,14 @@ impl<'a> Check<'a> {
                     ));
                 }
                 self.expr(value, scope, reads)
+            }
+            Expr::Prop { name } => {
+                self.v23.set(true);
+                match self.prop(name) {
+                    Some(PropKind::Value) => Ok(()),
+                    Some(_) => Err(format!("props.{name} is not a value prop")),
+                    None => Err(format!("read of undeclared prop {name}")),
+                }
             }
             Expr::Local { name } => {
                 if scope.iter().any(|s| s == name) {
@@ -874,6 +982,100 @@ impl<'a> Check<'a> {
         self.names.get(source).copied()
     }
 
+    fn prop(&self, name: &str) -> Option<PropKind> {
+        self.props.as_ref().and_then(|p| p.get(name).copied())
+    }
+
+    /// v2.3: a component site. Each prop is passed once, as exactly one form;
+    /// the component's value and function props are passed in their form,
+    /// and its children when it reads them.
+    fn site(
+        &self,
+        name: &str,
+        props: &[PropArg],
+        children: Option<&[View]>,
+        scope: &mut Vec<String>,
+    ) -> Result<(), String> {
+        let def = self
+            .components
+            .get(name)
+            .ok_or_else(|| format!("unknown component {name}"))?;
+        let mut seen = HashSet::new();
+        for p in props {
+            if !identifier(&p.name) || !seen.insert(p.name.as_str()) {
+                return Err(format!("<{name}> prop {:?} is not a unique name", p.name));
+            }
+            if p.name == "children" {
+                return Err(format!("<{name}> children are the site's children"));
+            }
+            let decl = def.props.iter().find(|d| d.name == p.name).map(|d| d.kind);
+            let function = match (&p.value, &p.handler, &p.action, &p.forward) {
+                (Some(v), None, None, None) => {
+                    self.expr(v, scope, true)?;
+                    false
+                }
+                (None, Some(cb), None, None) => {
+                    let mut inner = scope.clone();
+                    for q in &cb.params {
+                        if !identifier(q) || cb.params.iter().filter(|x| *x == q).count() > 1 {
+                            return Err(format!("<{name}> {} parameter {q:?}", p.name));
+                        }
+                        inner.push(q.clone());
+                    }
+                    self.steps(&cb.steps, &mut inner, StepContext::Handler)?;
+                    true
+                }
+                (None, None, Some(a), None) => {
+                    if !self.actions.contains_key(a.as_str()) {
+                        return Err(format!("<{name}> {} passes unknown action {a}", p.name));
+                    }
+                    true
+                }
+                (None, None, None, Some(f)) => {
+                    if self.prop(f) != Some(PropKind::Function) {
+                        return Err(format!(
+                            "<{name}> {} passes {f}, not a function prop",
+                            p.name
+                        ));
+                    }
+                    true
+                }
+                _ => {
+                    return Err(format!(
+                        "<{name}> prop {} has exactly one of value, handler, action and forward",
+                        p.name
+                    ))
+                }
+            };
+            match decl {
+                Some(PropKind::Value) if function => {
+                    return Err(format!("<{name}> reads {} as a value", p.name))
+                }
+                Some(PropKind::Function) if !function => {
+                    return Err(format!("<{name}> calls {}, a value here", p.name))
+                }
+                _ => {}
+            }
+        }
+        for d in &def.props {
+            let passed = match d.kind {
+                PropKind::Children => children.is_some(),
+                _ => seen.contains(d.name.as_str()),
+            };
+            if !passed {
+                return Err(format!(
+                    "<{name}> reads props.{}, which this site does not pass",
+                    d.name
+                ));
+            }
+        }
+        match children {
+            Some([View::Text { value }]) => self.expr(value, scope, true),
+            Some(kids) => self.views(kids, scope, true),
+            None => Ok(()),
+        }
+    }
+
     fn steps(
         &self,
         steps: &[Step],
@@ -972,7 +1174,27 @@ impl<'a> Check<'a> {
                     self.steps(body, &mut scope.clone(), at)?;
                     self.steps(catch, &mut scope.clone(), at)?;
                 }
-                Step::Call { action, args } => {
+                Step::Call {
+                    action: None,
+                    prop: Some(prop),
+                    args,
+                } => {
+                    self.v23.set(true);
+                    if at == StepContext::Action {
+                        return Err(format!("an action calls the prop {prop}"));
+                    }
+                    if self.prop(prop) != Some(PropKind::Function) {
+                        return Err(format!("call of {prop}, not a function prop"));
+                    }
+                    for x in args {
+                        self.expr(x, scope, true)?;
+                    }
+                }
+                Step::Call {
+                    action: Some(action),
+                    prop: None,
+                    args,
+                } => {
                     if at == StepContext::Action {
                         return Err(format!("an action calls the action {action}"));
                     }
@@ -991,6 +1213,7 @@ impl<'a> Check<'a> {
                         self.expr(x, scope, true)?;
                     }
                 }
+                Step::Call { .. } => return Err("a call has exactly one of action and prop".into()),
                 Step::Refresh { source } | Step::Affects { source } => {
                     self.v21.set(true);
                     let affects = matches!(s, Step::Affects { .. });
@@ -1023,6 +1246,7 @@ impl<'a> Check<'a> {
             match v {
                 View::Element {
                     tag,
+                    attrs,
                     events,
                     children,
                 } => {
@@ -1045,7 +1269,57 @@ impl<'a> Check<'a> {
                         }
                         self.steps(&e.steps, &mut scope.clone(), StepContext::Handler)?;
                     }
+                    if let Some(attrs) = attrs {
+                        self.v23.set(true);
+                        if !events.is_empty() {
+                            return Err("an element with attrs has its events among them".into());
+                        }
+                        for a in attrs {
+                            let mut c = a.name.chars();
+                            if !(c.next().is_some_and(|f| f.is_ascii_alphabetic())
+                                && c.all(|x| x.is_ascii_alphanumeric() || x == '-' || x == ':'))
+                            {
+                                return Err(format!("attribute name {:?}", a.name));
+                            }
+                            if !seen.insert(a.name.as_str()) {
+                                return Err(format!("attribute {} repeated", a.name));
+                            }
+                            let event = a
+                                .name
+                                .strip_prefix("on")
+                                .is_some_and(|n| n.starts_with(|f: char| f.is_ascii_uppercase()));
+                            match (&a.value, &a.steps) {
+                                (None, Some(steps)) if event && identifier(&a.name) => {
+                                    self.steps(steps, &mut scope.clone(), StepContext::Handler)?
+                                }
+                                (Some(v), None) if !event => self.expr(v, scope, true)?,
+                                _ => {
+                                    return Err(format!(
+                                        "attribute {} is an event with steps or a value",
+                                        a.name
+                                    ))
+                                }
+                            }
+                        }
+                    }
                     self.views(children, scope, false)?;
+                }
+                View::Component {
+                    name,
+                    props,
+                    children,
+                } => {
+                    self.v23.set(true);
+                    self.site(name, props, children.as_deref(), scope)?;
+                }
+                View::Children {} => {
+                    self.v23.set(true);
+                    if component {
+                        return Err("props.children directly in a component position".into());
+                    }
+                    if self.prop("children") != Some(PropKind::Children) {
+                        return Err("props.children in a component that does not read them".into());
+                    }
                 }
                 View::Text { .. } if component => {
                     return Err(
@@ -1119,7 +1393,9 @@ fn literal_text(v: &View) -> Option<&J> {
 
 /// Refuses a plan outside schema v2 before anything is built.
 pub fn validate(plan: &Plan) -> Result<(), String> {
-    if plan.version != 2 && !plan.version.is_v21() {
+    let v21 = plan.version.is_v21();
+    let v23 = plan.version.is_v23();
+    if plan.version != 2 && !v21 && !v23 {
         return Err(format!("plan version {} is not 2", plan.version));
     }
     if plan.component.is_empty() {
@@ -1132,6 +1408,9 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         bound: HashMap::new(),
         imperative: std::cell::Cell::new(false),
         v21: std::cell::Cell::new(false),
+        props: None,
+        components: HashMap::new(),
+        v23: std::cell::Cell::new(false),
     };
     for h in &plan.hosts {
         if !identifier(&h.name) || check.hosts.insert(&h.name, h).is_some() {
@@ -1158,39 +1437,20 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
             check.v21.set(true);
         }
     }
-    let kinds = plan
-        .sources
-        .iter()
-        .map(|s| {
-            (
-                s.name.as_str(),
-                match s.kind {
-                    SourceKind::Signal => NameKind::Signal,
-                    SourceKind::Store => NameKind::Store,
-                    SourceKind::Optimistic => NameKind::Optimistic,
-                },
-            )
-        })
-        .chain(plan.memos.iter().map(|m| {
-            (
-                m.name.as_str(),
-                if m.call.is_some() {
-                    NameKind::Async
-                } else {
-                    NameKind::Memo
-                },
-            )
-        }))
-        .chain(
-            plan.actions
-                .iter()
-                .map(|a| (a.name.as_str(), NameKind::Action)),
-        );
-    for (name, kind) in kinds {
-        if !identifier(name) || check.names.insert(name, kind).is_some() {
-            return Err(format!("name {name:?} is not unique"));
+    // v2.3: the module's components, each a body of its own over its props.
+    for c in plan.components.iter().flatten() {
+        check.v23.set(true);
+        if !identifier(&c.name)
+            || c.name == plan.component
+            || check.components.insert(&c.name, c).is_some()
+        {
+            return Err(format!("component {:?} is not a unique name", c.name));
         }
     }
+    if plan.components.as_ref().is_some_and(|c| c.is_empty()) {
+        return Err("an empty components list".into());
+    }
+    names(&mut check, &plan.sources, &plan.memos, &plan.actions)?;
     for b in plan.bindings.iter().flatten() {
         let kind = match (b.kind.as_str(), &b.ty, &b.params) {
             ("read", Some(_), None) => NameKind::BoundRead,
@@ -1218,10 +1478,118 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         }
         check.expr(v, &mut vec![], true)?;
     }
-    for a in &plan.actions {
+    body(
+        &mut check,
+        &plan.sources,
+        &plan.memos,
+        &plan.actions,
+        &plan.markup,
+    )?;
+    for c in plan.components.iter().flatten() {
+        let mut props = HashMap::new();
+        for d in &c.props {
+            if !identifier(&d.name)
+                || (d.kind == PropKind::Children) != (d.name == "children")
+                || props.insert(d.name.as_str(), d.kind).is_some()
+            {
+                return Err(format!("component {} prop {:?}", c.name, d.name));
+            }
+        }
+        let mut inner = Check {
+            names: HashMap::new(),
+            hosts: check.hosts.clone(),
+            actions: HashMap::new(),
+            bound: HashMap::new(),
+            imperative: std::cell::Cell::new(false),
+            v21: std::cell::Cell::new(false),
+            props: Some(props),
+            components: check.components.clone(),
+            v23: std::cell::Cell::new(true),
+        };
+        names(&mut inner, &c.sources, &c.memos, &c.actions)?;
+        body(&mut inner, &c.sources, &c.memos, &c.actions, &c.markup)?;
+        if inner.v21.get() {
+            check.v21.set(true);
+        }
+    }
+    // A component applied, directly or not, inside itself never ends.
+    for c in plan.components.iter().flatten() {
+        let mut stack = vec![c.name.as_str()];
+        let mut seen = HashSet::new();
+        while let Some(n) = stack.pop() {
+            for k in applied(&check.components[n].markup) {
+                if k == c.name {
+                    return Err(format!("component {} applies itself", c.name));
+                }
+                if seen.insert(k) {
+                    stack.push(k);
+                }
+            }
+        }
+    }
+    // `"version": 2.1` exactly when a v2.1 form occurs (PLAN-V2.md, "Top
+    // level and hosts"), and 2.3 exactly when a v2.3 form does (it may also
+    // use v2.1 forms): a v2 consumer refuses the rest by the version.
+    match (v23, check.v23.get(), v21, check.v21.get()) {
+        (true, false, _, _) => Err("plan version 2.3 uses no v2.3 form".into()),
+        (false, true, _, _) => Err(format!("plan version {} uses a v2.3 form", plan.version)),
+        (true, true, _, _) => Ok(()),
+        (_, _, true, false) => Err("plan version 2.1 uses no v2.1 form".into()),
+        (_, _, false, true) => Err("plan version 2 uses a v2.1 form".into()),
+        _ => Ok(()),
+    }
+}
+
+/// The names of a body: its sources, memos and actions, each unique.
+fn names<'a>(
+    check: &mut Check<'a>,
+    sources: &'a [Source],
+    memos: &'a [Memo],
+    actions: &'a [Action],
+) -> Result<(), String> {
+    let kinds = sources
+        .iter()
+        .map(|s| {
+            (
+                s.name.as_str(),
+                match s.kind {
+                    SourceKind::Signal => NameKind::Signal,
+                    SourceKind::Store => NameKind::Store,
+                    SourceKind::Optimistic => NameKind::Optimistic,
+                },
+            )
+        })
+        .chain(memos.iter().map(|m| {
+            (
+                m.name.as_str(),
+                if m.call.is_some() {
+                    NameKind::Async
+                } else {
+                    NameKind::Memo
+                },
+            )
+        }))
+        .chain(actions.iter().map(|a| (a.name.as_str(), NameKind::Action)));
+    for (name, kind) in kinds {
+        if !identifier(name) || check.names.insert(name, kind).is_some() {
+            return Err(format!("name {name:?} is not unique"));
+        }
+    }
+    Ok(())
+}
+
+/// A body's sources, memos, actions and markup.
+fn body<'a>(
+    check: &mut Check<'a>,
+    sources: &'a [Source],
+    memos: &'a [Memo],
+    actions: &'a [Action],
+    markup: &'a [View],
+) -> Result<(), String> {
+    for a in actions {
         check.actions.insert(&a.name, a);
     }
-    for s in &plan.sources {
+    for s in sources {
         let constant = s.kind != SourceKind::Optimistic;
         check.expr(&s.seed, &mut vec![], !constant)?;
         if s.kind == SourceKind::Store
@@ -1233,7 +1601,7 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
             ));
         }
     }
-    for m in &plan.memos {
+    for m in memos {
         match (&m.value, &m.call) {
             (Some(v), None) => check.expr(v, &mut vec![], true)?,
             // v2.1: an async memo over one host call; its arguments are a
@@ -1258,7 +1626,7 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
             }
         }
     }
-    for a in &plan.actions {
+    for a in actions {
         let mut seen = HashSet::new();
         for p in &a.params {
             if !identifier(p) || !seen.insert(p.as_str()) {
@@ -1267,14 +1635,33 @@ pub fn validate(plan: &Plan) -> Result<(), String> {
         }
         check.steps(&a.steps, &mut a.params.clone(), StepContext::Action)?;
     }
-    check.views(&plan.markup, &mut vec![], true)?;
-    // `"version": 2.1` exactly when a v2.1 form occurs (PLAN-V2.md, "Top
-    // level and hosts"): a v2 consumer refuses the rest by the version.
-    match (plan.version.is_v21(), check.v21.get()) {
-        (true, false) => Err("plan version 2.1 uses no v2.1 form".into()),
-        (false, true) => Err("plan version 2 uses a v2.1 form".into()),
-        _ => Ok(()),
+    check.views(markup, &mut vec![], true)
+}
+
+/// v2.3: the components a markup applies, at any depth.
+fn applied(views: &[View]) -> Vec<&str> {
+    let mut out = vec![];
+    for v in views {
+        match v {
+            View::Component { name, children, .. } => {
+                out.push(name.as_str());
+                out.extend(applied(children.as_deref().unwrap_or(&[])));
+            }
+            View::Element { children, .. } | View::For { children, .. } => {
+                out.extend(applied(children))
+            }
+            View::Show {
+                children, fallback, ..
+            }
+            | View::Loading { fallback, children }
+            | View::Errored { fallback, children } => {
+                out.extend(applied(children));
+                out.extend(applied(fallback));
+            }
+            _ => {}
+        }
     }
+    out
 }
 
 // ---- the evaluator ----
@@ -1367,8 +1754,22 @@ struct Ctx {
     bound: HashMap<String, (C, String)>,
     /// An evaluated plan's hosts: the enclosing app's host each name binds.
     host_alias: HashMap<String, String>,
+    /// v2.3: a component instance's props, as its site passed them (none for
+    /// the entry).
+    props: Option<Rc<Vec<(String, Prop)>>>,
+    /// v2.3: the plan's components, by name.
+    components: Rc<HashMap<String, Component>>,
 }
 type C = Rc<Ctx>;
+
+/// v2.3: a prop as the compiler passes it: a value (a static value, a
+/// callback, an action) or a getter (a dynamic value, a function prop passed
+/// on, the children).
+#[derive(Clone)]
+enum Prop {
+    Value(Value),
+    Get(Getter),
+}
 
 fn fail(c: &Ctx, message: String) -> Error {
     c.fatal.borrow_mut().get_or_insert_with(|| message.clone());
@@ -1553,6 +1954,13 @@ fn eval(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
             Ok(Value::Obj(JsObj::new_object_keyed(out)))
         }
         Expr::Read { source } => read(rt, c, source),
+        Expr::Prop { name } => {
+            let v = prop(rt, c, name)?;
+            if matches!(v, Value::Undef | Value::Func(_)) {
+                return Err(fail(c, format!("the prop {name} is not a value")));
+            }
+            Ok(v)
+        }
         Expr::Local { name } => env
             .get(name)
             .cloned()
@@ -1781,6 +2189,8 @@ fn linked(c: &C, plan: &Plan, bindings: &[EvalBinding]) -> Result<C, Error> {
         evals: c.evals.clone(),
         bound,
         host_alias,
+        props: None,
+        components: Rc::new(HashMap::new()),
     }))
 }
 
@@ -1983,8 +2393,11 @@ impl Execution {
                     self.bind = Some((bind, returns));
                     return Ok(ActionStep::Yield(flight));
                 }
-                Step::Call { action, .. } => {
-                    return Err(fail(&c, format!("an action calls the action {action}")))
+                Step::Call { action, prop, .. } => {
+                    return Err(fail(
+                        &c,
+                        format!("an action calls {}", action.or(prop).unwrap_or_default()),
+                    ))
                 }
                 Step::Refresh { source } => refresh(rt, &c, &source)?,
                 Step::Affects { source } => {
@@ -2089,39 +2502,165 @@ fn refresh(rt: &mut Runtime, c: &C, source: &str) -> Result<(), Error> {
     Ok(())
 }
 
+/// A plain handler's steps, run synchronously, outside any transaction.
+fn plain(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Result<(), Error> {
+    for s in steps {
+        match s {
+            Step::Write {
+                source,
+                path,
+                value,
+            } => write(rt, c, source, path.as_deref(), value, env)?,
+            Step::Call {
+                action: Some(action),
+                args,
+                ..
+            } => {
+                let mut values = vec![];
+                for a in args {
+                    values.push(eval(rt, c, a, env)?);
+                }
+                call_action(rt, c, action, values)?
+            }
+            // v2.3: a function prop, called as the TSX twin's `props.f(…)`.
+            Step::Call {
+                prop: Some(name),
+                args,
+                ..
+            } => {
+                let f = prop(rt, c, name)?;
+                if !matches!(f, Value::Func(_)) {
+                    return Err(fail(c, format!("the prop {name} is not a function")));
+                }
+                let mut values = vec![];
+                for a in args {
+                    values.push(eval(rt, c, a, env)?);
+                }
+                rt.call(&f, &values)?;
+            }
+            // v2.1: a plain re-ask.
+            Step::Refresh { source } => refresh(rt, c, source)?,
+            _ => {
+                return Err(fail(
+                    c,
+                    "a plain handler awaits, tries, guesses or declares affects".into(),
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A plain handler: its steps run synchronously, outside any transaction.
 fn handler(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Value {
     let (c, steps, env) = (c.clone(), steps.to_vec(), env.clone());
     rt.function(
         0,
         Rc::new(move |rt: &mut Runtime, _args: &[Value]| {
-            for s in &steps {
-                match s {
-                    Step::Write {
-                        source,
-                        path,
-                        value,
-                    } => write(rt, &c, source, path.as_deref(), value, &env)?,
-                    Step::Call { action, args } => {
-                        let mut values = vec![];
-                        for a in args {
-                            values.push(eval(rt, &c, a, &env)?);
-                        }
-                        call_action(rt, &c, action, values)?
-                    }
-                    // v2.1: a plain re-ask.
-                    Step::Refresh { source } => refresh(rt, &c, source)?,
-                    _ => {
-                        return Err(fail(
-                            &c,
-                            "a plain handler awaits, tries, guesses or declares affects".into(),
-                        ))
-                    }
-                }
-            }
+            plain(rt, &c, &steps, &env)?;
             Ok(Value::Undef)
         }),
     )
+}
+
+/// v2.3: a callback prop, its parameters bound to the child's arguments.
+fn callback(rt: &mut Runtime, c: &C, cb: &Callback, env: &Env) -> Value {
+    let (c, cb, env) = (c.clone(), cb.clone(), env.clone());
+    rt.function(
+        cb.params.len(),
+        Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+            if args.len() != cb.params.len() {
+                return Err(fail(
+                    &c,
+                    format!("a callback takes {} arguments", cb.params.len()),
+                ));
+            }
+            let mut env = env.clone();
+            for (k, v) in cb.params.iter().zip(args) {
+                env.insert(k.as_str(), v.clone());
+            }
+            plain(rt, &c, &cb.steps, &env)?;
+            Ok(Value::Undef)
+        }),
+    )
+}
+
+/// v2.3: a prop of the component instance, read through its site's getter.
+fn prop(rt: &mut Runtime, c: &C, name: &str) -> Result<Value, Error> {
+    let Some(props) = &c.props else {
+        return Err(fail(c, "the entry component has no props".into()));
+    };
+    match props.iter().find(|(n, _)| n == name) {
+        None => Ok(Value::Undef),
+        Some((_, Prop::Value(v))) => Ok(v.clone()),
+        Some((_, Prop::Get(g))) => g(rt),
+    }
+}
+
+/// v2.3: the props object of a site, in source order, as the compiler builds
+/// it: a static value as itself, a dynamic one as a getter (with
+/// `transformCondition`'s rewrite), a callback or an action as a function (an
+/// action reports its calls as a call step does), a function prop passed on
+/// as a getter of the parent's, and the children last: one text child its
+/// value (or getter), any other children a getter of their fragment.
+fn site(
+    rt: &mut Runtime,
+    c: &C,
+    args: &[PropArg],
+    children: Option<&[View]>,
+    env: &Env,
+) -> Result<Vec<(String, Prop)>, Error> {
+    let value = |rt: &mut Runtime, e: &Expr| -> Result<Prop, Error> {
+        if dynamic_expr(c, e) {
+            let (e, env) = (e.clone(), env.clone());
+            Ok(Prop::Get(getter(c, move |rt, c| {
+                condition(rt, c, &e, &env)
+            })))
+        } else {
+            eval(rt, c, e, env).map(Prop::Value)
+        }
+    };
+    let mut out = vec![];
+    for a in args {
+        let p = match (&a.value, &a.handler, &a.action, &a.forward) {
+            (Some(e), ..) => value(rt, e)?,
+            (_, Some(cb), ..) => Prop::Value(callback(rt, c, cb, env)),
+            (_, _, Some(name), _) => {
+                let (c2, name) = (c.clone(), name.clone());
+                Prop::Value(rt.function(
+                    0,
+                    Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+                        call_action(rt, &c2, &name, args.to_vec())?;
+                        Ok(Value::Undef)
+                    }),
+                ))
+            }
+            (_, _, _, Some(from)) => {
+                let from = from.clone();
+                Prop::Get(getter(c, move |rt, c| {
+                    let f = prop(rt, c, &from)?;
+                    if !matches!(f, Value::Func(_)) {
+                        return Err(fail(c, format!("the prop {from} is not a function")));
+                    }
+                    Ok(f)
+                }))
+            }
+            _ => unreachable!("validated"),
+        };
+        out.push((a.name.clone(), p));
+    }
+    match children {
+        Some([View::Text { value: e }]) => out.push(("children".into(), value(rt, e)?)),
+        Some(kids) => {
+            let (kids, env) = (kids.to_vec(), env.clone());
+            out.push((
+                "children".into(),
+                Prop::Get(getter(c, move |rt, c| fragment(rt, c, &kids, &env))),
+            ));
+        }
+        None => {}
+    }
+    Ok(out)
 }
 
 // ---- markup ----
@@ -2141,6 +2680,7 @@ fn handler(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Value {
 /// One element of a template, with the nodes `declare` created.
 struct Template<'v> {
     tag: &'v str,
+    attrs: Option<&'v [Attr]>,
     events: &'v [Event],
     children: &'v [View],
     node: usize,
@@ -2151,6 +2691,7 @@ struct Template<'v> {
 fn lower(v: &View) -> Template<'_> {
     let View::Element {
         tag,
+        attrs,
         events,
         children,
     } = v
@@ -2159,6 +2700,7 @@ fn lower(v: &View) -> Template<'_> {
     };
     Template {
         tag,
+        attrs: attrs.as_deref(),
         events,
         children,
         node: 0,
@@ -2180,6 +2722,21 @@ fn declare(rt: &mut Runtime, c: &C, t: &mut Template, env: &Env) -> Result<(), E
     for e in t.events {
         let f = handler(rt, c, &e.steps, env);
         c.u.set_prop(t.node, &e.name, &f, &Value::Undef);
+    }
+    // v2.3: an element's static props are its events and its static
+    // attribute values, in source order.
+    for a in t.attrs.unwrap_or(&[]) {
+        match (&a.value, &a.steps) {
+            (_, Some(steps)) => {
+                let f = handler(rt, c, steps, env);
+                c.u.set_prop(t.node, &a.name, &f, &Value::Undef);
+            }
+            (Some(e), None) if !dynamic_expr(c, e) => {
+                let v = eval(rt, c, e, env)?;
+                c.u.set_prop(t.node, &a.name, &v, &Value::Undef);
+            }
+            _ => {}
+        }
     }
     let multi = t.children.len() > 1;
     for (i, child) in t.children.iter().enumerate() {
@@ -2228,11 +2785,68 @@ fn exprs(rt: &mut Runtime, c: &C, t: &Template, env: &Env) -> Result<(), Error> 
     Ok(())
 }
 
-/// An element view, built as its template: the root node.
+/// v2.3: a template's dynamic attributes, in pre-order, with their nodes.
+fn attributes<'v>(c: &C, t: &Template<'v>, out: &mut Vec<(usize, &'v Attr)>) {
+    for a in t.attrs.unwrap_or(&[]) {
+        if a.value.as_ref().is_some_and(|e| dynamic_expr(c, e)) {
+            out.push((t.node, a));
+        }
+    }
+    for k in t.kids.iter().flatten() {
+        attributes(c, k, out);
+    }
+}
+
+/// An element view, built as its template: the root node. After the
+/// template's inserts, one effect sets its dynamic attributes (v2.3): with
+/// one, the effect's value is that attribute's; with more, all of theirs,
+/// each set when it differs from the last run's.
 fn element(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<usize, Error> {
     let mut t = lower(v);
     declare(rt, c, &mut t, env)?;
     exprs(rt, c, &t, env)?;
+    let mut dynamic = vec![];
+    attributes(c, &t, &mut dynamic);
+    let dynamic: Vec<(usize, String, Expr)> = dynamic
+        .into_iter()
+        .map(|(n, a)| (n, a.name.clone(), a.value.clone().expect("a value")))
+        .collect();
+    if dynamic.is_empty() {
+        return Ok(t.node);
+    }
+    let (c2, c3, env) = (c.clone(), c.clone(), env.clone());
+    let single = dynamic.len() == 1;
+    let attrs = Rc::new(dynamic);
+    let a2 = attrs.clone();
+    let compute: BodyFn = Rc::new(move |rt: &mut Runtime, _| {
+        if single {
+            return eval(rt, &c2, &attrs[0].2, &env).map(Out::Value);
+        }
+        let mut values = vec![];
+        for (_, _, e) in attrs.iter() {
+            values.push(eval(rt, &c2, e, &env)?);
+        }
+        Ok(Out::Value(Value::Obj(JsObj::new_array(values))))
+    });
+    let apply: ValueEffectFn = Rc::new(move |_rt: &mut Runtime, value: Value, prev: Value| {
+        if single {
+            c3.u.set_prop(a2[0].0, &a2[0].1, &value, &prev);
+            return None;
+        }
+        let elements = |v: &Value| match v {
+            Value::Obj(o) => o.elements(),
+            _ => vec![],
+        };
+        let (values, prev) = (elements(&value), elements(&prev));
+        for (i, (node, name, _)) in a2.iter().enumerate() {
+            let p = prev.get(i).cloned().unwrap_or(Value::Undef);
+            if values[i] != p {
+                c3.u.set_prop(*node, name, &values[i], &p);
+            }
+        }
+        None
+    });
+    c.u.effect(rt, compute, apply, false);
     Ok(t.node)
 }
 
@@ -2248,6 +2862,8 @@ fn getter(c: &C, f: impl Fn(&mut Runtime, &C) -> Result<Value, Error> + 'static)
 fn dynamic_expr(c: &C, e: &Expr) -> bool {
     match e {
         Expr::Literal { .. } | Expr::Local { .. } => false,
+        // v2.3: `props.x`, a member access.
+        Expr::Prop { .. } => true,
         Expr::Read { source } => !matches!(binding(c, source), Ok(Binding::Store(_))),
         Expr::Get { .. }
         | Expr::Length { .. }
@@ -2363,6 +2979,49 @@ fn condition(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Erro
 fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error> {
     match v {
         View::Element { .. } => unreachable!("an element is a template"),
+        // v2.3: `{props.children}`, inserted as given.
+        View::Children {} => {
+            let c2 = c.clone();
+            Ok(rt.function(
+                0,
+                Rc::new(move |rt: &mut Runtime, _| prop(rt, &c2, "children")),
+            ))
+        }
+        // v2.3: `createComponent(Name, props)`: an instance of its own, with
+        // the site's props.
+        View::Component {
+            name,
+            props,
+            children,
+        } => {
+            let props = site(rt, c, props, children.as_deref(), env)?;
+            let def = c
+                .components
+                .get(name)
+                .cloned()
+                .ok_or_else(|| fail(c, format!("unknown component {name}")))?;
+            let child: C = Rc::new(Ctx {
+                u: c.u.clone(),
+                hosts: c.hosts.clone(),
+                actions: def
+                    .actions
+                    .iter()
+                    .map(|a| (a.name.clone(), a.clone()))
+                    .collect(),
+                names: RefCell::new(HashMap::default()),
+                requests: c.requests.clone(),
+                fatal: c.fatal.clone(),
+                started: c.started.clone(),
+                evals: c.evals.clone(),
+                bound: HashMap::new(),
+                host_alias: c.host_alias.clone(),
+                props: Some(Rc::new(props)),
+                components: c.components.clone(),
+            });
+            rt.create_component(Rc::new(move |rt: &mut Runtime| {
+                build_body(rt, &child, &def.sources, &def.memos, &def.markup)
+            }))
+        }
         View::Text { value } => {
             let (value, env) = (value.clone(), env.clone());
             let c2 = c.clone();
@@ -2542,6 +3201,12 @@ fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value,
                     "an eval site directly in a component position".into(),
                 ));
             }
+            View::Children {} => {
+                return Err(fail(
+                    c,
+                    "props.children directly in a component position".into(),
+                ));
+            }
             _ => dynamic(rt, c, v, env)?,
         });
     }
@@ -2554,8 +3219,18 @@ fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value,
 
 /// The component body: sources, then memos, then the view.
 fn build(rt: &mut Runtime, c: &C, plan: &Plan) -> Result<Value, Error> {
+    build_body(rt, c, &plan.sources, &plan.memos, &plan.markup)
+}
+
+fn build_body(
+    rt: &mut Runtime,
+    c: &C,
+    sources: &[Source],
+    memos: &[Memo],
+    markup: &[View],
+) -> Result<Value, Error> {
     let empty = Env::new();
-    for s in &plan.sources {
+    for s in sources {
         let b = match s.kind {
             SourceKind::Signal => {
                 let v = eval(rt, c, &s.seed, &empty)?;
@@ -2575,7 +3250,7 @@ fn build(rt: &mut Runtime, c: &C, plan: &Plan) -> Result<Value, Error> {
         };
         c.names.borrow_mut().insert(s.name.clone(), b);
     }
-    for m in &plan.memos {
+    for m in memos {
         if let Some(call) = &m.call {
             // v2.1: `createMemo(() => host(...args))`: each computation
             // evaluates the arguments (tracked) and issues one new request,
@@ -2603,7 +3278,7 @@ fn build(rt: &mut Runtime, c: &C, plan: &Plan) -> Result<Value, Error> {
             .borrow_mut()
             .insert(m.name.clone(), Binding::Memo(n));
     }
-    fragment(rt, c, &plan.markup, &empty)
+    fragment(rt, c, markup, &empty)
 }
 
 /// A mounted v2 plan: the runtime, the recording host and the mount.
@@ -2661,6 +3336,14 @@ impl App {
             evals: Rc::new(evals.evals),
             bound: HashMap::new(),
             host_alias: HashMap::new(),
+            props: None,
+            components: Rc::new(
+                plan.components
+                    .iter()
+                    .flatten()
+                    .map(|c| (c.name.clone(), c.clone()))
+                    .collect(),
+            ),
         });
         let plan = Rc::new(plan);
         let code: Getter = {

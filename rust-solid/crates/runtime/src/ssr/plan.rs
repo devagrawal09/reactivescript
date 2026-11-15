@@ -75,6 +75,11 @@ pub struct Request {
 
 fn prepare(plan: &Plan) -> Result<Rc<Ctx>, String> {
     validate(plan)?;
+    // Plan v2.3 (composition: attributes, props, components) has no server
+    // lowering here yet.
+    if plan.version.is_v23() {
+        return Err(COMPOSE_REFUSED.into());
+    }
     refuse_evals(plan)?;
     let c = Rc::new(Ctx::new(plan)?);
     c.check_views(&plan.markup, &Types::new())?;
@@ -396,9 +401,12 @@ fn refuse_evals(plan: &Plan) -> Result<(), String> {
     Ok(())
 }
 
+const COMPOSE_REFUSED: &str = "plan v2.3 (composition) is not ported to the server renderer";
+
 fn view_has_eval(v: &View) -> bool {
     match v {
         View::Eval { .. } => true,
+        View::Component { .. } | View::Children {} => false,
         View::Element {
             events, children, ..
         } => {
@@ -445,7 +453,7 @@ fn step_has_eval(s: &Step) -> bool {
 fn has_eval(e: &Expr) -> bool {
     match e {
         Expr::Eval { .. } => true,
-        Expr::Literal { .. } | Expr::Read { .. } | Expr::Local { .. } => false,
+        Expr::Literal { .. } | Expr::Read { .. } | Expr::Local { .. } | Expr::Prop { .. } => false,
         Expr::Array { items } => items.iter().any(has_eval),
         Expr::Object { fields } => fields.iter().any(|f| has_eval(&f.value)),
         Expr::Get { object, .. } => has_eval(object),
@@ -652,6 +660,7 @@ impl Ctx {
             } => join(self.ty(then, locals), self.ty(otherwise, locals)),
             Expr::Pending { .. } => Ty::Bool,
             Expr::Latest { value } => self.ty(value, locals),
+            Expr::Prop { .. } => unreachable!("plan v2.3 is refused before lowering"),
             // Refused before typing (`refuse_evals`).
             Expr::Eval { .. } => Ty::Unknown,
         }
@@ -672,7 +681,8 @@ impl Ctx {
             | Expr::FindIndex { .. }
             | Expr::Eval { .. }
             | Expr::Pending { .. }
-            | Expr::Latest { .. } => true,
+            | Expr::Latest { .. }
+            | Expr::Prop { .. } => true,
             Expr::Array { items } => items.iter().any(|x| self.dynamic(x)),
             Expr::Object { fields } => fields.iter().any(|f| self.dynamic(&f.value)),
             Expr::Not { value } => self.dynamic(value),
@@ -781,6 +791,7 @@ impl Ctx {
                     self.check_views(children, &inner)?;
                 }
                 View::Eval { .. } => return Err(EVAL_REFUSED.into()),
+                View::Component { .. } | View::Children {} => return Err(COMPOSE_REFUSED.into()),
                 View::Loading { fallback, children } | View::Errored { fallback, children } => {
                     self.check_views(fallback, locals)?;
                     self.check_views(children, locals)?;
@@ -1045,6 +1056,7 @@ fn with(env: &Env, name: &str, v: JsVal) -> Env {
 fn eval(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
     match e {
         Expr::Literal { value, .. } => literal(value),
+        Expr::Prop { .. } => unreachable!("plan v2.3 is refused before lowering"),
         Expr::Array { items } => {
             let mut out = vec![];
             for x in items {

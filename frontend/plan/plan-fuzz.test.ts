@@ -6,8 +6,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { emit, generate } from './fuzz/gen.ts';
-import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, UPSTREAM_RX, UPSTREAM_RX_PATH } from './fuzz/run.ts';
+import { pathsInSetter, runAsyncCase, runCase, runComposeCase, runProgram, RUST_UNSUPPORTED_CLASS, UPSTREAM_RX, UPSTREAM_RX_COMPOSE, UPSTREAM_RX_PATH } from './fuzz/run.ts';
 import { emitAsync, generateAsync } from './fuzz/gen-async.ts';
+import { emitCompose, generateCompose } from './fuzz/gen-compose.ts';
 import { loadTsxModules } from '../tsx/modules.ts';
 import { resolvePlanV2 } from './resolve-v2.ts';
 
@@ -122,4 +123,26 @@ test('plan fuzz v2.1: native Solid, compiled RX, the plan and Rust give one resu
     ran++;
   }
   assert.ok(ran >= 7);
+});
+
+// Plan v2.3 (PLAN-V2.md, "Plan fuzz v2.3"): attributes and components from plan/fuzz/gen-compose.ts. Compiled RX lowers
+// components its own way and is not the oracle here (UPSTREAM_RX_COMPOSE); the plan and Rust are held to native Solid.
+test('plan fuzz v2.3: generation is deterministic, and the TSX and RX twins emit one v2.3 plan', () => {
+  for (let seed = 1; seed <= 12; seed++) {
+    assert.deepEqual(generateCompose(seed), generateCompose(seed));
+    const files = emitCompose(generateCompose(seed));
+    const plans = ['App.rx', 'App.tsx'].map(name => JSON.stringify(resolvePlanV2(loadTsxModules(name, p => files[p], { compose: true }), { compose: true })));
+    assert.equal(plans[1], plans[0], 'seed ' + seed);
+    assert.equal(JSON.parse(plans[0]).version, 2.3, 'seed ' + seed);
+  }
+});
+
+test('plan fuzz v2.3: the plan and Rust give native Solid\'s result and host log (seeds 1..8)', async () => {
+  for (let seed = 1; seed <= 8; seed++) {
+    const o = await runComposeCase(generateCompose(seed), { rust });
+    assert.ok(o.status === 'agree' || o.status === 'upstream', 'seed ' + seed + ': ' + o.status + ' ' + o.classes.join(', '));
+    assert.ok(o.classes.every(k => k === UPSTREAM_RX_COMPOSE), 'seed ' + seed + ': ' + o.classes.join(', '));
+    for (const l of rust ? ['plan', 'rust'] as const : ['plan'] as const) assert.equal(JSON.stringify(o.traces![l]), JSON.stringify(o.traces!.native), 'seed ' + seed + ' ' + l);
+    assert.ok('frames' in o.traces!.native!.result);
+  }
 });

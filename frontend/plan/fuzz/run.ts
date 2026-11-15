@@ -15,6 +15,7 @@ import { resolvePlanV2 } from '../resolve-v2.ts';
 import type { HostSig, Scenario, ScenarioStep, Trace } from './host.ts';
 import { emit, emitYield, HOST_TYPE, lastNoYield, type Case } from './gen.ts';
 import { asyncHostSigs, emitAsync, type AsyncCase } from './gen-async.ts';
+import { emitCompose, type ComposeCase } from './gen-compose.ts';
 import { loadYieldModules } from '../../yield/lower.ts';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
@@ -25,7 +26,10 @@ export const LEGS = ['native', 'rx', 'plan', 'rust'] as const;
  *  just that lowering removes the difference. */
 export const UPSTREAM_RX = 'upstream: RX optimistic source is a guess layer over a computed signal (AC-3)';
 export const UPSTREAM_RX_PATH = 'upstream: RX evaluates a path write\'s keys and value before the store setter';
-const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH];
+/** Composition programs: upstream's RX compiler lowers components and attributes its own way (its inserts carry no
+ *  markers), so its leg is kept as information and the plan and Rust legs are what the family checks. */
+export const UPSTREAM_RX_COMPOSE = 'upstream: compiled RX lowers components its own way';
+const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_COMPOSE];
 /** Plan v2.1 on a v2-only Rust consumer: `plan-trace` refuses the plan's `version` (an integer field: serde's
  *  "invalid type: floating point `2.1`, expected u32", or the scenario binary's "unsupported plan version"). */
 export const RUST_UNSUPPORTED_CLASS = 'rust-unsupported: plan-trace refuses plan version 2.1';
@@ -68,8 +72,8 @@ export type Outcome = {
   yield?: string;
 };
 
-function load(name: string, files: Record<string, string>, async = false): ModuleSet {
-  const set = loadTsxModules(name, p => files[p], async ? { async } : {});
+function load(name: string, files: Record<string, string>, async = false, compose = false): ModuleSet {
+  const set = loadTsxModules(name, p => files[p], { ...(async ? { async } : {}), ...(compose ? { compose } : {}) });
   if (set.diags.length) throw new Error(set.diags.map(d => d.code + ': ' + d.msg).join('; '));
   const checked = checkModules(set).diags;
   if (checked.length) throw new Error(checked.map(d => d.code + ' (' + d.file + ':' + d.line + '): ' + d.msg).join('; '));
@@ -214,6 +218,8 @@ export type Program = {
   async?: boolean;
   /** Recording with another generator's chooser (gen-async.ts): the worker imports `chooserFor` from this module. */
   chooser?: string;
+  /** Plan v2.3 (PLAN-V2.md, "v2.3: composition"): the TSX composition tier and the v2.3 builder are on. */
+  compose?: boolean;
 };
 
 export const hostSigs = (c: Case): HostSig[] => c.hosts.map(h => ({ name: h.name, parameters: h.params.map(p => HOST_TYPE[p]), returns: HOST_TYPE[h.returns], async: true }));
@@ -240,6 +246,11 @@ export async function runAsyncCase(c: AsyncCase, opts: { rust?: string; timeoutM
   return runProgram({ seed: c.seed, family: c.family, files: emitAsync(c), hosts: asyncHostSigs(c), actions: c.actions.map(a => a.name), record: c as unknown as Case, async: true, chooser: GEN_ASYNC }, opts);
 }
 const GEN_ASYNC = here('./gen-async.ts');
+/** Plan v2.3 (gen-compose.ts): one generated composition program on the four legs. */
+export async function runComposeCase(c: ComposeCase, opts: { rust?: string; timeoutMs?: number; keep?: string } = {}): Promise<Outcome> {
+  return runProgram({ seed: c.seed, family: c.family, files: emitCompose(c), hosts: [], actions: c.actions.map(a => a.name), record: c as unknown as Case, compose: true, chooser: GEN_COMPOSE }, opts);
+}
+const GEN_COMPOSE = here('./gen-compose.ts');
 
 export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: number; keep?: string } = {}): Promise<Outcome> {
   const timeoutMs = opts.timeoutMs ?? 20000;
@@ -247,12 +258,12 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
   const out: Outcome = { seed: p.seed, family: p.family, status: 'agree', classes: [], files };
   const api = { 'api.d.rx': files['api.d.rx'] };
   let tsxSet: ModuleSet, rxSet: ModuleSet;
-  try { tsxSet = load('App.tsx', { 'App.tsx': files['App.tsx'], ...api }, p.async); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: TSX'], detail: String((e as Error).message) }; }
-  try { rxSet = load('App.rx', { 'App.rx': files['App.rx'], ...api }, p.async); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: RX'], detail: String((e as Error).message) }; }
+  try { tsxSet = load('App.tsx', { 'App.tsx': files['App.tsx'], ...api }, p.async, p.compose); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: TSX'], detail: String((e as Error).message) }; }
+  try { rxSet = load('App.rx', { 'App.rx': files['App.rx'], ...api }, p.async, p.compose); } catch (e) { return { ...out, status: 'generator-bug', classes: ['generator: RX'], detail: String((e as Error).message) }; }
   let plan: unknown, refused: string | undefined;
   const plans: string[] = [];
   for (const set of [rxSet, tsxSet]) {
-    try { plans.push(JSON.stringify(resolvePlanV2(set, p.async ? { async: true } : {}), null, 2)); } catch (e) { plans.push('refused: ' + (e as Error).message); }
+    try { plans.push(JSON.stringify(resolvePlanV2(set, { ...(p.async ? { async: true } : {}), ...(p.compose ? { compose: true } : {}) }), null, 2)); } catch (e) { plans.push('refused: ' + (e as Error).message); }
   }
   if (plans[0] !== plans[1]) return { ...out, status: 'generator-bug', classes: ['emitter: TSX and RX plans differ'], detail: plans.join('\n----\n') };
   if (plans[0].startsWith('refused: ')) refused = plans[0].slice(9); else { plan = JSON.parse(plans[0]); out.plan = plan; out.nodes = planNodes(plan); }
@@ -310,7 +321,7 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
       }
     }
     out.traces = traces;
-    if (p.record) out.features = p.async ? asyncFeatures(p.record as unknown as AsyncCase, scenario, traces.native!.log) : scenarioFeatures(p.record, scenario, traces.native!.log);
+    if (p.record && !p.compose) out.features = p.async ? asyncFeatures(p.record as unknown as AsyncCase, scenario, traces.native!.log) : scenarioFeatures(p.record, scenario, traces.native!.log);
     for (const l of ['rx', 'plan', 'rust'] as const) {
       const t = traces[l];
       if (!t) continue;
@@ -319,6 +330,7 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
       // RX alone differs: probe the one known upstream cause. If RX with its optimistic sources lowered as native's
       // createOptimistic(fn) gives native's exact trace, the difference is upstream's AC-3 guess layer (a node deeper
       // than native's), not the plan's: classified apart, never counted as agreement.
+      if (l === 'rx' && p.compose) { out.classes.push(UPSTREAM_RX_COMPOSE); continue; }
       if (l === 'rx') {
         const probe = async (o: { directOptimistic?: boolean; pathInSetter?: boolean }) => {
           const r = await leg({ ...common, leg: 'rx', steps: scenario.steps, entry: dir + '/' + (o.pathInSetter ? probeEntry : built.entry), ...o }, timeoutMs);

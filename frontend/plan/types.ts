@@ -175,6 +175,8 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
       // Plan v2.1's probes: isPending is a boolean, latest the value's own type.
       case 'pending': expr(e.value, locals); return BOOLEAN;
       case 'latest': return expr(e.value, locals);
+      // Plan v2.3's props are untyped.
+      case 'prop': return fail('the prop ' + e.name + ' is untyped');
       default: return fail('unknown op ' + (e as { op: string }).op);
     }
   };
@@ -206,6 +208,7 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
         const m = memos.get(s.source);
         if (!m || !('await' in m)) fail(s.op + ' of ' + s.source + ', not an async memo');
       } else if (s.op === 'call') {
+        if (!('action' in s)) return fail('call of the untyped prop ' + s.prop);
         const a = names.get(s.action);
         if (!a || a.kind !== 'action') return fail('call of ' + s.action + ', not an action');
         if (a.params.length !== s.args.length) fail(s.action + ' takes ' + a.params.length + ' arguments');
@@ -215,7 +218,15 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
   };
   const views = (vs: View[], locals: Locals) => {
     for (const v of vs) attempt('markup', () => {
-      if (v.kind === 'element') { for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, new Map(locals))); views(v.children, locals); }
+      if (v.kind === 'element') {
+        for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, new Map(locals)));
+        for (const a of v.attrs ?? []) attempt(v.tag + ' ' + a.name, () => 'steps' in a ? steps(a.steps, new Map(locals)) : expr(a.value, locals));
+        views(v.children, locals);
+      }
+      else if (v.kind === 'component') {
+        for (const p of v.props) attempt(v.name + ' ' + p.name, () => 'value' in p ? expr(p.value, locals) : 'handler' in p ? fail('a callback\'s parameters are untyped') : undefined);
+        views(v.children ?? [], locals);
+      }
       else if (v.kind === 'text') { const t = expr(v.value, locals); if (t.k !== 'number' && t.k !== 'string') fail('text of a ' + printType(t) + ' (text shows strings and integers)'); }
       else if (v.kind === 'show') { expr(v.when, locals); views(v.children, locals); views(v.fallback, locals); }
       else if (v.kind === 'for') views(v.children, new Map(locals).set(v.item, arrayItem(expr(v.each, locals), 'For')));

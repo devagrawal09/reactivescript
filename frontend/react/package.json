@@ -1,0 +1,16 @@
+{
+  "name": "reactivescript-react",
+  "private": true,
+  "type": "module",
+  "description": "Spike: React components through React Compiler onto the RX AST. Kept apart from the frontend package so its pins don't move.",
+  "dependencies": {
+    "@babel/core": "7.28.5",
+    "@babel/plugin-syntax-jsx": "7.27.1",
+    "@babel/plugin-syntax-typescript": "7.27.1",
+    "@babel/plugin-transform-react-jsx": "^7.27.1",
+    "@babel/plugin-transform-typescript": "^7.28.5",
+    "babel-plugin-react-compiler": "1.0.0",
+    "react": "19.2.0",
+    "react-test-renderer": "19.2.0"
+  }
+}

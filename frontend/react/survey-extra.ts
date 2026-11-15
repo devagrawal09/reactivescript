@@ -1,0 +1,18 @@
+import { readFileSync } from "node:fs";
+import { RUNG } from "./survey.ts";
+const rows = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const sem = (r: any) => r.blockers.filter((b: string) => (RUNG as any)[b] !== "gap");
+const n = rows.length, f = (p: (r: any) => boolean) => { const k = rows.filter(p).length; return k + " (" + Math.round(100 * k / n) + "%)"; };
+const ok = (allowed: string[]) => (r: any) => sem(r).every((b: string) => allowed.includes(b) || ["snapshot", "coarse"].includes((RUNG as any)[b]));
+console.log("imported+snapshot+coarse:", f(ok(["IMPORTED_COMPONENT"])));
+console.log("+ custom hooks inlined (upper bound):", f(ok(["IMPORTED_COMPONENT", "HOOK_CUSTOM"])));
+console.log("+ refs:", f(ok(["IMPORTED_COMPONENT", "HOOK_CUSTOM", "REF"])));
+console.log("+ effects:", f(ok(["IMPORTED_COMPONENT", "HOOK_CUSTOM", "REF", "EFFECT"])));
+console.log("needs a real island (effects/refs/context/use/react or library hooks/compiler/async urgent):", f(r => sem(r).some((b: string) => ["EFFECT","REF","CONTEXT","USE","HOOK_REACT","HOOK_LIBRARY","COMPILER","SET_STATE_IN_RENDER","ASYNC_URGENT_WRITE"].includes(b))));
+const ex = (pred: (r: any) => boolean, k = 3) => rows.filter(pred).slice(0, k).map((r: any) => r.file + ":" + r.line + " " + r.name + " [" + r.blockers.join(",") + "] today=" + r.today).join("\n  ");
+console.log("\nno semantic blocker:\n  " + ex(r => !sem(r).length, 9));
+console.log("only imported components:\n  " + ex(r => sem(r).length && sem(r).every((b: string) => ["IMPORTED_COMPONENT"].includes(b)), 4));
+console.log("snapshot needed:\n  " + ex(r => sem(r).some((b: string) => (RUNG as any)[b] === "snapshot") && ok(["IMPORTED_COMPONENT"])(r), 4));
+console.log("coarse:\n  " + ex(r => sem(r).includes("UNDECIDED"), 3));
+console.log("compiler:\n  " + rows.filter((r: any) => r.blockers.includes("COMPILER")).slice(0, 4).map((r: any) => r.file + " " + r.name + ": " + r.reasons.find((x: string) => x.startsWith("COMPILER"))).join("\n  "));
+console.log("today codes REACT_SYNTAX sample:", rows.filter((r: any) => r.today === "REACT_SYNTAX").length);
