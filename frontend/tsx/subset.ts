@@ -93,7 +93,7 @@ export function isServerFunction(n: Ast, parent?: Ast): boolean {
 export function verifySyntax(
   program: Node,
   fail: (at: Span, message: string, code?: string) => never,
-  options: { async?: boolean; frames?: boolean } = {},
+  options: { async?: boolean; frames?: boolean; compose?: boolean } = {},
 ): void {
   const imports = new Map<string, string>();
   const tree = program as Ast;
@@ -182,6 +182,9 @@ export function verifySyntax(
     // Plan v2.2 refuses component children (FRAMES_CHILDREN); the frames tier says so by code at the prop's contract.
     if (options.frames && n.type === "TSPropertySignature" && n.key?.type === "Identifier" && n.key.name === "children")
       outside(n, "component children (props.children)", "FRAMES_CHILDREN");
+    // Plan v2.3: the one type reference of the composition tier, a children slot's `JSX.Element`.
+    if (options.compose && n.type === "TSTypeReference" && !n.typeArguments && n.typeName.type === "TSQualifiedName" &&
+      n.typeName.left.type === "Identifier" && n.typeName.left.name === "JSX" && n.typeName.right.name === "Element") return;
     if (!NODES.has(n.type)) outside(n, n.type);
     if (n.type === "ImportDeclaration") {
       if (n.source.value === "solid-js") {

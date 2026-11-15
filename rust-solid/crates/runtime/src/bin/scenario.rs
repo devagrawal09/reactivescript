@@ -2,7 +2,8 @@
 //! prints the frames. The plan's `version` picks the consumer: 1 is the
 //! like-slice evaluator (`plan.rs`, version-1 scenarios), 2 the plan v2
 //! evaluator (`plan_v2.rs`, version-1 or -2 scenarios), and so is 2.1 (plan
-//! v2.1, format-2.1 scenarios). Any other version is refused.
+//! v2.1, format-2.1 scenarios) and 2.3 (plan v2.3, composition). Any other
+//! version is refused.
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let result = (|| -> Result<_, Box<dyn std::error::Error>> {
@@ -24,7 +25,11 @@ fn main() {
                 )?,
                 // Plan v2.1 (async data) goes to the v2 consumer, which reads
                 // both (frontend plan/docs/PLAN-V2.md, "v2.1: async data").
-                None if plan.get("version").and_then(serde_json::Value::as_f64) == Some(2.1) => {
+                None if matches!(
+                    plan.get("version").and_then(serde_json::Value::as_f64),
+                    Some(2.1 | 2.3)
+                ) =>
+                {
                     rust_solid::scenario::run_v2(
                         serde_json::from_value(plan)?,
                         serde_json::from_value(scenario)?,

@@ -29,6 +29,7 @@ export const REFUSALS = {
   REACT_FALSY_RENDER: "`a && <X/>` renders a falsy non-boolean `a` (0, \"\") in React; RX renders nothing",
   REACT_LAZY_STATE: "useState(fn) and computed initial state are not lowered",
   REACT_PROPS: "the entry component takes no props in plan v2",
+  REACT_COMPONENT_IMPORTED: "a component from another module or a library is not lowered (only the module's own components)",
   REACT_SYNTAX: "a form outside this frontend's subset",
 } as const;
 export type RefusalCode = keyof typeof REFUSALS;
@@ -99,6 +100,12 @@ const jsxText = (raw: string): string => {
   return s.replace(new RegExp(WHITESPACE.source + "+", "g"), " ");
 };
 const OPS: Record<string, string> = { "===": "==", "!==": "!=", "+": "+", "<": "<", ">": ">", "<=": "<=", ">=": ">=", "&&": "&&", "||": "||" };
+/** React's camelCase names for HTML attributes; other names (aria-*, data-*, SVG's) are the attribute as written. */
+const DOM_NAMES: Record<string, string> = {
+  className: "class", htmlFor: "for", tabIndex: "tabindex", readOnly: "readonly", maxLength: "maxlength", minLength: "minlength",
+  autoComplete: "autocomplete", autoFocus: "autofocus", spellCheck: "spellcheck", contentEditable: "contenteditable",
+  colSpan: "colspan", rowSpan: "rowspan", inputMode: "inputmode", enterKeyHint: "enterkeyhint", crossOrigin: "crossorigin",
+};
 const BUILTIN: Record<string, string> = { filter: "filter", map: "map", findIndex: "indexOf" };
 /** Whether a render statement calls a state setter anywhere inside it (not inside a nested function). */
 function callsSetter(n: N, scope: Map<string, { k: string }>): boolean {
@@ -118,12 +125,15 @@ type B =
   | { k: "handler"; fn: N }
   | { k: "host" }
   | { k: "updated"; target: string }
+  | { k: "props" }           // a component's props object (plan v2.3)
+  | { k: "prop"; name: string }  // a destructured prop (plan v2.3)
   | { k: "local" };          // a handler local, parameter or lambda parameter
 type Scope = Map<string, B>;
 /** Where a handler statement runs: inside an async transition (an action), after an await, inside startTransition. */
 type At = { action: boolean; awaited: boolean; transition: boolean };
 
-export function lowerReact(source: string, filename = "main.react.tsx"): Program {
+/** `entryProps` (the survey): the entry may take props, as a component lowered for measurement, never mounted. */
+export function lowerReact(source: string, filename = "main.react.tsx", options: { entryProps?: boolean } = {}): Program {
   const ast = parseSync(source, { filename, babelrc: false, configFile: false, sourceType: "module", plugins: [[SyntaxTypeScript, { isTSX: true }]] }) as N;
   const refuse = (code: RefusalCode, n: N, detail: string = REFUSALS[code]): never => { throw new ReactRefusal(code, filename, n?.loc?.start?.line ?? 0, detail); };
   const line = (n: N) => n?.loc?.start?.line;
@@ -150,11 +160,22 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
     for (const n of names) module.set(n.name, { k: "host" });
     decls.push({ k: "import", names, from: s.source.value, pure: false, line: line(s) } as Decl);
   }
-  const exported = ast.program.body.filter((s: N) => s.type !== "ImportDeclaration");
-  const def = exported.length === 1 && exported[0].type === "ExportDefaultDeclaration" ? exported[0].declaration : undefined;
-  if (def?.type !== "FunctionDeclaration" || !def.id || def.async || def.generator) refuse("REACT_SYNTAX", exported[0] ?? ast.program, "one `export default function Name() { … }` and imports");
-  if (def.params.length) refuse("REACT_PROPS", def.params[0]);
-  const name = def.id.name;
+  // The module: imports, one default-exported component, and (plan v2.3) the module's other components, each a
+  // function declaration (exported or not); type declarations are skipped.
+  const rest = ast.program.body.filter((s: N) => s.type !== "ImportDeclaration" && !/^TS(Interface|TypeAlias)Declaration$/.test(s.type)
+    && !(s.type === "ExportNamedDeclaration" && /^TS(Interface|TypeAlias)Declaration$/.test(s.declaration?.type ?? "")));
+  const defaults = rest.filter((s: N) => s.type === "ExportDefaultDeclaration");
+  const def = defaults.length === 1 ? defaults[0].declaration : undefined;
+  if (def?.type !== "FunctionDeclaration" || !def.id || def.async || def.generator) refuse("REACT_SYNTAX", defaults[0] ?? rest[0] ?? ast.program, "one `export default function Name() { … }` and imports");
+  if (def.params.length && !options.entryProps) refuse("REACT_PROPS", def.params[0]);
+  const components = new Map<string, N>([[def.id.name, def]]);
+  for (const s of rest) {
+    if (s.type === "ExportDefaultDeclaration") continue;
+    const f = s.type === "ExportNamedDeclaration" ? s.declaration : s;
+    if (f?.type !== "FunctionDeclaration" || !f.id || !/^[A-Z]/.test(f.id.name) || f.async || f.generator || components.has(f.id.name))
+      refuse("REACT_SYNTAX", s, "a module of imports and components (`function Name(props) { … }`)");
+    components.set(f.id.name, f);
+  }
 
   // The shape of each object state, from its seed, and the fields any list in the view is keyed by.
   type Shape = { kind: "scalar" } | { kind: "object"; fields: Map<string, Shape> } | { kind: "array"; item: Shape };
@@ -188,9 +209,11 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
         if (n.name === "undefined") return { k: "lit", v: undefined };
         const b = scope.get(n.name);
         if (!b) return refuse("REACT_SYNTAX", n, "unknown name " + n.name);
-        if ((b.k === "state" || b.k === "optimistic" || b.k === "derived") && at?.awaited) refuse("REACT_STALE_READ", n, REFUSALS.REACT_STALE_READ + " (" + n.name + ")");
+        if ((b.k === "state" || b.k === "optimistic" || b.k === "derived" || b.k === "prop" || b.k === "props") && at?.awaited) refuse("REACT_STALE_READ", n, REFUSALS.REACT_STALE_READ + " (" + n.name + ")");
         if (b.k === "setter" || b.k === "action" || b.k === "handler") refuse("REACT_SYNTAX", n, n.name + " is called, not read");
         if (b.k === "updated") return { k: "id", name: b.target };
+        if (b.k === "prop") return { k: "member", o: { k: "id", name: "props" }, p: b.name };
+        if (b.k === "props") return { k: "id", name: "props" };
         return { k: "id", name: n.name };
       }
       case "MemberExpression": {
@@ -272,7 +295,14 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
         return handlerBody(b.fn, scope, at);
       }
       if (b?.k === "host") return [{ k: "expr", e: { k: "call", f: { k: "id", name: c! }, args: e.arguments.map((a: N) => expr(a, scope, at)) } }];
-      return refuse("REACT_SYNTAX", s, "a handler statement calls a setter, an action, a host or startTransition");
+      // plan v2.3: a function prop, `onPick(x)` or `props.onPick(x)`.
+      const pc = strip(e.callee);
+      if (b?.k === "prop" || pc.type === "MemberExpression" && !pc.computed && !pc.optional && pc.object.type === "Identifier" && scope.get(pc.object.name)?.k === "props") {
+        if (at.awaited) refuse("REACT_STALE_READ", e, REFUSALS.REACT_STALE_READ + " (a callback prop)");
+        const f: Expr = b?.k === "prop" ? { k: "member", o: { k: "id", name: "props" }, p: b.name } : { k: "member", o: { k: "id", name: "props" }, p: pc.property.name };
+        return [{ k: "expr", e: { k: "call", f, args: e.arguments.map((a: N) => expr(a, scope, at)) } }];
+      }
+      return refuse("REACT_SYNTAX", s, "a handler statement calls a setter, an action, a host, a callback prop or startTransition");
     }
     if (s.type === "VariableDeclaration" && s.kind === "const" && s.declarations.length === 1 && s.declarations[0].id.type === "Identifier") {
       const d = s.declarations[0], init = strip(d.init);
@@ -408,9 +438,9 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
       const b = scope.get(f.name);
       if (b?.k === "handler") return { k: "fn", params: [], body: { k: "lit", v: undefined }, stmts: handlerBody(b.fn, scope, { action: false, awaited: false, transition: false }) };
       if (b?.k === "action" && !b.params.length) return { k: "fn", params: [], body: { k: "lit", v: undefined }, stmts: [{ k: "expr", e: { k: "call", f: { k: "id", name: f.name }, args: [] } }] };
-      return refuse("REACT_SYNTAX", f, "onClick takes a handler");
+      return refuse("REACT_SYNTAX", f, "an event attribute takes a handler");
     }
-    if ((f.type !== "ArrowFunctionExpression" && f.type !== "FunctionExpression") || f.params.length) return refuse("REACT_SYNTAX", f, "onClick takes () => { … } (the DOM event is not lowered)");
+    if ((f.type !== "ArrowFunctionExpression" && f.type !== "FunctionExpression") || f.params.length) return refuse("REACT_SYNTAX", f, "an event attribute takes () => { … } (the DOM event is not lowered)");
     return { k: "fn", params: [], body: { k: "lit", v: undefined }, stmts: handlerBody(f, scope, { action: false, awaited: false, transition: false }) };
   };
 
@@ -425,7 +455,11 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
   };
   const display = (raw: N, scope: Scope): Markup[] => {
     const e = strip(raw);
-    if (e.type === "ConditionalExpression")
+    // A conditional that renders markup on either branch is a Show; one of two values is a text read.
+    const renders = (x: N): boolean => { const y = strip(x); return y.type === "JSXElement" || y.type === "JSXFragment" || y.type === "NullLiteral"
+      || y.type === "ConditionalExpression" && (renders(y.consequent) || renders(y.alternate)) || y.type === "LogicalExpression" && renders(y.right)
+      || y.type === "CallExpression" && y.callee.type === "MemberExpression" && !y.callee.computed && y.callee.property.name === "map"; };
+    if (e.type === "ConditionalExpression" && (renders(e.consequent) || renders(e.alternate)))
       return [{ k: "mif", c: expr(e.test, scope), t: display(e.consequent, scope), tDecls: [], f: display(e.alternate, scope), fDecls: [], line: line(e) } as Markup];
     if (e.type === "LogicalExpression" && e.operator === "&&" && (e.right.type === "JSXElement" || e.right.type === "JSXFragment" || strip(e.right).type === "CallExpression")) {
       if (!isBool(e.left, scope)) refuse("REACT_FALSY_RENDER", e.left);
@@ -433,6 +467,10 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
     }
     if (e.type === "JSXElement" || e.type === "JSXFragment") return markup(e, scope);
     if (e.type === "NullLiteral" || isBool(e, scope)) return [];
+    // plan v2.3: `{children}` or `{props.children}`, inserted as given.
+    const b = e.type === "Identifier" ? scope.get(e.name) : undefined;
+    if (b?.k === "prop" && b.name === "children" || e.type === "MemberExpression" && !e.computed && e.property.name === "children" && e.object.type === "Identifier" && scope.get(e.object.name)?.k === "props")
+      return [{ k: "read", e: { k: "member", o: { k: "id", name: "props" }, p: "children" }, line: line(e) } as Markup];
     if (e.type === "CallExpression" && e.callee.type === "MemberExpression" && !e.callee.computed && e.callee.property.name === "map") {
       const f = e.arguments[0];
       if (e.arguments.length !== 1 || f?.type !== "ArrowFunctionExpression" || f.params.length !== 1 || f.params[0].type !== "Identifier")
@@ -452,24 +490,73 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
     if (n.type === "JSXExpressionContainer") return n.expression.type === "JSXEmptyExpression" ? [] : display(n.expression, scope);
     if (n.type !== "JSXElement") return refuse("REACT_SYNTAX", n, "a view is JSX");
     const open = n.openingElement;
-    if (open.name.type !== "JSXIdentifier" || /^[A-Z]/.test(open.name.name)) return refuse("REACT_SYNTAX", open, "only host elements (child components are not lowered yet)");
+    if (open.name.type !== "JSXIdentifier") return refuse(open.name.type === "JSXMemberExpression" ? "REACT_COMPONENT_IMPORTED" : "REACT_SYNTAX", open, open.name.type === "JSXMemberExpression" ? undefined : "namespaced tags");
+    const tag = open.name.name;
+    const site = /^[A-Z]/.test(tag);
+    if (site && !components.has(tag)) return refuse("REACT_COMPONENT_IMPORTED", open, REFUSALS.REACT_COMPONENT_IMPORTED + " (" + tag + ")");
+    if (site) apply(tag);
     const attrs: { name: string; e: Expr }[] = [];
     for (const a of open.attributes) {
       if (a.type !== "JSXAttribute") refuse("REACT_SYNTAX", a, "spread props");
-      if (a.name.name === "key") continue;
-      if (a.name.name !== "onClick" || a.value?.type !== "JSXExpressionContainer") refuse("REACT_SYNTAX", a, "only onClick (and a row's key) are lowered");
-      attrs.push({ name: "onClick", e: handlerAttr(a.value.expression, scope) });
+      if (a.name.type !== "JSXIdentifier") refuse("REACT_SYNTAX", a, "namespaced attributes");
+      const name = a.name.name;
+      if (name === "key") continue;
+      if (name === "ref" || name === "dangerouslySetInnerHTML" || name === "children") refuse("REACT_SYNTAX", a, name + " is not lowered");
+      const v = a.value;
+      if (v?.type !== undefined && v.type !== "StringLiteral" && v.type !== "JSXExpressionContainer") refuse("REACT_SYNTAX", a, "an attribute value is a string or an expression");
+      const value = v?.type === "JSXExpressionContainer" ? v.expression : v;
+      if (site) { attrs.push({ name, e: value ? propArg(value, scope) : { k: "lit", v: true } }); continue; }
+      // A host attribute (plan v2.3): an event handler, or a scalar value under its HTML name.
+      if (/^on[A-Z]/.test(name)) { attrs.push({ name, e: value ? handlerAttr(value, scope) : refuse("REACT_SYNTAX", a, "an event attribute takes a handler") }); continue; }
+      if (value && strip(value).type === "ObjectExpression") refuse("REACT_SYNTAX", value, "object attribute values (style objects) are not lowered");
+      attrs.push({ name: DOM_NAMES[name] ?? name, e: value ? expr(value, scope) : { k: "lit", v: true } });
     }
-    return [{ k: "el", tag: open.name.name, attrs, children: n.children.flatMap((c: N) => markup(c, scope)), line: line(n) } as Markup];
+    return [{ k: "el", tag, attrs, children: n.children.flatMap((c: N) => markup(c, scope)), line: line(n) } as Markup];
+  };
+  /** A prop a site passes (plan v2.3): a value, a callback (its parameters are the child's arguments), an action by
+   *  name, or a function prop passed on. */
+  const propArg = (raw: N, scope: Scope): Expr => {
+    const f = strip(raw);
+    if (f.type === "Identifier") {
+      const b = scope.get(f.name);
+      if (b?.k === "action") return { k: "id", name: f.name };
+      if (b?.k === "handler") return { k: "fn", params: b.fn.params.map((p: N) => p.type === "Identifier" ? p.name : refuse("REACT_SYNTAX", p, "callback parameters are names")), body: { k: "lit", v: undefined }, stmts: handlerBody(b.fn, scope, { action: false, awaited: false, transition: false }) };
+      if (b?.k === "setter") return refuse("REACT_SYNTAX", f, "a setter is passed as a callback: (v) => " + f.name + "(v)");
+    }
+    if (f.type === "ArrowFunctionExpression" || f.type === "FunctionExpression")
+      return { k: "fn", params: f.params.map((p: N) => p.type === "Identifier" ? p.name : refuse("REACT_SYNTAX", p, "callback parameters are names")), body: { k: "lit", v: undefined }, stmts: handlerBody(f, scope, { action: false, awaited: false, transition: false }) };
+    return expr(f, scope);
   };
 
   // ---------------------------------------------------------------- component body
+  /** The props of a component (plan v2.3): `props` read as `props.x`, or destructured names, each read as `props.x`
+   *  (Solid's props stay live; a React render's props are that render's, which a handler after an await would see). */
+  const propsOf = (fn: N, scope: Scope) => {
+    if (!fn.params.length) return;
+    if (fn.params.length > 1) refuse("REACT_SYNTAX", fn.params[1], "a component takes one props object");
+    const p = fn.params[0];
+    if (p.type === "Identifier") { scope.set(p.name, { k: "props" }); return; }
+    if (p.type !== "ObjectPattern") return refuse("REACT_SYNTAX", p, "props are one name or a destructuring of names");
+    for (const q of p.properties) {
+      if (q.type !== "ObjectProperty" || q.computed || q.key.type !== "Identifier") refuse("REACT_SYNTAX", q, q.type === "RestElement" ? "rest props are not lowered" : "props destructure plain names");
+      if (q.value.type !== "Identifier") refuse("REACT_SYNTAX", q.value, q.value.type === "AssignmentPattern" ? "prop defaults are not lowered" : "props destructure plain names");
+      scope.set(q.value.name, { k: "prop", name: q.key.name });
+    }
+  };
+  const lowered = new Set<string>();
+  const queue: string[] = [];
+  /** A same-module component applied in a view: lowered too, once. */
+  const apply = (name: string) => { if (!lowered.has(name)) { lowered.add(name); queue.push(name); } };
+  const lowerComponent = (fn: N, entry: boolean): Decl => {
+  shapes.clear(); bools.clear(); optimisticBases.clear(); keys.clear();
   const scope: Scope = new Map(module);
+  propsOf(fn, scope);
   const cdecls: Decl[] = [];
   let view: Markup[] | undefined;
   const placed = (id: N) => { if (!facts.values.has(id.name)) refuse("REACT_UNDECIDED", id, REFUSALS.REACT_UNDECIDED + " (" + id.name + ")"); };
-  findKeys(def.body);
-  for (const s of def.body.body) {
+  if (fn.body.type !== "BlockStatement") refuse("REACT_SYNTAX", fn.body, "a component body is a block that returns its view");
+  findKeys(fn.body);
+  for (const s of fn.body.body) {
     if (view) refuse("REACT_SYNTAX", s, "the view is the last statement");
     if (s.type === "ReturnStatement") { view = s.argument ? markup(s.argument, scope) : []; continue; }
     if (s.type === "ExpressionStatement") {
@@ -535,8 +622,15 @@ export function lowerReact(source: string, filename = "main.react.tsx"): Program
     if (isBool(init, scope)) bools.add(d.id.name);
     scope.set(d.id.name, { k: "derived" });
   }
-  if (!view) refuse("REACT_SYNTAX", def, "the component returns its view");
-  decls.push({ k: "component", name, props: "props", decls: cdecls, view, line: line(def), exported: true, isDefault: true } as Decl);
+  if (!view) refuse("REACT_SYNTAX", fn, "the component returns its view");
+  return { k: "component", name: fn.id.name, props: "props", decls: cdecls, view, line: line(fn), ...(entry ? { exported: true, isDefault: true } : {}) } as Decl;
+  };
+  const name = def.id.name;
+  lowered.add(name);
+  const out = [lowerComponent(def, true)];
+  for (let next = queue.shift(); next; next = queue.shift()) out.push(lowerComponent(components.get(next), false));
+  // Declaration order, as the module has them.
+  decls.push(...out.sort((a, b) => (a as { line: number }).line - (b as { line: number }).line));
   return { decls, view: entryView(name, line(def)) };
 }
 

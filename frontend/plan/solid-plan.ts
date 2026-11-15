@@ -8,7 +8,7 @@
 // the scheduling. Every op outside the schema, and every value outside its types, throws.
 import { action, affects, createMemo, createOptimistic, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from 'solid-js';
 import * as testRenderer from '../tsx/test-renderer.ts';
-import type { EvalNode, Expression, HostType, Plan, Step, View } from './resolve-v2.ts';
+import type { Component, EvalNode, Expression, HostType, Plan, PropArg, Step, View } from './resolve-v2.ts';
 
 /** The renderer helpers a plan is built with: Solid's universal renderer over some host (default: the test renderer). */
 export type Renderer = {
@@ -18,6 +18,9 @@ export type Renderer = {
   insert: (parent: unknown, value: unknown, marker?: unknown) => unknown;
   createComponent: (component: (props: any) => unknown, props: object) => unknown;
   memo: (fn: () => unknown, equal?: boolean) => () => unknown;
+  /** v2.3: the template's attribute effect and its property writes. */
+  effect: (fn: () => unknown, apply: (value: any, prev?: any) => void) => unknown;
+  setProp: (node: unknown, name: string, value: unknown, prev?: unknown) => unknown;
 };
 /** An evaluated plan's bindings (docs/EVAL.md): a read is an accessor, a store its root, an action a function that
  *  starts it (whoever passes it reports the call, as the enclosing component would). */
@@ -45,18 +48,21 @@ const text = (v: unknown): string => typeof v === 'string' ? v : String(integer(
 export function planComponent(plan: Plan, api: Api, options: Options = {}): () => unknown {
   check(plan, api, options);
   if (plan.value) throw new Error('a value plan is evaluated with planValue');
-  return () => instance(plan, api, options).render();
+  return () => instance(plan, plan, api, options).render();
 }
 
 /** docs/EVAL.md: a value eval's plan, evaluated where it is called (in the caller's reactive context). */
 export function planValue(plan: Plan, api: Api, options: Options = {}): () => unknown {
   check(plan, api, options);
   if (!plan.value || plan.sources.length || plan.memos.length || plan.actions.length || plan.markup.length) throw new Error('a value plan is one expression');
-  return () => instance(plan, api, options).value();
+  return () => instance(plan, plan, api, options).value();
 }
 
 function check(plan: Plan, api: Api, options: Options) {
-  if (plan.version !== 2 && plan.version !== 2.1) throw new Error('plan version 2 or 2.1');
+  if (plan.version !== 2 && plan.version !== 2.1 && plan.version !== 2.3) throw new Error('plan version 2, 2.1 or 2.3');
+  if (plan.components && plan.version !== 2.3) throw new Error('components are a v2.3 form');
+  const names = new Set((plan.components ?? []).map(c => c.name));
+  if (names.size !== (plan.components ?? []).length || names.has(plan.component)) throw new Error('component names are unique');
   for (const h of plan.hosts) if (typeof api[h.name] !== 'function') throw new Error('missing host ' + h.name);
   const want = plan.bindings ?? [], given = options.bindings ?? new Map();
   if (want.length !== given.size || want.some(b => given.get(b.name)?.kind !== b.kind)) throw new Error('the bindings given are not the plan\'s: ' + want.map(b => b.kind + ' ' + b.name).join(', '));
@@ -68,8 +74,11 @@ const typed = (v: unknown, type: HostType): unknown => {
   throw new Error('eval value ' + String(v) + ' is not a ' + type);
 };
 
-function instance(plan: Plan, api: Api, options: Options) {
-  const { createComponent, createElement, createTextNode, insert, insertNode, memo } = options.renderer ?? (testRenderer as unknown as Renderer);
+/** One component's instance: the entry (`body` is the plan itself) or (v2.3) a component of the plan, with the props
+ *  object its site passed. */
+type Body = Pick<Plan, 'sources' | 'memos' | 'actions' | 'markup' | 'value'>;
+function instance(plan: Plan, body: Body, api: Api, options: Options, props?: Record<string, unknown>) {
+  const { createComponent, createElement, createTextNode, insert, insertNode, memo, effect, setProp } = options.renderer ?? (testRenderer as unknown as Renderer);
   {
     const reads = new Map<string, () => unknown>();
     const setters = new Map<string, (v: unknown) => unknown>();
@@ -153,6 +162,13 @@ function instance(plan: Plan, api: Api, options: Options) {
         // v2.1 (PLAN-V2.md, "v2.1: async data"): the probes, evaluated inside Solid's own windows.
         case 'pending': return isPending(() => evaluate(e.value, env));
         case 'latest': return latest(() => evaluate(e.value, env));
+        // v2.3: a prop, read through the site's getter (tracked in a reactive context, as the TSX twin's props.x).
+        case 'prop': {
+          if (!props) throw new Error('the entry component has no props');
+          const v = props[e.name];
+          if (v === undefined || typeof v === 'function') throw new Error('the prop ' + e.name + ' is not a value');
+          return v;
+        }
         case 'eval': {
           // docs/EVAL.md: the code, then the compiled expression over the bindings, in this reactive context.
           const code = evaluate(e.code, env);
@@ -207,6 +223,11 @@ function instance(plan: Plan, api: Api, options: Options) {
         } else if (s.op === 'try') {
           // Only a host rejection thrown in at an await is caught; a runtime error fails the run (PLAN-V2.md).
           try { yield* exec(s.body, new Map(env), where); } catch (e) { if (!rejections.has(e as object)) throw e; yield* exec(s.catch, new Map(env), where); }
+        } else if (s.op === 'call' && 'prop' in s) {
+          // v2.3: a function prop, called as the TSX twin's props.f(…) (a callback, or an action of the site's parent).
+          const f = props?.[s.prop];
+          if (typeof f !== 'function') throw new Error('the prop ' + s.prop + ' is not a function');
+          f(...s.args.map(x => now(x, env)));
         } else if (s.op === 'call') {
           const b = bound.get(s.action);
           if (b) { void b(...s.args.map(x => now(x, env))); continue; }
@@ -226,7 +247,7 @@ function instance(plan: Plan, api: Api, options: Options) {
       }
     }
 
-    for (const s of plan.sources) {
+    for (const s of body.sources) {
       kinds.set(s.name, s.kind);
       if (s.kind === 'signal') {
         const [get, set] = createSignal(evaluate(s.seed, new Map()));
@@ -239,7 +260,7 @@ function instance(plan: Plan, api: Api, options: Options) {
         reads.set(s.name, get); setters.set(s.name, set as never);
       } else throw new Error('unknown source kind ' + (s as { kind: string }).kind);
     }
-    for (const m of plan.memos) {
+    for (const m of body.memos) {
       if ('await' in m) {
         // v2.1: an async memo, Solid's createMemo(() => host(…args)): each computation is one new host request.
         const host = api[m.await.host], call = m.await;
@@ -250,7 +271,7 @@ function instance(plan: Plan, api: Api, options: Options) {
       }
       kinds.set(m.name, 'memo'); reads.set(m.name, createMemo(() => evaluate(m.value, new Map())));
     }
-    for (const a of plan.actions)
+    for (const a of body.actions)
       actions.set(a.name, action(function* (...args: unknown[]) {
         if (args.length !== a.params.length) throw new Error(a.name + ' arity');
         yield* exec(a.steps, new Map(a.params.map((p, i) => [p, args[i]])), 'action');
@@ -259,6 +280,42 @@ function instance(plan: Plan, api: Api, options: Options) {
     const handler = (steps: Step[], env: Env) => () => {
       const run = exec(steps, new Map(env), 'handler');
       if (!run.next().done) throw new Error('a plain handler never awaits');
+    };
+    // v2.3: a callback prop, its parameters bound to the arguments the child calls it with.
+    const callback = (params: string[], steps: Step[], env: Env) => (...args: unknown[]) => {
+      if (args.length !== params.length) throw new Error('a callback takes ' + params.length + ' arguments');
+      const run = exec(steps, new Map([...env, ...params.map((p, i) => [p, args[i]] as [string, unknown])]), 'handler');
+      if (!run.next().done) throw new Error('a plain handler never awaits');
+    };
+    // v2.3: the props object of a site, in source order, as the compiler builds it: a static value as itself, a dynamic
+    // one as a getter (with transformCondition's rewrite), a function prop as the function (an action reports its calls
+    // as a call step does; a function prop passed on is a getter of the parent's), and the children last: one text
+    // child its value, any other children a getter of their fragment.
+    const site = (v: Extract<View, { kind: 'component' }>, env: Env): Record<string, unknown> => {
+      const o: Record<string, unknown> = {};
+      const define = (name: string, d: PropertyDescriptor) => Object.defineProperty(o, name, { enumerable: true, configurable: true, ...d });
+      const valueOf = (name: string, e: Expression) => dyn(e) ? define(name, { get: () => condition(e, env) }) : define(name, { value: evaluate(e, env) });
+      for (const p of v.props as PropArg[]) {
+        if ('value' in p) valueOf(p.name, p.value);
+        else if ('handler' in p) define(p.name, { value: callback(p.handler.params, p.handler.steps, env) });
+        else if ('action' in p) {
+          const a = actions.get(p.action), name = p.action;
+          if (!a) throw new Error('unknown action ' + p.action);
+          define(p.name, { value: (...args: unknown[]) => { const run = a(...args); if (options.onAction) options.onAction(name, run); else void run; return run; } });
+        } else {
+          const from = p.forward;
+          define(p.name, { get: () => { const f = props?.[from]; if (typeof f !== 'function') throw new Error('the prop ' + from + ' is not a function'); return f; } });
+        }
+      }
+      const kids = v.children;
+      if (kids && kids.length === 1 && kids[0].kind === 'text') valueOf('children', kids[0].value);
+      else if (kids) define('children', { get: () => fragment(kids, env) });
+      return o;
+    };
+    const componentOf = (name: string) => {
+      const c = (plan.components ?? []).find((x: Component) => x.name === name);
+      if (!c) throw new Error('unknown component ' + name);
+      return (p: Record<string, unknown>) => instance(plan, c, api, { ...options, bindings: undefined }, p).render();
     };
     // An element tree is one template, lowered as Solid's universal compiler lowers JSX (compiler
     // src/universal/transform.rs, lower_native_element and lower_universal_children): `declare` creates the elements
@@ -273,9 +330,12 @@ function instance(plan: Plan, api: Api, options: Options) {
       view.children.forEach((c, i) => { if (c.kind === 'element') kids.set(i, lower(c, env)); });
       return { view, texts: new Map(), kids, env };
     };
+    // v2.3: an element's static props are its events and its static attribute values, in source order.
     const declare = (l: Lowered) => {
-      const events = l.view.events;
-      l.node = events.length ? createElement(l.view.tag, Object.fromEntries(events.map(e => [e.name, handler(e.steps, l.env)]))) : createElement(l.view.tag);
+      const statics: [string, unknown][] = l.view.attrs
+        ? l.view.attrs.flatMap((a): [string, unknown][] => 'steps' in a ? [[a.name, handler(a.steps, l.env)]] : dyn(a.value) ? [] : [[a.name, evaluate(a.value, l.env)]])
+        : l.view.events.map(e => [e.name, handler(e.steps, l.env)]);
+      l.node = statics.length ? createElement(l.view.tag, Object.fromEntries(statics)) : createElement(l.view.tag);
       const multi = l.view.children.length > 1;
       l.view.children.forEach((c, i) => {
         if (isStatic(c) && multi) l.texts.set(i, createTextNode(text((c as { value: { value: unknown } }).value.value)));
@@ -301,7 +361,25 @@ function instance(plan: Plan, api: Api, options: Options) {
         insert(l.node, value, marker);
       });
     };
-    const element = (v: Extract<View, { kind: 'element' }>, env: Env) => { const l = lower(v, env); declare(l); exprs(l); return l.node; };
+    // v2.3: after the template's inserts, one effect sets its dynamic attributes, in pre-order: with one, the effect's
+    // value is that attribute's; with more, all of theirs, each set when it differs from the last run's.
+    const attributes = (l: Lowered, out: { node: unknown; name: string; value: Expression; env: Env }[] = []) => {
+      for (const a of l.view.attrs ?? []) if ('value' in a && dyn(a.value)) out.push({ node: l.node, name: a.name, value: a.value, env: l.env });
+      l.view.children.forEach((c, i) => { if (c.kind === 'element') attributes(l.kids.get(i)!, out); });
+      return out;
+    };
+    const element = (v: Extract<View, { kind: 'element' }>, env: Env) => {
+      const l = lower(v, env); declare(l); exprs(l);
+      const dynamic = attributes(l);
+      if (dynamic.length === 1) {
+        const [a] = dynamic;
+        effect(() => evaluate(a.value, a.env), (value, prev) => { setProp(a.node, a.name, value, prev); });
+      } else if (dynamic.length > 1)
+        effect(() => dynamic.map(a => evaluate(a.value, a.env)), (values: unknown[], prev?: unknown[]) => {
+          dynamic.forEach((a, i) => { if (values[i] !== prev?.[i]) setProp(a.node, a.name, values[i], prev?.[i]); });
+        });
+      return l.node;
+    };
     // A component prop the compiler gives a getter (Show's when, For's each) and that is a conditional or a logical
     // expression is rewritten by its transformCondition(…, inline) (compiler src/shared/condition.rs): the test of a
     // conditional with a dynamic branch, or the left of `&&` with both sides dynamic, is read through a memo created in
@@ -319,6 +397,8 @@ function instance(plan: Plan, api: Api, options: Options) {
         case 'array': return e.items.some(dyn);
         case 'object': return e.fields.some(f => dyn(f.value));
         case 'not': case 'pending': case 'latest': return e.op === 'not' ? dyn(e.value) : true;
+        // v2.3: `props.x`, a member access.
+        case 'prop': return true;
         case 'cond': return dyn(e.test) || dyn(e.then) || dyn(e.else);
         default: return dyn(e.left) || dyn(e.right);
       }
@@ -350,6 +430,9 @@ function instance(plan: Plan, api: Api, options: Options) {
         const p = compile({ code, interface: v.interface, syntax: v.syntax, check: v.check });
         return planComponent(p, inner.api, { ...options, bindings: inner.bindings });
       });
+      // v2.3: `{props.children}`, inserted as given; a component, created with its site's props.
+      if (v.kind === 'children') return () => { if (!props) throw new Error('the entry component has no children'); return props.children; };
+      if (v.kind === 'component') return createComponent(componentOf(v.name), site(v, env));
       if (v.kind === 'show') return createComponent(Show, v.fallback.length ? {
         get when() { return condition(v.when, env); },
         get fallback() { return fragment(v.fallback, env); },
@@ -386,11 +469,12 @@ function instance(plan: Plan, api: Api, options: Options) {
         if (v.kind === 'element') return element(v, env);
         if (v.kind === 'text') throw new Error('text directly in a component position (the markup, a Show branch, a For row) is outside this consumer');
         if (v.kind === 'eval') throw new Error('an eval site directly in a component position is outside this consumer');
+        if (v.kind === 'children') throw new Error('props.children directly in a component position is outside this consumer');
         return dynamic(v, env);
       });
       return parts.length === 1 ? parts[0] : parts;
     };
-    return { render: () => fragment(plan.markup, new Map()), value: () => evaluate(plan.value!, new Map()) };
+    return { render: () => fragment(body.markup, new Map()), value: () => evaluate(body.value!, new Map()) };
   }
 }
 
