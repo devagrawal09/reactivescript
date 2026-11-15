@@ -380,8 +380,10 @@ impl TreeRenderer {
     /// handler stored on it (`node["_$$" + ty]`) or a native listener of
     /// that type other than a container's delegation listener.
     pub fn handles(&self, node: Node, ty: &str) -> bool {
-        self.expando(node, &format!("{}{ty}", events::EVENT_KEY))
-            .truthy()
+        self.handles_key(node, ty, &format!("{}{ty}", events::EVENT_KEY))
+    }
+    fn handles_key(&self, node: Node, ty: &str, key: &str) -> bool {
+        self.expando(node, key).truthy()
             || self.nodes[node]
                 .listeners
                 .iter()
@@ -402,16 +404,16 @@ impl TreeRenderer {
     /// The `n`th node under `root` (itself included) handling `ty`, depth
     /// first: `handlers_of(root, ty)[n]` without walking past it.
     pub fn nth_handler(&self, root: Node, ty: &str, n: usize) -> Option<Node> {
-        fn walk(h: &TreeRenderer, at: Node, ty: &str, left: &mut usize) -> Option<Node> {
-            if h.handles(at, ty) {
+        fn walk(h: &TreeRenderer, at: Node, ty: &str, key: &str, left: &mut usize) -> Option<Node> {
+            if h.handles_key(at, ty, key) {
                 if *left == 0 {
                     return Some(at);
                 }
                 *left -= 1;
             }
-            h.kids(at).find_map(|k| walk(h, k, ty, left))
+            h.kids(at).find_map(|k| walk(h, k, ty, key, left))
         }
-        walk(self, root, ty, &mut { n })
+        walk(self, root, ty, &format!("{}{ty}", events::EVENT_KEY), &mut { n })
     }
     /// `registerDelegatedRoot(node)` (web/src/client.ts:500-503), as
     /// `@solidjs/web`'s `render` registers its container.
