@@ -1432,7 +1432,9 @@ fn method(rt: &mut Runtime, c: &Ctx, a: &Value, name: &'static str) -> Result<()
 /// `ArraySpeciesCreate(O, n)`: `IsArray(O)`, then `Get(O, "constructor")`.
 fn species(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<(), Error> {
     match rt.js_get(a, &Key::name("constructor"))? {
-        Value::Func(Builtin::ArrayCtor) => Ok(()),
+        // Undefined is ArrayCreate: a store draft withholds an inherited
+        // `constructor` inside its setter (store.ts get trap).
+        Value::Func(Builtin::ArrayCtor) | Value::Undef => Ok(()),
         other => Err(fail(c, format!("an array's constructor is {other:?}"))),
     }
 }
@@ -2749,6 +2751,24 @@ impl App {
         TreeRenderer::dispatch(&mut self.runtime, &self.host, node, "click")
             .map_err(|e| format!("click handler failed: {}", e.message()))?;
         self.check()
+    }
+
+    /// `setStore(draft => …)` from host code, as an app's own handler
+    /// writes it (benchmarks drive jfb's header buttons through this).
+    pub fn store_set(
+        &mut self,
+        name: &str,
+        f: &mut dyn FnMut(&mut Runtime, Value) -> Result<(), Error>,
+    ) -> Result<(), String> {
+        match binding(&self.c, name).map_err(|e| e.message())? {
+            Binding::Store(proxy) => self
+                .runtime
+                .store_set(&proxy, &mut |rt: &mut Runtime, d: Value| {
+                    f(rt, d).map(|_| Value::Undef)
+                })
+                .map_err(|e| e.message()),
+            _ => Err(format!("{name} is not a store")),
+        }
     }
 
     pub fn requests(&self) -> Vec<Request> {

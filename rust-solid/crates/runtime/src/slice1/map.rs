@@ -155,7 +155,8 @@ impl Runtime {
         let len = self.length_of(a)?;
         if self.is_array(a) {
             match self.js_get(a, &Key::name("constructor"))? {
-                Value::Func(Builtin::ArrayCtor) => {}
+                // Undefined is ArrayCreate (a draft withholds `constructor`).
+                Value::Func(Builtin::ArrayCtor) | Value::Undef => {}
                 other => panic!("an array's constructor is {other:?}"),
             }
         }
