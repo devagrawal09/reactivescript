@@ -400,3 +400,24 @@ fn the_host_log_is_solids() {
         }
     }
 }
+
+#[test]
+fn a_filter_of_a_store_list_in_its_own_path_write_runs() {
+    // Inside the setter Solid withholds an inherited `constructor` (store.ts get trap), so ArraySpeciesCreate makes a
+    // plain array (native Solid shows "1").
+    let lit = |v: J| json!({"op": "literal", "value": v});
+    let list = json!({"op": "get", "object": {"op": "read", "source": "rows"}, "key": "list"});
+    let keep = json!({"op": "filter", "array": list, "param": "x",
+        "body": {"op": "ne", "left": {"op": "get", "object": {"op": "local", "name": "x"}, "key": "id"}, "right": lit(json!(1))}});
+    let seed = json!({"op": "object", "fields": [{"key": "list", "value": {"op": "array", "items": [
+        {"op": "object", "fields": [{"key": "id", "value": lit(json!(1))}]},
+        {"op": "object", "fields": [{"key": "id", "value": lit(json!(2))}]}]}}]});
+    let plan = json!({"version": 2, "component": "C", "hosts": [], "memos": [], "actions": [],
+        "sources": [{"name": "rows", "kind": "store", "seed": seed}],
+        "markup": [{"kind": "element", "tag": "button",
+            "events": [{"name": "onClick", "steps": [{"op": "write", "source": "rows", "path": [{"key": "list"}], "value": keep}]}],
+            "children": [{"kind": "text", "value": {"op": "length", "array": list}}]}]});
+    let scenario = json!({"version": 2, "name": "remove", "fixture": "remove", "host": [],
+        "steps": [{"type": "mount", "frame": "2"}, {"type": "click", "element": 0, "frame": "1"}]});
+    assert_eq!(run(plan, scenario), Ok(vec!["2".to_string(), "1".to_string()]));
+}

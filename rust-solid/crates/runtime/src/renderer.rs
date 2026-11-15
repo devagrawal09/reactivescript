@@ -178,7 +178,12 @@ struct TNode {
     tag: Option<String>,
     /// A text node's value as the host received it (a string or a number).
     text: Value,
-    children: Vec<Node>,
+    /// Children as a doubly linked sibling list, so `insertBefore` and
+    /// `removeChild` are O(1), as in a real tree.
+    first: Option<Node>,
+    last: Option<Node>,
+    prev: Option<Node>,
+    next: Option<Node>,
     parent: Option<Node>,
     /// Properties set on the node: `setProperty` of a non-event name, and
     /// the delegation's expandos (`_$$click`, `_$$clickData`).
@@ -194,7 +199,10 @@ impl Default for TNode {
         TNode {
             tag: None,
             text: Value::Undef,
-            children: vec![],
+            first: None,
+            last: None,
+            prev: None,
+            next: None,
             parent: None,
             props: vec![],
             listeners: vec![],
@@ -212,6 +220,8 @@ impl Default for TNode {
 pub struct TreeRenderer {
     nodes: Vec<TNode>,
     log: RefCell<Vec<J>>,
+    /// Off: host calls are not recorded (benchmarks; no oracle to compare).
+    logging: std::cell::Cell<bool>,
     /// Function identities, numbered in first-logged order.
     fn_ids: RefCell<HashMap<(u8, u64), usize>>,
     delegation: Delegation,
@@ -232,6 +242,7 @@ impl TreeRenderer {
                 ..TNode::default()
             }],
             log: RefCell::new(vec![]),
+            logging: std::cell::Cell::new(true),
             fn_ids: RefCell::new(HashMap::new()),
             delegation: Delegation::default(),
         }
@@ -248,6 +259,14 @@ impl TreeRenderer {
     /// Appends a host-side entry (the driver's own events) to the log.
     pub fn push_log(&self, entry: J) {
         self.log.borrow_mut().push(entry);
+    }
+    pub fn set_logging(&self, on: bool) {
+        self.logging.set(on);
+    }
+    fn log_with(&self, entry: impl FnOnce() -> J) {
+        if self.logging.get() {
+            self.log.borrow_mut().push(entry());
+        }
     }
     pub fn take_log(&mut self) -> Vec<J> {
         std::mem::take(&mut *self.log.borrow_mut())
@@ -292,7 +311,7 @@ impl TreeRenderer {
             Some(tag) => json!([
                 node,
                 tag,
-                n.children.iter().map(|c| self.tree(*c)).collect::<Vec<_>>()
+                self.kids(node).map(|c| self.tree(c)).collect::<Vec<_>>()
             ]),
             None => json!([node, self.enc(&n.text)]),
         }
@@ -301,12 +320,49 @@ impl TreeRenderer {
     pub fn frame(&self, node: Node) -> String {
         let n = &self.nodes[node];
         match &n.tag {
-            Some(_) => n.children.iter().map(|c| self.frame(*c)).collect(),
+            Some(_) => self.kids(node).map(|c| self.frame(c)).collect(),
             None => n.text.to_js_string().unwrap_or_default(),
         }
     }
-    pub fn children(&self, node: Node) -> &[Node] {
-        &self.nodes[node].children
+    pub fn children(&self, node: Node) -> Vec<Node> {
+        self.kids(node).collect()
+    }
+    fn kids(&self, node: Node) -> impl Iterator<Item = Node> + '_ {
+        std::iter::successors(self.nodes[node].first, move |&c| self.nodes[c].next)
+    }
+    /// Takes `node` out of its parent's sibling list.
+    fn unlink(&mut self, node: Node) {
+        let Some(p) = self.nodes[node].parent else {
+            return;
+        };
+        let (prev, next) = (self.nodes[node].prev, self.nodes[node].next);
+        match prev {
+            Some(x) => self.nodes[x].next = next,
+            None => self.nodes[p].first = next,
+        }
+        match next {
+            Some(x) => self.nodes[x].prev = prev,
+            None => self.nodes[p].last = prev,
+        }
+        let n = &mut self.nodes[node];
+        (n.parent, n.prev, n.next) = (None, None, None);
+    }
+    /// Puts `node` (unlinked) before `reference`, or last.
+    fn link(&mut self, parent: Node, node: Node, reference: Option<Node>) {
+        let prev = match reference {
+            Some(r) => self.nodes[r].prev,
+            None => self.nodes[parent].last,
+        };
+        match reference {
+            Some(r) => self.nodes[r].prev = Some(node),
+            None => self.nodes[parent].last = Some(node),
+        }
+        match prev {
+            Some(x) => self.nodes[x].next = Some(node),
+            None => self.nodes[parent].first = Some(node),
+        }
+        let n = &mut self.nodes[node];
+        (n.parent, n.prev, n.next) = (Some(parent), prev, reference);
     }
     pub fn tag(&self, node: Node) -> Option<&str> {
         self.nodes[node].tag.as_deref()
@@ -338,10 +394,24 @@ impl TreeRenderer {
         if self.handles(root, ty) {
             out.push(root);
         }
-        for c in &self.nodes[root].children {
-            out.extend(self.handlers_of(*c, ty));
+        for c in self.kids(root).collect::<Vec<_>>() {
+            out.extend(self.handlers_of(c, ty));
         }
         out
+    }
+    /// The `n`th node under `root` (itself included) handling `ty`, depth
+    /// first: `handlers_of(root, ty)[n]` without walking past it.
+    pub fn nth_handler(&self, root: Node, ty: &str, n: usize) -> Option<Node> {
+        fn walk(h: &TreeRenderer, at: Node, ty: &str, left: &mut usize) -> Option<Node> {
+            if h.handles(at, ty) {
+                if *left == 0 {
+                    return Some(at);
+                }
+                *left -= 1;
+            }
+            h.kids(at).find_map(|k| walk(h, k, ty, left))
+        }
+        walk(self, root, ty, &mut { n })
     }
     /// `registerDelegatedRoot(node)` (web/src/client.ts:500-503), as
     /// `@solidjs/web`'s `render` registers its container.
@@ -409,7 +479,7 @@ impl Renderer for TreeRenderer {
             tag: Some(tag.into()),
             ..TNode::default()
         });
-        self.push_log(json!(["createElement", tag, id]));
+        self.log_with(|| json!(["createElement", tag, id]));
         id
     }
     fn create_text(&mut self, text: &str) -> Node {
@@ -424,14 +494,14 @@ impl Renderer for TreeRenderer {
             text: value.clone(),
             ..TNode::default()
         });
-        self.push_log(json!(["createTextNode", self.enc(value), id]));
+        self.log_with(|| json!(["createTextNode", self.enc(value), id]));
         id
     }
     fn replace_text(&mut self, node: Node, text: &str) {
         self.replace_text_value(node, &Value::str(text))
     }
     fn replace_text_value(&mut self, node: Node, value: &Value) {
-        self.push_log(json!(["replaceText", node, self.enc(value)]));
+        self.log_with(|| json!(["replaceText", node, self.enc(value)]));
         assert!(self.nodes[node].tag.is_none(), "replaceText of an element");
         self.nodes[node].text = value.clone();
     }
@@ -442,7 +512,7 @@ impl Renderer for TreeRenderer {
     /// through Solid's `assignProp` event arm (`events::assign_event_prop`,
     /// with the host's `prevProps` of that prop); any other is stored.
     fn set_property(&mut self, node: Node, name: &str, value: &Value, prev: &Value) {
-        self.push_log(json!([
+        self.log_with(|| json!([
             "setProperty",
             node,
             name,
@@ -468,7 +538,7 @@ impl Renderer for TreeRenderer {
     }
     /// `insertNode(parent, node, anchor)`: DOM `insertBefore`.
     fn insert(&mut self, parent: Node, node: Node, anchor: Option<Node>) {
-        self.push_log(json!(["insertNode", parent, node, Self::opt(anchor)]));
+        self.log_with(|| json!(["insertNode", parent, node, Self::opt(anchor)]));
         if let Some(a) = anchor {
             assert_eq!(
                 self.nodes[a].parent,
@@ -479,58 +549,39 @@ impl Renderer for TreeRenderer {
         // "If referenceChild is node, set it to node's next sibling."
         let mut reference = anchor;
         if reference == Some(node) {
-            let ns = &self.nodes[parent].children;
-            reference = ns
-                .get(ns.iter().position(|n| *n == node).unwrap() + 1)
-                .copied();
+            reference = self.nodes[node].next;
         }
-        if let Some(old) = self.nodes[node].parent {
-            let ns = &mut self.nodes[old].children;
-            let at = ns.iter().position(|n| *n == node).unwrap();
-            ns.remove(at);
-        }
-        let ns = &mut self.nodes[parent].children;
-        let at = match reference {
-            Some(r) => ns.iter().position(|n| *n == r).unwrap(),
-            None => ns.len(),
-        };
-        ns.insert(at, node);
-        self.nodes[node].parent = Some(parent);
+        self.unlink(node);
+        self.link(parent, node, reference);
     }
     /// `removeNode(parent, node)`: DOM `removeChild`.
     fn remove(&mut self, parent: Node, node: Node) {
-        self.push_log(json!(["removeNode", parent, node]));
+        self.log_with(|| json!(["removeNode", parent, node]));
         assert_eq!(
             self.nodes[node].parent,
             Some(parent),
             "removeChild: not a child (NotFoundError)"
         );
-        let ns = &mut self.nodes[parent].children;
-        let at = ns.iter().position(|n| *n == node).unwrap();
-        ns.remove(at);
-        self.nodes[node].parent = None;
+        self.unlink(node);
     }
     fn parent(&self, node: Node) -> Option<Node> {
         let r = self.nodes[node].parent;
-        self.push_log(json!(["getParentNode", node, Self::opt(r)]));
+        self.log_with(|| json!(["getParentNode", node, Self::opt(r)]));
         r
     }
     fn next_sibling(&self, node: Node) -> Option<Node> {
-        let r = self.nodes[node].parent.and_then(|p| {
-            let ns = &self.nodes[p].children;
-            ns.get(ns.iter().position(|n| *n == node)? + 1).copied()
-        });
-        self.push_log(json!(["getNextSibling", node, Self::opt(r)]));
+        let r = self.nodes[node].next;
+        self.log_with(|| json!(["getNextSibling", node, Self::opt(r)]));
         r
     }
     fn first_child(&self, node: Node) -> Option<Node> {
-        let r = self.nodes[node].children.first().copied();
-        self.push_log(json!(["getFirstChild", node, Self::opt(r)]));
+        let r = self.nodes[node].first;
+        self.log_with(|| json!(["getFirstChild", node, Self::opt(r)]));
         r
     }
     fn is_text(&self, node: Node) -> bool {
         let r = self.nodes[node].tag.is_none();
-        self.push_log(json!(["isTextNode", node, r]));
+        self.log_with(|| json!(["isTextNode", node, r]));
         r
     }
     fn event(&mut self, _node: Node, _name: &str, _handler: &str) {
@@ -566,7 +617,7 @@ impl EventHost for TreeRenderer {
     /// DOM `addEventListener`: a listener already attached for the name is
     /// not added again.
     fn add_event_listener(&mut self, node: Node, name: &str, listener: Listener) {
-        self.push_log(json!([
+        self.log_with(|| json!([
             "addEventListener",
             node,
             name,
@@ -578,7 +629,7 @@ impl EventHost for TreeRenderer {
         }
     }
     fn remove_event_listener(&mut self, node: Node, name: &str, listener: &Listener) {
-        self.push_log(json!([
+        self.log_with(|| json!([
             "removeEventListener",
             node,
             name,
