@@ -453,9 +453,7 @@ fn steps_v2(
             } => {
                 let a = app.as_mut().expect("mounted");
                 let request = a
-                    .requests()
-                    .into_iter()
-                    .find(|r| &r.host == host && r.number == *call)
+                    .request(host, *call)
                     .ok_or_else(|| at(format!("{host} call #{call} was not issued")))?;
                 if let Some(expected) = args {
                     let actual: Vec<Value> = request.args.iter().map(to_json).collect();

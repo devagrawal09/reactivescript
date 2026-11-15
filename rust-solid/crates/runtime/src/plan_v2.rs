@@ -1350,6 +1350,22 @@ pub struct Request {
     pub flight: String,
 }
 
+/// Every request of a mount, in issue order, and each host's by number.
+#[derive(Default)]
+struct Requests {
+    all: Vec<Request>,
+    /// Per host, request `n`'s index in `all` at `n - 1`.
+    by_host: HashMap<String, Vec<usize>>,
+    /// How many of `all` are pending.
+    pending: usize,
+}
+
+impl Requests {
+    fn find(&self, host: &str, number: usize) -> Option<usize> {
+        self.by_host.get(host)?.get(number.checked_sub(1)?).copied()
+    }
+}
+
 struct Ctx {
     u: Universal<TreeRenderer>,
     hosts: Vec<HostSig>,
@@ -1357,7 +1373,7 @@ struct Ctx {
     names: RefCell<HashMap<String, Binding, NameHash>>,
     /// Shared by an app and every plan evaluated in it: one request
     /// numbering per host, per mount.
-    requests: Rc<RefCell<Vec<Request>>>,
+    requests: Rc<RefCell<Requests>>,
     /// The first evaluator failure (a value outside its types, an unbound
     /// name). It fails the run even where Solid would route the thrown
     /// error elsewhere.
@@ -1912,14 +1928,17 @@ fn request(c: &Ctx, host: &str, args: Vec<Value>) -> Result<(String, String), Er
     // host's.
     let host = c.host_alias.get(host).map_or(host, |h| h.as_str());
     let mut requests = c.requests.borrow_mut();
-    let number = requests.iter().filter(|r| r.host == host).count() + 1;
+    let number = requests.by_host.get(host).map_or(0, Vec::len) + 1;
     let flight = format!("{host}#{number}");
     {
         let h = c.u.host().borrow();
         let logged: Vec<J> = args.iter().map(|a| h.enc(a)).collect();
         h.push_log(serde_json::json!(["request", host, number, logged]));
     }
-    requests.push(Request {
+    let index = requests.all.len();
+    requests.by_host.entry(host.into()).or_default().push(index);
+    requests.pending += 1;
+    requests.all.push(Request {
         host: host.into(),
         number,
         args,
@@ -2667,7 +2686,7 @@ impl App {
                 .map(|a| (a.name.clone(), a.clone()))
                 .collect(),
             names: RefCell::new(HashMap::default()),
-            requests: Rc::new(RefCell::new(vec![])),
+            requests: Rc::new(RefCell::new(Requests::default())),
             fatal: Rc::new(RefCell::new(None)),
             started: Rc::new(RefCell::new(vec![])),
             evals: Rc::new(evals.evals),
@@ -2784,7 +2803,19 @@ impl App {
     }
 
     pub fn requests(&self) -> Vec<Request> {
-        self.c.requests.borrow().clone()
+        self.c.requests.borrow().all.clone()
+    }
+
+    /// Request `number` of `host`, without copying the whole log.
+    pub fn request(&self, host: &str, number: usize) -> Option<Request> {
+        let r = self.c.requests.borrow();
+        r.find(host, number).map(|i| r.all[i].clone())
+    }
+
+    /// The number of `host`'s oldest pending request.
+    pub fn first_pending(&self, host: &str) -> Option<usize> {
+        let r = self.c.requests.borrow();
+        r.by_host.get(host)?.iter().map(|&i| &r.all[i]).find(|q| q.pending).map(|q| q.number)
     }
 
     /// Settles request `number` of `host`; it must exist and be pending.
@@ -2796,27 +2827,24 @@ impl App {
     ) -> Result<(), String> {
         let flight = {
             let mut requests = self.c.requests.borrow_mut();
-            let r = requests
-                .iter_mut()
-                .find(|r| r.host == host && r.number == number)
+            let i = requests
+                .find(host, number)
                 .ok_or_else(|| format!("{host} call #{number} was not issued"))?;
+            let r = &mut requests.all[i];
             if !r.pending {
                 return Err(format!("{host} call #{number} is already settled"));
             }
             r.pending = false;
-            r.flight.clone()
+            let flight = r.flight.clone();
+            requests.pending -= 1;
+            flight
         };
         self.runtime.settle_flight_value(&flight, result);
         self.check()
     }
 
     pub fn pending(&self) -> usize {
-        self.c
-            .requests
-            .borrow()
-            .iter()
-            .filter(|r| r.pending)
-            .count()
+        self.c.requests.borrow().pending
     }
 
     pub fn dispose(&mut self) {
