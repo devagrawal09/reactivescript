@@ -69,22 +69,39 @@ impl Run {
                 let v = ty.value_of(&s["value"]).unwrap_or_else(|_| from_json(&s["value"]));
                 self.app().settle(host, r.number, Ok(v)).unwrap();
             }
+            "append" => {
+                let (key, v) = (s["key"].as_str().unwrap().to_string(), s["value"].clone());
+                let source = s["source"].as_str().unwrap();
+                let mut f = |rt: &mut Runtime, d: Value| -> Result<(), rust_solid::slice1::Error> {
+                    let list = rt.js_get(&d, &Key::name(&key))?;
+                    let len = int(rt.js_get(&list, &Key::name("length"))?) as u32;
+                    rt.js_set(&list, &Key::Idx(len), from_json(&v))
+                };
+                self.app().store_set(source, &mut f).unwrap();
+            }
+            "reject" => {
+                let host = s["host"].as_str().unwrap();
+                let r = self.app().requests().into_iter().find(|r| r.pending && r.host == host).expect("a pending request");
+                self.app().settle(host, r.number, Err(s["error"].as_str().unwrap().to_string())).unwrap();
+            }
             "jfb" => {
                 let op = s["op"].as_str().unwrap();
+                let n = s["n"].as_u64().map(|n| n as usize);
                 let mut next = self.next;
                 let app = self.app();
                 let mut f: Box<dyn FnMut(&mut Runtime, Value) -> Result<(), rust_solid::slice1::Error>> = match op {
                     "run" | "runlots" => {
-                        let list = rows(&mut next, if op == "run" { 1000 } else { 10_000 });
+                        let list = rows(&mut next, n.unwrap_or(if op == "run" { 1000 } else { 10_000 }));
                         Box::new(move |rt, d| rt.js_set(&d, &Key::name("list"), list.clone()))
                     }
                     "add" => {
-                        let more = rows(&mut next, 1000);
+                        let k = n.unwrap_or(1000);
+                        let more = rows(&mut next, k);
                         Box::new(move |rt, d| {
                             let list = rt.js_get(&d, &Key::name("list"))?;
                             let len = int(rt.js_get(&list, &Key::name("length"))?) as u32;
                             let more = more.clone();
-                            for i in 0..1000u32 {
+                            for i in 0..k as u32 {
                                 let r = rt.js_get(&more, &Key::Idx(i))?;
                                 rt.js_set(&list, &Key::Idx(len + i), r)?;
                             }
@@ -104,11 +121,13 @@ impl Run {
                     "clear" => Box::new(|rt, d| rt.js_set(&d, &Key::name("list"), Value::Obj(JsObj::new_array(vec![])))),
                     "swap" => Box::new(|rt, d| {
                         let list = rt.js_get(&d, &Key::name("list"))?;
-                        if int(rt.js_get(&list, &Key::name("length"))?) > 998 {
+                        // jfb swaps rows 1 and 998 of 1,000: the second and the second to last.
+                        let len = int(rt.js_get(&list, &Key::name("length"))?) as u32;
+                        if len > 3 {
                             let a = rt.js_get(&list, &Key::Idx(1))?;
-                            let b = rt.js_get(&list, &Key::Idx(998))?;
+                            let b = rt.js_get(&list, &Key::Idx(len - 2))?;
                             rt.js_set(&list, &Key::Idx(1), b)?;
-                            rt.js_set(&list, &Key::Idx(998), a)?;
+                            rt.js_set(&list, &Key::Idx(len - 2), a)?;
                         }
                         Ok(())
                     }),
