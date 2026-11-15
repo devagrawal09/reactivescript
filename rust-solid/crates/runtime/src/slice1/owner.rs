@@ -138,6 +138,9 @@ impl Runtime {
                 self.dispose_children(node, false, true);
             }
             self.nodes[node].flags = flags | REACTIVE_DISPOSED;
+            if self.collect {
+                self.disposed.push(node);
+            }
             if self.nodes[node].fn_.is_some() {
                 self.clear_in_flight(node);
                 if (self.nodes[node].status & STATUS_PENDING != 0
@@ -205,5 +208,51 @@ impl Runtime {
         for f in disposal.into_iter().rev() {
             self.run_cleanup(f);
         }
+    }
+
+    /// Frees the slots of disposed nodes nothing points at any more (JS's
+    /// garbage collection of a disposed node). Runs at the end of a global
+    /// flush. A node still read by a live one, or waited on by a flight or a
+    /// queued microtask, is kept for a later pass. A store's slot node comes
+    /// here when its store lets go of it (`release_slot`), not by disposal.
+    pub(super) fn reclaim(&mut self) {
+        if self.disposed.is_empty() {
+            return;
+        }
+        let mut waited: Vec<NodeId> = self
+            .microtasks
+            .iter()
+            .filter_map(|m| match *m {
+                Microtask::Landing(n, ..) | Microtask::Waiter(n, _) | Microtask::Deliver(n) => Some(n),
+                _ => None,
+            })
+            .collect();
+        for f in &self.flights {
+            for r in &f.reactions {
+                if let Reaction::Memo(n, _) = *r {
+                    waited.push(n);
+                }
+            }
+        }
+        let mut keep = vec![];
+        for n in std::mem::take(&mut self.disposed) {
+            let x = &self.nodes[n];
+            if x.fam.is_some() {
+                continue;
+            }
+            if x.subs.is_some()
+                || x.deps.is_some()
+                || x.pending.is_some()
+                || x.in_flight.is_some()
+                || x.transaction.is_some()
+                || x.pending_sources.is_some()
+                || waited.contains(&n)
+            {
+                keep.push(n);
+                continue;
+            }
+            self.nodes.release(n, Node::new(Kind::Root, Value::Undef, n, 0));
+        }
+        self.disposed = keep;
     }
 }

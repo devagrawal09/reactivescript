@@ -315,6 +315,7 @@ impl Runtime {
             self.dirty_queue.max >= self.dirty_queue.min || !self.pending_nodes.is_empty();
         self.run(EFFECT_RENDER);
         self.run(EFFECT_USER);
+        self.reclaim();
         self.running = false;
         self.pass_tx = None;
     }

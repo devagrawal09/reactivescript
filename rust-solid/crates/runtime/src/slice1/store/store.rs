@@ -210,6 +210,9 @@ impl Runtime {
                 }
             }
         }
+        if self.collect {
+            self.disposed.push(node);
+        }
         let target = self.st(t);
         if let Some(f) = target.fam {
             if target.nc == 0

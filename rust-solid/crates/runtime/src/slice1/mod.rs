@@ -32,6 +32,7 @@ mod graph;
 mod heap;
 mod lanes;
 mod map;
+mod node_table;
 mod owner;
 mod scheduler;
 mod signals;
@@ -321,6 +322,8 @@ struct Node {
     /// `_x._askedIn` (verdict.ts:475, #4544): the hold or flush a window
     /// asked of this node's staging in.
     asked_in: AskedIn,
+    /// Non-root nodes created before this one (its label in traces).
+    serial: usize,
     /// `_x !== null`: the cold extension was allocated (`ext()`, core.ts:
     /// 1259). Its fields are inlined above; only an effect's first run reads
     /// the difference (`node._x?._transaction` is undefined without one,
@@ -394,6 +397,7 @@ impl Node {
             boundary: None,
             marks: 0,
             asked_in: AskedIn::None,
+            serial: 0,
             x: false,
         }
     }
@@ -497,7 +501,14 @@ struct Heap {
 /// Every module-level `let` of the Solid files ported here, gathered on one
 /// struct (Rust has no module-level mutable state without `unsafe`).
 pub struct Runtime {
-    nodes: Vec<Node>,
+    nodes: node_table::NodeTable,
+    /// Non-root nodes created so far: the next one's trace label.
+    serials: usize,
+    /// Nodes disposed since the last `reclaim`, and ones it had to keep.
+    disposed: Vec<NodeId>,
+    /// The caller holds no node handles of its own past a node's disposal
+    /// (`collect_disposed`), so `reclaim` may free disposed nodes.
+    collect: bool,
     links: Vec<Link>,
     free_links: Vec<LinkId>,
     txs: Vec<Transaction>,
@@ -597,7 +608,10 @@ pub struct Runtime {
 impl Default for Runtime {
     fn default() -> Self {
         Runtime {
-            nodes: vec![],
+            nodes: Default::default(),
+            serials: 0,
+            disposed: vec![],
+            collect: false,
             links: vec![],
             free_links: vec![],
             txs: vec![],
@@ -700,10 +714,7 @@ impl Runtime {
     /// A node's label in traces: its index among non-root nodes (Solid's
     /// creation order of signals and computeds).
     fn label(&self, n: NodeId) -> usize {
-        self.nodes[..n]
-            .iter()
-            .filter(|x| x.kind != Kind::Root)
-            .count()
+        self.nodes[n].serial
     }
     fn tr(&self, f: impl FnOnce() -> String) {
         if self.trace {
@@ -711,13 +722,25 @@ impl Runtime {
         }
     }
     fn add_node(&mut self, kind: Kind, value: Value) -> NodeId {
-        let id = self.nodes.len();
-        let mut node = Node::new(kind, value, id, self.clock);
         // `_context: context?._context`: the nearest boundary is inherited
         // from the creating owner.
-        node.boundary = self.context.and_then(|c| self.nodes[c].boundary);
-        self.nodes.push(node);
-        id
+        let boundary = self.context.and_then(|c| self.nodes[c].boundary);
+        let (clock, serial) = (self.clock, self.serials);
+        if kind != Kind::Root {
+            self.serials += 1;
+        }
+        self.nodes.alloc(|id| {
+            let mut node = Node::new(kind, value, id, clock);
+            node.boundary = boundary;
+            node.serial = serial;
+            node
+        })
+    }
+    /// Lets the runtime free disposed nodes (see `reclaim`). Only for a
+    /// caller that never reads a node through a handle it kept after the
+    /// node's owner was disposed, as JS code can: a mounted plan.
+    pub fn collect_disposed(&mut self) {
+        self.collect = true;
     }
     /// `createSignal(value)` (signals.ts:413-429).
     pub fn signal(&mut self, value: i64) -> NodeId {
@@ -922,5 +945,28 @@ impl Runtime {
     /// The lane/transaction a node is listed in, for tests.
     pub fn is_held(&self, id: NodeId) -> bool {
         self.nodes[id].config & CONFIG_HELD != 0
+    }
+}
+
+impl Runtime {
+    /// Arena lengths and element sizes, for the memory check: (name, entries, bytes per entry).
+    pub fn arena_sizes(&self) -> Vec<(&'static str, usize, usize)> {
+        use std::mem::{size_of, size_of_val};
+        vec![
+            ("nodes", self.nodes.live(), size_of::<Node>()),
+            ("node_slots", self.nodes.slots(), size_of::<Node>()),
+            ("links", self.links.len() - self.free_links.len(), size_of::<Link>()),
+            ("links_cap", self.links.len(), size_of::<Link>()),
+            ("txs", self.txs.len(), size_of::<Transaction>()),
+            ("flights", self.flights.len(), size_of::<Flight>()),
+            ("sets", self.sets.len(), size_of::<JsSet>()),
+            ("maps", self.maps.len(), size_of::<map::MapData>()),
+            ("actions", self.actions.len(), size_of::<action::Action>()),
+            ("boundaries", self.boundaries.len(), size_of::<boundaries::Boundary>()),
+            ("functions", self.functions.len(), size_of::<function::JsFunction>()),
+            ("targets", self.store.targets.len(), size_of_val(&self.store.targets[..]) / self.store.targets.len().max(1)),
+            ("families", self.store.families.len(), size_of_val(&self.store.families[..]) / self.store.families.len().max(1)),
+            ("comparators", self.comparators.len(), 16),
+        ]
     }
 }

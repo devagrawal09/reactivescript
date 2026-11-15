@@ -234,6 +234,8 @@ impl Default for TreeRenderer {
 }
 
 impl TreeRenderer {
+    /// Host nodes ever created, and bytes per node (the memory check).
+    pub fn arena_size(&self) -> (usize, usize) { (self.nodes.len(), std::mem::size_of::<TNode>()) }
     /// A host with its root container (node 0, not logged).
     pub fn new() -> Self {
         TreeRenderer {

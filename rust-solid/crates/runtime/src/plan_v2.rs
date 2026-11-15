@@ -2673,6 +2673,7 @@ impl App {
             return Err("an evaluated plan is mounted by an eval site".into());
         }
         let mut runtime = Runtime::default();
+        runtime.collect_disposed();
         let host = Rc::new(RefCell::new(TreeRenderer::new()));
         host.borrow().set_logging(logging);
         let root = host.borrow().root();
