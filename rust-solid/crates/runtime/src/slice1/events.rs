@@ -321,8 +321,20 @@ pub fn assign_event_prop(
     if prev.is(value) {
         return prev.clone();
     }
-    let name = prop[2..].to_lowercase();
-    let delegate = DELEGATED_EVENTS.contains(&name.as_str());
+    // `name.slice(2).toLowerCase()`, on the stack for the usual short ASCII name.
+    let (mut buf, owned);
+    let tail = &prop[2..];
+    let name: &str = if tail.len() <= 32 && tail.is_ascii() {
+        buf = [0u8; 32];
+        let b = &mut buf[..tail.len()];
+        b.copy_from_slice(tail.as_bytes());
+        b.make_ascii_lowercase();
+        std::str::from_utf8(b).expect("ASCII")
+    } else {
+        owned = tail.to_lowercase();
+        &owned
+    };
+    let delegate = DELEGATED_EVENTS.contains(&name);
     if !delegate && prev.truthy() {
         // `prev[$$EVENT_TUPLE] === value`: the same tuple keeps its wrapper.
         if let Assigned::Listener(Listener::Tuple { tuple, .. }) = prev {
@@ -457,6 +469,7 @@ pub fn event_handler<H: EventHost + 'static>(
         "{EVENT_KEY}{}",
         ty.as_str().expect("an event type is a string")
     );
+    let data_key = format!("{key}Data");
     let event = Value::Obj(e.clone());
     // `handleNode()`: false when a handler cancelled the bubble.
     let handle_node = |rt: &mut Runtime, node: Node| -> Result<bool, Error> {
@@ -465,7 +478,7 @@ pub fn event_handler<H: EventHost + 'static>(
             (
                 h.expando(node, &key),
                 h.expando(node, "disabled"),
-                h.expando(node, &format!("{key}Data")),
+                h.expando(node, &data_key),
             )
         };
         if handler.truthy() && !disabled.truthy() {

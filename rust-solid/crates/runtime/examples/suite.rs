@@ -38,6 +38,8 @@ struct Run {
     trace: bool,
     index: usize,
     log: Vec<J>,
+    /// Seconds spent in `untimed_lookup` since the timer started.
+    untimed: f64,
 }
 
 fn rows(next: &mut u64, n: usize) -> Value {
@@ -59,7 +61,7 @@ impl Run {
             "dispose" => { self.app().dispose(); self.take_log(); self.app = None; return; }
             "click" => {
                 let i = s["i"].as_u64().unwrap() as usize;
-                let node = { let h = self.app().host.borrow(); h.nth_handler(h.root(), "click", i) }.expect("no such clickable");
+                let node = untimed_lookup(self, i);
                 if let Err(e) = self.app().click(node) { panic!("click {i}: {e}") }
             }
             "resolve" => {
@@ -160,6 +162,17 @@ impl Run {
     }
 }
 
+/// Finding the i-th clickable is the harness's, not the runtime's: callgrind
+/// (`--toggle-collect=*timed*`, which matches this and `timed_ops`) stops
+/// collecting inside it, and the wall clock subtracts its time.
+#[inline(never)]
+fn untimed_lookup(r: &mut Run, i: usize) -> rust_solid::renderer::Node {
+    let t = Instant::now();
+    let node = { let h = r.app().host.borrow(); h.nth_handler(h.root(), "click", i) }.expect("no such clickable");
+    r.untimed += t.elapsed().as_secs_f64();
+    node
+}
+
 #[inline(never)]
 fn timed_ops(r: &mut Run, w: &W, n: usize) {
     for _ in 0..n {
@@ -171,7 +184,7 @@ fn timed_ops(r: &mut Run, w: &W, n: usize) {
 
 /// One sample: µs per op, and the final frame.
 fn sample(w: &W, trace: bool) -> (f64, String, Vec<J>) {
-    let fresh_run = || Run { app: None, next: 1, trace, index: 0, log: vec![] };
+    let fresh_run = || Run { app: None, next: 1, trace, index: 0, log: vec![], untimed: 0.0 };
     let mut r = fresh_run();
     let start = |r: &mut Run| {
         if !w.manual {
@@ -187,16 +200,18 @@ fn sample(w: &W, trace: bool) -> (f64, String, Vec<J>) {
             r = fresh_run();
             start(&mut r);
             let t = Instant::now();
+            r.untimed = 0.0;
             timed_ops(&mut r, w, 1);
-            total += t.elapsed().as_secs_f64();
+            total += t.elapsed().as_secs_f64() - r.untimed;
             if r.app.is_some() { frame = r.app().frame(); r.app().dispose(); r.take_log(); }
         }
         return (total * 1e6 / w.reps as f64, frame, r.log);
     }
     start(&mut r);
+    r.untimed = 0.0;
     let t = Instant::now();
     timed_ops(&mut r, w, w.reps);
-    let us = t.elapsed().as_secs_f64() * 1e6 / w.reps as f64;
+    let us = (t.elapsed().as_secs_f64() - r.untimed) * 1e6 / w.reps as f64;
     let frame = r.app().frame();
     r.app().dispose();
     r.take_log();

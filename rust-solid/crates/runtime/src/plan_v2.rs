@@ -246,7 +246,8 @@ pub enum Step {
 #[serde(deny_unknown_fields)]
 pub struct Event {
     pub name: String,
-    pub steps: Vec<Step>,
+    /// Shared: every row's handler holds the same steps.
+    pub steps: Rc<[Step]>,
 }
 
 /// v2.3: an element attribute, in source order: a value (static, or
@@ -258,15 +259,16 @@ pub struct Attr {
     #[serde(default)]
     pub value: Option<Expr>,
     #[serde(default)]
-    pub steps: Option<Vec<Step>>,
+    pub steps: Option<Rc<[Step]>>,
 }
 
 /// v2.3: a callback prop, its parameters bound to the child's arguments.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Callback {
-    pub params: Vec<String>,
-    pub steps: Vec<Step>,
+    /// Shared, as an event's steps: every instance's callback holds the plan's own.
+    pub params: Rc<[String]>,
+    pub steps: Rc<[Step]>,
 }
 
 /// v2.3: a prop a site passes: exactly one of a value, a callback, an action
@@ -336,7 +338,8 @@ pub enum View {
     /// v2.3: `{props.children}`, an element child.
     Children {},
     Text {
-        value: Expr,
+        /// Shared: every row's text accessor holds the same expression.
+        value: Rc<Expr>,
     },
     Show {
         when: Expr,
@@ -1016,7 +1019,7 @@ impl<'a> Check<'a> {
                 }
                 (None, Some(cb), None, None) => {
                     let mut inner = scope.clone();
-                    for q in &cb.params {
+                    for q in cb.params.iter() {
                         if !identifier(q) || cb.params.iter().filter(|x| *x == q).count() > 1 {
                             return Err(format!("<{name}> {} parameter {q:?}", p.name));
                         }
@@ -1382,11 +1385,12 @@ impl<'a> Check<'a> {
 }
 
 /// A static text view: a literal, appended as a text node.
-fn literal_text(v: &View) -> Option<&J> {
+fn literal_text(v: &View) -> Option<&Expr> {
     match v {
-        View::Text {
-            value: Expr::Literal { value, .. },
-        } => Some(value),
+        View::Text { value } => match &**value {
+            e @ Expr::Literal { .. } => Some(e),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -2552,8 +2556,8 @@ fn plain(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Result<(), Error
 }
 
 /// A plain handler: its steps run synchronously, outside any transaction.
-fn handler(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Value {
-    let (c, steps, env) = (c.clone(), steps.to_vec(), env.clone());
+fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
+    let (c, steps, env) = (c.clone(), steps.clone(), env.clone());
     rt.function(
         0,
         Rc::new(move |rt: &mut Runtime, _args: &[Value]| {
@@ -2712,8 +2716,17 @@ fn lower(v: &View) -> Template<'_> {
     }
 }
 
-fn static_text(c: &C, value: &J) -> Result<Value, Error> {
-    let s = literal(value).map_err(|m| fail(c, m))?;
+fn static_text(c: &C, e: &Expr) -> Result<Value, Error> {
+    let Expr::Literal { value, cache } = e else {
+        unreachable!("a static text is a literal")
+    };
+    let s = match cache.get() {
+        Some(v) => v.clone(),
+        None => {
+            let v = literal(value).map_err(|m| fail(c, m))?;
+            cache.get_or_init(|| v).clone()
+        }
+    };
     text_value(c, s)
 }
 
