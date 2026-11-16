@@ -78,7 +78,7 @@ impl Key {
 
 /// A JS function value the ops can reach through a get: a prototype method
 /// or `constructor` (store.ts's get trap answers them from the prototype).
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum Builtin {
     ArrayCtor,
     ObjectCtor,
@@ -95,7 +95,6 @@ pub fn new_host_fn() -> Builtin {
 }
 
 /// A JS value.
-#[derive(Clone)]
 pub enum Value {
     Undef,
     Bool(bool),
@@ -127,6 +126,45 @@ pub enum Value {
     /// signal (boundaries.ts:735, `setSignal(b._error, caught)`), compared
     /// by identity. No op reads its properties.
     Error(super::Error),
+}
+
+// By hand, so it stays inline at its many call sites (a derived clone of
+// an enum holding a host function's `Rc` is not).
+impl Clone for Builtin {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        match self {
+            Builtin::ArrayCtor => Builtin::ArrayCtor,
+            Builtin::ObjectCtor => Builtin::ObjectCtor,
+            Builtin::ArrayMethod(m) => Builtin::ArrayMethod(m),
+            Builtin::Host(f) => Builtin::Host(host_clone(f)),
+        }
+    }
+}
+
+#[cold]
+fn host_clone(f: &super::function::HostFn) -> super::function::HostFn {
+    f.clone()
+}
+
+impl Clone for Value {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        match self {
+            Value::Undef => Value::Undef,
+            Value::Bool(b) => Value::Bool(*b),
+            Value::Int(i) => Value::Int(*i),
+            Value::Obj(o) => Value::Obj(o.clone()),
+            Value::Proxy(t) => Value::Proxy(*t),
+            Value::Draft(d) => Value::Draft(d.clone()),
+            Value::View(v) => Value::View(v.clone()),
+            Value::Func(f) => Value::Func(f.clone()),
+            Value::NotPending => Value::NotPending,
+            Value::Str(s) => Value::Str(s.clone()),
+            Value::Node(n) => Value::Node(*n),
+            Value::Error(e) => Value::Error(e.clone()),
+        }
+    }
 }
 
 impl Value {

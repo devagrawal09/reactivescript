@@ -1454,14 +1454,14 @@ fn record_like(v: &Value) -> bool {
 }
 
 fn read(rt: &mut Runtime, c: &Ctx, name: &str) -> Result<Value, Error> {
-    let b = c.names.borrow().get(name).cloned();
-    match b {
-        None => Err(fail(c, format!("read of {name} before it exists"))),
-        Some(Binding::Store(p)) => Ok(p),
+    let n = match c.names.borrow().get(name) {
+        None => return Err(fail(c, format!("read of {name} before it exists"))),
+        Some(Binding::Store(p)) => return Ok(p.clone()),
         Some(
             Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n) | Binding::Async(n),
-        ) => rt.read_value(n),
-    }
+        ) => *n,
+    };
+    rt.read_value(n)
 }
 
 fn binding(c: &Ctx, name: &str) -> Result<Binding, Error> {
@@ -1472,7 +1472,7 @@ fn binding(c: &Ctx, name: &str) -> Result<Binding, Error> {
 /// `a[method]` must be `Array.prototype[method]`: a native array method's
 /// call reads the method from its receiver first (through a store's trap).
 fn method(rt: &mut Runtime, c: &Ctx, a: &Value, name: &'static str) -> Result<(), Error> {
-    match rt.js_get(a, &Key::name(name))? {
+    match rt.js_get(a, &Key::known(name))? {
         Value::Func(Builtin::ArrayMethod(m)) if m == name => Ok(()),
         other => Err(fail(c, format!("{name} of an array is {other:?}"))),
     }
@@ -2685,6 +2685,16 @@ pub struct App {
     c: C,
     disposer: Option<Disposer<TreeRenderer>>,
     rejected: Rc<RefCell<Vec<String>>>,
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        // A function value owns its closure, and closures hold the context,
+        // which holds the host: the host's nodes (their handlers) go first
+        // so nothing keeps the app alive. Dropped outside the borrow.
+        let nodes = self.host.borrow_mut().clear();
+        drop(nodes);
+    }
 }
 
 impl App {

@@ -28,8 +28,14 @@ struct Data<F: ?Sized> {
 }
 
 /// A host function value: compared by identity.
-#[derive(Clone)]
 pub struct HostFn(Rc<Data<Body>>);
+
+impl Clone for HostFn {
+    #[inline]
+    fn clone(&self) -> Self {
+        HostFn(self.0.clone())
+    }
+}
 
 impl HostFn {
     fn new(id: u64, length: usize, callable: bool, body: impl Fn(&mut Runtime, &[Value]) -> Result<Value, Error> + 'static) -> HostFn {
