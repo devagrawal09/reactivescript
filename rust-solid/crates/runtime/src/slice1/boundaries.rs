@@ -766,12 +766,10 @@ impl Runtime {
             Rc::new(move |rt: &mut Runtime, b| {
                 let signal = rt.boundaries[b].error.expect("an error boundary's signal");
                 let err = rt.accessor(signal);
-                let reset = rt.function(
-                    0,
-                    Rc::new(move |rt: &mut Runtime, _: &[Value]| {
+                let reset = rt.function_with(0, move |rt: &mut Runtime, _: &[Value]| {
                         rt.reset(b);
                         Ok(Value::Undef)
-                    }),
+                    },
                 );
                 // Errored's fallback (flow.ts:446-460): a function fallback is
                 // called here, whatever its arity.

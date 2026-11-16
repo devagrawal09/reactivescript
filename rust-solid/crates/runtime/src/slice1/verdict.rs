@@ -510,9 +510,9 @@ impl Runtime {
         };
         if self.is_array(v) {
             if matches!(v, Value::Proxy(_)) {
-                traps(self.js_get(v, &Key::name("some")));
+                traps(self.js_get(v, &Key::known("some")));
             }
-            let n = traps(self.js_get(v, &Key::name("length")))
+            let n = traps(self.js_get(v, &Key::known("length")))
                 .as_int()
                 .expect("an array length") as u32;
             for i in 0..n {
@@ -529,7 +529,7 @@ impl Runtime {
             return false;
         }
         // `v.nodeType > 0`: plain data has no `nodeType`.
-        match traps(self.js_get(v, &Key::name("nodeType"))) {
+        match traps(self.js_get(v, &Key::known("nodeType"))) {
             Value::Undef => false,
             other => panic!("a `nodeType` of {other:?} (a DOM node) is outside the op language"),
         }

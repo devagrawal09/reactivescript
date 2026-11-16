@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 struct W {
-    plan: Plan,
+    plan: std::rc::Rc<Plan>,
     reps: usize,
     fresh: bool,
     manual: bool,
@@ -236,7 +236,7 @@ fn main() {
     let returns = j["plan"]["hosts"].as_array().unwrap().iter()
         .map(|h| (h["name"].as_str().unwrap().to_string(), HostType::parse(h["returns"].as_str().unwrap()).unwrap())).collect();
     let mut w = W {
-        plan,
+        plan: plan.into(),
         reps: j["reps"].as_u64().unwrap() as usize,
         fresh: j["fresh"].as_bool().unwrap_or(false),
         manual: j["mount"].as_str() == Some("manual"),

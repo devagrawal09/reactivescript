@@ -1819,7 +1819,7 @@ impl Runtime {
             if key.is("length") {
                 self.stm(target).wk = Some(Wk::All);
             } else {
-                self.touch(target, &Key::name("length"));
+                self.touch(target, &Key::known("length"));
             }
         } else {
             self.touch(target, key);

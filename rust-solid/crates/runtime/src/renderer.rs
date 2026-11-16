@@ -175,7 +175,7 @@ impl Renderer for TextRenderer {
 /// A node of `TreeRenderer`.
 struct TNode {
     /// `None` for a text node.
-    tag: Option<String>,
+    tag: Option<Rc<str>>,
     /// A text node's value as the host received it (a string or a number).
     text: Value,
     /// Children as a doubly linked sibling list, so `insertBefore` and
@@ -187,11 +187,11 @@ struct TNode {
     parent: Option<Node>,
     /// Properties set on the node: `setProperty` of a non-event name, and
     /// the delegation's expandos (`_$$click`, `_$$clickData`).
-    props: Vec<(String, Value)>,
+    props: Vec<(Rc<str>, Value)>,
     /// Native listeners by event name, in attachment order.
     listeners: Vec<(String, Listener)>,
     /// `prevProps` of the event props (what `assignProp` returned).
-    assigned: Vec<(String, Assigned)>,
+    assigned: Vec<(Rc<str>, Assigned)>,
 }
 
 impl Default for TNode {
@@ -225,6 +225,8 @@ pub struct TreeRenderer {
     /// Function identities, numbered in first-logged order.
     fn_ids: RefCell<HashMap<(u8, u64), usize>>,
     delegation: Delegation,
+    /// Tags and property names, shared (a DOM interns them too).
+    names: Vec<Rc<str>>,
 }
 
 impl Default for TreeRenderer {
@@ -236,6 +238,11 @@ impl Default for TreeRenderer {
 impl TreeRenderer {
     /// Host nodes ever created, and bytes per node (the memory check).
     pub fn arena_size(&self) -> (usize, usize) { (self.nodes.len(), std::mem::size_of::<TNode>()) }
+    /// Drops every node: what they hold (handlers, expandos) may hold the
+    /// app that holds this host.
+    pub fn clear(&mut self) -> impl Drop {
+        std::mem::take(&mut self.nodes)
+    }
     /// A host with its root container (node 0, not logged).
     pub fn new() -> Self {
         TreeRenderer {
@@ -247,6 +254,7 @@ impl TreeRenderer {
             logging: std::cell::Cell::new(true),
             fn_ids: RefCell::new(HashMap::new()),
             delegation: Delegation::default(),
+            names: Vec::new(),
         }
     }
     pub fn root(&self) -> Node {
@@ -288,7 +296,7 @@ impl TreeRenderer {
             Value::Int(i) => json!(i),
             Value::Str(s) => json!(&**s),
             Value::Node(n) => json!({ "node": n }),
-            Value::Func(crate::slice1::Builtin::Host(id)) => json!({ "fn": self.fn_id((0, *id)) }),
+            Value::Func(crate::slice1::Builtin::Host(f)) => json!({ "fn": self.fn_id((0, f.id())) }),
             Value::Obj(o) if o.array => {
                 J::Array(o.elements().iter().map(|x| self.enc(x)).collect())
             }
@@ -300,6 +308,16 @@ impl TreeRenderer {
     }
     fn opt(n: Option<Node>) -> J {
         n.map(|n| json!(n)).unwrap_or(J::Null)
+    }
+    fn name(&mut self, s: &str) -> Rc<str> {
+        match self.names.iter().find(|n| &***n == s) {
+            Some(n) => n.clone(),
+            None => {
+                let n: Rc<str> = s.into();
+                self.names.push(n.clone());
+                n
+            }
+        }
     }
     fn new_node(&mut self, node: TNode) -> Node {
         self.nodes.push(node);
@@ -454,7 +472,7 @@ impl TreeRenderer {
                 .map(|(_, l)| l.clone())
                 .collect();
             for l in listeners {
-                e.set(&Key::name("currentTarget"), Value::Node(n));
+                e.set(&Key::known("currentTarget"), Value::Node(n));
                 match &l {
                     Listener::Delegated { container, .. } => {
                         events::event_handler(rt, host, &e, *container)?;
@@ -469,7 +487,7 @@ impl TreeRenderer {
                     }
                 }
             }
-            if e.get(&Key::name("cancelBubble")).truthy() {
+            if e.get(&Key::known("cancelBubble")).truthy() {
                 break;
             }
         }
@@ -479,8 +497,9 @@ impl TreeRenderer {
 
 impl Renderer for TreeRenderer {
     fn create_element(&mut self, tag: &str) -> Node {
+        let name = self.name(tag);
         let id = self.new_node(TNode {
-            tag: Some(tag.into()),
+            tag: Some(name),
             ..TNode::default()
         });
         self.log_with(|| json!(["createElement", tag, id]));
@@ -527,14 +546,16 @@ impl Renderer for TreeRenderer {
             let held = self.nodes[node]
                 .assigned
                 .iter()
-                .find(|(n, _)| n == name)
+                .find(|(n, _)| &**n == name)
                 .map(|(_, a)| a.clone())
                 .unwrap_or_default();
             let next = events::assign_event_prop(self, node, name, value, &held);
-            let a = &mut self.nodes[node].assigned;
-            match a.iter_mut().find(|(n, _)| n == name) {
-                Some(slot) => slot.1 = next,
-                None => a.push((name.into(), next)),
+            match self.nodes[node].assigned.iter().position(|(n, _)| &**n == name) {
+                Some(i) => self.nodes[node].assigned[i].1 = next,
+                None => {
+                    let name = self.name(name);
+                    self.nodes[node].assigned.push((name, next))
+                }
             }
         } else {
             self.set_expando(node, name, value.clone());
@@ -604,15 +625,18 @@ impl EventHost for TreeRenderer {
         self.nodes[node]
             .props
             .iter()
-            .find(|(k, _)| k == key)
+            .find(|(k, _)| &**k == key)
             .map(|(_, v)| v.clone())
             .unwrap_or(Value::Undef)
     }
     fn set_expando(&mut self, node: Node, key: &str, value: Value) {
-        let props = &mut self.nodes[node].props;
-        match props.iter_mut().find(|(k, _)| k == key) {
-            Some(slot) => slot.1 = value,
-            None => props.push((key.into(), value)),
+        let props = &self.nodes[node].props;
+        match props.iter().position(|(k, _)| &**k == key) {
+            Some(i) => self.nodes[node].props[i].1 = value,
+            None => {
+                let key = self.name(key);
+                self.nodes[node].props.push((key, value))
+            }
         }
     }
     fn parent_node(&self, node: Node) -> Option<Node> {

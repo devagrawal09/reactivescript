@@ -2,37 +2,95 @@
 //! renderer and flow code pass functions around as values: accessors
 //! (`accessor(node)`, signals.ts:140-144), component children, `<For>`
 //! mappers, event handlers. A function value is `Value::Func(Builtin::Host
-//! (id))`, compared by identity like every `Func`, so the `typeof v ===
-//! "function"` checks the port already makes see it. Its body and its
-//! `length` (the declared parameter count, which `flatten` and
-//! `<Show>`/`mapArray` test) live in `Runtime::functions`.
+//! (f))`, compared by identity like every `Func`, so the `typeof v ===
+//! "function"` checks the port already makes see it. `f` holds its body
+//! and its `length` (the declared parameter count, which `flatten` and
+//! `<Show>`/`mapArray` test).
 //!
-//! The table is never pruned: a value has no destructor that could tell
-//! the runtime it is unreachable. Programs here are bounded.
+//! A function value owns its body: it is freed with the last value that
+//! holds it, as a JS closure is collected.
 use super::*;
 
 /// A function body: the receiver is not passed (no body here reads
 /// `this`); `args` are the call's arguments.
 pub type FnBody = Rc<dyn Fn(&mut Runtime, &[Value]) -> Result<Value, Error>>;
 
-pub(super) struct JsFunction {
+type Body = dyn Fn(&mut Runtime, &[Value]) -> Result<Value, Error>;
+
+struct Data<F: ?Sized> {
+    /// The identity logs and `Debug` show.
+    id: u64,
     length: usize,
-    body: FnBody,
+    /// False for a value made by `new_host_fn`: an identity the host calls
+    /// through its own table.
+    callable: bool,
+    body: F,
+}
+
+/// A host function value: compared by identity.
+pub struct HostFn(Rc<Data<Body>>);
+
+impl Clone for HostFn {
+    #[inline]
+    fn clone(&self) -> Self {
+        HostFn(self.0.clone())
+    }
+}
+
+impl HostFn {
+    fn new(id: u64, length: usize, callable: bool, body: impl Fn(&mut Runtime, &[Value]) -> Result<Value, Error> + 'static) -> HostFn {
+        HostFn(Rc::new(Data {
+            id,
+            length,
+            callable,
+            body,
+        }))
+    }
+    /// A function value with no body of its own (`new_host_fn`).
+    pub(super) fn bare(id: u64) -> HostFn {
+        HostFn::new(id, 0, false, |_: &mut Runtime, _: &[Value]| unreachable!())
+    }
+    pub fn id(&self) -> u64 {
+        self.0.id
+    }
+}
+
+impl PartialEq for HostFn {
+    fn eq(&self, o: &HostFn) -> bool {
+        Rc::ptr_eq(&self.0, &o.0)
+    }
+}
+impl Eq for HostFn {}
+impl std::hash::Hash for HostFn {
+    fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
+        self.0.id.hash(h)
+    }
+}
+impl std::fmt::Debug for HostFn {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.0.id)
+    }
 }
 
 impl Runtime {
     /// A new function value with `length` declared parameters.
     pub fn function(&mut self, length: usize, body: FnBody) -> Value {
-        let f = new_host_fn();
-        let Builtin::Host(id) = f else { unreachable!() };
-        self.functions.insert(id, JsFunction { length, body });
-        Value::Func(f)
+        self.function_with(length, move |rt: &mut Runtime, args: &[Value]| body(rt, args))
+    }
+
+    /// `function` with the body stored inline (one allocation).
+    pub fn function_with(
+        &mut self,
+        length: usize,
+        body: impl Fn(&mut Runtime, &[Value]) -> Result<Value, Error> + 'static,
+    ) -> Value {
+        Value::Func(Builtin::Host(HostFn::new(value::next_id(), length, true, body)))
     }
 
     /// `f.length`, for a function value made by `function`.
     pub fn function_length(&self, f: &Value) -> Option<usize> {
         match f {
-            Value::Func(Builtin::Host(id)) => self.functions.get(id).map(|j| j.length),
+            Value::Func(Builtin::Host(h)) if h.0.callable => Some(h.0.length),
             _ => None,
         }
     }
@@ -40,12 +98,13 @@ impl Runtime {
     /// `f(...args)`. Calling anything but a function made by `function` is
     /// a `TypeError` outside the value domain: it panics.
     pub fn call(&mut self, f: &Value, args: &[Value]) -> Result<Value, Error> {
-        let body = match f {
-            Value::Func(Builtin::Host(id)) => self.functions.get(id).map(|j| j.body.clone()),
-            _ => None,
+        match f {
+            Value::Func(Builtin::Host(h)) if h.0.callable => {
+                let h = h.0.clone();
+                (h.body)(self, args)
+            }
+            _ => panic!("calling {f:?} is outside the value domain"),
         }
-        .unwrap_or_else(|| panic!("calling {f:?} is outside the value domain"));
-        body(self, args)
     }
 
     /// `accessor(node)` (signals.ts:140-144): `read.bind(null, node)`, a
@@ -53,6 +112,6 @@ impl Runtime {
     /// computation).
     // Solid: signals.ts:140-144
     pub fn accessor(&mut self, node: NodeId) -> Value {
-        self.function(0, Rc::new(move |rt: &mut Runtime, _| rt.read_node(node)))
+        self.function_with(0, move |rt: &mut Runtime, _| rt.read_node(node))
     }
 }

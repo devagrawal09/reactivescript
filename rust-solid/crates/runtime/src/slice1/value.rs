@@ -17,7 +17,7 @@ thread_local! {
     static NEXT_OBJECT: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
 
-fn next_id() -> u64 {
+pub(super) fn next_id() -> u64 {
     NEXT_OBJECT.with(|c| {
         let id = c.get();
         c.set(id + 1);
@@ -37,10 +37,32 @@ pub enum Key {
 
 impl Key {
     pub fn name(s: &str) -> Key {
-        match s.parse::<u32>() {
-            Ok(i) if i.to_string() == s => Key::Idx(i),
-            _ => Key::Name(s.into()),
+        // A canonical array index: no sign, no leading zero, fits a u32.
+        let canonical = !s.is_empty()
+            && s.bytes().all(|b| b.is_ascii_digit())
+            && (s.len() == 1 || !s.starts_with('0'));
+        match canonical.then(|| s.parse::<u32>().ok()).flatten() {
+            Some(i) => Key::Idx(i),
+            None => Key::Name(s.into()),
         }
+    }
+    /// `Key::name` of a name written in the source (`"length"`, `"then"`),
+    /// shared instead of allocated each time.
+    pub fn known(s: &'static str) -> Key {
+        thread_local! {
+            static KNOWN: RefCell<Vec<(&'static str, Rc<str>)>> = const { RefCell::new(Vec::new()) };
+        }
+        KNOWN.with(|k| {
+            let mut k = k.borrow_mut();
+            if let Some((_, n)) = k.iter().find(|(p, _)| std::ptr::eq(*p, s)) {
+                return Key::Name(n.clone());
+            }
+            let key = Key::name(s);
+            if let Key::Name(n) = &key {
+                k.push((s, n.clone()));
+            }
+            key
+        })
     }
     pub fn is(&self, s: &str) -> bool {
         matches!(self, Key::Name(n) if &**n == s)
@@ -56,7 +78,7 @@ impl Key {
 
 /// A JS function value the ops can reach through a get: a prototype method
 /// or `constructor` (store.ts's get trap answers them from the prototype).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(PartialEq, Eq, Hash, Debug)]
 pub enum Builtin {
     ArrayCtor,
     ObjectCtor,
@@ -64,16 +86,15 @@ pub enum Builtin {
     /// A host function value (not a Solid value): an accessor the host
     /// hands Solid as a computed's value (a `<For>` accessor), compared by
     /// identity.
-    Host(u64),
+    Host(super::function::HostFn),
 }
 
 /// A fresh identity for a host function value.
 pub fn new_host_fn() -> Builtin {
-    Builtin::Host(next_id())
+    Builtin::Host(super::function::HostFn::bare(next_id()))
 }
 
 /// A JS value.
-#[derive(Clone)]
 pub enum Value {
     Undef,
     Bool(bool),
@@ -105,6 +126,45 @@ pub enum Value {
     /// signal (boundaries.ts:735, `setSignal(b._error, caught)`), compared
     /// by identity. No op reads its properties.
     Error(super::Error),
+}
+
+// By hand, so it stays inline at its many call sites (a derived clone of
+// an enum holding a host function's `Rc` is not).
+impl Clone for Builtin {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        match self {
+            Builtin::ArrayCtor => Builtin::ArrayCtor,
+            Builtin::ObjectCtor => Builtin::ObjectCtor,
+            Builtin::ArrayMethod(m) => Builtin::ArrayMethod(m),
+            Builtin::Host(f) => Builtin::Host(host_clone(f)),
+        }
+    }
+}
+
+#[cold]
+fn host_clone(f: &super::function::HostFn) -> super::function::HostFn {
+    f.clone()
+}
+
+impl Clone for Value {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        match self {
+            Value::Undef => Value::Undef,
+            Value::Bool(b) => Value::Bool(*b),
+            Value::Int(i) => Value::Int(*i),
+            Value::Obj(o) => Value::Obj(o.clone()),
+            Value::Proxy(t) => Value::Proxy(*t),
+            Value::Draft(d) => Value::Draft(d.clone()),
+            Value::View(v) => Value::View(v.clone()),
+            Value::Func(f) => Value::Func(f.clone()),
+            Value::NotPending => Value::NotPending,
+            Value::Str(s) => Value::Str(s.clone()),
+            Value::Node(n) => Value::Node(*n),
+            Value::Error(e) => Value::Error(e.clone()),
+        }
+    }
 }
 
 impl Value {
@@ -151,6 +211,27 @@ impl Value {
     /// A string value.
     pub fn str(s: &str) -> Value {
         Value::Str(Rc::from(s))
+    }
+    /// `String(i)`, written on the stack (one allocation, the `Rc`).
+    pub fn int_str(i: i64) -> Value {
+        let mut buf = [0u8; 20];
+        let mut at = buf.len();
+        let mut n = i.unsigned_abs();
+        loop {
+            at -= 1;
+            buf[at] = b'0' + (n % 10) as u8;
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        if i < 0 {
+            let mut out = [0u8; 21];
+            out[0] = b'-';
+            out[1..=buf.len() - at].copy_from_slice(&buf[at..]);
+            return Value::str(std::str::from_utf8(&out[..=buf.len() - at]).expect("ASCII"));
+        }
+        Value::str(std::str::from_utf8(&buf[at..]).expect("ASCII"))
     }
     pub fn as_str(&self) -> Option<&str> {
         match self {

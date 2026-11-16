@@ -120,9 +120,7 @@ impl Runtime {
             }
         };
         // `const list = () => (mapped ?? (mapped = create()))();`
-        self.function(
-            0,
-            Rc::new(move |rt: &mut Runtime, _| {
+        self.function_with(0, move |rt: &mut Runtime, _| {
                 let m = match mapped.get() {
                     Some(m) => m,
                     None => {
@@ -132,7 +130,7 @@ impl Runtime {
                     }
                 };
                 rt.read_node(m)
-            }),
+            },
         )
     }
 
@@ -203,9 +201,7 @@ impl Runtime {
                             rt.untrack(|rt| rt.call(&child, &[c]))?
                         } else {
                             let shown = shown.clone();
-                            let narrowed = rt.function(
-                                0,
-                                Rc::new(move |rt: &mut Runtime, _| {
+                            let narrowed = rt.function_with(0, move |rt: &mut Runtime, _| {
                                     // `(verdict && shown === run) || condition() || narrowedError("Show")`
                                     let guard = (rt.verdict_open() && shown.get() == run)
                                         || rt.read_node(condition)?.truthy();
@@ -215,7 +211,7 @@ impl Runtime {
                                         ));
                                     }
                                     rt.read_node(condition_value)
-                                }),
+                                },
                             );
                             rt.untrack(|rt| rt.call(&child, &[narrowed]))?
                         }

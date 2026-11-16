@@ -833,12 +833,24 @@ fn literal(value: &J) -> Result<Value, String> {
 impl<'a> Check<'a> {
     fn expr(&self, e: &Expr, scope: &mut Vec<String>, reads: bool) -> Result<(), String> {
         match e {
-            Expr::Literal { value, .. } => literal(value).map(|_| ()),
+            // The checked value fills `eval`'s cache.
+            Expr::Literal { value, cache } => match cache.get() {
+                Some(_) => Ok(()),
+                None => literal(value).map(|v| {
+                    cache.get_or_init(|| v);
+                }),
+            },
             Expr::Array { items } => items.iter().try_for_each(|x| self.expr(x, scope, reads)),
             Expr::Object { fields } => {
+                // A set only for a large object: most have a few fields.
                 let mut seen = HashSet::new();
-                for f in fields {
-                    if !seen.insert(f.key.as_str()) {
+                for (i, f) in fields.iter().enumerate() {
+                    let repeated = if fields.len() <= 16 {
+                        fields[..i].iter().any(|g| g.key == f.key)
+                    } else {
+                        !seen.insert(f.key.as_str())
+                    };
+                    if repeated {
                         return Err(format!("object key {} repeated", f.key));
                     }
                     self.expr(&f.value, scope, reads)?;
@@ -1834,7 +1846,7 @@ fn integer(c: &Ctx, v: &Value) -> Result<i64, Error> {
 fn text_value(c: &Ctx, v: Value) -> Result<Value, Error> {
     match v {
         Value::Str(_) => Ok(v),
-        Value::Int(i) => Ok(Value::str(&i.to_string())),
+        Value::Int(i) => Ok(Value::int_str(i)),
         other => Err(fail(c, format!("ToString of {other:?}"))),
     }
 }
@@ -1844,14 +1856,14 @@ fn record_like(v: &Value) -> bool {
 }
 
 fn read(rt: &mut Runtime, c: &Ctx, name: &str) -> Result<Value, Error> {
-    let b = c.names.borrow().get(name).cloned();
-    match b {
-        None => Err(fail(c, format!("read of {name} before it exists"))),
-        Some(Binding::Store(p)) => Ok(p),
+    let n = match c.names.borrow().get(name) {
+        None => return Err(fail(c, format!("read of {name} before it exists"))),
+        Some(Binding::Store(p)) => return Ok(p.clone()),
         Some(
             Binding::Signal(n) | Binding::Optimistic(n) | Binding::Memo(n) | Binding::Async(n),
-        ) => rt.read_value(n),
-    }
+        ) => *n,
+    };
+    rt.read_value(n)
 }
 
 fn binding(c: &Ctx, name: &str) -> Result<Binding, Error> {
@@ -1862,7 +1874,7 @@ fn binding(c: &Ctx, name: &str) -> Result<Binding, Error> {
 /// `a[method]` must be `Array.prototype[method]`: a native array method's
 /// call reads the method from its receiver first (through a store's trap).
 fn method(rt: &mut Runtime, c: &Ctx, a: &Value, name: &'static str) -> Result<(), Error> {
-    match rt.js_get(a, &Key::name(name))? {
+    match rt.js_get(a, &Key::known(name))? {
         Value::Func(Builtin::ArrayMethod(m)) if m == name => Ok(()),
         other => Err(fail(c, format!("{name} of an array is {other:?}"))),
     }
@@ -1870,7 +1882,7 @@ fn method(rt: &mut Runtime, c: &Ctx, a: &Value, name: &'static str) -> Result<()
 
 /// `ArraySpeciesCreate(O, n)`: `IsArray(O)`, then `Get(O, "constructor")`.
 fn species(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<(), Error> {
-    match rt.js_get(a, &Key::name("constructor"))? {
+    match rt.js_get(a, &Key::known("constructor"))? {
         // Undefined is ArrayCreate: a store draft withholds an inherited
         // `constructor` inside its setter (store.ts get trap).
         Value::Func(Builtin::ArrayCtor) | Value::Undef => Ok(()),
@@ -1879,7 +1891,7 @@ fn species(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<(), Error> {
 }
 
 fn length(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<u32, Error> {
-    let n = rt.js_get(a, &Key::name("length"))?;
+    let n = rt.js_get(a, &Key::known("length"))?;
     let n = integer(c, &n)?;
     u32::try_from(n).map_err(|_| fail(c, format!("array length {n}")))
 }
@@ -1949,7 +1961,7 @@ fn array_op(
         ArrayOp::Map => {
             species(rt, c, &a)?;
             let out = JsObj::new_array(vec![]);
-            out.set(&Key::name("length"), Value::Int(n as i64));
+            out.set(&Key::known("length"), Value::Int(n as i64));
             for i in 0..n {
                 if rt.js_has(&a, &Key::Idx(i))? {
                     let x = rt.js_get(&a, &Key::Idx(i))?;
@@ -2599,21 +2611,17 @@ fn plain(rt: &mut Runtime, c: &C, steps: &[Step], env: &Env) -> Result<(), Error
 /// A plain handler: its steps run synchronously, outside any transaction.
 fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
     let (c, steps, env) = (c.clone(), steps.clone(), env.clone());
-    rt.function(
-        0,
-        Rc::new(move |rt: &mut Runtime, _args: &[Value]| {
+    rt.function_with(0, move |rt: &mut Runtime, _args: &[Value]| {
             plain(rt, &c, &steps, &env)?;
             Ok(Value::Undef)
-        }),
+        },
     )
 }
 
 /// v2.3: a callback prop, its parameters bound to the child's arguments.
 fn callback(rt: &mut Runtime, c: &C, cb: &Callback, env: &Env) -> Value {
     let (c, cb, env) = (c.clone(), cb.clone(), env.clone());
-    rt.function(
-        cb.params.len(),
-        Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+    rt.function_with(cb.params.len(), move |rt: &mut Runtime, args: &[Value]| {
             if args.len() != cb.params.len() {
                 return Err(fail(
                     &c,
@@ -2626,7 +2634,7 @@ fn callback(rt: &mut Runtime, c: &C, cb: &Callback, env: &Env) -> Value {
             }
             plain(rt, &c, &cb.steps, &env)?;
             Ok(Value::Undef)
-        }),
+        },
     )
 }
 
@@ -2672,12 +2680,10 @@ fn site(
             (_, Some(cb), ..) => Prop::Value(callback(rt, c, cb, env)),
             (_, _, Some(name), _) => {
                 let (c2, name) = (c.clone(), name.clone());
-                Prop::Value(rt.function(
-                    0,
-                    Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+                Prop::Value(rt.function_with(0, move |rt: &mut Runtime, args: &[Value]| {
                         call_action(rt, &c2, &name, args.to_vec())?;
                         Ok(Value::Undef)
-                    }),
+                    },
                 ))
             }
             (_, _, _, Some(from)) => {
@@ -2722,18 +2728,12 @@ fn site(
 // multi-child element is inserted before its next static sibling (`null` if
 // none follows); a lone dynamic child has no marker.
 
-/// One element of a template, with the nodes `declare` created.
-struct Template<'v> {
-    tag: &'v str,
-    attrs: Option<&'v [Attr]>,
-    events: &'v [Event],
-    children: &'v [View],
-    node: usize,
-    texts: Vec<Option<usize>>,
-    kids: Vec<Option<Template<'v>>>,
-}
+/// A template's nodes, in `declare`'s pre-order: per element its own node,
+/// then per child a slot for a literal text (`NONE` when `exprs` creates
+/// it), the child's own slots for an element, none for a dynamic child.
+const NONE: usize = usize::MAX;
 
-fn lower(v: &View) -> Template<'_> {
+fn parts(v: &View) -> (&str, &[Attr], &[Event], &[View]) {
     let View::Element {
         tag,
         attrs,
@@ -2743,18 +2743,20 @@ fn lower(v: &View) -> Template<'_> {
     else {
         unreachable!("a template is an element")
     };
-    Template {
-        tag,
-        attrs: attrs.as_deref(),
-        events,
-        children,
-        node: 0,
-        texts: vec![None; children.len()],
-        kids: children
-            .iter()
-            .map(|k| matches!(k, View::Element { .. }).then(|| lower(k)))
-            .collect(),
-    }
+    (tag, attrs.as_deref().unwrap_or(&[]), events, children)
+}
+
+/// The slots an element's template takes.
+fn slots(v: &View) -> usize {
+    1 + parts(v)
+        .3
+        .iter()
+        .map(|k| match k {
+            View::Element { .. } => slots(k),
+            _ if literal_text(k).is_some() => 1,
+            _ => 0,
+        })
+        .sum::<usize>()
 }
 
 fn static_text(c: &C, e: &Expr) -> Result<Value, Error> {
@@ -2771,83 +2773,109 @@ fn static_text(c: &C, e: &Expr) -> Result<Value, Error> {
     text_value(c, s)
 }
 
-fn declare(rt: &mut Runtime, c: &C, t: &mut Template, env: &Env) -> Result<(), Error> {
-    t.node = c.u.create_element(t.tag);
-    for e in t.events {
+fn declare(rt: &mut Runtime, c: &C, v: &View, s: &mut Vec<usize>, env: &Env) -> Result<(), Error> {
+    let (tag, attrs, events, children) = parts(v);
+    let node = c.u.create_element(tag);
+    s.push(node);
+    for e in events {
         let f = handler(rt, c, &e.steps, env);
-        c.u.set_prop(t.node, &e.name, &f, &Value::Undef);
+        c.u.set_prop(node, &e.name, &f, &Value::Undef);
     }
     // v2.3: an element's static props are its events and its static
     // attribute values, in source order.
-    for a in t.attrs.unwrap_or(&[]) {
+    for a in attrs {
         match (&a.value, &a.steps) {
             (_, Some(steps)) => {
                 let f = handler(rt, c, steps, env);
-                c.u.set_prop(t.node, &a.name, &f, &Value::Undef);
+                c.u.set_prop(node, &a.name, &f, &Value::Undef);
             }
             (Some(e), None) if !dynamic_expr(c, e) => {
                 let v = eval(rt, c, e, env)?;
-                c.u.set_prop(t.node, &a.name, &v, &Value::Undef);
+                c.u.set_prop(node, &a.name, &v, &Value::Undef);
             }
             _ => {}
         }
     }
-    let multi = t.children.len() > 1;
-    for (i, child) in t.children.iter().enumerate() {
+    let multi = children.len() > 1;
+    for child in children {
         if let Some(value) = literal_text(child) {
-            if multi {
-                t.texts[i] = Some(c.u.create_text(&static_text(c, value)?));
-            }
-        } else if let Some(kid) = t.kids[i].as_mut() {
-            declare(rt, c, kid, env)?;
+            s.push(if multi {
+                c.u.create_text(&static_text(c, value)?)
+            } else {
+                NONE
+            });
+        } else if matches!(child, View::Element { .. }) {
+            declare(rt, c, child, s, env)?;
         }
     }
     Ok(())
 }
 
-fn exprs(rt: &mut Runtime, c: &C, t: &Template, env: &Env) -> Result<(), Error> {
-    let multi = t.children.len() > 1;
-    for (i, child) in t.children.iter().enumerate() {
+fn exprs(rt: &mut Runtime, c: &C, v: &View, s: &[usize], at: usize, env: &Env) -> Result<(), Error> {
+    let (_, _, _, children) = parts(v);
+    let node = s[at];
+    let multi = children.len() > 1;
+    let mut off = at + 1;
+    for child in children {
         if let Some(value) = literal_text(child) {
-            let n = match t.texts[i] {
-                Some(n) => n,
-                None => c.u.create_text(&static_text(c, value)?),
+            let n = match s[off] {
+                NONE => c.u.create_text(&static_text(c, value)?),
+                n => n,
             };
-            c.u.append(t.node, n, None);
-        } else if let Some(kid) = &t.kids[i] {
-            c.u.append(t.node, kid.node, None);
+            c.u.append(node, n, None);
+            off += 1;
+        } else if matches!(child, View::Element { .. }) {
+            c.u.append(node, s[off], None);
+            off += slots(child);
         }
     }
-    for (i, child) in t.children.iter().enumerate() {
-        if let Some(kid) = &t.kids[i] {
-            exprs(rt, c, kid, env)?;
+    let mut off = at + 1;
+    for (i, child) in children.iter().enumerate() {
+        if matches!(child, View::Element { .. }) {
+            exprs(rt, c, child, s, off, env)?;
+            off += slots(child);
             continue;
         }
         if literal_text(child).is_some() {
+            off += 1;
             continue;
         }
         let value = dynamic(rt, c, child, env)?;
         let marker = if multi {
-            (i + 1..t.children.len())
-                .find_map(|j| t.texts[j].or(t.kids[j].as_ref().map(|k| k.node)))
-                .map_or(Marker::Null, Marker::Node)
+            // The next static sibling (`null` if none): dynamic children
+            // take no slot, so its first slot is `off`.
+            let next = children[i + 1..]
+                .iter()
+                .any(|k| matches!(k, View::Element { .. }) || literal_text(k).is_some());
+            if next {
+                Marker::Node(s[off])
+            } else {
+                Marker::Null
+            }
         } else {
             Marker::Undefined
         };
-        c.u.insert(rt, t.node, value, marker, None, InsertOptions::default())?;
+        c.u.insert(rt, node, value, marker, None, InsertOptions::default())?;
     }
     Ok(())
 }
 
 /// v2.3: a template's dynamic attributes, in pre-order, with their nodes.
-fn attributes<'v>(c: &C, t: &Template<'v>, out: &mut Vec<(usize, &'v Attr)>) {
-    for a in t.attrs.unwrap_or(&[]) {
+fn attributes<'v>(c: &C, v: &'v View, s: &[usize], at: usize, out: &mut Vec<(usize, &'v Attr)>) {
+    let (_, attrs, _, children) = parts(v);
+    for a in attrs {
         if a.value.as_ref().is_some_and(|e| dynamic_expr(c, e)) {
-            out.push((t.node, a));
+            out.push((s[at], a));
         }
     }
-    for k in t.kids.iter().flatten() {
-        attributes(c, k, out);
+    let mut off = at + 1;
+    for k in children {
+        if matches!(k, View::Element { .. }) {
+            attributes(c, k, s, off, out);
+            off += slots(k);
+        } else if literal_text(k).is_some() {
+            off += 1;
+        }
     }
 }
 
@@ -2856,17 +2884,17 @@ fn attributes<'v>(c: &C, t: &Template<'v>, out: &mut Vec<(usize, &'v Attr)>) {
 /// one, the effect's value is that attribute's; with more, all of theirs,
 /// each set when it differs from the last run's.
 fn element(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<usize, Error> {
-    let mut t = lower(v);
-    declare(rt, c, &mut t, env)?;
-    exprs(rt, c, &t, env)?;
+    let mut s = Vec::with_capacity(slots(v));
+    declare(rt, c, v, &mut s, env)?;
+    exprs(rt, c, v, &s, 0, env)?;
     let mut dynamic = vec![];
-    attributes(c, &t, &mut dynamic);
+    attributes(c, v, &s, 0, &mut dynamic);
     let dynamic: Vec<(usize, String, Expr)> = dynamic
         .into_iter()
         .map(|(n, a)| (n, a.name.clone(), a.value.clone().expect("a value")))
         .collect();
     if dynamic.is_empty() {
-        return Ok(t.node);
+        return Ok(s[0]);
     }
     let (c2, c3, env) = (c.clone(), c.clone(), env.clone());
     let single = dynamic.len() == 1;
@@ -2901,7 +2929,7 @@ fn element(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<usize, Error>
         None
     });
     c.u.effect(rt, compute, apply, false);
-    Ok(t.node)
+    Ok(s[0])
 }
 
 fn getter(c: &C, f: impl Fn(&mut Runtime, &C) -> Result<Value, Error> + 'static) -> Getter {
@@ -3036,9 +3064,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
         // v2.3: `{props.children}`, inserted as given.
         View::Children {} => {
             let c2 = c.clone();
-            Ok(rt.function(
-                0,
-                Rc::new(move |rt: &mut Runtime, _| prop(rt, &c2, "children")),
+            Ok(rt.function_with(0, move |rt: &mut Runtime, _| prop(rt, &c2, "children"),
             ))
         }
         // v2.3: `createComponent(Name, props)`: an instance of its own, with
@@ -3079,12 +3105,10 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
         View::Text { value } => {
             let (value, env) = (value.clone(), env.clone());
             let c2 = c.clone();
-            Ok(rt.function(
-                0,
-                Rc::new(move |rt: &mut Runtime, _| {
+            Ok(rt.function_with(0, move |rt: &mut Runtime, _| {
                     let v = eval(rt, &c2, &value, &env)?;
                     text_value(&c2, v)
-                }),
+                },
             ))
         }
         View::Show {
@@ -3119,13 +3143,11 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             let (kids, e2, c2) = (kids.clone(), env.clone(), c.clone());
             // `children: (item) => fragment(children, {...env, item})`: the
             // row item itself (identity keying passes a raw value).
-            let mapper = rt.function(
-                1,
-                Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+            let mapper = rt.function_with(1, move |rt: &mut Runtime, args: &[Value]| {
                     let mut env = e2.clone();
                     env.insert(item.clone(), args.first().cloned().unwrap_or(Value::Undef));
                     fragment(rt, &c2, &kids, &env)
-                }),
+                },
             );
             let props = ForProps {
                 each: getter(c, move |rt, c| {
@@ -3160,9 +3182,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             let c2 = c.clone();
             // `(_error) => fragment(fallback)`: one parameter, the error
             // accessor, which the plan does not read.
-            let f = rt.function(
-                1,
-                Rc::new(move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1)),
+            let f = rt.function_with(1, move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1),
             );
             let props = ErroredProps {
                 fallback: f,
@@ -3190,9 +3210,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                 syntax.clone(),
                 check.clone(),
             ));
-            Ok(rt.function(
-                0,
-                Rc::new(move |rt: &mut Runtime, _| {
+            Ok(rt.function_with(0, move |rt: &mut Runtime, _| {
                     let (code, env) = (code.clone(), env.clone());
                     let when = getter(&c2, move |rt, c| {
                         let v = eval(rt, c, &code, &env)?;
@@ -3202,9 +3220,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                         Ok(v)
                     });
                     let (c3, site) = (c2.clone(), site.clone());
-                    let child = rt.function(
-                        1,
-                        Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+                    let child = rt.function_with(1, move |rt: &mut Runtime, args: &[Value]| {
                             let Some(Value::Str(src)) = args.first() else {
                                 return Err(fail(&c3, "eval code is a string".into()));
                             };
@@ -3217,7 +3233,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                             rt.create_component(Rc::new(move |rt: &mut Runtime| {
                                 build(rt, &inner, &plan)
                             }))
-                        }),
+                        },
                     );
                     let props = ShowProps {
                         when,
@@ -3228,7 +3244,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                     rt.create_component(Rc::new(move |rt: &mut Runtime| {
                         Ok(rt.show_component(props.clone()))
                     }))
-                }),
+                },
             ))
         }
     }
@@ -3238,7 +3254,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
 /// row): each element is its own template, a Show or For its component; a
 /// lone view is itself, more are an array.
 fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value, Error> {
-    let mut parts = vec![];
+    let mut parts = Vec::with_capacity(views.len());
     for v in views {
         parts.push(match v {
             View::Element { .. } => Value::Node(element(rt, c, v, env)?),
@@ -3344,25 +3360,36 @@ pub struct App {
     rejected: Rc<RefCell<Vec<String>>>,
 }
 
+impl Drop for App {
+    fn drop(&mut self) {
+        // A function value owns its closure, and closures hold the context,
+        // which holds the host: the host's nodes (their handlers) go first
+        // so nothing keeps the app alive. Dropped outside the borrow.
+        let nodes = self.host.borrow_mut().clear();
+        drop(nodes);
+    }
+}
+
 impl App {
     /// Validates the plan and mounts it (`render(() => Component(), root)`).
     /// The caller settles before the first frame.
-    pub fn mount(plan: Plan) -> Result<Self, String> {
+    pub fn mount(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
         Self::mount_with(plan, EvalTable::default())
     }
 
     /// `mount` with the host's eval table (frontend `docs/EVAL.md`): the
     /// plans an eval site's code compiles to.
     /// `mount` with the host's op log off (benchmarks).
-    pub fn mount_unlogged(plan: Plan) -> Result<Self, String> {
+    pub fn mount_unlogged(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
         Self::mount_inner(plan, EvalTable::default(), false)
     }
 
-    pub fn mount_with(plan: Plan, evals: EvalTable) -> Result<Self, String> {
+    pub fn mount_with(plan: impl Into<Rc<Plan>>, evals: EvalTable) -> Result<Self, String> {
         Self::mount_inner(plan, evals, true)
     }
 
-    fn mount_inner(plan: Plan, evals: EvalTable, logging: bool) -> Result<Self, String> {
+    fn mount_inner(plan: impl Into<Rc<Plan>>, evals: EvalTable, logging: bool) -> Result<Self, String> {
+        let plan: Rc<Plan> = plan.into();
         validate(&plan)?;
         if !evals.evals.is_empty() {
             validate_table(&evals)?;
@@ -3400,7 +3427,6 @@ impl App {
                     .collect(),
             ),
         });
-        let plan = Rc::new(plan);
         let code: Getter = {
             let c = c.clone();
             Rc::new(move |rt: &mut Runtime| build(rt, &c, &plan))

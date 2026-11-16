@@ -398,7 +398,7 @@ impl Runtime {
                     self.untrack(|rt| {
                         let iterator = rt.js_get(&v, &Key::Sym("asyncIterator"))?;
                         assert!(iterator.is_undef(), "an async iterable is not ported");
-                        let then = rt.js_get(&v, &Key::name("then"))?;
+                        let then = rt.js_get(&v, &Key::known("then"))?;
                         assert!(
                             !matches!(then, Value::Func(_)),
                             "a thenable that is not a host flight is not ported"

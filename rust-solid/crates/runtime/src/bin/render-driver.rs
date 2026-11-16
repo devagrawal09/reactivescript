@@ -196,7 +196,7 @@ fn ev(rt: &mut Runtime, c: &C, x: &J, cx: &Cx) -> Result<Value, Error> {
                 Some(J::String(s)) if s == "id" => rt.function(
                     1,
                     Rc::new(|rt: &mut Runtime, args: &[Value]| {
-                        rt.js_get(&args[0], &Key::name("id"))
+                        rt.js_get(&args[0], &Key::known("id"))
                     }),
                 ),
                 Some(k) => data(c, k),
@@ -246,9 +246,9 @@ fn ev(rt: &mut Runtime, c: &C, x: &J, cx: &Cx) -> Result<Value, Error> {
                 Rc::new(move |rt: &mut Runtime, args: &[Value]| {
                     let n = args.len();
                     let e = if n == 2 { &args[1] } else { &args[0] };
-                    let ty = rt.js_get(e, &Key::name("type"))?;
-                    let ct = rt.js_get(e, &Key::name("currentTarget"))?;
-                    let target = rt.js_get(e, &Key::name("target"))?;
+                    let ty = rt.js_get(e, &Key::known("type"))?;
+                    let ct = rt.js_get(e, &Key::known("currentTarget"))?;
+                    let target = rt.js_get(e, &Key::known("target"))?;
                     let id = |v: &Value| match v {
                         Value::Node(n) => json!(n),
                         _ => J::Null,
@@ -269,7 +269,7 @@ fn ev(rt: &mut Runtime, c: &C, x: &J, cx: &Cx) -> Result<Value, Error> {
                         id(&target)
                     ]));
                     if h["stop"] == true {
-                        rt.js_set(e, &Key::name("cancelBubble"), Value::Bool(true))?;
+                        rt.js_set(e, &Key::known("cancelBubble"), Value::Bool(true))?;
                     }
                     if let Some(w) = h.get("write") {
                         let s = c2.signals.borrow()[w["id"].as_str().unwrap()];
