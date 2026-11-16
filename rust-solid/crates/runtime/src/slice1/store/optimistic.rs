@@ -113,7 +113,7 @@ impl Runtime {
             structural = true;
         }
         if is_arr && old.len() != pb.len() {
-            let n = self.get_node(t, &Key::name("length"), -1);
+            let n = self.get_node(t, &Key::known("length"), -1);
             self.guess(n, Value::Int(pb.len() as i64));
             structural = true;
         }
@@ -127,7 +127,7 @@ impl Runtime {
                         out.set(&key, v);
                     }
                 }
-                out.set(&Key::name("length"), Value::Int(pb.len() as i64));
+                out.set(&Key::known("length"), Value::Int(pb.len() as i64));
                 out
             } else {
                 self.shallow_keys(pb)
@@ -496,7 +496,7 @@ impl Runtime {
                 .st(t)
                 .n
                 .as_ref()
-                .and_then(|n| n.get(&Key::name("length")));
+                .and_then(|n| n.get(&Key::known("length")));
             if let Some(len) = len {
                 if self.nodes[len].config & CONFIG_OVERRIDE != 0 || base.len() != rows.len() {
                     self.lane_set(len, Value::Int(rows.len() as i64), lane);
@@ -958,7 +958,7 @@ impl Runtime {
                 if key.is("length") && src.array {
                     let cur = out.as_ref().unwrap_or(src).len() as i64;
                     if Value::Int(cur) != ov {
-                        ensure(&mut out).set(&Key::name("length"), ov);
+                        ensure(&mut out).set(&Key::known("length"), ov);
                     }
                 } else if src.get(&key) != ov || !src.has_own(&key) {
                     ensure(&mut out).set(&key, ov);

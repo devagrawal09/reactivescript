@@ -667,7 +667,7 @@ impl<R: Renderer + 'static> Universal<R> {
                     *mounted.borrow_mut() = this.collect_mounted(element, value);
                 })
             };
-            let accessor = rt.function(0, Rc::new(move |_, _| Ok(tree.clone())));
+            let accessor = rt.function_with(0, move |_, _| Ok(tree.clone()));
             self.insert(
                 rt,
                 element,

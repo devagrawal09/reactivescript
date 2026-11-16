@@ -37,10 +37,32 @@ pub enum Key {
 
 impl Key {
     pub fn name(s: &str) -> Key {
-        match s.parse::<u32>() {
-            Ok(i) if i.to_string() == s => Key::Idx(i),
-            _ => Key::Name(s.into()),
+        // A canonical array index: no sign, no leading zero, fits a u32.
+        let canonical = !s.is_empty()
+            && s.bytes().all(|b| b.is_ascii_digit())
+            && (s.len() == 1 || !s.starts_with('0'));
+        match canonical.then(|| s.parse::<u32>().ok()).flatten() {
+            Some(i) => Key::Idx(i),
+            None => Key::Name(s.into()),
         }
+    }
+    /// `Key::name` of a name written in the source (`"length"`, `"then"`),
+    /// shared instead of allocated each time.
+    pub fn known(s: &'static str) -> Key {
+        thread_local! {
+            static KNOWN: RefCell<Vec<(&'static str, Rc<str>)>> = const { RefCell::new(Vec::new()) };
+        }
+        KNOWN.with(|k| {
+            let mut k = k.borrow_mut();
+            if let Some((_, n)) = k.iter().find(|(p, _)| std::ptr::eq(*p, s)) {
+                return Key::Name(n.clone());
+            }
+            let key = Key::name(s);
+            if let Key::Name(n) = &key {
+                k.push((s, n.clone()));
+            }
+            key
+        })
     }
     pub fn is(&self, s: &str) -> bool {
         matches!(self, Key::Name(n) if &**n == s)

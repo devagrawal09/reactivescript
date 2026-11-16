@@ -65,13 +65,11 @@ impl Runtime {
                     do_not_unwrap: false,
                     ..options
                 };
-                return Ok(self.function(
-                    0,
-                    Rc::new(move |rt: &mut Runtime, _| {
+                return Ok(self.function_with(0, move |rt: &mut Runtime, _| {
                         let nested = JsObj::new_array(vec![]);
                         rt.flatten_array(&Value::Obj(results.clone()), &nested, options)?;
                         Ok(Value::Obj(nested))
-                    }),
+                    },
                 ));
             }
             return Ok(Value::Obj(results));
@@ -133,7 +131,7 @@ impl Runtime {
 
     /// `children.length` of an array (or a store array's proxy).
     fn array_length(&mut self, a: &Value) -> Result<i64, Error> {
-        match self.js_get(a, &Key::name("length"))? {
+        match self.js_get(a, &Key::known("length"))? {
             Value::Int(n) => Ok(n),
             other => panic!("an array length {other:?} is outside the value domain"),
         }

@@ -320,7 +320,7 @@ fn int(v: Value) -> i64 {
 
 /// `x.length` as `LengthOfArrayLike` reads it (`Get(O, "length")`).
 fn length(rt: &mut Runtime, x: &Value) -> Result<u32, Error> {
-    let l = rt.js_get(x, &Key::name("length"))?;
+    let l = rt.js_get(x, &Key::known("length"))?;
     Ok(int(l) as u32)
 }
 
@@ -336,7 +336,7 @@ fn method(rt: &mut Runtime, x: &Value, name: &'static str) -> Result<(), Error> 
 /// `Get(O, "constructor")`.
 fn species(rt: &mut Runtime, x: &Value) -> Result<(), Error> {
     if rt.is_array(x) {
-        match rt.js_get(x, &Key::name("constructor"))? {
+        match rt.js_get(x, &Key::known("constructor"))? {
             Value::Func(Builtin::ArrayCtor) => {}
             other => panic!("an array's constructor is {other:?}"),
         }
@@ -442,7 +442,7 @@ fn eval(rt: &mut Runtime, h: &Host, e: &J, prev: &Value) -> Result<Value, Error>
             if x.is_undef() {
                 return Ok(Value::Undef);
             }
-            rt.js_get(&x, &Key::name("length"))
+            rt.js_get(&x, &Key::known("length"))
         }
         "eq" => {
             let a = eval(rt, h, &e["a"], prev)?;
@@ -534,7 +534,7 @@ fn eval(rt: &mut Runtime, h: &Host, e: &J, prev: &Value) -> Result<Value, Error>
             }
             if native {
                 // `ArraySpeciesCreate(O, len)`: the result has `len` slots.
-                arr.set(&Key::name("length"), Value::Int(n as i64));
+                arr.set(&Key::known("length"), Value::Int(n as i64));
             }
             Ok(Value::Obj(arr))
         }
@@ -648,7 +648,7 @@ fn shift_remove(rt: &mut Runtime, a: &Value, i: u32) -> Result<(), Error> {
         rt.js_set(a, &Key::Idx(k), x)?;
         k += 1;
     }
-    rt.js_set(a, &Key::name("length"), Value::Int(n as i64 - 1))
+    rt.js_set(a, &Key::known("length"), Value::Int(n as i64 - 1))
 }
 /// `shiftInsert(a, i, x)`.
 fn shift_insert(rt: &mut Runtime, a: &Value, i: u32, x: Value) -> Result<(), Error> {

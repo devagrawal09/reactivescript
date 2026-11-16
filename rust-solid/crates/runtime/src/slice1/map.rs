@@ -136,7 +136,7 @@ impl Runtime {
     /// `x.length` of an array-like (`LengthOfArrayLike`).
     // Solid: map.ts:416
     fn length_of(&mut self, x: &Value) -> Result<usize, Error> {
-        match self.js_get(x, &Key::name("length"))? {
+        match self.js_get(x, &Key::known("length"))? {
             Value::Int(n) if n >= 0 => Ok(n as usize),
             other => panic!("a list whose length is {other:?} is outside the op language"),
         }
@@ -148,13 +148,13 @@ impl Runtime {
     /// A hole stays a hole.
     // Solid: map.ts:498, 563, 683; commitSmallMove map.ts:296
     fn slice0(&mut self, a: &Value) -> Result<Obj, Error> {
-        match self.js_get(a, &Key::name("slice"))? {
+        match self.js_get(a, &Key::known("slice"))? {
             Value::Func(Builtin::ArrayMethod("slice")) => {}
             other => panic!("newItems.slice is {other:?}: a TypeError is outside the op language"),
         }
         let len = self.length_of(a)?;
         if self.is_array(a) {
-            match self.js_get(a, &Key::name("constructor"))? {
+            match self.js_get(a, &Key::known("constructor"))? {
                 // Undefined is ArrayCreate (a draft withholds `constructor`).
                 Value::Func(Builtin::ArrayCtor) | Value::Undef => {}
                 other => panic!("an array's constructor is {other:?}"),
@@ -167,7 +167,7 @@ impl Runtime {
                 out.set(&Key::Idx(k), v);
             }
         }
-        out.set(&Key::name("length"), Value::Int(len as i64));
+        out.set(&Key::known("length"), Value::Int(len as i64));
         Ok(out)
     }
 

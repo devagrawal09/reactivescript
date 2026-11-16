@@ -106,6 +106,6 @@ impl Runtime {
     /// computation).
     // Solid: signals.ts:140-144
     pub fn accessor(&mut self, node: NodeId) -> Value {
-        self.function(0, Rc::new(move |rt: &mut Runtime, _| rt.read_node(node)))
+        self.function_with(0, move |rt: &mut Runtime, _| rt.read_node(node))
     }
 }

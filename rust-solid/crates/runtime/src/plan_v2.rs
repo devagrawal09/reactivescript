@@ -732,12 +732,24 @@ fn literal(value: &J) -> Result<Value, String> {
 impl<'a> Check<'a> {
     fn expr(&self, e: &Expr, scope: &mut Vec<String>, reads: bool) -> Result<(), String> {
         match e {
-            Expr::Literal { value, .. } => literal(value).map(|_| ()),
+            // The checked value fills `eval`'s cache.
+            Expr::Literal { value, cache } => match cache.get() {
+                Some(_) => Ok(()),
+                None => literal(value).map(|v| {
+                    cache.get_or_init(|| v);
+                }),
+            },
             Expr::Array { items } => items.iter().try_for_each(|x| self.expr(x, scope, reads)),
             Expr::Object { fields } => {
+                // A set only for a large object: most have a few fields.
                 let mut seen = HashSet::new();
-                for f in fields {
-                    if !seen.insert(f.key.as_str()) {
+                for (i, f) in fields.iter().enumerate() {
+                    let repeated = if fields.len() <= 16 {
+                        fields[..i].iter().any(|g| g.key == f.key)
+                    } else {
+                        !seen.insert(f.key.as_str())
+                    };
+                    if repeated {
                         return Err(format!("object key {} repeated", f.key));
                     }
                     self.expr(&f.value, scope, reads)?;
@@ -1468,7 +1480,7 @@ fn method(rt: &mut Runtime, c: &Ctx, a: &Value, name: &'static str) -> Result<()
 
 /// `ArraySpeciesCreate(O, n)`: `IsArray(O)`, then `Get(O, "constructor")`.
 fn species(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<(), Error> {
-    match rt.js_get(a, &Key::name("constructor"))? {
+    match rt.js_get(a, &Key::known("constructor"))? {
         // Undefined is ArrayCreate: a store draft withholds an inherited
         // `constructor` inside its setter (store.ts get trap).
         Value::Func(Builtin::ArrayCtor) | Value::Undef => Ok(()),
@@ -1477,7 +1489,7 @@ fn species(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<(), Error> {
 }
 
 fn length(rt: &mut Runtime, c: &Ctx, a: &Value) -> Result<u32, Error> {
-    let n = rt.js_get(a, &Key::name("length"))?;
+    let n = rt.js_get(a, &Key::known("length"))?;
     let n = integer(c, &n)?;
     u32::try_from(n).map_err(|_| fail(c, format!("array length {n}")))
 }
@@ -1547,7 +1559,7 @@ fn array_op(
         ArrayOp::Map => {
             species(rt, c, &a)?;
             let out = JsObj::new_array(vec![]);
-            out.set(&Key::name("length"), Value::Int(n as i64));
+            out.set(&Key::known("length"), Value::Int(n as i64));
             for i in 0..n {
                 if rt.js_has(&a, &Key::Idx(i))? {
                     let x = rt.js_get(&a, &Key::Idx(i))?;
@@ -2136,9 +2148,7 @@ fn refresh(rt: &mut Runtime, c: &C, source: &str) -> Result<(), Error> {
 /// A plain handler: its steps run synchronously, outside any transaction.
 fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
     let (c, steps, env) = (c.clone(), steps.clone(), env.clone());
-    rt.function(
-        0,
-        Rc::new(move |rt: &mut Runtime, _args: &[Value]| {
+    rt.function_with(0, move |rt: &mut Runtime, _args: &[Value]| {
             for s in steps.iter() {
                 match s {
                     Step::Write {
@@ -2164,7 +2174,7 @@ fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
                 }
             }
             Ok(Value::Undef)
-        }),
+        },
     )
 }
 
@@ -2436,12 +2446,10 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
         View::Text { value } => {
             let (value, env) = (value.clone(), env.clone());
             let c2 = c.clone();
-            Ok(rt.function(
-                0,
-                Rc::new(move |rt: &mut Runtime, _| {
+            Ok(rt.function_with(0, move |rt: &mut Runtime, _| {
                     let v = eval(rt, &c2, &value, &env)?;
                     text_value(&c2, v)
-                }),
+                },
             ))
         }
         View::Show {
@@ -2476,13 +2484,11 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             let (kids, e2, c2) = (kids.clone(), env.clone(), c.clone());
             // `children: (item) => fragment(children, {...env, item})`: the
             // row item itself (identity keying passes a raw value).
-            let mapper = rt.function(
-                1,
-                Rc::new(move |rt: &mut Runtime, args: &[Value]| {
+            let mapper = rt.function_with(1, move |rt: &mut Runtime, args: &[Value]| {
                     let mut env = e2.clone();
                     env.insert(item.clone(), args.first().cloned().unwrap_or(Value::Undef));
                     fragment(rt, &c2, &kids, &env)
-                }),
+                },
             );
             let props = ForProps {
                 each: getter(c, move |rt, c| {
@@ -2517,9 +2523,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             let c2 = c.clone();
             // `(_error) => fragment(fallback)`: one parameter, the error
             // accessor, which the plan does not read.
-            let f = rt.function(
-                1,
-                Rc::new(move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1)),
+            let f = rt.function_with(1, move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1),
             );
             let props = ErroredProps {
                 fallback: f,
@@ -2547,9 +2551,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                 syntax.clone(),
                 check.clone(),
             ));
-            Ok(rt.function(
-                0,
-                Rc::new(move |rt: &mut Runtime, _| {
+            Ok(rt.function_with(0, move |rt: &mut Runtime, _| {
                     let (code, env) = (code.clone(), env.clone());
                     let when = getter(&c2, move |rt, c| {
                         let v = eval(rt, c, &code, &env)?;
@@ -2585,7 +2587,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                     rt.create_component(Rc::new(move |rt: &mut Runtime| {
                         Ok(rt.show_component(props.clone()))
                     }))
-                }),
+                },
             ))
         }
     }
@@ -2595,7 +2597,7 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
 /// row): each element is its own template, a Show or For its component; a
 /// lone view is itself, more are an array.
 fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value, Error> {
-    let mut parts = vec![];
+    let mut parts = Vec::with_capacity(views.len());
     for v in views {
         parts.push(match v {
             View::Element { .. } => Value::Node(element(rt, c, v, env)?),
@@ -2688,22 +2690,23 @@ pub struct App {
 impl App {
     /// Validates the plan and mounts it (`render(() => Component(), root)`).
     /// The caller settles before the first frame.
-    pub fn mount(plan: Plan) -> Result<Self, String> {
+    pub fn mount(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
         Self::mount_with(plan, EvalTable::default())
     }
 
     /// `mount` with the host's eval table (frontend `docs/EVAL.md`): the
     /// plans an eval site's code compiles to.
     /// `mount` with the host's op log off (benchmarks).
-    pub fn mount_unlogged(plan: Plan) -> Result<Self, String> {
+    pub fn mount_unlogged(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
         Self::mount_inner(plan, EvalTable::default(), false)
     }
 
-    pub fn mount_with(plan: Plan, evals: EvalTable) -> Result<Self, String> {
+    pub fn mount_with(plan: impl Into<Rc<Plan>>, evals: EvalTable) -> Result<Self, String> {
         Self::mount_inner(plan, evals, true)
     }
 
-    fn mount_inner(plan: Plan, evals: EvalTable, logging: bool) -> Result<Self, String> {
+    fn mount_inner(plan: impl Into<Rc<Plan>>, evals: EvalTable, logging: bool) -> Result<Self, String> {
+        let plan: Rc<Plan> = plan.into();
         validate(&plan)?;
         if !evals.evals.is_empty() {
             validate_table(&evals)?;
@@ -2733,7 +2736,6 @@ impl App {
             bound: HashMap::new(),
             host_alias: HashMap::new(),
         });
-        let plan = Rc::new(plan);
         let code: Getter = {
             let c = c.clone();
             Rc::new(move |rt: &mut Runtime| build(rt, &c, &plan))
