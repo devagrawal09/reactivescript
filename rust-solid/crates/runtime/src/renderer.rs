@@ -288,7 +288,7 @@ impl TreeRenderer {
             Value::Int(i) => json!(i),
             Value::Str(s) => json!(&**s),
             Value::Node(n) => json!({ "node": n }),
-            Value::Func(crate::slice1::Builtin::Host(id)) => json!({ "fn": self.fn_id((0, *id)) }),
+            Value::Func(crate::slice1::Builtin::Host(f)) => json!({ "fn": self.fn_id((0, f.id())) }),
             Value::Obj(o) if o.array => {
                 J::Array(o.elements().iter().map(|x| self.enc(x)).collect())
             }

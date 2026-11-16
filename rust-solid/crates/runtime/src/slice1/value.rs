@@ -17,7 +17,7 @@ thread_local! {
     static NEXT_OBJECT: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
 
-fn next_id() -> u64 {
+pub(super) fn next_id() -> u64 {
     NEXT_OBJECT.with(|c| {
         let id = c.get();
         c.set(id + 1);
@@ -56,7 +56,7 @@ impl Key {
 
 /// A JS function value the ops can reach through a get: a prototype method
 /// or `constructor` (store.ts's get trap answers them from the prototype).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Builtin {
     ArrayCtor,
     ObjectCtor,
@@ -64,12 +64,12 @@ pub enum Builtin {
     /// A host function value (not a Solid value): an accessor the host
     /// hands Solid as a computed's value (a `<For>` accessor), compared by
     /// identity.
-    Host(u64),
+    Host(super::function::HostFn),
 }
 
 /// A fresh identity for a host function value.
 pub fn new_host_fn() -> Builtin {
-    Builtin::Host(next_id())
+    Builtin::Host(super::function::HostFn::bare(next_id()))
 }
 
 /// A JS value.
@@ -151,6 +151,27 @@ impl Value {
     /// A string value.
     pub fn str(s: &str) -> Value {
         Value::Str(Rc::from(s))
+    }
+    /// `String(i)`, written on the stack (one allocation, the `Rc`).
+    pub fn int_str(i: i64) -> Value {
+        let mut buf = [0u8; 20];
+        let mut at = buf.len();
+        let mut n = i.unsigned_abs();
+        loop {
+            at -= 1;
+            buf[at] = b'0' + (n % 10) as u8;
+            n /= 10;
+            if n == 0 {
+                break;
+            }
+        }
+        if i < 0 {
+            let mut out = [0u8; 21];
+            out[0] = b'-';
+            out[1..=buf.len() - at].copy_from_slice(&buf[at..]);
+            return Value::str(std::str::from_utf8(&out[..=buf.len() - at]).expect("ASCII"));
+        }
+        Value::str(std::str::from_utf8(&buf[at..]).expect("ASCII"))
     }
     pub fn as_str(&self) -> Option<&str> {
         match self {

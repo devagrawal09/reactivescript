@@ -97,7 +97,7 @@ impl Listener {
     pub fn identity(&self) -> (u8, u64) {
         match self {
             Listener::Delegated { id, .. } => (1, *id),
-            Listener::Handler(Value::Func(Builtin::Host(f))) => (0, *f),
+            Listener::Handler(Value::Func(Builtin::Host(f))) => (0, f.id()),
             Listener::Handler(other) => panic!("a listener {other:?} is outside the value domain"),
             Listener::Tuple { id, .. } => (1, *id),
         }
@@ -260,6 +260,30 @@ fn attach_delegated_event(host: &mut impl EventHost, name: &str, container: Node
     host.add_event_listener(container, name, handler);
 }
 
+/// `$$name` and `$$nameData`, made once per delegated event name.
+fn expando_keys(name: &str) -> (std::borrow::Cow<'static, str>, std::borrow::Cow<'static, str>) {
+    use std::borrow::Cow;
+    static KEYS: std::sync::OnceLock<Vec<(&'static str, &'static str)>> = std::sync::OnceLock::new();
+    let keys = KEYS.get_or_init(|| {
+        DELEGATED_EVENTS
+            .iter()
+            .map(|n| {
+                let k: &'static str = Box::leak(format!("{EVENT_KEY}{n}").into_boxed_str());
+                let d: &'static str = Box::leak(format!("{k}Data").into_boxed_str());
+                (k, d)
+            })
+            .collect()
+    });
+    match DELEGATED_EVENTS.iter().position(|n| *n == name) {
+        Some(i) => (Cow::Borrowed(keys[i].0), Cow::Borrowed(keys[i].1)),
+        None => {
+            let k = format!("{EVENT_KEY}{name}");
+            let d = format!("{k}Data");
+            (Cow::Owned(k), Cow::Owned(d))
+        }
+    }
+}
+
 /// `addEvent(node, name, handler, delegate)`: the native listener it
 /// attached (`None` when delegated, or for a non-function handler value
 /// that is not attached here).
@@ -276,7 +300,7 @@ pub fn add_event(
         _ => None,
     };
     if delegate {
-        let key = format!("{EVENT_KEY}{name}");
+        let (key, data_key) = expando_keys(name);
         let mut data = Value::Undef;
         match &tuple {
             Some(t) => {
@@ -285,7 +309,7 @@ pub fn add_event(
             }
             None => host.set_expando(node, &key, handler.clone()),
         }
-        host.set_expando(node, &format!("{key}Data"), data);
+        host.set_expando(node, &data_key, data);
         return None;
     }
     if tuple.is_some() {

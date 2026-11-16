@@ -671,8 +671,6 @@ pub struct Runtime {
     maps: Vec<map::MapData>,
     /// User comparators (`options.equals`), by registration.
     comparators: Vec<EqualsFn>,
-    /// Host-made function values (function.rs), by identity.
-    functions: FxMap<u64, function::JsFunction>,
     /// scheduler.ts:380 `latestOpened` (reset at each seam; `openedByLatest`
     /// has no caller in rc.21, so it stays null).
     latest_opened: Option<TxId>,
@@ -761,7 +759,6 @@ impl Default for Runtime {
             deferred_releases: None,
             maps: vec![],
             comparators: vec![],
-            functions: Default::default(),
             latest_opened: None,
             ahead: vec![],
             entered: vec![],
@@ -1055,7 +1052,6 @@ impl Runtime {
             ("maps", self.maps.len(), size_of::<map::MapData>()),
             ("actions", self.actions.len(), size_of::<action::Action>()),
             ("boundaries", self.boundaries.len(), size_of::<boundaries::Boundary>()),
-            ("functions", self.functions.len(), size_of::<function::JsFunction>()),
             ("targets", self.store.targets.len(), size_of_val(&self.store.targets[..]) / self.store.targets.len().max(1)),
             ("families", self.store.families.len(), size_of_val(&self.store.families[..]) / self.store.families.len().max(1)),
             ("comparators", self.comparators.len(), 16),

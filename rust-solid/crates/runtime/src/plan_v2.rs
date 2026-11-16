@@ -1432,7 +1432,7 @@ fn integer(c: &Ctx, v: &Value) -> Result<i64, Error> {
 fn text_value(c: &Ctx, v: Value) -> Result<Value, Error> {
     match v {
         Value::Str(_) => Ok(v),
-        Value::Int(i) => Ok(Value::str(&i.to_string())),
+        Value::Int(i) => Ok(Value::int_str(i)),
         other => Err(fail(c, format!("ToString of {other:?}"))),
     }
 }
@@ -2182,17 +2182,12 @@ fn handler(rt: &mut Runtime, c: &C, steps: &Rc<[Step]>, env: &Env) -> Value {
 // multi-child element is inserted before its next static sibling (`null` if
 // none follows); a lone dynamic child has no marker.
 
-/// One element of a template, with the nodes `declare` created.
-struct Template<'v> {
-    tag: &'v str,
-    events: &'v [Event],
-    children: &'v [View],
-    node: usize,
-    texts: Vec<Option<usize>>,
-    kids: Vec<Option<Template<'v>>>,
-}
+/// A template's nodes, in `declare`'s pre-order: per element its own node,
+/// then per child a slot for a literal text (`NONE` when `exprs` creates
+/// it), the child's own slots for an element, none for a dynamic child.
+const NONE: usize = usize::MAX;
 
-fn lower(v: &View) -> Template<'_> {
+fn parts(v: &View) -> (&str, &[Event], &[View]) {
     let View::Element {
         tag,
         events,
@@ -2201,17 +2196,20 @@ fn lower(v: &View) -> Template<'_> {
     else {
         unreachable!("a template is an element")
     };
-    Template {
-        tag,
-        events,
-        children,
-        node: 0,
-        texts: vec![None; children.len()],
-        kids: children
-            .iter()
-            .map(|k| matches!(k, View::Element { .. }).then(|| lower(k)))
-            .collect(),
-    }
+    (tag, events, children)
+}
+
+/// The slots an element's template takes.
+fn slots(v: &View) -> usize {
+    1 + parts(v)
+        .2
+        .iter()
+        .map(|k| match k {
+            View::Element { .. } => slots(k),
+            _ if literal_text(k).is_some() => 1,
+            _ => 0,
+        })
+        .sum::<usize>()
 }
 
 fn static_text(c: &C, e: &Expr) -> Result<Value, Error> {
@@ -2228,65 +2226,84 @@ fn static_text(c: &C, e: &Expr) -> Result<Value, Error> {
     text_value(c, s)
 }
 
-fn declare(rt: &mut Runtime, c: &C, t: &mut Template, env: &Env) -> Result<(), Error> {
-    t.node = c.u.create_element(t.tag);
-    for e in t.events {
+fn declare(rt: &mut Runtime, c: &C, v: &View, s: &mut Vec<usize>, env: &Env) -> Result<(), Error> {
+    let (tag, events, children) = parts(v);
+    let node = c.u.create_element(tag);
+    s.push(node);
+    for e in events {
         let f = handler(rt, c, &e.steps, env);
-        c.u.set_prop(t.node, &e.name, &f, &Value::Undef);
+        c.u.set_prop(node, &e.name, &f, &Value::Undef);
     }
-    let multi = t.children.len() > 1;
-    for (i, child) in t.children.iter().enumerate() {
+    let multi = children.len() > 1;
+    for child in children {
         if let Some(value) = literal_text(child) {
-            if multi {
-                t.texts[i] = Some(c.u.create_text(&static_text(c, value)?));
-            }
-        } else if let Some(kid) = t.kids[i].as_mut() {
-            declare(rt, c, kid, env)?;
+            s.push(if multi {
+                c.u.create_text(&static_text(c, value)?)
+            } else {
+                NONE
+            });
+        } else if matches!(child, View::Element { .. }) {
+            declare(rt, c, child, s, env)?;
         }
     }
     Ok(())
 }
 
-fn exprs(rt: &mut Runtime, c: &C, t: &Template, env: &Env) -> Result<(), Error> {
-    let multi = t.children.len() > 1;
-    for (i, child) in t.children.iter().enumerate() {
+fn exprs(rt: &mut Runtime, c: &C, v: &View, s: &[usize], at: usize, env: &Env) -> Result<(), Error> {
+    let (_, _, children) = parts(v);
+    let node = s[at];
+    let multi = children.len() > 1;
+    let mut off = at + 1;
+    for child in children {
         if let Some(value) = literal_text(child) {
-            let n = match t.texts[i] {
-                Some(n) => n,
-                None => c.u.create_text(&static_text(c, value)?),
+            let n = match s[off] {
+                NONE => c.u.create_text(&static_text(c, value)?),
+                n => n,
             };
-            c.u.append(t.node, n, None);
-        } else if let Some(kid) = &t.kids[i] {
-            c.u.append(t.node, kid.node, None);
+            c.u.append(node, n, None);
+            off += 1;
+        } else if matches!(child, View::Element { .. }) {
+            c.u.append(node, s[off], None);
+            off += slots(child);
         }
     }
-    for (i, child) in t.children.iter().enumerate() {
-        if let Some(kid) = &t.kids[i] {
-            exprs(rt, c, kid, env)?;
+    let mut off = at + 1;
+    for (i, child) in children.iter().enumerate() {
+        if matches!(child, View::Element { .. }) {
+            exprs(rt, c, child, s, off, env)?;
+            off += slots(child);
             continue;
         }
         if literal_text(child).is_some() {
+            off += 1;
             continue;
         }
         let value = dynamic(rt, c, child, env)?;
         let marker = if multi {
-            (i + 1..t.children.len())
-                .find_map(|j| t.texts[j].or(t.kids[j].as_ref().map(|k| k.node)))
-                .map_or(Marker::Null, Marker::Node)
+            // The next static sibling (`null` if none): dynamic children
+            // take no slot, so its first slot is `off`.
+            let next = children[i + 1..]
+                .iter()
+                .any(|k| matches!(k, View::Element { .. }) || literal_text(k).is_some());
+            if next {
+                Marker::Node(s[off])
+            } else {
+                Marker::Null
+            }
         } else {
             Marker::Undefined
         };
-        c.u.insert(rt, t.node, value, marker, None, InsertOptions::default())?;
+        c.u.insert(rt, node, value, marker, None, InsertOptions::default())?;
     }
     Ok(())
 }
 
 /// An element view, built as its template: the root node.
 fn element(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<usize, Error> {
-    let mut t = lower(v);
-    declare(rt, c, &mut t, env)?;
-    exprs(rt, c, &t, env)?;
-    Ok(t.node)
+    let mut s = Vec::with_capacity(slots(v));
+    declare(rt, c, v, &mut s, env)?;
+    exprs(rt, c, v, &s, 0, env)?;
+    Ok(s[0])
 }
 
 fn getter(c: &C, f: impl Fn(&mut Runtime, &C) -> Result<Value, Error> + 'static) -> Getter {

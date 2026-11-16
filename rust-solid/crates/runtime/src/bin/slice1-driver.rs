@@ -58,7 +58,7 @@ type Scope = Rc<RefCell<HashMap<String, NodeRef>>>;
 
 /// What `nodes.get(id)` / `scope.get(id)` hold: a node's accessor, or a
 /// host function value (a For's `list` accessor).
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum NodeRef {
     Node(usize),
     Host(Builtin),
@@ -383,7 +383,7 @@ fn eval(rt: &mut Runtime, h: &Host, e: &J, prev: &Value) -> Result<Value, Error>
     }
     match text(e, "op") {
         "read" => {
-            let r = h.nodes.borrow()[text(e, "id")];
+            let r = h.nodes.borrow()[text(e, "id")].clone();
             call_ref(rt, h, r)
         }
         "add" => {
@@ -579,7 +579,7 @@ fn eval(rt: &mut Runtime, h: &Host, e: &J, prev: &Value) -> Result<Value, Error>
                     .as_ref()
                     .and_then(|c| c.scope.clone())
                     .expect("a local read outside a pass is outside the op language");
-            let r = scope.borrow()[text(e, "id")];
+            let r = scope.borrow()[text(e, "id")].clone();
             call_ref(rt, h, r)
         }
         "concat" => {
@@ -1212,7 +1212,7 @@ fn make_list(rt: &mut Runtime, h: &Host, o: &J, cx: &Cx) -> NodeRef {
     let mapped: Rc<std::cell::Cell<Option<usize>>> = Rc::new(std::cell::Cell::new(None));
     let f = new_host_fn();
     h.fns.borrow_mut().insert(
-        f,
+        f.clone(),
         Rc::new(move |rt: &mut Runtime| {
             let m = match mapped.get() {
                 Some(m) => m,
@@ -1225,7 +1225,7 @@ fn make_list(rt: &mut Runtime, h: &Host, o: &J, cx: &Cx) -> NodeRef {
             rt.read_value(m)
         }),
     );
-    h.labels.borrow_mut().insert(f, id);
+    h.labels.borrow_mut().insert(f.clone(), id);
     NodeRef::Host(f)
 }
 
@@ -1270,7 +1270,7 @@ fn make_show(rt: &mut Runtime, h: &Host, o: &J, cx: &Cx) -> NodeRef {
             for r in kids {
                 child_c(rt, &h, r, &pre, &sc)?;
                 if has(r, "list") {
-                    let l = sc.scope.as_ref().unwrap().borrow()[text(&r["list"], "id")];
+                    let l = sc.scope.as_ref().unwrap().borrow()[text(&r["list"], "id")].clone();
                     ret = match l {
                         NodeRef::Host(f) => Value::Func(f),
                         NodeRef::Node(_) => panic!(
@@ -1566,13 +1566,13 @@ fn run(ops: Vec<J>, h: Host) -> J {
             }
             "read" => {
                 let name = text(&op, "id");
-                let r = h.nodes.borrow()[name];
+                let r = h.nodes.borrow()[name].clone();
                 let v = observed(call_ref(&mut rt, &h, r).map(|v| lg(&rt, &h, &v)));
                 push(&h, json!(["read", op["label"].as_str().unwrap_or(name), v]));
             }
             "latest" => {
                 let name = text(&op, "id");
-                let r = h.nodes.borrow()[name];
+                let r = h.nodes.borrow()[name].clone();
                 let v = observed(
                     rt.latest_of(|rt| call_ref(rt, &h, r))
                         .map(|v| lg(&rt, &h, &v)),
@@ -1581,7 +1581,7 @@ fn run(ops: Vec<J>, h: Host) -> J {
             }
             "pending" => {
                 let name = text(&op, "id");
-                let r = h.nodes.borrow()[name];
+                let r = h.nodes.borrow()[name].clone();
                 let v = observed(
                     rt.is_pending_of(|rt| call_ref(rt, &h, r).map(|_| ()))
                         .map(|b| json!(b)),
