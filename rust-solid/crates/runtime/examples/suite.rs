@@ -155,7 +155,7 @@ impl Run {
         }
     }
     fn mount(&self, w: &W) -> App {
-        if self.trace { App::mount(w.plan.clone()).unwrap() } else { App::mount_unlogged(w.plan.clone()).unwrap() }
+        App::mount_shared(w.plan.clone(), self.trace).unwrap()
     }
     fn take_log(&mut self) {
         if self.trace { let l = self.app().host.borrow_mut().take_log(); self.log = l; }

@@ -3373,23 +3373,28 @@ impl Drop for App {
 impl App {
     /// Validates the plan and mounts it (`render(() => Component(), root)`).
     /// The caller settles before the first frame.
-    pub fn mount(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
+    pub fn mount(plan: Plan) -> Result<Self, String> {
         Self::mount_with(plan, EvalTable::default())
     }
 
     /// `mount` with the host's eval table (frontend `docs/EVAL.md`): the
     /// plans an eval site's code compiles to.
     /// `mount` with the host's op log off (benchmarks).
-    pub fn mount_unlogged(plan: impl Into<Rc<Plan>>) -> Result<Self, String> {
-        Self::mount_inner(plan, EvalTable::default(), false)
+    pub fn mount_unlogged(plan: Plan) -> Result<Self, String> {
+        Self::mount_inner(Rc::new(plan), EvalTable::default(), false)
     }
 
-    pub fn mount_with(plan: impl Into<Rc<Plan>>, evals: EvalTable) -> Result<Self, String> {
-        Self::mount_inner(plan, evals, true)
+    /// `mount` or `mount_unlogged` of a plan the caller keeps (benchmarks
+    /// mount one plan many times).
+    pub fn mount_shared(plan: Rc<Plan>, logging: bool) -> Result<Self, String> {
+        Self::mount_inner(plan, EvalTable::default(), logging)
     }
 
-    fn mount_inner(plan: impl Into<Rc<Plan>>, evals: EvalTable, logging: bool) -> Result<Self, String> {
-        let plan: Rc<Plan> = plan.into();
+    pub fn mount_with(plan: Plan, evals: EvalTable) -> Result<Self, String> {
+        Self::mount_inner(Rc::new(plan), evals, true)
+    }
+
+    fn mount_inner(plan: Rc<Plan>, evals: EvalTable, logging: bool) -> Result<Self, String> {
         validate(&plan)?;
         if !evals.evals.is_empty() {
             validate_table(&evals)?;
