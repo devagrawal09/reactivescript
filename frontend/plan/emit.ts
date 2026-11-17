@@ -1,4 +1,4 @@
-// Emit the checked plan for one fixture (.rx, .tsx or .yield.tsx). Usage: emit.ts [--schema 1|2|2.1|2.2] INPUT [OUTPUT]
+// Emit the checked plan for one fixture (.rx, .tsx, .yield.tsx or .react.tsx). Usage: emit.ts [--schema 1|2|2.1|2.2] INPUT [OUTPUT]
 // The schema is the format version of the slice scenario beside INPUT (<stem>.scenario.json), because a plan's consumer
 // is driven by that scenario and the v1 consumer accepts only version-1 scenarios: like.rx emits v1 (docs/PLAN.md),
 // tracker.rx emits v2 (docs/PLAN-V2.md), tracker-async.rx v2.1 (PLAN-V2.md, "v2.1: async data": the v2 builder with the
@@ -9,6 +9,7 @@ import {readFileSync,writeFileSync} from 'node:fs';
 import {basename,dirname,join,resolve} from 'node:path';
 import {loadTsxModules} from '../tsx/modules.ts';
 import {loadYieldModules} from '../yield/lower.ts';
+import {loadReactModules} from '../react/lower.ts';
 import {resolvePlan} from './resolve.ts';
 import {resolvePlanV2} from './resolve-v2.ts';
 import {resolvePlanFrames} from './resolve-frames.ts';
@@ -20,8 +21,8 @@ if(flag>=0){schema=args[flag+1];args.splice(flag,2);}
 if(schema!==undefined&&schema!=='1'&&schema!=='2'&&schema!=='2.1'&&schema!=='2.2')throw new Error('--schema must be 1, 2, 2.1 or 2.2. '+usage);
 if(args.length<1||args.length>2||args.some(a=>a.startsWith('--')))throw new Error(usage);
 const input=resolve(args[0]);
-const stem=basename(input).match(/^(.+?)\.(yield\.tsx|tsx|rx)$/);
-if(!stem)throw new Error('INPUT must be a .rx, .tsx or .yield.tsx fixture: '+input);
+const stem=basename(input).match(/^(.+?)\.(yield\.tsx|react\.tsx|tsx|rx)$/);
+if(!stem)throw new Error('INPUT must be a .rx, .tsx, .yield.tsx or .react.tsx fixture: '+input);
 const read=(path:string)=>{try{return readFileSync(path,'utf8')}catch{return undefined}};
 if(schema===undefined){
   const path=join(dirname(input),stem[1]+'.scenario.json'),text=read(path);
@@ -31,6 +32,6 @@ if(schema===undefined){
   schema=String(version);
 }
 const async=schema==='2.1'||schema==='2.2',frames=schema==='2.2';
-const set=input.endsWith('.yield.tsx')?loadYieldModules(input,read):loadTsxModules(input,read,{async,frames});
+const set=input.endsWith('.yield.tsx')?loadYieldModules(input,read):input.endsWith('.react.tsx')?loadReactModules(input,read):loadTsxModules(input,read,{async,frames});
 const result=JSON.stringify(schema==='1'?resolvePlan(set):frames?resolvePlanFrames(set,{stem:stem[1]}):resolvePlanV2(set,{async}),null,2)+'\n';
 if(args[1])writeFileSync(args[1],result);else process.stdout.write(result);
