@@ -51,3 +51,8 @@ test("generated programs (seeds 1..12): React and the plan give the same frames,
   const { check } = await import("./fuzz.ts");
   for (let seed = 1; seed <= 12; seed++) assert.notEqual((await check(seed)).result, "disagree", "seed " + seed);
 });
+
+test("a request settling while another is open counts as batched, not as a difference (seed 63)", async () => {
+  const { check } = await import("./fuzz.ts");
+  assert.equal((await check(63)).result, "batched");
+});
