@@ -39,6 +39,10 @@ const REFUSED: [RefusalCode, string, string][] = [
   ["REACT_FALSY_RENDER", "a number guarding markup with &&", `export default function A() { const [n, setN] = useState(0); return <div>{n && <b>x</b>}</div>; }`],
   ["REACT_LAZY_STATE", "a lazy initial state", `export default function A() { const [n, setN] = useState(() => 0); return <b>{n}</b>; }`],
   ["REACT_PROPS", "an entry component with props", `export default function A(props: { x: number }) { return <b>{props.x}</b>; }`],
+  ["REACT_COMPONENT_IMPORTED", "a component from a library", `import { Icon } from "lib";\nexport default function A() { return <b><Icon /></b>; }`],
+  ["REACT_COMPONENT_IMPORTED", "a member tag", `import { UI } from "lib";\nexport default function A() { return <b><UI.Icon /></b>; }`],
+  ["REACT_SYNTAX", "a style object", `export default function A() { return <b style={{ color: "red" }}>x</b>; }`],
+  ["REACT_SYNTAX", "a setter passed as a callback", `function C(props: { on: (x: number) => void }) { return <b onClick={() => props.on(1)}>x</b>; }\nexport default function A() { const [n, setN] = useState(0); return <div><C on={setN} />{n}</div>; }`],
   ["REACT_SYNTAX", "an async handler outside startTransition", `export default function A() { const [n, setN] = useState(0); return <button onClick={async () => { const v: number = await save(); setN(v); }}>{n}</button>; }`],
 ];
 for (const [code, what, source] of REFUSED) {
@@ -55,4 +59,67 @@ test("generated programs (seeds 1..12): React and the plan give the same frames,
 test("a request settling while another is open counts as batched, not as a difference (seed 63)", async () => {
   const { check } = await import("./fuzz.ts");
   assert.equal((await check(63)).result, "batched");
+});
+
+// Plan v2.3 (plan/docs/PLAN-V2.md, "v2.3: composition"): the module's own components, their props and children, and host
+// attributes. The plan fuzz's React twin is the differential check; these are its rules one at a time.
+const plan = (source: string) => resolvePlanV2(loadReactModules("/a.react.tsx", p => (p === "/a.react.tsx" ? source : undefined)), { compose: true });
+
+test("plan v2.3: React's attribute names become HTML's (className, tabIndex), others stay as written", () => {
+  const p = plan(`export default function A() { return <p className="x" tabIndex={1} aria-label="y" data-n={2}>w</p>; }`);
+  const el = p.markup[0];
+  assert.ok(el.kind === "element");
+  assert.deepEqual(el.attrs!.map(a => a.name), ["class", "tabindex", "aria-label", "data-n"]);
+});
+
+test("plan v2.3: a ternary of two values is a text hole, not a Show", () => {
+  const p = plan(`import { useState } from "react";\nexport default function A() { const [on, setOn] = useState(true); return <p>{on ? "a" : "b"}</p>; }`);
+  const el = p.markup[0];
+  assert.ok(el.kind === "element");
+  assert.deepEqual(el.children.map(c => c.kind), ["text"]);
+});
+
+test("plan v2.3: a component reached from the entry is lowered with its props; one never applied is left out", () => {
+  const p = plan(`function Badge({ label }: { label: string }) { return <li>{label}</li>; }
+function Unused() { return <i>u</i>; }
+export default function A() { return <ul><Badge label="a" /></ul>; }`);
+  assert.deepEqual(p.components!.map(c => [c.name, c.props]), [["Badge", [{ name: "label", kind: "value" }]]]);
+});
+
+test("plan v2.3: children read as {children} or {props.children} are a children view", () => {
+  for (const read of ["{children}", "{props.children}"]) {
+    const head = read === "{children}" ? "{ children }: { children: React.ReactNode }" : "props: { children: React.ReactNode }";
+    const p = plan(`function Panel(${head}) { return <section>${read}</section>; }\nexport default function A() { return <div><Panel><b>k</b></Panel></div>; }`);
+    assert.deepEqual(p.components![0].markup[0], { kind: "element", tag: "section", events: [], children: [{ kind: "children" }] }, read);
+  }
+});
+
+test("plan v2.3: an action passed by name and a callback passed on run in React and the plan with the same frames", async () => {
+  const source = `import { startTransition, useState } from "react";
+function Inner(props: { onPick: (x: number) => void; n: number }) {
+  return <button onClick={() => props.onPick(props.n)}>{"pick " + props.n}</button>;
+}
+function Outer(props: { onPick: (x: number) => void; n: number }) {
+  return <p><Inner onPick={props.onPick} n={props.n + 1} /></p>;
+}
+export default function App() {
+  const [n, setN] = useState(0);
+  const bump = (x: number) => startTransition(async () => { setN(x + 2); });
+  return <div><Outer onPick={bump} n={n} /><span>{n}</span></div>;
+}
+`;
+  const p = plan(source);
+  const outer = p.markup[0].kind === "element" ? p.markup[0].children[0] : undefined;
+  assert.ok(outer?.kind === "component");
+  assert.deepEqual(outer.props[0], { name: "onPick", action: "bump" });
+  const inner = p.components!.find(c => c.name === "Outer")!.markup[0];
+  assert.ok(inner.kind === "element" && inner.children[0].kind === "component");
+  assert.deepEqual(inner.children[0].props[0], { name: "onPick", forward: "onPick" });
+  const { scenarioFrames } = await import("./fuzz.ts");
+  assert.deepEqual(await scenarioFrames(source, p, 3), ["pick 10", "pick 43", "pick 76", "pick 109"]);
+});
+
+test("plan v2.3: the plan fuzz's React twins lower to the TSX twin's plan and show native Solid's frames (seeds 1..6)", async () => {
+  const { checkCompose } = await import("./fuzz.ts");
+  for (let seed = 1; seed <= 6; seed++) assert.equal((await checkCompose(seed)).result, "agree", "seed " + seed);
 });

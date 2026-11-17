@@ -1,4 +1,4 @@
-// npm run plan-fuzz -- --seeds N --start S [--jobs J] [--rust PLAN_TRACE] [--out DIR] [--async]
+// npm run plan-fuzz -- --seeds N --start S [--jobs J] [--rust PLAN_TRACE] [--out DIR] [--async | --compose]
 // The plan fuzz (plan/docs/PLAN-V2.md, "Plan fuzz") over seeds S..S+N-1: for each generated program, native Solid,
 // compiled RX, the plan built by plan/solid-plan.ts and the Rust plan v2 consumer must give the same result and the same
 // full host log. Writes DIR (default .out/plan-fuzz/run-S-N/): summary.json, summary.md, and for each program that does
@@ -7,18 +7,21 @@
 // --async runs the plan v2.1 fuzz instead (plan/fuzz/gen-async.ts; PLAN-V2.md, "Plan fuzz v2.1"): async programs, format
 // 2.1 scenarios, DIR defaults to .out/plan-fuzz/async-run-S-N/, and a v2.1 plan the Rust consumer refuses is counted as
 // `rust-unsupported`, never as agreement. Without --async nothing changes: the v2 fuzz and its summary, byte for byte.
+// --compose runs the plan v2.3 fuzz (plan/fuzz/gen-compose.ts; PLAN-V2.md, "Plan fuzz v2.3"), DIR defaults to
+// .out/plan-fuzz/compose-run-S-N/.
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { generate } from '../plan/fuzz/gen.ts';
-import { runAsyncCase, runCase, type Outcome } from '../plan/fuzz/run.ts';
+import { runAsyncCase, runCase, runComposeCase, type Outcome } from '../plan/fuzz/run.ts';
 import { generateAsync } from '../plan/fuzz/gen-async.ts';
+import { generateCompose } from '../plan/fuzz/gen-compose.ts';
 
 const flag = (name: string) => { const i = process.argv.indexOf(name); return i < 0 ? undefined : process.argv[i + 1]; };
 const seeds = Number(flag('--seeds') ?? 100), start = Number(flag('--start') ?? 1), jobs = Number(flag('--jobs') ?? 4);
 const rust = flag('--rust') ?? (process.env.RUST_SOLID ? process.env.RUST_SOLID + '/target/debug/plan-trace' : undefined);
 if (!rust || !existsSync(rust)) { console.error('the Rust leg needs plan-trace: pass --rust PATH or set RUST_SOLID (missing: ' + rust + ')'); process.exit(2); }
-const asyncFuzz = process.argv.includes('--async');
-const out = flag('--out') ?? fileURLToPath(new URL('../.out/plan-fuzz/' + (asyncFuzz ? 'async-' : '') + 'run-' + start + '-' + seeds + '/', import.meta.url));
+const asyncFuzz = process.argv.includes('--async'), composeFuzz = process.argv.includes('--compose');
+const out = flag('--out') ?? fileURLToPath(new URL('../.out/plan-fuzz/' + (asyncFuzz ? 'async-' : composeFuzz ? 'compose-' : '') + 'run-' + start + '-' + seeds + '/', import.meta.url));
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
@@ -28,7 +31,7 @@ const worker = async () => {
   for (;;) {
     const seed = next++;
     if (seed >= start + seeds) return;
-    const o = asyncFuzz ? await runAsyncCase(generateAsync(seed), { rust }) : await runCase(generate(seed), { rust });
+    const o = asyncFuzz ? await runAsyncCase(generateAsync(seed), { rust }) : composeFuzz ? await runComposeCase(generateCompose(seed), { rust }) : await runCase(generate(seed), { rust });
     outcomes.push(o);
     if (o.status !== 'agree') {
       console.log('seed', seed, o.status, o.classes.join(' + '), o.status === 'refused' ? o.detail : '');
@@ -74,7 +77,7 @@ for (const o of outcomes) {
   }
 }
 const summary = {
-  ...(asyncFuzz ? { schema: '2.1' } : {}),
+  ...(asyncFuzz ? { schema: '2.1' } : composeFuzz ? { schema: '2.3' } : {}),
   start, seeds, total: outcomes.length, ...tally,
   agreeing: { scenarioSteps: steps, logEntriesPerLeg: entries },
   families, classes, refusals, refusedClasses,
@@ -84,7 +87,7 @@ const summary = {
 };
 writeFileSync(out + 'summary.json', JSON.stringify(summary, null, 1) + '\n');
 writeFileSync(out + 'summary.md', [
-  '# Plan fuzz' + (asyncFuzz ? ' v2.1 (async data)' : '') + ': seeds ' + start + '..' + (start + seeds - 1), '',
+  '# Plan fuzz' + (asyncFuzz ? ' v2.1 (async data)' : composeFuzz ? ' v2.3 (composition)' : '') + ': seeds ' + start + '..' + (start + seeds - 1), '',
   'Native Solid, compiled RX, solid-plan.ts and Rust `plan-trace` must give the same result and full host log.', '',
   ...(asyncFuzz ? ['`rust-unsupported`: every JS leg equals native and Rust refuses the v2.1 plan; it is not agreement. The step, log, feature and coverage counts below are over `agree` and `rust-unsupported` programs (the JS legs agree).', ''] : []),
   ...Object.entries(tally).map(([k, n]) => '- ' + k + ': ' + n),

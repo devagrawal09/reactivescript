@@ -1,7 +1,7 @@
 // React-vs-plan differential check for the React frontend. Each seed generates a small React 19 component inside the
 // subset react/lower.ts claims (scalar state, derived values, sync handlers, one optional async action with
 // useOptimistic), lowers it to plan v2 or a typed refusal, records its frames on React (with and without React
-// Compiler), and runs the same steps on the plan leg (plan/solid-plan.ts). Usage: fuzz.ts [FIRST] [LAST]
+// Compiler), and runs the same steps on the plan leg (plan/solid-plan.ts). Usage: fuzz.ts [FIRST] [LAST] [--compose]
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,6 +10,8 @@ import { resolvePlanV2 } from "../plan/resolve-v2.ts";
 import { runScenario } from "../slices/run-js.ts";
 import { loadReactModules, ReactRefusal } from "./lower.ts";
 import { runReact, type Scenario } from "./run-react.ts";
+import { generateCompose } from "../plan/fuzz/gen-compose.ts";
+import { runComposeCase } from "../plan/fuzz/run.ts";
 
 const rng = (seed: number) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
@@ -96,15 +98,56 @@ export async function check(seed: number): Promise<Outcome> {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** Plan v2.3: the React twin of a plan fuzz composition program (plan/fuzz/gen-compose.ts) lowers to the TSX twin's
+ *  plan byte for byte, and React 19 (with and without React Compiler) shows the frames native Solid recorded. */
+export async function checkCompose(seed: number): Promise<Outcome> {
+  const c = generateCompose(seed);
+  const solid = await runComposeCase(c);
+  if (!solid.plan || !solid.scenario || solid.status === "divergent" || solid.status === "invalid" || solid.status === "generator-bug") return { seed, result: "disagree", detail: "the Solid legs: " + solid.status + " " + solid.classes.join(" + ") };
+  mkdirSync(out, { recursive: true });
+  const dir = mkdtempSync(out + "compose-");
+  try {
+    writeFileSync(dir + "/App.react.tsx", c.react);
+    let plan: unknown;
+    try { plan = resolvePlanV2(loadReactModules(dir + "/App.react.tsx", p => (p.endsWith("App.react.tsx") ? c.react : undefined)), { compose: true }); }
+    catch (e) { return { seed, result: "refused", detail: e instanceof ReactRefusal ? e.code : "PLAN: " + (e as Error).message.split("\n")[0] }; }
+    if (JSON.stringify(plan) !== JSON.stringify(solid.plan)) return { seed, result: "disagree", detail: "the React plan differs from the TSX plan" };
+    const scenario: Scenario = { name: "compose " + seed, host: [], steps: solid.scenario.steps as Scenario["steps"] };
+    for (const compiler of [true, false]) {
+      try { await runReact(dir + "/App.react.tsx", structuredClone(scenario), { compiler }); }
+      catch (e) { return { seed, result: "disagree", detail: (compiler ? "" : "no compiler: ") + (e as Error).message.split("\n").slice(0, 4).join(" | ") }; }
+    }
+    return { seed, result: "agree" };
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** Frames of `clicks` clicks on the first clickable, recorded on React and replayed on the plan leg (which fails on
+ *  any other frame). */
+export async function scenarioFrames(source: string, plan: unknown, clicks: number): Promise<string[]> {
+  mkdirSync(out, { recursive: true });
+  const dir = mkdtempSync(out + "frames-");
+  try {
+    writeFileSync(dir + "/App.react.tsx", source);
+    const scenario: Scenario = { name: "frames", host: [], steps: [{ type: "mount", frame: "" }, ...Array.from({ length: clicks }, () => ({ type: "click" as const, element: 0, frame: "" }))] };
+    const frames = await runReact(dir + "/App.react.tsx", scenario, { record: true });
+    scenario.steps.forEach((s, i) => { s.frame = frames[i]; });
+    writeFileSync(dir + "/plan.json", JSON.stringify(plan));
+    writeFileSync(dir + "/f.scenario.json", JSON.stringify({ version: 2, fixture: "frames", ...scenario }));
+    await runScenario(dir + "/f.scenario.json", "plan", { plan: dir + "/plan.json" });
+    return frames;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 // A plan that throws halts Solid's reactivity for the whole process, so the CLI checks each seed in a child process.
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const one = process.argv.indexOf("--one");
-  if (one >= 0) process.stdout.write(JSON.stringify(await check(Number(process.argv[one + 1]))));
+  const compose = process.argv.includes("--compose");
+  if (one >= 0) process.stdout.write(JSON.stringify(await (compose ? checkCompose : check)(Number(process.argv[one + 1]))));
   else {
-    const [first = 1, last = 20] = process.argv.slice(2).map(Number);
+    const [first = 1, last = 20] = process.argv.slice(2).filter(a => !a.startsWith("--")).map(Number);
     const tally: Record<string, number> = {};
     for (let seed = first; seed <= last; seed++) {
-      const run = spawnSync(process.execPath, [...process.execArgv, process.argv[1], "--one", String(seed)], { encoding: "utf8" });
+      const run = spawnSync(process.execPath, [...process.execArgv, process.argv[1], "--one", String(seed), ...(compose ? ["--compose"] : [])], { encoding: "utf8" });
       const o: Outcome = run.status === 0 ? JSON.parse(run.stdout.slice(run.stdout.lastIndexOf('{"seed"'))) : { seed, result: "disagree", detail: "crashed: " + run.stderr.split("\n").find(l => /Error/.test(l)) };
       const key = o.result === "refused" ? "refused " + (o.detail!.match(/"code":"(\w+)"/)?.[1] ?? o.detail) : o.result;
       tally[key] = (tally[key] ?? 0) + 1;

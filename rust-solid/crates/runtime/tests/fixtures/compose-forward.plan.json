@@ -1,0 +1,187 @@
+{
+  "version": 2.3,
+  "component": "App",
+  "hosts": [],
+  "sources": [
+    {
+      "name": "n",
+      "kind": "signal",
+      "seed": {
+        "op": "literal",
+        "value": 0
+      }
+    }
+  ],
+  "memos": [],
+  "actions": [
+    {
+      "name": "bump",
+      "params": [
+        "x"
+      ],
+      "steps": [
+        {
+          "op": "write",
+          "source": "n",
+          "value": {
+            "op": "add",
+            "left": {
+              "op": "local",
+              "name": "x"
+            },
+            "right": {
+              "op": "literal",
+              "value": 2
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "markup": [
+    {
+      "kind": "element",
+      "tag": "div",
+      "events": [],
+      "children": [
+        {
+          "kind": "component",
+          "name": "Outer",
+          "props": [
+            {
+              "name": "onPick",
+              "action": "bump"
+            },
+            {
+              "name": "n",
+              "value": {
+                "op": "read",
+                "source": "n"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "element",
+          "tag": "span",
+          "events": [],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "read",
+                "source": "n"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "name": "Inner",
+      "props": [
+        {
+          "name": "onPick",
+          "kind": "function"
+        },
+        {
+          "name": "n",
+          "kind": "value"
+        }
+      ],
+      "sources": [],
+      "memos": [],
+      "actions": [],
+      "markup": [
+        {
+          "kind": "element",
+          "tag": "button",
+          "events": [
+            {
+              "name": "onClick",
+              "steps": [
+                {
+                  "op": "call",
+                  "prop": "onPick",
+                  "args": [
+                    {
+                      "op": "prop",
+                      "name": "n"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "children": [
+            {
+              "kind": "text",
+              "value": {
+                "op": "add",
+                "left": {
+                  "op": "literal",
+                  "value": "pick "
+                },
+                "right": {
+                  "op": "prop",
+                  "name": "n"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Outer",
+      "props": [
+        {
+          "name": "onPick",
+          "kind": "function"
+        },
+        {
+          "name": "n",
+          "kind": "value"
+        }
+      ],
+      "sources": [],
+      "memos": [],
+      "actions": [],
+      "markup": [
+        {
+          "kind": "element",
+          "tag": "p",
+          "events": [],
+          "children": [
+            {
+              "kind": "component",
+              "name": "Inner",
+              "props": [
+                {
+                  "name": "onPick",
+                  "forward": "onPick"
+                },
+                {
+                  "name": "n",
+                  "value": {
+                    "op": "add",
+                    "left": {
+                      "op": "prop",
+                      "name": "n"
+                    },
+                    "right": {
+                      "op": "literal",
+                      "value": 1
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

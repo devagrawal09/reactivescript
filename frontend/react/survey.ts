@@ -1,6 +1,8 @@
 // Survey: run the React frontend over every component in a React app and say, per component, what the frontend does
 // today (the real lowerer: accepted, or its first refusal) and every blocker a collect-all pass finds, each mapped to the
 // rung of a fallback ladder that could accept it (snapshot, coarse memo, island) or to a frontend gap. Measurement only.
+// Plan v2.3: a component is lowered with its module's other components and its own props; composition blockers are
+// only the forms v2.3 does not lower.
 // Usage: survey.ts SRC_DIR OUT_JSON
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -19,8 +21,10 @@ export const RUNG = {
   UNDECIDED: "coarse",
   COMPILER: "island", SET_STATE_IN_RENDER: "island", EFFECT: "island", REF: "island", CONTEXT: "island", USE: "island",
   HOOK_REACT: "island", HOOK_CUSTOM: "island", HOOK_LIBRARY: "island", ASYNC_URGENT_WRITE: "island",
-  PROPS: "island", CHILD_COMPONENT: "island", CLASS: "refused",
-  ATTRIBUTE: "gap", MEMO_HOOK: "gap", REDUCER: "gap", RENDER_CONTROL: "gap", FALSY_RENDER: "gap",
+  CLASS: "refused",
+  // Plan v2.3 lowers props, the module's own components, children and scalar attributes; what is left of composition:
+  IMPORTED_COMPONENT: "gap", PROPS_PATTERN: "gap", ATTR_SPREAD: "gap", ATTR_OBJECT: "gap", EVENT_OBJECT: "gap",
+  MEMO_HOOK: "gap", REDUCER: "gap", RENDER_CONTROL: "gap", FALSY_RENDER: "gap",
 } as const;
 export type Blocker = keyof typeof RUNG;
 
@@ -51,7 +55,7 @@ function compilerVerdicts(source: string, filename: string) {
   return { crashed: undefined, byLine };
 }
 
-export type Row = { file: string; name: string; line: number; today: string; blockers: Blocker[]; hooks: { custom: string[]; library: string[] }; reasons: string[] };
+export type Row = { file: string; name: string; line: number; today: string; todayDetail?: string; blockers: Blocker[]; hooks: { custom: string[]; library: string[] }; reasons: string[] };
 
 export function surveyFile(path: string, root: string): Row[] {
   const source = readFileSync(path, "utf8"), file = relative(root, path);
@@ -68,6 +72,11 @@ export function surveyFile(path: string, root: string): Row[] {
   };
   const importText = ast.program.body.filter((s: N) => s.type === "ImportDeclaration").map((s: N) => source.slice(s.start, s.end)).join("\n");
   const rows: Row[] = [];
+  /** Each component's text, to lower it with its module's other components beside it. */
+  const texts = new Map<Row, { params: string; body: string }>();
+  // The module's own components (plan v2.3 applies them by name); a tag of any other is an imported component.
+  const own = new Set<string>();
+  traverse(ast, { "FunctionDeclaration|VariableDeclarator"(q: N) { const id = q.node.id; if (id?.type === "Identifier" && /^[A-Z]/.test(id.name) && !q.findParent((x: N) => x.isFunction())) own.add(id.name); } });
 
   traverse(ast, {
     "FunctionDeclaration|FunctionExpression|ArrowFunctionExpression"(fp: N) {
@@ -89,7 +98,10 @@ export function surveyFile(path: string, root: string): Row[] {
         const d = e.detail ?? {}, o = d.options ?? d, reason = [o.reason, o.description].filter(Boolean).join(": ") || String(e.data ?? e.kind);
         add(/setState|set state/i.test(reason) ? "SET_STATE_IN_RENDER" : "COMPILER", reason.slice(0, 120));
       }
-      if (fn.params.length) add("PROPS");
+      // Props: a name, or a destructuring of plain names (no defaults, no rest).
+      const prm = fn.params[0];
+      if (fn.params.length > 1 || prm && prm.type !== "Identifier" && !(prm.type === "ObjectPattern" && prm.properties.every((q: N) => q.type === "ObjectProperty" && q.value.type === "Identifier")))
+        add("PROPS_PATTERN", prm?.type);
 
       // Render scope: the names an async handler or a later read would see as a snapshot.
       const renderNames = new Set<string>(), setterOf = new Map<string, string>();
@@ -123,8 +135,15 @@ export function surveyFile(path: string, root: string): Row[] {
         },
         JSXOpeningElement(jp: N) {
           const n = jp.node.name;
-          if (n.type !== "JSXIdentifier" || /^[A-Z]/.test(n.name)) add("CHILD_COMPONENT");
-          for (const a of jp.node.attributes) if (a.type !== "JSXAttribute" || !["onClick", "key"].includes(a.name.name)) add("ATTRIBUTE");
+          if (n.type !== "JSXIdentifier" || /^[A-Z]/.test(n.name) && !own.has(n.name)) add("IMPORTED_COMPONENT", n.type === "JSXIdentifier" ? n.name : "member tag");
+          const host = n.type === "JSXIdentifier" && !/^[A-Z]/.test(n.name);
+          for (const a of jp.node.attributes) {
+            if (a.type !== "JSXAttribute") { add("ATTR_SPREAD"); continue; }
+            const name = a.name.type === "JSXIdentifier" ? a.name.name : "", v = a.value?.type === "JSXExpressionContainer" ? a.value.expression : undefined;
+            if (name === "ref") add("REF");
+            else if (v?.type === "ObjectExpression" || name === "style" || name === "dangerouslySetInnerHTML") add("ATTR_OBJECT", name);
+            else if (host && /^on[A-Z]/.test(name) && (v?.type === "ArrowFunctionExpression" || v?.type === "FunctionExpression") && v.params.length) add("EVENT_OBJECT", name);
+          }
         },
         LogicalExpression(lp: N) {
           if (lp.node.operator !== "&&" || !lp.parentPath.isJSXExpressionContainer()) return;
@@ -159,16 +178,24 @@ export function surveyFile(path: string, root: string): Row[] {
         },
       });
 
-      // The real frontend, on the component alone as a module's default export.
-      let today = "accepted";
       const params = fn.params.map((q: N) => source.slice(q.start, q.end)).join(", ");
       const bodyText = fn.body.type === "BlockStatement" ? source.slice(fn.body.start, fn.body.end) : "{ return " + source.slice(fn.body.start, fn.body.end) + "; }";
-      try { lowerReact(importText + "\nexport default function " + name + "(" + params + ") " + bodyText + "\n", file); }
-      catch (e) { today = e instanceof ReactRefusal ? e.code : "ERROR " + String((e as Error).message).split("\n")[0].slice(0, 80); }
-
-      rows.push({ file, name, line: fn.loc.start.line, today, blockers: [...blockers], hooks: { custom: [...custom], library: [...library] }, reasons });
+      const row: Row = { file, name, line: fn.loc.start.line, today: "", blockers: [...blockers], hooks: { custom: [...custom], library: [...library] }, reasons };
+      rows.push(row);
+      texts.set(row, { params, body: bodyText });
     },
   });
+  // The real frontend: each component as its module's default export, the module's other components beside it (plan
+  // v2.3), and its own props taken as given (`entryProps`). Other module-level code is left out.
+  const fnText = (r: Row) => "function " + r.name + "(" + texts.get(r)!.params + ") " + texts.get(r)!.body;
+  for (const row of rows) {
+    const module = [importText, ...rows.filter(r => r !== row && r.name !== row.name).map(fnText), "export default " + fnText(row), ""].join("\n");
+    try { lowerReact(module, file, { entryProps: true }); row.today = "accepted"; }
+    catch (e) {
+      row.today = e instanceof ReactRefusal ? e.code : "ERROR";
+      row.todayDetail = String((e as Error).message).split("\n")[0].replace(/^[^:]*:\d+: /, "").slice(0, 140);
+    }
+  }
   return rows;
 }
 

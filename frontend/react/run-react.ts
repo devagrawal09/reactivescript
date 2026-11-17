@@ -78,7 +78,8 @@ export async function runReact(sourcePath: string, scenario: Scenario, { compile
           : live[step.element!];
         if (!pick && prune) continue;
         assert.ok(pick, "clickable " + JSON.stringify(step.target ?? step.element) + " at step " + index);
-        await act(async () => { pick.node.props.onClick(); });
+        // A browser dispatches no click to a disabled control (Solid's delegated handler skips it too).
+        if (!pick.node.props.disabled) await act(async () => { pick.node.props.onClick(); });
       } else {
         const call = calls.get(step.host!)?.[step.call! - 1];
         if (prune && (!call || call.done)) continue;

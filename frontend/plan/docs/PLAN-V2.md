@@ -1037,3 +1037,62 @@ and no test puts an eval site in a frames program (deferred).
 Not built: the U legs (the plan with its placement ignored on `solid-plan.ts` and `plan-trace`); the design's sixth
 pin (C15, a staged refetch inside an action) is not a rule of the inference, and the placement fuzz found a divergence
 in that area instead (suspected Solid issue 8, `docs/RESULTS.md`, "Slice 6").
+
+## v2.3: composition
+
+Plan v2.3 lets a client-only plan say what real components say: element attributes, the module's other components,
+their props and their children. It is selected by the `compose` option (`resolvePlanV2(set, { compose: true })`, the
+TSX composition tier `loadTsxModules(…, { compose: true })`, and the React frontend). Without it nothing changes, and
+with it a program that uses no v2.3 form emits its v2 or v2.1 plan byte for byte (`plan/compose.test.ts`). The version
+is `2.3` exactly when a v2.3 form occurs; a v2.3 plan may use v2.1 forms too. The component, prop and call shapes are
+v2.2's (above); v2.3 is the all-client half of them plus attributes, callbacks and children, with no placement, no
+wire types and no server fns.
+
+**Mirrors Solid 2's universal compiler.** `createElement(tag, statics)` with the events and the values the compiler
+sees as static (no call or member access in the TSX twin), in source order; then the template's children; then one
+attribute effect per template over its dynamic attributes in pre-order (`effect(() => v, (v, p) => setProp(…))` for
+one, an array and a `!==` check per entry for several). A site is `createComponent(Comp, { value, get dyn() {…},
+handlers, get children() {…} })`, the component body untracked.
+
+### Forms
+
+- **Element:** `attrs: [{ "name", "value" } | { "name", "steps" }]`, every attribute in source order, and `events: []`.
+  An `on[A-Z]` attribute carries `steps` (no parameters: the DOM event is not lowered); any other carries a `value`.
+  Names are the HTML attribute's (`class`, `tabindex`; the React frontend maps `className`, `htmlFor`, `tabIndex` and
+  the other camelCase HTML names). An element with only event handlers keeps v2's `events` and no `attrs`.
+- **Component site:** `{ "kind": "component", "name", "props": [PropArg], "children"? }`. A PropArg is `{ name, value }`
+  (a getter when the value is dynamic), `{ name, handler: { params, steps } }` (a callback; its parameters are locals of
+  its steps), `{ name, action }` (an action of the parent by name) or `{ name, forward }` (one of the parent's function
+  props passed on). `children` are views; a single text child is passed as a value.
+- **Component:** `components: [{ name, props: [{ name, kind: "value" | "function" | "children" }], sources, memos,
+  actions, markup }]`, only those the entry applies, directly or not, in declaration order. `props` lists what the body
+  reads, by use: a value read, a call, or `{props.children}`.
+- **Expression:** `{ "op": "prop", "name" }`, a value prop's read. **Step:** `{ "op": "call", "prop", "args" }`, a call of
+  a function prop, in handlers only (refused in actions). **View:** `{ "kind": "children" }`, an element child.
+
+### Refused by the v2.3 builder
+
+A recursive component (directly or not); a site that omits a prop the component reads, or passes a value where the
+component calls a function (and the reverse); `{props.children}` in a component position, or in a component that
+declares no children prop. The TSX composition tier refuses recursion and missing props first, by its own checker; RX
+and the React frontend reach these. rust-solid's static check (`plan_v2.rs` `validate`) refuses an undeclared prop
+read, a call of a value prop, an element with both `attrs` and `events`, an attribute name outside
+`[A-Za-z][A-Za-z0-9:-]*`, a duplicate attribute, an unknown component, and a version that disagrees with the forms;
+`plan/solid-plan.ts` throws at run time on an unknown component or a prop of the wrong kind.
+
+### Consumers
+
+`plan/solid-plan.ts` and rust-solid `plan-trace` (`plan_v2.rs`) run every form. The rust-solid server renderer refuses a
+v2.3 plan with a typed error ("plan v2.3 (composition) is not ported to the server renderer"). Compiled RX lowers
+components its own way; the plan fuzz classifies its differences as `upstream` and holds the plan and Rust to native
+Solid.
+
+### Plan fuzz v2.3
+
+`plan/fuzz/gen-compose.ts`: one seeded program printed as TSX, RX and React 19. Static and dynamic attributes (strings,
+integers, booleans, conditionals; one or several per template; in `For` rows), a `Badge` with value props and a callback
+prop (writing a signal, over a row local, or calling an action), a `Panel` with children (elements, a nested component,
+one static or dynamic text child), sites under `Show` and in `For` rows, and a button disabled by a dynamic attribute.
+`scripts/plan-fuzz.ts --compose` runs native Solid, compiled RX, the plan and Rust; `react/fuzz.ts --compose` checks
+that the React twin lowers to the TSX twin's plan byte for byte and that React 19 (with and without React Compiler)
+shows the frames native Solid recorded.

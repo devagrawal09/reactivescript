@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "name": "compose forward",
+  "fixture": "compose-forward",
+  "host": [],
+  "steps": [
+    {
+      "type": "mount",
+      "frame": "pick 10"
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "pick 43"
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "pick 76"
+    },
+    {
+      "type": "click",
+      "element": 0,
+      "frame": "pick 109"
+    }
+  ]
+}

@@ -21,10 +21,10 @@ for (const gapsFilled of [true, false]) {
   console.log("  precise only".padEnd(28), pct(rows.filter(r => within(r, new Set(), gapsFilled)).length));
   for (const rungs of ladder) console.log(("  + " + rungs.join(" + ")).padEnd(28), pct(rows.filter(r => within(r, new Set(rungs), gapsFilled)).length));
 }
-const pc = new Set(["PROPS", "CHILD_COMPONENT"]);
-const onlyPropsChild = rows.filter(r => semantic(r).length && semantic(r).every(b => pc.has(b))).length;
-const withSnapCoarse = rows.filter(r => semantic(r).length && semantic(r).every(b => pc.has(b) || RUNG[b] === "snapshot" || RUNG[b] === "coarse")).length;
-console.log("\nprops + child components (a frontend gap): blocked by nothing else (gaps filled):", pct(onlyPropsChild), "; with snapshot + coarse too:", pct(withSnapCoarse));
+const comp = new Set(["IMPORTED_COMPONENT", "PROPS_PATTERN", "ATTR_SPREAD", "ATTR_OBJECT", "EVENT_OBJECT"]);
+const onlyComp = rows.filter(r => r.blockers.length && r.blockers.every(b => comp.has(b))).length;
+console.log("\nblocked only by what plan v2.3 does not lower (imported components, prop patterns, spreads, objects, event args):", pct(onlyComp));
+console.log("first refusal details today (top 15):"); for (const [k, v] of tally(rows.filter(r => r.todayDetail).map(r => r.today + ": " + r.todayDetail!.replace(/\(.*\)$/, "").replace(/\b[A-Z]\w*\b(?= is| from|$)/g, "X"))).slice(0, 15)) console.log("  " + v, k);
 console.log("no semantic blocker at all (gaps filled):", pct(rows.filter(r => !semantic(r).length).length));
 const lib = tally(rows.flatMap(r => r.hooks.library)), custom = tally(rows.flatMap(r => r.hooks.custom));
 console.log("\nlibrary hooks:", lib.length, "distinct; top:", lib.slice(0, 12).map(([k, v]) => k + " " + v).join(", "));
