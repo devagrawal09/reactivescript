@@ -1,0 +1,12 @@
+{
+  "Signals and memos": ["counter", "chain", "diamond", "fanin", "fanout", "memo-equal", "same-write", "scalars", "roots"],
+  "Control flow": ["branch-flip", "branch-stale", "nested-flow", "rows-show", "affects"],
+  "Lists (js-framework-benchmark, 1,000 rows)": ["jfb-run", "jfb-replace", "jfb-update", "jfb-select", "jfb-swap", "jfb-remove", "jfb-runlots", "jfb-add", "jfb-clear"],
+  "Lists (10 rows)": ["jfb10-run", "jfb10-replace", "jfb10-update", "jfb10-select", "jfb10-swap", "jfb10-remove", "jfb10-add", "jfb10-clear"],
+  "Large lists": ["select", "select-100k", "filter"],
+  "Stores": ["store-deep", "store-push", "form"],
+  "Async": ["async-action", "async-memo", "async-overlap", "held-write", "refresh"],
+  "Boundaries": ["errored", "row-boundaries"],
+  "App-shaped": ["chat-send", "chat-stream", "dashboard"],
+  "Mount": ["mount"]
+}
