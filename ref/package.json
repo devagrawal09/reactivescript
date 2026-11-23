@@ -13,11 +13,11 @@
     "model": "node --experimental-strip-types model.ts"
   },
   "dependencies": {
-    "@solidjs/compiler": "file:../../solid-next/packages/compiler",
-    "@solidjs/signals": "file:../../solid-next/packages/signals",
-    "@solidjs/universal": "file:../../solid-next/packages/universal",
-    "@solidjs/web": "file:../../solid-next/packages/web",
-    "solid-js": "file:../../solid-next/packages/solid"
+    "@solidjs/compiler": "file:../../store-proto-base/packages/compiler",
+    "@solidjs/signals": "file:../../store-proto-plain/packages/signals",
+    "@solidjs/universal": "file:../../store-proto-plain/packages/universal",
+    "@solidjs/web": "file:../../store-proto-plain/packages/web",
+    "solid-js": "file:../../store-proto-plain/packages/solid"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
