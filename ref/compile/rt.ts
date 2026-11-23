@@ -5,6 +5,7 @@
 // for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
+import * as S from "./store-ops.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
@@ -37,8 +38,9 @@ export type Entry = { get?: Acc; w?: Writer; value?: unknown };
 
 // ---------------------------------------------------------------- values
 export const ERR = { toString: () => "#error" }; export const PENDING_MARK = { toString: () => "#pending" };
-export const fmt = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
-const raw = (x: any) => (x && typeof x === "object" && x[$TARGET]) ? x[$TARGET].v : x;
+export const fmt = (v0: unknown): string => fmt0(S.out(v0));
+const fmt0 = (v: unknown): string => v === ERR ? "#error" : v === PENDING_MARK ? "#pending" : v === undefined ? "undefined" : typeof v === "string" ? v : JSON.stringify(v);
+const raw = S.raw;
 /** A view: a node, a function (a hole, a control-flow accessor), or an array of views — which compiled JSX mixes with its
  *  static strings. An array of strings alone is a value. */
 const isNode = (v: unknown): boolean => typeof v === "function" || (typeof v === "object" && v !== null && "kind" in (v as object) && ("tag" in (v as object) || "text" in (v as object)));
@@ -148,13 +150,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     // the prelude: what `import pure { … } from "./prelude"` and the built-in names refer to
     B: {
-      len: (x: unknown) => (Array.isArray(x) || typeof x === "string") ? x.length : (typeof x === "object" && x) ? Object.keys(x).length : 0,
+      ...S.B,
       str: (x: unknown) => fmt(x),
-      map: (xs: unknown[], f: (x: unknown, i: number) => unknown) => xs.map(f),
-      filter: (xs: unknown[], f: (x: unknown) => unknown) => xs.filter(f),
-      sum: (xs: number[]) => xs.reduce((a, b) => a + b, 0),
-      every: (xs: unknown[], f: (x: unknown) => unknown) => xs.every(f),
-      indexOf: (xs: unknown[], f: (x: unknown) => unknown) => xs.findIndex(f),
       fail: (msg: string) => { throw Object.assign(new Error(msg), { panic: true }); },   // R-f-3: a JS throw — a panic, not in the failure row
       fetch: (key: string) => opts.api?.fetch ? opts.api.fetch(key) : flight(String(key)),
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
@@ -180,15 +177,16 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       void name;
       if (typeof init === "object" && init !== null) {
         const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+        const H = S.handleOf(store); (get as any).h = () => { const v = get(); return v === store ? H : v; };
         const w: Writer = {
           set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v as any); set(store); } else set(v); },
-          path: pathWrite(setStore),
+          path: pathWrite(setStore, H),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
         if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
           const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
-          const acc = () => view; storeAccs.add(acc);
-          return [acc, { ...w, guess: guessInto(setView) }];
+          const acc = () => view; storeAccs.add(acc); const VH = S.handleOf(view); (acc as any).h = () => VH;
+          return [acc, { ...w, guess: guessInto(setView, VH) }];
         }
         return [get, w];
       }
@@ -210,13 +208,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         const tacc = () => truth; storeAccs.add(tacc);
         const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined);
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
-        return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
+        const VH = S.handleOf(view); (get as any).h = () => VH;
+        return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth, S.handleOf(truth)), guess: guessInto(setView, VH) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
         const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined);
-        const get = () => store; storeAccs.add(get);
+        const get = () => store; storeAccs.add(get); const H = S.handleOf(store); (get as any).h = () => H;
         const plain = () => { throw new Error("a plain write to an equation"); };
-        return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
+        return [get, { set: plain, path: plain, guess: guessInto(setStore, H) }];
       }
       if (mode.optimistic && mode.derived) {                             // AC-3 over an equation: createOptimistic(fn), whose setter only guesses
         const plain = () => { throw new Error("a plain write to an equation"); };
@@ -231,8 +230,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       }
       if (mode.structured) {
         const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
-        const get = () => store; storeAccs.add(get);
-        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
+        const get = () => store; storeAccs.add(get); const H = S.handleOf(store); (get as any).h = () => H;
+        return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: pathWrite(setStore, H), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
       const [get, set] = createSignal(fn as any, opts as any);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
@@ -240,9 +239,9 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; const H = S.handleOf(p); (acc as any).h = () => H; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
+    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); const H = S.handleOf(p); const acc = () => p; (acc as any).h = () => H; return acc; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
@@ -328,12 +327,13 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
+    get: S.get, val: S.val, out: S.out, hacc: S.hacc,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
-    show: (v: unknown) => isView(v) ? v : fmt(v),
+    show: (v: unknown) => S.isT(v) ? fmt(v) : isView(v) ? v : fmt(v),
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
@@ -353,10 +353,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 export type App = ReturnType<typeof createApp>;
 
 /** A path write `x.a.b := v` as a store setter's mutation. */
-const pathWrite = (setStore: (f: (d: any) => unknown) => void) => (keys: (string | number)[], v: unknown) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; });
+const pathWrite = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (keys: (string | number)[], v: unknown) => setStore(() => { let o = H; const n = keys.length - 1; for (let i = 0; i < n; i++) o = S.get(o, keys[i]); S.set(o, keys[n], v); });   // the draft is the store's target inside its setter
 /** A guess through an optimistic store's setter: per key, or whole — a whole guess is the setter's return, which Solid
  *  diffs shallowly against the view as guesses. */
-const guessInto = (setStore: (f: (d: any) => unknown) => void) => (v: unknown, keys: (string | number)[] = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; let o = d; for (const k of keys.slice(0, -1)) o = o[k]; const last = keys[keys.length - 1]; o[last] = typeof v === "function" ? (v as (x: unknown) => unknown)(o[last]) : v; });
+const guessInto = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (v: unknown, keys: (string | number)[] = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; let o = H; const n = keys.length - 1; for (let i = 0; i < n; i++) o = S.get(o, keys[i]); const last = keys[n]; S.set(o, last, typeof v === "function" ? (v as (x: unknown) => unknown)(S.out(S.get(o, last))) : v); });
 
 /** A keyed answer is returned from the derive, and Solid reconciles it by key at any depth (ST-4a): a row whose key is
  *  still there keeps its object and takes the new leaves, so an equal answer changes nothing (#51, #64). Any other

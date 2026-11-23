@@ -14,8 +14,8 @@ import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
-type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Kind = "acc" | "src" | "val" | "hval" | "fn" | "ifn" | "jfn" | "act" | "comp";   // hval: a value that may be a store's target (a row of `for`, a lambda's parameter): `__rt.out` where it leaves
+type Bind = { kind: Kind; js: string; h?: string; builtin?: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -242,13 +242,14 @@ class Gen {
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
       if (d.k === "error" || d.k === "context") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
-      if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
+      if (d.k === "source") env.vars.set(d.name, { kind: "src", js: mg(d.name), h: `h$${d.name}`, w: `w$${d.name}`, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined });
       if (d.k === "eq" && unwrapServer(d.e)) { env.vars.set(d.name, { kind: "val", js: mg(d.name) }); continue; }   // SF-1d: a server fn, not an accessor
-      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}) }); }
+      if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; env.vars.set(d.name, { kind: "acc", js: mg(d.name), h: this.guessedEq(d) || d.e.k === "draft" || d.key ? `h$${d.name}` : undefined, w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}) }); }
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
       const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
+      if (v === `__B.${name}`) env.vars.get(alias)!.builtin = name;
       out.push(`${pad}const ${mg(alias)} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${mg(alias)} });`);
     }
     for (const d of decls) if (d.k === "error") {
@@ -299,8 +300,9 @@ class Gen {
     }
     const b = env.vars.get((d as { name: string }).name)!;
     const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
-    if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
-    return this.value1(d, env, ind, b);
+    const hd = b.h ? `\n${pad}const ${b.h} = __rt.hacc(${b.js});` : "";   // the same read, a store as its target
+    if (hoist) return hoist + "\n" + this.value1(d, env, ind, b) + hd;
+    return this.value1(d, env, ind, b) + hd;
   }
   /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
    *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
@@ -461,7 +463,7 @@ class Gen {
       }
       case "latest": return `__rt.latest(() => ${this.expr(e.e, env, { ...ctx, imp: false })})`;   // R-12: Solid's latest — of a value that never had one it throws, in a handler too (S-solid-28)
       case "pending": return `__rt.isPending(() => ${go(e.e)})`;
-      case "if": return `(${go(e.c)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
+      case "if": return `(${this.hx(e.c, env, sub)} ? ${this.expr(e.t, env, ctx)} : ${this.expr(e.f, env, ctx)})`;
       case "throw": return `__rt.throw(${go(e.e)})`;                                          // R-f-3
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
         if (!ctx.imp && this.hoistedCatch.has(e)) return `${this.hoistedCatch.get(e)}()`;
@@ -469,35 +471,53 @@ class Gen {
         const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
-      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
-      case "member": return `${go(e.o)}?.${e.p}`;
-      case "index": return `${go(e.o)}?.[${go(e.i)}]`;
+      case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${this.hx(p, env, sub)})`).join(" + ") || '""'})`;
+      case "member": return `__rt.val(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+      case "index": return `__rt.val(${this.hx(e.o, env, sub)}, ${this.hx(e.i, env, sub)})`;
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
       case "call": {
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
         if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
+        const bi = e.f.k === "id" ? (env.lookup(e.f.name)?.builtin ?? (!env.lookup(e.f.name) && BUILTINS.has(e.f.name) ? e.f.name : undefined)) : undefined;
+        // a prelude function over a list reads it on its target; its lambda takes the rows as targets (hval parameters)
+        if (bi === "len" || bi === "sum" || bi === "str" || ((bi === "map" || bi === "filter" || bi === "every" || bi === "indexOf") && e.args[1]?.k === "fn" && !e.args[1].stmts)) return `${go(e.f)}(${e.args.map((a, i) => i === 0 ? this.hx(a, env, sub) : go(a)).join(", ")})`;
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
-        const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
+        const inner = new Env(env); for (const p of e.params) inner.vars.set(p, { kind: "hval", js: mg(p) }); const ps = e.params.map(mg).join(", ");
         if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
         if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
         return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
-        if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
-        if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
+        const hl = this.hx(e.l, env, sub), hr = this.hx(e.r, env, sub);
+        if (e.op === "==") return `__rt.eq(${hl}, ${hr})`;
+        if (e.op === "!=") return `!__rt.eq(${hl}, ${hr})`;
+        if (["+", "-", "*", "/", "%", "<", ">", "<=", ">="].includes(e.op)) return `(${hl} ${e.op} ${hr})`;   // operands are numbers and strings: read where they are
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;
       }
-      case "un": return `(${e.op}${go(e.e)})`;
+      case "un": return `(${e.op}${this.hx(e.e, env, sub)})`;
       case "draft": throw new CompileError("a draft is an equation's whole expression");
       case "spread": throw new CompileError("spread outside an array literal");
       case "omit": return `__rt.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;   // RG-4b: Solid's live view
     }
+  }
+  /** An expression whose value is read here and goes nowhere else (a member's object, an operand, a formatted hole): a store
+   *  is its target, read with no proxy; any other expression is `expr`. */
+  hx(e: Expr, env: Env, ctx: Ctx): string {
+    const sub: Ctx = { ...ctx, tail: false };
+    if (e.k === "member") return `__rt.get(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+    if (e.k === "index") return `__rt.get(${this.hx(e.o, env, sub)}, ${this.hx(e.i, env, sub)})`;
+    if (e.k === "id" && !(ctx.effect && /^\$\d+$/.test(e.name))) {
+      const b = env.lookup(e.name);
+      if (b?.kind === "hval") return b.js;
+      if (b?.h && (b.kind === "acc" || b.kind === "src")) return ctx.imp ? `__rt.snapshot(${b.h})` : `${b.h}()`;
+    }
+    return this.expr(e, env, ctx);
   }
   private ref(name: string, env: Env, ctx: Ctx): string {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
@@ -510,6 +530,7 @@ class Gen {
     }
     if (b.kind === "acc" || b.kind === "src") return ctx.imp ? `__rt.snapshot(${b.js})` : `${b.js}()`;
     if (b.kind === "comp") throw new CompileError(`component ${name} used as a value`);
+    if (b.kind === "hval") return `__rt.out(${b.js})`;
     return b.js;
   }
   /** R-f-4: error class names → a JS array of their values; `undefined`: every failure. */
@@ -579,12 +600,12 @@ class Gen {
     switch (m.k) {
       case "text": return `{${J(m.s)}}`;
       case "style": return "";                                                                 // CSS-4: removed; the stylesheet is the module's
-      case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
+      case "read": return `{__rt.show(${this.hx(m.e, env, re)})}`;
       case "el": {
         if (m.tag === "") return this.markup(m.children, env, ind);
         if (/^[A-Z]/.test(m.tag)) {
           const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
-          const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");
+          const attrs = m.attrs.map(a => " " + (a.name === "..." || isHandler(a.name) ? this.attr(a.name, a.e, env) : `${a.name}={${this.hx(a.e, env, re)}}`)).join("");   // a component reads its props where it uses them: a store passes as its target
           return m.children.length ? `<${b.js}${attrs}>${m.children.map(c => this.child(c, env, ind + 1)).join("")}</${b.js}>` : `<${b.js}${attrs} children={[]} />`;
         }
         let attrs = m.attrs.map(a => " " + (a.name === "class" && this.styleHash ? `class={${a.e.k === "lit" && typeof a.e.v === "string" ? J(`${a.e.v} ${this.styleHash}`) : `__rt.scopedClass(${this.expr(a.e, env, { imp: false })}, ${J(this.styleHash)})`}}` : this.attr(a.name, a.e, env))).join("");
@@ -597,8 +618,8 @@ class Gen {
         return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
       }
       case "mfor": {
-        const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "val", js: mg(m.name) }); return ""; });
-        return `<For each={${this.expr(m.xs, env, re)}}>{${body}}</For>`;
+        const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "hval", js: mg(m.name) }); return ""; });
+        return `<For each={${this.hx(m.xs, env, re)}}>{${body}}</For>`;   // a store list as its target: Solid's mapArray hands each row as its target
       }
       case "loading": {
         const on = m.on ? ` on={${this.expr(m.on, env, re)}}` : "";

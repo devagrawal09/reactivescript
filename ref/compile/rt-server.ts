@@ -6,6 +6,7 @@
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
 import { primsSolid } from "./prims-solid.ts";
+import * as S from "./store-ops.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import { provideRequestEvent } from "@solidjs/web/storage";
@@ -229,6 +230,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
+    get: S.get, val: S.val, out: S.out, hacc: S.hacc,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
     fmt,
 
