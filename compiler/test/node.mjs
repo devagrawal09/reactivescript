@@ -73,7 +73,11 @@ const users = path.join(examples, "users.rx");
 const devCode = Object.values(JSON.parse(app(users, "dom", null, false, true, repo)).modules ?? {}).map(m => m.code).join("\n");
 const prodCode = Object.values(JSON.parse(app(users, "dom")).modules ?? {}).map(m => m.code).join("\n");
 const keys = JSON.parse(model([users], repo)).flatMap(m => m.symbols.flatMap(s => s.key ? [s.key] : []));
-const devOk = devCode.includes('__rt.key("examples/users.rx|Row|isEditing", () =>') && !prodCode.includes("__rt.key(") && keys.includes("examples/users.rx|Row|isEditing") && keys.every(k => devCode.includes(JSON.stringify(k)));
+const devOk = devCode.includes('__rt.key("examples/users.rx|Row|isEditing", () =>')
+  && devCode.includes("__rt.DevLoading") && devCode.includes("__rt.DevErrored")
+  && !/__rt\.(key\(|DevLoading|DevErrored)|examples\/users\.rx\|\|rename/.test(prodCode)
+  && keys.includes("examples/users.rx|Row|isEditing") && keys.includes("examples/users.rx||rename")
+  && keys.every(k => devCode.includes(JSON.stringify(k)));
 if (!devOk) fail++;
-console.log(`${devOk ? "✓" : "✗"} a dev build keys each source and equation, as the model does (${keys.length} keys)`);
+console.log(`${devOk ? "✓" : "✗"} a dev build keys sources, equations and actions (${keys.length} keys) and instruments boundaries`);
 process.exit(fail ? 1 : 0);

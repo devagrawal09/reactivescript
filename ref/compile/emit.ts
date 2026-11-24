@@ -11,6 +11,7 @@ import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
 import { declKeys, moduleKey } from "../src/model.ts";
+import { checkModules } from "../src/check.ts";
 import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
@@ -77,10 +78,12 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; de
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, jsSpecifier: opts.jsSpecifier });
+  if (opts.dev) g.boundaries = checkModules(set, opts).boundaries;
   const files = new Map<string, string>();
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p.decls);
     g.keys = opts.dev ? declKeys(p, moduleKey(path, opts.root)) : new Map();
+    g.devModule = opts.dev ? moduleKey(path, opts.root) : "";
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
     const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
@@ -105,6 +108,9 @@ class Gen {
   private modDecls: Decl[] = [];
   private sfSeq = 0;
   keys = new Map<Decl, string>();                       // dev: each declaration's key (model.ts declKeys); empty otherwise
+  boundaries = new Map<Markup, number>();
+  devModule = "";
+  private boundary(m: Markup) { const id = this.boundaries.get(m); return id === undefined ? "" : ` region={${J(`${this.devModule}|${id}`)}}`; }
   /** dev: a keyed declaration's creating call, run under its key. */
   private under(key: string | undefined, call: string): string { return key ? `__rt.key(${J(key)}, () => ${call})` : call; }
   private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
@@ -278,7 +284,7 @@ class Gen {
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
-    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}}${this.keys.has(d) ? `, ${J(this.keys.get(d))}` : ""});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
@@ -619,7 +625,8 @@ class Gen {
       }
       case "loading": {
         const on = m.on ? ` on={${this.expr(m.on, env, re)}}` : "";
-        return `<Loading${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</Loading>`;
+        const region = this.boundary(m), tag = region ? "__rt.DevLoading" : "Loading";
+        return `<${tag}${region}${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</${tag}>`;
       }
       case "portal": {                                                                          // RG-8: Solid's Portal (the web's, or the test renderer's)
         const to = m.to ? ` mount={${this.expr(m.to, env, re)}}` : "";
@@ -629,7 +636,9 @@ class Gen {
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
         const fallback = `fallback={(${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)}}`;
         const body = this.region(m.decls, m.body, env, ind + 1);
-        return m.classes ? `<__rt.TypedErrored classes={${this.classes(m.classes, env)}} ${fallback}>${body}</__rt.TypedErrored>` : `<Errored ${fallback}>${body}</Errored>`;   // R-f-4: a typed boundary passes other classes up
+        const region = this.boundary(m), tag = m.classes ? "__rt.TypedErrored" : region ? "__rt.DevErrored" : "Errored";
+        const classes = m.classes ? ` classes={${this.classes(m.classes, env)}}` : "";
+        return `<${tag}${region}${classes} ${fallback}>${body}</${tag}>`; // R-f-4: a typed boundary passes other classes up
       }
     }
   }

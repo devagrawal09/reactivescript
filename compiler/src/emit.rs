@@ -216,6 +216,9 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
     g.out_dir = out_dir;
+    if dev.is_some() {
+        g.boundaries = crate::check::boundary_regions(set);
+    }
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
     let mut module_css = IndexMap::new();
@@ -223,6 +226,7 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
         let p = &set.programs[path];
         let css0 = g.css.len();
         g.begin_module(path, &p.decls);
+        g.dev_module = dev.map(|root| module_key(path, Some(root))).unwrap_or_default();
         g.keys = match dev {
             Some(root) => decl_keys(p, &module_key(path, Some(root))),
             None => HashMap::new(),
@@ -290,6 +294,8 @@ struct Gen<'p> {
     style_ids: u32,
     /// dev: each declaration's key (model.rs `decl_keys`); empty otherwise
     keys: HashMap<*const Decl, String>,
+    boundaries: HashMap<*const Markup, usize>,
+    dev_module: String,
 }
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
@@ -338,6 +344,8 @@ impl<'p> Gen<'p> {
             frames: vec![],
             style_ids: 0,
             keys: HashMap::new(),
+            boundaries: HashMap::new(),
+            dev_module: String::new(),
         }
     }
     // ---- environments
@@ -812,7 +820,11 @@ impl<'p> Gen<'p> {
             let penv = self.params(env, params);
             let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
             let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
-            out.push(konst(mg(name), rtc("action", vec![gen])));
+            let mut args = vec![gen];
+            if let Some(k) = self.keys.get(&(d as *const Decl)) {
+                args.push(str(k.clone()));
+            }
+            out.push(konst(mg(name), rtc("action", args)));
             out.push(sexpr(rtc("reg", vec![str(name.clone()), obj(vec![("value", id(mg(name)))])])));
             at(&mut out, n0, d.line());
         }
@@ -1858,13 +1870,19 @@ impl<'p> Gen<'p> {
             }
             MarkupKind::Loading { on, fallback, decls, body } => {
                 let mut xs = vec![];
+                let tag = if let Some(id) = self.boundaries.get(&(m as *const Markup)) {
+                    xs.push(("region".into(), AttrValue::Expr(str(format!("{}|{id}", self.dev_module)))));
+                    JsxName::Member("__rt".into(), "DevLoading".into())
+                } else {
+                    JsxName::Ident("Loading".into())
+                };
                 if let Some(o) = on {
                     xs.push(("on".to_string(), AttrValue::Expr(self.expr(o, env, &re)?)));
                 }
                 let fb = self.markup(fallback, env)?;
                 xs.push(("fallback".into(), AttrValue::Expr(fb)));
                 let r = self.region(decls, body, env)?;
-                el(JsxName::Ident("Loading".into()), xs, vec![r], false)
+                el(tag, xs, vec![r], false)
             }
             // RG-8: Solid's Portal (the web's, or the test renderer's)
             MarkupKind::Portal { to, decls, body } => {
@@ -1884,14 +1902,20 @@ impl<'p> Gen<'p> {
                 let p = err_name.as_ref().map(|n| mg(n)).unwrap_or("__err".into());
                 let fallback = ("fallback".to_string(), AttrValue::Expr(arrow(&[&p], fm)));
                 let b = self.region(decls, body, env)?;
+                let region = self.boundaries.get(&(m as *const Markup));
+                let mut attrs = region.map(|id| vec![("region".into(), AttrValue::Expr(str(format!("{}|{id}", self.dev_module))))]).unwrap_or_default();
                 // R-f-4: a typed boundary passes other classes up
-                match classes {
+                let tag = match classes {
                     Some(cs) => {
                         let cls = self.classes(Some(cs), env)?;
-                        el(JsxName::Member("__rt".into(), "TypedErrored".into()), vec![("classes".into(), AttrValue::Expr(cls)), fallback], vec![b], false)
+                        attrs.push(("classes".into(), AttrValue::Expr(cls)));
+                        JsxName::Member("__rt".into(), "TypedErrored".into())
                     }
-                    None => el(JsxName::Ident("Errored".into()), vec![fallback], vec![b], false),
-                }
+                    None if region.is_some() => JsxName::Member("__rt".into(), "DevErrored".into()),
+                    None => JsxName::Ident("Errored".into()),
+                };
+                attrs.push(fallback);
+                el(tag, attrs, vec![b], false)
             }
         }))
     }
