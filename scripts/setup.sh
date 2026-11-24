@@ -2,7 +2,7 @@
 # Sets up the pinned layout the gates run in, from the repository root. Idempotent: a checkout already at its pin is
 # left alone, and Solid is rebuilt only when its checkout moved or a build output is missing.
 #
-#   reactivescript/  ryansolid/reactivescript at frontend/pins.json's commit, ref/ installed with npm ci
+#   reactivescript/  solidjs/reactivescript at frontend/pins.json's commit, ref/ installed with npm ci
 #   solid-next/      solidjs/solid at that commit's ref/SOLID_NEXT, built as reactivescript's ref/scripts/solid-next.sh
 #                    builds it (signals, solid, web and universal: build, then types if present; the native compiler)
 #   frontend/        upstream -> ../reactivescript (symlink, created here; gitignored), then npm ci (its Solid
@@ -17,10 +17,10 @@
 #   SETUP_REBUILD=1 sh scripts/setup.sh                           rebuild Solid even if its outputs exist
 set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-RX_REPO=https://github.com/ryansolid/reactivescript
-RX_COMMIT=fdbcad921c6bc1cae59cbebe9905eeabc480e88f
-SOLID_REPO=https://github.com/solidjs/solid
-SOLID_COMMIT=2105ffb8ca2fced55f5fac0763177fc93f97c2c2
+RX_REPO=${RX_REPO:-https://github.com/solidjs/reactivescript}   # RX_REPO=/path/to/a/local/clone to clone from disk
+RX_COMMIT=e650b85154c53912fa779c9badef73c1e2998b87
+SOLID_REPO=${SOLID_REPO:-https://github.com/solidjs/solid}
+SOLID_COMMIT=30e7805eb1bbd9e2601d0252558e91d2547e96f4
 PNPM="npx -y pnpm@11.1.1"   # solid-next's packageManager at the pin
 RX=$ROOT/reactivescript
 SOLID=$ROOT/solid-next
