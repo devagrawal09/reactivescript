@@ -6,6 +6,8 @@
 // to the client as it is; anything else that reaches a boundary — a panic, or a JS rejection of plain `Error` — goes as
 // Solid's generic error (SV-5).
 import { primsSolid } from "./prims-solid.ts";
+/** Solid's option for a computation that never returns a promise or an async iterable (it skips the async-shape probe). */
+const SYNC = { sync: true };
 import * as S from "./store-ops.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
@@ -153,10 +155,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       const [get] = createSignal(fn as any, o as any); return ro(get as Acc);
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, o as any) as Acc,
+    smemo: (name: string | null, fn: (prev: unknown) => unknown): Acc => createMemo(named(name, fn) as any, SYNC as any) as Acc,   // a memo the compiler proved synchronous (Solid's `sync: true`)
     deferred: (name: string, fn: (prev: unknown) => unknown, o?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, o as any) as Acc,
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); return () => p; },
     draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
-    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
+    pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined }), SYNC as any); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** SV-2: the apply half runs on the client, after hydration. The compute half is reactive scope — Solid's server runs it;
      *  an input's failure is an answer (E-12), not a server error. */

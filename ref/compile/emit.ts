@@ -57,15 +57,63 @@ function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
 /** Which of Solid's store features the program can reach, decided from its text. `false` is a proof that no store this
  *  program makes can meet the feature, so the build may compile it out of Solid's store (`__SOLID_STORE_<NAME>__: false`);
  *  anything not proved stays `true`. `why` names the first use that kept each feature. */
-export type Features = { guesses: boolean; stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string>; rt: string[]; prelude: string[] };   // rt, prelude: the `__rt` members and prelude functions the compiled modules name (a runtime bundles only those)   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
-export const ALL_FEATURES = (why: string): Features => ({ guesses: true, stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, rt: [], prelude: [], why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
+export type Features = { guesses: boolean; stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string>; rt: string[]; prelude: string[]; tier: Tier };   // rt, prelude: the `__rt` members and prelude functions the compiled modules name (a runtime bundles only those)   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
+/** The async ladder (spec/05, 06): the highest step any part of the program reaches — the scheduler every node shares.
+ *  A0 sync only · A1 actions that never await · A2 writes held across an `await` (an awaiting action or handler) ·
+ *  A3 `pending?` / `latest` probes · A4 guesses · A5 questions (an `await` in reactive scope, `refresh`, `affects`,
+ *  `until`, a deferred equation, a loading boundary, a stream). Holds are contagious through the graph (HELD_WRITE), so the
+ *  step is the whole program's. `why` names the first use that reached each step; `nodes` counts what the emitter
+ *  specialised per node (a memo it proved synchronous is made with Solid's `sync: true`). */
+export type Tier = { step: "A0" | "A1" | "A2" | "A3" | "A4" | "A5"; why: Record<string, string>; nodes: { memos: number; syncMemos: number } };
+const SYNC_PRELUDE = new Set(["len", "str", "map", "filter", "sum", "fail", "every", "indexOf", "log"]);
+export function tier(programs: unknown[], extra: unknown[] = []): Tier {
+  const why: Record<string, string> = {}; const reach = (k: string, w: string) => { why[k] ??= w; };
+  const seen = new WeakSet<object>();
+  const awaits = (x: unknown): boolean => JSON.stringify(x ?? null).includes('"k":"await"');
+  const walk = (x: unknown, imp: boolean): void => {
+    if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
+    if (Array.isArray(x)) { x.forEach(y => walk(y, imp)); return; }
+    const o = x as Record<string, any>;
+    if (o.k === "await") reach(imp ? "A2" : "A5", imp ? "an `await` in an action or handler" : "an `await` in reactive scope (a question)");
+    if (o.k === "source" && o.question) reach("A5", `source ${o.name} = … (ST-5)`);
+    if (o.k === "refresh" || o.k === "affects") reach("A5", `${o.k} ${o.name}`);
+    if (o.k === "eq" && o.deferred) reach("A5", `deferred ${o.name}`);
+    if (o.k === "loading") reach("A5", "a loading boundary");
+    if (o.k === "call" && o.f?.k === "id" && o.f.name === "until") reach("A5", "until");
+    if (o.k === "import" && !o.resolved) for (const n of o.names) if (n.name === "fetch") reach("A5", "fetch (a flight)");
+    if (o.k === "import" && !o.resolved && (o.declared || o.side)) reach("A5", `declared JS from ${JSON.stringify(o.from)} (MO-10: it may make any Solid node)`);
+    if (o.k === "optimistic") reach("A4", `guess ${o.target.name} (AC-3)`);
+    if (o.k === "pending" || o.k === "latest") reach("A3", o.k === "pending" ? "pending?" : "latest");
+    if (o.k === "action") reach("A1", o.name ? `action ${o.name}` : "an action block");
+    const here = imp || o.k === "action" || (o.k === "fn" && !!o.stmts) || o.k === "effect";
+    if (o.k === "fn" && o.stmts && awaits(o.stmts)) reach("A1", "a handler that awaits (AC-1b: an inferred action)");
+    for (const [k, v] of Object.entries(o)) walk(v, k === "inputs" ? imp : here);
+  };
+  for (const p of programs) walk(p, false);
+  walk(extra, true);
+  const step = (["A5", "A4", "A3", "A2", "A1"] as const).find(k => why[k]) ?? "A0";
+  return { step, why, nodes: { memos: 0, syncMemos: 0 } };
+}
+/** A value no evaluation of `e` makes a promise or an async iterable (so its memo can be Solid's `sync: true`): a literal, a
+ *  template, arithmetic and comparison, a fresh array or record (no `then` key, no spread), a conditional of such. */
+export function provablySync(e: Expr): boolean {
+  switch (e.k) {
+    case "lit": case "tpl": case "un": return true;
+    case "bin": return !["&&", "||", "??"].includes(e.op) || (provablySync(e.l) && provablySync(e.r));
+    case "arr": return true;
+    case "rec": return e.fields.every(f => "key" in f && f.key !== "then");
+    case "if": return provablySync(e.t) && provablySync(e.f);
+    default: return false;
+  }
+}
+export const ALL_FEATURES = (why: string): Features => ({ guesses: true, stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, rt: [], prelude: [], tier: { step: "A5", why: { A5: why }, nodes: { memos: 0, syncMemos: 0 } }, why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
 const GUARDED_KEYS = new Set(["constructor", "__proto__", "prototype"]);
 /** An index that is a number whatever it reads: a literal, arithmetic, `len`/`indexOf`. */
 const numericKey = (e: Expr): boolean => (e.k === "lit" && typeof e.v === "number") || (e.k === "bin" && ["-", "*", "/", "%"].includes(e.op)) || (e.k === "un" && e.op === "-") || (e.k === "call" && e.f.k === "id" && (e.f.name === "len" || e.f.name === "indexOf"));
 export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Features {
   // MO-9: a module known only by its signature may make any store
   if (set.signatures?.size) return ALL_FEATURES("a module compiled from its signature (MO-9)");
-  const f: Features = { guesses: false, stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {}, rt: [], prelude: [] };
+  const f: Features = { guesses: false, stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {}, rt: [], prelude: [], tier: tier([...set.programs.values()], extra) };
   const keep = (k: Exclude<keyof Features, "why" | "rt" | "prelude">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
   const seen = new WeakSet<object>();
   const walk = (x: unknown): void => {
@@ -136,6 +184,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
   // what the emitted modules name on the runtime: read from the code itself, so it is exact
   const code = [...files.values()].join("\n");
   feats.rt = [...new Set([...code.matchAll(/__rt\.([A-Za-z_]\w*)/g)].map(m => m[1]))].sort();
+  feats.tier.nodes = g.nodes;
   feats.prelude = [...new Set([...code.matchAll(/__B\.([A-Za-z_]\w*)/g)].map(m => m[1]))].sort();
   return { files, entry: out(set.entry), css: g.css.join("\n"), features: feats };   // CSS-4: the modules' stylesheets, beside their JavaScript
 }
@@ -144,7 +193,7 @@ export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage(
 export function compileDynamicExpr(e: Expr): string { const g = new Gen(usage({ decls: [], view: [] })); return g.expr(e, new Env(null), { imp: true, dyn: true }); }
 
 class Gen {
-  u: Usage;
+  u: Usage; nodes = { memos: 0, syncMemos: 0 };
   file = "main.rx"; css: string[] = [];
   top: string[] = [];                                   // module-level code: hoisted server functions and the module's error classes
   serverNames = new Map<string, string>();              // a module-level server fn → its hoisted function
@@ -413,8 +462,11 @@ class Gen {
       const body = c.e.k === "await" ? `__rt.settle(${x}, ${m}, ${a})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
       return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
     }
-    const fn = d.deferred ? "deferred" : "memo";
-    return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
+    const lv = this.loadingValue(d.e, env);
+    this.nodes.memos++;
+    // a memo whose value is never a promise is Solid's `sync: true` (its recompute skips the async-shape probe)
+    const fn = d.deferred ? "deferred" : lv === "undefined" && provablySync(d.e) ? (this.nodes.syncMemos++, "smemo") : "memo";
+    return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}${fn === "smemo" ? "" : `, ${lv}`});${reg}`;
   }
   /** SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server. */
   private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && !!env.lookup(f.f.name)?.client; }
