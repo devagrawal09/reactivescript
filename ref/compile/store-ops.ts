@@ -3,7 +3,7 @@
 // code may be its target ("handle"); it leaves compiled code — into a JS function, a literal, a signal, a DOM attribute —
 // as the proxy Solid makes for it then (`out`). Every helper takes either form, so a value that is not a target (a proxy
 // from a memo, a plain object, the server's stores) reads as it always did.
-import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet } from "@solidjs/signals";
+import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet, storeGetShaped, storeShape } from "@solidjs/signals";
 
 export const isT = isStoreTarget as (v: unknown) => boolean;
 /** A value as JS sees it: a target as its proxy. */
@@ -29,3 +29,7 @@ export const B = {
   indexOf: (xs: any, f: (x: unknown) => unknown): number => { if (!isStoreTarget(xs)) return xs.findIndex(f); const n = storeGet(xs, "length"); for (let i = 0; i < n; i++) if (f(storeGet(xs, i))) return i; return -1; },
   sum: (xs: any): number => { if (!isStoreTarget(xs)) return xs.reduce((a: number, b: number) => a + b, 0); const n = storeGet(xs, "length"); let s = 0; for (let i = 0; i < n; i++) if (storeHas(xs, i)) s += storeGet(xs, i); return s; },
 };
+/** A row read through its shape (Solid's opt-in fixed-layout node map — an alternate layout, not a subtraction). The shape
+ *  of a `for`'s rows is held per loop site; this reference emitter has no types, so the shape is the first row's keys
+ *  (a typed compiler writes the keys of the row's type here). */
+export const getShaped = (holder: { s: unknown }, o: any, k: PropertyKey): any => isStoreTarget(o) ? storeGetShaped(o, (holder.s ??= storeShape(Object.keys((o as any).pb ?? (o as any).v))) as never, k) : o?.[k as any];

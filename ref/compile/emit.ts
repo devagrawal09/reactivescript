@@ -15,7 +15,7 @@ import type { Shape } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "hval" | "fn" | "ifn" | "jfn" | "act" | "comp";   // hval: a value that may be a store's target (a row of `for`, a lambda's parameter): `__rt.out` where it leaves
-type Bind = { kind: Kind; js: string; h?: string; builtin?: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; shape?: string; h?: string; builtin?: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -508,9 +508,15 @@ class Gen {
   }
   /** An expression whose value is read here and goes nowhere else (a member's object, an operand, a formatted hole): a store
    *  is its target, read with no proxy; any other expression is `expr`. */
+  private shapeSeq = 0;
   hx(e: Expr, env: Env, ctx: Ctx): string {
     const sub: Ctx = { ...ctx, tail: false };
-    if (e.k === "member") return `__rt.get(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+    if (e.k === "member") {
+      // a field of a `for` row: read through the loop's row shape
+      const rb = e.o.k === "id" ? env.lookup(e.o.name) : undefined;
+      if (rb?.kind === "hval" && rb.shape) return `__rt.getShaped(${rb.shape}, ${rb.js}, ${J(e.p)})`;
+      return `__rt.get(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+    }
     if (e.k === "index") return `__rt.get(${this.hx(e.o, env, sub)}, ${this.hx(e.i, env, sub)})`;
     if (e.k === "id" && !(ctx.effect && /^\$\d+$/.test(e.name))) {
       const b = env.lookup(e.name);
@@ -618,7 +624,8 @@ class Gen {
         return `<Show when={${this.expr(m.c, env, re)}} fallback={(${this.regionFn(m.fDecls, m.f, env, ind + 1)})()}>{${t}}</Show>`;
       }
       case "mfor": {
-        const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "hval", js: mg(m.name) }); return ""; });
+        const sh = `$sh${this.shapeSeq++}`; this.top.push(`const ${sh} = { s: null };   // the row shape of a \`for\``);
+        const body = this.regionFn(m.decls, m.body, env, ind + 1, mg(m.name), e => { e.vars.set(m.name, { kind: "hval", js: mg(m.name), shape: sh }); return ""; });
         return `<For each={${this.hx(m.xs, env, re)}}>{${body}}</For>`;   // a store list as its target: Solid's mapArray hands each row as its target
       }
       case "loading": {
