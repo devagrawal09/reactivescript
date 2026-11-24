@@ -170,7 +170,7 @@ function show(v, depth) {
 export function mergeGraphs(list) {
   if (list.length === 1) return list[0];
   const out = { modules: [], absModules: [], nodes: [], edges: [], regions: [], lines: {} };
-  out.title = list.map(g => g.title ?? g.modules?.[0]?.split("/").pop()).filter(Boolean).join(", ");
+  if (list.every(g => g.title)) out.title = list.map(g => g.title).join(", ");
   // ids are `<module index>:<local>`, and the page finds a module's root region as `<module index>:r0`: a module new
   // to the merge keeps its local ids under its new index; a shared one maps to what the earlier program drew
   const byKey = new Map(), edgeSeen = new Set();
