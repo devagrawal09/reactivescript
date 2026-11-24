@@ -90,6 +90,9 @@ for (const [name, entry] of Object.entries(apps)) {
   const maps = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js.map"));
   const sources = maps.flatMap(f => JSON.parse(readFileSync(path.join(dir, "dist/assets", f), "utf8")).sources);
   if (!sources.some(s => s.endsWith(".rx"))) { fail++; console.log(`✗ ${name}: the bundle's source map names no .rx file`); continue; }
+  // 11 CP-4b `key` is dev only: a production bundle names no node
+  const js = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js")).map(f => readFileSync(path.join(dir, "dist/assets", f), "utf8")).join("\n");
+  if (js.includes("rx:") || js.includes("@reactivescript/map")) { fail++; console.log(`✗ ${name}: the production bundle has an rx: name or the map`); continue; }
   const dist = path.join(dir, "dist");
   const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
   await new Promise(r => http.listen(0, "127.0.0.1", r));
@@ -118,7 +121,12 @@ if (!filter || "shared".includes(filter)) {   // two programs on one page, shari
 if (!filter || "todo".includes(filter)) {   // the dev server: modules transformed on request
   const dir = project("todo-dev", "todo.rx");
   const server = await vite.createServer(config(dir, "todo.rx")); await server.listen(0);
-  await drive("todo (dev)", server.resolvedUrls.local[0], todo);
+  await drive("todo (dev)", server.resolvedUrls.local[0], async page => {
+    await todo(page);
+    // 11 CP-4b `key`: the dev client runs each source's and equation's creating calls under its key
+    const code = (await server.transformRequest("/src/todo.rx"))?.code ?? "";
+    if (!code.includes('__rt.key("src/todo.rx||todos", () =>')) throw new Error("the dev build keys no declaration");
+  });
   await server.close();
 }
 if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a dependency's <style> edit reaches the page
