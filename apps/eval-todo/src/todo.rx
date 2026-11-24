@@ -1,5 +1,8 @@
 // The todo app, all of it in ReactiveScript. The page hands it the server's list (`db`, read only) and three
 // server calls; every guess, rollback and status message below is RX.
+// Typing goes into `draft`. Enter adds it too: the browser clicks a form's first button on Enter, unless that button is
+// disabled, so `disabled={draft == ""}` is the guard for both (plan v2 has no `if` statement in a handler).
+source draft := "";
 source none := "";
 source ideas := { list: ["buy milk", "walk the dog", "ship eval", "water plants", "call mom"] };
 source shown = db.list;
@@ -10,6 +13,7 @@ open = filter(shown, t => !t.done).length;
 
 action add(text: string) {
   optimistic adding := text;
+  draft := "";
   try {
     let ok = await addTodo(text);
     status := "";
@@ -50,6 +54,10 @@ action remove(id: number) {
     }}
     {if adding != "" { <li><i>{adding + " (saving…)"}</i></li> }}
   </ul>
+  <form>
+    <input value={draft} placeholder="what needs doing?" onInput={e => { draft := e.target.value }} />
+    <button disabled={draft == ""} onClick={() => { add(draft) }}>add</button>
+  </form>
   <nav>{for idea in ideas.list { <button onClick={() => { add(idea) }}>{"+ " + idea}</button> }}</nav>
   <em>{status}</em>
 </article>

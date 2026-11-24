@@ -31,6 +31,10 @@
   .eval li s { color: var(--muted); }
   .eval li i { color: var(--pending); }
   .eval li button { background: none; border: 0; cursor: pointer; font-size: 16px; color: inherit; padding: 0 4px; }
+  .eval form { display: flex; gap: 6px; margin: 0 0 10px; }
+  .eval form input { flex: 1; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: #8881; color: inherit; font: inherit; }
+  .eval form button { border: 1px solid var(--line); border-radius: 6px; padding: 2px 12px; background: none; color: inherit; cursor: pointer; }
+  .eval form button:disabled { opacity: .4; cursor: default; }
   .eval nav { display: flex; flex-wrap: wrap; gap: 6px; }
   .eval nav button { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: none; color: inherit; cursor: pointer; }
   .eval em { display: block; margin-top: 10px; color: var(--bad); font-style: normal; min-height: 1.4em; }

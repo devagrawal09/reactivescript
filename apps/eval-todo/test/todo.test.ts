@@ -28,3 +28,13 @@ test('an event is read through target.value, typed', () => {
   const r = compileEval({ code: '<textarea onInput={e => { edit(e) }}></textarea>', interface: EDITOR_INTERFACE });
   assert.ok(!r.ok && r.diagnostics.some(d => d.code === 'TYPE'));
 });
+
+test('the draft input and its guard: the add button is disabled on an empty draft (Enter clicks it only when enabled)', () => {
+  assert.match(TODO, /<input value=\{draft\}/);
+  assert.match(TODO, /<button disabled=\{draft == ""\} onClick=\{\(\) => \{ add\(draft\) \}\}>/);
+});
+
+test('a guard written as an if statement in a handler is refused (plan v2 has no conditional step)', () => {
+  const r = compileEval({ code: TODO.replace('onClick={() => { add(draft) }}', 'onClick={() => { if (draft != "") { add(draft) } }}'), interface: INTERFACE });
+  assert.ok(!r.ok && r.diagnostics.some(d => /unsupported step sif/.test(d.message)));
+});

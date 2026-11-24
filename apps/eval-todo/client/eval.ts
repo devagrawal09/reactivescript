@@ -10,6 +10,8 @@ const isEvent = (name: string) => /^on[A-Z]/.test(name);
 const renderer: Renderer = {
   createElement(tag, props) {
     const el = document.createElement(tag);
+    // A form in evaluated code never navigates: Enter in its input clicks its first enabled button, and that's all.
+    if (tag === 'form') el.addEventListener('submit', e => e.preventDefault());
     for (const [k, v] of Object.entries(props ?? {})) {
       if (isEvent(k) && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v as EventListener);
       else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : String(v));

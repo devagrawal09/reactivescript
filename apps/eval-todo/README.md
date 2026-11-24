@@ -5,7 +5,10 @@ A Solid 2 page (`@solidjs/web`, TSX through Solid's own compiler). Its apps are 
 
 - **`src/todo.rx`**: a todo app with optimistic updates, all in RX. It guesses on `shown` (an optimistic source over
   the server's list) for toggle and delete, and on `adding` for a new row. Then it awaits the server. A failure rolls
-  the guess back and sets `status`. The host passes only `db` (the server's list, read only) and three server calls.
+  the guess back and sets `status`. A new todo is typed into an input bound to `draft`; the add button is
+  `disabled={draft == ""}`, and since Enter in a form clicks its first enabled button, that one attribute guards both
+  (plan v2 has no `if` statement in a handler, so the guard can't be a branch; the page's renderer stops a form in
+  evaluated code from navigating). The host passes only `db` (the server's list, read only) and three server calls.
 - **`src/editor.rx`**: a code editor in RX (a textarea, a keystroke count, the checker's verdict). It's evaluated twice:
   once bound to `todo.rx`'s text, and once bound to its own text, so it edits itself. Every accepted edit rebuilds it,
   and the page puts the caret back.
