@@ -84,18 +84,8 @@ impl Runtime {
         self.guessed && self.marked_nodes.contains(&n)
     }
 
-    // Solid: lanes.ts `rerun`
-    pub(super) fn rerun(&mut self, n: NodeId, t: TxId) {
-        let mut s = self.nodes[n].subs;
-        while let Some(link) = s {
-            let sub = self.links[link].sub;
-            self.stale_reader(sub, t);
-            s = self.links[link].next_sub;
-        }
-        if self.nodes[n].config & CONFIG_SLOT_NODE != 0 {
-            self.slot_rerun_hook(n, t);
-        }
-    }
+    // Solid: lanes.ts `rerun` (and optimistic.ts `GlobalQueue._slotRerun`)
+    // has no caller at main: not ported.
 
     // Solid: lanes.ts `inFlight`
     pub(super) fn in_flight(&self, n: NodeId) -> bool {

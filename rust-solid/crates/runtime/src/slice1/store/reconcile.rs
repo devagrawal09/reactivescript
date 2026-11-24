@@ -335,12 +335,3 @@ impl Runtime {
         self.apply_adopt(ct, &raw(&nv), key_fn, proj)
     }
 }
-
-/// What `optimisticView` picks of a lane node (`pick`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::slice1) enum Pick {
-    /// `shown`: what the lane shows an untracked reader.
-    Shown,
-    /// `laneValueOf`: the lane's latest.
-    Latest,
-}

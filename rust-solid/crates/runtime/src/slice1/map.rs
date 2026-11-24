@@ -837,7 +837,8 @@ impl Runtime {
         )
     }
 
-    // Solid: map.ts:228-302
+    // Solid: map.ts `commitSmallMove` (its JS signature)
+    #[allow(clippy::too_many_arguments)]
     fn commit_small_move(
         &mut self,
         d: MapId,

@@ -691,18 +691,6 @@ impl Runtime {
         }
     }
 
-    // Solid: optimistic.ts `GlobalQueue._slotRerun`
-    pub(in crate::slice1) fn slot_rerun_hook(&mut self, n: NodeId, t: TxId) {
-        for node in self.readers_of(n) {
-            let mut s = self.nodes[node].subs;
-            while let Some(link) = s {
-                let sub = self.links[link].sub;
-                s = self.links[link].next_sub;
-                self.stale_reader(sub, t);
-            }
-        }
-    }
-
     // Solid: optimistic.ts `GlobalQueue._slotMerge`: a truth landing on a
     // carrier while its derive re-asks in another action's lane merges the
     // two holds (#5140).
@@ -1609,8 +1597,8 @@ impl Runtime {
 
     // Solid: optimistic.ts:670-672
     pub(in crate::slice1) fn same_action(&self, a: TxId, b: TxId) -> bool {
-        self.resolve_tx(self.txs[a].parent.expect("a lane"))
-            == self.resolve_tx(self.txs[b].parent.expect("a lane"))
+        self.resolve_tx(self.txs[a].parent.unwrap_or(a))
+            == self.resolve_tx(self.txs[b].parent.unwrap_or(b))
     }
 
     // Solid: optimistic.ts:687-691

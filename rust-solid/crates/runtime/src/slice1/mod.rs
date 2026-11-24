@@ -596,8 +596,6 @@ pub struct Runtime {
     /// lanes.ts `marked`'s nodes: shown guesses a correction re-homed into
     /// their hold (#4690).
     marked_nodes: Vec<NodeId>,
-    /// lanes.ts:509 `reverting`.
-    reverting: bool,
     /// The store tier's module state (store/*.ts).
     store: store::StoreState,
     /// Each derive pass's closure state, by registration.
@@ -708,7 +706,6 @@ impl Default for Runtime {
             parks: vec![],
             left: vec![],
             marked_nodes: vec![],
-            reverting: false,
             store: store::StoreState::default(),
             passes: vec![],
             deferred_zombies: vec![],
