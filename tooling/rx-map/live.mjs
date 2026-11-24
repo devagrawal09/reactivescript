@@ -4,15 +4,13 @@
 // `globalThis.__RX__ = { graphs, mount }`; a host (the devtools' Map view) calls `mount(el)` to draw the map of every
 // registered program in an iframe and light it as Solid's flushes change the nodes the build named `rx:<key>`.
 //
-// What is posted to the iframe, every message with `source: "rx-map"`:
-//   { type: "flush", seq, at, changes: [{ name, key, preview?, origin? }] }  a flush that changed something
-//   { type: "flight", key, state: "start" | "land" | "abandon" }             async work for an RX node
-//   { type: "reset" }
+// The recorder belongs to the app session, not to a particular map iframe.
 import { pageHTML } from "./page.mjs";
 import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE } from "./live-protocol.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
+const message = msg => ({ source: SOURCE, v: 1, ...msg });
 const graphs = [];
 const mounts = new Set();
 const bridges = new Map();
@@ -20,9 +18,25 @@ let recording;
 // Resolve before the entry calls register: its first render can start flights
 // in the same turn, before a lazy attribution import would finish.
 const engine = await Promise.all([import("solid-js"), import("solid-js/attribution")]).catch(() => []);
+const untracked = fn => engine[0]?.runWithOwner ? engine[0].runWithOwner(null, fn) : fn();
+const errorPreview = error => untracked(() => preview(error));
+function previews(value) {
+  const out = { preview: preview(value) };
+  if (value !== null && typeof value === "object" && !(value instanceof Error)) {
+    const full = preview(value, 2000, 4);
+    if (full.length > out.preview.length) out.full = full;
+  }
+  return out;
+}
+function inspect(key) {
+  const entries = globalThis.__RX_NODES__?.get(key);
+  if (!entries?.size) return;
+  try { return [...entries].at(-1)(previews); } catch { /* instrumentation is best effort */ }
+}
 
 /** Adds a program's graph (from `@reactivescript/map/graph`'s `buildGraph`). Re-registering its entry replaces it. */
 export function register(graph, { hot } = {}) {
+  getRecorder();
   if (hot) connect(hot);
   const entry = graph?.modules?.[0];
   const i = graphs.findIndex(g => g.modules?.[0] === entry);
@@ -42,32 +56,36 @@ export function mount(el) {
   iframe.title = "rx-map";
   iframe.style.cssText = "display:block;width:100%;height:100%;border:0";
   let ready = false;
-  const queue = [];
   const post = msg => {
     if (ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
-    else if (queue.length < 2000) queue.push(msg);
   };
-  iframe.addEventListener("load", () => {
-    ready = true;
-    for (const msg of queue.splice(0)) iframe.contentWindow?.postMessage(msg, "*");
-  });
+  const receive = ({ source, data }) => {
+    if (source !== iframe.contentWindow || data?.source !== SOURCE || data.v !== 1) return;
+    const recorder = getRecorder();
+    if (data.type === "hello") {
+      ready = true;
+      post(recorder.snapshot());
+      post(recorder.timeline());
+    } else if (data.type === "snapshot?") post(recorder.snapshot());
+    else if (data.type === "travel" || data.type === "resume")
+      post(message({ type: "travel-denied", to: data.to ?? recorder.timeline().head, reason: "unsupported" }));
+  };
+  window.addEventListener("message", receive);
   const m = {
     load() {
       ready = false;
-      queue.length = 0;
       iframe.srcdoc = pageHTML(mergeGraphs(graphs), { live: true });
     },
   };
   m.load();
   el.append(iframe);
   mounts.add(m);
-  const recorder = getRecorder();
-  recorder.listeners.add(post);
+  getRecorder().listeners.add(post);
   return () => {
     if (!mounts.delete(m)) return;
-    recorder.listeners.delete(post);
+    recording?.listeners.delete(post);
+    window.removeEventListener("message", receive);
     iframe.remove();
-    releaseRecorder();
   };
 }
 
@@ -86,22 +104,16 @@ function connect(hot) {
     if (!bridges.delete(hot)) return;
     hot.off?.(LIVE_REQUEST, request);
     hot.off?.("vite:ws:connect", ready);
-    releaseRecorder();
   };
   hot.dispose?.(stop);
   hot.prune?.(stop);
   ready();
 }
 
-function releaseRecorder() {
-  if (mounts.size || bridges.size || !recording) return;
-  recording.stop();
-  recording = undefined;
-}
-
 function getRecorder() {
   if (recording) return recording;
-  const size = 2000, ring = new Array(size), listeners = new Set(), latest = new Map(), last = new Map(), flights = new Map();
+  const size = 2000, ring = new Array(size), steps = new Array(size), listeners = new Set();
+  const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const start = performance.now();
   let seq = 0, flushes = 0;
   const locate = key => {
@@ -111,25 +123,128 @@ function getRecorder() {
     }
     return {};
   };
-  const stop = listen((msg, flightId, since, origin) => {
+  const recent = (limit = size, since = 0) => {
+    const records = [];
+    for (let i = Math.max(0, since, seq - limit); i < seq; i++) records.push(ring[i % size]);
+    return records;
+  };
+  const addRecord = msg => {
+    const { source, v, ...record } = msg;
+    record.seq = ++seq;
+    ring[(seq - 1) % size] = record;
+    return record;
+  };
+  const publish = msg => { for (const post of listeners) post(message(msg)); };
+  const flightKeys = () => {
+    const keys = new Map();
+    for (const r of flights.values()) if (!keys.has(r.key) || keys.get(r.key).since > r.since) keys.set(r.key, r);
+    return keys;
+  };
+  const send = (msg, flightId, since, origin) => {
     if (msg.type === "flush") {
-      msg.seq = ++flushes;
-      const changes = msg.changes.map(c => ({ ...c, ...locate(c.key) }));
-      const record = { type: "flush", seq: ++seq, at: msg.at, changes };
-      ring[(seq - 1) % size] = record;
+      const changes = msg.changes.map(c => ({ ...c, ...locate(c.key), ...(c.key && latest.has(c.key) ? { prev: latest.get(c.key).preview } : {}) }));
+      const { at } = msg;
+      const step = { seq: ++flushes, at, changes };
+      steps[(flushes - 1) % size] = step;
+      const record = addRecord({ type: "flush", at, changes });
       for (const c of changes) if (c.key) {
         if (c.preview !== undefined) latest.set(c.key, c);
         last.set(c.key, { change: c, record });
       }
-    } else {
+      publish({ type: "flush", ...step });
+    } else if (msg.type === "flight") {
       const at = performance.now();
-      const r = { type: "flight", seq: ++seq, at, key: msg.key, state: msg.state, origin, ...locate(msg.key) };
-      ring[(seq - 1) % size] = r;
+      const before = [...flights.values()].some(r => r.key === msg.key);
       if (msg.state === "start") flights.set(flightId, { key: msg.key, since: since ?? at, ...locate(msg.key) });
-      else flights.delete(flightId);
+      else if (!flights.delete(flightId)) return;
+      const after = [...flights.values()].some(r => r.key === msg.key);
+      if (before === after) return;
+      addRecord({ ...msg, at, origin, ...locate(msg.key) });
+      publish({ ...msg, at });
+    } else {
+      addRecord({ ...msg, ...locate(msg.key) });
+      publish(msg);
     }
-    for (const post of listeners) post(msg);
-  });
+  };
+  listen(send);
+  // The compiler supplies the resolved region ID. Keep graph path numbering (including #n)
+  // in the graph builder, rather than deriving a second path by walking the JSX.
+  const regionRefs = () => new Map(graphs.flatMap(g => g.regions
+    .filter(r => r.kind === "loading" || r.kind === "errored")
+    .map(r => [`${g.modules[r.mod]}|${r.id.split(":r").at(-1)}`, r.key])));
+  function boundaryState(ref, region) {
+    const instances = [...(globalThis.__RX_BOUNDARIES__?.get(ref) ?? [])];
+    const active = instances.findLast(b => b.state !== "ok");
+    return { region, state: active?.state ?? "ok", ...(active?.state === "error" ? { error: errorPreview(active.error) } : {}) };
+  }
+  // Fallback cleanup can happen in the same turn as a replacement fallback mounts.
+  const boundaryQueue = new Set();
+  const trace = event => {
+    if (event.type === "dispose") {
+      for (const [id, f] of flights) if (f.key === event.key)
+        send({ type: "flight", key: event.key, state: "abandon" }, id);
+      latest.delete(event.key);
+      return;
+    }
+    if (event.type === "boundary") {
+      if (boundaryQueue.has(event.region)) return;
+      boundaryQueue.add(event.region);
+      queueMicrotask(() => {
+        boundaryQueue.delete(event.region);
+        if (globalThis.__RX_TRACE__ !== trace) return;
+        const region = regionRefs().get(event.region);
+        if (!region) return;
+        const b = boundaryState(event.region, region);
+        const prev = boundaries.get(region);
+        if ((prev?.state ?? "ok") === b.state && prev?.error === b.error) return;
+        boundaries.set(region, b);
+        send({ type: "boundary", ...b, at: performance.now() });
+      });
+      return;
+    }
+    const { type, key, id, state, args, error } = event;
+    const at = performance.now();
+    const msg = { type, key, id, state, at };
+    if (state === "start") {
+      msg.args = untracked(() => preview(args));
+      runs.set(id, { key, id, since: at });
+    } else {
+      runs.delete(id);
+      if (state === "error") msg.error = errorPreview(error);
+    }
+    send(msg);
+  };
+  globalThis.__RX_TRACE__ = trace;
+  function current(key, flight) {
+    const now = inspect(key);
+    if (now) return { key, ...now.value, ...(now.error ? { error: now.error.preview } : {}),
+      pending: !!(!now.error && (flight || now.pending)), ...(!now.error && flight ? { since: flight.since } : {}), ...locate(key) };
+    const old = latest.get(key);
+    // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.
+    const legacy = !globalThis.__RX_NODES__ && old;
+    return { key, ...(legacy ? { preview: old.preview, full: old.full } : {}), pending: !!flight,
+      ...(flight ? { since: flight.since } : {}), ...locate(key) };
+  }
+  function pending() {
+    return states().filter(s => s.pending).map(({ key, since, file, line }) => ({ key, since, file, line }));
+  }
+  function states() {
+    const flying = flightKeys(), keys = new Set([...flying.keys(), ...(globalThis.__RX_NODES__?.keys() ?? latest.keys())]);
+    return [...keys].map(key => current(key, flying.get(key)));
+  }
+  const allBoundaries = () => [...regionRefs()].map(([ref, key]) => boundaryState(ref, key));
+  function snapshot() {
+    const all = states(), at = performance.now();
+    return message({ type: "snapshot", at,
+      values: all.filter(s => s.preview !== undefined).map(({ key, preview, full }) => ({ key, preview, full })),
+      flights: all.filter(s => s.pending && s.since !== undefined).map(({ key, since }) => ({ key, since })),
+      boundaries: allBoundaries(), runs: [...runs.values()] });
+  }
+  function timeline() {
+    const history = [];
+    for (let i = Math.max(0, flushes - size); i < flushes; i++) history.push(steps[i % size]);
+    return message({ type: "timeline", head: flushes, viewing: null, steps: history, capacity: size });
+  }
   function query(method, { key, since = 0, limit = 20 } = {}) {
     const known = () => {
       if (typeof key !== "string" || !key) throw new Error("provide a key from find");
@@ -145,33 +260,41 @@ function getRecorder() {
       case "tail": {
         if (!Number.isSafeInteger(since) || since < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > size)
           throw new Error("tail takes a nonnegative since and a limit from 1 to 2000");
-        const records = [];
-        for (let i = Math.max(0, since, seq - limit); i < seq; i++) records.push(ring[i % size]);
-        return records;
+        return recent(limit, since);
       }
       case "value": {
         known();
-        if (!latest.has(key)) throw new Error(`no preview yet for ${key}; interact with the page to change its value`);
-        const { preview } = latest.get(key);
-        return { key, preview, ...locate(key) };
+        return current(key, flightKeys().get(key));
       }
+      case "state":
+        if (key !== undefined) {
+          const boundary = allBoundaries().find(b => b.region === key);
+          if (boundary) return boundary;
+          known();
+          return { ...current(key, flightKeys().get(key)), runs: [...runs.values()].filter(r => r.key === key) };
+        }
+        return { values: states(), flights: pending(), boundaries: allBoundaries().filter(b => b.state !== "ok"),
+          runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
       case "why": {
         known();
         const hit = last.get(key);
-        if (!hit) throw new Error(`no change recorded for ${key}; interact with the page to change its value`);
+        const related = new Set([key]);
+        for (const g of graphs) {
+          const byId = new Map(g.nodes.map(n => [n.id, n.key]));
+          for (const e of g.edges) if (e.type === "write" && byId.get(e.to) === key) related.add(byId.get(e.from));
+        }
+        const events = recent().filter(r => (r.type === "run" || r.type === "revert") && related.has(r.key)).slice(-10);
+        const state = current(key, flightKeys().get(key));
+        if (!hit) return { ...state, others: [], events };
         const { change, record } = hit;
         const others = [...new Map(record.changes.filter(c => c.key && c.key !== key).map(c => [c.key, c])).values()];
-        return { ...change, seq: record.seq, at: record.at, others };
+        return { ...change, seq: record.seq, at: record.at, others, events, current: state };
       }
-      case "pending": {
-        const byKey = new Map();
-        for (const r of flights.values()) if (!byKey.has(r.key) || byKey.get(r.key).since > r.since) byKey.set(r.key, r);
-        return [...byKey.values()];
-      }
-      default: throw new Error("unknown live method; use status, tail, value, why, or pending");
+      case "pending": return pending();
+      default: throw new Error("unknown live method; use status, tail, state, value, why, or pending");
     }
   }
-  return recording = { stop, listeners, query };
+  return recording = { listeners, query, snapshot, timeline };
 }
 
 // ---- the engine's records ---------------------------------------------------------------------------------------
@@ -181,17 +304,23 @@ function listen(post) {
   const records = solid?.OBSERVE?.records;
   const attribution = attr?.attribution;
   if (!records || typeof attribution?.enable !== "function") return () => {};
-  const untrack = typeof solid.untrack === "function" ? solid.untrack : f => f();
   const formatOrigin = typeof attr.formatOrigin === "function" ? attr.formatOrigin : o => o.kind + (o.name ? ` ${o.name}` : "");
 
   // A flush lists every node whose shown value it changed; with `bodies`, the values beside them (live, so they are
   // previewed now).
   const onFlush = (event, live) => {
     if (!event.changes?.length) return;
+    const roots = new Map();
     const changes = event.changes.map((c, i) => {
       const out = { name: c.nodeName, key: keyOf(c.nodeName) };
       const body = live?.changes?.[i];
-      if (body && "value" in body) out.preview = untrack(() => preview(body.value));
+      if (out.key) {
+        if (!roots.has(out.key)) roots.set(out.key, inspect(out.key));
+        const root = roots.get(out.key);
+        if (c.key !== undefined && c.key !== "$guess") out.path = storePath(body?.node, c.key);
+        if (root?.value) Object.assign(out, root.value);
+        else if (!root && !out.path && body && "value" in body) Object.assign(out, untracked(() => previews(body.value)));
+      } else if (body && "value" in body) out.preview = untracked(() => preview(body.value));
       const origin = c.origin ?? event.interaction;
       if (origin) {
         try { out.origin = formatOrigin(origin); } catch {}
@@ -213,12 +342,19 @@ function listen(post) {
       announced.set(node, flight);
       post({ source: SOURCE, type: "flight", key, state: "start" }, event.nodeId, event.at,
         event.interaction && formatOrigin(event.interaction));
+      // Solid's flight record covers successful landings and supersession, not
+      // rejection. Observe native promise rejection without replacing the promise.
+      if (flight instanceof Promise) flight.then(undefined, () => {
+        if (announced.get(node) !== flight) return;
+        announced.delete(node);
+        post({ type: "flight", key, state: "abandon" }, event.nodeId);
+      });
     }
   };
   const onFlight = (event, node) => {
     const key = keyOf(event.nodeName);
     if (!key) return;
-    if (event.outcome === "landed" && node) announced.delete(node);
+    if (node) announced.delete(node);
     post({ source: SOURCE, type: "flight", key, state: event.outcome === "landed" ? "land" : "abandon" }, event.nodeId,
       undefined, event.interaction && formatOrigin(event.interaction));
   };
@@ -228,15 +364,31 @@ function listen(post) {
     records.subscribe("flight", onFlight),
     records.subscribe("rerun", onRun),
     records.subscribe("create", onRun),
+    solid.OBSERVE.diagnostics?.subscribe(event => {
+      if (event.code !== "OPTIMISTIC_REVERTED") return;
+      const key = keyOf(event.nodeName ?? event.data?.source);
+      if (!key) return;
+      const origin = event.interaction ?? event.origin;
+      post({ type: "revert", key, at: performance.now(), reason: event.data?.how,
+        ...(origin ? { origin: formatOrigin(origin) } : {}) });
+    }),
   ];
   const release = attribution.enable({ log: false, values: "full" });
   return () => {
     release();
-    for (const off of offs) off();
+    for (const off of offs) off?.();
   };
 }
 
-// Solid names a store's property nodes `<name>.<prop>…`, so `rx:m.rx||users.0.name` is the node `m.rx||users`.
+// FlushChange.key is only the leaf. Walk the same target links Solid uses
+// for attribution's own store paths. Older engines can only give the leaf.
+function storePath(node, leaf) {
+  const parts = [leaf];
+  for (let t = node?._host; t?.pk != null && parts.length < 128; t = t.u) parts.push(String(t.pk));
+  return parts.reverse().join(".");
+}
+
+// Solid names property nodes `<name>.<leaf>`; the part before the dot is the declaration.
 const keyOf = name => {
   if (typeof name !== "string" || !name.startsWith(RX)) return null;
   const k = name.slice(RX.length), bar = k.lastIndexOf("|"), dot = k.indexOf(".", bar + 1);
@@ -244,12 +396,16 @@ const keyOf = name => {
 };
 
 /** A short string of a value, at most 80 characters. */
-export function preview(v) {
+export function preview(v, max = 80, depth = 2) {
   let s;
-  try { s = show(v, 2); } catch { s = "?"; }
-  return s.length > 80 ? s.slice(0, 79) + "…" : s;
+  try { s = show(v, depth, max); } catch (e) {
+    // Store reads can throw during inspection; let the accessor report those as state.
+    if (max === 2000) throw e;
+    s = "?";
+  }
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
-function show(v, depth) {
+function show(v, depth, max) {
   switch (typeof v) {
     case "string": return JSON.stringify(v.length > 60 ? v.slice(0, 60) + "…" : v);
     case "undefined": return "undefined";
@@ -268,7 +424,7 @@ function show(v, depth) {
   let out = arr ? "[" : "{", n = 0;
   const keys = arr ? null : Object.keys(v);
   const len = arr ? v.length : keys.length;
-  for (; n < len && out.length < 80; n++) out += (n ? ", " : "") + (arr ? "" : `${keys[n]}: `) + show(arr ? v[n] : v[keys[n]], depth - 1);
+  for (; n < len && out.length < max; n++) out += (n ? ", " : "") + (arr ? "" : `${keys[n]}: `) + show(arr ? v[n] : v[keys[n]], depth - 1, max - out.length);
   if (n < len) out += `, …${len - n}`;
   return out + (arr ? "]" : "}");
 }

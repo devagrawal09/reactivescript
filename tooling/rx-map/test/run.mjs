@@ -13,6 +13,7 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripTypeScriptTypes } from "node:module";
 import { buildGraph } from "../graph.mjs";
 
 const here = fileURLToPath(new URL("..", import.meta.url));
@@ -37,6 +38,10 @@ const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/ja
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/graph.json") return res.writeHead(200, { "content-type": TYPES[".json"] }).end(graphJSON);
+  if (["/runtime/rt-web.ts", "/runtime/prims-solid.ts"].includes(url.pathname)) {
+    const ts = readFileSync(join(repo, "ref", "compile", url.pathname.split("/").at(-1)), "utf8");
+    return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(ts));
+  }
   const [root, path] = url.pathname.startsWith("/solid/") ? [solid, url.pathname.slice(7)] : [here, url.pathname.slice(1)];
   const file = resolve(root, path);
   if (!file.startsWith(root) || !existsSync(file)) return res.writeHead(404).end();

@@ -22,7 +22,7 @@ export function rxMap() {
   return {
     name: "rx:live",
     apply(_config, env) { return env.command === "serve" && !env.isPreview; },
-    config: () => ({ resolve: { dedupe: ["solid-js"] } }),
+    config: () => ({ resolve: { dedupe: ["solid-js", "@solidjs/signals"] } }),
     configureServer(server) {
       const pages = new Map(), pending = new Map();
       const ws = server.ws;

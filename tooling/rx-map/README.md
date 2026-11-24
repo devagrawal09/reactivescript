@@ -275,11 +275,14 @@ to the Vite `plugins` array. Start Vite and open the app. The compiler's dev ent
 `{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by
 default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
 
-Live tools: `live_status`, `tail`, `value`, `why`, `pending`. They read the newest connected page. `tail` defaults to
-20 records out of the most recent 2000; pass `since` as the last received sequence number to skip older records.
-Times are in milliseconds on the page's clock. `value` needs an observed preview; if none is available yet, change the
-value in the app. These tools don't execute actions or write state, but previews can contain application data. Keep
-the Vite endpoint on a trusted dev network.
+Live tools: `live_status`, `tail`, `state`, `value`, `why`, `pending`. They read the newest connected page.
+`state` shows current values and errors, in-flight requests, tripped boundaries, running actions and recent optimistic
+reverts. Pass a `key` to ask about one declaration or boundary. `value`, `why` and `pending` can answer before the first
+flush; `why` also includes changes and related action/revert events when recorded. `tail` defaults to 20 records out of
+the most recent 2000; pass `since` as the last received sequence number to skip older records.
+
+Times are in milliseconds on the page's clock. These tools don't execute actions or write state, but previews (including
+action arguments) can contain application data. Keep the Vite endpoint on a trusted dev network.
 
 ## Limits
 
@@ -291,5 +294,6 @@ the Vite endpoint on a trusted dev network.
   that never await.
 - Edges into a `for` row are drawn once per site, not per row.
 - Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
-  chip. A node's first value (a question's first answer) is not a change to Solid, so it doesn't light. The start of a
-  request is read off the node, because Solid's flight record comes only when the request ends.
+  chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
+  visible in current state but isn't a Solid flush change. Real time travel and HMR plans are not implemented yet;
+  reopening the map still shows the same session's timeline and flush count.
