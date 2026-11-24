@@ -102,8 +102,8 @@ their plate with a cast shadow, and edges run on the plate surface.
 - **Code** (the declaration in the panel, tooltips, the guide, diff before / after) is highlighted; a keyword takes
   its role's colour (`source` blue, `action` orange, `await` amber, `component` violet).
 - **Sound:** small synthesized cues (hover, select, toggles, flushes pitched by family, flights, travel, reloads),
-  only after the first click or key, quiet, and rate limited. The dock's speaker mutes it; that is remembered
-  (`rx-map:sound`).
+  quiet and rate limited. Off by default: the dock's speaker turns it on (after a click or key), and the choice is
+  remembered (`rx-map:sound`).
 - **Reduced motion** (the OS setting) turns every movement into a short fade: no flights of the camera, no comets,
   no flips.
 - A map of more than 900 nodes keeps its tokens in their row's plane, so panning stays cheap.

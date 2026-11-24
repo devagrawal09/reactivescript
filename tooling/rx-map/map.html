@@ -1755,7 +1755,7 @@ function bindLegend() {
 
 // ---- sound: small synthesized cues, after the first gesture, quiet, and muted from the HUD -----------------------
 const SOUND_KEY = "rx-map:sound";
-const snd = { on: (() => { try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch { return true; } })(), ctx: null, out: null, armed: false, last: new Map(), queue: [], qraf: 0 };
+const snd = { on: (() => { try { return localStorage.getItem(SOUND_KEY) === "on"; } catch { return false; } })(), ctx: null, out: null, armed: false, last: new Map(), queue: [], qraf: 0 };
 const soundBtn = document.getElementById("soundBtn");
 function soundUI() { soundBtn.innerHTML = snd.on ? ICON.soundOn : ICON.soundOff; soundBtn.setAttribute("aria-pressed", String(snd.on)); soundBtn.title = snd.on ? "sound on (click to mute)" : "sound muted"; }
 soundBtn.onclick = () => { snd.on = !snd.on; try { localStorage.setItem(SOUND_KEY, snd.on ? "on" : "off"); } catch {} soundUI(); if (snd.on) SFX.toggle(); };

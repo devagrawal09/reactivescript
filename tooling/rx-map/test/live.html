@@ -91,9 +91,10 @@ try {
   await sleep(50);
   check("abandon then start keeps the glow", chip("users").classList.contains("flying"));
 
-  // sound: muted from the HUD, remembered
+  // sound: off by default, toggled from the HUD, remembered
   const sb = doc.getElementById("soundBtn");
-  sb.click();
+  check("sound is off by default", sb.getAttribute("aria-pressed") === "false");
+  sb.click(); sb.click();
   check("mute persists in localStorage", win.localStorage.getItem("rx-map:sound") === "off" && sb.getAttribute("aria-pressed") === "false", win.localStorage.getItem("rx-map:sound"));
 
   // time travel (TRACE-CONTRACT v0.1)
@@ -207,6 +208,7 @@ try {
   check("static page: sound stays muted (persisted)", sd.getElementById("soundBtn").getAttribute("aria-pressed") === "false");
   sb.click();
   check("unmute persists", win.localStorage.getItem("rx-map:sound") === "on");
+  sb.click();
 
   if (shot) {
     // leave it lit: users selected and in the air, total and page with values, a fresh pulse on status
