@@ -4,7 +4,8 @@
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
 import * as S from "./store-ops.ts";
-import { FAMILIES, OPTIMISTIC } from "./features.ts";   // the manifest's switches (spec/11 CP-4a): an arm the program cannot reach is not bundled
+import "./features.ts";
+declare const __RX_STORES__: boolean, __RX_FAMILIES__: boolean, __RX_OPTIMISTIC__: boolean;   // the manifest's switches (spec/11 CP-4a): an arm the program cannot reach is not bundled
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import {
@@ -166,7 +167,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
      *  go to the truth, guesses to the layer, and each guess ends when its action's hold commits, showing the truth then. */
     source(name: string, init: unknown, guessed = false): [Acc, Writer] {
       void name;
-      if (typeof init === "object" && init !== null) {
+      if (__RX_STORES__ && typeof init === "object" && init !== null) {
         const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
         const H = S.handleOf(store); (get as any).h = () => { const v = get(); return v === store ? H : v; };
         const w: Writer = {
@@ -174,7 +175,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           path: pathWrite(setStore, H),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
-        if (OPTIMISTIC && guessed) {                                      // createOptimisticStore(() => truth) over createStore(v)
+        if (__RX_OPTIMISTIC__ && guessed) {                                      // createOptimisticStore(() => truth) over createStore(v)
           const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
           const acc = () => view; storeAccs.add(acc); const VH = S.handleOf(view); (acc as any).h = () => VH;
           return [acc, { ...w, guess: guessInto(setView, VH) }];
@@ -194,14 +195,14 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       const fn = named(name, compute);
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
       const seed = () => key && !mode.record ? [] : {};
-      if (OPTIMISTIC && mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
+      if (__RX_OPTIMISTIC__ && mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
         const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined);
         const tacc = () => truth; storeAccs.add(tacc);
         const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined);
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth, S.handleOf(truth)), guess: guessInto(setView, S.handleOf(view)) }];
       }
-      if (OPTIMISTIC && mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
+      if (__RX_OPTIMISTIC__ && mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
         const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined);
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
@@ -218,7 +219,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
-      if (FAMILIES && mode.structured) {
+      if (__RX_FAMILIES__ && mode.structured) {
         const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
@@ -229,9 +230,9 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: !FAMILIES ? undefined as never : (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: !__RX_FAMILIES__ ? undefined as never : (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: !FAMILIES ? undefined as never : (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); const H = S.handleOf(p); const acc = () => p; (acc as any).h = () => H; return acc; },
+    draft: !__RX_FAMILIES__ ? undefined as never : (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); const H = S.handleOf(p); const acc = () => p; (acc as any).h = () => H; return acc; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),

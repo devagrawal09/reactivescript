@@ -6,9 +6,9 @@ import { singleModule } from "../src/modules.ts";
 import { compileModules, type Features } from "./emit.ts";
 
 type Want = Partial<Record<Exclude<keyof Features, "why">, boolean>>;
-const OFF: Want = { accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false };
+const OFF: Want = { stores: true, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false };
 const cases: [string, string, Want][] = [
-  ["no store feature: a counter", `export default component App() {\n  source n := 0\n  <button onClick={() => { n := n + 1 }}>{n}</button>\n}`, OFF],
+  ["no store feature: a counter", `export default component App() {\n  source n := 0\n  <button onClick={() => { n := n + 1 }}>{n}</button>\n}`, { ...OFF, stores: false }],
   ["no store feature: a store with path and root writes", `export default component App() {\n  source user := { name: "Ann", prefs: { size: 12 } }\n  <p onClick={() => { user.prefs.size := 14; user := { name: "Bo", prefs: { size: 1 } } }}>{user.name} {user.prefs.size}</p>\n}`, OFF],
   ["no store feature: rows, a numeric index", `export default component App() {\n  source rows := [{ id: 1, t: "A" }]\n  <ul onClick={() => { rows[0].t := "B"; rows[len(rows) - 1].t := "C" }}>{for r in rows { <li>{r.t}</li> }}</ul>\n}`, OFF],
   ["optimistic: a guess", `import pure { fetch } from "./prelude"\nexport default component App() {\n  source rows := [{ id: 1, t: "A" }]\n  action rename(t) { try { guess rows[0].t := t; let r = await fetch("save"); rows[0].t := r } catch {} }\n  <ul>{for r in rows { <li>{r.t}</li> }}</ul>\n}`, { optimistic: true, families: true, delete: true, accessors: false }],

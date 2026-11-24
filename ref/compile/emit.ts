@@ -57,15 +57,15 @@ function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
 /** Which of Solid's store features the program can reach, decided from its text. `false` is a proof that no store this
  *  program makes can meet the feature, so the build may compile it out of Solid's store (`__SOLID_STORE_<NAME>__: false`);
  *  anything not proved stays `true`. `why` names the first use that kept each feature. */
-export type Features = { accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string> };
-export const ALL_FEATURES = (why: string): Features => ({ accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, why: { accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
+export type Features = { stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string> };   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
+export const ALL_FEATURES = (why: string): Features => ({ stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
 const GUARDED_KEYS = new Set(["constructor", "__proto__", "prototype"]);
 /** An index that is a number whatever it reads: a literal, arithmetic, `len`/`indexOf`. */
 const numericKey = (e: Expr): boolean => (e.k === "lit" && typeof e.v === "number") || (e.k === "bin" && ["-", "*", "/", "%"].includes(e.op)) || (e.k === "un" && e.op === "-") || (e.k === "call" && e.f.k === "id" && (e.f.name === "len" || e.f.name === "indexOf"));
 export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Features {
   // MO-9: a module known only by its signature may make any store
   if (set.signatures?.size) return ALL_FEATURES("a module compiled from its signature (MO-9)");
-  const f: Features = { accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {} };
+  const f: Features = { stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {} };
   const keep = (k: Exclude<keyof Features, "why">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
   const seen = new WeakSet<object>();
   const walk = (x: unknown): void => {
@@ -78,6 +78,9 @@ export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Featur
     if (o.k === "index" && !numericKey(o.i)) keep("guards", "an index that may be a string");
     if ((o.k === "write" || o.k === "optimistic") && o.target.path.some((p: unknown) => typeof p === "string" ? GUARDED_KEYS.has(p) : !numericKey(p as Expr))) keep("guards", `a path write to ${o.target.name} by a key that may be a string`);
     if (o.k === "rec" && o.fields.some((x: any) => "key" in x && GUARDED_KEYS.has(x.key))) keep("guards", "a record literal with a guarded key");
+    // ST-1: a `:=` source whose first value is not a literal atom may hold a structured value (a store behind its slot);
+    // a later write of a structured value to an atomic source stays in its signal (rt `source`)
+    if (o.k === "source" && !o.question && !(o.init?.k === "lit" && (o.init.v === null || typeof o.init.v !== "object"))) keep("stores", `source ${o.name} := a value that may be structured (ST-1)`);
     // derived stores (ST-3, ST-4, ST-5): a draft, a keyed equation or source, a question written or probed by path
     if (o.k === "eq" && o.e?.k === "draft") keep("families", `${o.name} = draft (ST-3)`);
     if ((o.k === "eq" || o.k === "source") && o.key) keep("families", `${o.name} key ${o.key} (ST-4)`);
@@ -89,7 +92,9 @@ export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Featur
   for (const p of set.programs.values()) walk(p);
   walk(extra);
   // a derive's answer is reconciled into its store, and a guess into its layer: both remove keys and rows
-  if (f.families) keep("delete", f.why.families);
+  if (f.families) { keep("delete", f.why.families); keep("stores", f.why.families); }
+  // with no store, none of its features is reachable
+  if (!f.stores) for (const k of ["accessors", "guards", "shallow"] as const) f[k] = false;
   return f;
 }
 

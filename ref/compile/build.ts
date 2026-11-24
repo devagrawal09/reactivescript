@@ -9,7 +9,7 @@ import { loadModules } from "../src/modules.ts";
 import { checkModules } from "../src/check.ts";
 import { compileModules } from "./emit.ts";
 import { lowerViews } from "./jsx.ts";
-import { defines } from "./features.ts";
+import { defines, ALL_ON } from "./features.ts";
 import { gzipSync } from "node:zlib";
 
 const args = process.argv.slice(2);
@@ -34,14 +34,14 @@ window.__app = app;
 // one bundle: the program, rt-web.ts and Solid's DOM build (from the next branch, ../SOLID_NEXT)
 if (args.includes("--prod")) {
   // production: Solid's store-select build with the manifest's switches defined; a second pass drops what the folded arms leave unused
-  const pass1 = buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["store-select", "browser"], define: args.includes("--all-features") ? {} : defines(compiled.features), minify: true, tsconfigRaw: "{}", logLevel: "warning" });
+  const pass1 = buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["store-select", "browser"], define: args.includes("--all-features") ? ALL_ON : defines(compiled.features), minify: true, tsconfigRaw: "{}", logLevel: "warning" });
   writeFileSync(out + "app.pass1.js", pass1.outputFiles[0].contents);
   buildSync({ entryPoints: [out + "app.pass1.js"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", minify: true, logLevel: "warning" });
   writeFileSync(out + "features.json", JSON.stringify(compiled.features, null, 2) + "\n");
   const code = readFileSync(out + "app.js");
   console.log(JSON.stringify({ app: name, features: Object.fromEntries(Object.entries(compiled.features).filter(([k]) => k !== "why")), min: code.length, gzip: gzipSync(code, { level: 9 }).length }));
 } else
-buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", conditions: ["browser", "development"], tsconfigRaw: "{}", logLevel: "warning" });
+buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", conditions: ["browser", "development"], define: ALL_ON, tsconfigRaw: "{}", logLevel: "warning" });
 writeFileSync(out + "index.html", `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>${name}.rx</title>
 <style>body{font:15px system-ui,sans-serif;margin:24px;max-width:640px} .done{text-decoration:line-through;color:#888} .dim{opacity:.5} .selected{font-weight:bold} button{margin:2px}</style>
