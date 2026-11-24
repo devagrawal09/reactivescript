@@ -22,7 +22,7 @@ if (diags.length) { for (const d of diags) console.error(`${d.file ?? file}:${d.
 const out = fileURLToPath(new URL(`./.out/web/${name}/`, import.meta.url)); mkdirSync(out, { recursive: true });
 const compiled = compileModules(set);
 const src = out + "src/"; mkdirSync(src, { recursive: true });
-for (const [n, js] of lowerViews(compiled.files, "dom")) writeFileSync(src + n, js);   // Solid's compiler lowers the views (compile/jsx.ts)
+for (const [n, js] of lowerViews(compiled.files, "dom", !args.includes("--csr"))) writeFileSync(src + n, js);   // Solid's compiler lowers the views (compile/jsx.ts)
 copyFileSync(api, src + "api.mjs");
 writeFileSync(src + "entry.mjs", `import { createApp } from ${JSON.stringify(fileURLToPath(new URL("./rt-web.ts", import.meta.url)))};
 import main from "./${compiled.entry}";
@@ -34,14 +34,14 @@ window.__app = app;
 // one bundle: the program, rt-web.ts and Solid's DOM build (from the next branch, ../SOLID_NEXT)
 if (args.includes("--prod")) {
   // production: Solid's store-select build with the manifest's switches defined; a second pass drops what the folded arms leave unused
-  const pass1 = buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["store-select", "browser"], define: args.includes("--all-features") ? ALL_ON : defines(compiled.features), minify: true, tsconfigRaw: "{}", logLevel: "warning" });
+  const pass1 = buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["store-select", "browser"], define: args.includes("--all-features") ? ALL_ON() : defines(compiled.features, { hydrate: !args.includes("--csr") }), minify: true, tsconfigRaw: "{}", logLevel: "warning" });
   writeFileSync(out + "app.pass1.js", pass1.outputFiles[0].contents);
   buildSync({ entryPoints: [out + "app.pass1.js"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", minify: true, logLevel: "warning" });
   writeFileSync(out + "features.json", JSON.stringify(compiled.features, null, 2) + "\n");
   const code = readFileSync(out + "app.js");
   console.log(JSON.stringify({ app: name, features: Object.fromEntries(Object.entries(compiled.features).filter(([k]) => k !== "why")), min: code.length, gzip: gzipSync(code, { level: 9 }).length }));
 } else
-buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", conditions: ["browser", "development"], define: ALL_ON, tsconfigRaw: "{}", logLevel: "warning" });
+buildSync({ entryPoints: [src + "entry.mjs"], bundle: true, outfile: out + "app.js", format: "esm", platform: "browser", conditions: ["browser", "development"], define: ALL_ON(), tsconfigRaw: "{}", logLevel: "warning" });
 writeFileSync(out + "index.html", `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>${name}.rx</title>
 <style>body{font:15px system-ui,sans-serif;margin:24px;max-width:640px} .done{text-decoration:line-through;color:#888} .dim{opacity:.5} .selected{font-weight:bold} button{margin:2px}</style>

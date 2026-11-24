@@ -18,6 +18,7 @@ import { parseStmts } from "../src/parse.ts";
 import { checkModules } from "../src/check.ts";
 import { compileDynamic, compileDynamicExpr, CompileError } from "../compile/emit.ts";
 import { buildSync } from "esbuild";
+import { ALL_ON } from "../compile/features.ts";
 import { build, type Built } from "../compile/lowered.ts";
 import { createApp, generateHydrationScript } from "../compile/rt-server.ts";
 import { transformDirectives } from "@solidjs/compiler";
@@ -124,7 +125,7 @@ function bundle(dir: string, views: Map<string, string>, entry: string) {
   for (const [name, js] of views) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
   writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
-  const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
+  const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], define: ALL_ON(), logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
   return r.outputFiles[0].text;
 }
 

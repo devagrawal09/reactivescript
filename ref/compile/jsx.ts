@@ -6,10 +6,10 @@ import { fileURLToPath } from "node:url";
 export type Target = "universal" | "dom" | "ssr";
 export const STRING_RENDERER = fileURLToPath(new URL("./string-renderer.ts", import.meta.url));
 /** Each module's JSX → JavaScript for `target` (dom and ssr with hydration; universal over the test renderer). */
-export function lowerViews(files: Map<string, string>, target: Target): Map<string, string> {
+export function lowerViews(files: Map<string, string>, target: Target, hydratable = target !== "universal"): Map<string, string> {
   const out = new Map<string, string>();
   for (const [name, code] of files) {
-    const r = transform(code, { filename: name.replace(/\.mjs$/, ".jsx"), generate: target, hydratable: target !== "universal", moduleName: target === "universal" ? STRING_RENDERER : "@solidjs/web" });
+    const r = transform(code, { filename: name.replace(/\.mjs$/, ".jsx"), generate: target, hydratable, moduleName: target === "universal" ? STRING_RENDERER : "@solidjs/web" });
     out.set(name, r.code);
   }
   return out;

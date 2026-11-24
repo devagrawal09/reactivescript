@@ -57,16 +57,16 @@ function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
 /** Which of Solid's store features the program can reach, decided from its text. `false` is a proof that no store this
  *  program makes can meet the feature, so the build may compile it out of Solid's store (`__SOLID_STORE_<NAME>__: false`);
  *  anything not proved stays `true`. `why` names the first use that kept each feature. */
-export type Features = { stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string> };   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
-export const ALL_FEATURES = (why: string): Features => ({ stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
+export type Features = { guesses: boolean; stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string>; rt: string[]; prelude: string[] };   // rt, prelude: the `__rt` members and prelude functions the compiled modules name (a runtime bundles only those)   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
+export const ALL_FEATURES = (why: string): Features => ({ guesses: true, stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, rt: [], prelude: [], why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
 const GUARDED_KEYS = new Set(["constructor", "__proto__", "prototype"]);
 /** An index that is a number whatever it reads: a literal, arithmetic, `len`/`indexOf`. */
 const numericKey = (e: Expr): boolean => (e.k === "lit" && typeof e.v === "number") || (e.k === "bin" && ["-", "*", "/", "%"].includes(e.op)) || (e.k === "un" && e.op === "-") || (e.k === "call" && e.f.k === "id" && (e.f.name === "len" || e.f.name === "indexOf"));
 export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Features {
   // MO-9: a module known only by its signature may make any store
   if (set.signatures?.size) return ALL_FEATURES("a module compiled from its signature (MO-9)");
-  const f: Features = { stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {} };
-  const keep = (k: Exclude<keyof Features, "why">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
+  const f: Features = { guesses: false, stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {}, rt: [], prelude: [] };
+  const keep = (k: Exclude<keyof Features, "why" | "rt" | "prelude">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
   const seen = new WeakSet<object>();
   const walk = (x: unknown): void => {
     if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
@@ -86,7 +86,7 @@ export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Featur
     if ((o.k === "eq" || o.k === "source") && o.key) keep("families", `${o.name} key ${o.key} (ST-4)`);
     if (o.k === "source" && o.question && u.paths.has(o.name)) keep("families", `source ${o.name} = … written or probed by path (ST-5)`);
     // guesses (AC-3): an optimistic layer is a derived store over the truth
-    if (o.k === "optimistic") { keep("optimistic", `guess ${o.target.name} (AC-3)`); keep("families", `guess ${o.target.name} (AC-3)`); }
+    if (o.k === "optimistic") { keep("guesses", `guess ${o.target.name} (AC-3)`); keep("optimistic", `guess ${o.target.name} (AC-3)`); keep("families", `guess ${o.target.name} (AC-3)`); }
     for (const v of Object.values(o)) walk(v);
   };
   for (const p of set.programs.values()) walk(p);
@@ -132,7 +132,12 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
   }
-  return { files, entry: out(set.entry), css: g.css.join("\n"), features: features(set, g.u, opts.extraStmts) };   // CSS-4: the modules' stylesheets, beside their JavaScript
+  const feats = features(set, g.u, opts.extraStmts);
+  // what the emitted modules name on the runtime: read from the code itself, so it is exact
+  const code = [...files.values()].join("\n");
+  feats.rt = [...new Set([...code.matchAll(/__rt\.([A-Za-z_]\w*)/g)].map(m => m[1]))].sort();
+  feats.prelude = [...new Set([...code.matchAll(/__B\.([A-Za-z_]\w*)/g)].map(m => m[1]))].sort();
+  return { files, entry: out(set.entry), css: g.css.join("\n"), features: feats };   // CSS-4: the modules' stylesheets, beside their JavaScript
 }
 /** Handler rows and resolve values in scenarios: statements over names looked up at run time (rt.lookup). */
 export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return inferredAction(stmts) ? g.stmts([{ k: "action", body: stmts }], env, { imp: true, dyn: true }, 0) : g.stmts(stmts, env, { imp: true, dyn: true }, 0); }   // AC-1b: a handler row is a handler's body
