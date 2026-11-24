@@ -223,6 +223,8 @@ enum Equals {
     IsEqual,
     Slot,
     Container,
+    /// optimistic.ts `patchEquals` (a guess carrier's comparator).
+    Patch,
     User(usize),
 }
 

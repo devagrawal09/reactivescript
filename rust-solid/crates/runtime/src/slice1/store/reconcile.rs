@@ -85,7 +85,8 @@ impl Runtime {
         }
         let is_opt = self.st(t).fam.is_some_and(|f| self.store.families[f].opt);
         let prev_view = if is_opt {
-            self.optimistic_view(t, &old, Pick::Shown, false)?
+            self.pair_rows(t, incoming, true);
+            self.guess_view(t, &old)?
         } else {
             old.clone()
         };

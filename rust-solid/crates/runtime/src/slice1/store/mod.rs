@@ -177,8 +177,33 @@ pub(in crate::slice1) enum ScopeKey {
 pub(in crate::slice1) enum SlotKey {
     Key(Key),
     Track,
+    /// `$PATCH`: an optimistic store's guess carrier (optimistic.ts, S-59).
+    Patch,
     #[allow(dead_code)]
     Deep,
+}
+
+/// A guess carrier's `g`: `undefined` (no arrangement), `null` (an
+/// arrangement waiting on its derive's flight), or the guessed rows.
+#[derive(Clone, Default, PartialEq)]
+pub(in crate::slice1) enum CarrierRows {
+    #[default]
+    Undef,
+    Null,
+    Rows(Vec<Value>),
+}
+
+/// optimistic.ts `guessCarrier`'s expandos on the carrier slot node.
+#[derive(Clone, Default)]
+pub(in crate::slice1) struct Carrier {
+    pub wk: Option<Vec<Key>>,
+    pub del: Option<Vec<Key>>,
+    /// `removed`: the row keys an arrangement guess drops (a Set; null is
+    /// `None`).
+    pub removed: Option<Vec<Value>>,
+    pub borrowed: Option<Vec<Key>>,
+    pub g: CarrierRows,
+    pub qs: Vec<u64>,
 }
 
 /// The module-level state of store.ts, optimistic.ts and projection.ts.
@@ -195,6 +220,8 @@ pub(in crate::slice1) struct StoreState {
     pub direct_commit: bool,
     pub held_derivation_hit: bool,
     pub user_write: bool,
+    /// store.ts `draftReadTx`: the hold a setter's draft read a held key of.
+    pub draft_read_tx: Option<TxId>,
     pub writing: u32,
     pub write_scopes: Option<Vec<ScopeKey>>,
     pub pending_notify: OrdSet<TargetId>,
@@ -206,6 +233,14 @@ pub(in crate::slice1) struct StoreState {
     pub raw_values: std::collections::HashSet<u64>,
     pub raw_values_used: bool,
     // optimistic.ts
+    /// `carriers` (a WeakMap): a target's guess carriers, oldest first.
+    pub carriers: std::collections::HashMap<TargetId, Vec<NodeId>>,
+    /// A carrier node's own fields (`guess`, `wk`, `del`, `removed`,
+    /// `borrowed`, `g`, `qs`).
+    pub carrier: std::collections::HashMap<NodeId, Carrier>,
+    /// `diffing` and `placed` (a WeakMap by raw identity).
+    pub diffing: bool,
+    pub placed: std::collections::HashMap<u64, (TxId, Value)>,
     pub opt_staged: Vec<(TargetId, Obj)>,
     pub overlaid_families: OrdSet<FamId>,
     pub held_c: Option<NodeId>,

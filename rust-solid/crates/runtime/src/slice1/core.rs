@@ -1336,6 +1336,7 @@ impl Runtime {
             Equals::IsEqual => a == b,
             Equals::Slot => self.slot_node_equals(el, a, b),
             Equals::Container => self.container_equals(el, a, b),
+            Equals::Patch => self.patch_equals(el, a, b),
             // A user comparator (it never throws here: `isSame`'s A3 catch
             // is not reached).
             Equals::User(i) => (self.comparators[i].clone())(a, b),

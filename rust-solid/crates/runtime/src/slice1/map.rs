@@ -282,9 +282,13 @@ impl Runtime {
         Ok(Value::Obj(self.maps[d].mappings.clone()))
     }
 
-    /// The body `updateKeyedMap` runs under `runWithOwner(this._owner, …)`.
+    /// The body `updateKeyedRows` runs under `runWithOwner(this._owner, …)`.
     // Solid: map.ts:418-699
-    fn keyed_map_pass(&mut self, d: MapId, new_items: &Value, new_len: usize) -> Result<(), Error> {
+    fn keyed_map_pass(&mut self, d: MapId, list: &Value, new_len: usize) -> Result<(), Error> {
+        // `const newItems = list.slice(0)`: one copy of the source per pass
+        // (#4785); `_items` is this copy.
+        let copy = self.slice0(list)?;
+        let new_items = &Value::Obj(copy);
         // fast path for empty arrays
         if new_len == 0 {
             if self.maps[d].len != 0 {
@@ -354,7 +358,7 @@ impl Runtime {
             if indexes.is_some() {
                 m.indexes = indexes;
             }
-            let items = self.slice0(new_items)?;
+            let items = raw_items(new_items);
             self.maps[d].items = items;
             self.maps[d].len = new_len;
         } else {
@@ -418,7 +422,7 @@ impl Runtime {
 
         // no structural change: keep the same mapped array identity
         if start == new_len as i64 && len == new_len {
-            let items = self.slice0(new_items)?;
+            let items = raw_items(new_items);
             self.maps[d].items = items;
             return Ok(());
         }
@@ -569,7 +573,7 @@ impl Runtime {
         self.maps[d].mappings = JsObj::new_array(temp);
         self.maps[d].len = new_len;
         // save a copy of the mapped items for the next update
-        let items = self.slice0(new_items)?;
+        let items = raw_items(new_items);
         self.maps[d].items = items;
         if let Some(removed) = removed {
             for r in removed {
@@ -743,21 +747,24 @@ impl Runtime {
         let mut budget: i64 = 256;
         let mut i = start as i64;
         let mut j = start as i64;
-        let mut in_run = false;
         while i <= old_end && j < new_len {
             let old_item = self.old_item(d, i as usize);
             let new_item = self.item_at(new_items, j as usize)?;
             if old_item == new_item {
-                if !in_run {
-                    runs.extend([i, j, 0]);
-                    in_run = true;
+                let from = i;
+                loop {
+                    j += 1;
+                    i += 1;
+                    if !(i <= old_end
+                        && j < new_len
+                        && self.old_item(d, i as usize) == self.item_at(new_items, j as usize)?)
+                    {
+                        break;
+                    }
                 }
-                *runs.last_mut().unwrap() += 1;
-                i += 1;
-                j += 1;
+                runs.extend([from, j - i + from, i - from]);
                 continue;
             }
-            in_run = false;
             // Bounded realignment lookahead, shorter distance wins.
             let mut del: i64 = -1;
             let mut lim = (32 - src_pos.len() as i64).min(old_end - i).min(budget);
@@ -819,7 +826,15 @@ impl Runtime {
             dst_pos.push(j);
             j += 1;
         }
-        self.commit_small_move(d, new_items, new_len as usize, src_pos, dst_pos, runs)
+        self.commit_small_move(
+            d,
+            new_items,
+            new_len as usize,
+            start,
+            src_pos,
+            dst_pos,
+            runs,
+        )
     }
 
     // Solid: map.ts:228-302
@@ -828,6 +843,7 @@ impl Runtime {
         d: MapId,
         new_items: &Value,
         new_len: usize,
+        start: usize,
         src_pos: Vec<i64>,
         mut dst_pos: Vec<i64>,
         runs: Vec<i64>,
@@ -854,28 +870,21 @@ impl Runtime {
             }
             consumed = Some(c);
         }
-        // DUPLICATES: decline a displaced identity that also occurs inside
-        // an aligned run.
-        if !src_pos.is_empty() || !dst_pos.is_empty() {
-            let mut displaced: Vec<Value> = vec![];
-            let mut add = |v: Value| {
-                if !displaced.contains(&v) {
-                    displaced.push(v);
-                }
-            };
-            for s in &src_pos {
-                add(self.old_item(d, *s as usize));
+        // DUPLICATES: decline a removed identity that occurs again in the
+        // old window outside the removals (`indexOf` from `start`; holes are
+        // skipped, and a hole itself declines).
+        let _ = &runs;
+        for s0 in &src_pos {
+            let item = self.old_item(d, *s0 as usize);
+            if item.is_undef() {
+                return Ok(false);
             }
-            for p in &dst_pos {
-                let v = self.item_at(new_items, (p >> 6) as usize)?;
-                add(v);
-            }
-            for r in runs.chunks(3) {
-                let ro = r[0];
-                for a in 0..r[2] {
-                    if displaced.contains(&self.old_item(d, (ro + a) as usize)) {
-                        return Ok(false);
-                    }
+            let items = self.maps[d].items.clone();
+            for k in start..items.len() as usize {
+                let key = Key::Idx(k as u32);
+                if items.has_own(&key) && items.get(&key) == item && !src_pos.contains(&(k as i64))
+                {
+                    return Ok(false);
                 }
             }
         }
@@ -904,7 +913,7 @@ impl Runtime {
         self.maps[d].mappings = JsObj::new_array(mappings);
         self.maps[d].nodes = nodes;
         self.maps[d].len = new_len;
-        let items = self.slice0(new_items)?;
+        let items = raw_items(new_items);
         self.maps[d].items = items;
         // Dispose unmatched sources LAST (general-path ordering).
         for (i, s) in src_pos.iter().enumerate() {
@@ -929,5 +938,13 @@ fn map_set(m: &mut Vec<(Value, i64)>, k: Value, v: i64) {
     match m.iter_mut().find(|(x, _)| *x == k) {
         Some(e) => e.1 = v,
         None => m.push((k, v)),
+    }
+}
+
+/// The pass's copy of the source list (`newItems`, a raw array).
+fn raw_items(v: &Value) -> Obj {
+    match v {
+        Value::Obj(o) => o.clone(),
+        _ => unreachable!("the pass's copy is a raw array"),
     }
 }
