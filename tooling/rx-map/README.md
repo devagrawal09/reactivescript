@@ -46,6 +46,9 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
 
   Esc clears a selection, which brings back the tab you were on. Esc again closes the panel. Whether the panel is open,
   and on which tab, is remembered.
+- **Every legend row is a toggle.** It shows or hides that kind of chip or edge on the map, and shows how many this
+  program has. Each section has all / none buttons. While anything is hidden, the header shows `N hidden`, which
+  opens the legend. Hidden kinds are remembered.
 - `#name`, `#name:down` or `#name:up` in the URL selects or traces a name. `/` focuses search.
 
 ## Diff: what changed between two versions

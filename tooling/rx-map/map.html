@@ -27,9 +27,6 @@
   header button, aside button { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer }
   header button:hover, aside button:hover { border-color: var(--dim) }
   .spacer { flex: 1 }
-  #filters { position: relative; color: var(--dim); cursor: pointer }
-  #filters summary { list-style: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; background: var(--card); color: var(--text) }
-  #filters .menu { position: absolute; top: 30px; left: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 6px; z-index: 20; white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.5) }
   @media (max-width: 1100px) { header input[type=search] { width: 140px } }
   #wrap { display: flex; flex: 1; min-height: 0 }
   #canvas { flex: 1; overflow: auto; position: relative }
@@ -117,6 +114,21 @@
   .legend h4:first-child { margin-top: 0 }
   .legend .grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 10px; align-items: center }
   .legend .grid > .chip { justify-self: start }
+  .legend .rows { display: grid; gap: 1px }
+  .lrow { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "sample cnt" "text text"; gap: 2px 8px; align-items: center; text-align: left; background: none; border: 1px solid transparent; border-radius: 6px; padding: 5px 6px; color: inherit; font: inherit; cursor: pointer; width: 100% }
+  .lrow > :first-child { grid-area: sample; justify-self: start }
+  .lrow > .hint { grid-area: text; font-size: 12px; line-height: 1.35 }
+  .lrow > :last-child { grid-area: cnt }
+  .lrow:hover:not(.fixed):not(.none) { background: var(--card); border-color: var(--line) }
+  .lrow.off > :first-child, .lrow.off .hint { opacity: .35 }
+  .lrow.off .hint { text-decoration: line-through }
+  .lrow .cnt { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums }
+  .lrow.none { opacity: .4; cursor: default }
+  .lrow.fixed { cursor: default }
+  .legend h4 { display: flex; align-items: center; justify-content: space-between }
+  .lall { display: inline-flex; gap: 4px; text-transform: none; letter-spacing: 0 }
+  .lall button { background: none; border: 1px solid var(--line); color: var(--dim); border-radius: 5px; padding: 0 6px; font-size: 11px; cursor: pointer }
+  .lall button:hover { color: var(--text) }
   .legend svg { display: block }
   .stats { color: var(--dim); font-size: 12px }
 
@@ -136,7 +148,7 @@
   .was { color: #f59e0b }
   aside pre.before { border-color: #ef4444; opacity: .85 }
   #diffbar { display: none; gap: 6px; align-items: center }
-  .diffonly { display: none !important } body.diff .diffonly { display: inline-flex !important }
+  #hiddenBtn { color: #fbbf24 }
   body.diff #diffbar { display: inline-flex }
   #diffbar select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px }
 </style>
@@ -146,14 +158,7 @@
   <h1>rx-map <small class="mono"><!--__TITLE__--></small></h1>
   <input type="search" id="q" placeholder="find a name…  (/)">
   <label><input type="checkbox" id="all"> all edges</label>
-  <details id="filters"><summary>show…</summary><div class="menu">
-    <label><input type="checkbox" class="et" value="read" checked> reads</label>
-    <label><input type="checkbox" class="et" value="write" checked> writes</label>
-    <label><input type="checkbox" class="et" value="call" checked> calls</label>
-    <label><input type="checkbox" class="et" value="flow" checked> props &amp; renders</label>
-    <label><input type="checkbox" id="sites" checked> view sites</label>
-    <label class="diffonly"><input type="checkbox" id="changes" checked> changed edges, always</label>
-  </div></details>
+  <button id="hiddenBtn" hidden title="open the legend to show them again"></button>
   <span id="diffbar"><select id="view"><option value="both">before + after</option><option value="before">before</option><option value="after">after</option></select></span>
   <span class="spacer"></span>
   <span class="stats" id="stats"></span>
@@ -412,27 +417,25 @@ function render() {
   }
   document.getElementById("stats").textContent =
     `${G.modules.length} module${G.modules.length > 1 ? "s" : ""} · ${G.nodes.filter(n => !n.site).length} names · ${G.nodes.filter(n => n.site).length} sites · ${G.edges.length} edges`;
-  toggleSites();
+  applyHidden();
 }
 
 // ---- edges -----------------------------------------------------------------------------------------------------
 let focus = null;          // { set of node ids, set of edges } when a trace or hover is active
 let selected = null;
-const types = () => new Set([...document.querySelectorAll(".et:checked")].map(i => i.value));
 
 function draw() {
   const W = board.scrollWidth, H = board.scrollHeight;
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const base = board.getBoundingClientRect();
-  const show = types();
   let list;
   if (focus) list = [...focus.edges];
   else if (document.getElementById("all").checked) list = G.edges;
-  else if (DIFF && document.getElementById("changes").checked) list = G.edges.filter(e => e.status !== "same");
+  else if (DIFF && !hidden.has("d:changes")) list = G.edges.filter(e => e.status !== "same");
   else list = [];
   const view = DIFF ? document.getElementById("view").value : "both";
   list = list.filter(e => !(view === "before" && e.status === "added") && !(view === "after" && e.status === "removed"));
-  list = list.filter(e => show.has(edgeGroup(e)));
+  list = list.filter(e => !hidden.has(`e:${edgeKey(e)}`));
   const markers = new Set();
   const paths = [];
   for (const e of list) {
@@ -620,6 +623,7 @@ function showPanel(id) {
 function esc(t) { return String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]); }
 function md(t) { return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>"); }
 function bindPanel() {
+  bindLegend();
   panel.querySelectorAll("#summary li").forEach(li => li.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); li.click(); } });
   panel.querySelectorAll("#summary li").forEach(li => li.onclick = () => {
     const it = G.diff.summary[+li.dataset.i];
@@ -703,38 +707,61 @@ document.addEventListener("keydown", ev => {
 document.getElementById("all").onchange = redraw;
 if (DIFF) {
   document.body.classList.add("diff");
-  document.getElementById("changes").onchange = redraw;
   document.getElementById("view").onchange = ev => { document.body.classList.remove("v-before", "v-after"); if (ev.target.value !== "both") document.body.classList.add(`v-${ev.target.value}`); redraw(); };
 }
-document.querySelectorAll(".et").forEach(i => (i.onchange = redraw));
-function toggleSites() {
-  const on = document.getElementById("sites").checked;
-  document.querySelectorAll(".chips.sites").forEach(c => (c.style.display = on ? "" : "none"));
-  redraw();
-}
-document.getElementById("sites").onchange = toggleSites;
 new ResizeObserver(redraw).observe(board);
 
-// ---- legend ----------------------------------------------------------------------------------------------------
+// ---- legend: every row is also a show / hide toggle -------------------------------------------------------------
+const SHOW_KEY = "rx-map:hidden";
+const hidden = new Set((() => { try { return JSON.parse(localStorage.getItem(SHOW_KEY) ?? "[]"); } catch { return []; } })());
+const edgeKey = e => e.type === "read" ? (e.probe ? "read:probe" : `read:${e.mode}`) : e.type === "write" ? (EDGE[`write:${e.op}`] ? `write:${e.op}` : "write:write") : e.type;
+const hideStyle = document.head.appendChild(document.createElement("style"));
+function applyHidden() {
+  hideStyle.textContent = [...hidden].filter(k => k.startsWith("k:")).map(k => `#board .chip.k-${k.slice(2)}:not(.compref) { display: none }`).join("\n");
+  try { localStorage.setItem(SHOW_KEY, JSON.stringify([...hidden])); } catch {}
+  const hb = document.getElementById("hiddenBtn");
+  hb.hidden = !hidden.size; hb.textContent = `${hidden.size} hidden`;
+  panel.querySelectorAll(".lrow[data-key]").forEach(b => { const off = hidden.has(b.dataset.key); b.classList.toggle("off", off); b.setAttribute("aria-pressed", String(!off)); });
+  redraw();
+}
+document.getElementById("hiddenBtn").onclick = () => { if (selected) { before = null; clearSelection(); } openTab("legend"); };
+const kindCount = {}, edgeCount = {};
+for (const n of G.nodes) { const k = n.kind === "comp" ? "comp" : kindOf(n); kindCount[k] = (kindCount[k] ?? 0) + 1; }
+for (const e of G.edges) { const k = edgeKey(e); edgeCount[k] = (edgeCount[k] ?? 0) + 1; }
+function lrow(key, sample, text, count) {
+  const off = hidden.has(key);
+  return `<button class="lrow${off ? " off" : ""}${count ? "" : " none"}" data-key="${key}" aria-pressed="${!off}" ${count ? "" : "disabled"} title="${count ? "click to show or hide" : "none in this program"}">${sample}<span class="hint">${text}</span><span class="cnt">${count}</span></button>`;
+}
+const chipSample = (k, extra = "") => `<span class="chip k-${k} ${extra}" style="pointer-events:none"><span class="k">${KIND[k].k}</span></span>`;
+const lsection = (title, keys, rows) => `<h4>${title}<span class="lall">${keys.length > 1 ? `<button data-all="${keys.join(",")}">all</button><button data-none="${keys.join(",")}">none</button>` : ""}</span></h4><div class="rows">${rows}</div>`;
+const THINGS = ["source", "asource", "eq", "aeq", "action", "fn", "server", "context", "errclass", "props", "import"];
+const SITES = ["reader", "handler", "prop", "effect", "provide"];
 const legendHTML = () => `<div class="legend"><h2>Legend</h2>
-  <h4>Things</h4><div class="grid">${["source", "asource", "eq", "aeq", "action", "fn", "server", "context", "errclass", "comp", "import"].map(k =>
-    `<span class="chip k-${k} ${k === "asource" || k === "aeq" ? "async" : ""} ${k === "import" ? "trust io" : ""}" style="pointer-events:none"><span class="k">${KIND[k].k}</span></span><span class="hint">${KIND[k].what}</span>`).join("")}
-  ${["reader", "handler", "effect", "prop"].map(k => `<span class="chip site k-${k}" style="pointer-events:none"><span class="k">${KIND[k].k}</span></span><span class="hint">${KIND[k].what}</span>`).join("")}</div>
-  <h4>Edges</h4><div class="grid">${Object.values(EDGE).map(s => `<svg width="40" height="10"><line x1="0" y1="5" x2="40" y2="5" stroke="${s.c}" stroke-width="${s.w + .4}" ${s.d ? `stroke-dasharray="${s.d}"` : ""}/></svg><span class="hint">${s.label}</span>`).join("")}</div>
-  <h4>Marks</h4><div class="grid">
-    <span class="chip k-eq async" style="pointer-events:none"><span class="k">eq</span></span><span class="hint">striped: can be pending</span>
-    <span class="chip k-action io" style="pointer-events:none"><span class="k">action</span></span><span class="hint">red dot: io, touches the world</span>
-    <span class="chip k-import trust" style="pointer-events:none"><span class="k">js</span></span><span class="hint">dashed: a trust point (pure / fails / .d.rx)</span>
+  <p class="hint" style="margin-top:0">Click a row to show or hide it on the map.</p>
+  ${lsection("Things", THINGS.map(k => `k:${k}`), THINGS.map(k => lrow(`k:${k}`, chipSample(k, k === "asource" || k === "aeq" ? "async" : k === "import" ? "trust" : ""), KIND[k].what, kindCount[k] ?? 0)).join("")
+    + `<div class="lrow fixed">${chipSample("comp")}<span class="hint">${KIND.comp.what} (always shown)</span><span class="cnt">${kindCount.comp ?? 0}</span></div>`)}
+  ${lsection("View sites", SITES.map(k => `k:${k}`), SITES.map(k => lrow(`k:${k}`, chipSample(k, "site"), KIND[k].what, kindCount[k] ?? 0)).join(""))}
+  ${lsection("Edges", Object.keys(EDGE).map(k => `e:${k}`), Object.entries(EDGE).map(([k, s]) => lrow(`e:${k}`, `<svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="${s.c}" stroke-width="${s.w + .4}" ${s.d ? `stroke-dasharray="${s.d}"` : ""}/></svg>`, s.label, edgeCount[k] ?? 0)).join(""))}
+  ${DIFF ? lsection("Diff", ["d:changes"], lrow("d:changes", `<svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#22c55e" stroke-width="2"/></svg>`, "draw changed edges without hovering", G.edges.filter(e => e.status !== "same").length)
+    + `<div class="lrow fixed"><span class="chip k-eq d-added" style="pointer-events:none"><span class="d">+</span><span class="k">eq</span></span><span class="hint">added</span><span></span></div>
+    <div class="lrow fixed"><span class="chip k-eq d-changed" style="pointer-events:none"><span class="d">Δ</span><span class="k">eq</span></span><span class="hint">changed: what it is, async, io</span><span></span></div>
+    <div class="lrow fixed"><span class="chip k-eq d-removed" style="pointer-events:none"><span class="d">−</span><span class="k">eq</span></span><span class="hint">removed (before / after is in the header)</span><span></span></div>`) : ""}
+  <h4>Marks</h4><div class="rows">
+    <div class="lrow fixed">${chipSample("eq", "async")}<span class="hint">striped: can be pending</span><span></span></div>
+    <div class="lrow fixed">${chipSample("action", "io")}<span class="hint">red dot: io, touches the world</span><span></span></div>
+    <div class="lrow fixed">${chipSample("import", "trust")}<span class="hint">dashed: a trust point (pure / fails / .d.rx)</span><span></span></div>
   </div>
-  <h4>Frames</h4><div class="grid">
-    <span class="hint" style="color:var(--comp)">component</span><span class="hint">owns everything declared in it</span>
-    <span class="hint" style="color:var(--aeq)">loading</span><span class="hint">shows a fallback while what it reads is pending</span>
-    <span class="hint" style="color:var(--err)">errored</span><span class="hint">shows a fallback when what it reads fails</span>
-    <span class="hint">for each / if</span><span class="hint">a row or a branch: created and disposed with it</span>
-  </div>${DIFF ? `<h4>Diff</h4><div class="grid">
-    <span class="chip k-eq d-added" style="pointer-events:none"><span class="d">+</span><span class="k">eq</span></span><span class="hint">added</span>
-    <span class="chip k-eq d-changed" style="pointer-events:none"><span class="d">Δ</span><span class="k">eq</span></span><span class="hint">changed: what it is, async, io</span>
-    <span class="chip k-eq d-removed" style="pointer-events:none"><span class="d">−</span><span class="k">eq</span></span><span class="hint">removed</span></div>` : ""}</div>`;
+  <h4>Frames</h4><div class="rows">
+    <div class="lrow fixed"><span class="hint" style="color:var(--comp)">component</span><span class="hint">owns everything declared in it</span><span></span></div>
+    <div class="lrow fixed"><span class="hint" style="color:var(--aeq)">loading</span><span class="hint">shows a fallback while what it reads is pending</span><span></span></div>
+    <div class="lrow fixed"><span class="hint" style="color:var(--err)">errored</span><span class="hint">shows a fallback when what it reads fails</span><span></span></div>
+    <div class="lrow fixed"><span class="hint">for each / if</span><span class="hint">a row or a branch: created and disposed with it</span><span></span></div>
+  </div></div>`;
+function bindLegend() {
+  panel.querySelectorAll(".lrow[data-key]").forEach(b => b.onclick = () => { const k = b.dataset.key; hidden.has(k) ? hidden.delete(k) : hidden.add(k); applyHidden(); });
+  panel.querySelectorAll("[data-all]").forEach(b => b.onclick = () => { b.dataset.all.split(",").forEach(k => hidden.delete(k)); applyHidden(); });
+  panel.querySelectorAll("[data-none]").forEach(b => b.onclick = () => { b.dataset.none.split(",").forEach(k => hidden.add(k)); applyHidden(); });
+}
 
 render();
 renderPanel();
