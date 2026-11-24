@@ -33,8 +33,10 @@ carried forward.
   eval fuzz seeds 1–100, SSR fuzz seeds 1–100 (Chromium: on PATH or `$CHROMIUM`), the plan v2.1 and async eval
   fuzz seeds 1–100, the SSR fuzz v2.1 seeds 1–100, and the placement fuzz seeds 1–100 (slice 6, with rust-solid's
   `frames-server`).
-- **OUT=.out/repin-fdbcad92 sh scripts/verify-pinned.sh --rust**: also run upstream and Rust checks.
-  This full check fails at the pin: upstream's interpreter fails S-store-8. No exit code is waived.
+- **OUT=.out/repin-e650b85 sh scripts/verify-pinned.sh --rust**: also run upstream and Rust checks.
+  This full check fails at the pin: upstream's ssr runner fails one case ("Frames [hydrated late]", a 404) on the
+  recorded machine; S-store-8, red at fdbcad92, passes since upstream c746908. No exit code is waived.
+  pins.json records the measured upstream summaries (docs/PIN-MAIN-FRONTEND.md).
 - **npm run fuzz -- --seeds 200 --start 0 --no-reduce**: write five-backend traces and a summary.
 - **RUST_SOLID=$PWD/../rust-solid npm run plan-fuzz -- --seeds 1000 --start 1**: the plan fuzz (the gate runs seeds 1–100).
 - **RUST_SOLID=$PWD/../rust-solid npm run eval-fuzz -- --seeds 1000 --start 1**: the eval fuzz (the gate runs seeds 1–100);
@@ -69,9 +71,11 @@ setup helpers/constants and cross-module component imports are not supported. Se
 
 ## Clean pinned layout
 
-ReactiveScript fdbcad921c6bc1cae59cbebe9905eeabc480e88f; Solid 2105ffb8ca2fced55f5fac0763177fc93f97c2c2
-(upstream ref/SOLID_NEXT, Solid 2.0.0-rc.21). Node 24.18.0, pnpm 11.20.0, Rust 1.97.1.
-Remaining versions and measured upstream baselines are in pins.json.
+ReactiveScript e650b85154c53912fa779c9badef73c1e2998b87 (main); Solid 30e7805eb1bbd9e2601d0252558e91d2547e96f4
+(upstream ref/SOLID_NEXT, Solid main, solid-js 2.0.3). Node 24.18.0, pnpm 11.20.0, Rust 1.97.1.
+Remaining versions and measured upstream baselines are in pins.json. The move from fdbcad92 / rc.21 (2105ffb8), what
+changed upstream and what was re-recorded: docs/PIN-MAIN-FRONTEND.md. RX guesses are written `guess x := v`
+(upstream #47; the AST statement kind is still `optimistic`).
 
 Use sibling directories frontend/, rust-solid/, reactivescript/, solid-next/: this package is frontend/ of the
 solid-model repository, whose scripts/setup.sh clones and builds the two pinned checkouts at its root (gitignored).

@@ -34,9 +34,11 @@ Run `npm run fuzz -- --seeds N --start S`. Results go to `.out/fuzz/run-S-N/`: s
 findings.md, and per divergence the generated and reduced TSX/RX, script and traces. `tsx/fuzz.test.ts` is a
 fixed-seed smoke test (seeds 0..19) in `verify:subset`.
 
-## Current gate: seeds 0..199 (fdbcad92, Solid 2105ffb8 / rc.21)
+## Current gate: seeds 0..199 (e650b85, Solid 30e7805e)
 
-200 programs: 179 agree on all five legs; 21 differ only between the interpreter and compiled RX. No generator
+200 programs: 184 agree on all five legs; 16 differ only between the interpreter and compiled RX. At fdbcad92 / rc.21
+it was 179 and 21: upstream f51bb5e (#33, "a functional guess sees the screen") fixed U1 seeds 17, 92, 103, 149 and
+199 (docs/PIN-MAIN-FRONTEND.md). The U1/U2 seed lists below are the historical 500-seed run's. No generator
 errors, adapter differences or native-versus-compiled differences. The exact upstream seed list is in
 baselines/fuzz-upstream.json. npm run verify:subset runs this fixed sample without reduction and fails on unlisted
 upstream differences as well as adapter/semantics differences. --no-reduce writes original traces, not reduced cases.
