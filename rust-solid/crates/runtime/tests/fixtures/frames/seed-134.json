@@ -1128,7 +1128,7 @@
     "headers": [
      [
       "host",
-      "127.0.0.1:41473"
+      "127.0.0.1:41505"
      ],
      [
       "connection",
@@ -1136,7 +1136,7 @@
      ],
      [
       "sec-ch-ua",
-      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+      "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\""
      ],
      [
       "sec-ch-ua-mobile",
@@ -1152,7 +1152,7 @@
      ],
      [
       "user-agent",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
      ],
      [
       "accept",
@@ -1194,7 +1194,7 @@
      ]
     ],
     "chunks": [
-     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=5><button>Mode: all</button><!--$--><h1 _hk=600000>1</h1><p _hk=600001>1 open</p><h3 _hk=600002>Open issues</h3><solid-frame data-fid=\"TopList$server-109cc172\" style=\"display:contents\"><ul><!--lr--><li><!--slot:Chip#0:start--><button _hk=sc-TopList$server-109cc172-Chip#0-0>Typo in footer</button><!--slot:Chip#0:end--></li><!--lr--><li><!--slot:Chip#1:start--><button _hk=sc-TopList$server-109cc172-Chip#1-0>Dark mode</button><!--slot:Chip#1:end--></li><!--lr--><li><!--slot:Chip#2:start--><button _hk=sc-TopList$server-109cc172-Chip#2-0>Login loop</button><!--slot:Chip#2:end--></li><!--lr--><li><!--slot:Chip#3:start--><button _hk=sc-TopList$server-109cc172-Chip#3-0>Broken link</button><!--slot:Chip#3:end--></li></ul></solid-frame><div _hk=6000071><b>Login loop</b><i>#3</i></div><p _hk=60000800><!--$-->Typo in footer<!--/--><button>show</button></p><p _hk=60000810><!--$-->Dark mode<!--/--><button>show</button></p><p _hk=60000820><!--$-->Login loop<!--/--><button>show</button></p><p _hk=60000830><!--$-->Broken link<!--/--><button>show</button></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"2\"]=$R[5]=($R[6]=$R[2]()).p;_$HY.r[\"600_fr\"]=$R[7]=($R[8]=$R[2]()).p;_$HY.r[\"6000070\"]=$R[9]=($R[10]=$R[2]()).p;($R[16]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[11]=[$R[12]={id:1,title:\"Typo in footer\",owner:\"ana\"},$R[13]={id:2,title:\"Dark mode\",owner:\"ana\"},$R[14]={id:3,title:\"Login loop\",owner:\"bo\"},$R[15]={id:4,title:\"Broken link\",owner:\"\"}]);$R[16]($R[4],1);$R[16]($R[10],$R[17]={title:\"Login loop\"});$R[16]($R[6],$R[18]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"TopList$server-109cc172\",\"TopList$server-109cc172\"));_$HY.r[\"sc:live\"]=$R[19]=($R[20]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[21]=($R[22]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));_$HY.r[\"sc:deps:TopList$server-109cc172:0\"]=($R[23]={});$R[16]($R[8],!0);_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#0\"]=$R[24]=($R[25]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#1\"]=$R[26]=($R[27]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#2\"]=$R[28]=($R[29]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#3\"]=$R[30]=($R[31]=$R[2]()).p;$R[16]($R[25],$R[32]={id:1,label:\"Typo in footer\"});$R[16]($R[27],$R[33]={id:2,label:\"Dark mode\"});$R[16]($R[29],$R[34]={id:3,label:\"Login loop\"});$R[16]($R[31],$R[35]={id:4,label:\"Broken link\"});$R[21].return(void 0);</script></div></body></html>"
+     "<!doctype html><html><head><script>window._$HY||(e=>{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"click\",\"input\"].forEach((o=>document.addEventListener(o,(o=>{if(!e.events)return;let n=o.composedPath&&o.composedPath()[0]||o.target,s=t(n);s&&!e.completed.has(s)&&e.events.push([s,o,n])}))))})(_$HY={events:[],completed:new WeakSet,r:new Proxy({},{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{}),r[k]=v,!0)}),fe(){}});</script><!--xs--></head><body><div id=\"app\"><section _hk=5><button>Mode: all</button><!--$--><h1 _hk=600000>1</h1><p _hk=600001>1 open</p><h3 _hk=600002>Open issues</h3><solid-frame data-fid=\"TopList$server-109cc172\" style=\"display:contents\"><ul><!--lr--><li><!--slot:Chip#0:start--><button _hk=sc-TopList$server-109cc172-Chip#0-0>Typo in footer</button><!--slot:Chip#0:end--></li><!--lr--><li><!--slot:Chip#1:start--><button _hk=sc-TopList$server-109cc172-Chip#1-0>Dark mode</button><!--slot:Chip#1:end--></li><!--lr--><li><!--slot:Chip#2:start--><button _hk=sc-TopList$server-109cc172-Chip#2-0>Login loop</button><!--slot:Chip#2:end--></li><!--lr--><li><!--slot:Chip#3:start--><button _hk=sc-TopList$server-109cc172-Chip#3-0>Broken link</button><!--slot:Chip#3:end--></li></ul></solid-frame><div _hk=6000071><b>Login loop</b><i>#3</i></div><p _hk=60000800><!--$-->Typo in footer<!--/--><button>show</button></p><p _hk=60000810><!--$-->Dark mode<!--/--><button>show</button></p><p _hk=60000820><!--$-->Login loop<!--/--><button>show</button></p><p _hk=60000830><!--$-->Broken link<!--/--><button>show</button></p><!--/--><em></em></section><script>(self.$R=self.$R||{})[\"\"]=[];_$HY.r[\"0\"]=$R[0]=($R[1]=($R[2]=() => {\n\tconst resolver = {\n\t\tp: 0,\n\t\ts: 0,\n\t\tf: 0\n\t};\n\tresolver.p = new Promise((resolve, reject) => {\n\t\tresolver.s = resolve;\n\t\tresolver.f = reject;\n\t});\n\treturn resolver;\n})()).p;_$HY.r[\"1\"]=$R[3]=($R[4]=$R[2]()).p;_$HY.r[\"2\"]=$R[5]=($R[6]=$R[2]()).p;_$HY.r[\"600_fr\"]=$R[7]=($R[8]=$R[2]()).p;_$HY.r[\"6000070\"]=$R[9]=($R[10]=$R[2]()).p;($R[16]=(resolver, data) => {\n\tresolver.s(data);\n\tresolver.p.s = 1;\n\tresolver.p.v = data;\n})($R[1],$R[11]=[$R[12]={id:1,title:\"Typo in footer\",owner:\"ana\"},$R[13]={id:2,title:\"Dark mode\",owner:\"ana\"},$R[14]={id:3,title:\"Login loop\",owner:\"bo\"},$R[15]={id:4,title:\"Broken link\",owner:\"\"}]);$R[16]($R[4],1);$R[16]($R[10],$R[17]={title:\"Login loop\"});$R[16]($R[6],$R[18]=(self._$SC||(self._$SC={c:{},a:{},b:{},r(i,a){var c=this.c[i]||(this.c[i]=(p,b)=>self._$SC.impl(i,p,b));if(!a)return c;this.a[a]=i;this.reg&&this.reg(a,i);return this.b[a]||(this.b[a]=Object.assign(p=>c(p,()=>a),{[Symbol.for(\"solid.component-binding\")]:{component:c,address:a}}))}})).r(\"TopList$server-109cc172\",\"TopList$server-109cc172\"));_$HY.r[\"sc:live\"]=$R[19]=($R[20]=(stream) => new ReadableStream({ start(controller) {\n\tstream.on({\n\t\tnext(value) {\n\t\t\ttry {\n\t\t\t\tcontroller.enqueue(value);\n\t\t\t} catch (_error) {}\n\t\t},\n\t\tthrow(value) {\n\t\t\tcontroller.error(value);\n\t\t},\n\t\treturn() {\n\t\t\ttry {\n\t\t\t\tcontroller.close();\n\t\t\t} catch (_error) {}\n\t\t}\n\t});\n} }))($R[21]=($R[22]=(live) => {\n\tconst buffer = [];\n\tconst listeners = [];\n\tlet alive = true;\n\tlet success = false;\n\tlet count = 0;\n\tconst internal = {\n\t\tflush(value, mode, x) {\n\t\t\tlive > 1 || buffer.push(value);\n\t\t\tfor (x = 0; x < count; x++) {\n\t\t\t\tconst listener = listeners[x];\n\t\t\t\tif (listener) listener[mode](value);\n\t\t\t}\n\t\t},\n\t\tup(listener, x, z, current) {\n\t\t\tfor (x = 0, z = buffer.length; x < z; x++) {\n\t\t\t\tcurrent = buffer[x];\n\t\t\t\tif (!alive && x === z - 1) listener[success ? \"return\" : \"throw\"](current);\n\t\t\t\telse listener.next(current);\n\t\t\t}\n\t\t},\n\t\ton(listener, temp = 0) {\n\t\t\tif (live > 1) throw new Error(\"Stream consumed\");\n\t\t\tlet subscribed = alive;\n\t\t\tif (alive) {\n\t\t\t\tfor (temp = 0; temp < count; temp++) if (!listeners[temp]) break;\n\t\t\t\tif (temp === count) count++;\n\t\t\t\tlisteners[temp] = listener;\n\t\t\t}\n\t\t\tinternal.up(listener);\n\t\t\tif (live) {\n\t\t\t\tlive = 2;\n\t\t\t\tbuffer.length = 0;\n\t\t\t}\n\t\t\treturn () => {\n\t\t\t\tif (alive && subscribed) {\n\t\t\t\t\tsubscribed = false;\n\t\t\t\t\tlisteners[temp] = void 0;\n\t\t\t\t\twhile (count > 0 && !listeners[count - 1]) count--;\n\t\t\t\t\tlisteners.length = count;\n\t\t\t\t}\n\t\t\t};\n\t\t}\n\t};\n\treturn {\n\t\t__SEROVAL_STREAM__: true,\n\t\ton(listener) {\n\t\t\treturn internal.on(listener);\n\t\t},\n\t\tnext(value) {\n\t\t\tif (alive) internal.flush(value, \"next\");\n\t\t},\n\t\tthrow(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"throw\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = false;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t},\n\t\treturn(value) {\n\t\t\tif (alive) {\n\t\t\t\tinternal.flush(value, \"return\");\n\t\t\t\talive = false;\n\t\t\t\tsuccess = true;\n\t\t\t\tlisteners.length = 0;\n\t\t\t}\n\t\t}\n\t};\n})(1));_$HY.r[\"sc:deps:TopList$server-109cc172:0\"]=($R[23]={});$R[16]($R[8],!0);_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#0\"]=$R[24]=($R[25]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#1\"]=$R[26]=($R[27]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#2\"]=$R[28]=($R[29]=$R[2]()).p;_$HY.r[\"sc:slot:TopList$server-109cc172:Chip#3\"]=$R[30]=($R[31]=$R[2]()).p;$R[16]($R[25],$R[32]={id:1,label:\"Typo in footer\"});$R[16]($R[27],$R[33]={id:2,label:\"Dark mode\"});$R[16]($R[29],$R[34]={id:3,label:\"Login loop\"});$R[16]($R[31],$R[35]={id:4,label:\"Broken link\"});$R[21].return(void 0);</script></div></body></html>"
     ]
    }
   },
@@ -1205,7 +1205,7 @@
     "headers": [
      [
       "host",
-      "127.0.0.1:41473"
+      "127.0.0.1:41505"
      ],
      [
       "connection",
@@ -1221,11 +1221,11 @@
      ],
      [
       "user-agent",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
      ],
      [
       "sec-ch-ua",
-      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+      "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\""
      ],
      [
       "content-type",
@@ -1245,7 +1245,7 @@
      ],
      [
       "origin",
-      "http://127.0.0.1:41473"
+      "http://127.0.0.1:41505"
      ],
      [
       "sec-fetch-site",
@@ -1261,7 +1261,7 @@
      ],
      [
       "referer",
-      "http://127.0.0.1:41473/"
+      "http://127.0.0.1:41505/"
      ],
      [
       "accept-encoding",
@@ -1314,7 +1314,7 @@
     "headers": [
      [
       "host",
-      "127.0.0.1:41473"
+      "127.0.0.1:41505"
      ],
      [
       "connection",
@@ -1330,11 +1330,11 @@
      ],
      [
       "user-agent",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
      ],
      [
       "sec-ch-ua",
-      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+      "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\""
      ],
      [
       "content-type",
@@ -1354,7 +1354,7 @@
      ],
      [
       "origin",
-      "http://127.0.0.1:41473"
+      "http://127.0.0.1:41505"
      ],
      [
       "sec-fetch-site",
@@ -1370,7 +1370,7 @@
      ],
      [
       "referer",
-      "http://127.0.0.1:41473/"
+      "http://127.0.0.1:41505/"
      ],
      [
       "accept-encoding",
@@ -1419,7 +1419,7 @@
     "headers": [
      [
       "host",
-      "127.0.0.1:41473"
+      "127.0.0.1:41505"
      ],
      [
       "connection",
@@ -1435,11 +1435,11 @@
      ],
      [
       "user-agent",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
      ],
      [
       "sec-ch-ua",
-      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+      "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\""
      ],
      [
       "content-type",
@@ -1459,7 +1459,7 @@
      ],
      [
       "origin",
-      "http://127.0.0.1:41473"
+      "http://127.0.0.1:41505"
      ],
      [
       "sec-fetch-site",
@@ -1475,7 +1475,7 @@
      ],
      [
       "referer",
-      "http://127.0.0.1:41473/"
+      "http://127.0.0.1:41505/"
      ],
      [
       "accept-encoding",
@@ -1524,7 +1524,7 @@
     "headers": [
      [
       "host",
-      "127.0.0.1:41473"
+      "127.0.0.1:41505"
      ],
      [
       "connection",
@@ -1540,11 +1540,11 @@
      ],
      [
       "user-agent",
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/143.0.0.0 Safari/537.36"
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36"
      ],
      [
       "sec-ch-ua",
-      "\"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\""
+      "\"Google Chrome\";v=\"149\", \"Chromium\";v=\"149\", \"Not)A;Brand\";v=\"24\""
      ],
      [
       "content-type",
@@ -1564,7 +1564,7 @@
      ],
      [
       "origin",
-      "http://127.0.0.1:41473"
+      "http://127.0.0.1:41505"
      ],
      [
       "sec-fetch-site",
@@ -1580,7 +1580,7 @@
      ],
      [
       "referer",
-      "http://127.0.0.1:41473/"
+      "http://127.0.0.1:41505/"
      ],
      [
       "accept-encoding",

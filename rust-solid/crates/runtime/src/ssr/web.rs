@@ -887,8 +887,9 @@ pub fn render_to_string(
     result
 }
 
-// Solid: server.ts:5846-5848, 5855-5861 (`generateHydrationScript`, `hydrationBootstrap`
-// with no nonce and no ledger)
+// Solid: server.ts:5955-5970 (main 30e7805e: `generateHydrationScript`,
+// `hydrationBootstrap` with no nonce and no ledger; an event records its
+// original target `n` too)
 pub fn generate_hydration_script(event_names: &[&str]) -> String {
     let names = if event_names.is_empty() {
         vec!["click", "input"]
@@ -896,7 +897,7 @@ pub fn generate_hydration_script(event_names: &[&str]) -> String {
         event_names.to_vec()
     };
     format!(
-        "<script>window._$HY||(e=>{{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"{}\"].forEach((o=>document.addEventListener(o,(o=>{{if(!e.events)return;let s=t(o.composedPath&&o.composedPath()[0]||o.target);s&&!e.completed.has(s)&&e.events.push([s,o])}}))))}})(_$HY={{events:[],completed:new WeakSet,r:new Proxy({{}},{{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{{}}),r[k]=v,!0)}}),fe(){{}}}});</script><!--xs-->",
+        "<script>window._$HY||(e=>{{let t=e=>e&&e.hasAttribute&&(e.hasAttribute(\"_hk\")?e:t(e.host&&e.host.nodeType?e.host:e.parentNode));[\"{}\"].forEach((o=>document.addEventListener(o,(o=>{{if(!e.events)return;let n=o.composedPath&&o.composedPath()[0]||o.target,s=t(n);s&&!e.completed.has(s)&&e.events.push([s,o,n])}}))))}})(_$HY={{events:[],completed:new WeakSet,r:new Proxy({{}},{{set:(r,k,v)=>(v instanceof Promise&&v.catch(()=>{{}}),r[k]=v,!0)}}),fe(){{}}}});</script><!--xs-->",
         names.join("\",\"")
     )
 }
