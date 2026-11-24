@@ -9,7 +9,7 @@
  "generator-bug": 0,
  "agreeing": {
   "scenarioSteps": 9621,
-  "logEntriesPerLeg": 313420,
+  "logEntriesPerLeg": 314295,
   "evaluatedCodes": 869,
   "codeChanges": 574
  },

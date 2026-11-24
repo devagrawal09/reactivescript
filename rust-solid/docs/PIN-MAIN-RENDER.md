@@ -3,10 +3,11 @@
 The renderer (`slice1/universal.rs`, `slice1/events.rs`, `renderer.rs`), the plan v1/v2/v2.1 consumer (`plan_v2.rs`,
 `scenario`, `plan-trace`), the server renderer (`src/ssr/`) and the frames server (`src/frames/`), moved from Solid
 2.0.0-rc.21 (`2105ffb8`) to Solid `main` `30e7805e` (2.0.3+). The engine (scheduler, async memos, stores, lists,
-boundaries: the rest of `slice1/`) is moved separately; where a gate here still differs because of it, the difference
-is listed under "Not ported", with its class, count and seeds.
+boundaries: the rest of `slice1/`) was moved by the engine leg (`docs/PIN-MAIN-ENGINE.md`), merged here; where a gate
+still differs because of it, the difference is listed under "Not ported", with its class, count and seeds.
 
-Measured on branch `pin-main-rust-render`, with `solid-next` at `30e7805e` and the frontend at `pin-main` (merged).
+Measured on branch `pin-main-rust-render`, with `solid-next` at `30e7805e`, the engine at `pin-main-rust-engine`
+`048860f` and the frontend at `pin-main` `b047003` (both merged).
 
 ## Solid changes ported
 
@@ -24,20 +25,31 @@ spreads, `ssrElement`, `markRaw`, `heldRead`, `strictHandler`.
 
 ## Gates, before and after
 
-"Before" is the Rust tree at `eab38b2` (unchanged, rc.21 behaviour) against Solid main; "after" is this branch.
+"Before" is the Rust tree at `eab38b2` (unchanged, rc.21 behaviour) against Solid main; "after" is this branch with the
+engine leg merged (`pin-main-rust-engine` through `048860f`) and the frontend at `pin-main` (through `b047003`).
 
 | Gate | Recorded (rc.21) | Before | After |
 | --- | --- | --- | --- |
-| `cargo test` | 175 | 175 (it replays the rc.21 fixtures and never calls Solid; with only the fixtures re-recorded to Solid main it fails eval, plan_fuzz, plan_v21, render, tracker, ssr and frames) | 173 pass, 2 fail (plan_v21: the async corpora, engine) |
-| `plan-diff` tracker / like / tracker-async | 453/453, 34/34, 399/399 | — | 454/454, 35/35, 400/400 |
-| render fuzz 1–1000 (`node fuzz/run.mjs --render`) | 993, 7 invalid | 420, 7 invalid | 979, 8 invalid (7 Solid throws, 1 oracle timeout) |
-| plan fuzz 1–100, Rust leg | 0 rust classes | `rust: addEventListener-*` on every seed | 2 rust classes (seeds 27, 93: engine) |
-| plan fuzz v2.1 1–100, Rust leg | 0 | every seed | engine classes only (below) |
-| SSR fuzz 1–40 / v2.1 1–40 | all agree | 16 HTML failures / — | 36 agree, 4 refused / 35 agree, 5 refused, 0 stream, HTML or hydration differences |
-| tracker-frames (frontend, R leg) | 10/10 | R ≠ N (t=0 document) | 10/10 |
-| placement fuzz 1–100 | 50 / 42 / 7 / 1 (seed 19), R = N 93 | — | 50 / 42 / 7 / 1 (seed 19), R = N 93/93 |
+| `cargo test` | 175 | 175 (it replays the rc.21 fixtures and never calls Solid; against fixtures re-recorded at Solid main it fails eval, plan_fuzz, plan_v21, render, tracker, ssr and frames) | 175 |
+| `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings` | clean | clean | clean |
+| `scenario` tracker / like v1, v2 / tracker-async | 13 frames, `["0","1","0","1","1"]` ×2, 18 frames | same | same |
+| `plan-diff` tracker / like / tracker-async | 453/453, 34/34, 399/399 | — | 454/454, 35/35, 400/400 (the reset listener, #5017) |
+| render fuzz 1–1000 (`node fuzz/run.mjs --render`) | 993, 7 invalid | 420, 7 invalid | 993, 7 invalid; `summary.json` byte-identical to `render-fuzz/port/summary-1-1000.json` |
+| plan fuzz 1–1000, Rust leg | 0 Rust classes | `rust: addEventListener-*` on every program | 0 Rust classes (306 agree, 563 upstream: RX only, 131 refused, 0 divergent) |
+| plan fuzz v2.1 1–1000, Rust leg | 0 | every program | 1 Rust class: seed 19 (`rust: step-getFirstChild`, engine) |
+| eval fuzz 1–1000 | 869 agree, 131 refused | — | 869 agree, 131 refused, 0 divergent |
+| eval fuzz v2.1 1–1000 | 878, 122 refused | — | 877 agree, 122 refused, 1 divergent (seed 19, `rust: result`, engine) |
+| SSR fuzz 1–1000 `--dev` | 869 agree, 0 HTML, 0 hydration, 131 refused | 1–20: 16 HTML failures (keys), 4 refused | 869 agree, 0 HTML, 0 hydration, 131 refused; `summary.json` byte-identical |
+| SSR fuzz v2.1 1–1000 `--dev` | 878 agree, 0 stream/HTML/hydration, 122 refused | — | 878 agree, 0 stream/HTML/hydration, 122 refused |
+| frontend tests on these legs (`plan/plan-fuzz`, `eval/eval`, `slices/{eval,eval-async,tracker,tracker-async,like}`; `ssr/ssr`, `ssr/ssr-async`, `slices/tracker-frames`, `plan/frames`) | pass | tracker-async 400 vs 399, SSR keys, frames R ≠ N | 47/47 and 31/31 |
+| placement fuzz 1–100 | 50 / 42 client-only / 7 refused / 1 divergent (19), R = N 93/93 | R/N wire | 50 / 42 / 7 / 1 (19), R = N 93/93 |
+| placement fuzz 1–1000 | 454 / 406 / 109 / 31, R = N 889/891 | — | 447 / 405 / 109 / 39, R = N 886 of 891; R ≠ N on 5, 48, 360, 675, 932 (below) |
 
-Long runs (1–1000): see "Long runs" below.
+The frames runs need a test-environment shim here (`NODE_OPTIONS=--import` a module that maps `realpathSync` back
+under the worktree): in a worktree whose `solid-next` is a symlink, `frontend/frames/harness.ts` computes seroval's
+URL as `relative(PNPM, realpathSync(…))` with an unresolved `PNPM`, and the browser asks for
+`/rx-pin-main/solid-next/…` (404). Without the shim `slices/tracker-frames.test.ts` fails 5 of 10. Frontend fix:
+`realpathSync` on both sides.
 
 ## Re-recorded fixtures
 
@@ -51,36 +63,47 @@ diffed and every difference is one of the Solid changes above.
 | `tracker.oracle.json`, `like-v2.oracle.json`, `tracker-async.oracle.json` | `node --conditions=browser fuzz/plan-oracle.mjs PLAN SCENARIO` | +1 `addEventListener`, fn ids +1; results unchanged | #5017 (the oracle's Show lowering changes no entry on these three) |
 | `tests/plan_v21.rs` | by hand | tracker-async log length 399 → 400 | #5017 |
 | `plan-fuzz/*.json` (12) | the same seeds rerun through `plan/fuzz/run.ts` (`/tmp` script; `plan-fuzz-corpus.ts` needs every leg to agree, and the RX leg has the new listed class `UPSTREAM_RX_SHOW`) | `native` only (plan and scenario identical); Rust = native on all 12 | #4730, #5017, #5112 |
-| `plan-fuzz-async/*.json` (12) | the same seeds, `runAsyncCase` | `native`, and on 5 seeds the scenario native recorded (requests no longer re-issued); Rust = native on 6, differs on 6 (engine, below) | #4730, #5017, #5094 |
+| `plan-fuzz-async/*.json` (12) | the same seeds, `runAsyncCase` | `native`, and on 5 seeds the scenario native recorded (requests no longer re-issued, #5094); recorded as Solid's truth while Rust still differed on 6 (the engine at rc.21); after the engine merge Rust = native on all 12 | #4730, #5017, #5094 |
 | `eval/seed-*.json` (4 of 5; seed 4 is a refusal and keeps its trace) | the same seeds, `runEvalSeed` | `trace`; `status` kept (`agree`: only the frontend's JS eval legs differ); Rust = static twin on all 4 | #4730, #5017 |
 | `eval/slice.json` | `scripts/eval-slice.ts`'s recording, Rust fixture only (`/tmp` script, no frontend files written) | plan and table: `optimistic shown :=` → `guess shown :=` and nothing else; trace: reset listener, Show order; Rust = static twin | reactivescript #47, #4730, #5017 |
-| `eval-async/*.json` (2) | `runEvalSeed(…, { async: true })` | seed 198: nothing; seed 56: `static` and scenario (Rust differs, engine) | #5094 |
+| `eval-async/*.json` (2) | `runEvalSeed(…, { async: true })` | seed 198: nothing; seed 56: `static` and scenario (#5094; Rust = static after the engine merge) | #5094 |
 | `ssr/*.json` (12 of 13 changed) | `npm run ssr-corpus -- --start 1 --seeds 300 --max 16` (same 13 programs) | the HTML's hydration keys after a `<Show>` | #4730 |
 | `tests/ssr.rs` (`an_integer_hole_takes_no_id…`) | `solidServer` on the twin | `_hk=30` → `20`, `40` → `30` | #4730 |
 | `ssr-async/*.json` (3 of 14 changed) | `npm run ssr-corpus -- --async --start 1 --seeds 3000 --max 16` (same 14) | stream chunks and HTML keys | #4730 |
 | `frames/*.json` | `npm run frames-corpus -- --out … --max 12` | every document (bootstrap script, keys); the seed set is now 4, 5, 13, 17, 32, 47, 50, 70, 78, 134 (was 4, 5, 11, 13, 17, 32, 41, 78, 134) | #5043, #4730; `--max 12` because the default 10 now stops at 9 seeds with `record+reactive` uncovered and 47 exchanges, under the test's 50 |
 
-## Not ported (engine), by class
+## Not ported, by class
 
-All of these are reactive timing, not host-op order, keys or HTML: the Rust renderer emits the same operations, at a
-different time or a different number of times, because the engine still schedules as rc.21 did.
+Measured after the engine merge. Each is reactive timing or Solid's own nondeterminism, not host-op order, keys or
+HTML.
 
-- **`refresh()` of a pending async memo** (Solid `99db9bce`, #5094/#5101): native waits for the answer that is out and
-  re-asks once; Rust re-asks at once. Plan fuzz v2.1 class `rust: step-request` (37 of 100 seeds on 1–100, e.g. 1, 2,
-  3, 4, 10, 101); also `rust: request-request` (97), `rust: createTextNode-request` (13), eval-async seed 56. Failing
-  tests: `plan_v21::generated_async_programs_give_native_solids_host_log` (seeds 1, 2, 3, 4, 28, 101),
-  `plan_v21::async_eval_programs_give_the_static_twins_host_log` (seed 56).
-- **A write reverted before the flush** (render fuzz `*-tree-*`, e.g. seeds 216, 309, 439, 452, 567, 588; the reduced
-  programs write a signal and write it back, then flush): native reruns nothing; Rust reruns the effect and the host
-  sees an equal `setProperty` or a recreated text node.
-- **Render-effect order within one flush across regions** (plan fuzz seed 93; v2.1 seeds 25, 38, 64): the same
-  updates, in another order.
-- **A branch computed twice in a transition** (plan fuzz seed 27; v2.1 seeds 19, 28, 52): native creates a Show's
-  fallback twice (compute in the transition's lane, then at its commit) or defers a text update by a step.
-- **Render fuzz seed 741** (`text-createTextNode-insertNode`): a `cmemo` hole whose first value owns an inner effect
-  does not update on the second write in Rust; it fails the same way with the rc.21 `insert`, so it is not the
-  `ran` port.
+- **`isPending` over two rejected sources** (engine, `verdict.ts`): plan fuzz v2.1 seed 19 (`rust: step-getFirstChild`)
+  and the same program in the eval fuzz v2.1 (`rust: result`). After `loadIssues` and `loadTotal` reject (steps 5 and
+  6), native's `isPending(() => issues().length + total())` stays true ("busy"); Rust's turns false ("ready",
+  `getFirstChild`/`replaceText` at step 6). It agreed at rc.21. Not fixed here: it is the verdict reader's probe over
+  errored nodes, the engine's port.
+- **Placement fuzz R ≠ N on 5, 48, 360** (1–1000 run, made while the eval fuzz ran beside it): each agrees, with
+  R = N, when rerun alone (twice each). 675 and 932 are the documented unstable seeds (Solid's own client ends
+  differently from run to run, docs/HANDOFF.md "Caveats"). The 1–1000 frames summary is not re-recorded: the run was
+  under load and the summary is not byte-reproducible.
 
-## Long runs
+Not re-measured: the held-out ranges (1001–3000 for the plan, eval and SSR fuzz, 1001–3000 for the render fuzz and the
+placement fuzz). Their recorded summaries are still rc.21's.
 
-(filled in below from the 1–1000 runs)
+Before the engine merge (the engine still at rc.21), the classes left on these legs were all the engine's: `refresh()`
+of a pending async memo re-asked at once where Solid main waits for the answer (#5094/#5101; plan fuzz v2.1
+`rust: step-request`, 340 of 1000), effects reordered within a flush, a branch computed twice in a transition, and a
+write reverted before the flush rerunning an effect (render fuzz 979/1000). None of them had a Rust difference at
+mount. The merge removed all of them but seed 19.
+
+## Recorded summaries
+
+| Summary | Status |
+| --- | --- |
+| `render-fuzz/port/summary-1-1000.json` | unchanged: the rerun is byte-identical |
+| `ssr-fuzz/summary-1-1000.json` | unchanged: the rerun is byte-identical |
+| `ssr-fuzz/summary-async-1-1000.json` | re-recorded: Rust agrees on all 878; what moved is native's own (recorded scenario lengths, 16146 → 15773 continuation steps; notes on Solid's own dev stream console, 203 → 209, and fresh elements, 106 → 102) |
+| `plan-fuzz/summary-1-1000.json` | re-recorded: Rust equals native on all 869 accepted programs; the RX leg's new upstream class (Solid #4730, `UPSTREAM_RX_SHOW`) moves 555 programs from agree to upstream |
+| `eval/summary-1-1000.json` | re-recorded: same 869 agree, 131 refused; `logEntriesPerLeg` 313420 → 314295 (the reset listener, Show order) |
+| `plan-fuzz/summary-async-1-1000.json`, `eval/summary-async-1-1000.json` | not re-recorded: seed 19 still differs in Rust |
+| `frames-fuzz/*`, every `*-1001-3000.json` | not re-recorded (above) |

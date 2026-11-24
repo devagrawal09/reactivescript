@@ -26,6 +26,13 @@ trace.
 
 ## Results
 
+At Solid main `30e7805e` ([PIN-MAIN-RENDER.md](../PIN-MAIN-RENDER.md)), `summary-1-1000.json` is re-recorded: 306
+agree, 563 upstream (563 programs where compiled RX emits a `<Show>` Solid's compiler now lowers to a ternary, Solid
+#4730, the frontend's `UPSTREAM_RX_SHOW`; 3 AC-3 and 5 path-write among them), 131 refused, 0 divergent; the Rust leg
+equals native Solid on all 869 accepted programs. The held-out and v2.1 summaries below are still rc.21's (the v2.1
+fuzz at main: 735 agree, 141 upstream, 2 divergent, one of them Rust's, seed 19, an engine `isPending` difference).
+The table is rc.21's:
+
 | seeds | agree | upstream (compiled RX only) | refused | divergent | invalid | generator bug |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1..1000 | 861 | 8 (3 AC-3, 5 path write) | 131 (43 `*`, 49 `-`, 39 constant hole) | 0 | 0 | 0 |
