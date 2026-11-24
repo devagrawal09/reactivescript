@@ -15,6 +15,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildGraph } from "./graph.mjs";
 import { diffGraphs } from "./diff.mjs";
+import { pageHTML } from "./page.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -88,9 +89,6 @@ if (json) {
   process.exit(0);
 }
 out ??= entries[0].replace(/\.rx$/, "") + (diff ? ".diff" : "") + ".map.html";
-const page = readFileSync(resolve(here, "map.html"), "utf8")
-  .replace("/*__GRAPH__*/null", JSON.stringify(graph).replace(/</g, "\\u003c"))
-  .replaceAll("<!--__TITLE__-->", graph.title.replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;")));
-writeFileSync(out, page);
+writeFileSync(out, pageHTML(graph));
 const s = graph.diff ? ` · ${graph.diff.summary.length} notable changes` : "";
 console.log(`${out}: ${graph.modules.length} module(s), ${graph.nodes.length} nodes, ${graph.edges.length} edges${s}`);

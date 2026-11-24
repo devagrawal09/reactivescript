@@ -103,9 +103,55 @@ tracked read into a snapshot far from the edit. Both versions are drawn on one m
 
   Click an item to light it up.
 
-Matching is by key: module, the chain of regions, and the name. A view site is matched by its place in markup and what
-it reads. A rename shows as one removed and one added. Both sides are modelled by the `rxc` you run, so a ref older
+Matching is by key: a name by its module, component and name (see "Live" below), a view site by its place in markup
+(the chain of regions) and what it reads. A rename shows as one removed and one added. Both sides are modelled by the `rxc` you run, so a ref older
 than a syntax change (e.g. `optimistic` before `guess`) will not parse.
+
+## Live: the map beside a running dev build
+
+`@reactivescript/map` is this folder as a package. Install it in an app (as a dev dependency) and the Vite front end
+does the rest in a dev build: it gives every source and equation's Solid nodes a name, `rx:<key>`, and registers the
+program's graph from its entry module. A host, such as the devtools' Map view, then calls `globalThis.__RX__.mount(el)`.
+
+- The map is drawn in an iframe. While it is open, Solid's attribution engine is on, and each flush that changes
+  something lights the map:
+  - the chips whose value changed flash a white ring;
+  - their newest value shows on the chip, and under "Live value" in the panel when one is selected;
+  - a chip glows amber while a request for it is in the air, until it lands or a newer one replaces it;
+  - the header counts the flushes.
+- Only sources and equations are lit. Actions, effects, props and contexts have no key yet.
+- A production build has none of it: no names, no graph, no import of the package.
+
+The key of a named thing is `<module>|<scope>|<name>`, for example `src/users.rx||users` or
+`src/users.rx|Row|isEditing`:
+
+- `module` is the file, relative to the project root;
+- `scope` is the enclosing component, empty at module scope;
+- a name declared twice in one scope (in two `if` branches) gets `#1` on its 2nd declaration, `#2` on its 3rd.
+
+`--json` writes the same keys, and `--diff` matches names by them.
+
+The exports:
+
+| export | what |
+| --- | --- |
+| `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
+| `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
+| `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
+| `./live` | browser only: `register(graph)`, `mount(el)`, which returns the dispose |
+
+The live page takes messages posted to its window, each with `source: "rx-map"`:
+
+- `{ type: "flush", seq, at, changes: [{ name, key, preview?, origin? }] }`
+- `{ type: "flight", key, state: "start" | "land" | "abandon" }`
+- `{ type: "reset" }`
+
+A key the map doesn't have is ignored.
+
+`page.mjs` is generated from `map.html`: run `npm run build` after editing the page. `npm test` checks that it is
+current and runs the live harnesses (`test/live.html`, `test/engine.html`) in headless Chromium; `--shots <dir>` also
+saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
+harness.
 
 ## Limits
 
@@ -116,3 +162,6 @@ than a syntax change (e.g. `optimistic` before `guess`) will not parse.
   the declaration (does it `await`?), because the model's question flag also marks sources with a standing question
   that never await.
 - Edges into a `for` row are drawn once per site, not per row.
+- Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
+  chip. A node's first value (a question's first answer) is not a change to Solid, so it doesn't light. The start of a
+  request is read off the node, because Solid's flight record comes only when the request ends.

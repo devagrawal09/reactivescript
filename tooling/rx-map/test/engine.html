@@ -1,0 +1,101 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map live: engine harness</title>
+<!-- Real Solid dev build (served by run.mjs at /solid/, mapped below), nodes named the way a dev .rx build names them
+     (`rx:<key>`), and ../live.mjs mounted: checks the messages live.mjs forwards from the engine's records and what
+     the map does with them. Results go in #result. -->
+<script type="importmap">
+{ "imports": {
+  "solid-js": "/solid/solid/dist/solid.dev.js",
+  "solid-js/attribution": "/solid/solid/dist/attribution.js",
+  "@solidjs/signals": "/solid/signals/dist/dev.js",
+  "@solidjs/signals/attribution": "/solid/signals/dist/dev.attribution.js"
+} }
+</script>
+<style>html, body { margin: 0; height: 100%; background: #000 } #host { position: fixed; inset: 0 }</style>
+<div id="host"></div>
+<pre id="result" hidden></pre>
+<script type="module">
+import { createSignal, createMemo, createEffect, createRoot, flush, OBSERVE } from "solid-js";
+import { register } from "../live.mjs";
+
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks, messages }); };
+const messages = [];
+
+try {
+  const graph = await (await fetch("/graph.json")).json();
+  const K = name => `examples/users.rx||${name}`;
+  const nodeOf = name => graph.nodes.find(n => n.key === K(name));
+  register(graph);
+  const dispose = globalThis.__RX__.mount(document.getElementById("host"));
+  const frame = document.querySelector("#host iframe");
+  await new Promise(r => frame.addEventListener("load", r, { once: true }));
+  frame.contentWindow.addEventListener("message", e => { if (e.data?.source === "rx-map") messages.push(e.data); });
+  for (let i = 0; i < 100 && !OBSERVE.records.observed("flush"); i++) await sleep(10);
+  check("mount subscribes to flush records", OBSERVE.records.observed("flush"));
+  check("…with bodies", OBSERVE.records.observed("flush", "bodies"));
+
+  const doc = frame.contentDocument;
+  const chip = name => doc.querySelector(`#board .chip[data-id="${nodeOf(name).id}"]`);
+  let answer;
+  const [page, setPage] = createSignal(1, { name: `rx:${K("page")}` });
+  const [plain, setPlain] = createSignal(0, { name: "plain" });
+  createRoot(() => {
+    const users = createMemo(async () => {
+      const p = page();
+      return new Promise(r => (answer = () => r([{ id: p, name: "Ada" }, { id: p + 1, name: "Grace" }])));
+    }, { name: `rx:${K("users")}` });
+    createEffect(() => [users(), plain()], () => {});
+  });
+  flush();
+  await sleep(30);
+  const firstStart = messages.find(m => m.type === "flight" && m.state === "start");
+  check("a new async node announces its flight", firstStart?.key === K("users"), messages);
+  check("its chip glows", chip("users").classList.contains("flying"));
+
+  messages.length = 0;
+  setPage(2);
+  setPlain(5);
+  flush();
+  await sleep(30);
+  const f = messages.find(m => m.type === "flush");
+  const pageChange = f?.changes.find(c => c.key === K("page"));
+  check("a flush names the RX node that changed, with its value", pageChange?.name === `rx:${K("page")}` && pageChange.preview === "2", f);
+  check("a non-RX node comes with key null", f?.changes.some(c => c.name === "plain" && c.key === null), f);
+  check("flush has seq and at", typeof f?.seq === "number" && typeof f?.at === "number");
+  const flights = messages.filter(m => m.type === "flight").map(m => m.state).join(",");
+  check("a re-run's new flight abandons the old one and starts", flights === "abandon,start", flights);
+  check("the map shows the value", chip("page").querySelector(".lv")?.textContent === "2");
+
+  messages.length = 0;
+  answer();
+  await sleep(30);
+  flush();
+  await sleep(30);
+  check("the landing is forwarded", messages.some(m => m.type === "flight" && m.key === K("users") && m.state === "land"), messages);
+  check("the glow ends", !chip("users").classList.contains("flying"));
+  // a node's first value is not a change (FlushEvent.changes): the next answer is
+  messages.length = 0;
+  setPage(3);
+  flush();
+  await sleep(30);
+  answer();
+  await sleep(30);
+  flush();
+  await sleep(30);
+  const landed = messages.find(m => m.type === "flush" && m.changes.some(c => c.key === K("users")));
+  check("a later landed value comes in a flush", landed?.changes.find(c => c.key === K("users"))?.preview === '[{id: 3, name: "Ada"}, {id: 4, name: "Grace"}]', messages);
+  check("the map shows it", chip("users").querySelector(".lv")?.textContent.startsWith("[{id: 3"));
+  check("the badge counts flushes", /^live · [1-9]\d* flush/.test(doc.getElementById("liveBadge").textContent), doc.getElementById("liveBadge").textContent);
+
+  dispose();
+  check("dispose unsubscribes", !OBSERVE.records.observed("flush"));
+  done();
+} catch (e) {
+  check(`threw: ${e?.stack ?? e}`, false);
+  done();
+}
+</script>

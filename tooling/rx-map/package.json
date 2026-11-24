@@ -1,0 +1,44 @@
+{
+  "name": "@reactivescript/map",
+  "description": "rx-map: a .rx program drawn from the checker's resolved model, as a static page or live beside a dev build",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/reactivescript.git",
+    "directory": "tooling/rx-map"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "rx-map": "./rx-map.mjs"
+  },
+  "exports": {
+    "./graph": "./graph.mjs",
+    "./page": "./page.mjs",
+    "./live": "./live.mjs",
+    "./diff": "./diff.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "graph.mjs",
+    "page.mjs",
+    "live.mjs",
+    "diff.mjs",
+    "rx-map.mjs",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "solid-js": "^2.0.0-rc.23"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs",
+    "test": "node build.mjs --check && node test/run.mjs"
+  }
+}
