@@ -132,6 +132,47 @@ try {
   await sleep(40);
   check("a v2 message and an unknown type are ignored", chip("page").querySelector(".lv")?.textContent === "2" && !errors.length, errors);
 
+  // snapshot (contract v0.3): what the app shows when the map opens, applied quietly
+  const loadingR = graph.regions.find(r => r.kind === "loading"), erroredR = graph.regions.find(r => r.kind === "errored");
+  post({ v: 1, type: "snapshot",
+    values: [{ key: K("users").key, preview: '[{id: 1, name: "Ada"}, {id: 2, name: "Grace"}, …3]' }, { key: K("saveError").key, preview: '""' }, { key: "nobody|x", preview: "1" }],
+    flights: [{ key: K("query").key, since: 5 }],
+    boundaries: [{ region: loadingR.key, state: "fallback" }, { region: erroredR.key, state: "error", error: "NotFound: no user 7" }] });
+  await sleep(50);
+  const ul = chip("users").querySelector(".lv");
+  check("snapshot: values shown, quietly", ul?.dataset.value?.startsWith("[{id: 1") && !/up|down/.test(ul.className.replace("lv", "")) && chip("saveError").querySelector(".lv")?.dataset.value === '""', ul?.outerHTML);
+  check("snapshot: a list reads as a count and its first items", ul?.classList.contains("list") && ul.querySelector(".lc")?.textContent === "5" && [...ul.querySelectorAll(".li")].map(x => x.textContent).join() === "Ada,Grace", ul?.innerHTML);
+  check("snapshot: requests in the air orbit", chip("query").classList.contains("flying") && !!chip("query").querySelector(".orb"));
+  const lf = doc.querySelector(".frame.loading.tripped"), ef = doc.querySelector(".frame.errored.tripped");
+  check("snapshot: a loading boundary showing its fallback looks tripped", lf?.classList.contains("trip-loading") && /showing fallback/i.test(lf.querySelector(".trip")?.textContent ?? ""), lf?.className);
+  check("snapshot: an errored boundary shows its error", ef?.classList.contains("trip-errored") && /NotFound: no user 7/.test(ef.querySelector(".trip")?.textContent ?? ""), ef?.className);
+  post({ v: 1, type: "snapshot", values: [], flights: [], boundaries: [] });
+  await sleep(30);
+  check("snapshot: boundaries back to ok, flights cleared", !doc.querySelector(".frame.tripped") && !chip("query").classList.contains("flying"));
+
+  // pop-out: the same live map in its own window, fed through this one
+  win.popOut();
+  await sleep(300);
+  const pw = win.open("", "rx-map-popout");
+  const pd = pw?.document;
+  check("pop-out: a window with the live map, caught up", !!pd?.getElementById("liveBadge") && pd.getElementById("liveBadge").textContent === doc.getElementById("liveBadge").textContent, pd?.getElementById("liveBadge")?.textContent);
+  const pchip = name => pd.querySelector(`#board .chip[data-id="${K(name).id}"]`);
+  check("pop-out: values carried over", pchip("users")?.querySelector(".lv")?.dataset.value?.startsWith("[{id: 1"), pchip("users")?.innerHTML.slice(0, 120));
+  post({ v: 1, type: "flush", seq: 4, at: 40, changes: [ch("page", "7")] });
+  await sleep(60);
+  check("pop-out: the host's messages reach it", pchip("page")?.querySelector(".lv")?.dataset.value === "7" && pchip("page").classList.contains("pulse"));
+  sent.length = 0;
+  pd.getElementById("liveBtn").click();
+  pw.__RX_VIEW__ && pw.eval?.("0");
+  pd.getElementById("track").dispatchEvent(new pw.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+  await sleep(120);
+  check("pop-out: its travel goes to the host", sent.some(m => m.type === "travel"), sent);
+  pw.close();
+  await sleep(50);
+  post({ v: 1, type: "flush", seq: 5, at: 50, changes: [ch("page", "2")] });
+  await sleep(40);
+  check("pop-out closed: the map carries on", chip("page").querySelector(".lv")?.dataset.value === "2" && !errors.length, errors);
+
   // module replacement: plan → apply → done
   const ng = JSON.parse(JSON.stringify(graph));
   const gone = K("status");

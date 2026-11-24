@@ -45,11 +45,11 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, "127.0.0.1", r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const run = (url, extra) => new Promise((ok, fail) => execFile(chrome,
-  ["--no-sandbox", "--headless", "--disable-gpu", "--window-size=1400,900", "--virtual-time-budget=8000", ...extra, url],
+const run = (url, extra, budget = 8000) => new Promise((ok, fail) => execFile(chrome,
+  ["--no-sandbox", "--headless", "--disable-gpu", "--window-size=1400,900", `--virtual-time-budget=${budget}`, ...extra, url],
   { maxBuffer: 1 << 26 }, (e, out) => (e ? fail(e) : ok(out))));
-const result = async page => {
-  const dom = await run(`${origin}/test/${page}`, ["--dump-dom"]);
+const result = async (page, budget) => {
+  const dom = await run(`${origin}/test/${page}`, ["--dump-dom"], budget);
   const m = /<pre id="result"[^>]*>([\s\S]*?)<\/pre>/.exec(dom);
   const text = m?.[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
   if (!text) return { ok: false, checks: [{ what: `${page} reported nothing`, ok: false }] };
@@ -65,6 +65,7 @@ const report = (page, r) => {
 };
 try {
   report("live.html", await result("live.html"));
+  report("fake.html", await result("fake.html", 30000));
   if (existsSync(join(solid, "solid/dist/solid.dev.js"))) report("engine.html", await result("engine.html"));
   else console.log(`skip engine.html: no Solid dev build at ${solid} (set SOLID_PACKAGES)`);
   if (shots) {

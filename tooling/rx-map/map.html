@@ -1331,10 +1331,24 @@ function onCompact() {
 }
 COMPACT.addEventListener("change", onCompact);
 const zoomPct = document.getElementById("zoomPct");
+// Crisp at any zoom: while the camera moves, the board is scaled as one picture (cheap); once it settles, the board is
+// laid out again at that zoom (CSS zoom, in steps of 5%) and the transform keeps only what is left, so text is drawn at
+// its real size instead of a scaled bitmap. Layout boxes (offsetLeft…) stay in unzoomed board pixels, so nothing else
+// changes.
+let LZ = 1, crispT = 0;
 function applyCam() {
-  world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${cam.s.toFixed(4)})`;
+  world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
   drawMiniView();
+  clearTimeout(crispT); crispT = setTimeout(crisp, 200);
+}
+function crisp() {
+  if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 120); return; }
+  const L = Math.round(clamp(cam.s, .3, 3) * 20) / 20;
+  if (L === LZ) return;
+  LZ = L;
+  board.style.zoom = String(L); floor.style.zoom = String(L);
+  applyCam();
 }
 let fly = null, inertia = null, tickId = 0, camDirty = false;
 const kick = () => { if (!tickId) tickId = requestAnimationFrame(tick); };
@@ -1853,7 +1867,7 @@ function setValue(el, text, { dir = "up", delay = 0, prev, still = false } = {})
   if (l) vv.innerHTML = `<b class="lc">${l.count}${l.exact ? "" : "+"}</b>${l.count ? l.items.slice(0, 2).map(i => `<span class="li">${esc(i)}</span>`).join("") + (l.count > 2 ? `<span class="lm">+${l.count - Math.min(2, l.items.length)}</span>` : "") : `<span class="lm">empty</span>`}`;
   else vv.textContent = text;
   lv.dataset.old = plainValue(old);
-  if (still) return;
+  if (still) { lv.classList.remove("up", "up2", "down", "down2"); return; }
   lv.style.setProperty("--pd", `${Math.round(delay)}ms`);
   const a = dir === "down" ? "down" : "up", was = lv.classList.contains(a) ? a : lv.classList.contains(`${a}2`) ? `${a}2` : null;
   lv.classList.remove("up", "up2", "down", "down2");
