@@ -56,6 +56,44 @@ and exits non-zero if there are any. A module that does not parse has no
 projection, so TypeScript alone would pass it. Under `--watch` only
 TypeScript's errors are reported.
 
+## Eval snippets
+
+A `.rx` file whose first line is exactly `// @eval` is an eval snippet: the
+code string of a `createEval`, a component body (declarations, then markup)
+with no `component` around it, whose free names are its bindings. They are
+declared right after that line, one `// @bind` line each:
+
+```rx
+// @eval
+// @bind read title: string
+// @bind store db: { list: { id: number }[] }
+// @bind action edit(string)
+// @bind host save(number): string
+// @bind pure host load(): string[]
+source keys := 0
+
+<p>{title + " · " + keys}</p>
+```
+
+`read` is a value, `store` a record or array read by path, `action` an action
+it may call, `host` a host function it awaits in an action, `pure host` one it
+may also await in a memo. Types are `number`, `string`, `boolean`, `T[]` and
+`{ k: T, … }`; parameters are scalars. The server (and `rx-tsc`) analyzes a module made in place: line 1
+imports the hosts (from a `.d.rx` the crate gets as an overlay) and opens
+`export default component Eval() {`, each `@bind` line becomes its declaration
+(a read or store a `source` of its type, an action an empty `action`), the
+body follows unchanged, and a last line closes the component. So hover,
+go to definition (a binding's goes to its `@bind` line), completion, type
+errors and the crate's diagnostics all land on the snippet's own lines. On
+top of the crate's:
+
+- `INTERFACE`: a malformed `@bind` line, or one after the body has started.
+- `READ_ONLY`: a write or `guess` to a `read` or `store` binding; evaluated
+  code writes only through an action it is passed.
+
+A diagnostic in the synthetic lines goes on the `@bind` line it is about, else
+line 1. A file without `// @eval` on line 1 is a module, as before.
+
 ## Editors
 
 **VS Code** (and Cursor, VSCodium): the extension in
@@ -110,11 +148,16 @@ instead (or `rx-language-server --stdio` once installed).
 ```sh
 cargo build --release --manifest-path ../../compiler/Cargo.toml
 npm install && node test/run.js      # VERBOSE=1 prints each answer
-node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error
+node test/snippets.js                # eval snippets (test/snippets/*.rx)
+node test/tsc.js                     # rx-tsc: a clean program, a type, a parse and a checker error, snippets
 ```
 
 `test/run.js` drives the server over LSP on a copy of `examples/shop` (Solid's
 types from `ref/node_modules`, via `ref/scripts/solid-next.sh`): hover, go to
 definition across modules, references, completion while typing (in code and in
 markup), a parse error, a TypeScript type error and a crate diagnostic, each
-placed on the `.rx`. `test/tsc.js` runs `rx-tsc` on the same copy.
+placed on the `.rx`. `test/snippets.js` does the same on the eval todo app's
+snippets: clean, hover and definition on bindings, an unbound name, a
+malformed `@bind` line and writes to bindings on their lines, and a file
+without `// @eval` analyzed as before. `test/tsc.js` runs `rx-tsc` on the
+same copy, snippets included.
