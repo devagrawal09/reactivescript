@@ -35,9 +35,10 @@ export { flush };
 
 // ---------------------------------------------------------------- identity (11 CP-4b `key`, dev builds)
 /** The key of the declaration whose nodes are being created (`__rt.key`), or null: each Solid primitive a helper creates
- *  while one is current is named `rx:` + key; with none, its options are as they were. */
+ *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
+ *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
-const nm = <T,>(o: T): T => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}` }) as T;
+const nm: <T>(o: T) => T = DEV ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}` }) as typeof o : o => o;
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
 const key: <T>(k: string, f: () => T) => T = DEV
