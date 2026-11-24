@@ -1,8 +1,8 @@
 {
   "total": 1000,
-  "agreement": 985,
-  "rate": 0.985,
-  "invalid": 15,
+  "agreement": 988,
+  "rate": 0.988,
+  "invalid": 12,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 1190,
@@ -34,15 +34,15 @@
     },
     "nested": {
       "total": 126,
-      "agreement": 125
+      "agreement": 124
     },
     "probes": {
       "total": 187,
-      "agreement": 182
+      "agreement": 184
     },
     "actions": {
       "total": 186,
-      "agreement": 179
+      "agreement": 181
     },
     "owners": {
       "total": 124,
@@ -51,8 +51,12 @@
   },
   "classes": {
     "oracle-timeout": {
-      "count": 15,
+      "count": 11,
       "seed": 21
+    },
+    "oracle-nonscalar": {
+      "count": 1,
+      "seed": 294
     }
   }
 }
