@@ -22,11 +22,27 @@ const repo = resolve(here, "../..");
 
 function usage(code = 1) {
   console.error("usage: rx-map <entry.rx>... [-o out.html] [--json] [--diff <git-ref | before.json>]");
+  console.error("       rx-map mcp [--root <dir>] [--entry <file.rx>...] [--dev <url>]");
   process.exit(code);
 }
 
 const args = process.argv.slice(2);
 if (!args.length || args.includes("-h") || args.includes("--help")) usage(args.length ? 0 : 1);
+if (args[0] === "mcp") {
+  const options = { entries: [] };
+  for (let i = 1; i < args.length; i++) {
+    const flag = args[i], value = args[++i];
+    if (!value || value.startsWith("--")) usage();
+    if (flag === "--entry") options.entries.push(value);
+    else if (flag === "--root") options.root = value;
+    else if (flag === "--dev") options.dev = value;
+    else usage();
+  }
+  const { serveMcp } = await import("./mcp.mjs");
+  await serveMcp(options);
+} else runMap();
+
+function runMap() {
 let out = null, json = false, diff = null;
 const entries = [];
 for (let i = 0; i < args.length; i++) {
@@ -92,3 +108,4 @@ out ??= entries[0].replace(/\.rx$/, "") + (diff ? ".diff" : "") + ".map.html";
 writeFileSync(out, pageHTML(graph));
 const s = graph.diff ? ` · ${graph.diff.summary.length} notable changes` : "";
 console.log(`${out}: ${graph.modules.length} module(s), ${graph.nodes.length} nodes, ${graph.edges.length} edges${s}`);
+}
