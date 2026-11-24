@@ -26,6 +26,20 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
   An arrow that has to point down is routed round the side, so it stands out.
 - **Frames are regions**: a module, a component, an `if` branch, a `for` row, a `loading` or `errored` boundary.
   Everything inside a frame is created and disposed with it.
+- **Control flow is colour coded**:
+  - Branches (`if` / `else`) are sky and rows (`for`) are indigo, both solid.
+  - Boundaries are dashed: `loading` amber, `errored` red.
+  - Each header shows the construct from the source (`if isEditing`, `for u in users`, `loading on(query)`,
+    `errored (e: NotFound)`), plus a `reads …` chip for what its condition, list or key reads.
+- **Boundaries list what can notify them.**
+  - A `loading` boundary lists the names that can be pending under it ("pending from users"). They are found by
+    walking up from the readers it covers, through tracked reads only.
+  - Readers under a nested boundary of the same kind don't count. Readers in components rendered inside it do.
+  - Probes (`latest`, `pending?`) and handlers never notify.
+  - An `errored` boundary lists the async names under it, because every `await` can reject. A typed
+    `fallback(e: C)` lets other failures through to the boundary above.
+  - Dotted amber or red edges point from a boundary up to its notifiers. Select a boundary to see which reader brings
+    each one in.
 - **Colour is what a thing is**: source (blue), source with a standing question (teal), equation (green), async
   equation (amber), action (orange), function (grey), server function (slate), context (pink), error class (red),
   component and props (purple), JS import (white). View sites are the small square chips: markup reads, `on…` handlers,
@@ -81,6 +95,8 @@ than a syntax change (e.g. `optimistic` before `guess`) will not parse.
 
 - `.rx` imports are folded into the symbol they name, so module state is drawn once, where it lives. JS imports are
   drawn in the "outside the program" column.
-- The model does not yet carry failure rows (`fails C`), `server`/`client` placement, or which boundary discharges a
-  reader's failures (R-f-5). Those are the next things to add to `model.rs` / `model.ts` for the map to show them.
+- The model does not yet carry failure rows (`fails C`) or `server`/`client` placement. So "can fail from" means every
+  async name, and a typed fallback's class isn't matched against what each name throws. "Can be pending" is read off
+  the declaration (does it `await`?), because the model's question flag also marks sources with a standing question
+  that never await.
 - Edges into a `for` row are drawn once per site, not per row.

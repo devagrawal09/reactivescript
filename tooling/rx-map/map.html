@@ -75,10 +75,24 @@
   .frame .frame { background: rgba(255,255,255,.012) }
   .frame.component { border-color: color-mix(in srgb, var(--comp) 55%, transparent); border-width: 1.5px }
   .frame.component > .flabel { color: var(--comp) }
-  .frame.loading { border: 1.5px dashed var(--aeq) } .frame.loading > .flabel { color: var(--aeq) }
-  .frame.errored { border: 1.5px dashed var(--err) } .frame.errored > .flabel { color: var(--err) }
-  .frame.for { box-shadow: 4px 4px 0 -1px var(--card), 4px 4px 0 0 var(--line) }
-  .frame.then, .frame.else { border-style: dotted }
+  /* control flow: a colour per construct. Branches and rows are solid; boundaries are dashed */
+  :root { --if: #38bdf8; --for: #818cf8; --load: #fbbf24; --errb: #f87171 }
+  .frame.then, .frame.else { --fc: var(--if) } .frame.for { --fc: var(--for) } .frame.loading { --fc: var(--load) } .frame.errored { --fc: var(--errb) }
+  .frame.ctl { border: 1.5px solid color-mix(in srgb, var(--fc) 50%, transparent); border-left-width: 4px; background: color-mix(in srgb, var(--fc) 5%, transparent) }
+  .frame.loading, .frame.errored { border-style: dashed; border-left-style: solid }
+  .frame.for { box-shadow: 5px 5px 0 -1.5px var(--bg), 5px 5px 0 0 color-mix(in srgb, var(--fc) 35%, transparent) }
+  .ctag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 7px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 600;
+    color: var(--fc); background: color-mix(in srgb, var(--fc) 16%, #161a21); border: 1px solid color-mix(in srgb, var(--fc) 55%, transparent); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis }
+  .ctag::before { font-size: 10px; letter-spacing: .05em; opacity: .85 }
+  .frame.then > .flabel .ctag::before, .frame.else > .flabel .ctag::before { content: "BRANCH" }
+  .frame.for > .flabel .ctag::before { content: "ROWS" }
+  .frame.loading > .flabel .ctag::before { content: "BOUNDARY" } .frame.errored > .flabel .ctag::before { content: "BOUNDARY" }
+  .ctag.sel { box-shadow: 0 0 0 2px #fff } .ctag.lit { outline: 1px solid #fff }
+  .frame > .flabel { flex-wrap: wrap }
+  .notifiers { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; color: var(--fc) }
+  .notifiers .nref { font: 12px ui-monospace, Menlo, monospace; background: color-mix(in srgb, var(--fc) 10%, #161a21); border: 1px dashed color-mix(in srgb, var(--fc) 60%, transparent); color: var(--text); border-radius: 999px; padding: 1px 8px; cursor: pointer }
+  .notifiers .nref:hover { border-style: solid }
+  .notifiers.none { color: var(--dim); font-style: italic }
   .frame.children, .frame.imported { border-color: color-mix(in srgb, var(--comp) 35%, transparent); display: inline-block; padding: 3px 8px; border-radius: 6px }
   .frame.children > .flabel, .frame.imported > .flabel { margin: 0 }
   .frame.module { background: transparent; border-color: #3a4150 }
@@ -105,6 +119,11 @@
   .chip.compref { border-radius: 6px }
   body.focus #board .chip:not(.lit) { opacity: .3 }
   body.focus #board .frame > .flabel:not(.lit) { opacity: .35 }
+  body.focus #board .frame.ctl > .flabel { opacity: 1 }
+  body.focus #board .ctag:not(.lit), body.focus #board .notifiers { opacity: .35 }
+  body.focus #board .flabel:has(.ctag.lit) .notifiers { opacity: 1 }
+  .chip.cread { --c: var(--fc); padding: 2px 9px; border-style: dashed }
+  .chip.cread .n { font-size: 12px }
   .flabel.lit { opacity: 1 }
 
   .k-source { --c: var(--source) } .k-asource { --c: var(--asrc) } .k-eq { --c: var(--eq) } .k-aeq { --c: var(--aeq) }
@@ -205,11 +224,13 @@ const EDGE = {
   "write:refresh": { c: "#22d3ee", d: "5 3",   w: 1.6, label: "refresh — re-asks the question" },
   "write:affects": { c: "#a78bfa", d: "1 3",   w: 1.8, label: "affects — marks it pending? for the action" },
   "write:provide": { c: "#f472b6", d: "",      w: 1.4, label: "provides a context" },
+  "notifies:loading": { c: "#fbbf24", d: "2 4", w: 1.8, label: "can make a loading boundary show its fallback: pending, read below it" },
+  "notifies:errored": { c: "#f87171", d: "2 4", w: 1.8, label: "can make an errored boundary show its fallback: an await below it can reject" },
   "call":          { c: "#94a3b8", d: "",      w: 1.1, label: "calls" },
   "passes":        { c: "#c084fc", d: "3 2",   w: 1.3, label: "passes a prop" },
   "renders":       { c: "#c084fc", d: "",      w: 1.1, label: "renders a component" },
 };
-const edgeStyle = e => e.type === "read" ? EDGE[e.probe ? "read:probe" : `read:${e.mode}`] : e.type === "write" ? (EDGE[`write:${e.op}`] ?? EDGE["write:write"]) : EDGE[e.type];
+const edgeStyle = e => e.type === "notifies" ? EDGE[`notifies:${e.boundary}`] : e.type === "read" ? EDGE[e.probe ? "read:probe" : `read:${e.mode}`] : e.type === "write" ? (EDGE[`write:${e.op}`] ?? EDGE["write:write"]) : EDGE[e.type];
 const edgeGroup = e => (e.type === "passes" || e.type === "renders") ? "flow" : e.type;
 
 // ---- model -----------------------------------------------------------------------------------------------------
@@ -229,8 +250,10 @@ for (const n of G.nodes) {
   if (n.world && !n.from) continue;    // drawn in the world column
   (r ?? regions.get(`${n.mod}:r0`))?.nodes.push(n);
 }
-const label = id => nodes.get(id)?.name ?? (regions.get(id) ? `<${regions.get(id).name}/>` : id);
+const label = id => nodes.get(id)?.name ?? (regions.get(id) ? (CTL[regions.get(id).kind] ? controlInfo(regions.get(id)).text : `<${regions.get(id).name}/>`) : id);
 const DIFF = !!G.diff;
+const CTL = { then: "if", else: "else", for: "for", loading: "loading", errored: "errored" };
+const ctlInfo = new Map();
 const lineOf = n => ((n.status === "removed" ? G.linesBefore : G.lines)?.[n.file]?.[n.line] ?? "").trim();
 const STATUS = { added: "+", removed: "−", changed: "Δ" };
 
@@ -357,6 +380,33 @@ function frame(r) {
   if (comp) {
     const c = chip(comp); c.classList.add("compref");
     lab.append(c);
+  } else if (CTL[r.kind]) {
+    el.classList.add("ctl");
+    const info = controlInfo(r);
+    const tag = document.createElement("span");
+    tag.className = "ctag"; tag.textContent = info.text; tag.dataset.id = r.id;
+    tag.setAttribute("role", "button"); tag.tabIndex = 0; tag.title = `${info.text}${info.line ? ` · line ${info.line}` : ""}`;
+    anchors.set(r.id, tag);
+    lab.append(tag);
+    if (info.site) {
+      // the read that decides it, compact: what the condition (or the list, or the on(k) key) reads
+      const c = chip(info.site);
+      c.classList.add("cread");
+      c.querySelector(".k").textContent = "reads";
+      c.querySelector(".n").textContent = readsOf(info.site) || "—";
+      c.querySelectorAll(".b").forEach(b => b.remove());
+      lab.append(c);
+    }
+    if (r.kind === "loading" || r.kind === "errored") {
+      const roots = (inc.get(r.id) ?? []).filter(e => e.type === "notifies");
+      const w = document.createElement("span");
+      w.className = "notifiers" + (roots.length ? "" : " none");
+      if (roots.length) {
+        w.append(r.kind === "loading" ? "pending from" : "can fail from");
+        for (const e of roots) { const b = document.createElement("button"); b.className = "nref"; b.textContent = label(e.from); b.dataset.go = e.from; b.title = "select it"; w.append(b); }
+      } else w.textContent = r.kind === "loading" ? "nothing read below can be pending" : "nothing read below awaits";
+      lab.append(w);
+    }
   } else {
     lab.innerHTML = r.kind === "children" || r.kind === "imported" ? `${FRAME[r.kind]} <b></b>` : `<span>${FRAME[r.kind] ?? r.kind}</span>`;
     if (r.name && lab.querySelector("b")) lab.querySelector("b").textContent = `<${r.name} />`;
@@ -364,7 +414,7 @@ function frame(r) {
     anchors.set(r.id, lab);
   }
   el.append(lab);
-  el.append(...rows(r.nodes.filter(n => !n.site), "named"), ...rows(r.nodes.filter(n => n.site), "sites"));
+  el.append(...rows(r.nodes.filter(n => !n.site), "named"), ...rows(r.nodes.filter(n => n.site && !ctlSites.has(n.id)), "sites"));
   // components, by what renders what; then the view's regions, side by side where they are siblings
   const kids = r.kids.filter(k => !empty(k));
   const comps = kids.filter(k => k.kind === "component");
@@ -380,6 +430,82 @@ function frame(r) {
 }
 const firstLine = r => Math.min(...r.nodes.map(n => n.line), ...r.kids.map(firstLine), 1e9);
 const empty = r => r.kind !== "component" && !r.nodes.length && r.kids.every(empty) && r.kind !== "children";
+
+// ---- control flow: what each branch, row and boundary is, read from its source line ----------------------------
+function controlInfo(r) {
+  if (ctlInfo.has(r.id)) return ctlInfo.get(r.id);
+  const L = firstLine(r), ls = (r.status === "removed" ? G.linesBefore : G.lines)?.[G.modules[r.mod]] ?? {};
+  const pat = {
+    then: [/(?:^|[{\s])if\s+(.+?)\s*\{/, m => `if ${m[1]}`],
+    else: [/\belse\s+if\s+(.+?)\s*\{|\belse\b/, m => (m[1] ? `else if ${m[1]}` : "else")],
+    for: [/\{\s*for\s+(.+?)\s*\{/, m => `for ${m[1]}`],
+    loading: [/\bloading\b\s*(on\s*\([^)]*\))?/, m => (m[1] ? `loading ${m[1].replace(/\s+/g, "")}` : "loading")],
+    errored: [/\berrored\b(?:\s+fallback\s*\(([^)]*)\))?/, m => (m[1] ? `errored (${m[1].trim()})` : "errored")],
+  }[r.kind];
+  let info = { text: CTL[r.kind] ?? r.kind, line: null, site: null };
+  if (pat && L < 1e9) for (let i = L; i >= Math.max(1, L - 40); i--) {
+    const m = ls[i] && pat[0].exec(ls[i]);
+    if (m) { info = { text: pat[1](m), line: i, site: null }; break; }
+  }
+  // the read that decides it (`if c`, `for x in xs`, `loading on(k)`) sits in the parent region: it is drawn in the header
+  const kw = { then: "if", for: "for", loading: "loading on" }[r.kind];
+  if (kw && info.line) info.site = regions.get(r.parent)?.nodes.find(n => n.site && n.name === kw && n.line === info.line) ?? null;
+  ctlInfo.set(r.id, info);
+  return info;
+}
+const ctlSites = new Set();
+for (const r of regions.values()) if (CTL[r.kind] && !empty(r)) { const i = controlInfo(r); if (i.site) ctlSites.add(i.site.id); }
+
+// ---- boundaries: which names can make each one show its fallback ------------------------------------------------
+// A loading (errored) boundary is told by the readers inside it, not counting readers under a nested boundary of the
+// same kind, and including the components rendered inside it. A reader notifies through tracked reads only: a probe
+// (latest, pending?) never holds, and a handler is not a reader. Walking up from those readers through what they read,
+// every name that can be pending (an await, a question) is one that can notify. The model carries no failure rows yet,
+// so for errored the same names stand in: every await can reject.
+const REACTIVE = new Set(["reader", "prop", "effect", "provide"]);
+function covered(r, kind, acc = { sites: new Set(), seen: new Set() }) {
+  for (const n of r.nodes) if (n.site && REACTIVE.has(n.kind)) acc.sites.add(n.id);
+  for (const k of r.kids) {
+    // a nested boundary of the same kind takes its readers, unless it is a typed errored (`fallback(e: C)`): what is
+    // not a C still fails through to this one
+    const typed = k.kind === "errored" && /\(\s*\w+\s*:/.test(controlInfo(k).text);
+    if (k.kind === "component" || (k.kind === kind && !typed)) continue;
+    if ((k.kind === "children" || k.kind === "imported") && k.name)
+      for (const c of G.nodes) if (c.kind === "comp" && c.name === k.name) {
+        const cr = regions.get(compRegion.get(c.id));
+        if (cr && !acc.seen.has(cr.id)) { acc.seen.add(cr.id); covered(cr, kind, acc); }
+      }
+    covered(k, kind, acc);
+  }
+  return acc;
+}
+function pendingRoots(siteIds) {
+  const roots = new Map();
+  for (const sid of siteIds) {
+    const seen = new Set([sid]), todo = [sid];
+    while (todo.length) for (const e of inc.get(todo.pop()) ?? []) {
+      if (!((e.type === "read" && e.mode === "tracked" && !e.probe) || e.type === "passes") || seen.has(e.from)) continue;
+      seen.add(e.from);
+      const n = nodes.get(e.from);
+      if (!n) continue;
+      if (n.async && !n.site && !roots.has(n.id)) roots.set(n.id, sid);
+      todo.push(e.from);
+    }
+  }
+  return roots;
+}
+const boundaryCover = new Map();
+for (const r of regions.values()) {
+  if ((r.kind !== "loading" && r.kind !== "errored") || empty(r)) continue;
+  const { sites } = covered(r, r.kind);
+  boundaryCover.set(r.id, sites);
+  for (const [root, via] of pendingRoots(sites)) {
+    const e = { from: root, to: r.id, type: "notifies", boundary: r.kind, via, status: DIFF ? "same" : undefined };
+    G.edges.push(e);
+    (out.get(e.from) ?? out.set(e.from, []).get(e.from)).push(e);
+    (inc.get(e.to) ?? inc.set(e.to, []).get(e.to)).push(e);
+  }
+}
 
 function render() {
   board.querySelectorAll(".level, .worldrow").forEach(c => c.remove());
@@ -442,7 +568,7 @@ function draw() {
   const paths = [];
   for (const e of list) {
     // drawn from what depends to what it depends on: a read points at what it reads
-    const [fromId, toId] = e.type === "read" ? [e.to, e.from] : [e.from, e.to];
+    const [fromId, toId] = e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to];
     const a = anchors.get(fromId), b = anchors.get(toId);
     if (!a || !b || !a.offsetParent || !b.offsetParent) continue;
     let s = edgeStyle(e); if (!s) continue;
@@ -495,7 +621,7 @@ function downstream(id) {
     const [x, imperative] = todo.pop();
     for (const e of out.get(x) ?? []) {
       if (!visible(e)) continue;
-      const data = e.type === "passes" || e.type === "renders" || (e.type === "read" && (e.mode === "tracked" || e.probe));
+      const data = e.type === "passes" || e.type === "renders" || e.type === "notifies" || (e.type === "read" && (e.mode === "tracked" || e.probe));
       const act = imperative && (e.type === "write" || e.type === "call");
       if (!data && !act) continue;
       edges.add(e);
@@ -515,7 +641,7 @@ function upstream(id) {
     const x = todo.pop();
     for (const e of inc.get(x) ?? []) {
       if (!visible(e)) continue;
-      const go = (e.type === "read" && (e.mode === "tracked" || e.probe)) || e.type === "write" || e.type === "passes";
+      const go = (e.type === "read" && (e.mode === "tracked" || e.probe)) || e.type === "write" || e.type === "passes" || e.type === "notifies";
       if (!go) continue;
       edges.add(e);
       if (!ids.has(e.from)) { ids.add(e.from); todo.push(e.from); }
@@ -532,7 +658,7 @@ function describeEdge(e, dir) {
   const s = edgeStyle(e);
   const what = e.type === "read" ? (e.probe ? (e.probe === "pending" ? "pending?" : e.probe) : e.mode) + (e.field ? ` .${e.field}` : "")
     : e.type === "write" ? ({ write: ":=", optimistic: "guess", refresh: "refresh", affects: "affects", provide: "provide" }[e.op] ?? e.op) + (e.path ? " (path)" : "")
-    : e.type === "passes" ? `prop ${e.field ?? ""}` : e.type;
+    : e.type === "passes" ? `prop ${e.field ?? ""}` : e.type === "notifies" ? (e.boundary === "loading" ? "pending" : "can fail") : e.type;
   const st = e.status && e.status !== "same" ? `<span class="tag" style="color:${{ added: "#22c55e", removed: "#ef4444", changed: "#f59e0b" }[e.status]}">${STATUS[e.status]}${e.status === "changed" ? ` was ${e.was.probe ?? e.was.mode ?? e.was.op}` : ""}</span>` : "";
   return `<li><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="${s.c}" stroke-width="2" ${s.d ? `stroke-dasharray="${s.d}"` : ""}/></svg><a href="#" data-go="${other}"></a><span class="tag">${what}</span>${st}</li>`;
 }
@@ -573,7 +699,7 @@ function closePanel() {
   open = false; persist(); renderPanel();
 }
 function renderPanel() {
-  const list = [...TABS, ...(selected ? [["node", nodes.get(selected)?.name ?? "selected"]] : [])];
+  const list = [...TABS, ...(selected ? [["node", label(selected)]] : [])];
   if (!list.some(t => t[0] === tab)) tab = TABS[0][0];
   ptabs.innerHTML = list.map(([id, name]) => `<button role="tab" data-tab="${id}" aria-selected="${id === tab}"></button>`).join("") + `<button class="close" aria-label="close panel" title="close">×</button>`;
   ptabs.querySelectorAll("[role=tab]").forEach((b, i) => { b.textContent = list[i][1]; b.onclick = () => { if (b.dataset.tab !== "node" && selected) { before = null; clearSelection(); } openTab(b.dataset.tab); }; });
@@ -587,6 +713,7 @@ function renderPanel() {
   redraw();
 }
 function showPanel(id) {
+  if (regions.has(id)) return regionPanel(regions.get(id));
   const n = nodes.get(id);
   if (!n) return;
   const kk = kindOf(n), meta = KIND[kk] ?? { label: n.kind, what: "" };
@@ -617,10 +744,36 @@ function showPanel(id) {
     ${section("Calls", o.filter(e => e.type === "call"), "out")}
     ${section("Called by", i.filter(e => e.type === "call"), "in")}
     ${section("Props in", i.filter(e => e.type === "passes" || e.type === "renders"), "in")}
-    ${section("Passes to", o.filter(e => e.type === "passes"), "out")}`;
+    ${section("Passes to", o.filter(e => e.type === "passes"), "out")}
+    ${section("Can make these show their fallback", o.filter(e => e.type === "notifies"), "out")}`;
   panel.querySelector("h2 .n").textContent = n.name;
   if (panel.querySelector("pre.now")) panel.querySelector("pre.now").textContent = lineOf(n);
   if (panel.querySelector("pre.before")) panel.querySelector("pre.before").textContent = n.before.text;
+}
+const CTL_WHAT = {
+  then: "A branch: everything inside is created when the condition becomes true and disposed when it stops.",
+  else: "The other branch of the if above it.",
+  for: "One row per item, matched by identity: each row is created and disposed with its item (RG-2).",
+  loading: "A boundary: shows its fallback while a reader inside is pending (H-5). <code>on(k)</code> re-arms it when <code>k</code> changes (H-6); otherwise it shows the old content while new data loads.",
+  errored: "A boundary: shows its fallback when a reader inside fails (R-f-5). A typed <code>fallback(e: C)</code> catches only that class.",
+};
+function regionPanel(r) {
+  const info = controlInfo(r);
+  const abs = G.absModules?.[r.mod];
+  const i = (inc.get(r.id) ?? []).filter(e => e.type === "notifies");
+  const sites = boundaryCover.get(r.id);
+  panel.innerHTML = `
+    <h2><span class="frame ${r.kind}" style="border:0;padding:0;background:none"><span class="ctag" style="pointer-events:none"></span></span></h2>
+    <div class="hint">${CTL_WHAT[r.kind] ?? ""}</div>
+    ${info.line ? `<div class="hint mono" style="margin-top:6px">${esc(G.modules[r.mod])}:${info.line} ${abs ? `· <a href="vscode://file/${abs}:${info.line}">open in editor</a>` : ""}</div><pre class="mono now"></pre>` : ""}
+    <div class="row"><button data-trace="up">what can trigger it</button><button data-trace="clear">clear</button></div>
+    ${r.kind === "loading" || r.kind === "errored" ? `
+      <h3>${r.kind === "loading" ? "Pending from" : "Can fail from"}</h3>
+      ${i.length ? `<ul>${i.map(e => `<li><a href="#" data-go="${e.from}"></a><span class="tag">read by</span><a href="#" data-go="${e.via}"></a></li>`).join("")}</ul>` : `<p class="hint">Nothing read below it can be ${r.kind === "loading" ? "pending" : "rejected"}.</p>`}
+      ${r.kind === "errored" ? `<p class="hint">Every <code>await</code> can reject, so these are the async names read below it. The model does not say yet which error classes each one can fail with, so a typed fallback's class is not checked here.</p>` : ""}
+      <p class="hint">${sites?.size ?? 0} reader${sites?.size === 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested ${r.kind} boundary report to that one instead${r.kind === "errored" ? ", except a typed one: what it does not catch fails through to here" : ""}.</p>` : ""}`;
+  panel.querySelector(".ctag").textContent = info.text;
+  if (panel.querySelector("pre.now")) panel.querySelector("pre.now").textContent = (G.lines[G.modules[r.mod]]?.[info.line] ?? "").trim();
 }
 function esc(t) { return String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]); }
 function md(t) { return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>"); }
@@ -686,6 +839,8 @@ board.addEventListener("mouseover", ev => {
 });
 board.addEventListener("mouseout", ev => { if (!selected && ev.target.closest("[data-id]")) setFocus(null); });
 board.addEventListener("click", ev => {
+  const go = ev.target.closest(".nref");
+  if (go) return select(go.dataset.go, true);
   const c = ev.target.closest("[data-id]");
   if (c) select(c.dataset.id === selected ? null : c.dataset.id); else select(null);
 });
@@ -716,7 +871,7 @@ new ResizeObserver(redraw).observe(board);
 // ---- legend: every row is also a show / hide toggle -------------------------------------------------------------
 const SHOW_KEY = "rx-map:hidden";
 const hidden = new Set((() => { try { return JSON.parse(localStorage.getItem(SHOW_KEY) ?? "[]"); } catch { return []; } })());
-const edgeKey = e => e.type === "read" ? (e.probe ? "read:probe" : `read:${e.mode}`) : e.type === "write" ? (EDGE[`write:${e.op}`] ? `write:${e.op}` : "write:write") : e.type;
+const edgeKey = e => e.type === "notifies" ? `notifies:${e.boundary}` : e.type === "read" ? (e.probe ? "read:probe" : `read:${e.mode}`) : e.type === "write" ? (EDGE[`write:${e.op}`] ? `write:${e.op}` : "write:write") : e.type;
 const hideStyle = document.head.appendChild(document.createElement("style"));
 function applyHidden() {
   hideStyle.textContent = [...hidden].filter(k => k.startsWith("k:")).map(k => `#board .chip.k-${k.slice(2)}:not(.compref) { display: none }`).join("\n");
@@ -755,9 +910,10 @@ const legendHTML = () => `<div class="legend"><h2>Legend</h2>
   </div>
   <h4>Frames</h4><div class="rows">
     <div class="lrow fixed"><span class="hint" style="color:var(--comp)">component</span><span class="hint">owns everything declared in it</span><span></span></div>
-    <div class="lrow fixed"><span class="hint" style="color:var(--aeq)">loading</span><span class="hint">shows a fallback while what it reads is pending</span><span></span></div>
-    <div class="lrow fixed"><span class="hint" style="color:var(--err)">errored</span><span class="hint">shows a fallback when what it reads fails</span><span></span></div>
-    <div class="lrow fixed"><span class="hint">for each / if</span><span class="hint">a row or a branch: created and disposed with it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame then" style="border:0;padding:0;background:none"><span class="ctag">if c</span></span><span class="hint">a branch (sky): created when <code>c</code> holds, disposed when it stops; else is the same colour</span><span></span></div>
+    <div class="lrow fixed"><span class="frame for" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">for x in xs</span></span><span class="hint">rows (indigo): one per item, created and disposed with it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame loading" style="border:0;padding:0;background:none"><span class="ctag">loading</span></span><span class="hint">a boundary (amber, dashed): shows its fallback while a reader inside is pending; lists the names that can make it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame errored" style="border:0;padding:0;background:none"><span class="ctag">errored</span></span><span class="hint">a boundary (red, dashed): shows its fallback when a reader inside fails; lists the names that can make it</span><span></span></div>
   </div></div>`;
 function bindLegend() {
   panel.querySelectorAll(".lrow[data-key]").forEach(b => b.onclick = () => { const k = b.dataset.key; hidden.has(k) ? hidden.delete(k) : hidden.add(k); applyHidden(); });

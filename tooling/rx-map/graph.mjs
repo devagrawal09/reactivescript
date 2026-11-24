@@ -16,10 +16,9 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
   const byName = new Map();    // `${abs}:${name}` → node id, for import folding
 
   const src = files.map(f => { try { return readFileSync(f, "utf8").split("\n"); } catch { return []; } });
-  const keepLine = (mi, line) => {
-    if (!line || !src[mi][line - 1]) return;
-    (lines[rel(files[mi])] ??= {})[line] = src[mi][line - 1];
-  };
+  // every line of every module: the map labels control flow (`if …`, `for …`, `loading on(…)`) from the source
+  src.forEach((ls, mi) => { const m = (lines[rel(files[mi])] = {}); ls.forEach((t, i) => { if (t.trim()) m[i + 1] = t; }); });
+  const keepLine = () => {};
 
   // The model marks an imported source with `from`; other imported names (actions, equations, components, error
   // classes) carry no `from`, so read it off their import line.
@@ -124,6 +123,17 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
       if (to) edges.push({ from: `${mi}:r${r.id}`, to, type: "renders" });
     }
   });
+
+  // "can be pending" is "awaits": the model marks a source with a standing question as a question even when it never
+  // awaits (`source editing = null`), and an equation whose await sits inside `?:` as a plain memo. The declaration's
+  // own line says which.
+  for (const n of nodes) {
+    if (n.site || (n.kind !== "source" && n.kind !== "eq") || n.world) continue;
+    const mi = n.mod, text = src[mi]?.[n.line - 1] ?? "";
+    const awaits = /\bawait\b/.test(text);
+    if (n.kind === "source") n.async = awaits;
+    else n.async = n.async || awaits;
+  }
 
   // dedupe identical edges (a handler that reads the same thing twice)
   const seen = new Set();
