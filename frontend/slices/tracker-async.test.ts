@@ -127,8 +127,10 @@ test("plan v2.1: on the recording host, native Solid, compiled RX, the tracker-a
   const o = await runProgram({ seed: 0, family: "tracker-async", async: true, files: { "App.tsx": text("tsx"), "App.rx": text("rx"), "api.d.rx": text("api") }, hosts: s.host, actions: ["claim"], scenario: s }, { rust });
   assert.deepEqual(Object.keys(o.traces!), rust ? ["native", "rx", "plan", "rust"] : ["native", "rx", "plan"]);
   assert.deepEqual(o.traces!.native!.result, { frames: expected() });
-  assert.equal(o.traces!.native!.log.length, 399);
-  // Rust (rust-solid's plan-trace, the plan v2.1 consumer) gives the same 399-entry log; a refusal of the version
+  // 400 since Solid b9475d749 (#5017): the delegated click adds a capture listener beside its handler (399 at rc.21;
+  // docs/PIN-MAIN-FRONTEND.md).
+  assert.equal(o.traces!.native!.log.length, 400);
+  // Rust (rust-solid's plan-trace, the plan v2.1 consumer) gives the same 400-entry log; a refusal of the version
   // (rust-unsupported) fails. Without a Rust binary the program agrees on the JS legs.
   for (const leg of rust ? ["rx", "plan", "rust"] as const : ["rx", "plan"] as const) assert.equal(JSON.stringify(o.traces![leg]), JSON.stringify(o.traces!.native), leg);
   assert.equal(o.status, "agree", o.classes.join(", "));

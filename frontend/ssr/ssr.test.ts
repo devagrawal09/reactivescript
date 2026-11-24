@@ -30,7 +30,9 @@ const tracker = { idiomatic: slice('tracker/tracker.tsx'), scenario: JSON.parse(
 const trackerCanonical = tracker.idiomatic.replace('<b>{unassigned()} open</b>', '<b>{"" + unassigned()} open</b>');
 const like = { idiomatic: slice('like/like.tsx'), scenario: JSON.parse(slice('like/like.scenario.json')) };
 const likeCanonical = like.idiomatic.replace('>{shown()}</button>', '>{"" + shown()}</button>');
-const TRACKER_HTML = '<section _hk=3><button>Filter: <!--$-->all<!--/--></button><b><!--$-->2<!--/--> open</b><!--$--><p _hk=7000><!--$-->Crash on save<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=7010><!--$-->Slow search<!--/-->: <!--$-->ana<!--/--><button>take</button></p><p _hk=7020><!--$-->Typo in footer<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><!--/--><em></em></section>';
+// The rows' keys are 60x0 since Solid 96ffcf7b (#4730): the server build lowers the tracker's <Show> to a ternary, which
+// takes one id slot fewer than the Show component did (70x0 at rc.21; docs/PIN-MAIN-FRONTEND.md).
+const TRACKER_HTML = '<section _hk=3><button>Filter: <!--$-->all<!--/--></button><b><!--$-->2<!--/--> open</b><!--$--><p _hk=6000><!--$-->Crash on save<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><p _hk=6010><!--$-->Slow search<!--/-->: <!--$-->ana<!--/--><button>take</button></p><p _hk=6020><!--$-->Typo in footer<!--/-->: <!--$-->nobody<!--/--><button>take</button></p><!--/--><em></em></section>';
 
 const server = async (tsx: string, hosts: string[], name: string) => {
   const r = await solidServer(tsx, hosts, dir + '/' + name);
@@ -44,10 +46,10 @@ test('ssr: Solid renders the canonical tracker and like twins; the idiomatic tra
   const canonical = await server(trackerCanonical, ['assignIssue'], 'tracker');
   assert.equal(canonical.html, TRACKER_HTML);
   // `{unassigned()}` is scoped (`_$scope`: it could return hydratable content) and takes one id slot; `{"" + …}` is
-  // provably a string and takes none. Every key after it shifts by one: the rows' 70x0 become 80x0.
+  // provably a string and takes none. Every key after it shifts by one: the rows' 60x0 become 70x0.
   const idiomatic = await server(tracker.idiomatic, ['assignIssue'], 'tracker-idiomatic');
   assert.notEqual(idiomatic.html, canonical.html);
-  assert.equal(idiomatic.html, canonical.html.replaceAll(' _hk=70', ' _hk=80'));
+  assert.equal(idiomatic.html, canonical.html.replaceAll(' _hk=60', ' _hk=70'));
   const likes = await Promise.all([likeCanonical, like.idiomatic].map((t, i) => server(t, ['save'], 'like' + i)));
   assert.equal(likes[0].html, '<button _hk=1>0</button>');
   assert.equal(likes[1].html, likes[0].html, "like's hole is its button's only child: no id follows it");
@@ -99,12 +101,12 @@ if (rust) {
     const { script } = await server(trackerCanonical, ['assignIssue'], 'tracker-4');
     const prod = await run(r.html, script, tracker.idiomatic, ['assignIssue'], tracker.scenario.steps, 'prod');
     assert.equal(prod.ok, false);
-    // The client wants keys 8000.. and finds 7000..: it builds detached rows and leaves the server's unclaimed.
+    // The client wants keys 7000.. and finds 6000..: it builds detached rows and leaves the server's unclaimed.
     assert.ok(prod.unclaimed > 0 && prod.problems.some(p => /never claimed/.test(p)), prod.problems.join('; '));
     const dev = await run(r.html, script, tracker.idiomatic, ['assignIssue'], tracker.scenario.steps, 'dev');
     assert.ok(dev.messages.some(m => /Hydration key miss/.test(m)), dev.messages.join('; '));
     // A changed byte in the Rust HTML is caught by the HTML comparison before any browser runs.
-    assert.notEqual(r.html.replace('_hk=7010', '_hk=7011'), TRACKER_HTML);
+    assert.notEqual(r.html.replace('_hk=6010', '_hk=6011'), TRACKER_HTML);
   });
 
   test('ssr: generated programs (seeds 1..12): Rust\'s HTML is Solid\'s, and both hydrate and replay the scenario', async () => {
