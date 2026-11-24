@@ -42,7 +42,8 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
       if (s.from) continue;                        // folded below
       const id = `${mi}:s${s.id}`;
       nodes.push({ id, mod: mi, file, kind: s.kind, name: s.name, line: s.line, region: `${mi}:r${s.region}`,
-        io: !!s.io, question: !!s.question, async: !!s.question, world: s.kind === "import" });
+        io: !!s.io, question: !!s.question, async: !!s.question, world: s.kind === "import",
+        ...(s.key ? { rxKey: s.key } : {}) });
       symNode.set(`${mi}:${s.id}`, id);
       byName.set(`${files[mi]}:${s.name}`, id);
       keepLine(mi, s.line);
@@ -144,9 +145,15 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
 }
 
 /**
- * Stable keys, so two versions of one program can be lined up (`--diff`). Ids are positions in the model and lines move;
- * a key is what a reader would call the same thing: its module, the chain of regions it sits in, and its name. A view
- * site has no name, so it is keyed by where it is in markup and what it reads, with an ordinal for look-alikes.
+ * Stable keys, so two versions of one program can be lined up (`--diff`) and a running program's nodes can be found on
+ * the map (live mode). Ids are positions in the model and lines move; a key is what a reader would call the same thing.
+ *
+ * - A named node: `<module>|<scope>|<name>[#n]`, the key a dev build gives the Solid nodes it creates (as `rx:<key>`).
+ *   `scope` is the enclosing component's name, or empty at module scope. `#n` tells apart the 2nd, 3rd… declaration of
+ *   one name in one scope of a module, in source order (two `if` branches). When the model carries the key (`key` on a
+ *   symbol), that one is used, so the map and the build cannot disagree.
+ * - A view site has no name: it is keyed by its module, the chain of regions it sits in, and what it is, with an ordinal
+ *   for look-alikes (and `sig`, what it reads, to pair look-alikes in a diff).
  */
 export function addKeys(g) {
   const regionById = new Map(g.regions.map(r => [r.id, r]));
@@ -175,12 +182,19 @@ export function addKeys(g) {
   const reads = new Map();
   for (const e of g.edges) if (e.type === "read") (reads.get(e.to) ?? reads.set(e.to, []).get(e.to)).push(e.from);
   const nodeById = new Map(g.nodes.map(n => [n.id, n]));
+  // the scope of a named node: the nearest component region up its chain
+  const scopeOf = id => {
+    for (let r = regionById.get(id); r; r = regionById.get(r.parent)) if (r.kind === "component") return r.name ?? "";
+    return "";
+  };
   const taken = {};
   for (const n of g.nodes.slice().sort((a, b) => a.line - b.line)) {
-    const where = `${g.modules[n.mod]}|${path.get(n.region) ?? ""}`;
-    n.base = n.site ? `${where}|${n.kind}:${n.name}` : `${where}|${n.name}`;
-    if (n.site) n.sig = (reads.get(n.id) ?? []).map(id => nodeById.get(id)?.name).sort().join(",");
+    if (n.site) {
+      const where = `${g.modules[n.mod]}|${path.get(n.region) ?? ""}`;
+      n.base = `${where}|${n.kind}:${n.name}`;
+      n.sig = (reads.get(n.id) ?? []).map(id => nodeById.get(id)?.name).sort().join(",");
+    } else n.base = `${g.modules[n.mod]}|${scopeOf(n.region)}|${n.name}`;
     const i = (taken[n.base] = (taken[n.base] ?? -1) + 1);
-    n.key = i ? `${n.base}#${i}` : n.base;
+    n.key = n.rxKey ?? (i ? `${n.base}#${i}` : n.base);
   }
 }
