@@ -14,7 +14,8 @@
 import { checkModules, type ModuleSet } from '../tsx/rx/compiler.ts';
 import { actionInference } from '../tsx/rx/infer.ts';
 import type { Expr, Stmt, Markup, Decl } from '../tsx/rx/ast.ts';
-import { confident, resolvePlanV2, type Expression, type Lambda, type PathSegment, type Plan, type Scalar } from './resolve-v2.ts';
+import { confident, GUESS_AND_WRITE, GUESS_ON_WRITABLE, resolvePlanV2, type Expression, type Lambda, type PathSegment, type Plan, type Scalar } from './resolve-v2.ts';
+import { refuseNewSurface } from './surface.ts';
 import { InterfaceError, parseType } from '../eval/interface.ts';
 import { joinType, printType, sameType, BOOLEAN, NUMBER, STRING, type Type } from './types.ts';
 import { wireIds } from '../frames/compile.ts';
@@ -99,6 +100,7 @@ export function resolvePlanFrames(set: ModuleSet, opts: { stem: string }): Frame
   if (!isFramesProgram(set)) return resolvePlanV2(set, { async: true });
   const checked = checkModules(set);
   if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
+  refuseNewSurface(set, 'plan v2.2');
   if (set.order.length !== 1) refuse('FRAMES_MODULES', 'plan v2.2 supports one RX module plus its JS declarations');
   const file = set.order[0], program = set.programs.get(file)!, model = checked.models.get(file)!;
   const entry = program.decls.find(d => d.k === 'component' && d.isDefault);
@@ -351,6 +353,8 @@ export function resolvePlanFrames(set: ModuleSet, opts: { stem: string }): Frame
         const optimistic = writes.some(w => w.op === 'optimistic'), store = writes.some(w => w.path);
         if (writes.some(w => w.op !== 'write' && w.op !== 'optimistic')) throw new Error('refresh/affects target an async memo: ' + sym.name);
         if (!!sym.question !== !!d.question) throw new Error('question mismatch');
+        if (optimistic && !sym.question) throw new Error(GUESS_ON_WRITABLE + sym.name);
+        if (optimistic && writes.some(w => w.op === 'write')) throw new Error(GUESS_AND_WRITE + sym.name);
         if (sym.question !== optimistic) throw new Error(optimistic ? 'an optimistic source must be derived' : 'async questions are outside plan v2');
         if (optimistic && store) throw new Error('optimistic stores are outside plan v2');
         const seedComp = comp(sym.question ? 'question' : 'seed', sym.name);

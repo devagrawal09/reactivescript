@@ -85,11 +85,34 @@ test('plan v2: unsupported shapes and facts the plan cannot encode are refused, 
     // An inferred action (AC-1b: it writes and awaits) is lifted out of the row, so it may not capture the row item.
     ['<button onClick={() => { claim(issue.id) }}>','<button onClick={() => { try { let o = await assignIssue(issue.id); status := o } catch (e) { status := "x" } }}>',/unresolved issue/],
     ['export default component Tracker() {','component Other() { <p>x</p> }\n\nexport default component Tracker() {',/one component and imports/],
+    // Upstream surface new at e650b85 that the plan does not port (docs/PIN-MAIN-FRONTEND.md, "Refused"; plan/surface.ts).
+    ['guess shown := list =>','guess status := "saving";\n    guess shown := list =>',/a guess on a writable signal or store \(upstream 07 decision 21/],
+    ['mode := mode == "all" ? "open" : "all"','shown := issues.list',/a guessed source that is also written plainly/],
+    ['  visible = filter(','  { list: items } = issues;\n  visible = filter(',/^(?!)/],
+    ['  visible = filter(','  { list: items, ...others } = issues;\n  visible = filter(',/an object rest/],
+    ['  visible = filter(','  { a } = { a: mode };\n  visible = filter(',/a destructuring of a value that is not a name or a path/],
+    ['<em>{status}</em>','<em {...issues}>{status}</em>',/a spread attribute/],
   ] as const){
+    if(String(error)==='/^(?!)/'){
+      // Sugar: a destructuring declaration over a path is its hand-written equations, so the same plan (`items`).
+      const sugar=resolvePlanV2(loadTracker(rx.replace(from,to)));
+      assert.ok(sugar.memos.some(m=>m.name==='items'));
+      assert.equal(JSON.stringify(sugar),JSON.stringify(resolvePlanV2(loadTracker(rx.replace(from,'  items = issues.list;\n  visible = filter(')))));
+      continue;
+    }
     const changed=rx.replace(from,to);
     assert.notEqual(changed,rx,from);
     assert.throws(()=>resolvePlanV2(loadTracker(changed)),error,to);
   }
+  // `else if c { … }` is `else { if c { … } }`: the same plan.
+  const nested=rx.replace('} else { <i>Nothing to triage</i> }}','} else { if mode == "all" { <i>Nothing to triage</i> } else { <i>All claimed</i> } }}');
+  const elseIf=rx.replace('} else { <i>Nothing to triage</i> }}','} else if mode == "all" { <i>Nothing to triage</i> } else { <i>All claimed</i> }}');
+  assert.notEqual(nested,rx); assert.notEqual(elseIf,rx);
+  assert.equal(JSON.stringify(resolvePlanV2(loadTracker(elseIf))),JSON.stringify(resolvePlanV2(loadTracker(nested))));
+  // MO-10: a .d.rx library declaration (a `ref` parameter) is refused by name.
+  const app='import { wrap } from "./api";\n\nexport default component App() {\n  source n := 1;\n  w = wrap(n);\n  <p>{"" + w}</p>\n}\n';
+  const lib=loadTsxModules('/t/app.rx',p=>p.endsWith('app.rx')?app:p.endsWith('api.d.rx')?'export fn wrap(ref x: number): number\n':undefined);
+  assert.throws(()=>resolvePlanV2(lib),/a \.d\.rx library declaration \(`ref` parameters or `instantiates`, MO-10\): wrap is outside plan v2/);
   const aliased=rx.replace('import { assignIssue }','import { assignIssue as assign }').replace('await assignIssue(id)','await assign(id)');
   assert.throws(()=>resolvePlanV2(loadTracker(aliased)),/aliased host imports are outside plan v2/);
   // The v1 builder refuses the tracker outright; it is never a v1 plan.

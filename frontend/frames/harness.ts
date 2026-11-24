@@ -23,10 +23,10 @@
 // their text (G4), and every console error or warning, page error and hydration problem (each fails the run).
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compileModule, type Compiled } from './compile.ts';
 // @ts-ignore: a plain .mjs helper shared with the leg servers
@@ -110,8 +110,11 @@ export function startRustLeg(binary: string, plan: string, answers: string): Pro
 }
 
 export type Build = 'prod' | 'dev';
-const PNPM_SEROVAL = 'seroval@1.7.0/node_modules/seroval/dist/';
-const PNPM_PLUGINS = 'seroval-plugins@1.7.0_seroval@1.7.0/node_modules/seroval-plugins/dist/';
+// seroval and seroval-plugins as @solidjs/web resolves them in the pinned Solid checkout (their pnpm store folders carry
+// the versions, which move with the pin: 1.7.0 at rc.21, 1.8.x on main).
+const pnpmDist = (name: string) => relative(PNPM, realpathSync(PACKAGES + 'web/node_modules/' + name)).split('\\').join('/') + '/dist/';
+const PNPM_SEROVAL = pnpmDist('seroval');
+const PNPM_PLUGINS = pnpmDist('seroval-plugins');
 const IMPORTS: Record<Build, Record<string, string>> = {
   prod: {
     'solid-js': '/pkg/solid/dist/solid.js',

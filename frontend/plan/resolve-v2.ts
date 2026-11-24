@@ -3,6 +3,7 @@
 // what CP-6 lacks from the checked RX AST. Every CP-6 read, write and call of a used computation must appear in the
 // plan, and every reactive read, write and call in the plan must be a CP-6 fact. Unsupported forms throw.
 import { checkModules, type ModuleSet } from '../tsx/rx/compiler.ts';
+import { refuseNewSurface } from './surface.ts';
 import { actionInference } from '../tsx/rx/infer.ts';
 import type { Expr, Stmt, Markup } from '../tsx/rx/ast.ts';
 import { evalSitesOf, type EvalSite } from '../eval/sites.ts';
@@ -110,9 +111,15 @@ export function confident(e: Expr): Confident {
  *  write to one is refused. */
 /** `async`: also accept plan v2.1's forms (PLAN-V2.md, "v2.1: async data"); a plan that uses none of them is the v2
  *  plan byte for byte. Without it (the v2 builder) they are refused as before. */
+/** 07 decision 21 (upstream d3cab00): `guess x := v` on a `:=` signal or store guesses a createOptimistic layer over
+ *  that writable; a source with a question that is also written plainly writes the truth under its layer. Plan v2's
+ *  optimistic source is one createOptimistic(fn) its guesses write: neither shape is it. */
+export const GUESS_ON_WRITABLE = 'a guess on a writable signal or store (upstream 07 decision 21: a createOptimistic layer over the writable) is outside plan v2: ';
+export const GUESS_AND_WRITE = 'a guessed source that is also written plainly (upstream 07 decision 21: the write goes to the truth under the guess layer) is outside plan v2: ';
 export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean; dom?: boolean } = {}): Plan {
   const checked = checkModules(set);
   if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
+  refuseNewSurface(set, 'plan v2');
   if (set.order.length !== 1) throw new Error('plan v2 supports one RX module plus host imports');
   const file = set.order[0], program = set.programs.get(file)!, model = checked.models.get(file)!;
   const entry = program.decls.find(d => d.k === 'component' && d.isDefault);
@@ -325,6 +332,8 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
       const optimistic = writes.some(w => w.op === 'optimistic'), store = writes.some(w => w.path);
       if (writes.some(w => w.op !== 'write' && w.op !== 'optimistic')) throw new Error(opts.async ? 'refresh/affects target an async memo in plan v2.1: ' + sym.name : 'refresh/affects are outside plan v2');
       if (!!sym.question !== !!d.question) throw new Error('question mismatch');
+      if (optimistic && !sym.question) throw new Error(GUESS_ON_WRITABLE + sym.name);
+      if (optimistic && writes.some(w => w.op === 'write')) throw new Error(GUESS_AND_WRITE + sym.name);
       if (sym.question !== optimistic) throw new Error(optimistic ? 'an optimistic source must be derived (createOptimistic(fn))' : 'async questions are outside plan v2');
       if (optimistic && store) throw new Error('optimistic stores are outside plan v2');
       const seedComp = comp(sym.question ? 'question' : 'seed', sym.name);

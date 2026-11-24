@@ -28,7 +28,7 @@ test("verifier: only listed upstream fuzz differences are informational", () => 
 test("verifier: the plan fuzz summary must be complete, divergence-free and match its baseline", () => {
   const upstreamClass = "upstream: RX optimistic source is a guess layer over a computed signal (AC-3)";
   const baseline = { start: 1, seeds: 10, agree: 7, refused: 2, refusals: ["unsupported operator *"], upstream: { classes: [upstreamClass], seeds: [4] } };
-  const run = { start: 1, seeds: 10, total: 10, agree: 7, upstream: 1, divergent: 0, refused: 2, invalid: 0, "generator-bug": 0,
+  const run = { start: 1, seeds: 10, total: 10, agree: 7, upstream: 1, upstreamSeeds: [4], divergent: 0, refused: 2, invalid: 0, "generator-bug": 0,
     classes: { [upstreamClass]: { count: 1, seeds: [4] } }, refusals: { "unsupported operator *": { count: 2, seeds: [2, 9] } } };
   assert.deepEqual(checkPlanFuzz(run, baseline), []);
   for (const change of [
@@ -36,6 +36,8 @@ test("verifier: the plan fuzz summary must be complete, divergence-free and matc
     { refusals: { "unsupported operator -": { count: 2, seeds: [2, 9] } } },
     { classes: { [upstreamClass]: { count: 1, seeds: [5] } } },
     { classes: { "plan: insertNode-getFirstChild": { count: 1, seeds: [4] } } },
+    // A class lists at most 20 seeds; the full list is upstreamSeeds.
+    { upstreamSeeds: [5] }, { upstreamSeeds: undefined },
   ]) assert.ok(checkPlanFuzz({ ...run, ...change }, baseline).length, JSON.stringify(change));
 });
 test("verifier: the eval fuzz summary must be complete, divergence-free and match its baseline", () => {
@@ -73,6 +75,15 @@ test("verifier: a plan v2.1 fuzz summary must be complete, divergence-free and m
     { refusals: { "unsupported operator -": { count: 2, seeds: [3, 9] } } },
     { classes: { "plan: request-step": { count: 1, seeds: [4] } } },
   ]) assert.ok(checkAsyncFuzz("plan fuzz v2.1", { ...run, ...change }, baseline).length, JSON.stringify(change));
+  // Upstream (probe-classified) seeds pass only when the baseline lists them and their class.
+  const show = "upstream: RX emits a <Show> Solid's compiler does not lower to a ternary (Solid #4730)";
+  const listed = { ...baseline, upstream: { classes: [show], seeds: [5] } };
+  const withUpstream = { ...run, "rust-unsupported": 7, upstream: 1, upstreamSeeds: [5], classes: { ...run.classes, [show]: { count: 1, seeds: [5] } } };
+  const listedBaseline = { ...listed, "rust-unsupported": 7 };
+  assert.deepEqual(checkAsyncFuzz("plan fuzz v2.1", withUpstream, listedBaseline), []);
+  for (const change of [{ upstreamSeeds: [6] }, { upstream: 2 }, { classes: { ...run.classes, [show]: { count: 1, seeds: [6] } } }])
+    assert.ok(checkAsyncFuzz("plan fuzz v2.1", { ...withUpstream, ...change }, listedBaseline).length, JSON.stringify(change));
+  assert.ok(checkAsyncFuzz("plan fuzz v2.1", withUpstream, { ...baseline, "rust-unsupported": 7 }).length, "no upstream block: none allowed");
 });
 test("verifier: the placement fuzz summary must be complete with the Rust leg, match its baseline, and diverge only on its listed seeds", () => {
   const baseline = { start: 1, seeds: 10, agree: 5, "client-only": 3, refused: 1, refusals: ["FRAMES_CHILDREN"],

@@ -1,4 +1,5 @@
 import { checkModules, type ModuleSet } from '../tsx/rx/compiler.ts';
+import { refuseNewSurface } from './surface.ts';
 import type { Expr, Stmt, Markup } from '../tsx/rx/ast.ts';
 
 export type Expression = { op: 'literal'; value: unknown } | { op: 'read'; source: string } | { op: 'local'; name: string } | { op: 'current'; source: string } | { op: 'add'; left: Expression; right: Expression };
@@ -10,6 +11,7 @@ export type View = { kind: 'element'; tag: string; events: { name: string; handl
 export function resolvePlan(set: ModuleSet): Plan {
   const checked = checkModules(set);
   if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
+  refuseNewSurface(set, 'plan v1');
   if (set.order.length !== 1) throw new Error('slice 1 supports one RX module plus host imports');
   const file = set.order[0], program = set.programs.get(file)!, model = checked.models.get(file)!;
   const entry = program.decls.find(d => d.k === 'component' && d.isDefault);

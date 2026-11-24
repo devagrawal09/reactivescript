@@ -9,7 +9,8 @@ const root = new URL("..", import.meta.url).pathname;
 const tsc = spawnSync(process.execPath, [root + "node_modules/typescript/bin/tsc", "-p", root + "tsconfig.json"], { encoding: "utf8", cwd: root });
 const diags = tsc.stdout.split("\n").filter(l => /error TS\d+/.test(l));
 const ours = diags.filter(l => !l.startsWith("upstream/"));
-const normalize = (l: string) => l.replace(/\(\d+,\d+\)/, "").trim();
+// Positions and this checkout's absolute path are dropped, so the baseline is the same on every machine.
+const normalize = (l: string) => l.replace(/\(\d+,\d+\)/, "").split(root).join("").trim();
 const theirs = diags.filter(l => l.startsWith("upstream/")).map(normalize).sort();
 const expected = readFileSync(root + "baselines/upstream-tsc.txt", "utf8").split("\n").filter(Boolean).sort();
 const added = theirs.filter(l => !expected.includes(l));

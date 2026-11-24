@@ -86,6 +86,7 @@ export function checkPlanFuzz(run: any, baseline: any): string[] {
     for (const seed of v.seeds) if (!baseline.upstream.seeds.includes(seed)) problems.push("unlisted upstream plan fuzz difference: " + seed);
   }
   if (run.upstream !== baseline.upstream.seeds.length) problems.push("plan fuzz upstream " + run.upstream + ", baseline " + baseline.upstream.seeds.length);
+  if (JSON.stringify(run.upstreamSeeds ?? []) !== JSON.stringify(baseline.upstream.seeds)) problems.push("plan fuzz upstream seeds differ from the baseline's");
   return problems;
 }
 
@@ -120,11 +121,18 @@ export function checkAsyncFuzz(what: string, run: any, baseline: any): string[] 
     if (run[k] !== 0) problems.push(what + " " + k + ": " + run[k]);
   for (const k of ["agree", "rust-unsupported", "refused"])
     if (run[k] !== baseline[k]) problems.push(what + " " + k + " " + run[k] + ", baseline " + baseline[k]);
-  if ((run.upstream ?? 0) !== 0) problems.push(what + " upstream: " + run.upstream);
+  // Upstream (RX-only, probe-classified) differences, as in checkPlanFuzz: only listed seeds of listed classes, and
+  // none without a baseline `upstream` block.
+  const upstream = baseline.upstream ?? { classes: [], seeds: [] };
+  if ((run.upstream ?? 0) !== upstream.seeds.length) problems.push(what + " upstream " + (run.upstream ?? 0) + ", baseline " + upstream.seeds.length);
+  if (JSON.stringify(run.upstreamSeeds ?? []) !== JSON.stringify(upstream.seeds)) problems.push(what + " upstream seeds differ from the baseline's");
   for (const k of Object.keys(run.refusals ?? {}))
     if (!baseline.refusals.includes(k)) problems.push("unlisted " + what + " refusal: " + k);
-  for (const k of Object.keys(run.classes ?? {}))
-    if (!baseline.classes.includes(k)) problems.push(what + " class is not listed: " + k);
+  for (const [k, v] of Object.entries(run.classes ?? {}) as [string, { seeds?: number[] }][]) {
+    if (!baseline.classes.includes(k) && !upstream.classes.includes(k)) problems.push(what + " class is not listed: " + k);
+    if (upstream.classes.includes(k))
+      for (const seed of v.seeds ?? []) if (!upstream.seeds.includes(seed)) problems.push("unlisted upstream " + what + " difference: " + seed);
+  }
   return problems;
 }
 
