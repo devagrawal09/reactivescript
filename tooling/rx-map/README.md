@@ -27,7 +27,7 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
 - **Frames are regions**: a module, a component, an `if` branch, a `for` row, a `loading` or `errored` boundary.
   Everything inside a frame is created and disposed with it.
 - **Control flow is colour coded**:
-  - Branches (`if` / `else`) are sky and rows (`for`) are indigo, both solid.
+  - Branches (`if` / `else`) are sky and solid. Rows (`for`) are silver and stacked.
   - Boundaries are dashed: `loading` amber, `errored` red.
   - Each header shows the construct from the source (`if isEditing`, `for u in users`, `loading on(query)`,
     `errored (e: NotFound)`), plus a `reads …` chip for what its condition, list or key reads.
@@ -40,16 +40,32 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
     `fallback(e: C)` lets other failures through to the boundary above.
   - Dotted amber or red edges point from a boundary up to its notifiers. Select a boundary to see which reader brings
     each one in.
-- **Colour is what a thing is**: source (blue), source with a standing question (teal), equation (green), async
-  equation (amber), action (orange), function (grey), server function (slate), context (pink), error class (red),
-  component and props (purple), JS import (white). View sites are the small square chips: markup reads, `on…` handlers,
-  props passed down, effects.
-- **Marks**: a striped chip can be pending. A red dot is `io` (R-io): it touches the world. A dashed border is a trust
-  point, where the checker sees only a declared signature (`pure`, `fails`, `.d.rx`).
-- **Edges**:
-  - Reads: tracked (green), snapshot (grey dashed), `pre` (grey dotted), and `latest` / `pending?` probes (amber).
-  - Writes: `:=` (orange), `guess` (orange dashed), `refresh` (cyan), `affects` (violet), and `provide`.
-  - Also calls, props passed, and components rendered.
+- **Colour is the role, and only the role.** Each property gets its own channel, so any combination reads at a glance:
+  - **Role colours:**
+    - state (sources) is blue;
+    - derived (equations, props, view reads) is teal;
+    - imperative (actions, handlers, effects) is orange;
+    - outside (JS imports, server fns, plain fns) is slate;
+    - structure (components, contexts, props passed) is violet;
+    - failure (error classes) is rose.
+  - **Shape:** a pill is a name, a square is a view site.
+  - **Marks**, on any role:
+    - ⧗ and stripes: can be pending (it awaits);
+    - **?**: re-asks a standing question;
+    - **↗**: touches the world (io);
+    - dashed border: a trust point.
+  - **Two accents** cut across roles: amber for pending (⧗, `loading`, probes) and rose for failure (`errored`, error
+    classes).
+- **Diff has its own channel:** an outer ring and a corner badge, in green / magenta / red, which are used for nothing
+  else.
+  - A removed name keeps its role colour, ghosted.
+  - On a changed name, the mark that changed is underlined (e.g. ⧗ when it became async).
+  - Changed edges keep their own colour and dash, with a glow underneath.
+- **Edges: colour is the relationship, dash is the mode.**
+  - Reads are teal: tracked solid, snapshot dashed, `pre` dotted. Probes (`latest` / `pending?`) are amber.
+  - Writes are orange: `:=` solid, `guess` dashed, `refresh` dash-dot, `affects` dotted.
+  - Props, renders and `provide` are violet. Calls are slate.
+  - What can notify a boundary is amber or rose dotted.
 - **Hover** a chip to see its edges. **Click** it to pin it, read its line, and trace:
   - **what it affects**: writes and calls go out, then tracked reads carry the change on. A snapshot read stops it.
   - **what it depends on**.
