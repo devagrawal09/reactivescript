@@ -3,11 +3,9 @@
 // code may be its target ("handle"); it leaves compiled code — into a JS function, a literal, a signal, a DOM attribute —
 // as the proxy Solid makes for it then (`out`). Every helper takes either form, so a value that is not a target (a proxy
 // from a memo, a plain object, the server's stores) reads as it always did.
-import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet } from "@solidjs/signals";
+import { $TARGET, isStoreTarget, storeGet, storeGetAt, storeHas, storeKeys, storeProxy, storeSet, storeSite, storeWrite } from "@solidjs/signals";
 import "./features.ts";   // the manifest's switches (`__RX_STORES__`): a program with no structured value bundles none of the store
 declare const __RX_STORES__: boolean;
-import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet, storeWrite } from "@solidjs/signals";
-import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet, storeGetAt, storeSite } from "@solidjs/signals";
 
 export const isT = (v: unknown): boolean => __RX_STORES__ && isStoreTarget(v);
 /** A value as JS sees it: a target as its proxy. */
@@ -36,10 +34,10 @@ export const B = {
 /** A path write `x.a.b := v` (ST-2): Solid's setter scope around the one write, entered on the store's target (`storeWrite`)
  *  — no setter callback, no draft proxy. A store that is not a target (the server's) is written through its setter. */
 export const pathWrite = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (keys: (string | number)[], v: unknown): void => {
-  if (isStoreTarget(H)) storeWrite(H as never, keys, v);
+  if (__RX_STORES__ && isStoreTarget(H)) storeWrite(H as never, keys, v);
   else setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; });
 };
 /** A read site (spec/11 CP-4a: Solid's own node, kept where it was read): one per member read with a fixed key, per instance
  *  of the region the read is in. `getAt` is `get` that asks the store through the site. */
-export const site = storeSite;
-export const getAt = (s: any, o: any, k: PropertyKey): any => isStoreTarget(o) ? storeGetAt(s, o, k) : o?.[k as any];
+export const site = (): unknown => __RX_STORES__ ? storeSite() : null;
+export const getAt = (s: any, o: any, k: PropertyKey): any => __RX_STORES__ && isStoreTarget(o) ? storeGetAt(s, o, k) : o?.[k as any];
