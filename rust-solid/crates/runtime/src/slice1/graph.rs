@@ -87,11 +87,12 @@ impl Runtime {
     }
 
     // Solid: graph.ts:149-190
-    pub(super) fn link(&mut self, dep: NodeId, sub: NodeId) {
+    /// Truthy when it reuses the link `sub`'s last pass made: a re-read.
+    pub(super) fn link(&mut self, dep: NodeId, sub: NodeId) -> bool {
         let prev_dep = self.nodes[sub].deps_tail;
         if let Some(p) = prev_dep {
             if self.links[p].dep == dep {
-                return;
+                return false;
             }
         }
         let mut next_dep = None;
@@ -105,7 +106,7 @@ impl Runtime {
                 if self.links[n].dep == dep {
                     self.links[n].gen = self.nodes[sub].dep_gen;
                     self.nodes[sub].deps_tail = Some(n);
-                    return;
+                    return true;
                 }
             }
         }
@@ -114,7 +115,7 @@ impl Runtime {
             if self.links[p].sub == sub
                 && (!is_recomputing || self.links[p].gen == self.nodes[sub].dep_gen)
             {
-                return;
+                return false;
             }
         }
         let new_link = self.new_link(Link {
@@ -136,5 +137,6 @@ impl Runtime {
             None => self.nodes[dep].subs = Some(new_link),
         }
         self.bump_notify_epoch();
+        false
     }
 }

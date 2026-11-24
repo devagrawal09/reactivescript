@@ -14,13 +14,37 @@ impl Runtime {
     /// its node (`$REFRESH`, signals.ts:140-144); `markRefresh` ignores a
     /// signal, whose waiter is created all the same.
     pub fn refresh(&mut self, node: NodeId) {
-        self.mark_refresh(node);
         let own = self.flush_transaction;
-        self.microtasks.push_back(Microtask::Waiter(node, own));
+        let flight = self.nodes[node].in_flight;
+        // refresh() while its answer is out waits for it, then re-asks once
+        // (#5094, #5101).
+        let later = own.is_none()
+            && self.nodes[node].status & STATUS_PENDING != 0
+            && self.nodes[node].flags & (REACTIVE_CHECK | REACTIVE_DIRTY) == 0
+            && flight.is_some();
+        if !later {
+            self.mark_refresh(node);
+        }
+        match flight.filter(|_| later) {
+            // `flight.then(re, re)`: `re` queues `run`.
+            Some(f) => self.on_flight(f, Reaction::Refresh(node, own, f)),
+            None => self
+                .microtasks
+                .push_back(Microtask::Waiter(node, own, None)),
+        }
     }
 
-    // Solid: signals.ts:962-998 (the microtask): `createRoot(make)`.
-    pub(super) fn refresh_waiter(&mut self, node: NodeId, own: Option<TxId>) {
+    // Solid: signals.ts `refresh`'s `run`: `createRoot(make)`; a later
+    // refresh re-asks first if the flight it waited on is still the node's.
+    pub(super) fn refresh_waiter(
+        &mut self,
+        node: NodeId,
+        own: Option<TxId>,
+        later: Option<FlightId>,
+    ) {
+        if later.is_some() && self.nodes[node].in_flight == later {
+            self.mark_refresh(node);
+        }
         let root = self.create_root();
         self.with_owner(Some(root), |rt| rt.watch(node, own));
     }

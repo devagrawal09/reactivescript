@@ -171,8 +171,8 @@ impl Runtime {
     }
 
     // Solid: store.ts:294-296 (`containerEquals`)
-    pub(in crate::slice1) fn container_equals(&self, node: NodeId, a: &Value, b: &Value) -> bool {
-        a == b || self.arrangement(self.nodes[node].host.expect("a slot node"), a, b)
+    pub(in crate::slice1) fn container_equals(&self, _node: NodeId, a: &Value, b: &Value) -> bool {
+        a == b
     }
 
     // Solid: store.ts:298-302
@@ -196,6 +196,8 @@ impl Runtime {
                     target.k = None;
                 }
             }
+            // A guess carrier lives and dies with its lane (`sweepOverlaid`).
+            SlotKey::Patch => return,
             SlotKey::Deep => {
                 if target.dk == Some(node) {
                     target.dk = None;
@@ -205,18 +207,20 @@ impl Runtime {
                 if target.n.as_ref().and_then(|n| n.get(k)) == Some(node) {
                     target.n.as_mut().unwrap().remove(k);
                     target.nc -= 1;
+                    if target.nc == 0 {
+                        target.n = None;
+                    }
                 } else if target.h.as_ref().and_then(|h| h.get(k)) == Some(node) {
                     target.h.as_mut().unwrap().remove(k);
+                    if target.h.as_ref().unwrap().len() == 0 {
+                        target.h = None;
+                    }
                 }
             }
         }
         let target = self.st(t);
         if let Some(f) = target.fam {
-            if target.nc == 0
-                && target.k.is_none()
-                && target.dk.is_none()
-                && target.h.as_ref().is_none_or(|h| h.len() == 0)
-            {
+            if target.nc == 0 && target.k.is_none() && target.dk.is_none() && target.h.is_none() {
                 self.store.families[f].live.delete(t);
             }
         }
@@ -251,7 +255,7 @@ impl Runtime {
     }
 
     // Solid: core.ts:1679-1724 (`slotSignal`)
-    fn slot_signal(
+    pub(in crate::slice1) fn slot_signal(
         &mut self,
         v: Value,
         eq: Equals,
@@ -450,7 +454,8 @@ impl Runtime {
 
     // Solid: store.ts:529-541 (no snapshot capture)
     fn notify_container(&mut self, k: NodeId, pb: &Obj) {
-        if self.nodes[k].config & CONFIG_OVERRIDE != 0 {
+        if self.nodes[k].config & (CONFIG_OVERRIDE | CONFIG_GUESS) == CONFIG_OVERRIDE | CONFIG_GUESS
+        {
             self.set_signal(k, Value::Obj(pb.clone()));
         } else {
             if self.nodes[k].config & CONFIG_HELD != 0 {
@@ -518,7 +523,9 @@ impl Runtime {
                 let pb = self.clone_raw(&pb, target);
                 self.stm(target).pb = Some(pb.clone());
                 if let Some(k) = self.st(target).k {
-                    if self.nodes[k].config & CONFIG_HELD == 0 {
+                    if self.nodes[k].config & CONFIG_HELD == 0
+                        || Some(self.tx_of(k)) == self.flush_transaction
+                    {
                         self.nodes[k].pending = Some(Value::Obj(pb.clone()));
                     }
                 }
@@ -605,6 +612,26 @@ impl Runtime {
             }
             None => self.st(target).v.clone(),
         };
+        // A user write over a held container keeps the keys' nodes alive
+        // through the hold (#5005).
+        if self.store.user_write
+            && self
+                .st(target)
+                .k
+                .is_some_and(|k| self.nodes[k].config & CONFIG_HELD != 0)
+            && !base.array
+        {
+            let mut keys = base.keys();
+            for k in incoming.keys() {
+                if !keys.contains(&k) {
+                    keys.push(k);
+                }
+            }
+            for key in keys {
+                let n = self.get_node(target, &key, -1);
+                self.store.deferred_releases.add(n);
+            }
+        }
         if self.store.direct_commit {
             self.stm(target).pb = None;
             if let Some(k) = self.st(target).k {
@@ -627,9 +654,19 @@ impl Runtime {
             Some(owner) if self.st(owner).fam == fam => incoming.set_owner(Some(target)),
             _ => self.set_lookup(&Value::Obj(incoming.clone()), target),
         }
+        if self.opt_target(target) {
+            self.opt_hook_judge(target, incoming);
+        }
         if notify && !Rc::ptr_eq(&base, incoming) {
             self.notify_fold(target, &base, incoming);
         }
+    }
+
+    /// `target.o`: the target's family is optimistic.
+    pub(in crate::slice1) fn opt_target(&self, target: TargetId) -> bool {
+        self.st(target)
+            .fam
+            .is_some_and(|f| self.store.families[f].opt)
     }
 
     // Solid: store.ts:883-889
@@ -688,15 +725,6 @@ impl Runtime {
         let fam = self.nodes[n].host.and_then(|t| self.st(t).fam);
         fam.and_then(|f| self.store.families[f].node)
             .is_some_and(|d| self.nodes[d].status & STATUS_PENDING != 0)
-    }
-
-    // Solid: store.ts:949-958 (`GlobalQueue._slotCovered`)
-    pub(in crate::slice1) fn slot_covered(&self, n: NodeId) -> Value {
-        let t = self.nodes[n].host.expect("a slot node");
-        if self.st(t).ch {
-            panic!("a chained link's covered value (§7b) is not ported");
-        }
-        self.nodes[n].value.clone()
     }
 
     /// The scheduler's `storeCommitHook` (store.ts:959-962).
@@ -827,7 +855,8 @@ impl Runtime {
                 self.stm(t).pb = staged;
                 return;
             }
-            self.pair_rows(t, &pb);
+            self.pair_rows(t, &pb, false);
+            self.opt_hook_judge(t, &pb);
         }
         let old = self.st(t).v.clone();
         // `writtenKeys`: this setter's keys — null for WK_ALL (an array
@@ -870,6 +899,11 @@ impl Runtime {
                 } else {
                     Value::Undef
                 };
+                // A key a guess carrier serves: its truth goes beneath.
+                if self.opt_target(t) && self.opt_hook_covers(t, &key, false) {
+                    self.covered_set(node, nv);
+                    continue;
+                }
                 self.set_signal(node, nv);
                 if self.st(t).fam.is_some() {
                     if !self.store.user_write {
@@ -889,6 +923,10 @@ impl Runtime {
                     continue;
                 };
                 let deleted = self.st(t).del.as_ref().is_some_and(|d| d.contains(&key));
+                if self.opt_target(t) && self.opt_hook_covers(t, &key, true) {
+                    self.covered_set(node, Value::Bool(pb.has(&key) && !deleted));
+                    continue;
+                }
                 self.set_signal(node, Value::Bool(pb.has(&key) && !deleted));
                 if self.st(t).fam.is_some() && !self.store.user_write {
                     let lane = self.pass_lane;
@@ -912,6 +950,15 @@ impl Runtime {
                     self.notify_container(k, &pb);
                 }
             }
+        }
+    }
+
+    // Solid: store.ts `coveredSet`: a key a carrier serves takes its truth
+    // beneath the guess, waking nothing.
+    fn covered_set(&mut self, node: NodeId, v: Value) {
+        self.nodes[node].value = v.clone();
+        if self.nodes[node].pending.is_some() {
+            self.set_pending(node, Some(v));
         }
     }
 
@@ -950,6 +997,20 @@ impl Runtime {
 
     // Solid: store.ts:1348-1352
     pub(in crate::slice1) fn leaf_set(&mut self, node: NodeId, v: Value) {
+        let t = self.nodes[node].host.expect("a slot node");
+        if self.opt_target(t) {
+            let key = match &self.nodes[node].key {
+                SlotKey::Key(k) => Some(k.clone()),
+                _ => None,
+            };
+            if let Some(key) = key {
+                let shape = self.st(t).h.as_ref().and_then(|h| h.get(&key)) == Some(node);
+                if self.opt_hook_covers(t, &key, shape) {
+                    self.covered_set(node, v);
+                    return;
+                }
+            }
+        }
         self.set_signal(node, v);
         let host = self.nodes[node].host.expect("a slot node");
         if self.pass_lane.is_some() && !self.store.user_write && self.st(host).fam.is_some() {
@@ -1098,10 +1159,7 @@ impl Runtime {
 
     /// `asBacking(v)` (store.ts:287-289).
     pub(in crate::slice1) fn as_backing(&self, v: &Value) -> Obj {
-        match v {
-            Value::View(view) => view.borrow().base.clone(),
-            other => raw(other),
-        }
+        raw(v)
     }
 
     // Solid: store.ts:1522-1527
@@ -1140,24 +1198,21 @@ impl Runtime {
             return Ok(self.st(target).v.clone());
         };
         if self.in_draft(target) || self.store.write_override {
-            if self.store.write_override && !self.store.user_write {
+            // A derive's draft, or a user's setter (#5046), reading a held
+            // key joins its hold (the setter's at its end: `draftReadTx`).
+            if self.store.user_write != self.store.write_override {
                 let leaf = key.and_then(|k| self.st(target).n.as_ref().and_then(|n| n.get(k)));
-                match leaf {
-                    Some(leaf) => {
-                        if self.nodes[leaf].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
-                        {
-                            let t = self.tx_of(leaf);
+                let k = leaf.or(self.st(target).k);
+                if let Some(k) = k {
+                    if self.nodes[k].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
+                        && (leaf.is_some()
+                            || key.is_none_or(|key| self.held_key_changed(target, key, true)))
+                    {
+                        let t = self.tx_of(k);
+                        if self.store.user_write {
+                            self.store.draft_read_tx = Some(t);
+                        } else {
                             self.join_pass_tx(t, false);
-                        }
-                    }
-                    None => {
-                        if let Some(k) = self.st(target).k {
-                            if self.nodes[k].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
-                                && key.is_none_or(|key| self.held_key_changed(target, key, true))
-                            {
-                                let t = self.tx_of(k);
-                                self.join_pass_tx(t, false);
-                            }
                         }
                     }
                 }
@@ -1167,7 +1222,10 @@ impl Runtime {
         let k = self.st(target).k;
         if let Some(key) = key {
             let leaf = self.st(target).n.as_ref().and_then(|n| n.get(key));
-            if leaf.is_some_and(|l| self.nodes[l].config & CONFIG_OVERRIDE != 0) {
+            if leaf.is_some_and(|l| {
+                self.nodes[l].config & CONFIG_OVERRIDE != 0
+                    && k.and_then(|k| self.nodes[k].transaction) != self.nodes[l].transaction
+            }) {
                 return Ok(self.committed(target));
             }
         }
@@ -1218,7 +1276,7 @@ impl Runtime {
                 if self.nodes[c].config & CONFIG_VERDICT != 0 && self.staged_screen(c, None) {
                     return Ok(self.committed(target));
                 }
-                self.staged_read(c, None);
+                self.staged_read(c, None)?;
                 return Ok(pb);
             }
         }
@@ -1418,6 +1476,22 @@ impl Runtime {
                 v = self.node_value(n, target)?;
             }
         }
+        self.serve_key_value(target, key, v, false, node)
+    }
+
+    // Solid: store.ts `serveKeyValue`: a key's value served (wrapped, shallow,
+    // through a draft) — also the optimistic `read` hook's.
+    pub(in crate::slice1) fn serve_key_value(
+        &mut self,
+        target: TargetId,
+        key: &Key,
+        v: Value,
+        _chained: bool,
+        node: Option<NodeId>,
+    ) -> Result<Value, Error> {
+        if self.st(target).ch {
+            panic!("a chained store's key value (resolveChainedRaw, §7b) is not ported");
+        }
         if self.st(target).s {
             return Ok(self.serve_shallow(target, key, v));
         }
@@ -1454,7 +1528,24 @@ impl Runtime {
         false
     }
 
-    // Solid: store.ts:1852-1929
+    // Solid: store.ts `feeds`: `n` reads `c` (through computeds above it).
+    fn feeds(&self, n: NodeId, c: NodeId) -> bool {
+        let mut l = self.nodes[n].deps;
+        while let Some(link) = l {
+            let d = self.links[link].dep;
+            if d == c
+                || (self.nodes[d].kind == Kind::Computed
+                    && self.nodes[d].height > self.nodes[c].height
+                    && self.feeds(d, c))
+            {
+                return true;
+            }
+            l = self.links[link].next_dep;
+        }
+        false
+    }
+
+    // Solid: store.ts `pullFamily`
     pub(in crate::slice1) fn pull_family(&mut self, target: TargetId) -> Result<(), Error> {
         let fam = self.st(target).fam.expect("a family target");
         let Some(fw) = self.store.families[fam].node else {
@@ -1463,6 +1554,20 @@ impl Runtime {
         if self.store.write_override || self.in_draft(target) {
             return Ok(());
         }
+        let c = self.context;
+        // A projection's own row read upstream of its derive is an input
+        // (#4970).
+        if let Some(c) = c {
+            if self.nodes[c].kind != Kind::Root && self.nodes[c].subs.is_some() && self.feeds(fw, c)
+            {
+                return Ok(());
+            }
+        }
+        let verdict_derive = |rt: &Runtime| {
+            rt.nodes[fw].config & CONFIG_VERDICT != 0
+                && rt.nodes[fw].flags & REACTIVE_WINDOW == 0
+                && rt.tracking
+        };
         if self.nodes[fw].status & (STATUS_PENDING | STATUS_ERROR) != 0
             || self.nodes[fw].config & CONFIG_STAGED_ERROR != 0
         {
@@ -1472,7 +1577,6 @@ impl Runtime {
             {
                 return Ok(());
             }
-            let c = self.context;
             if let Some(c) = c {
                 if self.nodes[c].effect_type == EFFECT_RENDER
                     && self.nodes[fw].status & STATUS_PENDING != 0
@@ -1485,18 +1589,45 @@ impl Runtime {
                 {
                     return Ok(());
                 }
-                if self.nodes[fw].config & CONFIG_STAGED_ERROR != 0 {
+                if self.nodes[c].kind != Kind::Root
+                    && self.nodes[fw].config & CONFIG_STAGED_ERROR != 0
+                {
                     self.link(fw, c);
+                }
+            }
+            if verdict_derive(self) {
+                let mut l = self.nodes[fw].deps;
+                while let Some(link) = l {
+                    let d = self.links[link].dep;
+                    l = self.links[link].next_dep;
+                    if self.nodes[d].status & STATUS_PENDING != 0 {
+                        self.read_node(d)?;
+                    }
                 }
             }
             self.read_node(fw)?;
         } else {
+            let mut r = c;
+            if let Some(x) = r {
+                if self.nodes[x].kind == Kind::Root {
+                    r = self.parent_computed(x);
+                }
+            }
+            if let Some(r) = r {
+                self.pull_computed(fw, r);
+            }
             self.untrack(|rt| rt.read_node(fw))?;
-            if self.nodes[fw].config & CONFIG_VERDICT != 0
-                && self.nodes[fw].flags & (EFFECT_RENDER << 21) == 0
-                && self.tracking
-            {
-                panic!("a derive that is a verdict reader (#4491) is not ported");
+            if verdict_derive(self) {
+                self.store.families[fam].w = 0;
+                let mut l = self.nodes[fw].deps;
+                while let Some(link) = l {
+                    let d = self.links[link].dep;
+                    l = self.links[link].next_dep;
+                    if self.nodes[d].status & STATUS_PENDING != 0 {
+                        self.store.families[fam].w = 1;
+                        self.read_node(d)?;
+                    }
+                }
             }
         }
         Ok(())
@@ -1517,8 +1648,6 @@ impl Runtime {
             if self.nodes[node].pending.is_some() && self.nodes[node].config & CONFIG_OVERRIDE == 0
             {
                 self.list(node, lane);
-                self.nodes[node].lane = self.nodes[node].pending.take();
-                self.nodes[node].pending_err = None;
                 self.nodes[node].config |= CONFIG_OVERRIDE;
                 return;
             }
@@ -1592,6 +1721,9 @@ impl Runtime {
                 if !self.in_draft(target) && self.get_observer().is_some() {
                     let k = self.get_container_node(target);
                     self.read_node(k)?;
+                    if self.opt_target(target) && !self.store.write_override {
+                        self.opt_hook_frame(target)?;
+                    }
                     // A chained backing reads through (§7b): the backing
                     // here is always raw, so `srcT[$TARGET]` is undefined.
                     self.read_source(target, None, false)?;
@@ -1603,12 +1735,17 @@ impl Runtime {
         if self.st(target).fam.is_some() {
             self.pull_family(target)?;
         }
+        if self.opt_target(target) && !self.store.write_override {
+            if self.in_draft(target) {
+                self.opt_hook_drafted(target, Some(key), false);
+            } else if let Some(v) = self.opt_hook_read(target, key)? {
+                return Ok(v);
+            }
+        }
         let node0 = self.st(target).n.as_ref().and_then(|n| n.get(key));
         if self.store.write_scopes.is_none() && !self.store.write_override {
             if let Some(h) = node0 {
-                if !self.nodes[h].acc
-                    && (!self.st(target).ch || self.nodes[h].config & CONFIG_OVERRIDE != 0)
-                {
+                if !self.nodes[h].acc && !self.st(target).ch {
                     let nv = self.node_value(h, target)?;
                     if !nv.is_object() {
                         return Ok(nv);
@@ -1753,20 +1890,22 @@ impl Runtime {
         if self.st(target).fam.is_some() {
             self.pull_family(target)?;
         }
-        let src = self.read_source(target, Some(key), false)?;
-        if !self.in_draft(target) && !self.store.write_override {
-            if self.get_observer().is_some() {
-                let node = self.get_has_node(target, key);
-                let nv = self.read_node(node)?;
-                if !self.st(target).ch {
-                    return Ok(nv.truthy());
-                }
-                panic!("a chained target's presence (§7b) is not ported");
-            } else if self.opt_read(target) {
-                if let Some(guessed) = self.optimistic_has(target, key)? {
-                    return Ok(guessed);
-                }
+        if self.opt_target(target) && !self.store.write_override && self.in_draft(target) {
+            self.opt_hook_drafted(target, Some(key), true);
+        }
+        if self.opt_read(target) {
+            if let Some(guessed) = self.opt_hook_has(target, key)? {
+                return Ok(guessed);
             }
+        }
+        let src = self.read_source(target, Some(key), false)?;
+        if !self.in_draft(target) && !self.store.write_override && self.get_observer().is_some() {
+            let node = self.get_has_node(target, key);
+            let nv = self.read_node(node)?;
+            if !self.st(target).ch {
+                return Ok(nv.truthy());
+            }
+            panic!("a chained target's presence (§7b) is not ported");
         }
         let is_pb = self
             .st(target)
@@ -1796,7 +1935,11 @@ impl Runtime {
         if key.is("__proto__") {
             return Ok(());
         }
-        let uv = if self.st(target).s {
+        // Another family's proxy (or a raw value) written into a family's
+        // store stays as written (#4845).
+        let foreign = self.st(target).fam.is_some()
+            && self.target_of(&value).map(|t| self.st(t).fam) != Some(self.st(target).fam);
+        let uv = if self.st(target).s || foreign {
             value
         } else {
             self.unwrap_value(&value)
@@ -1890,10 +2033,32 @@ impl Runtime {
             self.store.pending_notify.clear();
         }
         self.store.writing += 1;
-        let result = f(self, proxy.clone());
+        let mut result = f(self, proxy.clone());
+        // An optimistic store's returned value is diffed into its draft.
+        if let Ok(r) = &result {
+            if guard
+                && self.opt_target(target)
+                && !self.store.write_override
+                && !r.is_undef()
+                && r != proxy
+                && self.is_wrappable(r)
+            {
+                let incoming = self.unwrap_value(r);
+                let key = self
+                    .st(target)
+                    .fam
+                    .and_then(|f| self.store.families[f].key.clone());
+                result = self
+                    .reconcile_draft(proxy, &incoming, &key)
+                    .map(|_| Value::Undef);
+            }
+        }
         self.store.writing -= 1;
         self.store.write_scopes = prev_scopes;
         if self.store.writing == 0 && self.store.pending_notify.size() != 0 {
+            if let Some(t) = self.store.draft_read_tx {
+                self.join_future(Some(t));
+            }
             let touched = self.store.pending_notify.values();
             self.store.pending_notify.clear();
             for t in &touched {
@@ -1909,20 +2074,13 @@ impl Runtime {
             }
         }
         self.store.user_write = prev_user;
+        if self.store.writing == 0 {
+            self.store.draft_read_tx = None;
+        }
         let result = result?;
         if !result.is_undef() && result != *proxy && self.is_wrappable(&result) {
             let incoming = self.unwrap_value(&result);
-            if guard
-                && self
-                    .st(target)
-                    .fam
-                    .is_some_and(|f| self.store.families[f].opt)
-                && !self.store.write_override
-            {
-                self.notify_optimistic_writes(target, &raw(&incoming));
-            } else {
-                self.adopt_pb(target, &raw(&incoming), true);
-            }
+            self.adopt_pb(target, &raw(&incoming), true);
         }
         if guard && self.store.held_derivation_hit {
             self.store.held_derivation_hit = false;

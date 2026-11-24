@@ -1,8 +1,8 @@
 {
   "total": 2000,
-  "agreement": 1979,
-  "rate": 0.9895,
-  "invalid": 21,
+  "agreement": 1982,
+  "rate": 0.991,
+  "invalid": 18,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 2387,
@@ -26,15 +26,15 @@
   "modes": {
     "probes": {
       "total": 375,
-      "agreement": 370
+      "agreement": 371
     },
     "actions": {
       "total": 375,
-      "agreement": 367
+      "agreement": 368
     },
     "owners": {
       "total": 250,
-      "agreement": 248
+      "agreement": 249
     },
     "first-load": {
       "total": 375,
@@ -51,7 +51,7 @@
   },
   "classes": {
     "oracle-timeout": {
-      "count": 21,
+      "count": 18,
       "seed": 1091
     }
   }

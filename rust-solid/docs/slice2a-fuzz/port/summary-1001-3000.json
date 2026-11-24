@@ -1,8 +1,8 @@
 {
   "total": 2000,
-  "agreement": 1984,
-  "rate": 0.992,
-  "invalid": 16,
+  "agreement": 1997,
+  "rate": 0.9985,
+  "invalid": 3,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 4400,
@@ -25,11 +25,11 @@
     },
     "async-chain": {
       "total": 400,
-      "agreement": 394
+      "agreement": 397
     },
     "async-reject": {
       "total": 400,
-      "agreement": 393
+      "agreement": 400
     },
     "async-lanes": {
       "total": 400,
@@ -37,13 +37,13 @@
     },
     "async-actions": {
       "total": 400,
-      "agreement": 397
+      "agreement": 400
     }
   },
   "classes": {
     "oracle-nonscalar": {
-      "count": 16,
-      "seed": 1360
+      "count": 3,
+      "seed": 2037
     }
   }
 }

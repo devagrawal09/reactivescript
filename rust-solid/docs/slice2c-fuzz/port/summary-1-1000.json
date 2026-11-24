@@ -1,8 +1,8 @@
 {
   "total": 1000,
-  "agreement": 999,
-  "rate": 0.999,
-  "invalid": 1,
+  "agreement": 1000,
+  "rate": 1,
+  "invalid": 0,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 1533,
@@ -39,7 +39,7 @@
     },
     "list-opt-store": {
       "total": 132,
-      "agreement": 131
+      "agreement": 132
     },
     "list-show": {
       "total": 129,
@@ -58,10 +58,5 @@
       "agreement": 172
     }
   },
-  "classes": {
-    "oracle-halted": {
-      "count": 1,
-      "seed": 493
-    }
-  }
+  "classes": {}
 }

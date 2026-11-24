@@ -29,6 +29,7 @@ mod flatten;
 mod flow;
 mod function;
 mod graph;
+mod guesses;
 mod heap;
 mod lanes;
 mod map;
@@ -133,6 +134,12 @@ const REACTIVE_PROBE_UNANSWERED: u32 = 1 << 19;
 const REACTIVE_AHEAD: u32 = 1 << 20;
 const REACTIVE_WINDOW: u32 = 1 << 21;
 const REACTIVE_RELEASE_AFTER: u32 = 1 << 22;
+/// Solid: constants.ts `REACTIVE_OWNER_READS`: a computed its own owner
+/// reads (#4908 S1).
+const REACTIVE_OWNER_READS: u32 = 1 << 23;
+/// Solid: constants.ts `WINDOW_KINDS`: the per-pass window kinds' shift
+/// (1 `isPending`, 2 `latest`).
+const WINDOW_KINDS: u32 = 24;
 // Solid: constants.ts:89-237 (the `_config` bits used here)
 const CONFIG_OWNED_WRITE: u32 = 1 << 0;
 /// `_noSnapshot` (snapshots are not ported: a boundary's output and error
@@ -157,6 +164,9 @@ const CONFIG_HELD_FRAME: u32 = 1 << 20;
 const CONFIG_STAGED_ERROR: u32 = 1 << 21;
 const CONFIG_PROMOTED: u32 = 1 << 22;
 const CONFIG_FRAME: u32 = 1 << 23;
+/// Solid: constants.ts `CONFIG_MOUNT_AHEAD`: a mount a probing pass opened
+/// (S-46, born held).
+const CONFIG_MOUNT_AHEAD: u32 = 1 << 24;
 const CONFIG_ASYNC: u32 = 1 << 29;
 /// Solid: constants.ts:243 (`REACTIVE_WINDOW << 9`)
 const CONFIG_OWN_PROBE: u32 = REACTIVE_WINDOW << 9;
@@ -213,6 +223,8 @@ enum Equals {
     IsEqual,
     Slot,
     Container,
+    /// optimistic.ts `patchEquals` (a guess carrier's comparator).
+    Patch,
     User(usize),
 }
 
@@ -265,7 +277,11 @@ struct Node {
     pending_disposal: Vec<Cleanup>,
     // NodeExtension.
     transaction: Option<TxId>,
-    lane: Slot,
+    /// `_x._shown`: a lane value of this node is on screen (`_value`).
+    shown: bool,
+    /// `_x._revert`: `_pendingValue` holds the committed value a reveal
+    /// covered (to revert to), not a landed truth.
+    revert: bool,
     q: u64,
     error: Option<Error>,
     flushed: Slot,
@@ -298,6 +314,13 @@ struct Node {
     /// `_x._askedIn` (verdict.ts:475, #4544): the hold or flush a window
     /// asked of this node's staging in.
     asked_in: AskedIn,
+    /// `_x._readIn` (#4776): the hold a sync verdict memo was re-derived in.
+    read_in: Option<TxId>,
+    /// `_x._parked`: a frame flight a landing adopts (verdict.ts `r5`).
+    parked: Option<FlightId>,
+    /// `_x._aheadError`: a held error `latest` keeps through a re-ask
+    /// (verdict.ts `pass`, D-22, D-41).
+    ahead_error: Option<Error>,
     /// `_x !== null`: the cold extension was allocated (`ext()`, core.ts:
     /// 1259). Its fields are inlined above; only an effect's first run reads
     /// the difference (`node._x?._transaction` is undefined without one,
@@ -350,7 +373,8 @@ impl Node {
             pending_first_child: None,
             pending_disposal: vec![],
             transaction: None,
-            lane: None,
+            shown: false,
+            revert: false,
             q: 0,
             error: None,
             flushed: None,
@@ -371,6 +395,9 @@ impl Node {
             boundary: None,
             marks: 0,
             asked_in: AskedIn::None,
+            read_in: None,
+            parked: None,
+            ahead_error: None,
             x: false,
         }
     }
@@ -385,6 +412,12 @@ enum QueueCallback {
     /// A boundary output's deferred `drop` of the fallback it replaced
     /// (boundaries.ts:498-510): the boundary and that fallback's computed.
     DropFallback(boundaries::BoundaryId, NodeId),
+    /// lanes.ts `laneSeam`'s `() => v.forEach(r => (r._modified = true))`
+    /// (#4677): the runs a parent landing voided, by index into
+    /// `Runtime::restores`.
+    Restore(usize),
+    /// lanes.ts `walk`'s `() => (waiting = null)` (#4677).
+    ClearWaiting,
 }
 
 /// Solid: scheduler.ts:260-323 `Transaction`. `_links` is an index into
@@ -404,6 +437,15 @@ struct Transaction {
     folded: bool,
     /// `over`: the derive's transaction a lane was re-based over (#4525).
     over: Option<TxId>,
+    /// `_reguessed`: the clock of a re-guess of a shown guess (it waits for
+    /// its lane's next reveal).
+    reguessed: Option<u64>,
+    /// `waits`: lane passes pending on the frame's flights (`laneWait`).
+    waits: Option<Vec<NodeId>>,
+    /// `scanned`: how far `collectMounts` read `_nodes`.
+    scanned: usize,
+    /// `_opened`: a verdict lane a probing pass opened a mount in.
+    opened: bool,
     links: Option<usize>,
     nodes: Vec<NodeId>,
     queues: [Vec<QueueCallback>; 2],
@@ -429,8 +471,13 @@ pub enum Microtask {
     /// An async memo's flight reaction (async.ts:855-893): the node and the
     /// promise it registered on.
     Landing(NodeId, FlightId, Option<usize>),
-    /// `refresh()`'s deferred waiter (signals.ts:961-998).
-    Waiter(NodeId, Option<TxId>),
+    /// `refresh()`'s deferred waiter (signals.ts `run`): a later refresh
+    /// carries the flight it waited on.
+    Waiter(NodeId, Option<TxId>, Option<FlightId>),
+    /// A later refresh's `re` (`queueMicrotask(run)`).
+    RefreshRe(NodeId, Option<TxId>, FlightId),
+    /// verdict.ts `park`'s `done` (the reader, its parked flight).
+    ParkDone(NodeId, FlightId),
     /// The host's own continuation: `await Promise.resolve()` (one job,
     /// FIFO), which ends a turn of `run_microtask_turns`.
     Tick,
@@ -453,6 +500,11 @@ enum Reaction {
     Action(ActionId),
     /// An async memo's reaction; a derive's carries its pass (`setter`).
     Memo(NodeId, Option<usize>),
+    /// verdict.ts `park`'s `p.then(done, done)`: the reader and its
+    /// parked flight.
+    ParkDone(NodeId, FlightId),
+    /// signals.ts `refresh`'s `flight.then(re, re)` (#5101).
+    Refresh(NodeId, Option<TxId>, FlightId),
 }
 
 /// A JS `Set` of nodes, shared by reference: insertion order, and an
@@ -526,12 +578,24 @@ pub struct Runtime {
     errors: Vec<String>,
     /// core.ts:2005 `promotedWrites` (CONFIG_PROMOTED).
     promoted_writes: Vec<NodeId>,
-    /// lanes.ts:166-170 `kept` (node, guess, lane, question, taker) and
-    /// `reverted` (a WeakSet of lanes).
-    kept: Vec<(NodeId, Slot, Option<TxId>, u64, TxId)>,
-    reverted: Vec<TxId>,
-    /// lanes.ts:509 `reverting`.
-    reverting: bool,
+    /// truth.ts `covers`: a guess's waiting value (a WeakMap).
+    covers: std::collections::HashMap<NodeId, Value>,
+    /// lanes.ts `readGuesses` (lane, question) and guesses.ts `readFrom`.
+    read_guesses: Vec<(TxId, u64)>,
+    read_from: Vec<TxId>,
+    /// lanes.ts `served` (a WeakMap): lane work served a flight's
+    /// committed value, and the pass it was served in.
+    served: std::collections::HashMap<NodeId, (NodeId, u64)>,
+    /// lanes.ts `aheadMounts`.
+    ahead_mounts: Vec<NodeId>,
+    /// verdict.ts `armed`, `parks` and `left` (a Map: node → it was pending
+    /// and unshown when it left).
+    armed: Vec<NodeId>,
+    parks: Vec<NodeId>,
+    left: Vec<(NodeId, bool)>,
+    /// lanes.ts `marked`'s nodes: shown guesses a correction re-homed into
+    /// their hold (#4690).
+    marked_nodes: Vec<NodeId>,
     /// The store tier's module state (store/*.ts).
     store: store::StoreState,
     /// Each derive pass's closure state, by registration.
@@ -546,9 +610,6 @@ pub struct Runtime {
     comparators: Vec<EqualsFn>,
     /// Host-made function values (function.rs), by identity.
     functions: std::collections::HashMap<u64, function::JsFunction>,
-    /// scheduler.ts:380 `latestOpened` (reset at each seam; `openedByLatest`
-    /// has no caller in rc.21, so it stays null).
-    latest_opened: Option<TxId>,
     /// lanes.ts:1252 `ahead`: this flush's verdict readers that read a
     /// flight ahead of the frame.
     ahead: Vec<NodeId>,
@@ -565,6 +626,21 @@ pub struct Runtime {
     collecting: boundaries::Collecting,
     /// error-hooks.ts `reported` (a WeakSet of thrown objects).
     reported: Vec<Error>,
+    /// lanes.ts `waiting` (#4677): the effects deriving plainly from a
+    /// landing whose runs wait for its re-derivation (a JS `Set`).
+    waiting: Option<Vec<NodeId>>,
+    /// The node lists of queued `Restore` callbacks.
+    restores: Vec<Vec<NodeId>>,
+    /// core.ts `fresh`: the read in progress is a verdict reader's first
+    /// read of a staging (`readsFresh`).
+    fresh: bool,
+    /// core.ts `adopter` and scheduler.ts `adopted` (transaction, the
+    /// target's `_acted` before): the merges a pass made (`dropFlushTx`).
+    adopter: Option<NodeId>,
+    adopted: Vec<(TxId, bool)>,
+    /// scheduler.ts `heldRewrites`: held slots rewritten since the last
+    /// flush (verdict.ts `revert`, D-8).
+    held_rewrites: Vec<NodeId>,
     /// Debugging aid: `SLICE1_TRACE` prints scheduler events to stderr in
     /// the format of the instrumented Solid copy (docs/slice2a-fuzz).
     trace: bool,
@@ -621,9 +697,15 @@ impl Default for Runtime {
             sets: vec![],
             errors: vec![],
             promoted_writes: vec![],
-            kept: vec![],
-            reverted: vec![],
-            reverting: false,
+            covers: Default::default(),
+            read_guesses: vec![],
+            read_from: vec![],
+            served: Default::default(),
+            ahead_mounts: vec![],
+            armed: vec![],
+            parks: vec![],
+            left: vec![],
+            marked_nodes: vec![],
             store: store::StoreState::default(),
             passes: vec![],
             deferred_zombies: vec![],
@@ -631,7 +713,6 @@ impl Default for Runtime {
             maps: vec![],
             comparators: vec![],
             functions: Default::default(),
-            latest_opened: None,
             ahead: vec![],
             entered: vec![],
             ambient: vec![],
@@ -639,6 +720,12 @@ impl Default for Runtime {
             boundaries: vec![],
             collecting: Default::default(),
             reported: vec![],
+            waiting: None,
+            restores: vec![],
+            fresh: false,
+            adopter: None,
+            adopted: vec![],
+            held_rewrites: vec![],
             trace: std::env::var_os("SLICE1_TRACE").is_some(),
         }
     }
@@ -883,8 +970,13 @@ impl Runtime {
                     on_settled(a, r)
                 }
                 Microtask::Landing(el, f, pass) => self.flight_reaction(el, f, pass),
-                Microtask::Waiter(node, own) => self.refresh_waiter(node, own),
+                Microtask::Waiter(node, own, later) => self.refresh_waiter(node, own, later),
+                Microtask::RefreshRe(node, own, f) => {
+                    self.microtasks
+                        .push_back(Microtask::Waiter(node, own, Some(f)))
+                }
                 Microtask::Deliver(waiter) => self.dispose(waiter),
+                Microtask::ParkDone(r, p) => self.park_done(r, p),
                 // A turn's end (`run_microtask_turns`) left in the queue by
                 // `run_microtasks`: nothing awaits it any more.
                 Microtask::Tick => {}

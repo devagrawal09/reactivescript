@@ -85,7 +85,8 @@ impl Runtime {
         }
         let is_opt = self.st(t).fam.is_some_and(|f| self.store.families[f].opt);
         let prev_view = if is_opt {
-            self.optimistic_view(t, &old, Pick::Shown, false)?
+            self.pair_rows(t, incoming, true);
+            self.guess_view(t, &old)?
         } else {
             old.clone()
         };
@@ -333,13 +334,4 @@ impl Runtime {
         }
         self.apply_adopt(ct, &raw(&nv), key_fn, proj)
     }
-}
-
-/// What `optimisticView` picks of a lane node (`pick`).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::slice1) enum Pick {
-    /// `shown`: what the lane shows an untracked reader.
-    Shown,
-    /// `laneValueOf`: the lane's latest.
-    Latest,
 }

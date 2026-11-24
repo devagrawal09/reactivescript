@@ -1,8 +1,8 @@
 {
   "total": 2000,
-  "agreement": 1998,
-  "rate": 0.999,
-  "invalid": 2,
+  "agreement": 1997,
+  "rate": 0.9985,
+  "invalid": 3,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 3065,
@@ -47,7 +47,7 @@
     },
     "list-store": {
       "total": 261,
-      "agreement": 261
+      "agreement": 258
     },
     "list-lanes": {
       "total": 261,
@@ -55,13 +55,13 @@
     },
     "list-opt-store": {
       "total": 260,
-      "agreement": 258
+      "agreement": 260
     }
   },
   "classes": {
-    "oracle-error": {
-      "count": 2,
-      "seed": 2723
+    "oracle-halted": {
+      "count": 3,
+      "seed": 1015
     }
   }
 }

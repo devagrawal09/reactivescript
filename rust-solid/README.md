@@ -1,6 +1,6 @@
 # rust-solid
 
-Single-threaded Rust reactive-runtime spike against Solid 2 rc.21. **Not parity-complete; M1 remains open.** See [status](docs/STATUS.md), [design](docs/DESIGN.md), and [reference quirks](docs/SOLID-QUIRKS.md).
+Single-threaded Rust reactive-runtime spike against Solid 2 (the engine follows Solid `main` 30e7805eb since [PIN-MAIN-ENGINE.md](docs/PIN-MAIN-ENGINE.md); rc.21 before). **Not parity-complete; M1 remains open.** See [status](docs/STATUS.md), [design](docs/DESIGN.md), and [reference quirks](docs/SOLID-QUIRKS.md).
 
 ## Run
 

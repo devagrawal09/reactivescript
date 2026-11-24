@@ -127,6 +127,9 @@ pub(super) struct Boundary {
     show: ShowFn,
     /// `_fb`: the fallback's own computed while it shows.
     fb: Option<NodeId>,
+    /// `_lane`: the lane an error boundary caught its error in; its output's
+    /// next pass is that lane's work (no `on`: `_armLane` is null).
+    lane: Option<TxId>,
 }
 
 /// `hiddenBy`'s answer: a boundary showing its fallback on the chain, or
@@ -168,6 +171,31 @@ impl Runtime {
         x.ty == STATUS_ERROR || !x.initialized || x.armed || self.behind_error(x.parent)
     }
 
+    // Solid: boundaries.ts `freshAbove`
+    fn fresh_above(&self, b: Option<BoundaryId>) -> bool {
+        match b {
+            None => false,
+            Some(b) => {
+                if self.boundaries[b].ty & STATUS_PENDING != 0 {
+                    self.is_collecting(b)
+                } else {
+                    self.fresh_above(self.boundaries[b].parent)
+                }
+            }
+        }
+    }
+
+    // Solid: boundaries.ts `keeps`: the statuses a reader keeps `b` on.
+    fn keeps(&self, b: BoundaryId, r: NodeId) -> u32 {
+        let x = &self.boundaries[b];
+        x.ty | STATUS_PENDING
+            | if self.behind_error(x.parent) && self.nodes[r].boundary == Some(b) {
+                STATUS_ERROR
+            } else {
+                0
+            }
+    }
+
     // Solid: boundaries.ts:186-189
     fn record(&mut self, b: BoundaryId, node: NodeId, source: NodeId) {
         self.boundaries[b].readers.set(node, source);
@@ -178,6 +206,17 @@ impl Runtime {
     fn caught(&mut self, b: BoundaryId, node: NodeId, error: Option<Error>) {
         let mut source = node;
         if self.boundaries[b].ty == STATUS_ERROR {
+            // The lane the error was caught in: its signal's write is that
+            // lane's, and the output's next pass enters it.
+            let lane = self.pass_lane.or_else(|| {
+                self.nodes[node]
+                    .transaction
+                    .filter(|t| self.txs[*t].lane)
+                    .map(|_| self.tx_of(node))
+            });
+            if !self.boundaries[b].fallback {
+                self.boundaries[b].lane = lane;
+            }
             // `error ??= node._x?._error`; `source = error?.source ?? node`.
             let error = error.or_else(|| self.nodes[node].error.clone());
             if let Some(Some(s)) = error.as_ref().and_then(|e| e.source()) {
@@ -190,6 +229,9 @@ impl Runtime {
             let signal = self.boundaries[b]
                 .error
                 .expect("an error boundary's signal");
+            if let Some(l) = lane {
+                self.lane_stage(signal, l, true, r#async::Errored::No);
+            }
             self.set_signal(signal, caught.clone().map_or(Value::Undef, Value::Error));
             // `reportClientError(caught, b._owner, source)`: recorded, and no
             // hook is configured on the owner chain (`hookFor(b._owner)`).
@@ -229,11 +271,11 @@ impl Runtime {
             if self.collecting.size != 0 {
                 let mut b = self.boundary_of(node);
                 while let Some(x) = b {
-                    let ty = self.boundaries[x].ty;
+                    let k = self.keeps(x, node);
                     let kept = self.boundaries[x]
                         .readers
                         .get(node)
-                        .is_some_and(|s| self.nodes[s].status & (ty | STATUS_PENDING) != 0);
+                        .is_some_and(|s| self.nodes[s].status & k != 0);
                     if !kept
                         && self.boundaries[x].readers.delete(node)
                         && self.prune(x, Some(false)) == 0
@@ -343,6 +385,12 @@ impl Runtime {
         let Hidden::By(b) = self.hidden_by(node, &mut None) else {
             return false;
         };
+        // A run under a Loading whose output is held (or lane work's) applies
+        // (#4987).
+        let o = self.boundaries[b].output.expect("a boundary's output");
+        if self.nodes[o].config & (CONFIG_HELD | CONFIG_OVERRIDE) != 0 {
+            return false;
+        }
         let runs = self.boundaries[b].runs.get_or_insert_with(Vec::new);
         if !runs.contains(&node) {
             runs.push(node);
@@ -417,8 +465,9 @@ impl Runtime {
             i += 1;
             let Some((r, s)) = entry else { continue };
             if (self.nodes[r].flags | self.nodes[s].flags) & REACTIVE_DISPOSED == 0 {
-                let keep = ((self.nodes[r].status & mask != 0
-                    || (self.nodes[s].status & mask != 0 && self.reads(r, s, &mut None)))
+                let k = self.keeps(b, r);
+                let keep = ((self.nodes[r].status & k != 0
+                    || (self.nodes[s].status & k != 0 && self.reads(r, s, &mut None)))
                     && !(mask & STATUS_ERROR != 0 && self.caught_below(b, r, s)))
                     || (mask & STATUS_ERROR != 0
                         && self.nodes[s].config & CONFIG_STAGED_ERROR != 0)
@@ -555,6 +604,7 @@ impl Runtime {
             error,
             show,
             fb: None,
+            lane: None,
         });
         // `if (getOwner()) cleanup(() => { collecting.delete(b); … })`
         if let Some(o) = self.context {
@@ -617,10 +667,28 @@ impl Runtime {
         let this = self.context.expect("the output's pass");
         let ty = self.boundaries[b].ty;
         let tree = self.boundaries[b].tree.expect("tree");
+        if ty == STATUS_ERROR {
+            if self.boundaries[b].fallback
+                && self.nodes[this].config & CONFIG_OVERRIDE != 0
+                && self.boundaries[b].lane.is_none()
+            {
+                self.boundaries[b].lane = Some(self.tx_of(this));
+            }
+            if let Some(l) = self.boundaries[b].lane.take() {
+                self.pass_lane = Some(l);
+                self.nodes[this].flags |= REACTIVE_LANE_READ;
+            }
+        }
         if !self.boundaries[b].armed && self.nodes[this].config & CONFIG_HELD == 0 {
             self.nodes[this].config |= CONFIG_FRAME;
         }
         // `b._gated`: no reveal order.
+        let shown = !self.boundaries[b].initialized
+            && self.nodes[this].config & CONFIG_HELD != 0
+            && self.nodes[this].value
+                != self.boundaries[b]
+                    .fb
+                    .map_or(Value::Undef, |fb| self.nodes[fb].value.clone());
         let status = self.nodes[tree].status & (STATUS_PENDING | STATUS_ERROR);
         if status != 0 {
             self.link(tree, this);
@@ -630,6 +698,9 @@ impl Runtime {
                     return self.show_fallback(b);
                 }
                 self.record(b, tree, tree);
+            }
+            if ty == STATUS_ERROR && self.boundaries[b].fallback && !self.fresh_above(Some(b)) {
+                return self.show_fallback(b);
             }
             return Err(self.nodes[tree]
                 .error
@@ -643,11 +714,18 @@ impl Runtime {
             {
                 return self.show_fallback(b);
             }
-            if self.prune(b, Some(true)) != 0 {
+            if self.prune(b, Some(true)) != 0 && !shown {
                 return self.show_fallback(b);
             }
         }
-        let value = match self.read_node(tree) {
+        let value = match self.read_node(tree).and_then(|v| {
+            // `if (b._error) untrack(() => isThenable(value))`: a store's
+            // `then` read through its trap.
+            if self.boundaries[b].error.is_some() && matches!(v, Value::Proxy(_)) {
+                self.untrack(|rt| rt.js_get(&v, &Key::name("then")))?;
+            }
+            Ok(v)
+        }) {
             Ok(v) => v,
             Err(e) => {
                 if if e.is_not_ready() {
@@ -664,8 +742,17 @@ impl Runtime {
                 return Err(e);
             }
         };
-        if self.is_collecting(b) && self.boundaries[b].readers.size != 0 {
-            return self.show_fallback(b);
+        if self.is_collecting(b) {
+            if self.nodes[tree].status & ty & STATUS_PENDING != 0 {
+                self.caught(b, tree, None);
+            }
+            if self.boundaries[b].readers.size != 0 {
+                return if shown && self.pass_lane.is_some() {
+                    Ok(value)
+                } else {
+                    self.show_fallback(b)
+                };
+            }
         }
         self.boundaries[b].initialized = true;
         self.boundaries[b].fallback = false;
@@ -698,6 +785,10 @@ impl Runtime {
     // Solid: boundaries.ts:932-992 (`fallback`; `b._lane` is null: no `on`)
     fn show_fallback(&mut self, b: BoundaryId) -> Result<Value, Error> {
         let out = self.context.expect("the output's pass");
+        if let Some(l) = self.boundaries[b].lane.take() {
+            self.pass_lane = Some(l);
+            self.nodes[out].flags |= REACTIVE_LANE_READ;
+        }
         self.boundaries[b].fallback = true;
         if self.boundaries[b].fb.is_none() {
             // `runWithOwner(out._parent, () => computed(() => b._show(b), { id:

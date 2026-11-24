@@ -1,8 +1,8 @@
 {
   "total": 2000,
-  "agreement": 1999,
-  "rate": 0.9995,
-  "invalid": 1,
+  "agreement": 2000,
+  "rate": 1,
+  "invalid": 0,
   "timeoutMs": 1500,
   "coverage": {
     "signal": 3799,
@@ -48,13 +48,8 @@
     },
     "opt-store-derived": {
       "total": 249,
-      "agreement": 248
+      "agreement": 249
     }
   },
-  "classes": {
-    "oracle-error": {
-      "count": 1,
-      "seed": 1430
-    }
-  }
+  "classes": {}
 }
