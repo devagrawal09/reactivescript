@@ -351,7 +351,7 @@ Results (`.out/eval-fuzz/run-*/summary.json`; rust-solid keeps copies in `docs/e
   family, with the same diagnostics.
 - Fixed on the way: a structured read binding in TSX syntax was declared with `createSignal`, which the TSX frontend
   refuses; it is now a memo. A site with no bindings has the empty interface, which the injection took for a missing
-  one. A write or guess to a read binding is reported as `READ_ONLY` before the checker's `OPTIMISTIC_NO_QUESTION`.
+  one. A write or guess to a read binding is reported as `READ_ONLY` before anything else (at fdbcad92 also before the checker's `OPTIMISTIC_NO_QUESTION`, retired upstream in d3cab00; a guess on a writable is refused by the plan builder, docs/PIN-MAIN-FRONTEND.md).
 
 ## Async data (plan v2.1)
 

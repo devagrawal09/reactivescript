@@ -190,7 +190,7 @@ becomes `call $action<N>()`, and that action may not capture a row item.
 ## Transactions (what the frames observe)
 
 This is the part of Solid's scheduler the scenario exercises. References are to `solid-next/packages/signals/src/core`
-at 2105ffb8.
+at 2105ffb8 (rc.21; the frontend is pinned to 30e7805e since, docs/PIN-MAIN-FRONTEND.md).
 
 1. **One transaction per action call.** Calling an action opens a transaction (`action.ts`; `scheduler.ts:225–300`).
 2. **Guesses are visible at once.** An `optimistic` step makes its value the source's shown value in the next frame.
@@ -241,8 +241,19 @@ consumers build the views as Solid's universal compiler builds the TSX twin (sol
 - A component position (the markup, a Show branch, a For row) holds elements, Shows and Fors: one view is itself, more
   are an array. Text there is lowered by the compiler to a string or a memo, not a template text node; the builder and
   the consumers refuse it.
-- Show is `createComponent(Show, { get when, get fallback, get children })`; with no fallback views the `fallback` prop
-  is absent. For is `createComponent(For, { get each, children: item => … })`.
+- Show is lowered as Solid main's production compiler lowers it (solid-next 96ffcf7b, #4730; compiler
+  `src/shared/lower_show.rs`): the TSX twin's `<Show when fallback>` with JSX children becomes the ternary it renders,
+  `{when ? <>children</> : fallback}` (no children or no fallback: `undefined`), wherever that ternary is tracked:
+  a child of an element (then `insert(el, (() => { const c = memo(() => test); return () => c() ? children :
+  fallback; })(), marker)`), and in a component position: the markup, a For row and Errored's fallback (an
+  expression or a fragment), a Show/Loading/Errored body of one view (a component's sole child), and Show's or
+  Loading's fallback of more than one view (a fragment); there it is `memo(() => memo(() => test)() ? children :
+  fallback)`. `test` is `when` (a comparison or `!`) or `!!when`. A `when` that is not dynamic (below) is the plain
+  ternary, evaluated at once. The compiler keeps the component, `createComponent(Show, { get when, get fallback, get
+  children })` (no `fallback` prop without fallback views), only for a Show that is the one view of Show's or
+  Loading's fallback (an attribute) and for a Show beside other views in a Show, Loading or Errored body; Shows
+  inside a branch are lowered or kept where they stand (the compiler lowers inner Shows first). At rc.21 every Show was
+  the component. For is `createComponent(For, { get each, children: item => … })`.
 - A `when` or `each` that is a conditional or a logical expression is rewritten as the compiler's
   `transformCondition(…, inline)` rewrites a dynamic prop: the test of a conditional with a dynamic branch, or the left
   of `&&` when both sides are dynamic, is read through `memo(() => test)()` created in the getter (`!!test` unless the

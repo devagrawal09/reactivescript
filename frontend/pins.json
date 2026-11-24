@@ -17,10 +17,10 @@
     "playwright": "1.59.1"
   },
   "upstreamBaseline": {
-    "test": "111 pass, 1 fail",
-    "oracle": "112 pass, 0 fail, 0 skip",
-    "compiled": "112 pass, 0 fail, 0 skip",
-    "types": "152 pass, 0 fail",
-    "ssr": "105 pass, 0 fail, 7 skip"
+    "test": "135 pass, 0 fail",
+    "oracle": "135 pass, 0 fail, 0 skip",
+    "compiled": "135 pass, 0 fail, 0 skip",
+    "types": "181 pass, 0 fail",
+    "ssr": "127 pass, 1 fail, 7 skip"
   }
 }

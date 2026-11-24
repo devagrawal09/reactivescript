@@ -6,6 +6,24 @@ runs the integrated gate. The checkout names below (frontend-tracker, rust-track
 `/workspace/rx-tsx-refresh/...` paths) record where each measurement was taken; `docs/HISTORY.md` at the repository
 root records the branches they came from.
 
+## Pin move: ReactiveScript e650b85, Solid main 30e7805e (JS legs)
+
+Measured 2026-11-23 on branch `pin-main` (Node 24.16.0, Chrome via `CHROMIUM=/usr/bin/google-chrome`), before the Rust
+port of the same move lands. Everything below is the JS side; numbers that involve a Rust leg are re-measured after
+it. What changed upstream, what was re-recorded and why: `docs/PIN-MAIN-FRONTEND.md`.
+
+| Check | Result |
+| --- | --- |
+| Kept tests | 134/149 pass; the 15 failures are each on a Rust leg only (plan-trace, ssr, frames-server) |
+| Strict types | 0 package diagnostics; 40 upstream (baseline re-recorded from 12: upstream's own `Shape` clash, MO-10) |
+| TSX fuzz, seeds 0–199 | 184 agree, 16 listed interpreter-only (179 and 21 before: upstream f51bb5e fixed 5 U1 seeds) |
+| Plan fuzz, seeds 1–100 (JS legs) | 30 agree, 55 `UPSTREAM_RX_SHOW` (compiled RX equals native built with `lowerShow: false` exactly; the plan equals native), 15 refused |
+| Plan fuzz v2.1, seeds 1–100 (JS legs) | 73 agree, 11 `UPSTREAM_RX_SHOW`, 16 refused |
+| Eval fuzz, seeds 1–100 (JS legs) | 85 agree, 15 refused; v2.1: 84 agree, 16 refused |
+| SSR fuzz, seeds 1–100 | Solid's HTML hydrates and replays on every accepted program; v2.1: Solid's streams likewise; all differences are Rust's HTML/streams |
+| Placement fuzz, seeds 1–100 (T, N, J) | 50 agree, 42 client-only, 7 refused, seed 19 divergent (listed): the baseline exactly |
+| Upstream runners (pins.json) | test 135/0, oracle and compiled 135/0/0, types 181/0, ssr 127 pass, 1 fail, 7 skip |
+
 ## Slice 6: inferred server components over Solid 2's Frames
 
 Measured 2026-11-10 in `solid-model` (Node 24.11.1 and rustc 1.96.0 from nixpkgs, Chromium 143, Solid 2105ffb8 rc.21,
