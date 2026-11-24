@@ -148,7 +148,7 @@ export function compileEval(request: EvalRequest): Compiled {
     if (written.length) return { ok: false, diagnostics: written };
     const checked = checkModules(set);
     if (checked.diags.length) throw new CheckError(checked.diags);
-    const plan = resolvePlanV2(set, { bindings: ds, async: true });
+    const plan = resolvePlanV2(set, { bindings: ds, async: true, dom: true });
     if (req.type) {
       const memo = plan.memos.find(m => m.name === '$value');
       if (!memo || !('value' in memo) || plan.memos.length !== 1 || plan.sources.length || plan.actions.length || plan.markup.length)

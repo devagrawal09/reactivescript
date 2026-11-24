@@ -43,7 +43,9 @@ export type Step =
   /** v2.1: Solid's refresh(memo) and affects(memo), on an async memo. */
   | { op: 'refresh' | 'affects'; source: string };
 export type View =
-  | { kind: 'element'; tag: string; events: { name: string; steps: Step[] }[]; children: View[] }
+  | { kind: 'element'; tag: string; events: { name: string; steps: Step[]; param?: string }[]; children: View[];
+      /** v2.2 (DOM input, eval code only): attributes, in source order; a non-literal value is reactive. */
+      attrs?: { name: string; value: Expression }[] }
   | { kind: 'text'; value: Expression }
   | { kind: 'show'; when: Expression; children: View[]; fallback: View[] }
   | { kind: 'for'; each: Expression; item: string; key: 'identity'; children: View[] }
@@ -57,8 +59,9 @@ export type Memo = { name: string; value: Expression } | { name: string; await: 
 /** A host's result: a scalar type name, or (v2.1) a structured type in the eval interface grammar (printType's form). */
 export type Host = { name: string; params: HostType[]; returns: string; pure?: true };
 export type Plan = {
-  /** 2, or 2.1 when the plan uses any v2.1 form (PLAN-V2.md, "v2.1: async data"). */
-  version: 2 | 2.1;
+  /** 2, or 2.1 when the plan uses any v2.1 form (PLAN-V2.md, "v2.1: async data"), or 2.2 when it uses DOM input
+   *  (attributes, a handler's event parameter; docs/EVAL.md, "DOM input"). */
+  version: 2 | 2.1 | 2.2;
   component: string;
   hosts: Host[];
   /** Evaluated code only (docs/EVAL.md). */
@@ -107,7 +110,7 @@ export function confident(e: Expr): Confident {
  *  write to one is refused. */
 /** `async`: also accept plan v2.1's forms (PLAN-V2.md, "v2.1: async data"); a plan that uses none of them is the v2
  *  plan byte for byte. Without it (the v2 builder) they are refused as before. */
-export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean } = {}): Plan {
+export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; async?: boolean; dom?: boolean } = {}): Plan {
   const checked = checkModules(set);
   if (checked.diags.length) throw new Error(JSON.stringify(checked.diags));
   if (set.order.length !== 1) throw new Error('plan v2 supports one RX module plus host imports');
@@ -126,7 +129,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
   type Sym = typeof model.symbols[number];
   // v2.1: the async memos (`x = await host(…)`), known before any body that refreshes or probes them is read.
   const asyncNames = new Set(opts.async ? entry.decls.flatMap(d => d.k === 'eq' && d.e.k === 'await' ? [d.name] : []) : []);
-  let v21 = false;
+  let v21 = false, v22 = false;
   const comp = (kind: string, name: string) => { const c = model.computations.find(c => c.region === region.id && c.kind === kind && c.name === name); if (!c) throw new Error('missing computation ' + kind + ':' + name); return c; };
 
   // Each used computation collects the facts its plan encodes; finish() requires them to equal CP-6's exactly.
@@ -373,10 +376,20 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
     opened.set(key, n + 1);
     return r.id;
   };
-  const handler = (tag: string, a: { name: string; e: Expr }, r: number, locals: Locals): { name: string; steps: Step[] } => {
-    if (!/^on[A-Z]/.test(a.name) || a.e.k !== 'fn' || a.e.params.length) throw new Error('attributes other than parameterless event handlers are outside plan v2: ' + a.name);
+  const handler = (tag: string, a: { name: string; e: Expr }, r: number, locals: Locals): { name: string; steps: Step[]; param?: string } => {
+    // v2.2 (opts.dom): a handler may take the event, read as `e.target.value` / `e.currentTarget.value`.
+    const params = a.e.k === 'fn' ? a.e.params.length : 0;
+    if (!/^on[A-Z]/.test(a.name) || a.e.k !== 'fn' || params > (opts.dom ? 1 : 0)) throw new Error('attributes other than parameterless event handlers are outside plan v2: ' + a.name);
     const c = take('handler', new RegExp('^' + tag + ' ' + a.name + '$'), r);
     const s = seen(c);
+    if (params) {
+      const fn = a.e as Extract<Expr, { k: 'fn' }>, param = fn.params[0];
+      if (symbols.some(x => x.name === param) || locals.has(param)) throw new Error('an event parameter shadows a resolved name: ' + param);
+      const body: Stmt[] = fn.stmts ?? [{ k: 'expr', e: fn.body }];
+      if (actionInference(body).trigger) throw new Error('a handler that takes its event is a plain handler: call an action with what it reads (' + a.name + ')');
+      v22 = true;
+      return { name: a.name, param, steps: steps(body, s, new Map(locals).set(param, { op: 'local', name: param }), false) };
+    }
     const body: Stmt[] = a.e.stmts ?? [{ k: 'expr', e: a.e.body }];
     if (body.length === 1 && body[0].k === 'action') {
       // An inline action (TSX action(function* () { … }) at the binding): a nested CP-6 action computation.
@@ -427,8 +440,16 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
       } else if (m.k === 'read') out.push(text(m, r, locals));
       else if (m.k === 'el') {
         if (!/^[a-z][a-z0-9]*$/.test(m.tag)) throw new Error('only host elements are supported: ' + m.tag);
-        const events = m.attrs.map(a => handler(m.tag, a, r, locals));
-        out.push({ kind: 'element', tag: m.tag, events, children: markup(m.children, r, locals) });
+        const events: Extract<View, { kind: 'element' }>['events'] = [], attrs: { name: string; value: Expression }[] = [];
+        for (const a of m.attrs) {
+          if (opts.dom && !/^on[A-Z]/.test(a.name)) {
+            // v2.2: an attribute, one CP-6 reader each (a literal one reads nothing).
+            if (!/^[a-z][a-zA-Z-]*$/.test(a.name)) throw new Error('unsupported attribute ' + a.name);
+            attrs.push({ name: a.name, value: expression(a.e, seen(take('reader', new RegExp('^' + m.tag + ' ' + a.name + '$'), r)), locals) });
+            v22 = true;
+          } else events.push(handler(m.tag, a, r, locals));
+        }
+        out.push({ kind: 'element', tag: m.tag, events, children: markup(m.children, r, locals), ...(attrs.length ? { attrs } : {}) });
       } else if (m.k === 'mif') {
         if (m.tDecls.length || m.fDecls.length) throw new Error('branch declarations are outside plan v2');
         const when = expression(m.c, seen(take('reader', /^if$/, r)), locals);
@@ -479,6 +500,7 @@ export function resolvePlanV2(set: ModuleSet, opts: { bindings?: BindingDecl[]; 
   finish();
   if (evalNodes.length) deriveInterfaces(plan, entry.decls, evalNodes);
   if (v21) plan.version = 2.1;
+  if (v22) plan.version = 2.2;
   return plan;
 }
 

@@ -16,6 +16,8 @@ export type Type =
   | { k: 'never' };
 
 export const NUMBER: Type = { k: 'number' }, STRING: Type = { k: 'string' }, BOOLEAN: Type = { k: 'boolean' };
+/** v2.2: a handler's event, as far as a plan reads it. */
+const EVENT: Type = { k: 'record', fields: [['target', { k: 'record', fields: [['value', STRING]] }], ['currentTarget', { k: 'record', fields: [['value', STRING]] }]] };
 export const scalarType = (t: HostType): Type => t === 'number' ? NUMBER : t === 'string' ? STRING : BOOLEAN;
 
 export function printType(t: Type): string {
@@ -215,7 +217,12 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
   };
   const views = (vs: View[], locals: Locals) => {
     for (const v of vs) attempt('markup', () => {
-      if (v.kind === 'element') { for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, new Map(locals))); views(v.children, locals); }
+      if (v.kind === 'element') {
+        // v2.2: an attribute is a scalar; a handler's event parameter is read as e.target.value / e.currentTarget.value.
+        for (const a of v.attrs ?? []) attempt(v.tag + ' ' + a.name, () => { const t = expr(a.value, locals); if (t.k === 'array' || t.k === 'record') fail('attribute ' + a.name + ' of a ' + printType(t)); });
+        for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, e.param ? new Map(locals).set(e.param, EVENT) : new Map(locals)));
+        views(v.children, locals);
+      }
       else if (v.kind === 'text') { const t = expr(v.value, locals); if (t.k !== 'number' && t.k !== 'string') fail('text of a ' + printType(t) + ' (text shows strings and integers)'); }
       else if (v.kind === 'show') { expr(v.when, locals); views(v.children, locals); views(v.fallback, locals); }
       else if (v.kind === 'for') views(v.children, new Map(locals).set(v.item, arrayItem(expr(v.each, locals), 'For')));

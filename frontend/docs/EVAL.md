@@ -421,6 +421,28 @@ two tests (every leg, Rust's included), and `verify-pinned.sh` runs the async ev
 (`baselines/eval-fuzz-async.json`: 84 agree, 0 `rust-unsupported`). The v2
 eval slice and eval fuzz are unchanged, summaries byte for byte (`rust-solid/docs/eval/summary-1-1000.json`).
 
+## DOM input (plan v2.2)
+
+Evaluated code may read what the user types, written as upstream RX writes it:
+
+```rx
+<textarea value={code} spellcheck="false" onInput={e => { edit(e.target.value) }}></textarea>
+```
+
+- **Attributes.** An element may carry attributes other than events, in source order: a literal is set once, any other
+  value is a reactive expression (one CP-6 reader each, as the checker records them) set in a render effect. Values
+  are scalars. The renderer sets them with `setProp(node, name, value)`; the app's renderer decides attribute or
+  property (`apps/eval-todo/client/eval.ts` sets `value` and `checked` as properties, and only when they differ).
+- **The event.** A handler may take one parameter, bound to the DOM event. The plan types it as
+  `{ target: { value: string }, currentTarget: { value: string } }`, so `e.target.value` is a string and anything else
+  is a `TYPE` refusal. Such a handler is a plain handler: a body RX would infer as an action is refused (call an action
+  with what it reads instead).
+- **Scope.** Only `eval/compile.ts` turns it on (`resolvePlanV2(…, { dom: true })`); authored plans and the plan fuzz
+  still refuse both forms. A plan that uses either is version 2.2, which `solid-plan.ts` runs and which a v2/v2.1
+  consumer (rust-solid) refuses by its version.
+- **Not verified** the way the rest is: no static twin, no fuzz, no Rust leg. `apps/eval-todo/test/` checks that its
+  editor compiles and that a misread event is refused, and the app was driven in a browser.
+
 ## Deferred and not verified
 
 - `preserve` (REPL state retention) and `place` (server placement): refused, with the design above.

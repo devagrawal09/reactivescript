@@ -6,7 +6,7 @@
 // static sibling (docs/PLAN-V2.md, "Markup"). It checks that the plan alone carries what the scenario's frames need, and
 // the plan fuzz (plan/fuzz/) that it makes the same host calls as native Solid. It is not a second runtime: Solid does
 // the scheduling. Every op outside the schema, and every value outside its types, throws.
-import { action, affects, createMemo, createOptimistic, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from 'solid-js';
+import { action, affects, createMemo, createOptimistic, createRenderEffect, createSignal, createStore, Errored, For, isPending, latest, Loading, refresh, Show } from 'solid-js';
 import * as testRenderer from '../tsx/test-renderer.ts';
 import type { EvalNode, Expression, HostType, Plan, Step, View } from './resolve-v2.ts';
 
@@ -18,6 +18,8 @@ export type Renderer = {
   insert: (parent: unknown, value: unknown, marker?: unknown) => unknown;
   createComponent: (component: (props: any) => unknown, props: object) => unknown;
   memo: (fn: () => unknown, equal?: boolean) => () => unknown;
+  /** v2.2 (DOM input): sets an attribute or property of an element; required by plans with attributes. */
+  setProp?: (node: unknown, name: string, value: unknown) => void;
 };
 /** An evaluated plan's bindings (docs/EVAL.md): a read is an accessor, a store its root, an action a function that
  *  starts it (whoever passes it reports the call, as the enclosing component would). */
@@ -56,7 +58,7 @@ export function planValue(plan: Plan, api: Api, options: Options = {}): () => un
 }
 
 function check(plan: Plan, api: Api, options: Options) {
-  if (plan.version !== 2 && plan.version !== 2.1) throw new Error('plan version 2 or 2.1');
+  if (plan.version !== 2 && plan.version !== 2.1 && plan.version !== 2.2) throw new Error('plan version 2, 2.1 or 2.2');
   for (const h of plan.hosts) if (typeof api[h.name] !== 'function') throw new Error('missing host ' + h.name);
   const want = plan.bindings ?? [], given = options.bindings ?? new Map();
   if (want.length !== given.size || want.some(b => given.get(b.name)?.kind !== b.kind)) throw new Error('the bindings given are not the plan\'s: ' + want.map(b => b.kind + ' ' + b.name).join(', '));
@@ -69,7 +71,7 @@ const typed = (v: unknown, type: HostType): unknown => {
 };
 
 function instance(plan: Plan, api: Api, options: Options) {
-  const { createComponent, createElement, createTextNode, insert, insertNode, memo } = options.renderer ?? (testRenderer as unknown as Renderer);
+  const { createComponent, createElement, createTextNode, insert, insertNode, memo, setProp } = options.renderer ?? (testRenderer as unknown as Renderer);
   {
     const reads = new Map<string, () => unknown>();
     const setters = new Map<string, (v: unknown) => unknown>();
@@ -256,8 +258,9 @@ function instance(plan: Plan, api: Api, options: Options) {
         yield* exec(a.steps, new Map(a.params.map((p, i) => [p, args[i]])), 'action');
       }));
 
-    const handler = (steps: Step[], env: Env) => () => {
-      const run = exec(steps, new Map(env), 'handler');
+    const handler = (steps: Step[], env: Env, param?: string) => (event?: unknown) => {
+      // v2.2: a handler that takes its event binds it as a local (read as e.target.value).
+      const run = exec(steps, param ? new Map(env).set(param, event) : new Map(env), 'handler');
       if (!run.next().done) throw new Error('a plain handler never awaits');
     };
     // An element tree is one template, lowered as Solid's universal compiler lowers JSX (compiler
@@ -275,7 +278,14 @@ function instance(plan: Plan, api: Api, options: Options) {
     };
     const declare = (l: Lowered) => {
       const events = l.view.events;
-      l.node = events.length ? createElement(l.view.tag, Object.fromEntries(events.map(e => [e.name, handler(e.steps, l.env)]))) : createElement(l.view.tag);
+      l.node = events.length ? createElement(l.view.tag, Object.fromEntries(events.map(e => [e.name, handler(e.steps, l.env, e.param)]))) : createElement(l.view.tag);
+      // v2.2: attributes, a literal set once, any other value in a render effect.
+      for (const a of l.view.attrs ?? []) {
+        if (!setProp) throw new Error('a plan with attributes needs a renderer with setProp');
+        const node = l.node;
+        if (a.value.op === 'literal') setProp(node, a.name, a.value.value);
+        else createRenderEffect(() => evaluate(a.value, l.env), v => { setProp(node, a.name, v); });
+      }
       const multi = l.view.children.length > 1;
       l.view.children.forEach((c, i) => {
         if (isStatic(c) && multi) l.texts.set(i, createTextNode(text((c as { value: { value: unknown } }).value.value)));
