@@ -6,3 +6,4 @@ fuzz/logs/
 fuzz/failures/
 rt/fuzz/logs/
 rt/fuzz/failures/
+rt/dom/logs/

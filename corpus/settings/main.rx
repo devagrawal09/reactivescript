@@ -17,12 +17,12 @@ swatch = prefs.theme == "dark" ? "#1c1c1c" : prefs.theme == "system" ? "#888" : 
 
 action pickTheme(t: string) { prefs.theme := t }
 action pickDensity(d: string) { prefs.density := d }
-action toggleEmail() { prefs.notifications.email := v => !v }
-action togglePush() { prefs.notifications.push := v => !v }
+action toggleEmail() { prefs.notifications.email := !prefs.notifications.email }
+action togglePush() { prefs.notifications.push := !prefs.notifications.push }
 action pickDigest(d: string) { prefs.notifications.digest := d }
-action bumpFont(by: number) { prefs.editor.fontSize := n => n + by < 12 ? 12 : n + by > 20 ? 20 : n + by }
+action bumpFont(by: number) { prefs.editor.fontSize := prefs.editor.fontSize + by < 12 ? 12 : prefs.editor.fontSize + by > 20 ? 20 : prefs.editor.fontSize + by }
 action pickTab(n: number) { prefs.editor.tabSize := n }
-action toggleWrap() { prefs.editor.lineWrap := v => !v }
+action toggleWrap() { prefs.editor.lineWrap := !prefs.editor.lineWrap }
 action resetPrefs() { prefs := defaultPrefs() }
 
 component ThemePicker() {

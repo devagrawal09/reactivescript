@@ -29,8 +29,8 @@ planLabel = form.plan == "" ? "no plan" : form.plan
 action setName(s: string) { form.name := s }
 action setEmail(s: string) { form.email := s }
 action setPlan(p: string) { form.plan := p }
-action bumpSeats(n: number) { form.seats := s => s + n < 1 ? 1 : s + n > 20 ? 20 : s + n }
-action toggleAgreed() { form.agreed := v => !v }
+action bumpSeats(n: number) { form.seats := form.seats + n < 1 ? 1 : form.seats + n > 20 ? 20 : form.seats + n }
+action toggleAgreed() { form.agreed := !form.agreed }
 action go(n: number) { step := n }
 
 action submit() {
