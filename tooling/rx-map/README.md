@@ -107,6 +107,13 @@ their plate with a cast shadow, and edges run on the plate surface.
 - **Reduced motion** (the OS setting) turns every movement into a short fade: no flights of the camera, no comets,
   no flips.
 - A map of more than 900 nodes keeps its tokens in their row's plane, so panning stays cheap.
+- **Short or narrow** (below 520 px high or 900 px wide, like the devtools dock): the header keeps the title, the live
+  badge, search and the panel button; the bottom bar thins; the minimap and the fake host's HUD fold into buttons;
+  the panel lays over the world. The world is only drawn between the header and the bar, and the first view leaves
+  the plates clear of every HUD piece.
+- **Crisp at any zoom:** when the camera settles, the board is laid out again at that zoom (CSS `zoom`, in 5% steps),
+  so text is drawn at its size, not scaled as a picture.
+- The board never leaves the screen: a drag or a fling stops with part of it in view.
 
 ## Diff: what changed between two versions
 
@@ -178,8 +185,22 @@ The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message h
   load, `travel` and `resume` from the timeline, `select` when a token is selected. An in-page host can also call
   `window.__RX_VIEW__.connect()` (subscribe and say hello) and `window.__RX_VIEW__.receive(msg)`.
 
+- `snapshot` (`{ values: [{key, preview}], flights: [{key, since}], boundaries: [{region, state, error?}] }`, the
+  coming v0.3): what the app shows right now, applied quietly. `region` is a region key (or id). A boundary in
+  `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error.
+
+**Pop-out:** the window button in the header opens the same live map in a window of its own. It starts from what this
+map holds and gets every host message through it; its travel, resume and select go to this map's host. Closing either
+side is safe.
+
+**Fake mode:** `pageHTML(graph, { fake: seed })`, or any map page with `?fake=<seed>`, runs the fake host
+(`./fake`, with `./hmr`, put into the page by `build.mjs`) in the page itself. A small HUD drives it: act (a random
+or a chosen action), auto-play, edit a module (rename, expr, type, add, remove), tick; travel and resume are the
+timeline's. `window.__RX_FAKE_LIB__` is the embedded library (`createFakeHost`, `planHmr`).
+
 What it shows:
 
+- **Values:** a list's preview reads as a count and its first items (`3 Ada Grace +1`); the panel lists them.
 - **A flush:** a comet runs along the edges from the cause (`cause`, then the changed names each one reads, in `order`
   when given) to each changed token; the token rings white and its value badge rolls to the new value.
 - **A flight:** an amber orbit; on landing it collapses into the token, which settles; abandoned, it slips away.
@@ -193,7 +214,8 @@ What it shows:
 
 `page.mjs` is generated from `map.html`: run `npm run build` after editing the page. `npm test` checks that it is
 current and runs the live harnesses (`test/live.html`, with made-up flush, flight, timeline, step, resume and hmr
-messages, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
+messages, `test/fake.html`, which drives the in-page fake host and checks the page against it and runs the
+conformance suite in the browser, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
 saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
 
