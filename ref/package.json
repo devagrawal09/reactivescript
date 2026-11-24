@@ -14,10 +14,10 @@
   },
   "dependencies": {
     "@solidjs/compiler": "file:../../store-proto-base/packages/compiler",
-    "@solidjs/signals": "file:../../store-proto-core/packages/signals",
-    "@solidjs/universal": "file:../../store-proto-core/packages/universal",
-    "@solidjs/web": "file:../../store-proto-core/packages/web",
-    "solid-js": "file:../../store-proto-core/packages/solid"
+    "@solidjs/signals": "file:../../store-proto-writes/packages/signals",
+    "@solidjs/universal": "file:../../store-proto-writes/packages/universal",
+    "@solidjs/web": "file:../../store-proto-writes/packages/web",
+    "solid-js": "file:../../store-proto-writes/packages/solid"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
