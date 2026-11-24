@@ -73,7 +73,7 @@ function liveMap(entry, root) {
   try { req = createRequire(path.join(root, "package.json")); req.resolve("@reactivescript/map/live"); } catch { return ""; }
   const { buildGraph } = req("@reactivescript/map/graph");
   const graph = buildGraph(JSON.parse(model([entry], root)), { root });
-  return `import { register as __rxMap } from "@reactivescript/map/live";\n__rxMap(${JSON.stringify(graph)});\n`;
+  return `import { register as __rxMap } from "@reactivescript/map/live";\n__rxMap(${JSON.stringify(graph)}, { hot: import.meta.hot });\n`;
 }
 
 /** @returns {import("@solidjs/vite-plugin").Frontend} */

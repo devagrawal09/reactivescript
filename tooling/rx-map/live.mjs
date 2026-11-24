@@ -236,7 +236,12 @@ function listen(post) {
   };
 }
 
-const keyOf = name => (typeof name === "string" && name.startsWith(RX) ? name.slice(RX.length) : null);
+// Solid names a store's property nodes `<name>.<prop>…`, so `rx:m.rx||users.0.name` is the node `m.rx||users`.
+const keyOf = name => {
+  if (typeof name !== "string" || !name.startsWith(RX)) return null;
+  const k = name.slice(RX.length), bar = k.lastIndexOf("|"), dot = k.indexOf(".", bar + 1);
+  return dot < 0 ? k : k.slice(0, dot);
+};
 
 /** A short string of a value, at most 80 characters. */
 export function preview(v) {
