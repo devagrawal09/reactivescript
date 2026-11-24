@@ -6,7 +6,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
-export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig> };   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
+export type ModuleSet = { entry: string; programs: Map<string, Program>; order: string[]; diags: Diagnostic[]; declarations?: Map<string, JsDecl[]>; signatures?: Map<string, ModSig>; jsFiles?: Set<string> };   // declarations: MO-8, by `.d.rx` path; signatures: MO-9, by `.rx` path
 
 export const isRx = (from: string) => /\.rx$/.test(from);
 
@@ -52,6 +52,7 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
+  const jsFiles = new Set<string>();
   const state = new Map<string, "busy" | "done">();
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
@@ -61,6 +62,13 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     try { p = parseProgram(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${path}: ${e.message}`), { code: e.code }); throw e; }
     programs.set(path, p); state.set(path, "busy");
     for (const d of p.decls) {
+      // MO-8c: a local file takes precedence over any scenario prelude. Keep
+      // the specifier itself unchanged for the bundler.
+      if (d.k === "import" && !isRx(d.from) && d.from.startsWith(".")) {
+        const stem = joinPath(path, d.from);
+        const exts = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".cjs", ".cts", ".json"];
+        if ([stem, ...exts.flatMap(ext => [stem + ext, stem + "/index" + ext]), stem + "/package.json"].some(p => read(p) !== undefined)) jsFiles.add(stem);
+      }
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? packageDeclaration(path, d.from, read) : undefined;   // MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
@@ -83,7 +91,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     state.set(path, "done"); order.push(path);
   };
   visit(entry, []);
-  return { entry, programs, order, diags, declarations, signatures };
+  return { entry, programs, order, diags, declarations, signatures, jsFiles };
 }
 
 /** One program with no `.rx` imports — the common case, and every scenario before 09. */

@@ -28,7 +28,7 @@
 
 use reactivescript::app::{self, read_disk};
 use reactivescript::check::{check_modules, check_modules_in};
-use reactivescript::emit::{compile_dev, lower_view, Target};
+use reactivescript::emit::{compile_dev, compile_into, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
 use reactivescript::modules::load_modules;
@@ -293,7 +293,7 @@ fn main() {
                 std::process::exit(1);
             }
             let dev = args.iter().any(|a| a == "--dev").then(cwd);
-            let out = compile_dev(&set, &[], false, dev.as_deref()).unwrap_or_else(|e| {
+            let out = compile_into(&set, &[], false, dev.as_deref(), Some(&abs(&dir))).unwrap_or_else(|e| {
                 eprintln!("{}: not compiled: {}", file, e.0);
                 std::process::exit(1);
             });

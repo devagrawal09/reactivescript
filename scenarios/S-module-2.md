@@ -1,6 +1,8 @@
 # S-module-2 — a declaration file for a JS module: rows declared once, checked at every import
 
-Rules: MO-8, R-io-4, R-f-8, R-f-4, R-f-6.
+Rules: MO-8, R-io-4, R-f-8, R-f-4, R-f-6. Here `./api` has only a
+declaration, so the runners supply the flights (MO-8c). `User` is for type
+checking only, with no JS import or flight (MO-8d).
 
 ## Modules
 
