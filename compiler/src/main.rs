@@ -28,7 +28,7 @@
 
 use reactivescript::app::{self, read_disk};
 use reactivescript::check::check_modules;
-use reactivescript::emit::{compile_modules, lower_view, Target};
+use reactivescript::emit::{compile_modules, compile_into, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
 use reactivescript::modules::load_modules;
@@ -286,7 +286,7 @@ fn main() {
             if !checked.diags.is_empty() {
                 std::process::exit(1);
             }
-            let out = compile_modules(&set, &[]).unwrap_or_else(|e| {
+            let out = compile_into(&set, &[], false, Some(&abs(&dir))).unwrap_or_else(|e| {
                 eprintln!("{}: not compiled: {}", file, e.0);
                 std::process::exit(1);
             });

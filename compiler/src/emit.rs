@@ -199,9 +199,15 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 /// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
 /// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
+    compile_into(set, extra, by_source, None)
+}
+
+/// For a sibling-file build written elsewhere, keep relative JS imports relative to their RX importer.
+pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, out_dir: Option<&str>) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
+    g.out_dir = out_dir;
     let mut files = IndexMap::new();
     let mut paths = IndexMap::new();
     let mut module_css = IndexMap::new();
@@ -254,6 +260,7 @@ struct Gen<'p> {
     file: String,
     /// Modules imported by source path, for a bundler (`compile_linked`), not as sibling `.mjs` files.
     by_source: bool,
+    out_dir: Option<&'p str>,
     css: Vec<String>,
     /// module-level code: hoisted server functions and the module's error classes
     top: Vec<S>,
@@ -277,11 +284,25 @@ fn is_prims(from: &str) -> bool {
 }
 
 impl<'p> Gen<'p> {
-    /// A JS import that becomes a real ES import (MO-8): a package's always; a relative one too when the modules go to a
-    /// bundler (`by_source`, the product), where `./util.js` is the app's own file. `./api` stays the app's injected API
-    /// (`createApp({ api })`, CP-4), and in the scenario runners every relative import is the harness's.
-    fn js_import(&self, from: &str) -> bool {
-        !from.starts_with('.') || (self.by_source && !from.ends_with("/api"))
+    fn local_js(&self, from: &str) -> bool {
+        from.starts_with('.') && self.set.js_files.contains(&crate::modules::join_path(&self.file, from))
+    }
+    /// A real file wins even if its name (or one of its exports) is in the scenario prelude (MO-8c).
+    fn real_import(&self, from: &str, name: &str) -> bool {
+        if self.local_js(from) {
+            return true;
+        }
+        let product = self.by_source || self.out_dir.is_some();
+        (!from.starts_with('.') || (product && from != "./api")) && !builtin(name) && name != "log"
+    }
+    fn js_decl(&self, declared: Option<&str>, name: &str) -> Option<&'p JsDecl> {
+        self.set.declarations.get(declared?).and_then(|ds| ds.iter().find(|x| x.name() == name))
+    }
+    fn js_specifier(&self, from: &str) -> String {
+        if let Some(dir) = self.out_dir.filter(|_| from.starts_with('.')) {
+            return relative(&format!("{dir}/main.mjs"), &crate::modules::join_path(&self.file, from));
+        }
+        from.to_string()
     }
     fn new(u: Usage, set: &'p ModuleSet) -> Self {
         Gen {
@@ -289,6 +310,7 @@ impl<'p> Gen<'p> {
             set,
             file: "main.rx".into(),
             by_source: false,
+            out_dir: None,
             css: vec![],
             top: vec![],
             top_fns: HashSet::new(),
@@ -366,13 +388,10 @@ impl<'p> Gen<'p> {
         }
         // a package's JS (`@solidjs/web/server-functions`): a real import at module level, where a hoisted server fn's wrappers are
         for d in decls {
-            if let Decl::Import { resolved: None, from, names, .. } = d {
-                if !self.js_import(from) {
-                    continue;
-                }
-                let ns: Vec<(String, String)> = names.iter().filter(|n| !builtin(&n.name) && n.name != "log").map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
+            if let Decl::Import { resolved: None, from, names, declared, .. } = d {
+                let ns: Vec<(String, String)> = names.iter().filter(|n| self.real_import(from, &n.name) && !matches!(self.js_decl(declared.as_deref(), &n.name), Some(JsDecl::Type { .. }))).map(|n| (n.name.clone(), format!("w${}", n.alias))).collect();
                 if !ns.is_empty() {
-                    self.top.push(S::ImportNamed(ns, from.clone()));
+                    self.top.push(S::ImportNamed(ns, self.js_specifier(from)));
                 }
             }
         }
@@ -390,7 +409,7 @@ impl<'p> Gen<'p> {
             ExprKind::ServerFn { params, body, .. } => self.server_hoist(name, params, body, true),
             ExprKind::Call { f, args } if matches!(&f.k, ExprKind::Id(_)) => {
                 let ExprKind::Id(fname) = &f.k else { unreachable!() };
-                let found = self.mod_decls.iter().any(|d| matches!(d, Decl::Import { resolved: None, from, names, .. } if self.js_import(from) && names.iter().any(|n| &n.alias == fname)));
+                let found = self.mod_decls.iter().any(|d| matches!(d, Decl::Import { resolved: None, from, names, .. } if names.iter().any(|n| &n.alias == fname && (self.real_import(from, &n.name) || !from.starts_with('.')))));
                 if !found {
                     return fail(format!("{name}: a server fn's wrapper is a package's function (here, {fname})"));
                 }
@@ -426,13 +445,16 @@ impl<'p> Gen<'p> {
         let decls = self.mod_decls;
         for x in decls {
             match x {
-                Decl::Import { resolved: None, names, from, declared_errors, .. } => {
+                Decl::Import { resolved: None, names, from, declared, declared_errors, .. } => {
                     for n in names {
-                        if n.name == "log" || builtin(&n.name) {
+                        if matches!(self.js_decl(declared.as_deref(), &n.name), Some(JsDecl::Type { .. })) {
                             continue;
                         }
-                        if self.js_import(from) {
+                        if self.real_import(from, &n.name) {
                             self.set(env, &n.alias, val(format!("w${}", n.alias)));
+                            continue;
+                        }
+                        if n.name == "log" || builtin(&n.name) {
                             continue;
                         }
                         self.set(env, &n.alias, val(mg(&n.alias)));
@@ -634,7 +656,10 @@ impl<'p> Gen<'p> {
                 Decl::Import { names, side, declared_side, declared, .. } => {
                     for n in names {
                         // MO-10a: a declared primitive
-                        let x = declared.as_ref().and_then(|dp| self.set.declarations.get(dp)).and_then(|ds| ds.iter().find(|y| y.name() == n.name));
+                        let x = self.js_decl(declared.as_deref(), &n.name);
+                        if matches!(x, Some(JsDecl::Type { .. })) {
+                            continue;
+                        }
                         if let Some(JsDecl::Fn { params, refs, shape, instantiates: true, .. }) = x {
                             let mut b = bind(Kind::Jfn, mg(&n.alias));
                             b.f = Some(FnRef { params: params.iter().enumerate().map(|(i, p)| (p.clone(), refs.get(i).copied().unwrap_or(false))).collect(), decl: None });
@@ -684,11 +709,14 @@ impl<'p> Gen<'p> {
             }
         }
         for d in decls {
-            let Decl::Import { resolved: None, names, from, declared_errors, .. } = d else { continue };
+            let Decl::Import { resolved: None, names, from, declared, declared_errors, .. } = d else { continue };
             let n0 = out.len();
             for n in names {
                 let (name, alias) = (&n.name, &n.alias);
-                let v = if self.js_import(from) && !builtin(name) && name != "log" {
+                if matches!(self.js_decl(declared.as_deref(), name), Some(JsDecl::Type { .. })) {
+                    continue;
+                }
+                let v = if self.real_import(from, name) {
                     id(format!("w${alias}"))
                 } else if name == "log" {
                     dot(id("__B"), "log")
@@ -696,7 +724,7 @@ impl<'p> Gen<'p> {
                     rtc("jsError", vec![str(name.clone())])
                 } else if builtin(name) {
                     dot(id("__B"), name)
-                } else if from.ends_with("/api") {
+                } else if from == "./api" {
                     rtc("api", vec![str(name.clone())])
                 } else if is_prims(from) {
                     // MO-10: the scenario prelude's Solid primitives

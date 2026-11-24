@@ -1,4 +1,4 @@
-// A fake backend for running the examples in a browser (`ref/compile/build.ts`): every function answers after a delay.
+// The injected backend for the browser demos (`ref/compile/build.ts`): each function answers after a delay.
 const later = (v, ms = 400) => new Promise(r => setTimeout(() => r(typeof v === "function" ? v() : v), ms));
 const fail = (msg, ms = 400) => new Promise((_, j) => setTimeout(() => j(new Error(msg)), ms));
 

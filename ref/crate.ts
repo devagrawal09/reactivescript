@@ -57,6 +57,26 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);
 
+// MO-8c/d: a real, importer-relative API in a mixed value/type import. Exercise
+// this in the lowering comparison rather than the flight-based scenario runners.
+if (lowerMode) {
+  const files = new Map([
+    ["src/main.rx", `import pure { load, Book as Volume } from "./api"
+import { Title } from "./types"
+export default component App() {
+  book: Volume = load()
+  title: Title = book.title
+  <p>{title}</p>
+}
+`],
+    ["src/api.ts", `export type Book = { title: string };\nexport const load = (): Book => ({ title: "A" });\n`],
+    ["src/api.d.rx", `export pure fn load(): Book\nexport type Book = { title: string }\n`],
+    ["src/types.ts", `export type Title = string;\n`],
+    ["src/types.d.rx", `export type Title = string\n`],
+  ]);
+  add("MO-8 real API and type imports", "src/main.rx", path => files.get(path), []);
+}
+
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
 function refOf(r: Req) {
   const read = (p: string) => r.files[p];

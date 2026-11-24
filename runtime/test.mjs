@@ -19,6 +19,11 @@ try {
   for (const [cond, build] of [["browser", "web"], ["node", "server"]]) {
     const keys = execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", probe], { cwd: tmp }).toString().trim();
     check(`${build} build (${cond})`, keys.includes("createApp"), keys);
+    const api = `import assert from "node:assert/strict"; import { createApp } from "@reactivescript/runtime";
+      assert.throws(() => createApp({ root: null }).api("load"), /MISSING_TEST_API.*load.*createApp/);
+      assert.equal(createApp({ root: null, api: { load: () => "loaded" } }).api("load")(), "loaded");`;
+    execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", api], { cwd: tmp });
+    check(`${build} reports a missing test API and accepts an injected one`, true);
   }
   const { app: compile } = createRequire(import.meta.url)("../compiler/index.js");
   const out = JSON.parse(compile(path.resolve(here, "../examples/todo.rx"), "ssr"));

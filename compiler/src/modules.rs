@@ -6,7 +6,7 @@ use crate::check::Diagnostic;
 use crate::parse::{parse_declarations, parse_program, JsDecl, ParseError};
 use crate::signature::{parse_signature, ModSig};
 use indexmap::IndexMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct ModuleSet {
     pub entry: String,
@@ -15,6 +15,8 @@ pub struct ModuleSet {
     pub diags: Vec<Diagnostic>,
     /// MO-8, by `.d.rx` path
     pub declarations: IndexMap<String, Vec<JsDecl>>,
+    /// MO-8c: relative JS specifiers with a local module, keyed by joined path.
+    pub js_files: HashSet<String>,
     /// MO-9, by `.rx` path
     pub signatures: IndexMap<String, ModSig>,
     /// each program's text, which its spans index
@@ -61,6 +63,7 @@ struct Loader<'r> {
     order: Vec<String>,
     diags: Vec<Diagnostic>,
     declarations: IndexMap<String, Vec<JsDecl>>,
+    js_files: HashSet<String>,
     signatures: IndexMap<String, ModSig>,
     sources: HashMap<String, String>,
     state: HashMap<String, State>,
@@ -165,6 +168,16 @@ impl Loader<'_> {
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
             let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
+            if !is_rx(from) && from.starts_with('.') {
+                let stem = join_path(path, from);
+                let exts = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".cjs", ".cts", ".json"];
+                if (self.read)(&stem).is_some()
+                    || exts.iter().any(|ext| (self.read)(&format!("{stem}{ext}")).is_some() || (self.read)(&format!("{stem}/index{ext}")).is_some())
+                    || (self.read)(&format!("{stem}/package.json")).is_some()
+                {
+                    self.js_files.insert(stem);
+                }
+            }
             // MO-10c: a package's declaration, beside the file it resolves to
             let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { package_declaration(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
@@ -242,7 +255,7 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), js_files: HashSet::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
     l.visit(entry, &[])?;
-    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
+    Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, js_files: l.js_files, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }

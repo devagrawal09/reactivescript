@@ -85,7 +85,7 @@ export class Flight {
 type Owner = ReturnType<typeof getOwner>;
 type Ctx = { name: string; id: symbol; dflt: (() => unknown) | null; owner: Owner; dv: Entry | null };
 
-export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown> } = {}) {
+export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>; scenarioFlights?: boolean } = {}) {
   const flights = new Map<string, Flight>();
   const lastKey = new Map<string, string>();
   const registry = new Map<string, Entry[]>();
@@ -121,7 +121,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     jsError(name: string) { if (jsErrors.has(name)) return jsErrors.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); jsErrors.set(name, C); return C; },
     /** A JS function's promise: a rejection with a declared class is marked safe to send; any other is redacted (SV-5). */
     api: (name: string) => {
-      if (!opts.api) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+      if (!opts.api) {
+        if (opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+        throw new Error(`MISSING_TEST_API: cannot bind ${name} from "./api"; pass createApp({ api }) or provide a local JS module`);
+      }
       const f = opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); });
       return (...a: unknown[]) => { const r = f(...a); return r && typeof (r as PromiseLike<unknown>).then === "function" ? Promise.resolve(r).catch(e => { if (isA(e, declared)) markSafeError(e); throw e; }) : r; };
     },
