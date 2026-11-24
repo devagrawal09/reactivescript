@@ -12,6 +12,13 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
 /**
  * `rxc app`'s answer, as JSON text: the program `entry` (an absolute path) starts, for `target` (dom, ssr or
  * universal; dom by default) over `module_name` (`@solidjs/web` by default). `spa`: a client-only build (dom, not
- * hydratable), checked under 08 CN-3d.
+ * hydratable), checked under 08 CN-3d. `dev`: a dev build — each source's and equation's creating calls run under its
+ * key (`__rt.key`), its module relative to `root` (the process's cwd by default).
  */
-export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null): string
+export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null, dev?: boolean | undefined | null, root?: string | undefined | null): string
+
+/**
+ * `rxc model`'s answer, as JSON text: the resolved model (CP-6) of every module the programs `entries` (absolute paths)
+ * start, each once, with module paths and keys relative to `root` (the process's cwd by default).
+ */
+export declare function model(entries: Array<string>, root?: string | undefined | null): string
