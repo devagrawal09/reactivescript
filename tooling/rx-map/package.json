@@ -46,6 +46,6 @@
   "scripts": {
     "build": "node build.mjs",
     "prepack": "node build.mjs",
-    "test": "node build.mjs --check && node test/run.mjs"
+    "test": "node build.mjs --check && node --test test/mcp.mjs && node test/run.mjs"
   }
 }

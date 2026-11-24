@@ -138,7 +138,9 @@ The exports:
 | `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
 | `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
 | `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
-| `./live` | browser only: `register(graph)`, `mount(el)`, which returns the dispose |
+| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose |
+| `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
+| `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
 
 The live page takes messages posted to its window, each with `source: "rx-map"`:
 
@@ -152,6 +154,68 @@ A key the map doesn't have is ignored.
 current and runs the live harnesses (`test/live.html`, `test/engine.html`) in headless Chromium; `--shots <dir>` also
 saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
+
+## MCP: let an agent inspect your app
+
+Run `rx-map mcp --root /absolute/path/to/app` as a local stdio server. Use Node 20 or newer. Without `--entry`, it
+finds `.rx` modules under the root that no other module imports, excluding `node_modules`, `dist`, and declaration-only
+`.d.rx` files. Use repeatable `--entry src/App.rx` to choose specific programs. Models refresh when `.rx` files change.
+
+Set `RXC` to the absolute path to `rxc` if it isn't on `PATH`. Without `RXC`, the server prefers the project's installed
+compiler's `model` export for modeling; `check` still needs the CLI.
+
+OpenCode (`opencode.jsonc`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "rx": {
+        "type": "local",
+        "command": ["node", "/absolute/path/to/rx-map.mjs", "mcp", "--root", "/absolute/path/to/app"],
+        "environment": { "RXC": "/absolute/path/to/rxc" }
+      }
+    }
+  }
+}
+```
+
+Claude Code (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "rx": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/rx-map.mjs", "mcp", "--root", "/absolute/path/to/app"],
+      "env": { "RXC": "/absolute/path/to/rxc" }
+    }
+  }
+}
+```
+
+Inspector (replace `--method tools/list` with `--method tools/call --tool-name find --tool-arg query=user` to call a tool):
+
+```sh
+npx -y @modelcontextprotocol/inspector --cli -e RXC=/absolute/path/to/rxc node /absolute/path/to/rx-map.mjs mcp --root /absolute/path/to/app --method tools/list
+```
+
+Static tools: `check`, `overview`, `find`, `node`, `reach`, `boundary`, `diff`. Start with `overview` or use `find` to
+look up a key for `node` or `reach`. `boundary` lists its own keys. `diff` defaults to `HEAD`. The `rx://graph` and
+`rx://model` resources return JSON; any tool also accepts `format: "json"` for its structured answer.
+
+To add the live tools, install this package in the app, import `rxMap` from `@reactivescript/map/vite`, and add `rxMap()`
+to the Vite `plugins` array. Start Vite and open the app. The compiler's dev entry must register the graph with
+`{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by
+default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
+
+Live tools: `live_status`, `tail`, `value`, `why`, `pending`. They read the newest connected page. `tail` defaults to
+20 records out of the most recent 2000; pass `since` as the last received sequence number to skip older records.
+Times are in milliseconds on the page's clock. `value` needs an observed preview; if none is available yet, change the
+value in the app. These tools don't execute actions or write state, but previews can contain application data. Keep
+the Vite endpoint on a trusted dev network.
 
 ## Limits
 
