@@ -1,3 +1,8 @@
+// @eval
+// @bind store db: { list: { id: number, text: string, done: boolean }[] }
+// @bind host addTodo(string): string
+// @bind host saveDone(number, boolean): string
+// @bind host removeTodo(number): string
 // The todo app, all of it in ReactiveScript. The page hands it the server's list (`db`, read only) and three
 // server calls; every guess, rollback and status message below is RX.
 // Typing goes into `draft`. Enter adds it too: the browser clicks a form's first button on Enter, unless that button is

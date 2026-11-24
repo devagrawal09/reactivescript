@@ -1,3 +1,8 @@
+// @eval
+// @bind store inv: { items: { id: number, name: string, category: string, qty: number, active: boolean, words: string[] }[] }
+// @bind host addItem(string, string, number, boolean): string
+// @bind host updateItem(number, string, string, number, boolean): string
+// @bind host removeItem(number): string
 // An inventory admin, all of it in ReactiveScript: a table over the server's items, search and a category filter, a
 // column toggle and a sort, an add/edit form with inline validation, and row-level toggle and delete. The page hands
 // it the server's store (`inv`, read only) and three server calls; every guess and rollback below is RX.

@@ -38,3 +38,18 @@ test('a guard written as an if statement in a handler is refused (plan v2 has no
   const r = compileEval({ code: TODO.replace('onClick={() => { add(draft) }}', 'onClick={() => { if (draft != "") { add(draft) } }}'), interface: INTERFACE });
   assert.ok(!r.ok && r.diagnostics.some(d => /unsupported step sif/.test(d.message)));
 });
+
+// Each snippet declares its bindings in a header (`// @eval`, then `// @bind <declaration>` lines) for the IDE; the
+// host's interface is the contract, and the header must say the same.
+import { parseInterface, sameInterface } from '../../../frontend/eval/interface.ts';
+import { EDITOR_INTERFACE as EDITOR_I, INVENTORY_INTERFACE as INVENTORY_I, INTERFACE as TODO_I } from '../src/interface.ts';
+const header = (text: string) => {
+  const lines = text.split('\n');
+  assert.equal(lines[0], '// @eval');
+  return lines.slice(1).filter(l => l.startsWith('// @bind ')).map(l => l.slice('// @bind '.length)).join('\n');
+};
+for (const [file, iface] of [['todo.rx', TODO_I], ['editor.rx', EDITOR_I], ['inventory.rx', INVENTORY_I]] as const)
+  test(file + '\'s @bind header is the host\'s interface', () => {
+    const text = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+    assert.ok(sameInterface(parseInterface(header(text)), parseInterface(iface)));
+  });

@@ -1,3 +1,9 @@
+// @eval
+// @bind read title: string
+// @bind read code: string
+// @bind read problems: string
+// @bind read version: number
+// @bind action edit(string)
 // The code editor, in RX. It edits whatever it's bound to: the todo app's code, or this very file.
 // Try it on itself: change the "keystrokes" label below and watch this editor rebuild with it.
 source keys := 0;
