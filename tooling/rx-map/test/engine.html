@@ -93,6 +93,48 @@ try {
 
   dispose();
   check("dispose unsubscribes", !OBSERVE.records.observed("flush"));
+
+  const handlers = new Map();
+  const sent = [];
+  let hotDispose;
+  const hot = {
+    on: (name, fn) => handlers.set(name, fn),
+    off: name => handlers.delete(name),
+    send: (name, payload) => sent.push({ name, payload }),
+    dispose: fn => { hotDispose = fn; },
+  };
+  register(graph, { hot });
+  register(graph, { hot });
+  check("hot registers once and starts recording without a mount", sent.length === 1 &&
+    sent[0].name === "rx:live:ready" && OBSERVE.records.observed("flush", "bodies"));
+  const ask = (method, params) => {
+    handlers.get("rx:live:request")({ id: 7, method, params });
+    const { name, payload } = sent.pop();
+    if (name !== "rx:live:response" || payload.id !== 7) throw new Error("bad response");
+    return payload;
+  };
+  const emit = (type, ...args) => OBSERVE.records.emit(type, ...args);
+  const onScreen = (i, name) => ({ nodeId: i, nodeName: `rx:${K(name)}`, origin: { kind: "action", name: "setPage" } });
+  emit("create", { nodeId: 3, nodeName: `rx:${K("users")}`, at: 10 }, { _x: { _inFlight: {} } });
+  check("pending has the key and start time", ask("pending").result[0]?.key === K("users") &&
+    ask("pending").result[0]?.since === 10);
+  emit("flight", { nodeId: 3, nodeName: `rx:${K("users")}`, outcome: "landed" });
+  check("land clears pending", ask("pending").result.length === 0);
+  for (let i = 1; i <= 2002; i++) {
+    emit("flush", { at: i, changes: [onScreen(1, "page"), onScreen(2, "total")] }, { changes: [{ value: i }, { value: -i }] });
+  }
+  const tail = ask("tail", { limit: 2000 }).result;
+  check("ring holds the last 2000 records", tail.length === 2000 && tail[0].seq === 5 && tail.at(-1).seq === 2004);
+  check("tail honors since", ask("tail", { since: 2003 }).result.length === 1);
+  check("value reports the latest preview and file", ask("value", { key: K("page") }).result.preview === "2002" &&
+    ask("value", { key: K("page") }).result.file === "examples/users.rx");
+  const why = ask("why", { key: K("page") }).result;
+  check("why identifies origin and other keyed changes", why.seq === 2004 && why.origin.includes("setPage") &&
+    why.others[0].key === K("total"));
+  check("status counts flushes, not flights", ask("status").result.flushes === 2002);
+  check("unknown live key reports an actionable error", /unknown key.*Use find/.test(ask("value", { key: "unknown" }).error));
+  hotDispose();
+  check("HMR disposal stops recording", !OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
   done();
 } catch (e) {
   check(`threw: ${e?.stack ?? e}`, false);

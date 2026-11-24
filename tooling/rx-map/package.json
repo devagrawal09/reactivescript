@@ -19,6 +19,7 @@
     "./live": "./live.mjs",
     "./diff": "./diff.mjs",
     "./mcp": "./mcp.mjs",
+    "./vite": "./vite.mjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -30,6 +31,7 @@
     "project.mjs",
     "query.mjs",
     "live-protocol.mjs",
+    "vite.mjs",
     "rx-map.mjs",
     "README.md"
   ],

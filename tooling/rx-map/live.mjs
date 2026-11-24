@@ -9,14 +9,21 @@
 //   { type: "flight", key, state: "start" | "land" | "abandon" }             async work for an RX node
 //   { type: "reset" }
 import { pageHTML } from "./page.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE } from "./live-protocol.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
 const graphs = [];
 const mounts = new Set();
+const bridges = new Map();
+let recording;
+// Resolve before the entry calls register: its first render can start flights
+// in the same turn, before a lazy attribution import would finish.
+const engine = await Promise.all([import("solid-js"), import("solid-js/attribution")]).catch(() => []);
 
 /** Adds a program's graph (from `@reactivescript/map/graph`'s `buildGraph`). Re-registering its entry replaces it. */
-export function register(graph) {
+export function register(graph, { hot } = {}) {
+  if (hot) connect(hot);
   const entry = graph?.modules?.[0];
   const i = graphs.findIndex(g => g.modules?.[0] === entry);
   if (i >= 0) {
@@ -54,33 +61,128 @@ export function mount(el) {
   m.load();
   el.append(iframe);
   mounts.add(m);
-  let stop = null, disposed = false;
-  listen(post).then(s => (disposed ? s() : (stop = s)));
+  const recorder = getRecorder();
+  recorder.listeners.add(post);
   return () => {
-    if (disposed) return;
-    disposed = true;
-    mounts.delete(m);
-    stop?.();
+    if (!mounts.delete(m)) return;
+    recorder.listeners.delete(post);
     iframe.remove();
+    releaseRecorder();
   };
 }
 
-// ---- the engine's records ---------------------------------------------------------------------------------------
-// `solid-js/attribution` is loaded only here, when something mounts: a build that never mounts never runs it. Without
-// a dev Solid (no records channel, an inert attribution), the map is drawn and stays still.
-async function listen(post) {
-  let solid, attr;
-  try {
-    [solid, attr] = await Promise.all([import("solid-js"), import("solid-js/attribution")]);
-  } catch {
-    return () => {};
+function connect(hot) {
+  if (bridges.has(hot)) return;
+  const recorder = getRecorder();
+  const request = ({ id, method, params } = {}) => {
+    try { hot.send(LIVE_RESPONSE, { id, result: recorder.query(method, params) }); }
+    catch (e) { hot.send(LIVE_RESPONSE, { id, error: e.message }); }
+  };
+  const ready = () => hot.send(LIVE_READY);
+  bridges.set(hot, request);
+  hot.on(LIVE_REQUEST, request);
+  hot.on("vite:ws:connect", ready);
+  const stop = () => {
+    if (!bridges.delete(hot)) return;
+    hot.off?.(LIVE_REQUEST, request);
+    hot.off?.("vite:ws:connect", ready);
+    releaseRecorder();
+  };
+  hot.dispose?.(stop);
+  hot.prune?.(stop);
+  ready();
+}
+
+function releaseRecorder() {
+  if (mounts.size || bridges.size || !recording) return;
+  recording.stop();
+  recording = undefined;
+}
+
+function getRecorder() {
+  if (recording) return recording;
+  const size = 2000, ring = new Array(size), listeners = new Set(), latest = new Map(), last = new Map(), flights = new Map();
+  const start = performance.now();
+  let seq = 0, flushes = 0;
+  const locate = key => {
+    for (const graph of graphs) {
+      const n = graph.nodes.find(n => n.key === key);
+      if (n) return { file: n.file, line: n.line };
+    }
+    return {};
+  };
+  const stop = listen((msg, flightId, since, origin) => {
+    if (msg.type === "flush") {
+      msg.seq = ++flushes;
+      const changes = msg.changes.map(c => ({ ...c, ...locate(c.key) }));
+      const record = { type: "flush", seq: ++seq, at: msg.at, changes };
+      ring[(seq - 1) % size] = record;
+      for (const c of changes) if (c.key) {
+        if (c.preview !== undefined) latest.set(c.key, c);
+        last.set(c.key, { change: c, record });
+      }
+    } else {
+      const at = performance.now();
+      const r = { type: "flight", seq: ++seq, at, key: msg.key, state: msg.state, origin, ...locate(msg.key) };
+      ring[(seq - 1) % size] = r;
+      if (msg.state === "start") flights.set(flightId, { key: msg.key, since: since ?? at, ...locate(msg.key) });
+      else flights.delete(flightId);
+    }
+    for (const post of listeners) post(msg);
+  });
+  function query(method, { key, since = 0, limit = 20 } = {}) {
+    const known = () => {
+      if (typeof key !== "string" || !key) throw new Error("provide a key from find");
+      const keys = [...last.keys(), ...graphs.flatMap(g => g.nodes.map(n => n.key))];
+      if (!keys.includes(key)) {
+        const name = key.split("|").at(-1).toLowerCase();
+        const similar = [...new Set(keys)].filter(k => k.toLowerCase().includes(name)).slice(0, 3);
+        throw new Error(`unknown key ${key}; ${similar.length ? `did you mean: ${similar.join(", ")}? ` : ""}Use find for keys.`);
+      }
+    };
+    switch (method) {
+      case "status": return { flushes, uptime: performance.now() - start };
+      case "tail": {
+        if (!Number.isSafeInteger(since) || since < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > size)
+          throw new Error("tail takes a nonnegative since and a limit from 1 to 2000");
+        const records = [];
+        for (let i = Math.max(0, since, seq - limit); i < seq; i++) records.push(ring[i % size]);
+        return records;
+      }
+      case "value": {
+        known();
+        if (!latest.has(key)) throw new Error(`no preview yet for ${key}; interact with the page to change its value`);
+        const { preview } = latest.get(key);
+        return { key, preview, ...locate(key) };
+      }
+      case "why": {
+        known();
+        const hit = last.get(key);
+        if (!hit) throw new Error(`no change recorded for ${key}; interact with the page to change its value`);
+        const { change, record } = hit;
+        const others = [...new Map(record.changes.filter(c => c.key && c.key !== key).map(c => [c.key, c])).values()];
+        return { ...change, seq: record.seq, at: record.at, others };
+      }
+      case "pending": {
+        const byKey = new Map();
+        for (const r of flights.values()) if (!byKey.has(r.key) || byKey.get(r.key).since > r.since) byKey.set(r.key, r);
+        return [...byKey.values()];
+      }
+      default: throw new Error("unknown live method; use status, tail, value, why, or pending");
+    }
   }
-  const records = solid.OBSERVE?.records;
-  const attribution = attr.attribution;
+  return recording = { stop, listeners, query };
+}
+
+// ---- the engine's records ---------------------------------------------------------------------------------------
+// Without a dev Solid (no records channel), the map is drawn and stays still.
+function listen(post) {
+  const [solid, attr] = engine;
+  const records = solid?.OBSERVE?.records;
+  const attribution = attr?.attribution;
   if (!records || typeof attribution?.enable !== "function") return () => {};
   const untrack = typeof solid.untrack === "function" ? solid.untrack : f => f();
   const formatOrigin = typeof attr.formatOrigin === "function" ? attr.formatOrigin : o => o.kind + (o.name ? ` ${o.name}` : "");
-  let seq = 0;
 
   // A flush lists every node whose shown value it changed; with `bodies`, the values beside them (live, so they are
   // previewed now).
@@ -90,12 +192,13 @@ async function listen(post) {
       const out = { name: c.nodeName, key: keyOf(c.nodeName) };
       const body = live?.changes?.[i];
       if (body && "value" in body) out.preview = untrack(() => preview(body.value));
-      if (c.origin) {
-        try { out.origin = formatOrigin(c.origin); } catch {}
+      const origin = c.origin ?? event.interaction;
+      if (origin) {
+        try { out.origin = formatOrigin(origin); } catch {}
       }
       return out;
     });
-    post({ source: SOURCE, type: "flush", seq: ++seq, at: event.at, changes });
+    post({ source: SOURCE, type: "flush", at: event.at, changes });
   };
 
   // The engine's flight record comes when a flight ends: landed, or abandoned because the node started another. A
@@ -108,14 +211,16 @@ async function listen(post) {
     const flight = node._x?._inFlight;
     if (flight && announced.get(node) !== flight) {
       announced.set(node, flight);
-      post({ source: SOURCE, type: "flight", key, state: "start" });
+      post({ source: SOURCE, type: "flight", key, state: "start" }, event.nodeId, event.at,
+        event.interaction && formatOrigin(event.interaction));
     }
   };
   const onFlight = (event, node) => {
     const key = keyOf(event.nodeName);
     if (!key) return;
     if (event.outcome === "landed" && node) announced.delete(node);
-    post({ source: SOURCE, type: "flight", key, state: event.outcome === "landed" ? "land" : "abandon" });
+    post({ source: SOURCE, type: "flight", key, state: event.outcome === "landed" ? "land" : "abandon" }, event.nodeId,
+      undefined, event.interaction && formatOrigin(event.interaction));
   };
 
   const offs = [
