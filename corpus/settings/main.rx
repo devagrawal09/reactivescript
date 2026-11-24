@@ -1,0 +1,91 @@
+// Preferences live in one record. Every control is a path write; nothing is saved.
+import pure { defaultPrefs, themeLabel } from "./api"
+
+type Notifications = { email: boolean; push: boolean; digest: string }
+type Editor = { fontSize: number; tabSize: number; lineWrap: boolean }
+type Prefs = { theme: string; density: string; notifications: Notifications; editor: Editor }
+
+source prefs: Prefs := defaultPrefs()
+
+themeName = themeLabel(prefs.theme)
+densityName = prefs.density == "compact" ? "Compact" : "Comfortable"
+channels = (prefs.notifications.email ? 1 : 0) + (prefs.notifications.push ? 1 : 0)
+digestName = prefs.notifications.digest == "weekly" ? "Weekly digest" : "Daily digest"
+wrapName = prefs.editor.lineWrap ? "Wrap on" : "Wrap off"
+preview = `${themeName} · ${densityName} · ${channels} channels · ${digestName} · ${prefs.editor.fontSize}px / tab ${prefs.editor.tabSize} · ${wrapName}`
+swatch = prefs.theme == "dark" ? "#1c1c1c" : prefs.theme == "system" ? "#888" : "#f7f4ee"
+
+action pickTheme(t: string) { prefs.theme := t }
+action pickDensity(d: string) { prefs.density := d }
+action toggleEmail() { prefs.notifications.email := v => !v }
+action togglePush() { prefs.notifications.push := v => !v }
+action pickDigest(d: string) { prefs.notifications.digest := d }
+action bumpFont(by: number) { prefs.editor.fontSize := n => n + by < 12 ? 12 : n + by > 20 ? 20 : n + by }
+action pickTab(n: number) { prefs.editor.tabSize := n }
+action toggleWrap() { prefs.editor.lineWrap := v => !v }
+action resetPrefs() { prefs := defaultPrefs() }
+
+component ThemePicker() {
+  <p>
+    <button class={prefs.theme == "light" ? "on" : ""} onClick={() => { pickTheme("light") }}>Light</button>
+    <button class={prefs.theme == "dark" ? "on" : ""} onClick={() => { pickTheme("dark") }}>Dark</button>
+    <button class={prefs.theme == "system" ? "on" : ""} onClick={() => { pickTheme("system") }}>System</button>
+  </p>
+}
+
+component DensityPicker() {
+  <p>
+    <button class={prefs.density == "comfortable" ? "on" : ""} onClick={() => { pickDensity("comfortable") }}>Comfortable</button>
+    <button class={prefs.density == "compact" ? "on" : ""} onClick={() => { pickDensity("compact") }}>Compact</button>
+  </p>
+}
+
+component NotifyPicker() {
+  <p>
+    <button onClick={() => { toggleEmail() }}>{prefs.notifications.email ? "Email on" : "Email off"}</button>
+    <button onClick={() => { togglePush() }}>{prefs.notifications.push ? "Push on" : "Push off"}</button>
+    <button class={prefs.notifications.digest == "daily" ? "on" : ""} onClick={() => { pickDigest("daily") }}>Daily</button>
+    <button class={prefs.notifications.digest == "weekly" ? "on" : ""} onClick={() => { pickDigest("weekly") }}>Weekly</button>
+  </p>
+}
+
+component EditorPicker() {
+  <p>
+    <button onClick={() => { bumpFont(-1) }}>Smaller</button>
+    <button onClick={() => { bumpFont(1) }}>Larger</button>
+    <button class={prefs.editor.tabSize == 2 ? "on" : ""} onClick={() => { pickTab(2) }}>Tab 2</button>
+    <button class={prefs.editor.tabSize == 4 ? "on" : ""} onClick={() => { pickTab(4) }}>Tab 4</button>
+    <button onClick={() => { toggleWrap() }}>{wrapName}</button>
+  </p>
+}
+
+component Preview() {
+  <aside class={prefs.theme}>
+    <p>{preview}</p>
+    <p>Sample at {prefs.editor.fontSize}px, {swatch}</p>
+  </aside>
+}
+
+export default component App() {
+  <main>
+    <h1>Preferences</h1>
+    <section>
+      <h2>Theme</h2>
+      <ThemePicker />
+    </section>
+    <section>
+      <h2>Density</h2>
+      <DensityPicker />
+    </section>
+    <section>
+      <h2>Notifications</h2>
+      <NotifyPicker />
+    </section>
+    <section>
+      <h2>Editor</h2>
+      <EditorPicker />
+    </section>
+    <Preview />
+    <button onClick={() => { resetPrefs() }}>Reset</button>
+  </main>
+}

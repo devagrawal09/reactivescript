@@ -1,0 +1,99 @@
+// Ops dashboard: three panels ask on their own, a range change re-asks each,
+// and a refresh does the same. Deferred so a slow panel does not freeze the others.
+import pure { loadRevenue, loadTickets, loadSignups } from "./api"
+
+type Revenue = { total: number; delta: number; currency: string }
+type Ticket = { id: string; title: string; age: number }
+type Tickets = { open: number; items: Ticket[] }
+type Signups = { count: number; trial: number; paid: number }
+
+source range: string := "7d"
+ranges: string[] = ["7d", "30d", "90d"]
+
+deferred revenue: Revenue = await loadRevenue(range)
+deferred tickets: Tickets = await loadTickets(range)
+deferred signups: Signups = await loadSignups(range)
+
+ticketRows key id = tickets.items
+paidShare = signups.count == 0 ? 0 : (signups.paid * 100) / signups.count
+headline = `${revenue.currency} ${revenue.total}`
+deltaLabel = revenue.delta >= 0 ? `+${revenue.delta}%` : `${revenue.delta}%`
+
+action pickRange(r: string) { range := r }
+action reload() {
+  refresh revenue
+  refresh tickets
+  refresh signups
+}
+
+component RangeBar() {
+  <p>
+    {for r in ranges {
+      <button class={latest range == r ? "on" : ""} onClick={() => { pickRange(r) }}>{r}</button>
+    }}
+    <button onClick={() => { reload() }}>Refresh</button>
+  </p>
+}
+
+component Panel(props: { title: string; stale: boolean; children: View }) {
+  <section class={props.stale ? "dim" : ""}>
+    <h2>{props.title}</h2>
+    {props.children}
+  </section>
+}
+
+component TicketRow(props: { item: Ticket }) {
+  <li>{props.item.title} <small>{props.item.age}d</small></li>
+}
+
+export default component App() {
+  <main>
+    <header>
+      <h1>Overview</h1>
+      <RangeBar />
+      <p class={(pending? revenue) || (pending? tickets) || (pending? signups) ? "dim" : ""}>
+        Showing {latest range}
+      </p>
+    </header>
+    {errored fallback(e) {
+      <p>Revenue failed: {e.message}</p>
+      <button onClick={() => { refresh revenue }}>Retry revenue</button>
+    } {
+      {loading fallback { <p>Loading revenue…</p> } {
+        <Panel title="Revenue" stale={pending? revenue}>
+          <p>{headline}</p>
+          <p>{deltaLabel} vs prior</p>
+        </Panel>
+      }}
+    }}
+    {errored fallback(e) {
+      <p>Tickets failed: {e.message}</p>
+      <button onClick={() => { refresh tickets }}>Retry tickets</button>
+    } {
+      {loading fallback { <p>Loading tickets…</p> } {
+        <Panel title="Tickets" stale={pending? tickets}>
+          <p>{tickets.open} open</p>
+          <ul>{for t in ticketRows { <TicketRow item={t} /> }}</ul>
+        </Panel>
+      }}
+    }}
+    {errored fallback(e) {
+      <p>Signups failed: {e.message}</p>
+      <button onClick={() => { refresh signups }}>Retry signups</button>
+    } {
+      {loading fallback { <p>Loading signups…</p> } {
+        <Panel title="Signups" stale={pending? signups}>
+          <p>{signups.count} new</p>
+          <p>{signups.trial} trial · {signups.paid} paid · {paidShare}%</p>
+        </Panel>
+      }}
+    }}
+    {errored fallback(e) {
+      <p>Summary unavailable: {e.message}</p>
+    } {
+      {loading fallback { <p>Summarizing…</p> } {
+        <p>{headline} across {latest range}, {tickets.open} tickets, {signups.count} signups.</p>
+      }}
+    }}
+  </main>
+}

@@ -1,0 +1,30 @@
+// Compose sits under the thread's loading boundary, so the first resolve
+// is the history load. After that: input 0, button 0 Send.
+// An empty send returns before the await and pushes nothing.
+export const steps = [
+  { resolve: true },
+  { input: 0, value: "hello" },
+  { click: 0 },
+  { resolve: true },
+  { click: 0 },
+  { input: 0, value: "anyone there?" },
+  { click: 0 },
+  { resolve: true },
+  { input: 0, value: "the list kept the old row" },
+  { click: 0 },
+  { resolve: true },
+  { input: 0, value: "guess landed, save is next" },
+  { click: 0 },
+  { resolve: true },
+  { input: 0, value: "" },
+  { click: 0 },
+  { input: 0, value: "shipping the note" },
+  { click: 0 },
+  { resolve: true },
+  { input: 0, value: "thanks" },
+  { click: 0 },
+  { resolve: true },
+  { input: 0, value: "one more" },
+  { click: 0 },
+  { resolve: true },
+]

@@ -1,0 +1,87 @@
+// The list is the server's answer. Toggles guess the row; add and remove guess the list.
+// Each write stores the list the server returned, so a declined one reverts the guess.
+import pure { loadTodos } from "./api"
+import { addTodo, toggleTodo, removeTodo } from "./api"
+
+type Todo = { id: string; title: string; done: boolean }
+
+source todos key id = await loadTodos()
+source draft: string := ""
+source filter: string := "all"
+source nextId := 5
+source todoError: string := ""
+filters: string[] = ["all", "active", "done"]
+
+shown key id = todos.filter(t => filter == "all" || (filter == "done") == t.done)
+remaining = todos.filter(t => !t.done).length
+doneCount = todos.filter(t => t.done).length
+canAdd = draft.trim() != ""
+
+action add(id: string, title: string) {
+  try {
+    guess todos := ts => [...ts, { id: id, title: title, done: false }]
+    let next = await addTodo(id, title)
+    todos := next
+  } catch (e) {
+    todoError := e.message
+  }
+}
+action toggle(id: string, done: boolean) {
+  try {
+    let i = todos.findIndex(t => t.id == id)
+    if (i < 0) return
+    guess todos[i].done := done
+    let next = await toggleTodo(id, done)
+    todos := next
+  } catch (e) {
+    todoError := e.message
+  }
+}
+action remove(id: string) {
+  try {
+    guess todos := ts => ts.filter(t => t.id != id)
+    let next = await removeTodo(id)
+    todos := next
+  } catch (e) {
+    todoError := e.message
+  }
+}
+action setFilter(f: string) { filter := f }
+
+component Item(props: { todo: Todo }) {
+  <li class={props.todo.done ? "done" : ""}>
+    <button onClick={() => { toggle(props.todo.id, !props.todo.done) }}>{props.todo.done ? "Undo" : "Done"}</button>
+    <span>{props.todo.title}</span>
+    <button onClick={() => { remove(props.todo.id) }}>Remove</button>
+  </li>
+}
+
+export default component App() {
+  errored fallback(e) {
+    <p>Could not load todos: {e.message}</p>
+  } {
+    {loading fallback { <p>Loading todos…</p> } {
+      <main>
+        <h1>Todos</h1>
+        <input value={draft} onInput={e => { draft := e.target.value }} />
+        <button onClick={() => {
+          let title = draft.trim()
+          if (title == "") return
+          let id = "t" + nextId
+          onFlush(() => { draft := ""; nextId := n => n + 1 })
+          add(id, title)
+        }}>{canAdd ? "Add" : "Add"}</button>
+        {for f in filters {
+          <button class={filter == f ? "on" : ""} onClick={() => { setFilter(f) }}>{f}</button>
+        }}
+        <ul>{for t in shown { <Item todo={t} /> }}</ul>
+        <footer>
+          <span>{remaining} left</span>
+          <span>{doneCount} done</span>
+          <span>{shown.length} shown</span>
+        </footer>
+        {if todoError != "" { <p class="error">{todoError}</p> }}
+      </main>
+    }}
+  }
+}

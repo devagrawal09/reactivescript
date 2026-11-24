@@ -1,0 +1,60 @@
+// Three desks, one total. Tabs are a branch; the effect just records the total.
+import pure { tabTitle } from "./api"
+import { log } from "./prelude"
+
+source tab: string := "a"
+source a := 0
+source b := 0
+source c := 0
+
+total = a + b + c
+active = tab == "a" ? a : tab == "b" ? b : c
+title = tabTitle(tab)
+peak = total > (pre peak -> 0) ? total : (pre peak -> 0)
+idle = total == 0
+effect (total, tab) { log($0, $1) }
+effect (tab) { log("tab", $0) }
+
+action show(id: string) { tab := id }
+action bump(by: number) {
+  if (tab == "a") { a := n => n + by < 0 ? 0 : n + by }
+  else if (tab == "b") { b := n => n + by < 0 ? 0 : n + by }
+  else { c := n => n + by < 0 ? 0 : n + by }
+}
+action reset() { a := 0; b := 0; c := 0 }
+
+component Tab(props: { id: string; label: string }) {
+  <button class={tab == props.id ? "on" : ""} onClick={() => { show(props.id) }}>{props.label}</button>
+}
+
+component Desk(props: { name: string; n: number; hint: string }) {
+  <section>
+    <h2>{props.name}</h2>
+    <p>{props.n}</p>
+    <small>{props.hint}</small>
+  </section>
+}
+
+export default component App() {
+  <main>
+    <h1>Counters</h1>
+    <p>
+      <Tab id="a" label="Alpha" />
+      <Tab id="b" label="Beta" />
+      <Tab id="c" label="Gamma" />
+      <button onClick={() => { bump(1) }}>+</button>
+      <button onClick={() => { bump(-1) }}>−</button>
+      <button onClick={() => { reset() }}>Reset</button>
+    </p>
+    <p>{title} · {active} · total {total} · peak {peak}{idle ? " · idle" : ""}</p>
+    <p>Alpha {a} · Beta {b} · Gamma {c}</p>
+    <p>{idle ? "Nothing counted yet" : "Counting"}</p>
+    {if tab == "a" {
+      <Desk name="Alpha desk" n={a} hint="Inbound" />
+    } else if tab == "b" {
+      <Desk name="Beta desk" n={b} hint="Review" />
+    } else {
+      <Desk name="Gamma desk" n={c} hint="Done" />
+    }}
+  </main>
+}

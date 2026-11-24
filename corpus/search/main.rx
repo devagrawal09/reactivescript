@@ -1,0 +1,60 @@
+// The box shows what was typed. Results lag: a new query re-asks, the last list stays up.
+// There is no timer debounce; a newer question drops the older answer.
+import pure { search } from "./api"
+
+type Hit = { id: number; name: string; kind: string }
+
+source query: string := ""
+deferred hits = await search(query) -> []
+hitRows key id = hits
+source selected := 0
+
+needle = query.trim().toLowerCase()
+count = hitRows.length
+empty = count == 0
+searching = pending? hits
+
+action clear() { query := "" }
+action pick(id: number) { selected := id }
+
+component HitButton(props: { hit: Hit }) {
+  picked = selected == props.hit.id
+  <li>
+    <button class={picked ? "on" : ""} onClick={() => { pick(props.hit.id) }}>{props.hit.name}</button>
+    <small>{props.hit.kind}</small>
+  </li>
+}
+
+component Status() {
+  <p>{searching ? "searching…" : empty ? "no matches" : `${count} hits`}</p>
+}
+
+component Empty() {
+  <p>{needle == "" ? "Nothing recent yet" : `No matches for ${needle}`}</p>
+}
+
+component Open() {
+  {if selected != 0 { <p>Open #{selected}</p> }}
+}
+
+export default component App() {
+  <main>
+    <h1>Search</h1>
+    <input value={latest query} onInput={e => { query := e.target.value }} />
+    <button onClick={() => { clear() }}>Clear</button>
+    <p>Query {latest query == "" ? "(recent)" : latest query}</p>
+    {errored fallback(e) {
+      <p>Search failed: {e.message}</p>
+    } {
+      {loading fallback { <p>Searching…</p> } {
+        <section class={searching ? "dim" : ""}>
+          <Status />
+          {if empty { <Empty /> } else {
+            <ul>{for h in hitRows { <HitButton hit={h} /> }}</ul>
+          }}
+          <Open />
+        </section>
+      }}
+    }}
+  </main>
+}

@@ -1,0 +1,95 @@
+// Settings-style signup. Fields stay local; only submit talks to the server.
+// A declined email is a typed failure, not a thrown string the page ignores.
+import pure { passwordScore } from "./api"
+import { register } from "./api"
+
+error EmailTaken(email: string) => `email taken: ${email}`
+error Rejected(code: string) => `rejected: ${code}`
+
+source name: string := ""
+source email: string := ""
+source password: string := ""
+source company: string := ""
+source plan: string := ""
+source newsletter := false
+source terms := false
+source attempted := false
+source saving = false
+source result: string := ""
+source failure: string := ""
+
+nameError = name.trim() == "" ? "Name is required" : name.trim().length < 2 ? "Name is too short" : ""
+emailError = email.includes("@") && email.includes(".") ? "" : "Enter a valid email"
+passwordError = password.length >= 8 ? "" : "At least 8 characters"
+companyError = company.trim() == "" ? "Company is required" : ""
+planError = plan == "" ? "Pick a plan" : ""
+termsError = terms ? "" : "Accept the terms"
+strength = passwordScore(password)
+strengthLabel = strength >= 3 ? "strong" : strength >= 2 ? "ok" : "weak"
+valid = nameError == "" && emailError == "" && passwordError == "" && companyError == "" && planError == "" && termsError == ""
+
+action pickPlan(p: string) { plan := p }
+action toggleNewsletter() { newsletter := v => !v }
+action toggleTerms() { terms := v => !v }
+
+action submit() {
+  onFlush(() => { attempted := true })
+  if (!valid) return
+  guess saving := true
+  try {
+    let r = await register(name, email, password, company, plan, newsletter)
+    if (r.code == "email_taken") { throw EmailTaken(email) }
+    if (!r.ok) { throw Rejected(r.code) }
+    result := r.message
+    failure := ""
+  } catch (e) {
+    failure := e.message
+    result := ""
+  }
+}
+
+component Field(props: { label: string; error: string; children: View }) {
+  show = attempted && props.error != ""
+  <label>
+    <span>{props.label}</span>
+    {props.children}
+    {if show { <em>{props.error}</em> }}
+  </label>
+}
+
+component PlanButton(props: { id: string; label: string }) {
+  <button class={plan == props.id ? "on" : ""} onClick={() => { pickPlan(props.id) }}>{props.label}</button>
+}
+
+export default component App() {
+  <main>
+    <h1>Create account</h1>
+    <Field label="Name" error={nameError}>
+      <input value={name} onInput={e => { name := e.target.value }} />
+    </Field>
+    <Field label="Email" error={emailError}>
+      <input value={email} onInput={e => { email := e.target.value }} />
+    </Field>
+    <Field label="Password" error={passwordError}>
+      <input value={password} onInput={e => { password := e.target.value }} />
+      <small>{strengthLabel}</small>
+    </Field>
+    <Field label="Company" error={companyError}>
+      <input value={company} onInput={e => { company := e.target.value }} />
+    </Field>
+    <p>
+      <PlanButton id="free" label="Free" />
+      <PlanButton id="pro" label="Pro" />
+      <PlanButton id="team" label="Team" />
+    </p>
+    {if attempted && planError != "" { <em>{planError}</em> }}
+    <p>
+      <button onClick={() => { toggleNewsletter() }}>{newsletter ? "Newsletter on" : "Newsletter off"}</button>
+      <button onClick={() => { toggleTerms() }}>{terms ? "Terms accepted" : "Accept terms"}</button>
+    </p>
+    {if attempted && termsError != "" { <em>{termsError}</em> }}
+    <button onClick={() => { submit() }}>{saving ? "Creating…" : "Create account"}</button>
+    {if failure != "" { <p class="error">{failure}</p> }}
+    {if result != "" { <p class="ok">{result}</p> }}
+  </main>
+}

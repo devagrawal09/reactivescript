@@ -1,0 +1,69 @@
+// A thousand local rows. Sort and filter derive the visible list; a cell edit is a path write.
+import pure { buildRows, sortRows } from "./api"
+
+type Row = { id: number; name: string; dept: string; score: number }
+
+source rows key id := buildRows()
+source sortKey: string := "name"
+source dir: string := "asc"
+source query: string := ""
+source selected := 1
+source edit: string := ""
+
+q = query.trim().toLowerCase()
+filtered = rows.filter(r => q == "" || r.name.toLowerCase().includes(q) || r.dept.toLowerCase().includes(q))
+visible key id = sortRows(filtered, sortKey, dir)
+visibleCount = visible.length
+total = rows.length
+selIndex = rows.findIndex(r => r.id == selected)
+selectedName = selIndex < 0 ? "" : rows[selIndex].name
+selectedDept = selIndex < 0 ? "" : rows[selIndex].dept
+
+action sortBy(key: string) {
+  if (sortKey == key) { dir := dir == "asc" ? "desc" : "asc" } else { sortKey := key; dir := "asc" }
+}
+action selectDelta(by: number) {
+  let ids = visible.map(r => r.id)
+  if (ids.length == 0) return
+  let i = ids.indexOf(selected)
+  let raw = i < 0 ? 0 : i + by
+  let j = raw < 0 ? ids.length - 1 : raw >= ids.length ? 0 : raw
+  selected := ids[j]
+}
+action applyName() {
+  let i = rows.findIndex(r => r.id == selected)
+  if (i < 0) return
+  let name = edit.trim()
+  if (name == "") return
+  rows[i].name := name
+}
+
+component CellRow(props: { row: Row }) {
+  picked = props.row.id == selected
+  <tr class={picked ? "on" : ""}>
+    <td>{props.row.id}</td>
+    <td>{props.row.name}</td>
+    <td>{props.row.dept}</td>
+    <td>{props.row.score}</td>
+  </tr>
+}
+
+export default component App() {
+  <main>
+    <h1>People</h1>
+    <input value={query} onInput={e => { query := e.target.value }} />
+    <input value={edit} onInput={e => { edit := e.target.value }} />
+    <p>
+      <button onClick={() => { sortBy("name") }}>Name{sortKey == "name" ? (dir == "asc" ? " up" : " down") : ""}</button>
+      <button onClick={() => { sortBy("dept") }}>Dept{sortKey == "dept" ? (dir == "asc" ? " up" : " down") : ""}</button>
+      <button onClick={() => { sortBy("score") }}>Score{sortKey == "score" ? (dir == "asc" ? " up" : " down") : ""}</button>
+      <button onClick={() => { selectDelta(-1) }}>Prev</button>
+      <button onClick={() => { selectDelta(1) }}>Next</button>
+      <button onClick={() => { applyName() }}>Apply</button>
+    </p>
+    <p>{visibleCount} of {total} · #{selected} {selectedName} ({selectedDept})</p>
+    <table>
+      <tbody>{for r in visible { <CellRow row={r} /> }}</tbody>
+    </table>
+  </main>
+}

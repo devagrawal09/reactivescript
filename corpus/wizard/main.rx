@@ -1,0 +1,120 @@
+// Three steps share one draft through context. Nothing is sent until Submit.
+import { log } from "./prelude"
+import { submitSignup } from "./api"
+
+type Form = { name: string; email: string; plan: string; seats: number; agreed: boolean }
+type Flow = {
+  name: string
+  email: string
+  plan: string
+  seats: number
+  agreed: boolean
+  setName: (s: string) => void
+  setEmail: (s: string) => void
+  setPlan: (s: string) => void
+  bumpSeats: (n: number) => void
+  toggleAgreed: () => void
+  go: (n: number) => void
+}
+
+context flow: Flow
+
+source step: number := 1
+source form: Form := { name: "", email: "", plan: "", seats: 1, agreed: false }
+source status: string := ""
+
+furthest = step > (pre furthest -> 1) ? step : (pre furthest -> 1)
+planLabel = form.plan == "" ? "no plan" : form.plan
+
+action setName(s: string) { form.name := s }
+action setEmail(s: string) { form.email := s }
+action setPlan(p: string) { form.plan := p }
+action bumpSeats(n: number) { form.seats := s => s + n < 1 ? 1 : s + n > 20 ? 20 : s + n }
+action toggleAgreed() { form.agreed := v => !v }
+action go(n: number) { step := n }
+
+action submit() {
+  try {
+    status := "submitting"
+    let r = await submitSignup(form.name, form.email, form.plan, form.seats)
+    status := `done #${r.id}`
+  } catch (e) {
+    status := `failed: ${e.message}`
+  }
+}
+
+provide flow = {
+  name: form.name,
+  email: form.email,
+  plan: form.plan,
+  seats: form.seats,
+  agreed: form.agreed,
+  setName: setName,
+  setEmail: setEmail,
+  setPlan: setPlan,
+  bumpSeats: bumpSeats,
+  toggleAgreed: toggleAgreed,
+  go: go,
+}
+
+component NameStep() {
+  name = (use flow).name
+  email = (use flow).email
+  nameOk = name.trim().length > 1
+  emailOk = email.includes("@")
+  source tries := 0
+  effect () { log("enter", 1); return () => { log("leave", 1) } }
+  <section>
+    <h2>Account</h2>
+    <input value={name} onInput={e => { (use flow).setName(e.target.value) }} />
+    <input value={email} onInput={e => { (use flow).setEmail(e.target.value) }} />
+    {if tries > 0 && !nameOk { <em>Name is required</em> }}
+    {if tries > 0 && !emailOk { <em>Email is required</em> }}
+    <button onClick={() => {
+      if (nameOk && emailOk) { (use flow).go(2) } else { tries := tries + 1 }
+    }}>Next</button>
+  </section>
+}
+
+component PlanStep() {
+  plan = (use flow).plan
+  source tries := 0
+  effect () { log("enter", 2); return () => { log("leave", 2) } }
+  <section>
+    <h2>Plan</h2>
+    <p>So far {plan == "" ? "unset" : plan}</p>
+    <button onClick={() => { (use flow).go(1) }}>Back</button>
+    <button class={plan == "free" ? "on" : ""} onClick={() => { (use flow).setPlan("free") }}>Free</button>
+    <button class={plan == "pro" ? "on" : ""} onClick={() => { (use flow).setPlan("pro") }}>Pro</button>
+    <button class={plan == "team" ? "on" : ""} onClick={() => { (use flow).setPlan("team") }}>Team</button>
+    <button onClick={() => {
+      if (plan != "") { (use flow).go(3) } else { tries := tries + 1 }
+    }}>Next</button>
+    {if tries > 0 && plan == "" { <em>Pick a plan</em> }}
+  </section>
+}
+
+component ReviewStep() {
+  draft = use flow
+  ready = draft.plan != "" && draft.agreed && draft.seats >= 1
+  effect () { log("enter", 3); return () => { log("leave", 3) } }
+  <section>
+    <h2>Review</h2>
+    <p>{draft.name} / {draft.email} / {draft.plan} / {draft.seats} seats</p>
+    <button onClick={() => { draft.go(2) }}>Back</button>
+    <button onClick={() => { draft.bumpSeats(-1) }}>−</button>
+    <button onClick={() => { draft.bumpSeats(1) }}>+</button>
+    <button onClick={() => { draft.toggleAgreed() }}>{draft.agreed ? "Agreed" : "Agree"}</button>
+    <button onClick={() => { if (ready) { submit() } }}>Submit</button>
+  </section>
+}
+
+export default component App() {
+  <main>
+    <p>Step {step} of 3 (reached {furthest}) · {planLabel}</p>
+    {if step == 1 { <NameStep /> }}
+    {if step == 2 { <PlanStep /> }}
+    {if step == 3 { <ReviewStep /> }}
+    <p>{pending? status ? "submitting" : status}</p>
+  </main>
+}

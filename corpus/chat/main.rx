@@ -1,0 +1,63 @@
+// A thread: history is a question, send guesses a row, the server's message replaces it.
+import pure { loadMessages } from "./api"
+import { postMessage } from "./api"
+import { log } from "./prelude"
+
+type Msg = { id: string; from: string; text: string }
+
+source messages key id = await loadMessages()
+source draft: string := ""
+source nextId := 1
+source sendError: string := ""
+
+count = messages.length
+mine = messages.filter(m => m.from == "me").length
+typing = draft.trim() != ""
+effect (count) { log("scroll", $0) }
+
+action send(text: string, id: string) {
+  try {
+    guess messages := ms => [...ms, { id: id, from: "me", text: text }]
+    affects messages
+    let saved = await postMessage(text, id)
+    messages := ms => [...ms, saved]
+  } catch (e) {
+    sendError := e.message
+  }
+}
+
+component Bubble(props: { msg: Msg }) {
+  mine = props.msg.from == "me"
+  <li class={mine ? "mine" : ""}>
+    <b>{props.msg.from}</b>
+    <span>{props.msg.text}</span>
+  </li>
+}
+
+export default component App() {
+  errored fallback(e) {
+    <p>Could not load the thread: {e.message}</p>
+  } {
+    {loading fallback { <p>Loading messages…</p> } {
+      <main>
+        <header>
+          <h1>Room</h1>
+          <p>{count} messages · {mine} yours</p>
+        </header>
+        <ol>{for m in messages { <Bubble msg={m} /> }}</ol>
+        <div>
+          <input value={draft} onInput={e => { draft := e.target.value }} />
+          {if typing { <span>typing…</span> }}
+          <button onClick={() => {
+            let text = draft.trim()
+            if (text == "") return
+            let id = "m" + nextId
+            onFlush(() => { draft := ""; nextId := n => n + 1 })
+            send(text, id)
+          }}>{pending? messages ? "Sending…" : "Send"}</button>
+          {if sendError != "" { <p class="error">{sendError}</p> }}
+        </div>
+      </main>
+    }}
+  }
+}

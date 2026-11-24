@@ -1,0 +1,86 @@
+// One board, three columns. A move guesses the whole board, then stores the board the server returned.
+import pure { loadBoard } from "./api"
+import { saveMove } from "./api"
+
+type Card = { id: string; title: string }
+type Board = { todo: Card[]; doing: Card[]; done: Card[] }
+
+source board key id = await loadBoard()
+source selected: string := ""
+source moveError: string := ""
+
+todoCount = board.todo.length
+doingCount = board.doing.length
+doneCount = board.done.length
+total = todoCount + doingCount + doneCount
+flat = [...board.todo, ...board.doing, ...board.done]
+
+fn pick(b: Board, id: string): Card =>
+  b.todo.find(c => c.id == id) || b.doing.find(c => c.id == id) || b.done.find(c => c.id == id) || { id: id, title: "" }
+fn place(cs: Card[], id: string, to: string, col: string, card: Card): Card[] =>
+  to == col ? [...cs.filter(c => c.id != id), card] : cs.filter(c => c.id != id)
+fn relocate(b: Board, id: string, to: string): Board => ({
+  todo: place(b.todo, id, to, "todo", pick(b, id)),
+  doing: place(b.doing, id, to, "doing", pick(b, id)),
+  done: place(b.done, id, to, "done", pick(b, id)),
+})
+
+action selectDelta(by: number) {
+  try {
+    let ids = flat.map(c => c.id)
+    if (ids.length == 0) return
+    let i = ids.indexOf(selected)
+    let raw = i < 0 ? 0 : i + by
+    let j = raw < 0 ? ids.length - 1 : raw >= ids.length ? 0 : raw
+    selected := ids[j]
+  } catch (e) {
+    return
+  }
+}
+action move(to: string) {
+  try {
+    let id = selected
+    if (id == "") return
+    guess board := b => relocate(b, id, to)
+    affects board
+    let next = await saveMove(id, to)
+    board := next
+  } catch (e) {
+    moveError := e.message
+  }
+}
+
+component Column(props: { title: string; count: number; cards: Card[] }) {
+  <section>
+    <h2>{props.title} ({props.count})</h2>
+    <ul>
+      {for c in props.cards {
+        <li class={c.id == selected ? "on" : ""}>{c.title}</li>
+      }}
+    </ul>
+  </section>
+}
+
+export default component App() {
+  errored fallback(e) {
+    <p>Could not load the board: {e.message}</p>
+  } {
+    {loading fallback { <p>Loading board…</p> } {
+      <main class={pending? board ? "dim" : ""}>
+        <header>
+          <h1>Board</h1>
+          <p>{total} cards · selected {selected == "" ? "none" : selected}</p>
+          <button onClick={() => { selectDelta(-1) }}>Prev</button>
+          <button onClick={() => { selectDelta(1) }}>Next</button>
+          <button onClick={() => { move("todo") }}>To do</button>
+          <button onClick={() => { move("doing") }}>Doing</button>
+          <button onClick={() => { move("done") }}>Done</button>
+        </header>
+        {if moveError != "" { <p class="error">{moveError}</p> }}
+        <Column title="To do" count={todoCount} cards={board.todo} />
+        <Column title="Doing" count={doingCount} cards={board.doing} />
+        <Column title="Done" count={doneCount} cards={board.done} />
+      </main>
+    }}
+  }
+}

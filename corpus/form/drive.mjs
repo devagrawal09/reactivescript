@@ -1,0 +1,33 @@
+// Inputs: 0 name, 1 email, 2 password, 3 company.
+// Buttons: 0 Free, 1 Pro, 2 Team, 3 newsletter, 4 terms, 5 submit.
+// Invalid submit returns before the await, so it pushes no promise.
+export const steps = [
+  { click: 5 },
+  { input: 0, value: "Ada" },
+  { input: 1, value: "ada@acme.com" },
+  { input: 2, value: "short" },
+  { click: 5 },
+  { input: 2, value: "correcthorsebattery" },
+  { input: 3, value: "Acme" },
+  { click: 5 },
+  { click: 1 },
+  { click: 5 },
+  { click: 4 },
+  { click: 3 },
+  { click: 5 },
+  { resolve: true },
+  { input: 1, value: "taken@acme.com" },
+  { click: 5 },
+  { resolve: true },
+  { input: 1, value: "ada@acme.io" },
+  { click: 0 },
+  { click: 5 },
+  { resolve: true },
+  { input: 0, value: "A" },
+  { click: 5 },
+  { input: 0, value: "Ada Lovelace" },
+  { click: 2 },
+  { click: 3 },
+  { click: 5 },
+  { resolve: true },
+]

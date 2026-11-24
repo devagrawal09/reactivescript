@@ -1,0 +1,33 @@
+// Toolbar is under the board's loading boundary. After the load:
+// 0 Prev, 1 Next, 2 To do, 3 Doing, 4 Done.
+// Next with nothing selected lands on the first card. Each move is one promise.
+export const steps = [
+  { resolve: true },
+  { click: 1 },
+  { click: 3 },
+  { resolve: true },
+  { click: 1 },
+  { click: 4 },
+  { resolve: true },
+  { click: 1 },
+  { click: 3 },
+  { resolve: true },
+  { click: 0 },
+  { click: 2 },
+  { resolve: true },
+  { click: 1 },
+  { click: 1 },
+  { click: 4 },
+  { resolve: true },
+  { click: 3 },
+  { resolve: true },
+  { click: 0 },
+  { click: 2 },
+  { resolve: true },
+  { click: 1 },
+  { click: 4 },
+  { resolve: true },
+  { click: 1 },
+  { click: 3 },
+  { resolve: true },
+]
