@@ -177,8 +177,21 @@ function getRecorder() {
     const active = instances.findLast(b => b.state !== "ok");
     return { region, state: active?.state ?? "ok", ...(active?.state === "error" ? { error: errorPreview(active.error) } : {}) };
   }
+  function allBoundaries() {
+    const states = [], hiddenBy = [];
+    for (const [ref, key] of regionRefs()) {
+      const b = boundaryState(ref, key);
+      states.push(b);
+      if (b.state !== "ok" && [...globalThis.__RX_BOUNDARIES__.get(ref)].every(x => x.state !== "ok"))
+        hiddenBy.push(`${key}/`);
+    }
+    // Regions denote the boundary's content; its own fallback is outside
+    // that region. A retained inner fallback is not displayed while an
+    // enclosing boundary has swapped the content out.
+    return states.map(b => hiddenBy.some(prefix => b.region.startsWith(prefix)) ? { region: b.region, state: "ok" } : b);
+  }
   // Fallback cleanup can happen in the same turn as a replacement fallback mounts.
-  const boundaryQueue = new Set();
+  let boundariesQueued = false;
   const trace = event => {
     if (event.type === "dispose") {
       for (const [id, f] of flights) if (f.key === event.key)
@@ -187,18 +200,17 @@ function getRecorder() {
       return;
     }
     if (event.type === "boundary") {
-      if (boundaryQueue.has(event.region)) return;
-      boundaryQueue.add(event.region);
+      if (boundariesQueued) return;
+      boundariesQueued = true;
       queueMicrotask(() => {
-        boundaryQueue.delete(event.region);
+        boundariesQueued = false;
         if (globalThis.__RX_TRACE__ !== trace) return;
-        const region = regionRefs().get(event.region);
-        if (!region) return;
-        const b = boundaryState(event.region, region);
-        const prev = boundaries.get(region);
-        if ((prev?.state ?? "ok") === b.state && prev?.error === b.error) return;
-        boundaries.set(region, b);
-        send({ type: "boundary", ...b, at: performance.now() });
+        for (const b of allBoundaries()) {
+          const prev = boundaries.get(b.region);
+          if ((prev?.state ?? "ok") === b.state && prev?.error === b.error) continue;
+          boundaries.set(b.region, b);
+          send({ type: "boundary", ...b, at: performance.now() });
+        }
       });
       return;
     }
@@ -232,7 +244,6 @@ function getRecorder() {
     const flying = flightKeys(), keys = new Set([...flying.keys(), ...(globalThis.__RX_NODES__?.keys() ?? latest.keys())]);
     return [...keys].map(key => current(key, flying.get(key)));
   }
-  const allBoundaries = () => [...regionRefs()].map(([ref, key]) => boundaryState(ref, key));
   function snapshot() {
     const all = states(), at = performance.now();
     return message({ type: "snapshot", at,
