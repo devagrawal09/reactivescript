@@ -9,8 +9,12 @@ A Solid 2 page (`@solidjs/web`, TSX through Solid's own compiler). Its apps are 
   `disabled={draft == ""}`, and since Enter in a form clicks its first enabled button, that one attribute guards both
   (plan v2 has no `if` statement in a handler, so the guard can't be a branch; the page's renderer stops a form in
   evaluated code from navigating). The host passes only `db` (the server's list, read only) and three server calls.
-- **`src/editor.rx`**: a code editor in RX (a textarea, a keystroke count, the checker's verdict). It's evaluated twice:
-  once bound to `todo.rx`'s text, and once bound to its own text, so it edits itself. Every accepted edit rebuilds it,
+- **`src/inventory.rx`** (the "inventory" tab): an admin over the server's items, all in RX. It has a table with search,
+  a category filter, a quantity sort and column toggles; an add/edit form with inline validation; a row toggle and
+  delete; and a count summary. Every change is a guess that the server confirms or rolls back. It's there to stress
+  the subset: what it can't say and the workarounds are in [`FINDINGS.md`](FINDINGS.md).
+- **`src/editor.rx`**: a code editor in RX (a textarea, a keystroke count, the checker's verdict). It's evaluated three
+  times: bound to `todo.rx`'s text, to `inventory.rx`'s, and to its own text, so it edits itself. Every accepted edit rebuilds it,
   and the page puts the caret back.
 
 The host (`client/`) owns the fake server (latency slider, "fail every request"), each program's draft and running
@@ -29,5 +33,5 @@ From the repository root, after `sh scripts/setup.sh` (the Rust step isn't neede
 cd apps/eval-todo
 npm install
 npm run dev        # builds, watches and serves http://127.0.0.1:4190 (PORT to change it)
-npm test           # todo.rx and editor.rx are accepted by the checker; misuse is refused
+npm test           # the .rx files are accepted by the checker; misuse and FINDINGS.md's repros are refused
 ```

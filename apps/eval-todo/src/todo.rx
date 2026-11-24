@@ -13,9 +13,9 @@ open = filter(shown, t => !t.done).length;
 
 action add(text: string) {
   optimistic adding := text;
-  draft := "";
   try {
     let ok = await addTodo(text);
+    draft := "";
     status := "";
   } catch (error) {
     status := "Could not add " + text;

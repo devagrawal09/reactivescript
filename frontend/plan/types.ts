@@ -16,8 +16,12 @@ export type Type =
   | { k: 'never' };
 
 export const NUMBER: Type = { k: 'number' }, STRING: Type = { k: 'string' }, BOOLEAN: Type = { k: 'boolean' };
-/** v2.2: a handler's event, as far as a plan reads it. */
-const EVENT: Type = { k: 'record', fields: [['target', { k: 'record', fields: [['value', STRING]] }], ['currentTarget', { k: 'record', fields: [['value', STRING]] }]] };
+/** v2.2: a handler's event, as far as a plan reads it. A form control has a `value` (a string), an `<input>` also
+ *  `checked`; any other element has neither (reading one would be undefined at run time). */
+const eventOf = (tag: string): Type => {
+  const el: Type = { k: 'record', fields: tag === 'input' ? [['value', STRING], ['checked', BOOLEAN]] : tag === 'textarea' || tag === 'select' ? [['value', STRING]] : [] };
+  return { k: 'record', fields: [['target', el], ['currentTarget', el]] };
+};
 export const scalarType = (t: HostType): Type => t === 'number' ? NUMBER : t === 'string' ? STRING : BOOLEAN;
 
 export function printType(t: Type): string {
@@ -218,9 +222,10 @@ export function typePlan(plan: Plan & { bindings?: unknown[]; value?: Expression
   const views = (vs: View[], locals: Locals) => {
     for (const v of vs) attempt('markup', () => {
       if (v.kind === 'element') {
-        // v2.2: an attribute is a scalar; a handler's event parameter is read as e.target.value / e.currentTarget.value.
+        // v2.2: an attribute is a scalar; a handler's event parameter is read as e.target.value / e.currentTarget.value
+        // (and .checked on an <input>).
         for (const a of v.attrs ?? []) attempt(v.tag + ' ' + a.name, () => { const t = expr(a.value, locals); if (t.k === 'array' || t.k === 'record') fail('attribute ' + a.name + ' of a ' + printType(t)); });
-        for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, e.param ? new Map(locals).set(e.param, EVENT) : new Map(locals)));
+        for (const e of v.events) attempt(v.tag + ' ' + e.name, () => steps(e.steps, e.param ? new Map(locals).set(e.param, eventOf(v.tag)) : new Map(locals)));
         views(v.children, locals);
       }
       else if (v.kind === 'text') { const t = expr(v.value, locals); if (t.k !== 'number' && t.k !== 'string') fail('text of a ' + printType(t) + ' (text shows strings and integers)'); }

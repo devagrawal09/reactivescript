@@ -279,13 +279,6 @@ function instance(plan: Plan, api: Api, options: Options) {
     const declare = (l: Lowered) => {
       const events = l.view.events;
       l.node = events.length ? createElement(l.view.tag, Object.fromEntries(events.map(e => [e.name, handler(e.steps, l.env, e.param)]))) : createElement(l.view.tag);
-      // v2.2: attributes, a literal set once, any other value in a render effect.
-      for (const a of l.view.attrs ?? []) {
-        if (!setProp) throw new Error('a plan with attributes needs a renderer with setProp');
-        const node = l.node;
-        if (a.value.op === 'literal') setProp(node, a.name, a.value.value);
-        else createRenderEffect(() => evaluate(a.value, l.env), v => { setProp(node, a.name, v); });
-      }
       const multi = l.view.children.length > 1;
       l.view.children.forEach((c, i) => {
         if (isStatic(c) && multi) l.texts.set(i, createTextNode(text((c as { value: { value: unknown } }).value.value)));
@@ -310,6 +303,14 @@ function instance(plan: Plan, api: Api, options: Options) {
         }
         insert(l.node, value, marker);
       });
+      // v2.2: attributes, a literal set once, any other value in a render effect. After the children, as Solid's
+      // compiler orders a template's effects: a <select>'s value needs its <option>s in place.
+      for (const a of l.view.attrs ?? []) {
+        if (!setProp) throw new Error('a plan with attributes needs a renderer with setProp');
+        const node = l.node;
+        if (a.value.op === 'literal') setProp(node, a.name, a.value.value);
+        else createRenderEffect(() => evaluate(a.value, l.env), v => { setProp(node, a.name, v); });
+      }
     };
     const element = (v: Extract<View, { kind: 'element' }>, env: Env) => { const l = lower(v, env); declare(l); exprs(l); return l.node; };
     // A component prop the compiler gives a getter (Show's when, For's each) and that is a conditional or a logical

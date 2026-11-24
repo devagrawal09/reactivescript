@@ -38,6 +38,23 @@
   .eval nav { display: flex; flex-wrap: wrap; gap: 6px; }
   .eval nav button { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; background: none; color: inherit; cursor: pointer; }
   .eval em { display: block; margin-top: 10px; color: var(--bad); font-style: normal; min-height: 1.4em; }
+  .tabs { grid-column: 1 / -1; display: flex; gap: 6px; }
+  .tabs button { border: 1px solid var(--line); border-radius: 6px; padding: 4px 14px; background: none; color: inherit; cursor: pointer; }
+  .tabs button.on { background: #8883; font-weight: 600; }
+  [hidden] { display: none !important; }
+  .inventory nav { align-items: center; margin-bottom: 10px; }
+  .inventory nav input:not([type]), .inventory select, .inventory form input:not([type]) { padding: 3px 8px; border: 1px solid var(--line); border-radius: 6px; background: #8881; color: inherit; font: inherit; }
+  .inventory nav label { display: flex; align-items: center; gap: 3px; font-size: 13px; }
+  .inventory table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 12px; }
+  .inventory th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--line); padding: 4px 6px; }
+  .inventory td { border-bottom: 1px solid var(--line); padding: 4px 6px; }
+  .inventory td button { background: none; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; color: inherit; margin-right: 4px; }
+  .inventory tfoot i { color: var(--pending); }
+  .inventory form { flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .inventory form b { flex-basis: 100%; }
+  .inventory form label { display: flex; align-items: center; gap: 4px; font-size: 13px; }
+  .inventory form small { color: var(--bad); font-size: 12px; min-width: 0; }
+  .inventory form small:empty { display: none; }
   .eval { border: 1px dashed var(--line); border-radius: 6px; padding: 10px; }
   .rx-editor header { display: flex; gap: 10px; align-items: baseline; margin-bottom: 6px; }
   .rx-editor header small { color: var(--muted); }

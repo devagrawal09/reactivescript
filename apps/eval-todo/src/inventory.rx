@@ -1,0 +1,179 @@
+// An inventory admin, all of it in ReactiveScript: a table over the server's items, search and a category filter, a
+// column toggle and a sort, an add/edit form with inline validation, and row-level toggle and delete. The page hands
+// it the server's store (`inv`, read only) and three server calls; every guess and rollback below is RX.
+// What the subset can't say, and how this file gets around it, is in ../FINDINGS.md.
+
+// Whole numbers the quantity field accepts, and the sort's buckets (there's no parseInt, no sort and no `-`).
+source upto := [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99];
+source downfrom := [99, 98, 97, 96, 95, 94, 93, 92, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49, 48, 47, 46, 45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
+digits = map(upto, n => "" + n);
+
+source shown = inv.items;
+source noItem := { id: 0, name: "", category: "", qty: 0, active: true };
+source adding = noItem;
+source status := "";
+
+// Table controls.
+source q := "";
+source cat := "all";
+source showCat := true;
+source showQty := true;
+source sortBy := "server";
+
+// The form: editing is the row's id, or 0 for a new item. Quantity is typed text, parsed by looking it up.
+source editing := 0;
+source fname := "";
+source fcat := "tools";
+source fqty := "";
+source factive := true;
+
+rows = filter(shown, i => (q == "" || indexOf(i.words, w => w == q) >= 0) && (cat == "all" || i.category == cat));
+qty = indexOf(digits, d => d == fqty);
+nameErr = fname == "" ? "a name is required" : (indexOf(shown, i => i.name == fname && i.id != editing) >= 0 ? "that name is taken" : "");
+qtyErr = fqty == "" ? "a quantity is required" : (qty < 0 ? "a whole number from 0 to 99" : "");
+valid = nameErr == "" && qtyErr == "";
+low = filter(shown, i => i.active && i.qty < 5).length;
+
+action create(name: string, category: string, n: number, active: boolean) {
+  optimistic adding := { id: 0, name: name, category: category, qty: n, active: active };
+  try {
+    let ok = await addItem(name, category, n, active);
+    // An action's plain writes show when it settles anyway (only guesses show at once): clear the form on success,
+    // and keep it for a retry on failure.
+    fname := "";
+    fqty := "";
+    status := "";
+  } catch (error) {
+    status := "Could not add " + name;
+  }
+}
+
+action update(id: number, name: string, category: string, n: number, active: boolean) {
+  optimistic shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
+  try {
+    let ok = await updateItem(id, name, category, n, active);
+    editing := 0;
+    fname := "";
+    fqty := "";
+    status := "";
+  } catch (error) {
+    status := "Could not save " + name;
+  }
+}
+
+// The row's toggle: update's guess and call without touching the form (an action can't call another action).
+action setActive(id: number, name: string, category: string, n: number, active: boolean) {
+  optimistic shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
+  try {
+    let ok = await updateItem(id, name, category, n, active);
+    status := "";
+  } catch (error) {
+    status := "Could not save " + name;
+  }
+}
+
+action remove(id: number, name: string) {
+  optimistic shown := list => filter(list, i => i.id != id);
+  try {
+    let ok = await removeItem(id);
+    status := "";
+  } catch (error) {
+    status := "Could not delete " + name;
+  }
+}
+
+<article>
+  <h2>{"" + rows.length + " shown of " + shown.length + " items · " + low + " low on stock"}</h2>
+  <nav>
+    <input value={q} placeholder="search a word (lowercase)" onInput={e => { q := e.target.value }} />
+    <select value={cat} onChange={e => { cat := e.target.value }}>
+      <option value="all">all categories</option>
+      <option value="tools">tools</option>
+      <option value="parts">parts</option>
+      <option value="supplies">supplies</option>
+    </select>
+    <select value={sortBy} onChange={e => { sortBy := e.target.value }}>
+      <option value="server">server order</option>
+      <option value="qtyUp">quantity ↑</option>
+      <option value="qtyDown">quantity ↓</option>
+    </select>
+    <label><input type="checkbox" checked={showCat} onChange={e => { showCat := e.target.checked }} />category</label>
+    <label><input type="checkbox" checked={showQty} onChange={e => { showQty := e.target.checked }} />qty</label>
+  </nav>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>name</th>
+        {if showCat { <th>category</th> }}
+        {if showQty { <th>qty</th> }}
+        <th>active</th>
+        <th>actions</th>
+      </tr>
+    </thead>
+    {if sortBy == "server" {
+      <tbody>
+        {for r in rows {
+          <tr>
+            <td>{r.id}</td>
+            <td>{r.name}</td>
+            {if showCat { <td>{r.category}</td> }}
+            {if showQty { <td>{r.qty < 5 ? "" + r.qty + " ⚠" : "" + r.qty}</td> }}
+            <td><input type="checkbox" checked={r.active} onChange={() => { setActive(r.id, r.name, r.category, r.qty, !r.active) }} /></td>
+            <td>
+              <button onClick={() => { editing := r.id; fname := r.name; fcat := r.category; fqty := "" + r.qty; factive := r.active }}>edit</button>
+              <button onClick={() => { remove(r.id, r.name) }}>✕</button>
+            </td>
+          </tr>
+        }}
+      </tbody>
+    } else {
+      <tbody>
+        {for n in (sortBy == "qtyUp" ? upto : downfrom) {
+          {for r in filter(rows, i => i.qty == n) {
+            <tr>
+              <td>{r.id}</td>
+              <td>{r.name}</td>
+              {if showCat { <td>{r.category}</td> }}
+              {if showQty { <td>{r.qty < 5 ? "" + r.qty + " ⚠" : "" + r.qty}</td> }}
+              <td><input type="checkbox" checked={r.active} onChange={() => { setActive(r.id, r.name, r.category, r.qty, !r.active) }} /></td>
+              <td>
+                <button onClick={() => { editing := r.id; fname := r.name; fcat := r.category; fqty := "" + r.qty; factive := r.active }}>edit</button>
+                <button onClick={() => { remove(r.id, r.name) }}>✕</button>
+              </td>
+            </tr>
+          }}
+        }}
+      </tbody>
+    }}
+    <tfoot>
+      {if adding.name != "" {
+        <tr><td>…</td><td><i>{adding.name + " (saving…)"}</i></td><td>{adding.category}</td><td>{"" + adding.qty}</td><td></td><td></td></tr>
+      }}
+    </tfoot>
+  </table>
+  <form>
+    <b>{editing == 0 ? "New item" : "Editing #" + editing}</b>
+    <label>name <input value={fname} onInput={e => { fname := e.target.value }} /></label>
+    <small>{nameErr}</small>
+    <label>category
+      <select value={fcat} onChange={e => { fcat := e.target.value }}>
+        <option value="tools">tools</option>
+        <option value="parts">parts</option>
+        <option value="supplies">supplies</option>
+      </select>
+    </label>
+    <label>qty <input value={fqty} inputmode="numeric" onInput={e => { fqty := e.target.value }} /></label>
+    <small>{qtyErr}</small>
+    <label><input type="checkbox" checked={factive} onChange={e => { factive := e.target.checked }} />active</label>
+    {if editing == 0 {
+      <button disabled={!valid} onClick={() => { create(fname, fcat, qty, factive) }}>add item</button>
+    } else {
+      <span>
+        <button disabled={!valid} onClick={() => { update(editing, fname, fcat, qty, factive) }}>save</button>
+        <button onClick={() => { editing := 0; fname := ""; fqty := "" }}>cancel</button>
+      </span>
+    }}
+  </form>
+  <em>{status}</em>
+</article>

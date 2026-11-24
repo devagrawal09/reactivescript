@@ -16,4 +16,15 @@ export const EDITOR_INTERFACE = [
   'action edit(string)',
 ].join('\n');
 
+// The inventory admin's interface. `inv.items` is in the server's order (by name). `words` is the server's search index
+// for an item: every lowercase prefix of every word of its name, so the code can search with `==` (it has no
+// substring test).
+export const INVENTORY_INTERFACE = [
+  'store inv: { items: { id: number, name: string, category: string, qty: number, active: boolean, words: string[] }[] }',
+  'host addItem(string, string, number, boolean): string',
+  'host updateItem(number, string, string, number, boolean): string',
+  'host removeItem(number): string',
+].join('\n');
+
+export type Item = { id: number; name: string; category: string; qty: number; active: boolean; words: string[] };
 export type Todo = { id: number; text: string; done: boolean };

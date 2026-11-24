@@ -431,17 +431,22 @@ Evaluated code may read what the user types, written as upstream RX writes it:
 
 - **Attributes.** An element may carry attributes other than events, in source order: a literal is set once, any other
   value is a reactive expression (one CP-6 reader each, as the checker records them) set in a render effect. Values
-  are scalars. The renderer sets them with `setProp(node, name, value)`; the app's renderer decides attribute or
+  are scalars. They are applied after the element's children are appended and inserted, as Solid's compiler orders a
+  template's effects (a `<select value={x}>` needs its `<option>`s in place). The renderer sets them with `setProp(node, name, value)`; the app's renderer decides attribute or
   property (`apps/eval-todo/client/eval.ts` sets `value` and `checked` as properties, and only when they differ).
-- **The event.** A handler may take one parameter, bound to the DOM event. The plan types it as
-  `{ target: { value: string }, currentTarget: { value: string } }`, so `e.target.value` is a string and anything else
-  is a `TYPE` refusal. Such a handler is a plain handler: a body RX would infer as an action is refused (call an action
+- **The event.** A handler may take one parameter, bound to the DOM event. The plan types it by the handler's element:
+  on an `<input>`, `{ target: T, currentTarget: T }` with `T = { value: string, checked: boolean }`; on a `<textarea>`
+  or `<select>`, `T = { value: string }`; on any other element `T = {}` (a `<div>` or `<button>` has no `value`, so
+  reading one would be undefined at run time). Anything else (`e.key`, say) is a `TYPE` refusal. `target` is typed as
+  the handler's own element; on these elements an event's target is that element. Such a handler is a plain handler: a body RX would infer as an action is refused (call an action
   with what it reads instead).
 - **Scope.** Only `eval/compile.ts` turns it on (`resolvePlanV2(…, { dom: true })`); authored plans and the plan fuzz
   still refuse both forms. A plan that uses either is version 2.2, which `solid-plan.ts` runs and which a v2/v2.1
   consumer (rust-solid) refuses by its version.
 - **Not verified** the way the rest is: no static twin, no fuzz, no Rust leg. `apps/eval-todo/test/` checks that its
-  editor compiles and that a misread event is refused, and the app was driven in a browser.
+  apps (todo, inventory, editor) compile, that a misread event is refused, and that a `<select>`'s value is set after
+  its options; the apps were driven in a browser. What the subset can't say in a forms-and-tables app, and the
+  workarounds, are in `apps/eval-todo/FINDINGS.md`.
 
 ## Deferred and not verified
 
