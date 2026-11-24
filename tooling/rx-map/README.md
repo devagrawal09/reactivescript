@@ -48,7 +48,15 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
     - outside (JS imports, server fns, plain fns) is slate;
     - structure (components, contexts, props passed) is violet;
     - failure (error classes) is rose.
-  - **Shape:** a pill is a name, a square is a view site.
+  - **Shape, fill and icon** say the role; no role is written on a token (hover one for its role in words):
+    - a source is a filled blue well;
+    - an equation (and props, view reads) is outlined teal with a gradient and an ƒ;
+    - an action is an orange chevron with a bolt; a handler is a small chevron;
+    - an effect is a hollow orange ring;
+    - JS imports, server and plain functions are slate tokens with a plug;
+    - components, contexts and props passed are violet frames; error classes are rose, with a warning sign.
+
+    A view site is the squarer, smaller version of its role's token.
   - **Marks**, on any role:
     - ⧗ and stripes: can be pending (it awaits);
     - **?**: re-asks a standing question;
@@ -80,6 +88,25 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
   program has. Each section has all / none buttons. While anything is hidden, the header shows `N hidden`, which
   opens the legend. Hidden kinds are remembered.
 - `#name`, `#name:down` or `#name:up` in the URL selects or traces a name. `/` focuses search.
+
+## The world and the HUD
+
+The map is a slightly tilted plane under a perspective camera. Modules are plates on it, tokens stand a little off
+their plate with a cast shadow, and edges run on the plate surface.
+
+- **Move:** drag to pan (it coasts), wheel or pinch to zoom toward the pointer, `+` / `-` too. Double-click a token to
+  fly to it. `F` frames everything; `Esc` clears a selection, then frames, then closes the panel. The world tilts a
+  few degrees with the pointer.
+- **HUD:** the header, the side panel, the minimap (bottom left: click or drag to go there), the zoom dock with the
+  sound toggle (bottom right) and, in live mode, the timeline (bottom centre) float over the world as glass.
+- **Code** (the declaration in the panel, tooltips, the guide, diff before / after) is highlighted; a keyword takes
+  its role's colour (`source` blue, `action` orange, `await` amber, `component` violet).
+- **Sound:** small synthesized cues (hover, select, toggles, flushes pitched by family, flights, travel, reloads),
+  only after the first click or key, quiet, and rate limited. The dock's speaker mutes it; that is remembered
+  (`rx-map:sound`).
+- **Reduced motion** (the OS setting) turns every movement into a short fade: no flights of the camera, no comets,
+  no flips.
+- A map of more than 900 nodes keeps its tokens in their row's plane, so panning stays cheap.
 
 ## Diff: what changed between two versions
 
@@ -142,16 +169,31 @@ The exports:
 | `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
 | `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
 
-The live page takes messages posted to its window, each with `source: "rx-map"`:
+The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message has `source: "rx-map"` and `v: 1`
+(a message without `v` is read as v1; another `v`, an unknown `type` and a key the map doesn't have are ignored).
 
-- `{ type: "flush", seq, at, changes: [{ name, key, preview?, origin? }] }`
-- `{ type: "flight", key, state: "start" | "land" | "abandon" }`
-- `{ type: "reset" }`
+- From the host: `flush` (with optional `origin`, `cause`, `order`), `flight`, `reset`, `timeline`, `step`, `resume`,
+  `travel-denied`, and `hmr` in phases `plan` → `apply` → `done` (or `failed`).
+- To the host (`parent.postMessage`, or `window.__RX_FAKE__.post` when an in-page fake host is there): `hello` on
+  load, `travel` and `resume` from the timeline, `select` when a token is selected. An in-page host can also call
+  `window.__RX_VIEW__.connect()` (subscribe and say hello) and `window.__RX_VIEW__.receive(msg)`.
 
-A key the map doesn't have is ignored.
+What it shows:
+
+- **A flush:** a comet runs along the edges from the cause (`cause`, then the changed names each one reads, in `order`
+  when given) to each changed token; the token rings white and its value badge rolls to the new value.
+- **A flight:** an amber orbit; on landing it collapses into the token, which settles; abandoned, it slips away.
+- **Time:** the timeline has a tick per flush in the colour of its cause, amber spans for flights and diamonds for
+  reloads. Drag it or use the arrow keys to `travel`; **LIVE** sends `resume`. A `step` greys the world for a moment
+  and rolls the changed values back (or forward); while viewing the past the frame of the screen is lit.
+- **A reload:** on `plan`, the **Reload** tab lists what is kept, reset, re-run, added, removed and moved, with
+  reasons, and the tokens are marked (added ones wait as ghosts on their plate). On `apply` the plate lifts, kept
+  tokens glint, reset ones flip, re-run ones spin, removed ones sink; then the new graph is swapped in and each token
+  slides to its new place.
 
 `page.mjs` is generated from `map.html`: run `npm run build` after editing the page. `npm test` checks that it is
-current and runs the live harnesses (`test/live.html`, `test/engine.html`) in headless Chromium; `--shots <dir>` also
+current and runs the live harnesses (`test/live.html`, with made-up flush, flight, timeline, step, resume and hmr
+messages, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
 saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
 
