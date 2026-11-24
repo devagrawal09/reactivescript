@@ -9,7 +9,8 @@ import { runCase } from "./fuzz/run.ts";
 
 const SEEDS = Array.from({ length: 20 }, (_, i) => i);
 /** Seeds whose only divergence is the interpreter against the compiled RX (docs/FUZZ.md). */
-const INTERPRETER_DIVERGES = [14, 17];
+// Seed 17 (U1) agrees since upstream f51bb5e (#33, "a functional guess sees the screen"; docs/PIN-MAIN-FRONTEND.md).
+const INTERPRETER_DIVERGES = [14];
 
 test("fuzz smoke: seeds 0..19 are accepted, TSX and RX agree on facts and on every backend, and compiled RX matches native", async () => {
   const interpreter: number[] = [];
