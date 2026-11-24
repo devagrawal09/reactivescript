@@ -701,9 +701,23 @@ impl Runtime {
         }
         self.txs[l].held = false;
         self.txs[l].shown = true;
+        let p = self.resolve_tx(self.txs[l].parent.unwrap());
+        let v: Vec<NodeId> = self.txs[p]
+            .reruns
+            .iter()
+            .copied()
+            .filter(|&r| self.nodes[r].modified && self.nodes[r].transaction == Some(l))
+            .collect();
         if self.reruns(l) {
-            let p = self.resolve_tx(self.txs[l].parent.unwrap());
             self.revealing.push(p);
+        }
+        // The parent lands this seam and re-derives readers whose runs the
+        // lane stashed, voiding them (`reruns`): beside other runs of the
+        // lane they show first (F-6, #4677).
+        else if self.txs[l].queues[0].len() > v.len() {
+            self.restores.push(v);
+            let i = self.restores.len() - 1;
+            self.txs[l].queues[0].insert(0, QueueCallback::Restore(i));
         }
         let mut i = 0;
         while i < self.txs[l].nodes.len() {
@@ -747,6 +761,54 @@ impl Runtime {
                 .over
                 .is_some_and(|o| self.live_tx(o) == Some(t))
         })
+    }
+
+    // Solid: lanes.ts `landing` (#4677): a transaction lands; its lanes end.
+    pub(super) fn landing(&mut self, u: TxId) {
+        self.walk(u);
+        self.end_lanes(u);
+    }
+
+    // Solid: lanes.ts `walk` (#4677): the effects that derive plainly from a
+    // landing that re-derives a stale reader wait with its held runs.
+    fn walk(&mut self, u: TxId) {
+        let rr = &self.txs[u].reruns;
+        if !rr.iter().any(|&r| {
+            self.nodes[r].effect_type == 0 && self.nodes[r].flags & REACTIVE_FRAME_READ != 0
+        }) || !rr.iter().any(|&r| {
+            (self.nodes[r].flags & REACTIVE_FRAME_READ != 0
+                || self.nodes[r].config & CONFIG_VERDICT != 0)
+                && (self.nodes[r].effect_type != 0 || self.nodes[r].config & CONFIG_HELD != 0)
+        }) {
+            return;
+        }
+        if self.waiting.is_none() {
+            self.waiting = Some(vec![]);
+            self.queues[1].push(QueueCallback::ClearWaiting);
+        }
+        let mut q: Vec<NodeId> = self.txs[u]
+            .nodes
+            .iter()
+            .copied()
+            .filter(|&n| self.nodes[n].config & CONFIG_VERDICT == 0)
+            .collect();
+        while let Some(n) = q.pop() {
+            let mut s = self.nodes[n].subs;
+            while let Some(link) = s {
+                s = self.links[link].next_sub;
+                let c = self.links[link].sub;
+                if self.waiting.as_ref().unwrap().contains(&c)
+                    || self.nodes[c].config & CONFIG_VERDICT != 0
+                    || self.nodes[c].transaction.is_some_and(|t| self.txs[t].lane)
+                {
+                    continue;
+                }
+                self.waiting.as_mut().unwrap().push(c);
+                if self.nodes[c].effect_type == 0 {
+                    q.push(c);
+                }
+            }
+        }
     }
 
     // Solid: lanes.ts:906-938

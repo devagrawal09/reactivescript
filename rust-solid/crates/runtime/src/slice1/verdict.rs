@@ -538,6 +538,14 @@ impl Runtime {
     // Solid: verdict.ts:845-860 (`attachHook`). With no DOM node in a value
     // the hold search (`bornHeldOpen`) is never reached.
     pub(super) fn attach_waits(&mut self, node: NodeId) -> bool {
+        // A run of the frame a landing holds for its re-derivation (lanes.ts
+        // `waiting`, #4677) runs next round, with the landing's held runs.
+        if self.waiting.as_ref().is_some_and(|w| w.contains(&node)) {
+            let ty = self.nodes[node].effect_type;
+            let lane = self.pass_lane;
+            self.enqueue(ty, QueueCallback::RunEffect(node), lane);
+            return true;
+        }
         if self.nodes[node].effect_type != EFFECT_RENDER
             || !(self.nodes[node].config & CONFIG_VERDICT != 0
                 || self.nodes[node]

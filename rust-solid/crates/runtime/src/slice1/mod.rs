@@ -385,6 +385,12 @@ enum QueueCallback {
     /// A boundary output's deferred `drop` of the fallback it replaced
     /// (boundaries.ts:498-510): the boundary and that fallback's computed.
     DropFallback(boundaries::BoundaryId, NodeId),
+    /// lanes.ts `laneSeam`'s `() => v.forEach(r => (r._modified = true))`
+    /// (#4677): the runs a parent landing voided, by index into
+    /// `Runtime::restores`.
+    Restore(usize),
+    /// lanes.ts `walk`'s `() => (waiting = null)` (#4677).
+    ClearWaiting,
 }
 
 /// Solid: scheduler.ts:260-323 `Transaction`. `_links` is an index into
@@ -565,6 +571,11 @@ pub struct Runtime {
     collecting: boundaries::Collecting,
     /// error-hooks.ts `reported` (a WeakSet of thrown objects).
     reported: Vec<Error>,
+    /// lanes.ts `waiting` (#4677): the effects deriving plainly from a
+    /// landing whose runs wait for its re-derivation (a JS `Set`).
+    waiting: Option<Vec<NodeId>>,
+    /// The node lists of queued `Restore` callbacks.
+    restores: Vec<Vec<NodeId>>,
     /// Debugging aid: `SLICE1_TRACE` prints scheduler events to stderr in
     /// the format of the instrumented Solid copy (docs/slice2a-fuzz).
     trace: bool,
@@ -639,6 +650,8 @@ impl Default for Runtime {
             boundaries: vec![],
             collecting: Default::default(),
             reported: vec![],
+            waiting: None,
+            restores: vec![],
             trace: std::env::var_os("SLICE1_TRACE").is_some(),
         }
     }

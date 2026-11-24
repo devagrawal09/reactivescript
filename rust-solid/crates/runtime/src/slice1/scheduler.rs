@@ -411,7 +411,7 @@ impl Runtime {
                 continue;
             }
             self.transactions.remove(k as usize);
-            self.end_lanes(u);
+            self.landing(u);
             self.land(u);
             k = self.transactions.len() as isize;
             k -= 1;
@@ -773,6 +773,12 @@ impl Runtime {
                 QueueCallback::RunEffect(n) => self.run_effect(n, ty),
                 QueueCallback::ReleaseQueues(u) => self.release_queues(u),
                 QueueCallback::DropFallback(b, fb) => self.drop_fallback(b, fb),
+                QueueCallback::Restore(i) => {
+                    for r in std::mem::take(&mut self.restores[i]) {
+                        self.nodes[r].modified = true;
+                    }
+                }
+                QueueCallback::ClearWaiting => self.waiting = None,
             }
         }
     }
