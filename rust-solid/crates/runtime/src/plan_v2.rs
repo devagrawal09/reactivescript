@@ -2141,7 +2141,18 @@ fn exprs(rt: &mut Runtime, c: &C, t: &Template, env: &Env) -> Result<(), Error> 
         if literal_text(child).is_some() {
             continue;
         }
-        let value = dynamic(rt, c, child, env)?;
+        let value = match child {
+            // Solid main lowers a `<Show>` child of an element to
+            // `{when ? <>children</> : fallback}` (compiler
+            // shared/lower_show.rs), inserted as the universal compiler
+            // inserts a conditional (shared/condition.rs).
+            View::Show {
+                when,
+                children: kids,
+                fallback,
+            } => lowered_show(rt, c, when, kids, fallback, env, true)?,
+            _ => dynamic(rt, c, child, env, false)?,
+        };
         let marker = if multi {
             (i + 1..t.children.len())
                 .find_map(|j| t.texts[j].or(t.kids[j].as_ref().map(|k| k.node)))
@@ -2220,9 +2231,15 @@ fn boolean_expr(e: &Expr) -> bool {
 
 /// `memo(() => test)()` in the getter: the renderer's memo, called once.
 fn memoized(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error> {
+    let m = condition_memo_in(rt, c, e, env);
+    rt.call(&m, &[])
+}
+
+/// `memo(() => !!test)` (or `test` when statically boolean): the accessor.
+fn condition_memo_in(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Value {
     let (e, env, c2) = (e.clone(), env.clone(), c.clone());
     let boolean = boolean_expr(&e);
-    let m = c.u.memo(
+    c.u.memo(
         rt,
         Rc::new(move |rt: &mut Runtime| {
             let v = eval(rt, &c2, &e, &env)?;
@@ -2232,8 +2249,7 @@ fn memoized(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Error
                 Ok(Value::Bool(truthy(&c2, &v)?))
             }
         }),
-    );
-    rt.call(&m, &[])
+    )
 }
 
 /// A component prop the compiler gives a getter (Show's `when`, For's
@@ -2286,8 +2302,13 @@ fn condition(rt: &mut Runtime, c: &C, e: &Expr, env: &Env) -> Result<Value, Erro
 
 /// A dynamic child: a text accessor, or a control-flow component with the
 /// props the compiler passes (getters; no fallback when the plan has none).
-fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error> {
+fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env, lower: bool) -> Result<Value, Error> {
     match v {
+        View::Show {
+            when,
+            children: kids,
+            fallback,
+        } if lower => lowered_show(rt, c, when, kids, fallback, env, false),
         View::Element { .. } => unreachable!("an element is a template"),
         View::Text { value } => {
             let (value, env) = (value.clone(), env.clone());
@@ -2309,12 +2330,19 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             let (e1, e2, e3) = (env.clone(), env.clone(), env.clone());
             let fallback = (!fallback.is_empty()).then(|| {
                 let fallback = fallback.clone();
-                getter(c, move |rt, c| fragment(rt, c, &fallback, &e3))
+                // An attribute: a lone `<Show>` stays a component; more
+                // views are a fragment, whose `<Show>`s are lowered.
+                let lower = fallback.len() > 1;
+                getter(c, move |rt, c| fragment(rt, c, &fallback, &e3, lower))
             });
             let props = ShowProps {
                 when: getter(c, move |rt, c| condition(rt, c, &when, &e1)),
                 keyed: Value::Undef,
-                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2)),
+                children: {
+                    // A component's children: its sole `<Show>` is lowered.
+                    let lower = kids.len() == 1;
+                    getter(c, move |rt, c| fragment(rt, c, &kids, &e2, lower))
+                },
                 fallback,
             };
             rt.create_component(Rc::new(move |rt: &mut Runtime| {
@@ -2336,7 +2364,8 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
                 Rc::new(move |rt: &mut Runtime, args: &[Value]| {
                     let mut env = e2.clone();
                     env.insert(item.clone(), args.first().cloned().unwrap_or(Value::Undef));
-                    fragment(rt, &c2, &kids, &env)
+                    // The row is the arrow's body: its `<Show>`s are lowered.
+                    fragment(rt, &c2, &kids, &env, true)
                 }),
             );
             let props = ForProps {
@@ -2359,9 +2388,10 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
         // Errored's as a function of the error (solid-plan.ts).
         View::Loading { fallback, children } => {
             let (fb, kids, e1, e2) = (fallback.clone(), children.clone(), env.clone(), env.clone());
+            let (lf, lk) = (fb.len() > 1, kids.len() == 1);
             let props = LoadingProps {
-                fallback: Some(getter(c, move |rt, c| fragment(rt, c, &fb, &e1))),
-                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2)),
+                fallback: Some(getter(c, move |rt, c| fragment(rt, c, &fb, &e1, lf))),
+                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2, lk)),
             };
             rt.create_component(Rc::new(move |rt: &mut Runtime| {
                 rt.loading_component(props.clone())
@@ -2374,11 +2404,13 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
             // accessor, which the plan does not read.
             let f = rt.function(
                 1,
-                Rc::new(move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1)),
+                // An arrow's body: its `<Show>`s are lowered.
+                Rc::new(move |rt: &mut Runtime, _args: &[Value]| fragment(rt, &c2, &fb, &e1, true)),
             );
+            let lk = kids.len() == 1;
             let props = ErroredProps {
                 fallback: f,
-                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2)),
+                children: getter(c, move |rt, c| fragment(rt, c, &kids, &e2, lk)),
             };
             rt.create_component(Rc::new(move |rt: &mut Runtime| {
                 rt.errored_component(props.clone())
@@ -2446,10 +2478,82 @@ fn dynamic(rt: &mut Runtime, c: &C, v: &View, env: &Env) -> Result<Value, Error>
     }
 }
 
+/// A `<Show>` Solid main's compiler lowers (shared/lower_show.rs) to
+/// `{when ? <>children</> : fallback}` (no `keyed`, JSX children), compiled
+/// by the universal transform's `transformCondition` (shared/condition.rs):
+///
+/// - an element's child (`insert`, `inline = false`): with a dynamic test,
+///   `(() => { var _c$ = memo(() => !!when); return () => _c$() ? kids :
+///   fallback; })()`, the memo created where the insert's argument is;
+/// - in a fragment or a body (`inline = true`): `memo(() => memo(() =>
+///   !!when)() ? kids : fallback)`;
+/// - a test that is not dynamic: `when ? kids : fallback`, evaluated here.
+///
+/// `kids` is `<>children</>` (the Show's own children: a sole `<Show>` there
+/// was lowered); `fallback` the attribute's value (a lone `<Show>` there was
+/// not; a fragment's were); `void 0` for none.
+fn lowered_show(
+    rt: &mut Runtime,
+    c: &C,
+    when: &Expr,
+    kids: &[View],
+    fallback: &[View],
+    env: &Env,
+    insert: bool,
+) -> Result<Value, Error> {
+    let (kids, fallback, env2) = (kids.to_vec(), fallback.to_vec(), env.clone());
+    let branch = Rc::new(move |rt: &mut Runtime, c: &C, yes: bool| {
+        let (views, lower) = if yes {
+            (&kids, kids.len() == 1)
+        } else {
+            (&fallback, fallback.len() > 1)
+        };
+        if views.is_empty() {
+            return Ok(Value::Undef);
+        }
+        fragment(rt, c, views, &env2, lower)
+    });
+    if !dynamic_expr(c, when) {
+        let t = eval(rt, c, when, env)?;
+        let yes = truthy(c, &t)?;
+        return branch(rt, c, yes);
+    }
+    if insert {
+        let test = condition_memo_in(rt, c, when, env);
+        let c2 = c.clone();
+        return Ok(rt.function(
+            0,
+            Rc::new(move |rt: &mut Runtime, _| {
+                let t = rt.call(&test, &[])?;
+                let yes = truthy(&c2, &t)?;
+                branch(rt, &c2, yes)
+            }),
+        ));
+    }
+    let (when, env) = (when.clone(), env.clone());
+    Ok(c.u.memo(
+        rt,
+        getter(c, move |rt, c| {
+            let t = memoized(rt, c, &when, &env)?;
+            let yes = truthy(c, &t)?;
+            branch(rt, c, yes)
+        }),
+    ))
+}
+
 /// The views of a component position (the markup, a Show branch, a For
 /// row): each element is its own template, a Show or For its component; a
-/// lone view is itself, more are an array.
-fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value, Error> {
+/// lone view is itself, more are an array. `lower`: a `<Show>` here is
+/// lowered (Solid main's compiler, shared/lower_show.rs): this list is a
+/// fragment, an arrow's or the component's body, or a component's sole
+/// child; not a lone attribute value or one of several component children.
+fn fragment(
+    rt: &mut Runtime,
+    c: &C,
+    views: &[View],
+    env: &Env,
+    lower: bool,
+) -> Result<Value, Error> {
     let mut parts = vec![];
     for v in views {
         parts.push(match v {
@@ -2467,7 +2571,7 @@ fn fragment(rt: &mut Runtime, c: &C, views: &[View], env: &Env) -> Result<Value,
                     "an eval site directly in a component position".into(),
                 ));
             }
-            _ => dynamic(rt, c, v, env)?,
+            _ => dynamic(rt, c, v, env, lower)?,
         });
     }
     Ok(if parts.len() == 1 {
@@ -2528,7 +2632,8 @@ fn build(rt: &mut Runtime, c: &C, plan: &Plan) -> Result<Value, Error> {
             .borrow_mut()
             .insert(m.name.clone(), Binding::Memo(n));
     }
-    fragment(rt, c, &plan.markup, &empty)
+    // `return <Show …/>`: a statement position, lowered.
+    fragment(rt, c, &plan.markup, &empty, true)
 }
 
 /// A mounted v2 plan: the runtime, the recording host and the mount.

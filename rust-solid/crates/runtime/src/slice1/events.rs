@@ -90,12 +90,18 @@ pub enum Listener {
     /// addEvent's tuple wrapper `e => handlerFn.call(node, handler[1], e)`
     /// (client.ts:997-1004); `[$$EVENT_TUPLE]` is the tuple.
     Tuple { id: u64, node: Node, tuple: Value },
+    /// `resetDelegatedEvent`, the module's one capture listener that
+    /// deletes `e[$$EVENT_OWNER]` (Solid main client.ts:603-607): every
+    /// container gets it, as itself, before its delegated handler.
+    Reset,
 }
 
 impl Listener {
     /// A stable identity for logs: the function a JS listener is.
     pub fn identity(&self) -> (u8, u64) {
         match self {
+            // `next_listener` starts at 1: 0 is the one module function.
+            Listener::Reset => (1, 0),
             Listener::Delegated { id, .. } => (1, *id),
             Listener::Handler(Value::Func(Builtin::Host(f))) => (0, *f),
             Listener::Handler(other) => panic!("a listener {other:?} is outside the value domain"),
@@ -104,13 +110,11 @@ impl Listener {
     }
 }
 
-/// A container's state (client.ts:518-527: `{ owners, handlers }`, and
-/// `roots`).
+/// A container's state (client.ts:573-579: `{ owners, handlers }`).
 #[derive(Default)]
 pub struct ContainerState {
     owners: Vec<(Node, usize)>,
     handlers: Vec<(String, Listener)>,
-    roots: usize,
 }
 
 /// The module state of client.ts's delegation: `delegatedEvents` (a Set of
@@ -207,24 +211,17 @@ pub fn delegate_events(host: &mut impl EventHost, event_names: &[&str]) {
     }
 }
 
-/// `registerDelegatedRoot(root)`.
-// Solid: web/src/client.ts:500-503
+/// `registerDelegatedRoot(root)`: a root is a container that owns itself
+/// (Solid main dropped the `roots` counter; `getDelegatedRoot` reads
+/// `owners`).
+// Solid: web/src/client.ts:555-560 (main 30e7805e)
 pub fn register_delegated_root(host: &mut impl EventHost, root: Node) {
-    if register_delegated_container(host, root, root) {
-        if let Some(state) = host.delegation().state(root) {
-            state.roots += 1;
-        }
-    }
+    register_delegated_container(host, root, root);
 }
 
-/// `registerDelegatedContainer(container, owner = container)`; whether a
-/// state was returned.
-// Solid: web/src/client.ts:516-530
-pub fn register_delegated_container(
-    host: &mut impl EventHost,
-    container: Node,
-    owner: Node,
-) -> bool {
+/// `registerDelegatedContainer(container, owner = container)`.
+// Solid: web/src/client.ts:571-584 (main 30e7805e)
+pub fn register_delegated_container(host: &mut impl EventHost, container: Node, owner: Node) {
     if host.delegation().state(container).is_none() {
         host.delegation()
             .containers
@@ -239,11 +236,18 @@ pub fn register_delegated_container(
     for name in names {
         attach_delegated_event(host, &name, container);
     }
-    true
 }
 
-/// `attachDelegatedEvent(name, container, state)`.
-// Solid: web/src/client.ts:547-555 (production: no interaction wrapper)
+/// `resetDelegatedEvent(e)`: the owner mark belongs to one native
+/// dispatch, not the event object.
+// Solid: web/src/client.ts:603-607 (main 30e7805e)
+pub fn reset_delegated_event(e: &Obj) {
+    e.delete(&Key::name(EVENT_OWNER));
+}
+
+/// `attachDelegatedEvent(name, container, state)`: since Solid main
+/// (30e7805e) the capture listener `resetDelegatedEvent` is attached first.
+// Solid: web/src/client.ts:609-618 (production: no interaction wrapper)
 fn attach_delegated_event(host: &mut impl EventHost, name: &str, container: Node) {
     let state = host
         .delegation()
@@ -257,6 +261,10 @@ fn attach_delegated_event(host: &mut impl EventHost, name: &str, container: Node
         container,
     };
     state.handlers.push((name.to_string(), handler.clone()));
+    // `container.addEventListener(name, resetDelegatedEvent, true)`: the
+    // host's dispatch has no capture phase; on a container the capture
+    // listener runs before its bubble listener either way.
+    host.add_event_listener(container, name, Listener::Reset);
     host.add_event_listener(container, name, handler);
 }
 

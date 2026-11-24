@@ -112,6 +112,15 @@ fn is_text_value(v: &Value) -> bool {
     matches!(v, Value::Str(_) | Value::Int(_))
 }
 
+/// A text value as the string Solid main writes (`value.toString()`,
+/// `"" + item`): a number's decimal string.
+fn as_text(v: &Value) -> Value {
+    match v {
+        Value::Int(n) => Value::str(&n.to_string()),
+        other => other.clone(),
+    }
+}
+
 /// A JS array's elements (`Value::Obj` arrays only: no store array reaches
 /// `insertExpression`, `normalize` returns fresh arrays).
 fn elements(v: &Value) -> Vec<Value> {
@@ -228,7 +237,7 @@ impl<R: Renderer + 'static> Universal<R> {
     }
 
     /// `insert(parent, accessor, marker, initial, options)`.
-    // Solid: universal.ts:134-183
+    // Solid: universal.ts:134-186 (main 30e7805e)
     pub fn insert(
         &self,
         rt: &mut Runtime,
@@ -266,9 +275,13 @@ impl<R: Renderer + 'static> Universal<R> {
         let current = Rc::new(RefCell::new(initial));
         let compute: BodyFn = {
             let (this, current, on_update) = (self.clone(), current.clone(), on_update.clone());
-            Rc::new(move |rt: &mut Runtime, prev: Value| {
+            let ran = Rc::new(std::cell::Cell::new(false));
+            Rc::new(move |rt: &mut Runtime, _prev: Value| {
                 let a = rt.call(&accessor, &[])?;
                 let value = this.normalize(rt, a, multi, true)?;
+                // `const again = ran; ran = true;` (Solid main): a rerun, not
+                // a defined previous value.
+                let again = ran.replace(true);
                 if !matches!(value, Value::Func(_)) {
                     return Ok(Out::Value(value));
                 }
@@ -293,13 +306,9 @@ impl<R: Renderer + 'static> Universal<R> {
                         None
                     })
                 };
-                // `prev !== undefined && !(options && options.schedule)
+                // `again && !(options && options.schedule)
                 //   ? { ...effectOptions, schedule: true } : effectOptions`
-                let inner_schedule = if !prev.is_undef() && !schedule {
-                    true
-                } else {
-                    schedule
-                };
+                let inner_schedule = if again && !schedule { true } else { schedule };
                 this.effect(rt, inner_compute, inner_effect, inner_schedule);
                 Ok(Out::Value(this.inner_owned.clone()))
             })
@@ -333,6 +342,8 @@ impl<R: Renderer + 'static> Universal<R> {
         let multi = marker.multi();
         let m = opt_node(marker.anchor());
         if is_text_value(value) {
+            // `if (t === "number") value = value.toString()` (Solid main).
+            let value = &as_text(value);
             if is_text_value(current) {
                 let first = self.get_first_child(parent);
                 self.replace_text(&first, value);
@@ -411,7 +422,8 @@ impl<R: Renderer + 'static> Universal<R> {
             while i < o.len() {
                 let item = o.get(&Key::Idx(i));
                 if is_text_value(&item) {
-                    let t = self.create_text_node(&item);
+                    // `createTextNode("" + item)` (Solid main).
+                    let t = self.create_text_node(&as_text(&item));
                     o.set(&Key::Idx(i), t);
                 }
                 i += 1;

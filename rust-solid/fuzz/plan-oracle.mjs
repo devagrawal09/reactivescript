@@ -179,7 +179,7 @@ export async function tracePlan(plan,scenario){
    l.view.children.forEach((c,i)=>{if(isStatic(c)){if(multi)l.texts.set(i,R.createTextNode(text(c.value.value)))}else if(c.kind==='element')declare(l.kids.get(i))})};
   const exprs=l=>{const cs=l.view.children,multi=cs.length>1;
    cs.forEach((c,i)=>{if(isStatic(c))R.insertNode(l.node,multi?l.texts.get(i):R.createTextNode(text(c.value.value)));else if(c.kind==='element')R.insertNode(l.node,l.kids.get(i).node)});
-   cs.forEach((c,i)=>{if(c.kind==='element')return exprs(l.kids.get(i));if(isStatic(c))return;const value=dynamic(c,l.env);if(!multi)return R.insert(l.node,value);
+   cs.forEach((c,i)=>{if(c.kind==='element')return exprs(l.kids.get(i));if(isStatic(c))return;const value=c.kind==='show'?lowered(c,l.env,true):dynamic(c,l.env,false);if(!multi)return R.insert(l.node,value);
     let marker=null;for(let j=i+1;j<cs.length;j++){if(isStatic(cs[j])){marker=l.texts.get(j);break}if(cs[j].kind==='element'){marker=l.kids.get(j).node;break}}
     R.insert(l.node,value,marker)})};
   const element=(v,env)=>{const l=lower(v,env);declare(l);exprs(l);return l.node};
@@ -202,18 +202,32 @@ export async function tracePlan(plan,scenario){
     return memoized(()=>truthy(evaluate(e.left,env)))?evaluate(e.right,env):evaluate(e.left,env)}
    if(e.op==='or'&&(e.left.op==='and'||e.left.op==='or')){const l=condition(e.left,env);return truthy(l)?l:evaluate(e.right,env)}
    return evaluate(e,env)};
-  const dynamic=(v,env)=>{
+  // Solid main's compiler lowers a <Show> (no keyed, JSX children) to {when ? <>children</> : fallback} (compiler
+  // src/shared/lower_show.rs) where it is an element's child, in a fragment, an arrow's or the component's body, or a
+  // component's sole child; a lone attribute value (fallback={<Show/>}) or one of several component children keeps the
+  // component. The ternary compiles as transformCondition does: an element's child is inserted as
+  // (() => { var _c$ = memo(() => !!when); return () => _c$() ? kids : fallback })(), elsewhere it is
+  // memo(() => memo(() => !!when)() ? kids : fallback); a test that is not dynamic is evaluated in place.
+  const lowered=(v,env,insert)=>{
+   const branch=yes=>{const vs=yes?v.children:v.fallback;return vs.length?fragment(vs,env,yes?vs.length===1:vs.length>1):undefined};
+   const test=()=>comparison(v.when)?evaluate(v.when,env):truthy(evaluate(v.when,env));
+   if(!dyn(v.when))return branch(truthy(evaluate(v.when,env)));
+   if(insert){const c=R.memo(test);return()=>branch(truthy(c()))}
+   return R.memo(()=>branch(truthy(memoized(test))))};
+  const dynamic=(v,env,lower)=>{
    if(v.kind==='text')return()=>text(evaluate(v.value,env));
-   if(v.kind==='show')return R.createComponent(S.Show,v.fallback.length?{get when(){return condition(v.when,env)},get fallback(){return fragment(v.fallback,env)},get children(){return fragment(v.children,env)}}
-    :{get when(){return condition(v.when,env)},get children(){return fragment(v.children,env)}});
+   if(v.kind==='show'&&lower)return lowered(v,env,false);
+   if(v.kind==='show')return R.createComponent(S.Show,v.fallback.length?{get when(){return condition(v.when,env)},get fallback(){return fragment(v.fallback,env,v.fallback.length>1)},get children(){return fragment(v.children,env,v.children.length===1)}}
+    :{get when(){return condition(v.when,env)},get children(){return fragment(v.children,env,v.children.length===1)}});
    if(v.kind==='for'){if(v.key!=='identity')throw fail('For keys rows by identity');
-    return R.createComponent(S.For,{get each(){const xs=condition(v.each,env);if(!Array.isArray(xs))throw fail('For of a non-array');return xs},children:item=>fragment(v.children,new Map(env).set(v.item,item))})}
+    return R.createComponent(S.For,{get each(){const xs=condition(v.each,env);if(!Array.isArray(xs))throw fail('For of a non-array');return xs},children:item=>fragment(v.children,new Map(env).set(v.item,item),true)})}
    // v2.1: Loading's fallback is a getter, Errored's a function of the error (which the plan does not read).
-   if(v.kind==='loading')return R.createComponent(S.Loading,{get fallback(){return fragment(v.fallback,env)},get children(){return fragment(v.children,env)}});
-   if(v.kind==='errored')return R.createComponent(S.Errored,{fallback:_error=>fragment(v.fallback,env),get children(){return fragment(v.children,env)}});
+   if(v.kind==='loading')return R.createComponent(S.Loading,{get fallback(){return fragment(v.fallback,env,v.fallback.length>1)},get children(){return fragment(v.children,env,v.children.length===1)}});
+   if(v.kind==='errored')return R.createComponent(S.Errored,{fallback:_error=>fragment(v.fallback,env,true),get children(){return fragment(v.children,env,v.children.length===1)}});
    throw fail('unknown view kind '+v.kind)};
-  const fragment=(views,env)=>{const parts=views.map(v=>{if(v.kind==='element')return element(v,env);if(v.kind==='text')throw fail('text directly in a component position (the markup, a Show branch, a For row)');return dynamic(v,env)});return parts.length===1?parts[0]:parts};
-  return fragment(plan.markup,new Map());
+  // lower: a <Show> directly in this list is lowered (above).
+  const fragment=(views,env,lower)=>{const parts=views.map(v=>{if(v.kind==='element')return element(v,env);if(v.kind==='text')throw fail('text directly in a component position (the markup, a Show branch, a For row)');return dynamic(v,env,lower)});return parts.length===1?parts[0]:parts};
+  return fragment(plan.markup,new Map(),true);
  };
 
  // ---- the scenario (slices/run-js.ts timing: three turns of setImmediate, then flush) ----

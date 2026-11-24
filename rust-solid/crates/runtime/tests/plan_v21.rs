@@ -5,7 +5,7 @@
 //! `affects`, and structured, pure hosts, against format-2.1 scenarios.
 //!
 //! - The tracker-async slice: the 18 recorded frames, and native Solid's
-//!   399-entry host log (`fixtures/tracker-async.oracle.json`, from
+//!   400-entry host log (`fixtures/tracker-async.oracle.json`, from
 //!   `fuzz/plan-oracle.mjs`; the frontend gate compares the same log with
 //!   native Solid running the TSX twin).
 //! - The plan v2.1 fuzz: programs of the frontend's async plan fuzz
@@ -78,7 +78,7 @@ fn tracker_async_host_log_is_solids() {
         serde_json::from_value(fixture("tracker-async.scenario.json")).unwrap(),
     );
     assert_eq!(json!({ "frames": r.unwrap() }), oracle["result"]);
-    assert_eq!(log.len(), 399);
+    assert_eq!(log.len(), 400);
     same_log("tracker-async", &log, &oracle["log"]);
 }
 

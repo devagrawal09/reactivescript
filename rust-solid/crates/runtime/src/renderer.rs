@@ -329,7 +329,7 @@ impl TreeRenderer {
             || self.nodes[node]
                 .listeners
                 .iter()
-                .any(|(n, l)| n == ty && !matches!(l, Listener::Delegated { .. }))
+                .any(|(n, l)| n == ty && !matches!(l, Listener::Delegated { .. } | Listener::Reset))
     }
     /// The nodes under `root` (itself included) that handle `ty`, in
     /// document order: what a scenario's click target resolves against.
@@ -382,6 +382,7 @@ impl TreeRenderer {
             for l in listeners {
                 e.set(&Key::name("currentTarget"), Value::Node(n));
                 match &l {
+                    Listener::Reset => events::reset_delegated_event(&e),
                     Listener::Delegated { container, .. } => {
                         events::event_handler(rt, host, &e, *container)?;
                     }

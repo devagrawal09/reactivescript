@@ -132,7 +132,9 @@ fn api_insert_text_and_frame() {
         json!([
             0,
             "#root",
-            [[1, "p", [[2, "Filter: "], [6, "open"], [5, 2]]]]
+            // Solid main inserts a number as its string (universal.ts
+            // `value.toString()`).
+            [[1, "p", [[2, "Filter: "], [6, "open"], [5, "2"]]]]
         ])
     );
 }
