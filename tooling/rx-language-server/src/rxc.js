@@ -69,9 +69,10 @@ function ask(method, params) {
   }
 }
 
-/** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it. */
-function analyze(file, text, prelude) {
-  return ask("analyze", { file, overlays: { [file]: text }, prelude });
+/** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it.
+ *  `overlays`: other files the crate reads as given (an eval snippet's hosts' `.d.rx`). */
+function analyze(file, text, prelude, overlays = {}) {
+  return ask("analyze", { file, overlays: { ...overlays, [file]: text }, prelude });
 }
 
 /** Where a file's projection imports the prelude from: written once beside the nearest `node_modules`, so its own

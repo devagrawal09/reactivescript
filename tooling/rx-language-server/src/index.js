@@ -1,10 +1,15 @@
 // The .rx language plugin for Volar (spec/11 CP-8). A `.rx` file's virtual code is its TSX projection (spec/13 TY-1c),
 // made by the crate with mappings onto the `.rx`: TypeScript's hover, definition, references, rename, completion and
 // type errors come back through them. The crate's own diagnostics (rule IDs, spec/99) are a service of their own.
+const path = require("node:path");
 const { analyze, preludeFor } = require("./rxc");
+const snippet = require("./snippet");
 
-/** The page that explains a diagnostic code and its fix (the compiler's guide/diagnostics.md, one section a code). */
-const guideUrl = code => `https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md#${String(code).toLowerCase()}`;
+/** The page that explains a diagnostic code and its fix (the compiler's guide/diagnostics.md, one section a code; an
+ *  eval snippet's own codes, this package's README). */
+const guideUrl = code => snippet.CODES.has(code)
+  ? "https://github.com/solidjs/reactivescript/blob/main/tooling/rx-language-server/README.md#eval-snippets"
+  : `https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md#${String(code).toLowerCase()}`;
 
 /** Every feature, where the projection copies the `.rx`'s text (a name, a member, a literal, a type, a tag). */
 const EXACT = { verification: true, completion: true, semantic: true, navigation: true, structure: true, format: false };
@@ -24,12 +29,19 @@ function analysis(file, text) {
   const hit = cache.get(file);
   if (hit && hit.text === text) return hit.result;
   let result;
-  try { result = analyze(file, text, preludeFor(file)); } catch (e) {
+  try { result = snippet.isSnippet(text) ? analyzeSnippet(file, text) : analyze(file, text, preludeFor(file)); } catch (e) {
     console.error(`rx: analyzing ${file} failed: ${e?.stack ?? e}`); // the server's log, else the failure is silent
     result = { code: null, mappings: [], ranges: [], diagnostics: [], error: String(e) };
   }
   cache.set(file, { text, result });
   return result;
+}
+
+/** An eval snippet (`// @eval` on line 1, src/snippet.js): the synthetic module's analysis, put back on the file. */
+function analyzeSnippet(file, text) {
+  const w = snippet.wrap(text);
+  const overlays = w.declarations ? { [path.join(path.dirname(file), w.hosts + ".d.rx")]: w.declarations } : {};
+  return snippet.unwrap(w, file, analyze(file, w.text, preludeFor(file), overlays));
 }
 
 function virtualCode(file, snapshot) {
