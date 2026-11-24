@@ -8,7 +8,7 @@ import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -38,12 +38,62 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
+type Inspect = <T>(format: (value: unknown) => T) => { value?: T; error?: T; pending?: boolean };
+type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose"; key: string } | { type: "run"; key: string; id: number; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+const dev = globalThis as typeof globalThis & {
+  __RX_NODES__?: Map<string, Set<Inspect>>;
+  __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
+  __RX_TRACE__?: (event: DevEvent) => void;
+};
+const trace = (e: DevEvent) => { try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
+let runId = 0;
+function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
+  let set = map.get(k);
+  if (!set) map.set(k, set = new Set());
+  const entries = set;
+  entries.add(value);
+  if (getOwner()) onCleanup(() => { entries.delete(value); if (!entries.size) map.delete(k); removed?.(); });
+}
 const nm: <T>(o: T) => T = DEV ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}` }) as typeof o : o => o;
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
 const key: <T>(k: string, f: () => T) => T = DEV
-  ? (k, f) => { const was = rxKey; rxKey = k; try { return f(); } finally { rxKey = was; } }
+  ? (k, f) => {
+      const was = rxKey; rxKey = k;
+      try {
+        const out = f();
+        const get = Array.isArray(out) ? out[0] : out;
+        if (typeof get === "function") {
+          // Capture only the accessor, not a value at declaration. Hoisted awaits share this key; the
+          // declared accessor registers last, and multiple mounted instances have separate lifetimes.
+          const owner = getOwner();
+          const inspect: Inspect = format => runWithOwner(owner, () => untrack(() => {
+            try {
+              const value = format(get());
+              return { value, pending: isPending(() => readWhole(get())) };
+            } catch (e) { return e instanceof NotReadyError ? { pending: true } : { error: format(e) }; }
+          }, false));
+          const nodes = dev.__RX_NODES__ ??= new Map();
+          remember(nodes, k, inspect, () => { if (!nodes.has(k)) trace({ type: "dispose", key: k }); });
+        }
+        return out;
+      } finally { rxKey = was; }
+    }
   : (_k, f) => f();
+
+// Solid's boundary doesn't accept a name, and the fallback record only arrives when Loading hides.
+// Use the fallback's render effect and disposal: Solid builds it separately, and disposes it on recovery.
+function traceBoundary(region: string, state: "fallback" | "error") {
+  const current: BoundaryState = { state: "ok" };
+  const change = () => trace({ type: "boundary", region });
+  remember(dev.__RX_BOUNDARIES__ ??= new Map(), region, current, change);
+  change();
+  return (error?: Acc) => {
+    createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; change(); });
+    onCleanup(() => { current.state = "ok"; delete current.error; change(); });
+  };
+}
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
@@ -260,8 +310,18 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; } } as any);
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
-    action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+    action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
+      if (DEV && key) return (...a: unknown[]) => {
+        const id = ++runId;
+        trace({ type: "run", key, id, state: "start", args: a });
+        const fail = (error: unknown) => { trace({ type: "run", key, id, state: "error", error }); };
+        try {
+          const p = run(...a);
+          p.then(() => trace({ type: "run", key, id, state: "end" }), e => { app.asyncError = e; fail(e); });
+          return p;
+        } catch (e) { fail(e); throw e; }
+      };
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
@@ -344,14 +404,28 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    DevLoading(props: { region: string; on?: unknown; fallback: any; children: any }) {
+      if (!DEV) return Loading(props);
+      const show = traceBoundary(props.region, "fallback");
+      const wrapped = { get fallback() { show(); return props.fallback; }, get children() { return props.children; } };
+      if ("on" in props) Object.defineProperty(wrapped, "on", { get: () => props.on });
+      return Loading(wrapped);
+    },
+    DevErrored(props: { region: string; fallback: (err: Acc, reset: () => void) => any; children: any }) {
+      if (!DEV) return Errored(props);
+      const show = traceBoundary(props.region, "error");
+      return Errored({ fallback: (err, reset) => { show(err); return props.fallback(err, reset); }, get children() { return props.children; } });
+    },
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
-    TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
+    TypedErrored(props: { region?: string; classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
+      const region = DEV && props.region;
+      const show = region ? traceBoundary(region, "error") : undefined;
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => {
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
+          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => { show?.(err); return props.fallback(err); })) : new Forward(err()));
         },
         get children() { return props.children; },
       });

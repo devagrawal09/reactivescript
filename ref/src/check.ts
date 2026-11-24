@@ -208,18 +208,20 @@ export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; root?: string };   // root: the project root a key's module is relative to
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
+export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet, opts: { root?: string } = {}): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
+export function checkModules(set: ModuleSet, opts: { root?: string } = {}) {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
-  return { diags, sigs, models };
+  const boundaries = new Map<Markup, number>();
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); }
+  return { diags, sigs, models, boundaries };
 }
 
 class Checker {
   diags: Diagnostic[] = [];
   model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
+  boundaries = new Map<Markup, number>();
   private opts: Opts;
   private rootEnv: Env | null = null;
   constructor(opts: Opts = {}) { this.opts = opts; }
@@ -498,7 +500,7 @@ class Checker {
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
-      if (sym.kind === "source" || sym.kind === "eq") sym.key = this.keys.get(d);
+      if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "action") sym.key = this.keys.get(d);
       this.bind(env, d.name, sym);
     }
     this.serverIo(decls, env);
@@ -1154,6 +1156,7 @@ class Checker {
           if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
+          this.boundaries.set(m, body.id);
           if (m.on) this.loadOns.push({ region: body, e: m.on, env, line: this.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
@@ -1170,6 +1173,7 @@ class Checker {
           this.markup(m.fallback, f);
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
           const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
+          this.boundaries.set(m, body.id);
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }

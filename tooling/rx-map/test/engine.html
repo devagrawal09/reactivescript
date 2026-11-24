@@ -8,6 +8,8 @@
 { "imports": {
   "solid-js": "/solid/solid/dist/solid.dev.js",
   "solid-js/attribution": "/solid/solid/dist/attribution.js",
+  "solid-js/internal": "/solid/solid/dist/internal.js",
+  "@solidjs/web": "/solid/web/dist/web.dev.js",
   "@solidjs/signals": "/solid/signals/dist/dev.js",
   "@solidjs/signals/attribution": "/solid/signals/dist/dev.attribution.js"
 } }
@@ -18,6 +20,7 @@
 <script type="module">
 import { createSignal, createMemo, createEffect, createRoot, flush, OBSERVE } from "solid-js";
 import { register } from "../live.mjs";
+import { createApp } from "/runtime/rt-web.ts";
 
 const checks = [];
 const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
@@ -34,6 +37,8 @@ try {
   const frame = document.querySelector("#host iframe");
   await new Promise(r => frame.addEventListener("load", r, { once: true }));
   frame.contentWindow.addEventListener("message", e => { if (e.data?.source === "rx-map") messages.push(e.data); });
+  frame.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello"}, "*")');
+  await sleep(30);
   for (let i = 0; i < 100 && !OBSERVE.records.observed("flush"); i++) await sleep(10);
   check("mount subscribes to flush records", OBSERVE.records.observed("flush"));
   check("…with bodies", OBSERVE.records.observed("flush", "bodies"));
@@ -53,7 +58,7 @@ try {
   flush();
   await sleep(30);
   const firstStart = messages.find(m => m.type === "flight" && m.state === "start");
-  check("a new async node announces its flight", firstStart?.key === K("users"), messages);
+  check("a new async node announces its flight", firstStart?.key === K("users"), messages.slice());
   check("its chip glows", chip("users").classList.contains("flying"));
 
   messages.length = 0;
@@ -92,7 +97,7 @@ try {
   check("the badge counts flushes", /^live · [1-9]\d* flush/.test(doc.getElementById("liveBadge").textContent), doc.getElementById("liveBadge").textContent);
 
   dispose();
-  check("dispose unsubscribes", !OBSERVE.records.observed("flush"));
+  check("closing the map leaves recording on", OBSERVE.records.observed("flush"));
 
   const handlers = new Map();
   const sent = [];
@@ -114,6 +119,8 @@ try {
     return payload;
   };
   const emit = (type, ...args) => OBSERVE.records.emit(type, ...args);
+  const before = ask("tail", { limit: 1 }).result.at(-1)?.seq ?? 0;
+  const flushes = ask("status").result.flushes;
   const onScreen = (i, name) => ({ nodeId: i, nodeName: `rx:${K(name)}`, origin: { kind: "action", name: "setPage" } });
   emit("create", { nodeId: 3, nodeName: `rx:${K("users")}`, at: 10 }, { _x: { _inFlight: {} } });
   check("pending has the key and start time", ask("pending").result[0]?.key === K("users") &&
@@ -124,17 +131,87 @@ try {
     emit("flush", { at: i, changes: [onScreen(1, "page"), onScreen(2, "total")] }, { changes: [{ value: i }, { value: -i }] });
   }
   const tail = ask("tail", { limit: 2000 }).result;
-  check("ring holds the last 2000 records", tail.length === 2000 && tail[0].seq === 5 && tail.at(-1).seq === 2004);
-  check("tail honors since", ask("tail", { since: 2003 }).result.length === 1);
+  check("ring holds the last 2000 records", tail.length === 2000 && tail[0].seq === before + 5 && tail.at(-1).seq === before + 2004);
+  check("tail honors since", ask("tail", { since: before + 2003 }).result.length === 1);
   check("value reports the latest preview and file", ask("value", { key: K("page") }).result.preview === "2002" &&
     ask("value", { key: K("page") }).result.file === "examples/users.rx");
   const why = ask("why", { key: K("page") }).result;
-  check("why identifies origin and other keyed changes", why.seq === 2004 && why.origin.includes("setPage") &&
+  check("why identifies origin and other keyed changes", why.seq === before + 2004 && why.origin.includes("setPage") &&
     why.others[0].key === K("total"));
-  check("status counts flushes, not flights", ask("status").result.flushes === 2002);
+  check("status counts flushes, not flights", ask("status").result.flushes === flushes + 2002);
   check("unknown live key reports an actionable error", /unknown key.*Use find/.test(ask("value", { key: "unknown" }).error));
+  const action = K("rename"), store = K("users");
+  const loading = graph.regions.find(r => r.kind === "loading"), errored = graph.regions.find(r => r.kind === "errored");
+  const ref = r => `${graph.modules[r.mod]}|${r.id.split(":r").at(-1)}`;
+  const root = document.createElement("div");
+  document.body.append(root);
+  const app = createApp({ root }), rt = app;
+  let release, answerFirst, run, rejected, trip, edit;
+  const unmount = app.mount(() => {
+    const [rows, write] = rt.key(store, () => rt.source("users", [{ id: 1, name: "Ada" }], true));
+    const [plainRows, plainWrite] = rt.key(K("editing"), () => rt.source("editing", [{ id: 2, name: "Ada" }]));
+    edit = plainWrite.path;
+    const first = rt.key(K("status"), () => rt.memo("status", () => new Promise(ok => { answerFirst = ok; })));
+    const [fail, setFail] = createSignal(false);
+    trip = setFail;
+    run = rt.action(function* (value) {
+      write.guess(value, [0, "name"]);
+      yield new Promise(ok => { release = ok; });
+    }, action);
+    rejected = rt.action(function* () { throw new Error("boom"); }, action);
+    return rt.DevErrored({ region: ref(errored), fallback: e => e().message, get children() {
+      return rt.DevLoading({ region: ref(loading), fallback: "waiting", get children() {
+        return () => { if (fail()) throw new Error("broken"); return `${first()} ${rows()[0].name} ${plainRows()[0].name}`; };
+      } });
+    } });
+  });
+  flush();
+  const saved = ask("state").result;
+  check("initial store value is readable without a store flush", saved.values.find(r => r.key === store)?.preview === '[{id: 1, name: "Ada"}]', saved);
+  check("why works before a keyed node has changed", ask("why", { key: K("status") }).result?.pending);
+  check("loading is currently tripped", saved.boundaries.some(b => b.region === loading.key && b.state === "fallback"), saved.boundaries);
+  check("a never-answered question has no preview", saved.values.find(r => r.key === K("status"))?.preview === undefined);
+  answerFirst("ready");
+  await sleep(0);
+  flush();
+  check("loading recovers", ask("state", { key: loading.key }).result.state === "ok");
+  const p = run("Grace");
+  flush();
+  const running = ask("state").result;
+  check("an action stays open during its await", running.runs.length === 1 && running.runs[0].key === action);
+  edit([0, "name"], "Grace");
+  flush();
+  check("store property changes contain root preview and path", ask("tail").result.some(r => r.changes?.some(c => c.key === K("editing") && c.path === "0.name" && c.preview === '[{id: 2, name: "Grace"}]')), ask("tail", { limit: 3 }).result);
+  const closeMap = globalThis.__RX__.mount(document.getElementById("host"));
+  const second = document.querySelector("#host iframe");
+  await new Promise(r => second.addEventListener("load", r, { once: true }));
+  const got = [];
+  second.contentWindow.addEventListener("message", e => { if (e.data?.source === "rx-map") got.push(e.data); });
+  second.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello"}, "*")');
+  await sleep(30);
+  check("hello answers with current snapshot, then a bounded timeline", got[0]?.type === "snapshot" && got[0]?.v === 1 &&
+    got[0]?.runs[0]?.key === action && got[1]?.type === "timeline" && got[1].steps.length === 2000, got.map(e => e.type));
+  check("a late map lights the already running action", second.contentDocument.querySelector(`.chip[data-id="${nodeOf("rename").id}"]`).classList.contains("flying"));
+  check("reopening the map preserves the count", second.contentDocument.querySelector("#liveBadge").textContent.includes(`${ask("status").result.flushes} flush`));
+  release();
+  await p;
+  flush();
+  await sleep(20);
+  check("reverts are recorded and flash the token", ask("state").result.reverts.some(r => r.key === store) &&
+    second.contentDocument.querySelector(`.chip[data-id="${nodeOf("users").id}"]`).classList.contains("reverting"), ask("tail", { limit: 8 }).result);
+  check("run end pairs with start", got.some(r => r.type === "run" && r.state === "end" && r.id === running.runs[0].id));
+  await rejected().catch(() => {});
+  check("unhandled action errors are reported", ask("tail").result.some(r => r.type === "run" && r.state === "error" && r.error.includes("boom")));
+  trip(true);
+  flush();
+  await sleep(20);
+  check("errored fallback updates a mounted map", got.some(r => r.type === "boundary" && r.region === errored.key && r.state === "error" && /broken/.test(r.error)) &&
+    second.contentDocument.querySelector(".trip-errored"));
+  unmount();
+  check("runtime registry removes disposed instances", !globalThis.__RX_NODES__.has(store));
+  closeMap();
   hotDispose();
-  check("HMR disposal stops recording", !OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
+  check("HMR disposal detaches the socket but keeps the session recorder", OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
   done();
 } catch (e) {
   check(`threw: ${e?.stack ?? e}`, false);

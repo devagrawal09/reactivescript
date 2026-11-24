@@ -42,7 +42,7 @@
   .kids > .frame { margin-top: 0 !important }
   .mounts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px }
   .mounts > .frame { margin-top: 0 !important }
-  .chips.named + .chips.sites { margin-top: 18px; padding-top: 18px; border-top: 1px dashed rgba(255, 255, 255, .08) }
+  .chips.named + .chips.sites { margin-top: 30px; padding-top: 26px; border-top: 1px dashed rgba(255, 255, 255, .08) }
   .worldrow { margin-bottom: 40px; position: relative }
   .wgroups { display: flex; gap: 12px 30px; flex-wrap: wrap }
   .wfile { color: var(--dim); font-size: 11px; margin-bottom: 6px }
@@ -92,8 +92,8 @@
 
   /* ---- tokens: role is shape + fill + icon; colour is the family -------------------------------------------------- */
   @property --z { syntax: "<length>"; inherits: false; initial-value: 0px }
-  .chips { display: flex; flex-wrap: wrap; gap: 12px 14px; justify-content: center }
-  .chips + .chips { margin-top: 24px }   /* a row per step of dependency: room for the arrows between them */
+  .chips { display: flex; flex-wrap: wrap; gap: 18px 16px; justify-content: center }
+  .chips + .chips { margin-top: 52px }   /* a row per step of dependency: room for the arrows between them */
   .chip { --c: var(--outside); --r: 999px; --face: none; position: relative; display: inline-flex; gap: 6px; align-items: center; padding: 6px 14px 8px 10px; border-radius: var(--r); cursor: pointer;
     color: var(--text); white-space: nowrap; isolation: isolate; transform: translateZ(var(--z)); transition: transform .2s cubic-bezier(.2, .9, .3, 1.25), opacity .16s }
   #board .chip { --z: 6px }
@@ -325,6 +325,8 @@
   @keyframes rx-beat { from { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 255, 255, .8) } to { opacity: .45; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0) } }
   .chip.pulse::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r) + 4px); border: 2px solid #fff; pointer-events: none; box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 8px rgba(255, 255, 255, .35); animation: rx-pulse 1s ease-out var(--pd, 0ms) both }
   .chip.pulse.p2::before { animation-name: rx-pulse2 }
+  .chip.reverting .tok { animation: rx-revert .8s ease-out }
+  @keyframes rx-revert { 20% { filter: brightness(1.5) drop-shadow(0 0 6px #fb7185) drop-shadow(0 0 4px #fb7185) } }
   @keyframes rx-pulse { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
   @keyframes rx-pulse2 { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
   .chip.fire .tok { animation: rx-fire .45s ease-out }
@@ -1992,6 +1994,19 @@ function liveBadge() {
   if (b) b.textContent = `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
 }
 const chipsOf = key => (keyIds.get(key) ?? []).map(id => anchors.get(id)).filter(el => el?.classList.contains("chip"));
+const liveRuns = new Map();
+const lit = key => live.flying.has(key) || [...liveRuns.values()].some(r => r.key === key);
+const paintRun = key => { for (const el of chipsOf(key)) el.classList.toggle("flying", lit(key)); };
+function onRun(d) {
+  if (d.state === "start") liveRuns.set(d.id, d);
+  else liveRuns.delete(d.id);
+  paintRun(d.key);
+}
+function onRevert(d) {
+  for (const el of chipsOf(d.key)) {
+    el.classList.remove("reverting"); void el.offsetWidth; el.classList.add("reverting");
+  }
+}
 function onLive(d) {
   switch (d.type) {
     case "reset": return onReset();
@@ -2003,10 +2018,13 @@ function onLive(d) {
     case "travel-denied": return onDenied(d);
     case "hmr": return onHmr(d);
     case "snapshot": return onSnapshot(d);
+    case "boundary": live.boundaries.set(d.region, d); return paintBoundaries();
+    case "run": return onRun(d);
+    case "revert": return onRevert(d);
   }
 }
 function onReset() {
-  live.values.clear(); live.flying.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
+  live.values.clear(); live.flying.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
   Object.assign(tl, { steps: [], head: 0, viewing: null, flights: [], hmrs: [], target: null });
   document.body.classList.remove("viewing");
   document.querySelectorAll("#board .chip.pulse, #board .chip.flying").forEach(c => c.classList.remove("pulse", "p2", "flying"));
@@ -2021,7 +2039,7 @@ function onFlight(d) {
   const next = d.state === "start" ? k + 1 : Math.max(0, k - 1);
   next ? live.flying.set(d.key, next) : live.flying.delete(d.key);
   for (const el of chipsOf(d.key)) {
-    el.classList.toggle("flying", !!next);
+    el.classList.toggle("flying", lit(d.key));
     if (d.state === "start") orb(el, "start"); else if (!next) orb(el, d.state);
   }
   // the timeline's amber spans
@@ -2030,6 +2048,8 @@ function onFlight(d) {
   else { const f = tl.flights.findLast(f => f.key === d.key && f.end === null); if (f) { f.end = at; f.state = d.state; } }
   if (tl.flights.length > 400) tl.flights.splice(0, tl.flights.length - 400);
   ({ start: SFX.flightStart, land: SFX.land, abandon: SFX.abandon })[d.state]?.();
+  // The engine doesn't include a question's first answer in its flush changes.
+  if (d.state === "land" && !live.values.get(d.key)?.current) host.post({ type: "snapshot?" });
   if (selected && nodes.get(selected)?.key === d.key) liveValue();
   renderScrub();
 }
@@ -2055,7 +2075,7 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
     if (flush) { v.count++; v.seq = seq; }
     else v.seq = tl.viewing ?? tl.head;
     v.origin = c.origin ?? v.origin ?? null;
-    if (typeof c.preview === "string") v.preview = c.preview;
+    if (typeof c.preview === "string") v.preview = c.full ?? c.preview;
     live.values.set(c.key, v);
     for (const id of keyIds.get(c.key)) byId.set(id, c);
   }
@@ -2095,11 +2115,11 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
 // What the app shows right now, sent when the map opens (and to a pop-out): values, requests in the air, and which
 // boundaries show their fallback. Applied quietly: nothing changed, the map just catches up.
 function onSnapshot(d) {
-  for (const { key, preview } of d.values ?? []) {
+  for (const { key, preview, full } of d.values ?? []) {
     if (!keyIds.has(key) || typeof preview !== "string") continue;
     const v = live.values.get(key) ?? { count: 0 };
-    v.preview = preview; v.seq ??= tl.head; live.values.set(key, v);
-    for (const el of chipsOf(key)) setValue(el, preview, { still: true });
+    v.preview = full ?? preview; v.current = true; v.seq ??= tl.head; live.values.set(key, v);
+    for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
   }
   if (Array.isArray(d.flights)) {
     for (const k of live.flying.keys()) for (const el of chipsOf(k)) { el.classList.remove("flying"); el.querySelector(".orb")?.remove(); }
@@ -2115,6 +2135,12 @@ function onSnapshot(d) {
     live.boundaries.clear();
     for (const b of d.boundaries) if (b?.region) live.boundaries.set(b.region, { state: b.state, ...(b.error ? { error: b.error } : {}) });
     paintBoundaries();
+  }
+  if (Array.isArray(d.runs)) {
+    const keys = new Set([...liveRuns.values()].map(r => r.key));
+    liveRuns.clear();
+    for (const r of d.runs) { liveRuns.set(r.id, r); keys.add(r.key); }
+    for (const key of keys) paintRun(key);
   }
   liveValue(); renderScrub();
 }
@@ -2160,11 +2186,15 @@ function onTimeline(d) {
   tl.viewing = d.viewing ?? null;
   document.body.classList.toggle("viewing", tl.viewing != null);
   // the values the timeline implies, without fanfare
+  const counted = new Set();
   for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key) && typeof c.preview === "string" && (tl.viewing == null || s.seq <= tl.viewing)) {
-    const v = live.values.get(c.key) ?? { count: 0 }; v.count++; v.seq = s.seq; v.preview = c.preview; live.values.set(c.key, v);
+    const v = live.values.get(c.key) ?? { count: 0 };
+    if (!counted.has(c.key)) { counted.add(c.key); v.count = 0; }
+    v.count++; v.seq = s.seq; if (!v.current || tl.viewing != null) v.preview = c.full ?? c.preview;
+    live.values.set(c.key, v);
   }
   for (const [k, v] of live.values) for (const el of chipsOf(k)) if (v.preview !== undefined) setValue(el, v.preview, { still: true });
-  live.flushes = Math.max(live.flushes, tl.steps.length);
+  live.flushes = Math.max(live.flushes, tl.head);
   liveBadge(); renderScrub();
 }
 function rewindFx(direction) {

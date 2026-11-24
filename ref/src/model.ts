@@ -41,13 +41,13 @@ export function moduleKey(path: string, root?: string): string {
 }
 /** A declaration's stable identity, `<module>|<scope>|<name>[#n]` (dev builds name its Solid nodes `rx:` + key): the
  *  scope is the enclosing component's name ("" at module level); `#n` marks the n+1th declaration of the same
- *  scope and name in the module, in source order. Every source and equation declaration gets one (a wrapped server fn
+ *  scope and name in the module, in source order. Sources, equations and actions get one (a wrapped server fn
  *  too, though it binds no node and the model gives it none). */
 export function declKeys(p: Program, module: string): Map<Decl, string> {
   const found: { d: Decl; at: string; line: number }[] = [];
   const decls = (ds: Decl[], scope: string) => {
     for (const d of ds) {
-      if (d.k === "source" || d.k === "eq") found.push({ d, at: `${scope}|${d.name}`, line: d.line });
+      if (d.k === "source" || d.k === "eq" || d.k === "action") found.push({ d, at: `${scope}|${d.name}`, line: d.line });
       else if (d.k === "fn") decls(d.decls, scope);
       else if (d.k === "component") { decls(d.decls, d.name); markup(d.view, d.name); }
     }

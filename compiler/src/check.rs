@@ -907,6 +907,7 @@ pub struct Checker<'a> {
     arg_r: Vec<(usize, String)>,
     arg_f: Vec<(usize, String, Fails)>,
     keys: HashMap<*const Decl, String>,
+    boundaries: HashMap<*const Markup, usize>,
 }
 
 pub struct CheckResult {
@@ -928,6 +929,21 @@ pub struct Checked {
     pub diags: Vec<Diagnostic>,
     pub sigs: IndexMap<String, ModSig>,
     pub models: IndexMap<String, serde_json::Value>,
+}
+
+/// AST sites and the matching resolved region IDs. Only the dev emitter consumes these.
+pub fn boundary_regions(set: &ModuleSet) -> HashMap<*const Markup, usize> {
+    let mut sigs = set.signatures.clone();
+    let mut sites = HashMap::new();
+    for path in &set.order {
+        let p = &set.programs[path];
+        let mut c = Checker::new(Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa: false, root: None });
+        c.run(p);
+        let sig = c.signature(p);
+        sites.extend(c.boundaries);
+        sigs.insert(path.clone(), sig);
+    }
+    sites
 }
 /// CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only.
 pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
@@ -989,6 +1005,7 @@ impl<'a> Checker<'a> {
             arg_r: vec![],
             arg_f: vec![],
             keys: HashMap::new(),
+            boundaries: HashMap::new(),
         }
     }
 
@@ -1265,7 +1282,7 @@ impl<'a> Checker<'a> {
                 }
                 _ => {}
             }
-            if matches!(sym.kind, SymKind::Source | SymKind::Eq) {
+            if matches!(sym.kind, SymKind::Source | SymKind::Eq | SymKind::Action) {
                 sym.key = self.keys.get(&(d as *const Decl)).cloned();
             }
             let comp_region = sym.comp_region;
@@ -2955,6 +2972,7 @@ impl<'a> Checker<'a> {
                     }
                     self.markup(fallback, env, false);
                     let b = self.region(Some(region), "loading", false, None);
+                    self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].provides.insert(HOLD.into());
                     if let Some(on) = on {
                         self.load_ons.push(ReaderRec { region: b, e: on, env, line: self.line });
@@ -2985,6 +3003,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                     let b = self.region(Some(region), "errored", false, None);
+                    self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());

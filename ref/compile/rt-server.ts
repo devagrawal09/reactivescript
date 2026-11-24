@@ -239,6 +239,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "ssr", hydratable) does the rest ----
     show: (v: unknown) => isView(v) ? v : escape(fmt(v)),
+    DevLoading: Loading, DevErrored: Errored, // there is no live map on the server
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
      *  client's unwrapping memo has no counterpart here: its id is reserved. */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { plain, project } from "./project.mjs";
-import { location, queryDiff, queryGraph } from "./query.mjs";
-import { LIVE_PATH } from "./live-protocol.mjs";
+import { liveText, queryDiff, queryGraph } from "./query.mjs";
+import { LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
@@ -20,14 +20,15 @@ const tools = [
   tool("boundary", "List loading and errored boundaries, or show what can notify one.", { key: str }),
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
-  tool("tail", "Read recent flush and flight records. since is an exclusive record sequence number.",
+  tool("tail", "Read recent flushes, flights, boundaries, runs and reverts. since is an exclusive record sequence number.",
     { since: integer(0), limit: { ...integer(1), maximum: 2000 } }),
   tool("value", "Read the latest value preview for a key in the running page.", { key: str }, ["key"]),
-  tool("why", "Show the last change, its origin, and other keys in that flush.", { key: str }, ["key"]),
+  tool("state", "Read current value, pending and error for a key, or current values, flights, tripped boundaries, running actions and recent reverts.", { key: str }),
+  tool("why", "Show current state, the last change, other keys in that flush, and related actions and reverts.", { key: str }, ["key"]),
   tool("pending", "List nodes waiting for a request to finish."),
 ];
 const resources = ["graph", "model"].map(name => ({ uri: `rx://${name}`, name, mimeType: "application/json" }));
-const liveMethods = new Map([["live_status", "status"], ...["tail", "value", "why", "pending"].map(k => [k, k])]);
+const liveMethods = new Map(LIVE_METHODS.map(k => [k === "status" ? "live_status" : k, k]));
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const object = x => x !== null && typeof x === "object" && !Array.isArray(x);
 const errorMessage = e => plain(e?.message ?? e);
@@ -62,21 +63,6 @@ async function liveCall(dev, method, params) {
   const hit = outcomes.find(x => x && Object.hasOwn(x, "result"));
   if (hit) return hit.result;
   throw new Error(outcomes.find(Boolean)?.error ?? "no dev server / no page connected; start Vite with rxMap(), open the app, and set --dev if needed");
-}
-
-function liveText(method, data) {
-  const val = c => `${c.key ?? c.name}=${String(c.preview ?? "(no preview)").replace(/\r?\n/g, "\\n")}  ${c.origin ?? "unknown origin"}${location(c)}`;
-  const at = t => `${Math.round(t)}ms`;
-  switch (method) {
-    case "status": return `connected pages: ${data.pages}\nflushes: ${data.flushes}\nuptime: ${at(data.uptime)}`;
-    case "tail": return data.flatMap(r => r.type === "flight"
-      ? [`${r.seq}  ${at(r.at)}  ${r.key}  flight ${r.state}  ${r.origin ?? "unknown origin"}${location(r)}`]
-      : r.changes.map(c => `${r.seq}  ${at(r.at)}  ${val(c)}`)).join("\n") || "no records";
-    case "value": return `${data.key}=${String(data.preview).replace(/\r?\n/g, "\\n")}${location(data)}`;
-    case "why": return [`${data.seq}  ${at(data.at)}  ${val(data)}`,
-      ...data.others.map(c => `same flush  ${val(c)}`)].join("\n");
-    case "pending": return data.map(r => `${r.key}  since ${at(r.since)}${location(r)}`).join("\n") || "no pending requests";
-  }
 }
 
 /** Serve newline-delimited JSON-RPC over stdio (or supplied Node streams). */

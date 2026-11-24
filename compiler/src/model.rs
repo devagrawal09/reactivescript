@@ -23,7 +23,7 @@ pub fn module_key(path: &str, root: Option<&str>) -> String {
 
 /// A declaration's stable identity, `<module>|<scope>|<name>[#n]` (dev builds name its Solid nodes `rx:` + key): the
 /// scope is the enclosing component's name ("" at module level); `#n` marks the n+1th declaration of the same scope and
-/// name in the module, in source order. Every source and equation declaration gets one (a wrapped server fn too, though
+/// name in the module, in source order. Sources, equations and actions get one (a wrapped server fn too, though
 /// it binds no node and the model gives it none). `ref/src/model.ts` `declKeys`.
 pub fn decl_keys(p: &Program, module: &str) -> HashMap<*const Decl, String> {
     struct Found {
@@ -34,7 +34,7 @@ pub fn decl_keys(p: &Program, module: &str) -> HashMap<*const Decl, String> {
     fn decls(ds: &[Decl], scope: &str, out: &mut Vec<Found>) {
         for d in ds {
             match d {
-                Decl::Source { name, line, .. } | Decl::Eq { name, line, .. } => out.push(Found { d: d as *const Decl, at: format!("{scope}|{name}"), line: *line }),
+                Decl::Source { name, line, .. } | Decl::Eq { name, line, .. } | Decl::Action { name, line, .. } => out.push(Found { d: d as *const Decl, at: format!("{scope}|{name}"), line: *line }),
                 Decl::Fn { decls: fd, .. } => decls(fd, scope, out),
                 Decl::Component { name, decls: cd, view, .. } => {
                     decls(cd, name, out);
