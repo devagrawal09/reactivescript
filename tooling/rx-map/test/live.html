@@ -1,0 +1,117 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map live: page harness</title>
+<!-- Mounts the users.rx map with ../live.mjs and posts made-up messages into it, the way live.mjs forwards a dev
+     build's flushes. Results go in #result (run.mjs reads them with --dump-dom). ?shot leaves the map lit for a
+     screenshot: a node selected and a ring mid-pulse. -->
+<style>html, body { margin: 0; height: 100%; background: #000 } #host { position: fixed; inset: 0 } #static { display: none }</style>
+<div id="host"></div>
+<div id="static"></div>
+<pre id="result" hidden></pre>
+<script type="module">
+import { register } from "../live.mjs";
+import { pageHTML } from "../page.mjs";
+
+const shot = new URLSearchParams(location.search).has("shot");
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const loaded = f => new Promise(r => f.addEventListener("load", r, { once: true }));
+const done = () => {
+  const out = document.getElementById("result");
+  out.textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks });
+};
+
+try {
+  const graph = await (await fetch("/graph.json")).json();
+  const K = name => graph.nodes.find(n => n.key === `examples/users.rx||${name}`);
+  register(graph);
+  check("register sets __RX__ with the graph and mount", globalThis.__RX__?.graphs?.length === 1 && typeof globalThis.__RX__.mount === "function");
+
+  const dispose = globalThis.__RX__.mount(document.getElementById("host"));
+  const frame = document.querySelector("#host iframe");
+  await loaded(frame);
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  const post = m => win.postMessage({ source: "rx-map", ...m }, "*");
+  const chip = name => doc.querySelector(`#board .chip[data-id="${K(name).id}"]`);
+  const badge = () => doc.getElementById("liveBadge")?.textContent;
+
+  check("iframe fills the host", frame.style.width === "100%" && frame.style.height === "100%" && frame.style.border.startsWith("0"));
+  check("live badge starts at 0", badge() === "live · 0 flushes", badge());
+  check("live guide note", /Live\./.test(doc.getElementById("panel").textContent));
+  const errors = [];
+  win.addEventListener("error", e => errors.push(String(e.message)));
+
+  post({ type: "flush", seq: 1, at: 10, changes: [
+    { name: "rx:examples/users.rx||page", key: "examples/users.rx||page", preview: "2", origin: "click button \"Next\"" },
+    { name: "rx:examples/users.rx||nope", key: "examples/users.rx||nope", preview: "1" },
+    { name: "memo", key: null },
+  ] });
+  post({ type: "flight", key: "examples/users.rx||users", state: "start" });
+  post({ type: "flight", key: "examples/users.rx||unknown", state: "start" });
+  await sleep(50);
+  check("badge counts the flush", badge() === "live · 1 flush", badge());
+  check("changed chip pulses", chip("page").classList.contains("pulse"));
+  check("changed chip shows its value", chip("page").querySelector(".lv")?.textContent === "2", chip("page").querySelector(".lv")?.textContent);
+  check("unchanged chip has no value", !chip("query").querySelector(".lv"));
+  check("in-flight chip glows", chip("users").classList.contains("flying"));
+  check("no errors from unknown keys", !errors.length, errors);
+
+  post({ type: "flush", seq: 2, at: 20, changes: [
+    { name: "rx:examples/users.rx||users", key: "examples/users.rx||users", preview: "[{id: 1, name: \"Ada\"}, {id: 2, name: \"Grace\"}]" },
+    { name: "rx:examples/users.rx||total", key: "examples/users.rx||total", preview: "2" },
+  ] });
+  post({ type: "flight", key: "examples/users.rx||users", state: "land" });
+  await sleep(1400);
+  check("pulse ends after ~1.2s", !chip("page").classList.contains("pulse"));
+  check("landed chip stops glowing", !chip("users").classList.contains("flying"));
+  check("value stays after the pulse", chip("total").querySelector(".lv")?.textContent === "2");
+
+  chip("users").click();
+  await sleep(50);
+  const lv = doc.getElementById("liveval");
+  check("panel shows Live value", /Live value/.test(doc.getElementById("panel").textContent) && lv?.querySelector("pre")?.textContent.startsWith("[{id: 1"), lv?.innerHTML);
+  check("panel says how often", /changed 1×/.test(lv?.textContent ?? ""), lv?.textContent);
+  post({ type: "flight", key: "examples/users.rx||users", state: "start" });
+  await sleep(50);
+  check("panel shows the request in the air", /in the air/.test(doc.getElementById("liveval")?.textContent ?? ""));
+  post({ type: "flight", key: "examples/users.rx||users", state: "abandon" });
+  post({ type: "flight", key: "examples/users.rx||users", state: "start" });
+  await sleep(50);
+  check("abandon then start keeps the glow", chip("users").classList.contains("flying"));
+
+  // a static page ignores every message
+  const st = document.createElement("iframe");
+  st.srcdoc = pageHTML(graph);
+  document.getElementById("static").append(st);
+  await loaded(st);
+  st.contentWindow.postMessage({ source: "rx-map", type: "flush", seq: 1, at: 1, changes: [{ name: "rx:examples/users.rx||page", key: "examples/users.rx||page", preview: "2" }] }, "*");
+  await sleep(50);
+  const sd = st.contentDocument;
+  check("static page: no live badge, no values, no pulse", !sd.getElementById("liveBadge") && !sd.querySelector(".lv, .pulse") && !sd.body.classList.contains("live"));
+  check("static page: no Live guide note", !/Live\./.test(sd.getElementById("panel").textContent));
+
+  if (shot) {
+    // leave it lit: users selected and in the air, total and page with values, a fresh pulse on status
+    // run.mjs's virtual time budget is 8s: post the last flush ~0.4s before the screenshot, mid-pulse
+    await sleep(Math.max(0, 7600 - performance.now()));
+    // a screenshot does not catch an animation's frame: hold the ring where it is 0.25s in
+    doc.head.append(Object.assign(doc.createElement("style"), { textContent: ".chip.pulse::before { animation-delay: -.25s !important; animation-play-state: paused !important }" }));
+    post({ type: "flush", seq: 3, at: 30, changes: [
+      { name: "rx:examples/users.rx||status", key: "examples/users.rx||status", preview: "\"page 2 of 4\"" },
+      { name: "rx:examples/users.rx||query", key: "examples/users.rx||query", preview: "\"ad\"" },
+    ] });
+    done();
+  } else {
+    post({ type: "reset" });
+    await sleep(50);
+    check("reset clears values, glow and count", badge() === "live · 0 flushes" && !doc.querySelector("#board .lv, #board .flying"));
+    dispose();
+    check("dispose removes the iframe", !document.querySelector("#host iframe"));
+    done();
+  }
+} catch (e) {
+  check(`threw: ${e?.stack ?? e}`, false);
+  done();
+}
+</script>

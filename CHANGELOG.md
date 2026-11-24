@@ -29,6 +29,8 @@
 - `props` in a component declared without props (`component C()`) is `UNBOUND` (RG-4b); it read `undefined`.
 - `guide/async.md`: "One store over the server"; the `GUESS_WHILE_LOADING` advice says what holds when a selection
   changes while a guess is out (05 DV-22).
+- `@reactivescript/map` (`tooling/rx-map`): the rx-map as a package. `./live` draws the map beside a dev build and lights
+  the sources and equations each flush changes. Named things are keyed `<module>|<component>|<name>`.
 
 ## 0.3.1
 

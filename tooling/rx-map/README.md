@@ -103,9 +103,119 @@ tracked read into a snapshot far from the edit. Both versions are drawn on one m
 
   Click an item to light it up.
 
-Matching is by key: module, the chain of regions, and the name. A view site is matched by its place in markup and what
-it reads. A rename shows as one removed and one added. Both sides are modelled by the `rxc` you run, so a ref older
+Matching is by key: a name by its module, component and name (see "Live" below), a view site by its place in markup
+(the chain of regions) and what it reads. A rename shows as one removed and one added. Both sides are modelled by the `rxc` you run, so a ref older
 than a syntax change (e.g. `optimistic` before `guess`) will not parse.
+
+## Live: the map beside a running dev build
+
+`@reactivescript/map` is this folder as a package. Install it in an app (as a dev dependency) and the Vite front end
+does the rest in a dev build: it gives every source and equation's Solid nodes a name, `rx:<key>`, and registers the
+program's graph from its entry module. A host, such as the devtools' Map view, then calls `globalThis.__RX__.mount(el)`.
+
+- The map is drawn in an iframe. While it is open, Solid's attribution engine is on, and each flush that changes
+  something lights the map:
+  - the chips whose value changed flash a white ring;
+  - their newest value shows on the chip, and under "Live value" in the panel when one is selected;
+  - a chip glows amber while a request for it is in the air, until it lands or a newer one replaces it;
+  - the header counts the flushes.
+- Only sources and equations are lit. Actions, effects, props and contexts have no key yet.
+- A production build has none of it: no names, no graph, no import of the package.
+
+The key of a named thing is `<module>|<scope>|<name>`, for example `src/users.rx||users` or
+`src/users.rx|Row|isEditing`:
+
+- `module` is the file, relative to the project root;
+- `scope` is the enclosing component, empty at module scope;
+- a name declared twice in one scope (in two `if` branches) gets `#1` on its 2nd declaration, `#2` on its 3rd.
+
+`--json` writes the same keys, and `--diff` matches names by them.
+
+The exports:
+
+| export | what |
+| --- | --- |
+| `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
+| `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
+| `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
+| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose |
+| `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
+| `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
+
+The live page takes messages posted to its window, each with `source: "rx-map"`:
+
+- `{ type: "flush", seq, at, changes: [{ name, key, preview?, origin? }] }`
+- `{ type: "flight", key, state: "start" | "land" | "abandon" }`
+- `{ type: "reset" }`
+
+A key the map doesn't have is ignored.
+
+`page.mjs` is generated from `map.html`: run `npm run build` after editing the page. `npm test` checks that it is
+current and runs the live harnesses (`test/live.html`, `test/engine.html`) in headless Chromium; `--shots <dir>` also
+saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
+harness.
+
+## MCP: let an agent inspect your app
+
+Run `rx-map mcp --root /absolute/path/to/app` as a local stdio server. Use Node 20 or newer. Without `--entry`, it
+finds `.rx` modules under the root that no other module imports, excluding `node_modules`, `dist`, and declaration-only
+`.d.rx` files. Use repeatable `--entry src/App.rx` to choose specific programs. Models refresh when `.rx` files change.
+
+Set `RXC` to the absolute path to `rxc` if it isn't on `PATH`. Without `RXC`, the server prefers the project's installed
+compiler's `model` export for modeling; `check` still needs the CLI.
+
+OpenCode (`opencode.jsonc`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "rx": {
+        "type": "local",
+        "command": ["node", "/absolute/path/to/rx-map.mjs", "mcp", "--root", "/absolute/path/to/app"],
+        "environment": { "RXC": "/absolute/path/to/rxc" }
+      }
+    }
+  }
+}
+```
+
+Claude Code (`.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "rx": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/rx-map.mjs", "mcp", "--root", "/absolute/path/to/app"],
+      "env": { "RXC": "/absolute/path/to/rxc" }
+    }
+  }
+}
+```
+
+Inspector (replace `--method tools/list` with `--method tools/call --tool-name find --tool-arg query=user` to call a tool):
+
+```sh
+npx -y @modelcontextprotocol/inspector --cli -e RXC=/absolute/path/to/rxc node /absolute/path/to/rx-map.mjs mcp --root /absolute/path/to/app --method tools/list
+```
+
+Static tools: `check`, `overview`, `find`, `node`, `reach`, `boundary`, `diff`. Start with `overview` or use `find` to
+look up a key for `node` or `reach`. `boundary` lists its own keys. `diff` defaults to `HEAD`. The `rx://graph` and
+`rx://model` resources return JSON; any tool also accepts `format: "json"` for its structured answer.
+
+To add the live tools, install this package in the app, import `rxMap` from `@reactivescript/map/vite`, and add `rxMap()`
+to the Vite `plugins` array. Start Vite and open the app. The compiler's dev entry must register the graph with
+`{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by
+default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
+
+Live tools: `live_status`, `tail`, `value`, `why`, `pending`. They read the newest connected page. `tail` defaults to
+20 records out of the most recent 2000; pass `since` as the last received sequence number to skip older records.
+Times are in milliseconds on the page's clock. `value` needs an observed preview; if none is available yet, change the
+value in the app. These tools don't execute actions or write state, but previews can contain application data. Keep
+the Vite endpoint on a trusted dev network.
 
 ## Limits
 
@@ -116,3 +226,6 @@ than a syntax change (e.g. `optimistic` before `guess`) will not parse.
   the declaration (does it `await`?), because the model's question flag also marks sources with a standing question
   that never await.
 - Edges into a `for` row are drawn once per site, not per row.
+- Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
+  chip. A node's first value (a question's first answer) is not a change to Solid, so it doesn't light. The start of a
+  request is read off the node, because Solid's flight record comes only when the request ends.
