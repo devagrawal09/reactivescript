@@ -7,3 +7,4 @@ fuzz/failures/
 rt/fuzz/logs/
 rt/fuzz/failures/
 rt/dom/logs/
+rt/fuzz/builds/
