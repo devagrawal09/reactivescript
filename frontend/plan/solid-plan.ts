@@ -294,7 +294,7 @@ function instance(plan: Plan, api: Api, options: Options) {
       cs.forEach((c, i) => {
         if (c.kind === 'element') return exprs(l.kids.get(i)!);
         if (isStatic(c)) return;
-        const value = dynamic(c, l.env);
+        const value = c.kind === 'show' ? lowerShow(c, l.env, 'element') : dynamic(c, l.env);
         if (!multi) return insert(l.node, value);
         let marker: unknown = null;
         for (let j = i + 1; j < cs.length; j++) {
@@ -363,45 +363,69 @@ function instance(plan: Plan, api: Api, options: Options) {
       });
       if (v.kind === 'show') return createComponent(Show, v.fallback.length ? {
         get when() { return condition(v.when, env); },
-        get fallback() { return fragment(v.fallback, env); },
-        get children() { return fragment(v.children, env); },
+        get fallback() { return fragment(v.fallback, env, 'attribute'); },
+        get children() { return fragment(v.children, env, 'children'); },
       } : {
         get when() { return condition(v.when, env); },
-        get children() { return fragment(v.children, env); },
+        get children() { return fragment(v.children, env, 'children'); },
       });
       // v2.1: the compiler passes Loading's fallback as a getter and Errored's as a function of the error (and reset),
       // which the plan does not bind. The function takes the error, as the TSX twin's `(err) => …` does: Solid's dev
       // build logs the error of a fallback that cannot see it (a value or a zero-arity thunk).
       if (v.kind === 'loading') return createComponent(Loading, {
-        get fallback() { return fragment(v.fallback, env); },
-        get children() { return fragment(v.children, env); },
+        get fallback() { return fragment(v.fallback, env, 'attribute'); },
+        get children() { return fragment(v.children, env, 'children'); },
       });
       if (v.kind === 'errored') return createComponent(Errored, {
-        fallback: (_error: unknown) => fragment(v.fallback, env),
-        get children() { return fragment(v.children, env); },
+        fallback: (_error: unknown) => fragment(v.fallback, env, 'expression'),
+        get children() { return fragment(v.children, env, 'children'); },
       });
       if (v.kind === 'for') {
         if (v.key !== 'identity') throw new Error('For keys rows by identity');
         return createComponent(For, {
           get each() { const xs = condition(v.each, env); if (!Array.isArray(xs)) throw new Error('For of a non-array'); return xs; },
-          children: (item: unknown) => fragment(v.children, new Map(env).set(v.item, item)),
+          children: (item: unknown) => fragment(v.children, new Map(env).set(v.item, item), 'expression'),
         });
       }
       throw new Error('unknown view kind ' + (v as { kind: string }).kind);
     };
+    // Solid's production compiler lowers a <Show> with JSX children, `when` and at most `fallback` (every plan Show) to
+    // the ternary it renders, `{when ? <>children</> : fallback}` (Solid 96ffcf7b, #4730; compiler
+    // src/shared/lower_show.rs), where the ternary is tracked: a child of an element or a fragment, a component's sole
+    // child, or an expression (a component's return, an arrow's body). It keeps the component in an attribute
+    // (`fallback={<Show/>}`) and as one of several children of a component. Lowered, a dynamic `when` is read through a
+    // memo of `when` (`!!when` unless it is a comparison or `!`): as an element child `insert(el, (() => { const c =
+    // memo(() => test); return () => c() ? children : fallback; })(), marker)`, in a component position `memo(() =>
+    // memo(() => test)() ? children : fallback)`; a `when` that is not dynamic is the plain ternary, evaluated at once.
+    // No children or no fallback is `undefined`.
+    const lowerShow = (v: Extract<View, { kind: 'show' }>, env: Env, at: 'element' | 'component'): unknown => {
+      // The branches' own Shows were lowered or kept where they stood in the <Show> (the compiler lowers inner first).
+      const branch = (views: View[], where: 'children' | 'attribute') => views.length ? fragment(views, env, where) : undefined;
+      const pick = (yes: boolean) => yes ? branch(v.children, 'children') : branch(v.fallback, 'attribute');
+      if (!dyn(v.when)) return pick(truthy(evaluate(v.when, env)));
+      const test = () => comparison(v.when) ? evaluate(v.when, env) : truthy(evaluate(v.when, env));
+      if (at === 'element') { const c = memo(test); return () => pick(truthy(c())); }
+      return memo(() => pick(truthy(memo(test)())));
+    };
     // The views of a component position (the markup, a Show branch, a For row): each element is its own template, a
-    // Show or For its component; one view is itself, more are an array. Text there is lowered differently by the
-    // compiler (a string, or a memo inside an array) and is refused.
-    const fragment = (views: View[], env: Env): unknown => {
+    // Show or For its component (a Show lowered where the compiler lowers it: `where`, below); one view is itself, more
+    // are an array. Text there is lowered differently by the compiler (a string, or a memo inside an array) and is
+    // refused. `where` is how the TSX twin writes the list: `expression` (the markup, a For row, Errored's fallback
+    // function: one view is an expression, more a fragment; Shows are lowered), `children` (of Show, Loading or Errored:
+    // a sole Show is lowered, Shows beside other views are not), `attribute` (Show's or Loading's fallback: a lone Show
+    // stays a component, a fragment's Shows are lowered).
+    const fragment = (views: View[], env: Env, where: 'expression' | 'children' | 'attribute'): unknown => {
+      const lowers = where === 'expression' || (where === 'children' ? views.length === 1 : views.length > 1);
       const parts = views.map(v => {
         if (v.kind === 'element') return element(v, env);
         if (v.kind === 'text') throw new Error('text directly in a component position (the markup, a Show branch, a For row) is outside this consumer');
         if (v.kind === 'eval') throw new Error('an eval site directly in a component position is outside this consumer');
+        if (v.kind === 'show' && lowers) return lowerShow(v, env, 'component');
         return dynamic(v, env);
       });
       return parts.length === 1 ? parts[0] : parts;
     };
-    return { render: () => fragment(plan.markup, new Map()), value: () => evaluate(plan.value!, new Map()) };
+    return { render: () => fragment(plan.markup, new Map(), 'expression'), value: () => evaluate(plan.value!, new Map()) };
   }
 }
 

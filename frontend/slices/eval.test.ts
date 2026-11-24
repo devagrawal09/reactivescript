@@ -44,7 +44,8 @@ test('eval slice: the static twin, createEval, the plan and Rust give one result
   assert.equal(o.status, 'agree', o.classes.join(', '));
   assert.deepEqual(Object.keys(o.traces!), legs);
   for (const l of legs) assert.equal(JSON.stringify(o.traces![l as 'static']), JSON.stringify(o.traces!.static), l);
-  assert.equal(o.traces!.static!.log.length, 363);
+  // 364 since Solid b9475d749 (#5017): a delegated event adds a capture listener beside its handler (docs/PIN-MAIN-FRONTEND.md).
+  assert.equal(o.traces!.static!.log.length, 364);
   assert.deepEqual((o.traces!.static!.result as { frames: string[] }).frames, saved.steps.map((s: { frame: string }) => s.frame));
   // The code strings did change: every program was evaluated, the empty one rendered nothing, and the host's table is
   // exactly what the plan leg compiled (eval.evals.json), each entry compiled again.

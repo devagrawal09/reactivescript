@@ -76,6 +76,9 @@ for (const o of outcomes) {
 const summary = {
   ...(asyncFuzz ? { schema: '2.1' } : {}),
   start, seeds, total: outcomes.length, ...tally,
+  // Every upstream (probe-classified, RX-only) seed: a class lists at most 20. Present only when there is one, so a
+  // run without upstream differences writes the summary it always did.
+  ...(tally.upstream ? { upstreamSeeds: outcomes.filter(o => o.status === 'upstream').map(o => o.seed) } : {}),
   agreeing: { scenarioSteps: steps, logEntriesPerLeg: entries },
   families, classes, refusals, refusedClasses,
   yieldTwins: Object.fromEntries(Object.entries(yieldTwins).sort(([a], [b]) => a.localeCompare(b))),

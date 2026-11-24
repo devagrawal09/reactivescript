@@ -6,13 +6,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { emit, generate } from './fuzz/gen.ts';
-import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, UPSTREAM_RX, UPSTREAM_RX_PATH } from './fuzz/run.ts';
+import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW, type Outcome } from './fuzz/run.ts';
 import { emitAsync, generateAsync } from './fuzz/gen-async.ts';
 import { loadTsxModules } from '../tsx/modules.ts';
 import { resolvePlanV2 } from './resolve-v2.ts';
 
 const rust = process.env.RUST_PLAN_TRACE;
 const legs = rust ? ['native', 'rx', 'plan', 'rust'] : ['native', 'rx', 'plan'];
+/** UPSTREAM_RX_SHOW (run.ts; docs/PIN-MAIN-FRONTEND.md): compiled RX keeps a <Show> component that native's compiler
+ *  lowers to a ternary. RX must equal native built with `lowerShow: false` exactly, and every other leg native. */
+const rxIsUnloweredNative = (o: Outcome, seed: number) => {
+  assert.ok(o.nativeShow, 'seed ' + seed + ': the probe ran');
+  assert.notEqual(JSON.stringify(o.traces!.rx), JSON.stringify(o.traces!.native), 'seed ' + seed + ': RX itself differs');
+  assert.equal(JSON.stringify(o.traces!.rx), JSON.stringify(o.nativeShow), 'seed ' + seed + ': RX is native with its Shows kept');
+};
 
 test('plan fuzz: generation is deterministic, and the TSX and RX twins emit one plan or one refusal', () => {
   for (let seed = 1; seed <= 12; seed++) {
@@ -29,10 +36,12 @@ test('plan fuzz: generation is deterministic, and the TSX and RX twins emit one 
 test('plan fuzz: native Solid, compiled RX, the plan and Rust give one result and one host log (seeds 1..12)', async () => {
   for (let seed = 1; seed <= 12; seed++) {
     const o = await runCase(generate(seed), { rust });
-    assert.ok(o.status === 'agree' || o.status === 'refused', 'seed ' + seed + ': ' + o.status + ' ' + o.classes.join(', '));
+    const show = o.status === 'upstream' && JSON.stringify(o.classes) === JSON.stringify([UPSTREAM_RX_SHOW]);
+    assert.ok(o.status === 'agree' || o.status === 'refused' || show, 'seed ' + seed + ': ' + o.status + ' ' + o.classes.join(', '));
     if (o.status === 'refused') continue;
     assert.deepEqual(Object.keys(o.traces!), legs);
-    for (const l of legs) assert.equal(JSON.stringify(o.traces![l as 'native']), JSON.stringify(o.traces!.native), 'seed ' + seed + ' ' + l);
+    if (show) rxIsUnloweredNative(o, seed);
+    for (const l of show ? legs.filter(l => l !== 'rx') : legs) assert.equal(JSON.stringify(o.traces![l as 'native']), JSON.stringify(o.traces!.native), 'seed ' + seed + ' ' + l);
     assert.ok(o.traces!.native!.log.length > 50 && 'frames' in o.traces!.native!.result);
   }
 });
@@ -59,31 +68,25 @@ test('plan fuzz: the tracker gives native Solid\'s host log once its number hole
   const exact = await run(coerced);
   assert.equal(exact.status, 'agree', exact.classes.join(', '));
   assert.deepEqual(Object.keys(exact.traces!), legs);
-  assert.equal(exact.traces!.native!.log.length, 453);
-  // `{unassigned()}` inserts the number itself: the host is given 2, not "2". Frames agree; the log differs exactly at
-  // that hole's text values, nowhere else.
+  // 454 since Solid b9475d749 (#5017): the delegated click adds a capture listener beside its handler (453 at rc.21).
+  assert.equal(exact.traces!.native!.log.length, 454);
+  // At rc.21 `{unassigned()}` inserted the number itself (the host was given 2, not "2"): frames agreed and the log
+  // differed exactly at that hole's text values. Solid 842144cc5 (#5112, "pass numeric text to the renderer as a
+  // string") removed the difference: the idiomatic tracker now gives the coerced one's host log entry for entry
+  // (docs/PIN-MAIN-FRONTEND.md).
   const native = await run(idiomatic);
-  assert.deepEqual(native.traces!.native!.result, exact.traces!.native!.result);
-  const a = native.traces!.native!.log, b = exact.traces!.native!.log;
-  assert.equal(a.length, b.length);
-  const differing = a.map((e, i) => [e, b[i]] as const).filter(([x, y]) => JSON.stringify(x) !== JSON.stringify(y));
-  assert.ok(differing.length > 0);
-  // The same entry with the hole's text as a string: createTextNode/replaceText's value, and text nodes in a tree.
-  const texts = (t: any): unknown => t.length === 2 ? [t[0], typeof t[1] === 'number' ? String(t[1]) : t[1]] : [t[0], t[1], t[2].map(texts)];
-  for (const [x, y] of differing as [any, any][]) {
-    assert.ok(['createTextNode', 'replaceText', 'tree'].includes(x[0]), JSON.stringify(x));
-    const z = x[0] === 'tree' ? ['tree', texts(x[1])] : x[0] === 'createTextNode' ? [x[0], String(x[1]), x[2]] : [x[0], x[1], String(x[2])];
-    assert.deepEqual(z, y);
-  }
+  assert.equal(JSON.stringify(native.traces!.native), JSON.stringify(exact.traces!.native));
 });
 
 test('plan fuzz: an RX-only difference is upstream only when a probe of that one lowering removes it', async () => {
   assert.equal(pathsInSetter('w$s.path(["a", f(i)], v + 1); x.path(a, b); w$t.path(k);'),
     'w$s.pathIn(() => (["a", f(i)]), () => (v + 1)); x.path(a, b); w$t.path(k);');
-  for (const [seed, cls] of [[117, UPSTREAM_RX], [138, UPSTREAM_RX_PATH]] as const) {
+  // Since Solid main lowers Show (#4730), 117 and 138 also need the Show probe; seed 2 needs it alone.
+  for (const [seed, cls] of [[117, [UPSTREAM_RX, UPSTREAM_RX_SHOW]], [138, [UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW]], [2, [UPSTREAM_RX_SHOW]]] as const) {
     const o = await runCase(generate(seed), { rust });
     assert.equal(o.status, 'upstream', 'seed ' + seed + ': ' + o.classes.join(', '));
-    assert.deepEqual(o.classes, [cls]);
+    assert.deepEqual(o.classes, cls);
+    if (seed === 2) rxIsUnloweredNative(o, seed);
     assert.notEqual(JSON.stringify(o.traces!.rx), JSON.stringify(o.traces!.native), 'RX itself differs');
     for (const l of legs.filter(l => l !== 'rx')) assert.equal(JSON.stringify(o.traces![l as 'native']), JSON.stringify(o.traces!.native), l);
   }
@@ -112,11 +115,14 @@ test('plan fuzz v2.1: native Solid, compiled RX, the plan and Rust give one resu
     if (o.status === 'refused') { assert.match(o.detail!, /^unsupported operator [*-]$/); assert.deepEqual(Object.keys(o.traces!), ['native', 'rx']); continue; }
     // rust-solid's plan-trace consumes plan v2.1 (rust-solid docs/PLAN-V2-CONSUMER.md, "Plan v2.1"): its trace is
     // compared entry for entry like every other leg; a refusal of the version (rust-unsupported) is a failure here.
-    assert.equal(o.status, 'agree', 'seed ' + seed + ': ' + o.classes.join(', '));
+    // Compiled RX may differ only by UPSTREAM_RX_SHOW, and then equals native built with its Shows kept.
+    const show = o.status === 'upstream' && JSON.stringify(o.classes) === JSON.stringify([UPSTREAM_RX_SHOW]);
+    assert.ok(o.status === 'agree' || show, 'seed ' + seed + ': ' + o.classes.join(', '));
     assert.ok(!o.classes.includes(RUST_UNSUPPORTED_CLASS), 'a Rust refusal of the version is not agreement');
-    assert.deepEqual(o.classes, []);
+    if (!show) assert.deepEqual(o.classes, []);
     assert.deepEqual(Object.keys(o.traces!), rust ? ['native', 'rx', 'plan', 'rust'] : ['native', 'rx', 'plan']);
-    for (const l of rust ? ['rx', 'plan', 'rust'] as const : ['rx', 'plan'] as const) assert.equal(JSON.stringify(o.traces![l]), JSON.stringify(o.traces!.native), 'seed ' + seed + ' ' + l);
+    if (show) rxIsUnloweredNative(o, seed);
+    for (const l of (rust ? ['rx', 'plan', 'rust'] as const : ['rx', 'plan'] as const).filter(l => !show || l !== 'rx')) assert.equal(JSON.stringify(o.traces![l]), JSON.stringify(o.traces!.native), 'seed ' + seed + ' ' + l);
     assert.equal(o.scenario!.version, 2.1);
     assert.ok('frames' in o.traces!.native!.result && o.traces!.native!.log.some(e => (e as unknown[])[0] === 'request'));
     ran++;

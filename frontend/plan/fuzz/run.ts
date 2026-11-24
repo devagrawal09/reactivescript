@@ -25,7 +25,12 @@ export const LEGS = ['native', 'rx', 'plan', 'rust'] as const;
  *  just that lowering removes the difference. */
 export const UPSTREAM_RX = 'upstream: RX optimistic source is a guess layer over a computed signal (AC-3)';
 export const UPSTREAM_RX_PATH = 'upstream: RX evaluates a path write\'s keys and value before the store setter';
-const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH];
+/** Solid main's production compiler lowers a TSX `<Show>` with JSX children to the ternary it renders (Solid 96ffcf7b,
+ *  #4730); upstream's emit writes every RX `if` as `<Show … fallback={(…)()}>{(__item) => { … }}</Show>`, a
+ *  block-bodied callback the compiler never lowers, so compiled RX keeps the Show component. The probe compares RX
+ *  with native's TSX compiled with `lowerShow: false` (the component), the only change on the native side. */
+export const UPSTREAM_RX_SHOW = 'upstream: RX emits a <Show> Solid\'s compiler does not lower to a ternary (Solid #4730)';
+const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW];
 /** Plan v2.1 on a v2-only Rust consumer: `plan-trace` refuses the plan's `version` (an integer field: serde's
  *  "invalid type: floating point `2.1`, expected u32", or the scenario binary's "unsupported plan version"). */
 export const RUST_UNSUPPORTED_CLASS = 'rust-unsupported: plan-trace refuses plan version 2.1';
@@ -62,6 +67,9 @@ export type Outcome = {
   rustUnsupported?: string;
   classes: string[]; detail?: string; refusedClasses?: string[];
   files: Record<string, string>; plan?: unknown; scenario?: Scenario; traces?: Partial<Record<Leg, Trace>>;
+  /** UPSTREAM_RX_SHOW's probe: native's TSX compiled with `lowerShow: false`, replayed on the scenario (only when RX
+   *  differs and that build's trace differs from native's). */
+  nativeShow?: Trace;
   nodes?: Record<string, number>; features?: string[];
   /** The yield twin: its plan equals the RX plan ('same'), or it differs, or the yield frontend refused it, or the
    *  program has none (gen.ts emitYield: the dialect cannot spell it). */
@@ -261,9 +269,9 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
   const dir = opts.keep ?? mkdtempSync(tmpRoot + 'case-');
   mkdirSync(dir, { recursive: true });
   try {
-    const native = transform(files['App.tsx'], { filename: 'App.tsx', generate: 'universal', moduleName: STRING_RENDERER }).code
+    const compileNative = (lowerShow?: false) => transform(files['App.tsx'], { filename: 'App.tsx', generate: 'universal', moduleName: STRING_RENDERER, ...(lowerShow === false ? { lowerShow } : {}) } as Parameters<typeof transform>[1]).code
       .replaceAll('"' + STRING_RENDERER + '"', JSON.stringify(RENDERER)).replaceAll('"solid-js"', JSON.stringify(SOLID)).replaceAll('"./api"', '"./api.mjs"');
-    writeFileSync(dir + '/native.mts', native);
+    writeFileSync(dir + '/native.mts', compileNative());
     writeFileSync(dir + '/api.mjs', p.hosts.map(h => 'export const ' + h.name + ' = globalThis.__planFuzzApi.' + h.name + ';').join('\n') + '\n');
     const built = compileModules(rxSet);
     for (const [name, code] of lowerViews(built.files, 'universal')) writeFileSync(dir + '/' + name, code.replaceAll(STRING_RENDERER, RENDERER));
@@ -320,15 +328,28 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
       // createOptimistic(fn) gives native's exact trace, the difference is upstream's AC-3 guess layer (a node deeper
       // than native's), not the plan's: classified apart, never counted as agreement.
       if (l === 'rx') {
-        const probe = async (o: { directOptimistic?: boolean; pathInSetter?: boolean }) => {
+        const probe = async (o: { directOptimistic?: boolean; pathInSetter?: boolean }, against: Trace = traces.native!) => {
           const r = await leg({ ...common, leg: 'rx', steps: scenario.steps, entry: dir + '/' + (o.pathInSetter ? probeEntry : built.entry), ...o }, timeoutMs);
-          return !('invalid' in r) && JSON.stringify(strip(r)) === JSON.stringify(traces.native);
+          return !('invalid' in r) && JSON.stringify(strip(r)) === JSON.stringify(against);
         };
         const probeEntry = 'probe-' + built.entry;
         writeFileSync(dir + '/' + probeEntry, pathsInSetter(readFileSync(dir + '/' + built.entry, 'utf8')));
         if (await probe({ directOptimistic: true })) { out.classes.push(UPSTREAM_RX); continue; }
         if (await probe({ pathInSetter: true })) { out.classes.push(UPSTREAM_RX_PATH); continue; }
         if (await probe({ directOptimistic: true, pathInSetter: true })) { out.classes.push(UPSTREAM_RX, UPSTREAM_RX_PATH); continue; }
+        // UPSTREAM_RX_SHOW: native with its Shows kept as components, replayed on the same scenario. Only a native that
+        // differs from the lowered one can explain the difference; RX must then equal it exactly (alone, or with the
+        // other probes' lowerings).
+        writeFileSync(dir + '/native-show.mts', compileNative(false));
+        const shown = await leg({ ...common, leg: 'native', steps: scenario.steps, entry: dir + '/native-show.mts' }, timeoutMs);
+        if (!('invalid' in shown) && JSON.stringify(strip(shown)) !== JSON.stringify(traces.native)) {
+          const unlowered = strip(shown);
+          out.nativeShow = unlowered;
+          if (await probe({}, unlowered)) { out.classes.push(UPSTREAM_RX_SHOW); continue; }
+          if (await probe({ directOptimistic: true }, unlowered)) { out.classes.push(UPSTREAM_RX, UPSTREAM_RX_SHOW); continue; }
+          if (await probe({ pathInSetter: true }, unlowered)) { out.classes.push(UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW); continue; }
+          if (await probe({ directOptimistic: true, pathInSetter: true }, unlowered)) { out.classes.push(UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW); continue; }
+        }
       }
       out.classes.push(l + ': ' + d.kind);
     }

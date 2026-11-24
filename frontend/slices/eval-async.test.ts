@@ -52,7 +52,8 @@ test('eval-async slice: the static twin, createEval, the plan and Rust give one 
   assert.deepEqual(o.classes, []);
   assert.deepEqual(Object.keys(o.traces!), rust ? ['static', 'eval-native', 'eval-plan', 'rust'] : ['static', 'eval-native', 'eval-plan']);
   for (const l of rust ? ['eval-native', 'eval-plan', 'rust'] as const : ['eval-native', 'eval-plan'] as const) assert.equal(JSON.stringify(o.traces![l]), JSON.stringify(o.traces!.static), l);
-  assert.equal(o.traces!.static!.log.length, 295);
+  // 296 since Solid b9475d749 (#5017): a delegated event adds a capture listener beside its handler (docs/PIN-MAIN-FRONTEND.md).
+  assert.equal(o.traces!.static!.log.length, 296);
   const frames = saved.steps.map((s: { frame: string }) => s.frame);
   assert.deepEqual((o.traces!.static!.result as { frames: string[] }).frames, frames);
   // Every code string was evaluated, each to a v2.1 plan (an async memo, or a pure host binding), and the table is
