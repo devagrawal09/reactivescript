@@ -1,6 +1,32 @@
 upstream/ref/compile/emit.ts: error TS2339: Property 'e' does not exist on type '{ k: "import"; names: { name: string; alias: string; }[]; from: string; pure: boolean; side?: "server" | "client" | undefined; line: number; fails?: string[] | undefined; resolved?: string | undefined; declared?: string | undefined; declaredErrors?: string[] | undefined; declaredPure?: string[] | undefined; declared...'.
 upstream/ref/compile/emit.ts: error TS2339: Property 'name' does not exist on type '{ k: "let"; name: string; e: Expr; type?: string | undefined; } | { k: "expr"; e: Expr; }'.
 upstream/ref/compile/emit.ts: error TS2366: Function lacks ending return statement and return type does not include 'undefined'.
+upstream/ref/src/check.ts: error TS2300: Duplicate identifier 'Shape'.
+upstream/ref/src/check.ts: error TS2300: Duplicate identifier 'Shape'.
+upstream/ref/src/check.ts: error TS2322: Type 'Set<string>[]' is not assignable to type 'string[]'.
+upstream/ref/src/check.ts: error TS2322: Type 'Shape | Shape' is not assignable to type 'Shape | undefined'.
+upstream/ref/src/check.ts: error TS2322: Type 'Shape | Shape' is not assignable to type 'Shape'.
+upstream/ref/src/check.ts: error TS2322: Type 'Shape | Shape' is not assignable to type 'Shape'.
+upstream/ref/src/check.ts: error TS2322: Type 'import("upstream/ref/src/content", { with: { "resolution-mode": "import" } }).Shape' is not assignable to type 'import("upstream/ref/src/parse", { with: { "resolution-mode": "import" } }).Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'a' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'a' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'a' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'childrenAt' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'childrenAt' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'childrenAt' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'closesP' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'closesP' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'closesP' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'form' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'form' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'form' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'roots' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'roots' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2339: Property 'roots' does not exist on type 'Shape'.
+upstream/ref/src/check.ts: error TS2345: Argument of type 'import("upstream/ref/src/parse", { with: { "resolution-mode": "import" } }).Shape' is not assignable to parameter of type 'import("upstream/ref/src/content", { with: { "resolution-mode": "import" } }).Shape'.
+upstream/ref/src/check.ts: error TS2353: Object literal may only specify known properties, and 'roots' does not exist in type '{ items: Part[]; } | { fields: [string, Part][]; }'.
+upstream/ref/src/check.ts: error TS7006: Parameter 'r' implicitly has an 'any' type.
+upstream/ref/src/check.ts: error TS7006: Parameter 't' implicitly has an 'any' type.
 upstream/ref/src/runtime.ts: error TS2339: Property 'first' does not exist on type 'never'.
 upstream/ref/src/runtime.ts: error TS2339: Property 'state' does not exist on type 'never'.
 upstream/ref/src/runtime.ts: error TS2339: Property 'state' does not exist on type 'never'.
@@ -10,3 +36,5 @@ upstream/ref/src/runtime.ts: error TS2345: Argument of type 'Node | CtxBinding' 
 upstream/ref/src/runtime.ts: error TS2352: Conversion of type 'null | undefined' to type 'number' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
 upstream/ref/src/runtime.ts: error TS2352: Conversion of type 'null | undefined' to type 'unknown[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
 upstream/ref/src/runtime.ts: error TS2358: The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.
+upstream/ref/src/signature.ts: error TS2322: Type 'Shape' is not assignable to type 'Shape | undefined'.
+upstream/ref/src/signature.ts: error TS2345: Argument of type 'import("upstream/ref/src/parse", { with: { "resolution-mode": "import" } }).Shape | undefined' is not assignable to parameter of type 'import("upstream/ref/src/content", { with: { "resolution-mode": "import" } }).Shape | undefined'.
