@@ -26,7 +26,8 @@ const CATALOG = {
   writes: { name: "writes", wt: ROOT + "/rx-store-proto-writes", solid: ROOT + "/store-proto-writes" },
   sitecache: { name: "sitecache", wt: ROOT + "/rx-store-proto-sitecache", solid: ROOT + "/store-proto-sitecache" },
   slots: { name: "slots", wt: ROOT + "/rx-store-proto-slots", solid: ROOT + "/store-proto-slots" },
-  combined: { name: "combined", wt: ROOT + "/rx-store-proto-combined", solid: ROOT + "/store-proto-combined", select: true }
+  combined: { name: "combined", wt: ROOT + "/rx-store-proto-combined", solid: ROOT + "/store-proto-combined", select: true },
+  tiers: { name: "tiers", wt: ROOT + "/rx-rt-proto-tiers", solid: ROOT + "/rt-proto-tiers", select: true }
 };
 const DEFAULT = ["base", "core", "features", "writes", "sitecache", "slots", "combined"];
 
