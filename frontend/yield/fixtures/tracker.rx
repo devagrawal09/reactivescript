@@ -21,7 +21,7 @@ export default component Tracker() {
     {if visible.length > 0 {
       for issue in visible {
         <IssueRow issue={issue} claiming={claiming == issue.id} onAssign={(id) => {
-          optimistic claiming := id;
+          guess claiming := id;
           try {
             let owner = await assignIssue(id);
             issues.list[indexOf(issues.list, candidate => candidate.id == id)].assignee := owner;

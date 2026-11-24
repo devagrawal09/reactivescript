@@ -271,7 +271,7 @@
       }
     },
     {
-      "code": "source saved := \"none\";\nsource shown = saved;\naction keep(n: number) {\n  optimistic shown := \"saving\";\n  try {\n    let r = await save(n);\n    saved := r;\n  } catch (error) {\n    saved := \"error\";\n  }\n}\n<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>",
+      "code": "source saved := \"none\";\nsource shown = saved;\naction keep(n: number) {\n  guess shown := \"saving\";\n  try {\n    let r = await save(n);\n    saved := r;\n  } catch (error) {\n    saved := \"error\";\n  }\n}\n<p><button onClick={() => { keep(count) }}>keep</button>{\"saved \" + shown}<button onClick={() => { store(count) }}>store</button></p>",
       "interface": "read count: number\naction bump(number)\naction store(number)\nhost save(number): string",
       "syntax": "rx",
       "check": "strict",

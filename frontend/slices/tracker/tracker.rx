@@ -16,7 +16,7 @@ export default component Tracker() {
   unassigned = filter(shown, issue => issue.assignee == "").length;
 
   action claim(id: number) {
-    optimistic shown := list => map(list, issue => issue.id == id ? { id: issue.id, title: issue.title, assignee: "me" } : issue);
+    guess shown := list => map(list, issue => issue.id == id ? { id: issue.id, title: issue.title, assignee: "me" } : issue);
     try {
       let owner = await assignIssue(id);
       issues.list[indexOf(issues.list, issue => issue.id == id)].assignee := owner;

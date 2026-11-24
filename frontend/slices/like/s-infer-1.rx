@@ -3,7 +3,7 @@ export default component App() {
   source error := ""
 
   <button onClick={() => {
-    optimistic liked := "yes"
+    guess liked := "yes"
     try {
       let r = await fetch("like")
       liked := r

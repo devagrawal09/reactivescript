@@ -27,7 +27,7 @@ test('eval refusals: out-of-subset code, ambient scope, a write to a read-only b
   // Accepted, for contrast: the code's own state, reads of every binding kind, a bound action, an inferred action.
   for (const [syntax, code] of [
     ['rx', 'source n := 1;\n<p onClick={() => { bump(n) }}>{"" + (n + count + db.list.length)}</p>'],
-    ['rx', 'source shown = count;\n<p onClick={() => { optimistic shown := 5; try { let r = await save(count); } catch (e) {} }}>{"" + shown}</p>'],
+    ['rx', 'source shown = count;\n<p onClick={() => { guess shown := 5; try { let r = await save(count); } catch (e) {} }}>{"" + shown}</p>'],
     ['tsx', 'const [n, setN] = createSignal(1);\nreturn (<p onClick={() => bump(n())}>{"" + (n() + count() + db.list.length)}</p>);'],
   ] as const) { const r = compileEval({ code, interface: IFACE, syntax }); assert.ok(r.ok, syntax + ': ' + JSON.stringify(!r.ok && r.diagnostics)); }
   // Out of the subset: an operator plan v2 lacks, and a constant text hole Solid's compiler would fold.
@@ -46,7 +46,7 @@ test('eval refusals: out-of-subset code, ambient scope, a write to a read-only b
   assert.ok(refused('<p>x</p>\n}\nimport { x } from "./other";\ncomponent E() {\n<p>y</p>').length);
   // Writes to read-only bindings: a value, a store path, a guess; TSX through the hidden setter.
   for (const code of ['<p onClick={() => { count := 3 }}>x</p>', '<p onClick={() => { db.list[0].title := "z" }}>x</p>',
-    'action a() { optimistic count := 1; }\n<p onClick={() => { a() }}>x</p>'])
+    'action a() { guess count := 1; }\n<p onClick={() => { a() }}>x</p>'])
     assert.deepEqual(refused(code).map(d => [d.code, d.message.split(':')[0]]), [['READ_ONLY', 'writing the read-only binding ' + (code.includes('db') ? 'db' : 'count')]], code);
   assert.deepEqual(refused('source n := 1;\naction a() { n := 2; count := 1; }\n<p onClick={() => { a() }}>x</p>').map(d => [d.code, d.line]), [['READ_ONLY', 2]]);
   assert.equal(refused('return (<p onClick={() => $evalSet0(3)}>x</p>);', 'tsx')[0].code, 'READ_ONLY');

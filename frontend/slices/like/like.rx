@@ -4,7 +4,7 @@ export default component Like() {
   source likes := 0;
   source shown = likes;
   <button onClick={() => {
-    optimistic shown := n => n + 1;
+    guess shown := n => n + 1;
     try {
       let answer = await save();
       likes := answer;

@@ -446,7 +446,7 @@ export function ps(s: S, c: Pr, hosts: Host[], indent: string): string[] {
     }
     case 'guess': {
       const v = s.body ? (c.tsx ? '(' + s.p + ') => ' : s.p + ' => ') + pe(s.body, c) : pe(s.value!, c);
-      return [indent + (c.tsx ? setter(s.name) + '(' + v + ');' : 'optimistic ' + s.name + ' := ' + v + ';')];
+      return [indent + (c.tsx ? setter(s.name) + '(' + v + ');' : 'guess ' + s.name + ' := ' + v + ';')];
     }
     case 'await': {
       const h = hosts.find(h => h.name === s.host)!;

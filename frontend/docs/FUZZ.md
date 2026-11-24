@@ -97,7 +97,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;

@@ -12,7 +12,7 @@ interpreted RX and on native Solid running the paired TSX fixture (`yield/paired
 | --- | --- | --- |
 | `component(function* Name(props: Props<{…}>) { setup; return view(…) })` | `component Name(props: {…})`; `Source<T>` is `T`, `Handler<[A]>` a callback `(arg0: A) => void` | `function Name(props)` |
 | `const [x, setX] = yield* $signal(v)` / `$store(o)` | `source x := v` | `createSignal` / `createStore` |
-| `const [x, setX] = yield* $optimistic(v)` | an optimistic question source; writes are `optimistic x := …` | `createOptimistic(v)` |
+| `const [x, setX] = yield* $optimistic(v)` | an optimistic question source; writes are `guess x := …` | `createOptimistic(v)` |
 | `yield* $optimistic(function* () { return yield* base; })` | a question source tracking `base`; one synchronous return, no parameters | `createOptimistic(() => base())` |
 | `yield* $memo(function* () { const a = yield* s; return e; })` | `m = e`, the read locals substituted | `createMemo` |
 | `yield* x` | a tracked read: an accessor's id, or a store, prop or row path | `x()` / `x.path` |

@@ -45,7 +45,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -107,7 +107,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -170,7 +170,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -233,7 +233,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -294,7 +294,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -361,7 +361,7 @@ export default component App() {
   source guess = s2;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s2 := current => current + got;
@@ -437,7 +437,7 @@ export default component App() {
   m0 = store.f0;
   m1 = (((1 + m0) == m0) ? m0 : (m0 - (-1)));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -505,7 +505,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -566,7 +566,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -634,7 +634,7 @@ export default component App() {
   source fails := 0;
   m1 = (fails + (2 + 0));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -706,7 +706,7 @@ export default component App() {
   source fails := 0;
   m0 = (fails - ((-1) - 2));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -779,7 +779,7 @@ export default component App() {
   source fails := 0;
   m0 = ((fails - fails) * ((-1) * s1));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -854,7 +854,7 @@ export default component App() {
   source fails := 0;
   m0 = ((fails * 1) + (guess - guess));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -923,7 +923,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -985,7 +985,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1056,7 +1056,7 @@ export default component App() {
   source fails := 0;
   m0 = (fails * store.f1);
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1127,7 +1127,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1195,7 +1195,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -1261,7 +1261,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1340,7 +1340,7 @@ export default component App() {
   source fails := 0;
   m0 = (s1 + 0);
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s2 := current => current + got;
@@ -1412,7 +1412,7 @@ export default component App() {
   source guess = s2;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s2 := current => current + got;
@@ -1483,7 +1483,7 @@ export default component App() {
   source fails := 0;
   m0 = ((s0 * 0) * 2);
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1552,7 +1552,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1618,7 +1618,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1681,7 +1681,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -1745,7 +1745,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -1812,7 +1812,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -1877,7 +1877,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -1940,7 +1940,7 @@ export default component App() {
   source guess = s2;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s2 := current => current + got;
@@ -2010,7 +2010,7 @@ export default component App() {
   source fails := 0;
   m0 = (guess + (-2));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2082,7 +2082,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2149,7 +2149,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -2219,7 +2219,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2293,7 +2293,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -2365,7 +2365,7 @@ export default component App() {
   source fails := 0;
   m0 = (store.f0 - guess);
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2437,7 +2437,7 @@ export default component App() {
   source fails := 0;
   m1 = s2;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -2509,7 +2509,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2577,7 +2577,7 @@ export default component App() {
   source guess = s1;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -2647,7 +2647,7 @@ export default component App() {
   source fails := 0;
   m0 = ((fails > (2 + (-2))) ? (fails - (-1)) : (fails + s0));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2718,7 +2718,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2786,7 +2786,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2855,7 +2855,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2920,7 +2920,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -2985,7 +2985,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;
@@ -3057,7 +3057,7 @@ export default component App() {
   source fails := 0;
   m0 = (((1 * guess) > (1 - 3)) ? (fails - 4) : (0 + (-2)));
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s1 := current => current + got;
@@ -3123,7 +3123,7 @@ export default component App() {
   source guess = s0;
   source fails := 0;
   action save(amount: number) {
-    optimistic guess := guessed => guessed + amount;
+    guess guess := guessed => guessed + amount;
     try {
       let got = await request(amount);
       s0 := current => current + got;

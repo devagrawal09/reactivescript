@@ -26,7 +26,7 @@ export type Node =
 export type Prog = {
   sigs: { name: string; init: number }[];
   store: { fields: number[]; rows: number[] } | null;   // numeric fields f<i>, and the n of each row
-  action: { target: string } | null;    // adds guess = createOptimistic(() => target()), fails, and save(amount)
+  action: { target: string } | null;    // adds hunch = createOptimistic(() => target()), fails, and save(amount)
   memos: { name: string; e: Ex }[];
   view: Node[];
 };
@@ -57,7 +57,7 @@ export function generate(seed: number): Case {
     ? { fields: Array.from({ length: 1 + r.int(2) }, () => r.int(6)), rows: Array.from({ length: 2 + r.int(2) }, () => r.int(6)) }
     : null;
   const action = r.chance(0.5) ? { target: r.pick(sigs).name } : null;
-  const readable = [...sigs.map(s => s.name), ...(action ? ["guess", "fails"] : [])];
+  const readable = [...sigs.map(s => s.name), ...(action ? ["hunch", "fails"] : [])];
   const memos: Prog["memos"] = [];
   const ex = (depth: number, cond: boolean, memoNames: string[]): Ex => {
     const leaf = (): Ex => {
@@ -140,7 +140,7 @@ export function generate(seed: number): Case {
     };
   };
   const view: Node[] = Array.from({ length: 2 + r.int(4) }, () => node(0));
-  if (action) view.push({ k: "text", e: { k: "sig", name: "guess" } }, { k: "text", e: { k: "sig", name: "fails" } });
+  if (action) view.push({ k: "text", e: { k: "sig", name: "hunch" } }, { k: "text", e: { k: "sig", name: "fails" } });
   if (!buttons(view)) view.push({ k: "button", h: handler() });
   const script: Step[] = [];
   const total = buttons(view);
@@ -163,7 +163,7 @@ export const buttons = (nodes: Node[]): number =>
 
 /** Every name an expression or the view reads exists, so a reduced program stays well formed. */
 export function wellFormed(p: Prog): boolean {
-  const sigNames = new Set([...p.sigs.map(s => s.name), ...(p.action ? ["guess", "fails"] : [])]);
+  const sigNames = new Set([...p.sigs.map(s => s.name), ...(p.action ? ["hunch", "fails"] : [])]);
   if (p.action && !p.sigs.some(s => s.name === p.action!.target)) return false;
   const memoSeen = new Set<string>();
   const ok = (e: Ex, self = false): boolean => {
@@ -251,13 +251,13 @@ export function emitTsx(p: Prog): string {
     ...p.sigs.map(s => "const [" + s.name + ", set" + cap(s.name) + "] = createSignal(" + s.init + ");"),
     ...(p.store ? ["const [store, setStore] = createStore(" + "{ " + [...p.store.fields.map((n, j) => "f" + j + ": " + n), "rows: [" + p.store.rows.map((n, j) => "{ id: " + (j + 1) + ", n: " + n + " }").join(", ") + "]"].join(", ") + " }" + ");"] : []),
     ...(p.action ? [
-      "const [guess, setGuess] = createOptimistic(() => " + p.action.target + "());",
+      "const [hunch, setHunch] = createOptimistic(() => " + p.action.target + "());",
       "const [fails, setFails] = createSignal(0);",
     ] : []),
     ...p.memos.map(m => "const " + m.name + " = createMemo(() => " + expr(m.e, c) + ");"),
     ...(p.action ? [
       "const save = action(function* (amount: number) {",
-      "  setGuess((guessed) => guessed + amount);",
+      "  setHunch((guessed) => guessed + amount);",
       "  try {",
       "    const got: number = yield request(amount);",
       "    set" + cap(p.action.target) + "((current) => current + got);",
@@ -291,11 +291,11 @@ export function emitRx(p: Prog): string {
   const body = [
     ...p.sigs.map(s => "source " + s.name + " := " + s.init + ";"),
     ...(p.store ? ["source store := " + "{ " + [...p.store.fields.map((n, j) => "f" + j + ": " + n), "rows: [" + p.store.rows.map((n, j) => "{ id: " + (j + 1) + ", n: " + n + " }").join(", ") + "]"].join(", ") + " }" + ";"] : []),
-    ...(p.action ? ["source guess = " + p.action.target + ";", "source fails := 0;"] : []),
+    ...(p.action ? ["source hunch = " + p.action.target + ";", "source fails := 0;"] : []),
     ...p.memos.map(m => m.name + " = " + expr(m.e, c) + ";"),
     ...(p.action ? [
       "action save(amount: number) {",
-      "  optimistic guess := guessed => guessed + amount;",
+      "  guess hunch := guessed => guessed + amount;",
       "  try {",
       "    let got = await request(amount);",
       "    " + p.action.target + " := current => current + got;",

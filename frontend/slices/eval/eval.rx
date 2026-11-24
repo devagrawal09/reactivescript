@@ -27,7 +27,7 @@ export default component Studio() {
     <button onClick={() => { code := "source saved := \"none\";
 source shown = saved;
 action keep(n: number) {
-  optimistic shown := \"saving\";
+  guess shown := \"saving\";
   try {
     let r = await save(n);
     saved := r;
