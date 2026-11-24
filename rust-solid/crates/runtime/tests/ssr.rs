@@ -123,12 +123,12 @@ fn an_integer_hole_takes_no_id_and_a_string_hole_takes_one() {
     let int = render(&section(serde_json::json!({"op": "read", "source": "n"}))).unwrap();
     assert_eq!(
         int,
-        "<section _hk=0><!--$-->2<!--/--><!--$--><i _hk=30>x</i><!--/--></section>"
+        "<section _hk=0><!--$-->2<!--/--><!--$--><i _hk=20>x</i><!--/--></section>"
     );
     let string = render(&section(serde_json::json!({"op": "read", "source": "s"}))).unwrap();
     assert_eq!(
         string,
-        "<section _hk=0><!--$-->a&lt;b&amp;c<!--/--><!--$--><i _hk=40>x</i><!--/--></section>"
+        "<section _hk=0><!--$-->a&lt;b&amp;c<!--/--><!--$--><i _hk=30>x</i><!--/--></section>"
     );
 }
 

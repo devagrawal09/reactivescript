@@ -1277,18 +1277,34 @@ fn component(s: &mut Server, c: &Rc<Ctx>, plan: &Rc<Plan>) -> Res<JsVal> {
             throw(format!("action {name} called during a server render"))
         }));
     }
-    fragment(s, c, &plan.markup, &empty, &Types::new())
+    // `return <Show …/>`: a statement position, lowered.
+    fragment(s, c, &plan.markup, &empty, &Types::new(), true)
 }
 
 /// A component position (the markup, a Show branch, a For row): an element
 /// is its template's `ssr()` result, a Show or For its component's memo read,
-/// raw (no escape); more than one view is an array.
-fn fragment(s: &mut Server, c: &Rc<Ctx>, views: &[View], env: &Env, tys: &Types) -> Res<JsVal> {
+/// raw (no escape); more than one view is an array. `lower`: a `<Show>` here
+/// is lowered (Solid main's compiler, shared/lower_show.rs): the list is a
+/// fragment, an arrow's or the component's body, or a component's sole
+/// child; not a lone attribute value or one of several component children.
+fn fragment(
+    s: &mut Server,
+    c: &Rc<Ctx>,
+    views: &[View],
+    env: &Env,
+    tys: &Types,
+    lower: bool,
+) -> Res<JsVal> {
     let mut parts = vec![];
     for v in views {
         parts.push(match v {
             View::Element { .. } => template(s, c, v, env, tys)?,
             View::Text { .. } => return fail("text directly in a component position"),
+            View::Show {
+                when,
+                children,
+                fallback,
+            } if lower => lowered_show(s, c, when, children, fallback, env, tys, false)?,
             _ => control(s, c, v, env, tys)?,
         });
     }
@@ -1389,6 +1405,12 @@ fn template(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Re
         values.push(match hole {
             Hole::Key => ssr_hydration_key(s)?,
             Hole::Text(e) => text_hole(s, c, e, env, tys)?,
+            // Solid main lowers a `<Show>` child to a conditional hole.
+            Hole::Control(View::Show {
+                when,
+                children,
+                fallback,
+            }) => lowered_show(s, c, when, children, fallback, env, tys, true)?,
             // A component child is `_$escape(Comp(props))`, never scoped.
             Hole::Control(view) => escape(&control(s, c, view, env, tys)?),
         });
@@ -1483,16 +1505,86 @@ fn boolean_expr(e: &Expr) -> bool {
 /// `_$memo(() => test)()`: a sync memo (one id) created in the getter, read
 /// once.
 fn memoized(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
+    let m = condition_memo(s, c, e, env)?;
+    call(s, &m, &[])
+}
+
+/// `_$memo(() => !!test)` (`test` when statically boolean): the accessor.
+fn condition_memo(s: &mut Server, c: &Rc<Ctx>, e: &Expr, env: &Env) -> Res<JsVal> {
     let (e2, env2, c2) = (e.clone(), env.clone(), c.clone());
     let boolean = boolean_expr(e);
-    let m = memo(
+    memo(
         s,
         JsVal::func(0, move |s, _| {
             let v = eval(s, &c2, &e2, &env2)?;
             Ok(if boolean { v } else { JsVal::Bool(truthy(&v)?) })
         }),
-    )?;
-    call(s, &m, &[])
+    )
+}
+
+/// A `<Show>` Solid main's compiler lowers (shared/lower_show.rs) to
+/// `{when ? <>children</> : fallback}`, compiled by the SSR transform:
+///
+/// - an element's hole (`hole`): with a dynamic test, `_$scope((() => { var
+///   _c$ = _$memo(() => !!when); return () => _c$() ? kids : fallback;
+///   })())`; each branch but a lone element template is escaped in place
+///   (`_$escape(For(…))`, `_$escape([…])`, `_$escape(_$memo(…))`);
+/// - a fragment or a body: `_$memo(() => _$memo(() => !!when)() ? kids :
+///   fallback)`, unescaped;
+/// - a test that is not dynamic: `when ? kids : fallback`, evaluated here
+///   (escaped in a hole, not scoped).
+///
+/// `kids` is `<>children</>` (a sole `<Show>` there was lowered); `fallback`
+/// the attribute's value (a lone `<Show>` there was not); `void 0` for none.
+#[allow(clippy::too_many_arguments)]
+fn lowered_show(
+    s: &mut Server,
+    c: &Rc<Ctx>,
+    when: &Expr,
+    kids: &[View],
+    fallback: &[View],
+    env: &Env,
+    tys: &Types,
+    hole: bool,
+) -> Res<JsVal> {
+    let (kids, fallback) = (kids.to_vec(), fallback.to_vec());
+    let (c2, env2, tys2) = (c.clone(), env.clone(), tys.clone());
+    let branch = Rc::new(move |s: &mut Server, yes: bool| -> Res<JsVal> {
+        let (views, lower) = if yes {
+            (&kids, kids.len() == 1)
+        } else {
+            (&fallback, fallback.len() > 1)
+        };
+        if views.is_empty() {
+            return Ok(JsVal::Undefined);
+        }
+        let v = fragment(s, &c2, views, &env2, &tys2, lower)?;
+        Ok(match views.as_slice() {
+            [View::Element { .. }] => v,
+            _ if hole => escape(&v),
+            _ => v,
+        })
+    });
+    if !c.dynamic(when) {
+        let t = eval(s, c, when, env)?;
+        return branch(s, truthy(&t)?);
+    }
+    if hole {
+        let test = condition_memo(s, c, when, env)?;
+        let accessor = JsVal::func(0, move |s, _| {
+            let t = call(s, &test, &[])?;
+            branch(s, truthy(&t)?)
+        });
+        return ssr_scope(s, accessor);
+    }
+    let (when, env, c) = (when.clone(), env.clone(), c.clone());
+    memo(
+        s,
+        JsVal::func(0, move |s, _| {
+            let t = memoized(s, &c, &when, &env)?;
+            branch(s, truthy(&t)?)
+        }),
+    )
 }
 
 /// `Show(new _P$(…))` or `For(new _P$(…, row => …))`.
@@ -1509,7 +1601,9 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
             let (t2, t3) = (tys.clone(), tys.clone());
             let fallback = (!fallback.is_empty()).then(|| {
                 let fallback = fallback.clone();
-                getter(move |s| fragment(s, &c3, &fallback, &e3, &t3))
+                // An attribute: a lone `<Show>` stays a component.
+                let lower = fallback.len() > 1;
+                getter(move |s| fragment(s, &c3, &fallback, &e3, &t3, lower))
             });
             show(
                 s,
@@ -1517,7 +1611,11 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
                     when: getter(move |s| condition(s, &c1, &when, &e1)),
                     keyed: false,
                     fallback,
-                    children: getter(move |s| fragment(s, &c2, &kids, &e2, &t2)),
+                    children: {
+                        // A component's sole `<Show>` child is lowered.
+                        let lower = kids.len() == 1;
+                        getter(move |s| fragment(s, &c2, &kids, &e2, &t2, lower))
+                    },
                 },
             )
         }
@@ -1545,7 +1643,8 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
                     &item,
                     args.first().cloned().unwrap_or(JsVal::Undefined),
                 );
-                fragment(s, &c2, &kids, &env, &row_tys)
+                // The row is the arrow's body: its `<Show>`s are lowered.
+                fragment(s, &c2, &kids, &env, &row_tys, true)
             });
             for_(
                 s,
@@ -1570,8 +1669,14 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
             loading(
                 s,
                 LoadingProps {
-                    fallback: getter(move |s| fragment(s, &c1, &fb, &e1, &t1)),
-                    children: getter(move |s| fragment(s, &c2, &kids, &e2, &t2)),
+                    fallback: {
+                        let lower = fb.len() > 1;
+                        getter(move |s| fragment(s, &c1, &fb, &e1, &t1, lower))
+                    },
+                    children: {
+                        let lower = kids.len() == 1;
+                        getter(move |s| fragment(s, &c2, &kids, &e2, &t2, lower))
+                    },
                 },
             )
         }
@@ -1590,8 +1695,12 @@ fn control(s: &mut Server, c: &Rc<Ctx>, v: &View, env: &Env, tys: &Types) -> Res
             errored(
                 s,
                 ErroredProps {
-                    fallback: JsVal::func(1, move |s, _| fragment(s, &c1, &fb, &e1, &t1)),
-                    children: getter(move |s| fragment(s, &c2, &kids, &e2, &t2)),
+                    // An arrow's body: its `<Show>`s are lowered.
+                    fallback: JsVal::func(1, move |s, _| fragment(s, &c1, &fb, &e1, &t1, true)),
+                    children: {
+                        let lower = kids.len() == 1;
+                        getter(move |s| fragment(s, &c2, &kids, &e2, &t2, lower))
+                    },
                 },
             )
         }

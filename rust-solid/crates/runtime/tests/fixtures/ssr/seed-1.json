@@ -1053,5 +1053,5 @@
    }
   ]
  },
- "html": "<section _hk=3><button>Filter: <!--$-->all<!--/--></button><ul></ul><button>poke</button><!--$--><p _hk=9000><!--$-->Crash<!--/-->: <!--$-->0<!--/--><button>take</button><button>mine</button></p><small _hk=9002>1</small><!--!$--><p _hk=9010><!--$-->Typo 2<!--/-->: <!--$-->0<!--/--><button>take</button><button>mine</button></p><small _hk=9012>2</small><!--/--><button>inc</button><b><!--$-->2<!--/--> open</b><em></em></section>"
+ "html": "<section _hk=3><button>Filter: <!--$-->all<!--/--></button><ul></ul><button>poke</button><!--$--><p _hk=8000><!--$-->Crash<!--/-->: <!--$-->0<!--/--><button>take</button><button>mine</button></p><small _hk=8002>1</small><!--!$--><p _hk=8010><!--$-->Typo 2<!--/-->: <!--$-->0<!--/--><button>take</button><button>mine</button></p><small _hk=8012>2</small><!--/--><button>inc</button><b><!--$-->2<!--/--> open</b><em></em></section>"
 }
