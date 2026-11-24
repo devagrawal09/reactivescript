@@ -131,8 +131,9 @@ export function compileEval(request: EvalRequest): Compiled {
     const imports = program.decls.filter(d => d.k === 'import');
     if (others.length || imports.length > 1 || imports.some(d => d.k === 'import' && d.from !== './eval-hosts'))
       throw new Error('evaluated code is one component body: it declares nothing outside it and imports nothing');
-    // A write or guess to a binding is READ_ONLY whatever else the checker would say of it (a guess of a placeholder
-    // source is also OPTIMISTIC_NO_QUESTION); plan/resolve-v2.ts refuses any the walk misses, from CP-6's write facts.
+    // A write or guess to a binding is READ_ONLY whatever else the checker would say of it (since upstream d3cab00 the
+    // checker accepts a guess on any writable; plan/resolve-v2.ts refuses it, GUESS_ON_WRITABLE); plan/resolve-v2.ts
+    // refuses any the walk misses, from CP-6's write facts.
     const readOnly = new Set(ds.filter(d => d.kind === 'read' || d.kind === 'store').map(d => d.name));
     const written: Diagnostic[] = [];
     const walk = (x: unknown, line?: number): void => {

@@ -88,7 +88,7 @@ if (input.leg === 'native') {
         set: (v: unknown) => { if (typeof v === 'function') { setStore(v); set(store); } else if (typeof v === 'object' && v !== null) { setStore(() => v); set(store); } else set(v); },
         path: (keys: (string | number)[], v: unknown) => setStore((d: any) => at(d, keys, () => v)),
         pathIn: (keys: () => (string | number)[], v: () => unknown) => setStore((d: any) => at(d, keys(), v)),
-        guess: () => { throw new Error('OPTIMISTIC_NO_QUESTION'); },
+        guess: () => { throw new Error('the probe lowers no guess on a writable (plan/resolve-v2.ts GUESS_ON_WRITABLE)'); },
       }];
     };
   }
