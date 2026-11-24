@@ -5,6 +5,10 @@ JSON that `frontend/plan/emit.ts` emits from the `.rx`, `.tsx` or `.yield.tsx` t
 `slices/tracker/tracker.scenario.json` (format version 2, `docs/SCENARIO-FORMAT.md` there) is its
 contract. The consumer builds the plan with the ported Solid 2 primitives (`slice1/`) and renders
 it with the port of `@solidjs/universal` (docs/RENDERER.md). It does no scheduling of its own.
+
+> **Repinned to Solid main `30e7805e`** (2.0.3+). The line numbers cited below and in `// Solid:` comments are
+> mostly rc.21's; what changed, what was ported and what is not yet is in [PIN-MAIN-RENDER.md](PIN-MAIN-RENDER.md).
+
 Reference: solid-next `2105ffb8` (2.0.0-rc.21), production builds.
 
 ## Three readiness levels (kept apart)

@@ -10,6 +10,9 @@ emitter:
    and compares every host call;
 4. event handlers with arguments, delegated as Solid 2's `@solidjs/web` delegates them.
 
+> **Repinned to Solid main `30e7805e`** (2.0.3+). The line numbers cited below and in `// Solid:` comments are
+> mostly rc.21's; what changed, what was ported and what is not yet is in [PIN-MAIN-RENDER.md](PIN-MAIN-RENDER.md).
+
 Reference: solid-next `2105ffb8` (2.0.0-rc.21), built, read-only, production builds
 (`packages/universal/dist/universal.js`, `packages/solid/dist/solid.js`,
 `packages/web/dist/web.js`, `packages/signals/dist/prod`). No dom-expressions, solid-refresh or

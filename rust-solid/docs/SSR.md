@@ -5,6 +5,10 @@ the plan's TSX twin, and, for an app with async data (plan v2.1), streams it chu
 `renderToStream` streams it, under the same host answers; Solid's client build hydrates the HTML and each stream and
 the scenario runs on. The renderer is a structural port of what Solid's server builds run (`crates/runtime/src/ssr/`),
 plus a lowering of the plan into the calls Solid's compiler emits in `{ generate: "ssr", hydratable: true }` mode.
+
+> **Repinned to Solid main `30e7805e`** (2.0.3+). The line numbers cited below and in `// Solid:` comments are
+> mostly rc.21's; what changed, what was ported and what is not yet is in [PIN-MAIN-RENDER.md](PIN-MAIN-RENDER.md).
+
 Reference: solid-next `2105ffb8` (2.0.0-rc.21), production builds, and seroval 1.7.0 (the serializer Solid's web
 package uses). The oracle (Solid's server renders, Chromium hydration) lives in the frontend (`frontend/ssr/`, its
 `docs/RESULTS.md`, "Slice 5" and "Slice 5: async data"). Async data has its own section below: "Async data and

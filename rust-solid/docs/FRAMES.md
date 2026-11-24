@@ -7,6 +7,10 @@ sanitized error, the CSRF 403, and the server host calls behind them, byte for b
 builds hydrate the Rust document in Chromium, mount the Rust frame streams and run the scenario on. The server is a
 structural port of what Solid's server builds run for a frames app (`crates/runtime/src/frames/`, every ported body
 with its `// Solid: file.ts:lines` comment), on top of slice 5's server port (`crates/runtime/src/ssr/`, `docs/SSR.md`).
+
+> **Repinned to Solid main `30e7805e`** (2.0.3+). The line numbers cited below and in `// Solid:` comments are
+> mostly rc.21's; what changed, what was ported and what is not yet is in [PIN-MAIN-RENDER.md](PIN-MAIN-RENDER.md).
+
 Reference: solid-next `2105ffb8` (2.0.0-rc.21), production builds; `server.ts` is
 `packages/web/server-functions/src/server.ts`, `shared.ts` its `shared.ts`, `frame-sink.ts` is
 `packages/web/frames/src/frame-sink.ts`. The oracle (Solid's own server for the explicit split, Chromium) is the
