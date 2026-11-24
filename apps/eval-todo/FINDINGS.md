@@ -74,7 +74,7 @@ Legend: **fixed** (a gated change in `frontend/`), **worked around** (in the RX 
 
 ## Runtime behaviour (Solid 2)
 
-18. **An action's plain writes show only when it settles.** In `action create(…) { optimistic adding := …; fname := "";
+18. **An action's plain writes show only when it settles.** In `action create(…) { guess adding := …; fname := "";
     … await addItem(…) }`, the guess shows at once but the cleared form only after the server answers (a Solid 2
     transition holds the action's writes). So the form, and todo.rx's draft, now clear after a successful await,
     which also keeps the typed values for a retry when it fails.

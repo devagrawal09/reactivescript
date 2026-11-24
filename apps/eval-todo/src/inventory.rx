@@ -40,7 +40,7 @@ valid = nameErr == "" && qtyErr == "";
 low = filter(shown, i => i.active && i.qty < 5).length;
 
 action create(name: string, category: string, n: number, active: boolean) {
-  optimistic adding := { id: 0, name: name, category: category, qty: n, active: active };
+  guess adding := { id: 0, name: name, category: category, qty: n, active: active };
   try {
     let ok = await addItem(name, category, n, active);
     // An action's plain writes show when it settles anyway (only guesses show at once): clear the form on success,
@@ -54,7 +54,7 @@ action create(name: string, category: string, n: number, active: boolean) {
 }
 
 action update(id: number, name: string, category: string, n: number, active: boolean) {
-  optimistic shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
+  guess shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
   try {
     let ok = await updateItem(id, name, category, n, active);
     editing := 0;
@@ -68,7 +68,7 @@ action update(id: number, name: string, category: string, n: number, active: boo
 
 // The row's toggle: update's guess and call without touching the form (an action can't call another action).
 action setActive(id: number, name: string, category: string, n: number, active: boolean) {
-  optimistic shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
+  guess shown := list => map(list, i => i.id == id ? { id: id, name: name, category: category, qty: n, active: active, words: i.words } : i);
   try {
     let ok = await updateItem(id, name, category, n, active);
     status := "";
@@ -78,7 +78,7 @@ action setActive(id: number, name: string, category: string, n: number, active: 
 }
 
 action remove(id: number, name: string) {
-  optimistic shown := list => filter(list, i => i.id != id);
+  guess shown := list => filter(list, i => i.id != id);
   try {
     let ok = await removeItem(id);
     status := "";

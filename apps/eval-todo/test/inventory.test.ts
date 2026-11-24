@@ -60,7 +60,7 @@ const refusals: [string, string, RegExp][] = [
   ['a substring test', 'source a := "abc"; <p>{"" + a.includes("b")}</p>', /PLAN: unsupported call/],
   ['sort', 'source l := [2, 1]; <p>{"" + sort(l, x => x).length}</p>', /UNBOUND: .*sort is not declared/],
   ['a sum', 'source l := [1, 2]; <p>{"" + reduce(l, x => x)}</p>', /UNBOUND: .*reduce is not declared/],
-  ['an object spread', 'source base := [{ a: 1, b: 2 }]; source l = base; action f() { optimistic l := xs => map(xs, x => { ...x, a: 2 }); } <p>{"" + l.length}</p>', /PLAN: object spreads are outside plan v2/],
+  ['an object spread', 'source base := [{ a: 1, b: 2 }]; source l = base; action f() { guess l := xs => map(xs, x => { ...x, a: 2 }); } <p>{"" + l.length}</p>', /PLAN: object spreads are outside plan v2/],
   ['a component tag', '<Row />', /CHECK: .*<Row> is not a component declared here/],
   ['an action calling an action', 'source c := 0; action a() { c := c + 1; } action b() { a(); } <button onClick={() => { b() }}>b</button>', /PLAN: an action calling an action/],
 ];

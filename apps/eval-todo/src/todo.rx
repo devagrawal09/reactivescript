@@ -17,7 +17,7 @@ source status := "";
 open = filter(shown, t => !t.done).length;
 
 action add(text: string) {
-  optimistic adding := text;
+  guess adding := text;
   try {
     let ok = await addTodo(text);
     draft := "";
@@ -28,7 +28,7 @@ action add(text: string) {
 }
 
 action setDone(id: number, done: boolean) {
-  optimistic shown := list => map(list, t => t.id == id ? { id: t.id, text: t.text, done: done } : t);
+  guess shown := list => map(list, t => t.id == id ? { id: t.id, text: t.text, done: done } : t);
   try {
     let ok = await saveDone(id, done);
     status := "";
@@ -38,7 +38,7 @@ action setDone(id: number, done: boolean) {
 }
 
 action remove(id: number) {
-  optimistic shown := list => filter(list, t => t.id != id);
+  guess shown := list => filter(list, t => t.id != id);
   try {
     let ok = await removeTodo(id);
     status := "";
