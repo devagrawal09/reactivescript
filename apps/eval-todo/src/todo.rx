@@ -1,0 +1,55 @@
+// The todo app, all of it in ReactiveScript. The page hands it the server's list (`db`, read only) and three
+// server calls; every guess, rollback and status message below is RX.
+source none := "";
+source ideas := { list: ["buy milk", "walk the dog", "ship eval", "water plants", "call mom"] };
+source shown = db.list;
+source adding = none;
+source status := "";
+
+open = filter(shown, t => !t.done).length;
+
+action add(text: string) {
+  optimistic adding := text;
+  try {
+    let ok = await addTodo(text);
+    status := "";
+  } catch (error) {
+    status := "Could not add " + text;
+  }
+}
+
+action setDone(id: number, done: boolean) {
+  optimistic shown := list => map(list, t => t.id == id ? { id: t.id, text: t.text, done: done } : t);
+  try {
+    let ok = await saveDone(id, done);
+    status := "";
+  } catch (error) {
+    status := "Could not save #" + id;
+  }
+}
+
+action remove(id: number) {
+  optimistic shown := list => filter(list, t => t.id != id);
+  try {
+    let ok = await removeTodo(id);
+    status := "";
+  } catch (error) {
+    status := "Could not delete #" + id;
+  }
+}
+
+<article>
+  <h2>{"" + open + " open of " + shown.length}</h2>
+  <ul>
+    {for t in shown {
+      <li>
+        <button onClick={() => { setDone(t.id, !t.done) }}>{t.done ? "☑" : "☐"}</button>
+        {if t.done { <s>{t.text}</s> } else { <span>{t.text}</span> }}
+        <button onClick={() => { remove(t.id) }}>✕</button>
+      </li>
+    }}
+    {if adding != "" { <li><i>{adding + " (saving…)"}</i></li> }}
+  </ul>
+  <nav>{for idea in ideas.list { <button onClick={() => { add(idea) }}>{"+ " + idea}</button> }}</nav>
+  <em>{status}</em>
+</article>

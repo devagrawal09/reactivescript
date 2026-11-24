@@ -1,0 +1,14 @@
+{
+  "name": "reactivescript-eval-todo",
+  "private": true,
+  "type": "module",
+  "description": "A Solid 2 page whose todo app is ReactiveScript, evaluated live with createEval (frontend/eval).",
+  "scripts": {
+    "build": "node --experimental-strip-types scripts/build.ts",
+    "dev": "node --experimental-strip-types scripts/build.ts --serve",
+    "test": "node --experimental-strip-types --conditions=browser --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}

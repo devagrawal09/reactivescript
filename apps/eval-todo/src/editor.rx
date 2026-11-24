@@ -1,0 +1,12 @@
+// The code editor, in RX. It edits whatever it's bound to: the todo app's code, or this very file.
+// Try it on itself: change the "keystrokes" label below and watch this editor rebuild with it.
+source keys := 0;
+
+<div>
+  <header>
+    <b>{title}</b>
+    <small>{"running v" + version + " · " + keys + " keystrokes since it started"}</small>
+  </header>
+  <textarea value={code} spellcheck="false" onInput={e => { edit(e.target.value); keys := keys + 1 }}></textarea>
+  {if problems == "" { <p>✓ accepted by the checker</p> } else { <pre>{problems}</pre> }}
+</div>
