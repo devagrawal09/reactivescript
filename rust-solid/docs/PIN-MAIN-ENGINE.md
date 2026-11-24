@@ -48,16 +48,21 @@ not ported yet.
 
 ## Numbers
 
-Before: the Rust port unchanged, against `main` (`--no-reduce`, seeds 1–1000). After: this branch.
+Before: the Rust port unchanged, against `main` (`--no-reduce`, seeds 1–1000). After: this
+branch, the gate commands exactly as recorded (`dist/prod`, default 1500 ms timeout).
 
-| mode | recorded (rc.21) | before | after |
-| --- | --- | --- | --- |
-| `--slice1` | 1000/1000 | 950/1000 | **1000/1000**, summary byte-identical (1–1000 and 1001–3000) |
-| `--slice2a --no-reduce` | 991/1000 (8 invalid, 629 panic) | 520/1000 | **996/1000**, 4 invalid, every valid seed agrees; 1001–3000: 1997/2000, 3 invalid |
-| `--slice2b` | 1000/1000 | 412/1000 | see "Not ported" |
-| `--slice2c --no-reduce` | 999/1000 (493 invalid) | 714/1000 | see "Not ported" |
-| `--strings` | 1000/1000 | 793/1000 | **1000/1000**, summary byte-identical (1–1000 and 1001–3000) |
-| `--boundaries --no-reduce` | 985/1000 (15 invalid) | 356/1000 | **988/1000**, 12 invalid, every valid seed agrees; 1001–3000: 1982/2000, 18 invalid |
+| mode | recorded (rc.21) | before | after, 1–1000 | after, held out 1001–3000 |
+| --- | --- | --- | --- | --- |
+| `--slice1` | 1000/1000 | 950/1000 | **1000/1000** (summary byte-identical) | **2000/2000** (byte-identical) |
+| `--slice2a --no-reduce` | 991/1000 (8 invalid, 629 panic) | 520/1000 | **996/1000**, 4 invalid (re-recorded) | **1997/2000**, 3 invalid (re-recorded) |
+| `--slice2b` | 1000/1000 | 412/1000 | **1000/1000** (byte-identical) | **2000/2000** (re-recorded: 1430 no longer invalid) |
+| `--slice2c --no-reduce` | 999/1000 (493 invalid) | 714/1000 | **1000/1000** (re-recorded) | **1997/2000**, 3 invalid (re-recorded) |
+| `--strings` | 1000/1000 | 793/1000 | **1000/1000** (byte-identical) | **2000/2000** (byte-identical) |
+| `--boundaries --no-reduce` | 985/1000 (15 invalid) | 356/1000 | **988/1000**, 12 invalid (re-recorded) | **1982/2000**, 18 invalid (re-recorded) |
+
+Every valid program of every range agrees; no class of Rust-vs-Solid disagreement is left in
+the gates. The invalid programs are Solid's own (`oracle-nonscalar`, `oracle-halted`,
+`oracle-timeout`), never counted as agreement.
 
 ## Ported
 
@@ -109,6 +114,29 @@ are stale where a function moved.
   `heldRun` skipping a held/lane output (#4987), the shown held mount (`shown`), a pending tree
   caught on a settled pass, `isThenable(value)` on an error boundary's store value.
 
+- **store/optimistic.ts** (S-59, #4729, and #4788, #4993, #5140, #4897/#4900, #4907/#4912,
+  #4918/#4919, #4928/#4933, #4931/#4943, #4793): rewritten on main's carrier model — one
+  `$PATCH` slot node per target per lane (`Equals::Patch` is `patchEquals`; its `wk`, `del`,
+  `borrowed`, `removed`, `g` and `qs` live in `StoreState::carrier`), `guessFor`,
+  `newestGuess`, `heldCarrier`, `writerBacking`/`guessView`/`writerFrame`/`ownedKeys`,
+  `guessCarrier`/`entangle`, `reasked`, `carriedVerbatim`, `notifyOptimisticWrites`,
+  `arrangementRow`, `reconcileDraft` (a setter's returned value is now diffed into the draft),
+  `readersOf` with `_slotDirty`/`_slotMerge`, the carrier `_laneRebase`, `sameRows`, `fold`,
+  `foldedRead`, `pairRows` (D-34, previously fail-closed), `noteRead`/`noteShape`, and the
+  hooks `read`, `drafted`, `has`, `frame`, `covers`, `judge`, `ask`, `stands`, `park`, plus
+  `sweepOverlaid`/`laneNodeOf` over carriers. `LaneView`, `optimisticView`, `optimisticHas`
+  and `containerEquals`' arrangement are gone, as upstream.
+- **store/store.ts**: `coveredSet` in `notifyWrites`/`leafSet` for carrier-served keys,
+  `notifyContainer`'s guess test, `ensurePB` (#5096), `adoptPB`'s deferred releases (#5005)
+  and `judge`, `releaseSlot` (dropping emptied node maps, #5024/#5120), `readSource`
+  (`draftReadTx`, #5046; a leaf's own lane), `serveKeyValue` split out, `pullFamily`
+  (`feeds`, #4970/#4972; verdict derives read their pending deps; `pullComputed`), the
+  `$TRACK`/`get`/`has` traps' optimistic hooks, the `set` trap keeping another family's proxy
+  (#4845), `storeSetter`'s returned value and `draftReadTx` join. **reconcile.ts**: the
+  writer's `pair(t, incoming, true)` before the view.
+- **map.ts**: one copy of the source per pass and `_items` is that copy (#4785), small-move
+  runs as triples, and the duplicate decline over `oldItems.indexOf`.
+
 ## Re-recorded summaries, and why
 
 Only where Solid's own output changed; every valid program agrees in each.
@@ -130,8 +158,59 @@ Only where Solid's own output changed; every valid program agrees in each.
 - `docs/boundaries-fuzz/summary-1001-3000.json`: 1389, 2507 (→ #5101) and 2735, 2762 (→ #5161) no
   longer hang; 2845 now hangs (first change #4717 `46a72c0b3`). 18 invalid, all
   `oracle-timeout`.
-- `--slice1` and `--strings` summaries are unchanged (byte-identical, both ranges).
+- `--slice1` and `--strings` summaries are unchanged (byte-identical, both ranges), and so
+  is `--slice2b` 1–1000.
 
-## Not ported yet
+## Test fixtures re-generated
 
-See the section at the end (updated as the store tier lands).
+`crates/runtime/tests/fixtures/{boundaries,slice2a,slice2b,slice2c,strings}-units.json` were
+regenerated with their own tools (`docs/*-fuzz/tools/unit-expectations.mjs`) against Solid
+main; the op programs are unchanged, only Solid's traces moved, and the port agrees with
+every one. First upstream change per changed unit: `a_refetch_keeps_the_content`,
+`same_key_promise_and_refresh`, `pass_scoped_transaction` → #5101; `errored_catches_a_
+rejection_and_recovers`, `equal_string_write` → #4908; `fuzz_seed_652`, `fuzz_seed_2171`,
+`derived_store_arrangement_rebase`, `tracker_scenario` → #4717; `fuzz_seed_957` → #4687;
+`optimistic_memo_take`, `kept_guess_restored`, `lane_outcome_truth_beneath_guess` → #5137;
+`derived_store_slot_take` → #5140; `opt_store_linked_lanes` → #4788;
+`a_surviving_zombie_reruns_at_commit` → #4727.
+
+## More re-recorded summaries
+
+- `docs/slice2b-fuzz/port/summary-1001-3000.json`: seed 1430 (the "take of a held slot"
+  suspected Solid bug, SLICE1.md) is valid at main and agrees: `take` is gone upstream (first
+  change #4729 `c98168082`; #5140 removed `take`).
+- `docs/slice2c-fuzz/port/summary-1-1000.json`: seed 493 (array view with holes,
+  `oracle-halted` at rc.21) is valid and agrees (first change #4729).
+- `docs/slice2c-fuzz/port/summary-1001-3000.json`: 2723, 2907 (`oracle-error` at rc.21) are
+  valid and agree (#4729); 1015, 2190, 2786 newly halt in Solid (first change #4785
+  `e0f31bc58`, the per-pass copy: the same "key fn over an `undefined` row" family).
+
+## Not ported (fail closed where reachable)
+
+No fuzz program of any gate range reaches these:
+
+- Adopting a parked frame flight (verdict.ts `adoptParked` visit 1: `handleAsync(r,
+  parked.then())`, a chained promise): panics. The rest of the parked-flight machinery
+  (`park`, `parkUp`, `r5`, `leave`, `seat`, `reask`, `arm`) is ported.
+- Chained stores (a store over another store's proxy, §7b: `resolveChainedRaw`,
+  `follow`), the deep witness (`deep()`), accessor keys (`isAccessorKey`), the ownKeys and
+  getOwnPropertyDescriptor traps (`descriptor` hook) — as before; `Object.keys` of a store
+  proxy outside a write panics in `reconcileDraft`.
+- The dormant-node sweep, `swapHook` (web only), `refCallbackDepth`/`inRefCallback`
+  (`read`'s ref-callback serve, `serve`'s born-held arm), `onFlush`'s trailing `flush()`,
+  `Repeat`, observe/dev/`__TEST__` tiers, attribution.
+- `lanes.ts rerun` / `_slotRerun` and `guesses.ts`'s `reverting` have no caller at main and
+  were dropped.
+
+## For the renderer side (not changed here)
+
+- `tests/plan_v21.rs` fails 2 of 10 (`generated_async_programs_give_native_solids_host_log`
+  seed-1: frame `reaskrefetchList5` where the recorded native host log has
+  `reaskrefetchListLoadingsoon`; `async_eval_programs_give_the_static_twins_host_log` seed-56:
+  `loadRows call #2 was not issued`). Both compare against host logs recorded from native
+  Solid at rc.21 and both are refresh-shaped: Solid #5101 makes a `refresh()` issued while the
+  answer is out wait for it and re-ask once (no second call yet). They need re-recording
+  against native Solid main (frontend's plan fuzz) — not verified here.
+- `universal.rs`/`ssr`/`frames` were not touched. If the renderer ports main's ref-callback
+  serving (`refCallbackDepth` in core.ts `serve`) or `swapHook`, the engine side is where
+  core.ts reads them; nothing in the engine fuzz reaches them.
