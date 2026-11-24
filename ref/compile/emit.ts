@@ -182,7 +182,13 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const prevHash = this.styleHash;
     if (styleRoot) this.styleHash = this.style(view);   // a component's view (or the program's) has its own scope; a branch keeps its view's
-    try { return this.block0(decls, view, env, ind, exportsTail); } finally { this.styleHash = prevHash; }
+    const sites: string[] = []; this.sites.push(sites);
+    try {
+      const body = this.block0(decls, view, env, ind, exportsTail);
+      if (!sites.length) return body;
+      const nl = body.indexOf("\n");   // after `const __o = …`
+      return `${body.slice(0, nl)}\n${pad}const ${sites.map(s => `${s} = __rt.site()`).join(", ")};${body.slice(nl)}`;
+    } finally { this.styleHash = prevHash; this.sites.pop(); }
   }
   /** 07 §6b: a view's <style> through TSRX's engine (Solid's compiler): the view's elements as a TSRX fragment — HTML
    *  elements with their static attributes, components with the children passed to them, and every region (a branch, a
@@ -391,7 +397,8 @@ class Gen {
       throw new CompileError(`${s.k} in a draft block`);
     }).join("\n");
   }
-  private fn(d: FnDecl, env: Env, ind: number): string {
+  private fn(d: FnDecl, env: Env, ind: number): string { this.sites.push(null); try { return this.fn0(d, env, ind); } finally { this.sites.pop(); } }
+  private fn0(d: FnDecl, env: Env, ind: number): string {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
@@ -487,10 +494,7 @@ class Gen {
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
-        const inner = new Env(env); for (const p of e.params) inner.vars.set(p, { kind: "hval", js: mg(p) }); const ps = e.params.map(mg).join(", ");
-        if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
-        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
-        return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
+        this.sites.push(null); try { return this.fnExpr(e, env, ctx); } finally { this.sites.pop(); }
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
@@ -506,11 +510,27 @@ class Gen {
       case "omit": return `__rt.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;   // RG-4b: Solid's live view
     }
   }
+  private fnExpr(e: Extract<Expr, { k: "fn" }>, env: Env, ctx: Ctx): string {
+    {
+        const inner = new Env(env); for (const p of e.params) inner.vars.set(p, { kind: "hval", js: mg(p) }); const ps = e.params.map(mg).join(", ");
+        if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
+        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
+        return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
+    }
+  }
   /** An expression whose value is read here and goes nowhere else (a member's object, an operand, a formatted hole): a store
    *  is its target, read with no proxy; any other expression is `expr`. */
+  /** Read sites, per block being emitted (a block is a region: its code runs once per instance). `null`: code that runs
+   *  for many targets through one site (a function's body, a lambda), which gets none. */
+  private sites: (string[] | null)[] = []; private siteSeq = 0;
   hx(e: Expr, env: Env, ctx: Ctx): string {
     const sub: Ctx = { ...ctx, tail: false };
-    if (e.k === "member") return `__rt.get(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+    if (e.k === "member") {
+      // a tracked read with a fixed key, in a region's own scope: a read site of the region's instance keeps the node
+      const top = this.sites[this.sites.length - 1];
+      if (top && !ctx.imp && !ctx.dyn) { const s = `$s${this.siteSeq++}`; top.push(s); return `__rt.getAt(${s}, ${this.hx(e.o, env, sub)}, ${J(e.p)})`; }
+      return `__rt.get(${this.hx(e.o, env, sub)}, ${J(e.p)})`;
+    }
     if (e.k === "index") return `__rt.get(${this.hx(e.o, env, sub)}, ${this.hx(e.i, env, sub)})`;
     if (e.k === "id" && !(ctx.effect && /^\$\d+$/.test(e.name))) {
       const b = env.lookup(e.name);
