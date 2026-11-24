@@ -77,7 +77,7 @@ diffed and every difference is one of the Solid changes above.
 Measured after the engine merge. Each is reactive timing or Solid's own nondeterminism, not host-op order, keys or
 HTML.
 
-- **`isPending` over two rejected sources** (engine, `verdict.ts`): plan fuzz v2.1 seed 19 (`rust: step-getFirstChild`)
+- **Fixed since** (engine commit `9c72431`, Solid #4826's lane test in `verdictValue`; see PIN-MAIN-ENGINE.md): **`isPending` over two rejected sources** (engine, `verdict.ts`): plan fuzz v2.1 seed 19 (`rust: step-getFirstChild`)
   and the same program in the eval fuzz v2.1 (`rust: result`). After `loadIssues` and `loadTotal` reject (steps 5 and
   6), native's `isPending(() => issues().length + total())` stays true ("busy"); Rust's turns false ("ready",
   `getFirstChild`/`replaceText` at step 6). It agreed at rc.21. The scenario: step 4 asks `loadIssues#2` and `loadTotal#3`;
