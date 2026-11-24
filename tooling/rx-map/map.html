@@ -29,6 +29,7 @@
   #canvas { position: fixed; inset: 0; overflow: hidden; perspective: 1500px; perspective-origin: 50% 50%; touch-action: none; cursor: grab;
     background: radial-gradient(1300px 800px at 50% -15%, rgba(70, 100, 190, .24), transparent 62%), radial-gradient(900px 700px at 105% 110%, rgba(45, 212, 191, .06), transparent 60%), radial-gradient(700px 600px at -5% 100%, rgba(180, 140, 248, .06), transparent 60%), #07090d }
   #canvas.grabbing { cursor: grabbing }
+  #canvas { -webkit-user-select: none; user-select: none }
   #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform-style: preserve-3d }
   #floor { position: absolute; pointer-events: none; transform: translateZ(-44px);
     background-image: linear-gradient(rgba(120, 150, 220, .08) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 150, 220, .08) 1px, transparent 1px);
@@ -366,7 +367,7 @@
   .trip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 6px; font-size: 11.5px; max-width: 100%; color: #1a1205; background: var(--pending); box-shadow: 0 0 14px rgba(251, 191, 36, .5) }
   .trip b { font: 800 9.5px/1 ui-sans-serif, system-ui; letter-spacing: .12em; text-transform: uppercase }
   .trip span { font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-  .trip-errored .trip { color: #fff; background: #e11d48; box-shadow: 0 0 14px rgba(251, 113, 133, .55) }
+  .trip-errored > .flabel > .trip { color: #fff; background: #e11d48; box-shadow: 0 0 14px rgba(251, 113, 133, .55) }
 
   /* time travel */
   #rewind { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; -webkit-backdrop-filter: grayscale(.9) contrast(1.06) brightness(.9); backdrop-filter: grayscale(.9) contrast(1.06) brightness(.9) }
@@ -1336,7 +1337,18 @@ const zoomPct = document.getElementById("zoomPct");
 // its real size instead of a scaled bitmap. Layout boxes (offsetLeft…) stay in unzoomed board pixels, so nothing else
 // changes.
 let LZ = 1, crispT = 0;
+// the board never leaves the screen entirely: at least a margin of it stays in view
+function keepInView() {
+  if (!cam.ready) return;
+  const fr = freeRect(), m = Math.min(220, fr.h / 3, fr.w / 3) + 80 * cam.s;   // + the board's empty padding
+  const [lx] = toPlane(fr.l + m, fr.cy), [rx] = toPlane(fr.r - m, fr.cy), [, ty] = toPlane(fr.cx, fr.t + m), [, by] = toPlane(fr.cx, fr.b - m);
+  const X0 = cam.x - vw / 2, Y0 = cam.y - vh / 2, w = cam.s * BW, h = cam.s * BH;
+  // plane x of the board's edges must straddle the margins
+  if (X0 > rx) cam.x -= X0 - rx; else if (X0 + w < lx) cam.x += lx - (X0 + w);
+  if (Y0 > by) cam.y -= Y0 - by; else if (Y0 + h < ty) cam.y += ty - (Y0 + h);
+}
 function applyCam() {
+  keepInView();
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
   drawMiniView();
