@@ -18,6 +18,9 @@
     "./page": "./page.mjs",
     "./live": "./live.mjs",
     "./diff": "./diff.mjs",
+    "./fake": "./fake.mjs",
+    "./hmr": "./hmr.mjs",
+    "./conformance": "./conformance.mjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -25,6 +28,9 @@
     "page.mjs",
     "live.mjs",
     "diff.mjs",
+    "fake.mjs",
+    "hmr.mjs",
+    "conformance.mjs",
     "rx-map.mjs",
     "README.md"
   ],
@@ -39,6 +45,6 @@
   "scripts": {
     "build": "node build.mjs",
     "prepack": "node build.mjs",
-    "test": "node build.mjs --check && node test/run.mjs"
+    "test": "node build.mjs --check && node test/conformance.test.mjs && node test/run.mjs"
   }
 }
