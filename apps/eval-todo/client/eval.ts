@@ -1,7 +1,8 @@
 // createEval bound to @solidjs/web, the renderer this app's TSX compiles against, so evaluated RX renders into the
 // same DOM and the same reactive graph as the host. Plans create elements with their events as static props, then
 // append and insert children; @solidjs/web's own insert, createComponent and memo do the reactive parts.
-import { createComponent, insert, memo } from '@solidjs/web';
+import type { Component } from 'solid-js';
+import { createComponent, insert, memo, type JSX } from '@solidjs/web';
 import { bindEval } from '../../../frontend/eval/runtime.ts';
 import type { Renderer } from '../../../frontend/plan/solid-plan.ts';
 
@@ -21,8 +22,9 @@ const renderer: Renderer = {
   createTextNode: value => document.createTextNode(value),
   insertNode: (parent, node) => { (parent as Node).appendChild(node as Node); },
   insert: (parent, value, marker) => insert(parent as Element, value as never, marker as Node | undefined),
-  createComponent: (c, props) => createComponent(c, props as never),
-  memo: (fn, equal) => memo(fn, equal),
+  createComponent: (c, props) => createComponent(c as Component<any>, props as never),
+  // solid-plan.ts only calls memo(fn); @solidjs/web's memo takes no `equal`.
+  memo: fn => memo(fn),
   // Plan v2.2 attributes. Form state is a property; writing the same value again would move the caret.
   setProp(node, name, value) {
     const el = node as HTMLElement & Record<string, unknown>;
@@ -32,5 +34,7 @@ const renderer: Renderer = {
   },
 };
 
-export const createEval = bindEval({ renderer });
+// A markup eval renders into this page's DOM, so to the host's TSX it is a JSX child.
+const evaluate = bindEval({ renderer });
+export const createEval = (...args: Parameters<typeof evaluate>) => evaluate(...args) as JSX.Element;
 export { compileOrThrow, EvalRefused } from '../../../frontend/eval/runtime.ts';

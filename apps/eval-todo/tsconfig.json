@@ -1,0 +1,24 @@
+{
+  // For the editor and `tsc -p .`: the build (scripts/build.ts) doesn't read it. Solid resolves from
+  // frontend/node_modules, the pinned build the eval runtime uses, as the build's nodePaths do.
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "paths": {
+      "solid-js": ["./../../frontend/node_modules/solid-js"],
+      "@solidjs/web/jsx-runtime": ["./../../frontend/node_modules/@solidjs/web/types/jsx.d.ts"],
+      "@solidjs/web/jsx-dev-runtime": ["./../../frontend/node_modules/@solidjs/web/types/jsx.d.ts"],
+      "@solidjs/*": ["./../../frontend/node_modules/@solidjs/*"]
+    },
+    "types": []
+  },
+  "include": ["client/**/*", "src/**/*.ts"]
+}

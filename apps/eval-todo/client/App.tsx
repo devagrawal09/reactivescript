@@ -2,6 +2,7 @@
 // createEval(() => code(), { bindings }): the todo app, and the code editor (src/editor.rx) that edits the todo app's
 // code and, in the last panel, its own. The host owns only the fake server and the programs' text.
 import { createSignal, Errored, For, Show } from 'solid-js';
+import type { JSX } from '@solidjs/web';
 import { createEval } from './eval.ts';
 import { createProgram } from './program.ts';
 import { createServer } from './server.ts';
@@ -17,7 +18,7 @@ const diagnosticsOf = (err: unknown): Diagnostic[] => {
 };
 
 /** A runtime failure of evaluated code, with a retry. Refusals never get here: only accepted code runs. */
-const Boundary = (props: { children: unknown }) => (
+const Boundary = (props: { children: JSX.Element }) => (
   <Errored fallback={(err, retry) => (
     <div class="errors">
       <b>Runtime error</b>

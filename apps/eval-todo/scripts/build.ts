@@ -38,6 +38,9 @@ const ctx = await context({
   sourcemap: 'inline',
   logLevel: 'error',
   loader: { '.rx': 'text' },
+  // tsconfig.json is for the editor and tsc. esbuild would apply its `paths` and resolve solid-js and @solidjs/web
+  // past the browser condition (to Solid's server build): ignore it; nodePaths above resolve Solid.
+  tsconfigRaw: {},
   plugins: [solid],
   // Node-only modules on the compile path that the RX path never calls: stubbed for the page.
   alias: {
