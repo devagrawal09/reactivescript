@@ -39,6 +39,13 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
 - **Hover** a chip to see its edges. **Click** it to pin it, read its line, and trace:
   - **what it affects**: writes and calls go out, then tracked reads carry the change on. A snapshot read stops it.
   - **what it depends on**.
+- The side panel opens from the header (`guide · legend`). It has tabs:
+  - **Guide** and **Legend**;
+  - **Changes**, in a diff, open by default;
+  - the selected name, which appears while something is selected.
+
+  Esc clears a selection, which brings back the tab you were on. Esc again closes the panel. Whether the panel is open,
+  and on which tab, is remembered.
 - `#name`, `#name:down` or `#name:up` in the URL selects or traces a name. `/` focuses search.
 
 ## Diff: what changed between two versions
