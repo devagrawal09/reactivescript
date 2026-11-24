@@ -690,15 +690,6 @@ impl Runtime {
             .is_some_and(|d| self.nodes[d].status & STATUS_PENDING != 0)
     }
 
-    // Solid: store.ts:949-958 (`GlobalQueue._slotCovered`)
-    pub(in crate::slice1) fn slot_covered(&self, n: NodeId) -> Value {
-        let t = self.nodes[n].host.expect("a slot node");
-        if self.st(t).ch {
-            panic!("a chained link's covered value (§7b) is not ported");
-        }
-        self.nodes[n].value.clone()
-    }
-
     /// The scheduler's `storeCommitHook` (store.ts:959-962).
     pub(in crate::slice1) fn store_commit(&mut self) {
         self.drain_folds();
@@ -1218,7 +1209,7 @@ impl Runtime {
                 if self.nodes[c].config & CONFIG_VERDICT != 0 && self.staged_screen(c, None) {
                     return Ok(self.committed(target));
                 }
-                self.staged_read(c, None);
+                self.staged_read(c, None)?;
                 return Ok(pb);
             }
         }
@@ -1517,8 +1508,6 @@ impl Runtime {
             if self.nodes[node].pending.is_some() && self.nodes[node].config & CONFIG_OVERRIDE == 0
             {
                 self.list(node, lane);
-                self.nodes[node].lane = self.nodes[node].pending.take();
-                self.nodes[node].pending_err = None;
                 self.nodes[node].config |= CONFIG_OVERRIDE;
                 return;
             }

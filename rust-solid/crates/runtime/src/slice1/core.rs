@@ -24,7 +24,7 @@ impl Runtime {
         } else if flags & REACTIVE_ZOMBIE != 0 && self.lane_frame_member(el) {
             self.delete_from_heap(el);
             self.nodes[el].flags &= !(REACTIVE_DIRTY | REACTIVE_CHECK | REACTIVE_LANE_DIRTY);
-        } else {
+        } else if !(self.nodes[el].parked.is_some() && self.adopt(el, 1)) {
             self.recompute(el, false);
         }
     }
@@ -80,19 +80,58 @@ impl Runtime {
             None
         };
         self.lane_root = mount;
+        // `laneAdoptHook` (verdict.ts `adopt`): a parked flight replaced, or
+        // a lane node re-run off its lane.
+        if !create && self.nodes[el].x {
+            let adopt = match self.nodes[el].parked {
+                Some(p) => {
+                    if Some(p) != self.nodes[el].in_flight {
+                        self.nodes[el].parked = None;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                None => {
+                    self.nodes[el].config & CONFIG_OVERRIDE != 0
+                        && self.nodes[el].flags & REACTIVE_LANE_DIRTY == 0
+                }
+            };
+            if adopt {
+                self.adopt(el, 2);
+            }
+        }
+        // A mount a probing pass (or a display-ahead mount, or a render
+        // effect reading a verdict memo) opens is born held (S-46, S-58).
+        let cp = if create {
+            self.creator_pass(self.context)
+        } else {
+            None
+        };
+        let cf = cp.map_or(0, |p| self.nodes[p].flags);
+        if cf & REACTIVE_PROBED != 0
+            || cp.is_some_and(|p| {
+                (self.nodes[p].config & CONFIG_MOUNT_AHEAD != 0
+                    && self.nodes[p].status & STATUS_UNINITIALIZED != 0)
+                    || (self.nodes[p].effect_type == EFFECT_RENDER
+                        && self.nodes[p].deps_tail.is_some()
+                        && self.has_dep_until(p, self.nodes[p].deps_tail, |rt, d| {
+                            rt.nodes[d].config & CONFIG_VERDICT != 0
+                        }))
+            })
+        {
+            self.nodes[el].config |= CONFIG_MOUNT_AHEAD;
+        }
         let own_tx = self.nodes[el].transaction.filter(|t| self.txs[*t].lane);
         let seat = if (self.nodes[el].flags & REACTIVE_LANE_DIRTY != 0
             || self.nodes[el].config & (CONFIG_OVERRIDE | CONFIG_GUESS) == CONFIG_OVERRIDE)
             && own_tx.is_some()
         {
             own_tx
-        } else if create
+        } else if prev_lane.is_some_and(|l| !self.is_verdict(l))
             // `prevLane?._parent!._verdict != prevLane`: a creator lane that
             // is not a verdict lane (loose `!=`: false with none).
-            && prev_lane.is_some_and(|l| !self.is_verdict(l))
-            && self
-                .creator_pass(self.context)
-                .is_some_and(|p| self.nodes[p].flags & REACTIVE_RECOMPUTING_DEPS != 0)
+            && cf & REACTIVE_RECOMPUTING_DEPS != 0
         {
             prev_lane
         } else {
@@ -100,11 +139,12 @@ impl Runtime {
         };
         self.pass_lane = seat;
         let replaced = self.nodes[el].config & CONFIG_STAGED_ERROR;
+        let mut linked = false;
         if !create {
             self.delete_from_heap(el);
             if is_effect == 0
                 && (self.nodes[el].status & STATUS_PENDING != 0
-                    || self.nodes[el].config & (CONFIG_ASYNC | CONFIG_HELD)
+                    || self.nodes[el].config & (CONFIG_ASYNC | CONFIG_OWN_PROBE | CONFIG_HELD)
                         == CONFIG_ASYNC | CONFIG_HELD)
             {
                 self.nodes[el].config &= !CONFIG_VERDICT;
@@ -144,6 +184,16 @@ impl Runtime {
             } else if self.nodes[el].first_child.is_some() || !self.nodes[el].disposal.is_empty() {
                 self.park_children(el);
             }
+            // `passHook` (verdict.ts `pass`): a held error stays the newest
+            // answer `latest` shows while this pass's flight is up (D-22,
+            // D-41). `linked`: the pass had sources.
+            linked = self.nodes[el].deps.is_some();
+            if self.nodes[el].x
+                && (self.nodes[el].config & CONFIG_STAGED_ERROR != 0
+                    || self.nodes[el].ahead_error.is_some())
+            {
+                self.pass(el, false);
+            }
             if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
                 self.set_pending(el, None);
                 self.nodes[el].config ^= CONFIG_STAGED_ERROR;
@@ -163,10 +213,13 @@ impl Runtime {
         };
         let was_pending_source = self.set_has(self.nodes[el].pending_sources, el);
         let mut staged_err = false;
-        let reask = self.nodes[el].flags & REACTIVE_REASK != 0
-            && !((self.nodes[el].status & STATUS_PENDING != 0
-                || (self.guessing && self.nodes[el].pending.is_some()))
-                && !self.nodes[el].reask);
+        let mut reask = self.nodes[el].flags & REACTIVE_REASK != 0
+            && !(self.nodes[el].x
+                && !self.nodes[el].reask
+                && (self.nodes[el].status & STATUS_PENDING != 0
+                    || (self.nodes[el].pending.is_some()
+                        && !self.nodes[el].revert
+                        && self.nodes[el].flags & REACTIVE_MANUAL_WRITE == 0)));
         let old_context = self.context;
         self.context = Some(el);
         self.nodes[el].deps_tail = None;
@@ -175,12 +228,9 @@ impl Runtime {
         self.nodes[el].flags =
             REACTIVE_RECOMPUTING_DEPS | (self.nodes[el].flags & (REACTIVE_ZOMBIE | REACTIVE_REASK));
         self.nodes[el].time = self.clock;
-        let prev_value = match self.nodes[el].pending.clone() {
+        let prev_value = match self.pending_value(el) {
             Some(v) => v,
-            None => match self.nodes[el].lane.clone() {
-                Some(l) if self.nodes[el].config & CONFIG_OVERRIDE != 0 => l,
-                _ => self.nodes[el].value.clone(),
-            },
+            None => self.nodes[el].value.clone(),
         };
         let old_height = self.nodes[el].height;
         let prev_tracking = self.tracking;
@@ -217,9 +267,11 @@ impl Runtime {
                             unreachable!("a flight is an object")
                         };
                         if !self_registered && !is_async_result {
-                            self.nodes[el].in_flight = None;
-                            // `holdWorkHook` is installed.
-                            self.nodes[el].config &= !CONFIG_ASYNC;
+                            if self.nodes[el].x {
+                                self.nodes[el].in_flight = None;
+                                // `holdWorkHook` is installed.
+                                self.nodes[el].config &= !CONFIG_ASYNC;
+                            }
                             self.nodes[el].loading = false;
                         }
                         Ok(v)
@@ -234,8 +286,14 @@ impl Runtime {
             Ok(v) => {
                 value = v;
                 // `_statusFlags !== 0 || _x !== null`: on a status-free node
-                // with no extension `clearStatus` changes nothing.
-                self.clear_status(el, create);
+                // with no extension `clearStatus` changes nothing. A pass
+                // served a flight's committed value keeps its pending
+                // (`laneServedHook(el, null, true)`, #4862).
+                let keep = self.nodes[el].status & STATUS_PENDING != 0
+                    && matches!(self.lane_served(el, None, true), Ok(true));
+                if !keep {
+                    self.clear_status(el, create);
+                }
             }
             Err(e) => {
                 // core.ts:654-705
@@ -337,7 +395,14 @@ impl Runtime {
                 self.release_if_settled_unobserved(node);
             }
         }
-        self.nodes[el].reask = reask && self.nodes[el].status & STATUS_PENDING != 0;
+        // A pass that read only committed values asks the committed question
+        // again: a re-ask too (A19 exc. 2, #4908 K1b).
+        if linked && !reask && self.nodes[el].status & STATUS_PENDING != 0 {
+            reask = self.pass(el, true);
+        }
+        if self.nodes[el].x {
+            self.nodes[el].reask = reask && self.nodes[el].status & STATUS_PENDING != 0;
+        }
         if self.nodes[el].flags & REACTIVE_DISPOSED != 0 {
             self.clear_deps(el);
             self.clear_in_flight(el);
@@ -358,14 +423,17 @@ impl Runtime {
             let unstaged = self.nodes[el].pending.is_none();
             let compare_value = match self.nodes[el].pending.clone() {
                 Some(v) => v,
-                None => match self.nodes[el].lane.clone() {
-                    Some(l) if self.nodes[el].config & CONFIG_OVERRIDE != 0 => l,
-                    _ => self.nodes[el].value.clone(),
-                },
+                None => self.nodes[el].value.clone(),
             };
+            let tx = self.flush_transaction.or(self.pass_tx);
             let value_changed = (unstaged && was_uninitialized != 0 && is_effect == 0)
                 || self.nodes[el].shown_error.is_some()
+                || (outgoing_error.is_some() && tx.is_some())
                 || replaced != 0
+                || (lane.is_some()
+                    && self.nodes[el]
+                        .parent
+                        .is_some_and(|p| self.nodes[p].config & CONFIG_HELD != 0))
                 || self.nodes[el].pending_err.is_some()
                 || !self.is_same(el, &compare_value, &value);
             if is_effect != 0
@@ -387,16 +455,17 @@ impl Runtime {
             {
                 // The truth, staged under the lane's parent.
             } else if value_changed {
-                if let Some(l) = lane {
+                if lane.is_some() {
                     if is_effect != 0 && self.nodes[el].pending.is_none() {
                         self.nodes[el].value = value.clone();
-                    } else if is_effect != 0 || self.txs[l].shown {
-                        self.set_pending(el, Some(value.clone()));
                     } else {
-                        self.nodes[el].lane = Some(value.clone());
+                        self.set_pending(el, Some(value.clone()));
+                    }
+                    if create && is_effect == 0 {
+                        self.nodes[el].status |= STATUS_UNINITIALIZED;
                     }
                 } else if if create {
-                    !((self.flush_transaction.is_some() || self.pass_tx.is_some())
+                    !(tx.is_some()
                         && (joined
                             || self
                                 .creator_pass(old_context)
@@ -411,10 +480,7 @@ impl Runtime {
                         self.nodes[el].shown_error = outgoing_error.clone();
                     }
                     if create {
-                        let t = self
-                            .flush_transaction
-                            .or(self.pass_tx)
-                            .expect("born held into the flush's transaction");
+                        let t = tx.expect("born held into the flush's transaction");
                         self.hold_node(el, t);
                         self.nodes[el].status |= STATUS_UNINITIALIZED;
                         let held = mount.is_none() && self.flush_transaction.is_some();
@@ -468,10 +534,10 @@ impl Runtime {
             }
         }
         if self.nodes[el].error.is_none()
-            && self.nodes[el].pending.is_none()
+            && (lane.is_some() || self.nodes[el].pending.is_none())
             && !(is_effect != 0 && self.nodes[el].modified)
         {
-            if create {
+            if create || is_effect == EFFECT_TRACKED {
                 self.trim_stale_deps(el);
             } else {
                 self.held_trim(el);
@@ -600,6 +666,12 @@ impl Runtime {
 
     // Solid: core.ts:1292-1308
     pub(super) fn join_pass(&mut self, c: NodeId, el: NodeId) {
+        // `observeFlightHook && !flushTransaction`: the merges this pass makes
+        // are its own (verdict.ts `adopter`, `dropFlushTx`).
+        if self.flush_transaction.is_none() {
+            self.adopter = Some(c);
+            self.adopted.clear();
+        }
         self.nodes[c].flags |= REACTIVE_JOINED;
         if self.nodes[el].status & STATUS_UNINITIALIZED != 0
             || self.nodes[c].effect_type != EFFECT_RENDER
@@ -631,7 +703,15 @@ impl Runtime {
     fn frame_read(&mut self, c: NodeId, el: NodeId) -> bool {
         let verdict = self.nodes[c].config & CONFIG_VERDICT != 0;
         let lane = self.pass_lane.is_some();
-        if !(verdict && self.hold_staging(c, el))
+        // A display-ahead mount (S-46) joins the hold it reads.
+        if self.nodes[c].config & CONFIG_MOUNT_AHEAD != 0
+            && self.nodes[c].status & STATUS_UNINITIALIZED != 0
+            && (!lane || self.nodes[el].status & STATUS_PENDING != 0)
+        {
+            self.join_pass(c, el);
+            return false;
+        }
+        if !(verdict && self.hold_staging(c, Some(el)))
             && !((!lane
                 || (self.nodes[c].status & STATUS_UNINITIALIZED != 0
                     && self.nodes[el].status & STATUS_PENDING != 0))
@@ -651,7 +731,7 @@ impl Runtime {
             if !own_flush && !self.born_into(c, t) {
                 self.stale_reader(c, t);
                 if lane || verdict {
-                    self.lane_served(c, el);
+                    let _ = self.lane_served(c, Some(el), false);
                 }
                 return true;
             }
@@ -797,6 +877,10 @@ impl Runtime {
         let clock = self.clock as i64;
         let n = &mut self.nodes[el];
         if n.flushed_at != clock {
+            // D-8: the flush checks whether the rewrite nets (verdict.ts
+            // `revert`); once per node per flush.
+            self.held_rewrites.push(el);
+            let n = &mut self.nodes[el];
             n.flushed = n.pending.clone();
             n.flushed_at = clock;
             self.unflushed_staged = true;
@@ -846,21 +930,16 @@ impl Runtime {
             || el.is_some_and(|el| {
                 self.nodes[el].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
             })
-            || el.is_some_and(|el| self.hold_staging(c, el))
+            || self.hold_staging(c, el)
         {
             return false;
         }
-        // `flushTransaction === latestOpened`: `openedByLatest` has no caller
-        // in rc.21, so `latestOpened` stays null and, with a flush
-        // transaction, this arm is never taken.
-        if self.latest_opened == Some(f)
-            && self.pass_lane.is_none()
-            && self.nodes[c].config & CONFIG_VERDICT != 0
-            && self.nodes[c].status & STATUS_UNINITIALIZED == 0
-        {
-            // `return !stagedReaders.push(c)`: false.
-            self.staged_readers.push(c);
-            return false;
+        // A fresh read in a lane by a pass that is not an `isPending`-only
+        // window opens the lane's verdict (`_opened`).
+        if el.is_some() && self.fresh && self.nodes[c].flags >> WINDOW_KINDS != 1 {
+            if let Some(l) = self.pass_lane {
+                self.txs[l].opened = true;
+            }
         }
         self.stale_reader(c, f);
         true
@@ -868,7 +947,9 @@ impl Runtime {
 
     // Solid: core.ts:2028-2044
     pub(super) fn pull_computed(&mut self, owner: NodeId, c: NodeId) {
-        if self.nodes[owner].height >= self.dirty_queue.min {
+        if self.nodes[owner].height >= self.dirty_queue.min
+            || self.nodes[owner].flags & REACTIVE_CHECK != 0
+        {
             self.mark_node(c, REACTIVE_DIRTY);
             self.mark_heap();
             self.update_if_necessary(owner);
@@ -876,8 +957,11 @@ impl Runtime {
             self.update_if_necessary(owner);
         }
         let height = self.nodes[owner].height;
-        if height >= self.nodes[c].height && self.nodes[owner].parent != Some(c) {
+        if self.nodes[owner].parent == Some(c) {
+            self.nodes[owner].flags |= REACTIVE_OWNER_READS;
+        } else if height >= self.nodes[c].height {
             self.nodes[c].height = height + 1;
+            self.lift_owned(c, height + 1);
         }
     }
 
@@ -916,7 +1000,36 @@ impl Runtime {
         true
     }
 
-    // Solid: core.ts:2106-2447 (no snapshot, strict-read or dev tier)
+    // Solid: core.ts `readsFresh`: a verdict reader's first read of a
+    // staging this pass.
+    fn reads_fresh(&self, c: NodeId, el: NodeId) -> bool {
+        self.nodes[el].pending.is_some()
+            && self.nodes[c].config & CONFIG_VERDICT != 0
+            && !self.has_dep_until(c, None, |_, d| d == el)
+    }
+
+    /// `hasDep(c, f, tail)`: a dependency of `c` (up to `tail`) passes `f`.
+    pub(super) fn has_dep_until(
+        &self,
+        c: NodeId,
+        tail: Option<LinkId>,
+        f: impl Fn(&Runtime, NodeId) -> bool,
+    ) -> bool {
+        let mut d = self.nodes[c].deps;
+        while let Some(l) = d {
+            if f(self, self.links[l].dep) {
+                return true;
+            }
+            d = if Some(l) == tail {
+                None
+            } else {
+                self.links[l].next_dep
+            };
+        }
+        false
+    }
+
+    // Solid: core.ts `read` (no snapshot, strict-read or dev tier)
     pub(super) fn read_node(&mut self, el: NodeId) -> Result<Value, Error> {
         let mut c = self.context;
         if let Some(r) = c {
@@ -946,6 +1059,7 @@ impl Runtime {
             && self.nodes[el].config & CONFIG_OVERRIDE == 0
         {
             if let Some(c) = c {
+                self.fresh = self.tracking && self.reads_fresh(c, el);
                 if self.tracking {
                     self.link(el, c);
                 }
@@ -973,35 +1087,56 @@ impl Runtime {
             {
                 return Ok(self.nodes[el].value.clone());
             }
-            self.staged_read(c, None);
+            self.staged_read(c, None)?;
             return Ok(pending);
         }
         let mut committed = false;
+        let mut reread = false;
         if let Some(c) = c {
+            self.fresh = self.tracking && self.reads_fresh(c, el);
             if self.tracking {
-                self.link(el, c);
+                reread = self.link(el, c);
                 if self.nodes[el].fn_.is_some() {
                     self.pull_computed(el, c);
-                    // F-6 (#4050, #4544): a render effect never committed
-                    // reading a settled verdict reader's value reads ahead
-                    // (REACTIVE_AHEAD); a memo over a verdict reader's value
-                    // is a verdict reader from this pass's end.
-                    let (oc, os) = (self.nodes[el].config, self.nodes[el].status);
                     let (cc, cs) = (self.nodes[c].config, self.nodes[c].status);
-                    if self.nodes[c].effect_type == EFFECT_RENDER
-                        && oc & CONFIG_VERDICT != 0
-                        && os & (STATUS_PENDING | STATUS_UNINITIALIZED) == 0
-                        && if cs & STATUS_UNINITIALIZED != 0 {
-                            cc & CONFIG_HELD != 0 || self.flush_transaction.is_some()
-                        } else {
-                            cc & CONFIG_HELD_FRAME != 0
+                    if if cs & STATUS_UNINITIALIZED != 0 {
+                        cc & CONFIG_HELD != 0 || self.flush_transaction.is_some()
+                    } else {
+                        cc & CONFIG_HELD_FRAME != 0
+                    } {
+                        // F-6 (#4050, #4544): a render effect never committed
+                        // reading a settled verdict reader's value reads ahead.
+                        let (oc, os) = (self.nodes[el].config, self.nodes[el].status);
+                        if self.nodes[c].effect_type == EFFECT_RENDER
+                            && oc & CONFIG_VERDICT != 0
+                            && os & (STATUS_PENDING | STATUS_UNINITIALIZED) == 0
+                        {
+                            self.nodes[c].flags |= REACTIVE_AHEAD;
                         }
-                    {
-                        self.nodes[c].flags |= REACTIVE_AHEAD;
+                        // #4776 (D-25): a sync verdict memo is display while
+                        // only the frame reads it: re-derived once per hold.
+                        if oc & (CONFIG_VERDICT | CONFIG_FRAME | CONFIG_ASYNC | CONFIG_OWN_PROBE)
+                            == CONFIG_VERDICT
+                            && cc & CONFIG_ASYNC == 0
+                        {
+                            let t = if cc & CONFIG_HELD != 0 {
+                                self.tx_of(c)
+                            } else {
+                                self.flush_transaction.expect("a flush's transaction")
+                            };
+                            let t = self.resolve_tx(t);
+                            self.nodes[el].x = true;
+                            if self.nodes[el].read_in != Some(t) {
+                                self.nodes[el].read_in = Some(t);
+                                self.recompute(el, false);
+                            }
+                        }
                     }
                     if self.nodes[c].effect_type == 0 {
-                        // `owner._config & CONFIG_VERDICT & (pending && (staged
+                        // `el._config & CONFIG_VERDICT & (pending && (staged
                         // || uninitialized) ? c._config : -1)`
+                        let (oc, os) = (self.nodes[el].config, self.nodes[el].status);
+                        let (cc, cs) = (self.nodes[c].config, self.nodes[c].status);
                         let m = if os & STATUS_PENDING != 0
                             && (cc & CONFIG_STAGED != 0 || cs & STATUS_UNINITIALIZED != 0)
                         {
@@ -1035,12 +1170,23 @@ impl Runtime {
             && self.nodes[el].config & CONFIG_OVERRIDE == 0
             && status & STATUS_UNINITIALIZED == 0
         {
-            if let Some(cv) = c.filter(|c| self.nodes[*c].config & CONFIG_VERDICT != 0) {
+            if let Some(cv) = c.filter(|c| {
+                self.nodes[*c].config & CONFIG_VERDICT != 0
+                    && !(self.nodes[*c].config & CONFIG_MOUNT_AHEAD != 0
+                        && self.nodes[*c].status & STATUS_UNINITIALIZED != 0)
+            }) {
                 committed = self.observe_flight(cv, el);
             } else if self.pass_lane.is_some()
-                && c.is_none_or(|c| self.nodes[c].status & STATUS_UNINITIALIZED == 0)
+                && c.is_none_or(|c| {
+                    self.nodes[c].status & STATUS_UNINITIALIZED == 0 || self.born_of_lane_rerun(c)
+                })
             {
-                committed = true;
+                // `laneServedHook(c, el, true)`: lane work served a flight's
+                // committed value keeps its pending (#4862).
+                committed = match c {
+                    Some(c) => self.lane_served(c, Some(el), true)?,
+                    None => panic!("lane work with no reader"),
+                };
             }
         }
         if status & STATUS_PENDING != 0 && !committed {
@@ -1062,7 +1208,10 @@ impl Runtime {
             }
         }
         if self.nodes[el].fn_.is_some() && self.nodes[el].status & STATUS_ERROR != 0 {
-            if self.tracking && self.nodes[el].time < self.clock {
+            if reread
+                && self.nodes[el].time < self.clock
+                && self.nodes[el].flags & REACTIVE_ZOMBIE == 0
+            {
                 self.recompute(el, false);
                 return self.read_node(el);
             }
@@ -1081,9 +1230,21 @@ impl Runtime {
             && self.nodes[el].status & STATUS_PENDING == 0
             && self.nodes[el].subs.is_none()
         {
-            panic!("the dormant-node sweep (core.ts:2430-2445) is not ported");
+            panic!("the dormant-node sweep (core.ts `dormantNodes`) is not ported");
         }
         Ok(value)
+    }
+
+    // Solid: core.ts `bornOfLaneRerun`
+    fn born_of_lane_rerun(&self, c: NodeId) -> bool {
+        let l = self.pass_lane.expect("a lane pass");
+        let Some(p) = self.nodes[c].parent else {
+            return false;
+        };
+        !self.is_verdict(l)
+            && self.nodes[p].fn_.is_some()
+            && self.nodes[p].status & STATUS_UNINITIALIZED == 0
+            && self.nodes[p].config & CONFIG_FRAME == 0
     }
 
     /// `throw owner._x?._error` (a thrown `undefined` is not reached).
@@ -1134,7 +1295,7 @@ impl Runtime {
             return Ok(self.nodes[el].value.clone());
         }
         // Prod: `!(__DEV__ && strictRead)` always holds.
-        self.staged_read(c.unwrap(), Some(el));
+        self.staged_read(c.unwrap(), Some(el))?;
         if self.nodes[el].config & CONFIG_STAGED_ERROR != 0 {
             return Err(self.nodes[el]
                 .pending_err
@@ -1145,8 +1306,12 @@ impl Runtime {
     }
 
     // Solid: core.ts:2557-2570
-    pub(super) fn staged_read(&mut self, c: NodeId, el: Option<NodeId>) {
+    pub(super) fn staged_read(&mut self, c: NodeId, el: Option<NodeId>) -> Result<(), Error> {
         if el.is_none_or(|el| self.nodes[el].status & STATUS_UNINITIALIZED == 0) {
+            // Lane work served a flight waits on it at a staged read (#4859).
+            if self.pass_lane.is_some() {
+                self.lane_served(c, None, false)?;
+            }
             self.nodes[c].flags |= REACTIVE_STAGED_READ;
             // Lane work, and a verdict reader effect (`laneSeamsHook` is
             // installed).
@@ -1156,6 +1321,7 @@ impl Runtime {
                 self.staged_readers.push(c);
             }
         }
+        Ok(())
     }
 
     // Solid: core.ts:2680-2691

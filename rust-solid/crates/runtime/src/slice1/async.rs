@@ -113,7 +113,13 @@ impl Runtime {
         let mut d = self.nodes[el].deps;
         while let Some(l) = d {
             let dep = self.links[l].dep;
-            if dep == source || self.set_has(self.nodes[dep].pending_sources, source) {
+            if self.nodes[dep].flags & REACTIVE_DISPOSED == 0
+                && if dep == source {
+                    self.nodes[dep].status & STATUS_PENDING != 0
+                } else {
+                    self.set_has(self.nodes[dep].pending_sources, source)
+                }
+            {
                 return true;
             }
             d = self.links[l].next_dep;
@@ -299,7 +305,9 @@ impl Runtime {
                 if !errored {
                     rt.set_pending_error(node, None, None);
                 }
-                if rt.nodes[node].config & CONFIG_HELD != 0 {
+                if rt.nodes[node].config & CONFIG_HELD != 0
+                    && rt.nodes[source].status & STATUS_PENDING == 0
+                {
                     let t = rt.tx_of(node);
                     rt.join_future(Some(t));
                 }
@@ -353,6 +361,7 @@ impl Runtime {
     fn queue_reaction(&mut self, f: FlightId, r: Reaction) {
         match r {
             Reaction::Memo(el, pass) => self.microtasks.push_back(Microtask::Landing(el, f, pass)),
+            Reaction::ParkDone(r, p) => self.microtasks.push_back(Microtask::ParkDone(r, p)),
             Reaction::Action(a) => {
                 let input = match self.flights[f].result.clone().unwrap() {
                     Ok(v) => Resume::Value(v),
@@ -433,9 +442,7 @@ impl Runtime {
         self.nodes[el].x = true; // `ext(el)._inFlight`
         self.nodes[el].in_flight = Some(f);
         // `holdWorkHook` is installed (verdict.ts).
-        if self.nodes[el].flags & REACTIVE_WINDOW == 0 {
-            self.nodes[el].config |= CONFIG_ASYNC;
-        }
+        self.nodes[el].config |= CONFIG_ASYNC;
         self.nodes[el].q = if self.question != 0 {
             self.question
         } else {
@@ -705,8 +712,8 @@ impl Runtime {
                     && !(pending_source.is_some() && self.hold_work(sub, el)))
                 || (status == STATUS_PENDING && self.links[link].gen != self.nodes[sub].dep_gen)
             {
-                if status != STATUS_PENDING {
-                    self.remove_pending_source(sub, el);
+                if status != STATUS_PENDING && self.remove_pending_source(sub, el) {
+                    self.settle_pending_source(sub, el);
                 }
                 self.enqueue_sub(sub);
                 self.schedule();
@@ -741,8 +748,18 @@ impl Runtime {
                         && self.nodes[sub].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
                         && self.nodes[sub].effect_type == 0
                     {
-                        let t = self.tx_of(sub);
-                        self.join_future(Some(t));
+                        // A reader waiting only on re-asks joins no hold
+                        // (#4828).
+                        if self.guessing
+                            && self.nodes[sub].status & STATUS_PENDING != 0
+                            && self.reasks(sub)
+                        {
+                            self.nodes[sub].transaction = None;
+                            self.nodes[sub].config &= !CONFIG_HELD;
+                        } else {
+                            let t = self.tx_of(sub);
+                            self.join_future(Some(t));
+                        }
                     }
                 }
                 self.notify_status(sub, status, error.clone());

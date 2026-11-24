@@ -315,43 +315,6 @@ impl Runtime {
         panic!("a user's reconcile on an optimistic store (reconcileDraft) is not ported")
     }
 
-    // Solid: optimistic.ts:353-374 (`GlobalQueue._slotTake`). `back`: the
-    // node to give a guess back on (`Some`), or whether the re-ask took it.
-    pub(in crate::slice1) fn slot_take_hook(&mut self, n: NodeId) -> bool {
-        let t = self.nodes[n].host;
-        let d = t
-            .and_then(|t| self.st(t).fam)
-            .and_then(|f| self.store.families[f].node)
-            .and_then(|d| self.nodes[d].transaction);
-        let g = self.tx_of(n);
-        let Some(d) = d.filter(|d| self.txs[*d].lane) else {
-            return false;
-        };
-        let t = t.expect("a slot node");
-        if self.same_action(d, g) {
-            return false;
-        }
-        for m in self.nodes_of(t).into_iter().flatten() {
-            if self.nodes[m].config & CONFIG_GUESS != 0 && self.tx_of(m) == g {
-                self.take(m, d, m != n);
-            }
-        }
-        true
-    }
-
-    /// `_slotTake(n, true)`: the slot's node now (optimistic.ts:356-363).
-    pub(in crate::slice1) fn slot_take_back(&mut self, n: NodeId) -> NodeId {
-        let t = self.nodes[n].host.expect("a slot node");
-        let k = self.nodes[n].key.clone();
-        self.mark_overlaid(t);
-        match k {
-            SlotKey::Track => self.get_container_node(t),
-            SlotKey::Key(k) if self.nodes[n].eq == Equals::IsEqual => self.get_has_node(t, &k),
-            SlotKey::Key(k) => self.get_node(t, &k, -1),
-            SlotKey::Deep => panic!("the deep witness (deep()) is not ported"),
-        }
-    }
-
     // Solid: optimistic.ts:397-466 (`GlobalQueue._laneRebase`): `Some(b)`
     // is a truthy/falsy answer, `None` is `undefined`.
     pub(in crate::slice1) fn lane_rebase(
@@ -363,7 +326,7 @@ impl Runtime {
         let t = self.nodes[el].host;
         let g_null = t
             .and_then(|t| self.st(t).k)
-            .and_then(|k| match &self.nodes[k].lane {
+            .and_then(|k| match self.lane_of(k) {
                 Some(Value::View(v)) => Some(matches!(v.borrow().g, Some(None))),
                 _ => None,
             })
@@ -375,7 +338,7 @@ impl Runtime {
         if self.nodes[el].key != SlotKey::Track {
             return Some(true);
         }
-        let Some(Value::View(view)) = self.nodes[el].lane.clone() else {
+        let Some(Value::View(view)) = self.latest_val(el) else {
             return None;
         };
         let truth_arr = matches!(truth, Value::Obj(o) if o.array);
@@ -476,7 +439,7 @@ impl Runtime {
                 }
                 Some(node) => {
                     let cur = if self.nodes[node].config & CONFIG_OVERRIDE != 0 {
-                        self.nodes[node].lane.clone().unwrap_or(Value::Undef)
+                        self.latest_val(node).unwrap_or(Value::NotPending)
                     } else {
                         base.get(&Key::Idx(i))
                     };
@@ -510,14 +473,13 @@ impl Runtime {
     fn fold(&mut self, el: NodeId, truth: &Value) -> bool {
         let k = self.nodes[el].host.and_then(|t| self.st(t).k);
         let l = self.tx_of(el);
-        let keyed = k.is_some_and(|k| {
-            self.nodes[k].config & CONFIG_OVERRIDE != 0
-                && matches!(&self.nodes[k].lane, Some(Value::View(v)) if v.borrow().removed.is_some())
-        });
+        let keyed = k.is_some_and(
+            |k| matches!(self.lane_of(k), Some(Value::View(v)) if v.borrow().removed.is_some()),
+        );
         if !self.txs[l].shown || !keyed {
             return false;
         }
-        let guess = self.nodes[el].lane.clone();
+        let guess = self.latest_val(el);
         if !self.equals_slot(el, &guess, &Some(truth.clone()))
             && !self.echoes_hook(guess.as_ref().unwrap_or(&Value::Undef), truth)
         {
@@ -554,14 +516,19 @@ impl Runtime {
             let p = self.resolve_tx(p);
             self.join_pass_at(c, p);
         }
-        if let Some(p) = self.nodes[el].pending.clone() {
-            return Some(p);
+        if self.nodes[el].pending.is_some() {
+            return self.pending_value(el);
         }
-        Some(if self.nodes[el].config & CONFIG_SLOT_NODE != 0 {
-            self.slot_covered(el)
+        self.covered(el)
+    }
+
+    /// optimistic.ts `laneOf`: a guessed container's lane value.
+    fn lane_of(&self, k: NodeId) -> Slot {
+        if self.nodes[k].config & CONFIG_OVERRIDE != 0 {
+            self.latest_val(k)
         } else {
-            self.nodes[el].value.clone()
-        })
+            None
+        }
     }
 
     // Solid: optimistic.ts:519-524
@@ -583,10 +550,10 @@ impl Runtime {
         if self.nodes[node].config & CONFIG_OVERRIDE == 0 {
             self.nodes[node].config |= CONFIG_OVERRIDE;
             self.list(node, lane);
-        } else if self.nodes[node].lane.as_ref() == Some(&value) {
+        } else if self.latest_val(node).as_ref() == Some(&value) {
             return;
         }
-        self.nodes[node].lane = Some(value);
+        self.set_lane_value(node, lane, value, false);
         if self.nodes[node].subs.is_some() {
             self.lane_dirty(node, lane);
         }
@@ -689,7 +656,7 @@ impl Runtime {
         let g_null = self
             .st(t)
             .k
-            .and_then(|k| match &self.nodes[k].lane {
+            .and_then(|k| match self.lane_of(k) {
                 Some(Value::View(v)) => Some(matches!(v.borrow().g, Some(None))),
                 _ => None,
             })
@@ -904,7 +871,7 @@ impl Runtime {
     fn pick(&mut self, pick: Pick, n: NodeId) -> Result<Value, Error> {
         match pick {
             Pick::Shown => self.shown(n),
-            Pick::Latest => Ok(self.lane_value_of(n).expect("a slot's lane value")),
+            Pick::Latest => Ok(self.latest_val(n).expect("a slot's lane value")),
         }
     }
 
@@ -1000,5 +967,22 @@ impl Runtime {
         seed_loading: bool,
     ) -> Value {
         self.create_projection_internal(f, v, key, seed_loading, true)
+    }
+}
+
+impl Runtime {
+    // Solid: store/optimistic.ts `GlobalQueue._slotMerge` (store port pending).
+    pub(in crate::slice1) fn slot_merge_hook(&mut self, n: NodeId) {
+        if self.nodes[n].config & CONFIG_SLOT_NODE != 0 {
+            panic!("GlobalQueue._slotMerge (store/optimistic.ts) is not ported yet");
+        }
+    }
+    // Solid: store/optimistic.ts `GlobalQueue._slotDirty` (store port pending).
+    pub(in crate::slice1) fn slot_dirty_hook(&mut self, _n: NodeId, _l: TxId) {
+        panic!("GlobalQueue._slotDirty (store/optimistic.ts) is not ported yet");
+    }
+    // Solid: store/optimistic.ts `GlobalQueue._slotRerun` (store port pending).
+    pub(in crate::slice1) fn slot_rerun_hook(&mut self, _n: NodeId, _t: TxId) {
+        panic!("GlobalQueue._slotRerun (store/optimistic.ts) is not ported yet");
     }
 }

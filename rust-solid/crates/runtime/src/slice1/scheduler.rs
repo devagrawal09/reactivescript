@@ -27,6 +27,10 @@ impl Runtime {
             acted: false,
             shown: false,
             held: false,
+            reguessed: None,
+            waits: None,
+            scanned: 0,
+            opened: false,
         });
         if !lane {
             self.transactions.push(t);
@@ -73,17 +77,20 @@ impl Runtime {
                 return;
             }
         }
+        // Only a live transaction joins: a landed one holds nothing (#5161).
+        let l = t.and_then(|t| self.live_tx(t));
         match self.flush_transaction {
             None => {
-                self.flush_transaction = Some(match t {
-                    None => self.new_transaction(false, None),
-                    Some(t) => self.resolve_tx(t),
-                })
+                if t.is_none() || l.is_some() {
+                    self.flush_transaction = Some(match l {
+                        Some(l) => l,
+                        None => self.new_transaction(false, None),
+                    });
+                }
             }
             Some(f) => {
-                if let Some(t) = t {
-                    let t = self.resolve_tx(t);
-                    self.merge(t, f)
+                if let Some(l) = l {
+                    self.merge(l, f)
                 }
             }
         }
@@ -98,6 +105,9 @@ impl Runtime {
         let f = self.resolve_tx(f);
         if t == f || self.txs[t].lane || self.txs[f].lane {
             return;
+        }
+        if self.adopter.is_some() {
+            self.adopted.push((t, self.txs[f].acted));
         }
         self.txs[t].into = Some(f);
         self.txs[f].open += self.txs[t].open;
@@ -120,11 +130,56 @@ impl Runtime {
 
     // Solid: scheduler.ts:466-476
     pub(super) fn blocked(&mut self, t: TxId) -> bool {
-        let prev = self.judge;
-        self.judge = self.judge.or(Some(t));
-        let r = self.txs[t].open != 0 || self.blocked_by(t, false) || self.lanes_blocked(t);
-        self.judge = prev;
-        r
+        self.txs[t].open != 0 || self.blocked_by(t, false) || {
+            // `lanesBlockedHook` as `installLaneHooks` wraps it: the judge is
+            // the outermost transaction asked.
+            let prev = self.judge;
+            self.judge = self.judge.or(Some(t));
+            let r = self.lanes_blocked(t);
+            self.judge = prev;
+            r
+        }
+    }
+
+    // Solid: scheduler.ts `dropFlushTx`: undo the merges a pass made into the
+    // flush's transaction (verdict.ts `adopter`).
+    pub(super) fn drop_flush_tx(&mut self) {
+        for (t, acted) in std::mem::take(&mut self.adopted).into_iter().rev() {
+            let f = self.txs[t]
+                .into
+                .take()
+                .expect("an adopted transaction's target");
+            self.txs[f].open -= self.txs[t].open;
+            self.txs[f].acted = acted;
+            let unappend = |into: &mut Vec<NodeId>, own: &[NodeId]| {
+                for x in own.iter().rev() {
+                    if let Some(k) = into.iter().rposition(|y| y == x) {
+                        into.remove(k);
+                    } else if !into.is_empty() {
+                        // `splice(-1 >>> 0, 1)`: past the end, nothing.
+                    }
+                }
+            };
+            let own = self.txs[t].nodes.clone();
+            unappend(&mut self.txs[f].nodes, &own);
+            let own = self.txs[t].reruns.clone();
+            unappend(&mut self.txs[f].reruns, &own);
+            if let Some(own) = self.txs[t].marks.clone() {
+                if let Some(m) = self.txs[f].marks.as_mut() {
+                    unappend(m, &own);
+                }
+            }
+            for i in 0..2 {
+                let own = self.txs[t].queues[i].clone();
+                for x in own.iter().rev() {
+                    if let Some(k) = self.txs[f].queues[i].iter().rposition(|y| y == x) {
+                        self.txs[f].queues[i].remove(k);
+                    }
+                }
+            }
+            self.transactions.push(t);
+        }
+        self.flush_transaction = None;
     }
 
     // Solid: scheduler.ts:501-503
@@ -161,6 +216,10 @@ impl Runtime {
                 || self.nodes[n].config & CONFIG_GUESS != 0
                 || (self.nodes[n].transaction.is_some() && self.tx_of(n) != owner)
                 || (own && !self.own_source(n, owner))
+                || (self.guessing
+                    && self.txs[owner].lane
+                    && self.nodes[n].pending_sources.is_some()
+                    && self.reasks(n))
             {
                 continue;
             }
@@ -198,10 +257,8 @@ impl Runtime {
 
     // Solid: scheduler.ts:577-579
     fn on_screen(&mut self, r: NodeId, t: TxId) -> bool {
-        if self.nodes[r].flags & REACTIVE_ZOMBIE != 0 && self.removal_staged_by(r, t) {
-            return false;
-        }
         !self.hidden_by(r, &mut None).truthy()
+            && !(self.nodes[r].flags & REACTIVE_ZOMBIE != 0 && self.removal_staged_by(r, t))
     }
 
     // Solid: scheduler.ts:586-592
@@ -308,6 +365,9 @@ impl Runtime {
         self.pass_tx = None;
         // `sweepDormant`: no untracked read of an unobserved auto-dispose
         // memo queues one in this slice.
+        // `revertHook` (verdict.ts `revert`): D-8, a tick's rewrite netting
+        // back asks nothing new.
+        self.revert();
         self.run_heap();
         self.settle();
         self.clock += 1;
@@ -325,7 +385,6 @@ impl Runtime {
             self.run_heap();
         }
         let joined = self.flush_transaction.take();
-        self.latest_opened = None;
         self.apply_guesses_at(joined);
         let t = joined
             .filter(|j| !self.txs[*j].lane)
@@ -358,6 +417,7 @@ impl Runtime {
                             && nn.pending_first_child.is_none()
                             && nn.pending_disposal.is_empty()
                             && nn.pending_err.is_none()
+                            && nn.shown_error.is_none()
                             && self.is_same(n, &nn.value, &p)
                         {
                             self.set_pending(n, None);
@@ -498,10 +558,7 @@ impl Runtime {
             if self.nodes[r].flags & REACTIVE_FRAME_READ != 0
                 || self.nodes[r].config & CONFIG_VERDICT != 0
             {
-                frame = frame
-                    || self.nodes[r].effect_type != 0
-                    || s_is_r
-                    || self.nodes[r].config & CONFIG_HELD != 0;
+                frame = true;
                 if !self.txs[u].lane {
                     self.nodes[r].flags &= !REACTIVE_FRAME_READ;
                 }
@@ -515,8 +572,8 @@ impl Runtime {
                     }
                     c = self.nodes[ch].next_sibling;
                 }
-                // `laneAdoptHook` (lanes.ts `adoptParked`) adopts only a
-                // flight `laneSeams` parked: none is.
+                // `laneAdoptHook` (verdict.ts `adopt`).
+                self.lane_adopt(r);
                 self.enqueue_sub(r);
             }
         }
@@ -543,9 +600,6 @@ impl Runtime {
             self.nodes[n].transaction = None;
             self.commit_pending_node(n);
         }
-        if self.flush_transaction == Some(u) {
-            self.flush_transaction = None;
-        }
         if frame {
             self.queues[1].push(QueueCallback::ReleaseQueues(u));
         } else {
@@ -563,10 +617,9 @@ impl Runtime {
 
     // Solid: scheduler.ts:1351-1356
     pub(super) fn stale_reader(&mut self, c: NodeId, t: TxId) {
-        if self.nodes[c].flags & REACTIVE_FRAME_READ == 0 {
-            self.nodes[c].flags |= REACTIVE_FRAME_READ;
-            self.txs[t].reruns.push(c);
-        }
+        // A stale reader re-runs at every hold it read (#4932).
+        self.txs[t].reruns.push(c);
+        self.nodes[c].flags |= REACTIVE_FRAME_READ;
     }
 
     // Solid: scheduler.ts:1358-1362
@@ -592,45 +645,73 @@ impl Runtime {
             let sub = link.sub;
             if self.nodes[sub].flags & REACTIVE_RECOMPUTING_DEPS != 0
                 && link.gen == self.nodes[sub].dep_gen
-                && Some(l) != self.nodes[sub].deps_tail
+                && (Some(l) != self.nodes[sub].deps_tail || self.nodes[node].fn_.is_none())
             {
                 self.nodes[sub].flags |= REACTIVE_MISSED_WAKE;
             }
             self.enqueue_sub(sub);
+            if self.nodes[sub].flags & REACTIVE_OWNER_READS != 0 {
+                let p = self.nodes[sub].parent.expect("an owner that reads");
+                self.mark_node(p, REACTIVE_CHECK);
+            }
             s = self.links[l].next_sub;
         }
     }
 
-    // Solid: scheduler.ts:1431-1465
+    // Solid: scheduler.ts `reasks`: a node pending only on re-asks.
+    pub(super) fn reasks(&self, c: NodeId) -> bool {
+        let mut seen: Vec<NodeId> = vec![];
+        self.reasks_in(c, &mut seen)
+    }
+    fn reasks_in(&self, c: NodeId, seen: &mut Vec<NodeId>) -> bool {
+        let ps = match self.nodes[c].pending_sources {
+            Some(set) => self.set_values(set),
+            None => vec![c],
+        };
+        ps.into_iter().all(|p| {
+            if p == c {
+                self.nodes[p].reask
+            } else if seen.contains(&p) {
+                true
+            } else {
+                seen.push(p);
+                self.reasks_in(p, seen)
+            }
+        })
+    }
+
+    // Solid: scheduler.ts `laneDirty`
     pub(super) fn lane_dirty(&mut self, node: NodeId, l: TxId) {
         self.insert_subs(node);
+        if self.nodes[node].config & CONFIG_SLOT_NODE != 0 {
+            self.slot_dirty_hook(node, l);
+        }
         let mut s = self.nodes[node].subs;
         while let Some(link) = s {
             let c = self.links[link].sub;
             let mut t = self.nodes[c].transaction;
-            if let Some(tc) = t {
-                if self.nodes[c].effect_type == 0
-                    && self.nodes[c].config & (CONFIG_HELD | CONFIG_OVERRIDE) == CONFIG_HELD
-                    && self.nodes[c].status & (STATUS_PENDING | STATUS_UNINITIALIZED)
-                        == STATUS_PENDING
-                    && (self.resolve_tx(tc) == self.resolve_tx(self.txs[l].parent.unwrap())
-                        || match self.nodes[c].pending_sources {
-                            Some(ps) => self.set_values(ps).iter().all(|p| self.nodes[*p].reask),
-                            None => self.nodes[c].reask,
-                        })
-                {
-                    t = Some(l);
-                    self.list(c, l);
-                }
-            }
-            if self.nodes[c].effect_type == EFFECT_RENDER
-                && self.nodes[node].config & CONFIG_VERDICT != 0
+            let render = self.nodes[c].effect_type == EFFECT_RENDER;
+            if self.nodes[c].status & (STATUS_PENDING | STATUS_UNINITIALIZED) == STATUS_PENDING
+                && self.nodes[c].config & CONFIG_OVERRIDE == 0
+                && (self.reasks(c)
+                    || (self.nodes[c].effect_type == 0
+                        && t.is_some_and(|t| {
+                            !self.txs[t].lane
+                                && self.resolve_tx(t)
+                                    == self.resolve_tx(self.txs[l].parent.unwrap())
+                        })))
             {
+                t = Some(l);
+                self.list(c, l);
+            }
+            if render && self.nodes[node].config & CONFIG_VERDICT != 0 {
                 self.nodes[c].config |= CONFIG_VERDICT;
                 self.nodes[c].flags &= !REACTIVE_LANE_DIRTY;
             }
             let mark = match t {
-                Some(t) if self.txs[t].lane => self.same_lane(t, l),
+                Some(t) if self.txs[t].lane => {
+                    self.same_lane(t, l) || self.nodes[c].flags & REACTIVE_ZOMBIE != 0
+                }
                 _ => self.nodes[c].effect_type != 0,
             };
             if mark {
@@ -676,8 +757,11 @@ impl Runtime {
 
     // Solid: scheduler.ts:1482-1487
     pub(super) fn apply_staged(&mut self, n: NodeId) -> bool {
-        if self.nodes[n].pending_err.is_some() {
-            panic!("applying a staged error as a value is not ported");
+        // A staged error applied as a value: the `StatusError` object.
+        if let Some(e) = self.nodes[n].pending_err.take() {
+            self.nodes[n].pending = None;
+            self.nodes[n].value = Value::Error(e);
+            return true;
         }
         match self.nodes[n].pending.take() {
             Some(v) => {
@@ -696,8 +780,18 @@ impl Runtime {
             self.apply_staged(n);
             return;
         }
-        let in_flight =
-            self.nodes[n].pending.is_none() && self.nodes[n].status & STATUS_PENDING != 0;
+        // A staging superseded by a flight still up (not a re-ask's) is no
+        // answer: the node stays in flight (#4908 T1).
+        let in_flight = self.nodes[n].status & STATUS_PENDING != 0
+            && (self.nodes[n].pending.is_none() || {
+                let x = &self.nodes[n];
+                if x.status & STATUS_UNINITIALIZED == 0 && x.in_flight.is_some() && !x.reask {
+                    self.set_pending(n, None);
+                    true
+                } else {
+                    false
+                }
+            });
         let err = self.nodes[n].config & CONFIG_STAGED_ERROR;
         if !in_flight {
             self.nodes[n].shown_error = None;

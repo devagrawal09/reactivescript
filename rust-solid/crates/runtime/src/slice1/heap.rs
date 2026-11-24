@@ -169,12 +169,39 @@ impl Runtime {
         }
         if self.nodes[el].height != new_height {
             self.nodes[el].height = new_height;
+            self.lift_owned(el, new_height);
             let mut s = self.nodes[el].subs;
             while let Some(l) = s {
                 let sub = self.links[l].sub;
-                self.insert_into_heap_height(sub);
+                if Some(sub) != self.nodes[el].parent {
+                    self.insert_into_heap_height(sub);
+                }
                 s = self.links[l].next_sub;
             }
+        }
+    }
+
+    // Solid: heap.ts `liftOwned`: a computation runs after every
+    // computation that owns it (#4848).
+    pub(super) fn lift_owned(&mut self, o: NodeId, h: i32) {
+        let mut c = self.nodes[o].first_child;
+        while let Some(n) = c {
+            if self.nodes[n].kind == Kind::Root {
+                self.lift_owned(n, h);
+            } else if self.nodes[n].height <= h {
+                let f = self.nodes[n].flags & (REACTIVE_IN_HEAP | REACTIVE_IN_HEAP_HEIGHT);
+                self.delete_from_heap(n);
+                self.nodes[n].height = h + 1;
+                if f != 0 {
+                    if f & REACTIVE_IN_HEAP != 0 {
+                        self.insert_into_heap(n);
+                    } else {
+                        self.insert_into_heap_height(n);
+                    }
+                }
+                self.lift_owned(n, h + 1);
+            }
+            c = self.nodes[n].next_sibling;
         }
     }
 }
