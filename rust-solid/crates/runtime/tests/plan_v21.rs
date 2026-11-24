@@ -10,7 +10,9 @@
 //!   native Solid running the TSX twin).
 //! - The plan v2.1 fuzz: programs of the frontend's async plan fuzz
 //!   (`fixtures/plan-fuzz-async/`, chosen to cover every node kind and a
-//!   spread of scenario features) and of its async eval fuzz
+//!   spread of scenario features; seed 19 is a regression: `isPending` over
+//!   a held reader seated in a lane, Solid #4826, its native log from
+//!   `fuzz/plan-oracle.mjs`) and of its async eval fuzz
 //!   (`fixtures/eval-async/`), each with native Solid's full trace.
 //! - The static refusals, the scenario's format-2.1 rules and the binaries.
 use rust_solid::plan_v2::{validate, HostType, Plan};

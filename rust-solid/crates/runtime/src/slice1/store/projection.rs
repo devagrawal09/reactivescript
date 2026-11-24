@@ -217,7 +217,12 @@ impl Runtime {
             self.set_question(prev_q);
             r?;
         }
-        if !pass.first || self.nodes[owner].status & STATUS_UNINITIALIZED == 0 {
+        // Lane work served a flight's committed value keeps its family
+        // pending (#4862).
+        if (!pass.first || self.nodes[owner].status & STATUS_UNINITIALIZED == 0)
+            && !(self.nodes[owner].status & STATUS_PENDING != 0
+                && matches!(self.lane_served(owner, None, true), Ok(true)))
+        {
             self.settle_family(pass.fam);
         }
         if wake {
@@ -263,6 +268,9 @@ impl Runtime {
         if self.store.families[fam].woke || self.store.families[fam].w != 0 {
             self.store.families[fam].w = 0;
             self.nodes[owner].config &= !CONFIG_VERDICT;
+            if self.pass_lane.is_some_and(|l| self.is_verdict(l)) {
+                self.pass_lane = None;
+            }
         }
         let shadow = if self.nodes[owner].loading {
             let v = self.st(root).v.clone();

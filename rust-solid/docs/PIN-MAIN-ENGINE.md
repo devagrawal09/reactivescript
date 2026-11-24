@@ -214,3 +214,29 @@ No fuzz program of any gate range reaches these:
 - `universal.rs`/`ssr`/`frames` were not touched. If the renderer ports main's ref-callback
   serving (`refCallbackDepth` in core.ts `serve`) or `swapHook`, the engine side is where
   core.ts reads them; nothing in the engine fuzz reaches them.
+
+## After the merge with the renderer: plan/eval fuzz v2.1 seed 19
+
+- **Cause.** One condition of Solid #4826 (`5755ddd66`, "a pass that asks reads ahead on the
+  screen as a sync pass does") was missed: in `verdictValue`'s held arm a probing reader `c`
+  takes the "held reader" branch only when `c._config & CONFIG_HELD && !c._x._transaction?._lane`.
+  The port tested CONFIG_HELD alone. In seed 19 the `<b>` text computed (`isPending(() =>
+  issues().length + total())`) is held *and* seated in a lane at step 6 (`loadTotal#3`
+  rejects while `loadIssues#2` is out), so Solid falls to the other branch, where
+  `heldNotFinal(issues)` (pending, not a quiet re-ask) sets `probeFound`: "busy". Rust took the
+  held-reader branch (stale reader, no verdict) and read "ready". Found by running
+  `fuzz/plan-oracle.mjs` on a traced build of Solid main (`@solidjs/signals` redirected to
+  the trace bundle) against `plan-trace` under `SLICE1_TRACE`: the internal event traces are
+  identical up to step 6; the `isPending` probe's result (`IPE 0 1` vs `IPE 0 0`, trace lines
+  now printed by both) is the first difference.
+- **Fix.** `verdict.rs` `verdict_value`: the lane test. Also ported #4826's/#4862's two
+  `projection.ts` deltas the store port had left (a derive's pass leaves a verdict lane seat;
+  lane work served a flight's committed value keeps its family pending). Native is
+  deterministic on this program (fresh runs give byte-identical logs).
+- **Regression test.** `tests/fixtures/plan-fuzz-async/seed-19.json` (plan, scenario and
+  native Solid main's full host log from `fuzz/plan-oracle.mjs`), checked by
+  `plan_v21::generated_async_programs_give_native_solids_host_log`; it fails without the fix.
+- **Numbers.** All six engine modes, seeds 1–1000: summaries byte-identical. `cargo test`,
+  fmt, clippy clean. Plan fuzz v2.1 1–1000 with the Rust leg: 736 agree, 141 upstream (listed
+  Solid #4730), 122 refused, 1 divergent (seed 419, `rx: request-createTextNode`, the RX
+  leg), 0 Rust classes. Eval fuzz v2.1 1–1000: 878 agree, 122 refused, 0 divergent.

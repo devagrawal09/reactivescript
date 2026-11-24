@@ -248,6 +248,12 @@ impl Runtime {
         f: impl FnOnce(&mut Self) -> Result<(), Error>,
     ) -> Result<bool, Error> {
         let plain = self.mark_verdict_reader(1)?;
+        self.tr(|| {
+            let c = self
+                .context
+                .map_or("undefined".to_string(), |c| self.label(c).to_string());
+            format!("IP {c} plain={}", plain as u8)
+        });
         let prev_probing = self.probing;
         let prev_found = self.probe_found;
         let prev_verdict = self.verdict;
@@ -257,8 +263,12 @@ impl Runtime {
             self.verdict = true;
         }
         let r = match f(self) {
-            Ok(()) => Ok(self.probe_found),
+            Ok(()) => {
+                self.tr(|| format!("IPR {}", self.probe_found as u8));
+                Ok(self.probe_found)
+            }
             Err(e) => {
+                self.tr(|| format!("IPE {} {}", e.is_not_ready() as u8, self.probe_found as u8));
                 if e.is_not_ready() && !self.probe_found && self.context.is_some() {
                     Err(e)
                 } else {
@@ -421,7 +431,12 @@ impl Runtime {
                     self.verdict_read(c.unwrap(), t, false);
                 }
                 if self.probing {
-                    match c.filter(|c| self.nodes[*c].config & CONFIG_HELD != 0) {
+                    // A held reader seated in a lane is judged as any other
+                    // (`!c._x._transaction?._lane`).
+                    match c.filter(|c| {
+                        self.nodes[*c].config & CONFIG_HELD != 0
+                            && !self.nodes[*c].transaction.is_some_and(|t| self.txs[t].lane)
+                    }) {
                         Some(cc) => {
                             if self.nodes[el].pending.is_some() && !self.blocked(t) {
                                 self.watch_verdict(cc, false);
