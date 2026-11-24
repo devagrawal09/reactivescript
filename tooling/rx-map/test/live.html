@@ -22,6 +22,8 @@ const done = () => {
   out.textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks });
 };
 
+const sent = [];
+addEventListener("message", e => { if (e.data?.source === "rx-map" && e.data.v === 1) sent.push(e.data); });
 try {
   const graph = await (await fetch("/graph.json")).json();
   const K = name => graph.nodes.find(n => n.key === `examples/users.rx||${name}`);
@@ -39,6 +41,12 @@ try {
   check("iframe fills the host", frame.style.width === "100%" && frame.style.height === "100%" && frame.style.border.startsWith("0"));
   check("live badge starts at 0", badge() === "live · 0 flushes", badge());
   check("live guide note", /Live\./.test(doc.getElementById("panel").textContent));
+  await sleep(30);
+  check("the page says hello to its host, v1", sent.some(m => m.type === "hello" && m.want?.includes("timeline")), sent);
+  // role is shape, fill and icon: no role words on a token, an icon on every one
+  const words = [...doc.querySelectorAll("#board .chip")].map(c => { const x = c.cloneNode(true); x.querySelectorAll(".n, .b, .lv, .d, .g, .pb").forEach(e => e.remove()); return x.textContent.trim(); }).filter(Boolean);
+  check("no role text labels on chips", !doc.querySelector("#board .chip .k") && !words.length, words.slice(0, 5));
+  check("every chip has an svg icon", [...doc.querySelectorAll("#board .chip")].every(c => c.querySelector(".ico svg")));
   const errors = [];
   win.addEventListener("error", e => errors.push(String(e.message)));
 
@@ -55,6 +63,7 @@ try {
   check("changed chip shows its value", chip("page").querySelector(".lv")?.textContent === "2", chip("page").querySelector(".lv")?.textContent);
   check("unchanged chip has no value", !chip("query").querySelector(".lv"));
   check("in-flight chip glows", chip("users").classList.contains("flying"));
+  check("in-flight chip has an orbit", !!chip("users").querySelector(".orb"));
   check("no errors from unknown keys", !errors.length, errors);
 
   post({ type: "flush", seq: 2, at: 20, changes: [
@@ -69,6 +78,8 @@ try {
 
   chip("users").click();
   await sleep(50);
+  check("selecting tells the host", sent.some(m => m.type === "select" && m.key === K("users").key), sent.filter(m => m.type === "select"));
+  check("highlighter tokens in the node panel", !!doc.querySelector("#panel pre.now .tk-state") && !!doc.querySelector("#panel pre.now .tk-pend"), doc.querySelector("#panel pre.now")?.innerHTML);
   const lv = doc.getElementById("liveval");
   check("panel shows Live value", /Live value/.test(doc.getElementById("panel").textContent) && lv?.querySelector("pre")?.textContent.startsWith("[{id: 1"), lv?.innerHTML);
   check("panel says how often", /changed 1×/.test(lv?.textContent ?? ""), lv?.textContent);
@@ -80,6 +91,68 @@ try {
   await sleep(50);
   check("abandon then start keeps the glow", chip("users").classList.contains("flying"));
 
+  // sound: muted from the HUD, remembered
+  const sb = doc.getElementById("soundBtn");
+  sb.click();
+  check("mute persists in localStorage", win.localStorage.getItem("rx-map:sound") === "off" && sb.getAttribute("aria-pressed") === "false", win.localStorage.getItem("rx-map:sound"));
+
+  // time travel (TRACE-CONTRACT v0.1)
+  const ch = (name, preview, prev) => ({ key: K(name).key, name: `rx:${K(name).key}`, preview, ...(prev ? { prev } : {}) });
+  post({ v: 1, type: "timeline", head: 3, viewing: null, capacity: 2000, steps: [
+    { seq: 1, at: 10, cause: K("nextPage").key, changes: [ch("page", "2")] },
+    { seq: 2, at: 20, changes: [ch("users", "[…]"), ch("total", "2")] },
+    { seq: 3, at: 30, cause: K("search").key, changes: [ch("query", "\"ad\"")] },
+  ] });
+  await sleep(50);
+  const scrub = doc.getElementById("scrub");
+  check("timeline scrubber shows, live at the head", !scrub.hidden && /live/i.test(doc.getElementById("seqLabel").textContent) && /#3/.test(doc.getElementById("seqLabel").textContent), doc.getElementById("seqLabel").textContent);
+  sent.length = 0;
+  const track = doc.getElementById("track");
+  track.focus();
+  track.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+  await sleep(120);
+  check("arrow key on the timeline sends travel", sent.some(m => m.type === "travel" && m.to === 2), sent);
+  post({ v: 1, type: "step", from: 3, to: 1, direction: "back", changes: [ch("total", "0", "2"), ch("query", "\"\"", "\"ad\"")] });
+  await sleep(60);
+  const tlv = chip("total").querySelector(".lv");
+  check("step back rolls the value back", tlv?.textContent === "0" && tlv.dataset.old === "2" && /down/.test(tlv.className), tlv?.outerHTML);
+  check("step: viewing the past", doc.body.classList.contains("viewing") && /#1/.test(doc.getElementById("seqLabel").textContent), doc.getElementById("seqLabel").textContent);
+  post({ v: 1, type: "travel-denied", to: 0, reason: "evicted" });
+  await sleep(40);
+  check("travel-denied shows a toast", doc.getElementById("toast").classList.contains("on") && /evicted/.test(doc.getElementById("toast").textContent));
+  sent.length = 0;
+  doc.getElementById("liveBtn").click();
+  await sleep(30);
+  check("LIVE button sends resume", sent.some(m => m.type === "resume"), sent);
+  post({ v: 1, type: "resume", head: 3, changes: [ch("total", "2", "0"), ch("query", "\"ad\"", "\"\"")] });
+  await sleep(60);
+  check("resume: back to live, values forward", !doc.body.classList.contains("viewing") && chip("total").querySelector(".lv")?.textContent === "2" && /up/.test(chip("total").querySelector(".lv").className));
+  post({ v: 2, type: "flush", seq: 9, at: 90, changes: [ch("page", "99")] });
+  post({ v: 1, type: "no-such-message", x: 1 });
+  await sleep(40);
+  check("a v2 message and an unknown type are ignored", chip("page").querySelector(".lv")?.textContent === "2" && !errors.length, errors);
+
+  // module replacement: plan → apply → done
+  const ng = JSON.parse(JSON.stringify(graph));
+  const gone = K("status");
+  ng.nodes = ng.nodes.filter(n => n.id !== gone.id);
+  ng.edges = ng.edges.filter(e => e.from !== gone.id && e.to !== gone.id);
+  const plan = { kept: [K("page").key, K("users").key], reset: [K("query").key], rerun: [K("total").key], added: [], removed: [gone.key], moved: [],
+    reasons: { [K("page").key]: "unchanged", [K("users").key]: "unchanged", [K("query").key]: "type-changed", [K("total").key]: "expr-changed", [gone.key]: "gone" } };
+  post({ v: 1, type: "hmr", phase: "plan", id: "h1", modules: ["examples/users.rx"], graph: ng, plan });
+  await sleep(60);
+  doc.querySelector('#ptabs [data-tab="plan"]')?.click();
+  await sleep(20);
+  check("hmr plan: a Reload tab with reasons", /Reload/.test(doc.getElementById("ptabs").textContent) && /type-changed/.test(doc.getElementById("panel").textContent), doc.getElementById("panel").textContent.slice(0, 200));
+  check("hmr plan: tokens marked", !!chip("page").querySelector(".pb") && chip("status").classList.contains("p-removed") && !!doc.querySelector("#board .frame.module.planned"));
+  post({ v: 1, type: "hmr", phase: "apply", id: "h1" });
+  await sleep(80);
+  check("hmr apply: plate lifts, reset flips, rerun spins", !!doc.querySelector("#board .frame.module.hmr") && chip("query").classList.contains("h-reset") && chip("total").classList.contains("h-rerun") && chip("status").classList.contains("h-removed"));
+  post({ v: 1, type: "hmr", phase: "done", id: "h1", changes: [ch("total", "3")] });
+  await sleep(1300);
+  check("hmr done: new graph swapped in, removed token gone", !chip("status") && !!chip("total"), doc.querySelectorAll("#board .chip").length);
+  check("hmr done: values carried over and updated", chip("page").querySelector(".lv")?.textContent === "2" && chip("total").querySelector(".lv")?.textContent === "3", chip("total").querySelector(".lv")?.textContent);
+
   // a static page ignores every message
   const st = document.createElement("iframe");
   st.srcdoc = pageHTML(graph);
@@ -90,6 +163,9 @@ try {
   const sd = st.contentDocument;
   check("static page: no live badge, no values, no pulse", !sd.getElementById("liveBadge") && !sd.querySelector(".lv, .pulse") && !sd.body.classList.contains("live"));
   check("static page: no Live guide note", !/Live\./.test(sd.getElementById("panel").textContent));
+  check("static page: sound stays muted (persisted)", sd.getElementById("soundBtn").getAttribute("aria-pressed") === "false");
+  sb.click();
+  check("unmute persists", win.localStorage.getItem("rx-map:sound") === "on");
 
   if (shot) {
     // leave it lit: users selected and in the air, total and page with values, a fresh pulse on status
