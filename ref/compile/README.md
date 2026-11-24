@@ -19,7 +19,9 @@ node --experimental-strip-types --conditions=browser --conditions=development re
 
 Status (2026-10-26): every scenario passes as compiled modules, with the
 divergences the oracle records (Solid bugs). Every example app builds for the
-browser (`build.ts`), against `examples/api.mjs`, a fake backend with delays.
+browser (`build.ts`), against `examples/demo-api.mjs`, a fake backend passed
+to `createApp({ api })`. A local implementation of `./api` would take
+precedence (MO-8c).
 
 A program of several `.rx` modules (spec/09) compiles to one ES module per
 `.rx` module: a dependency's `mN.mjs` is a factory over the app that

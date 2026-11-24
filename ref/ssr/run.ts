@@ -34,7 +34,7 @@ async function serverFunction(req: import("node:http").IncomingMessage, res: imp
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   const headers = new Headers(); for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
   const request = new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks) });
-  const rpc = createApp(); rpcApps.push(rpc); (globalThis as { __rx_app?: unknown }).__rx_app = rpc;
+  const rpc = createApp({ scenarioFlights: true }); rpcApps.push(rpc); (globalThis as { __rx_app?: unknown }).__rx_app = rpc;
   const response = await handleServerFunctionRequest(request);
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   if (response.body) for await (const c of response.body as unknown as AsyncIterable<Uint8Array>) res.write(c);
@@ -81,7 +81,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
-  const app = createApp();
+  const app = createApp({ scenarioFlights: true });
   const got: string[] = []; let ended = false; let chunks = 0; let renderError: unknown = null;
   const doc: string[] = [];
   const served$ = new Promise<void>(resolve => {
@@ -94,7 +94,7 @@ async function serve(sc: Scenario, src: string, rows: Row[], title: string, line
     };
   });
   // SV-4: another request for the same page, in flight at the same time — its own app, its own module state
-  if (other) { const b = createApp(); b.stream(main(b), { write: (c: string) => { other.chunks.push(c); }, end: () => {} }); }
+  if (other) { const b = createApp({ scenarioFlights: true }); b.stream(main(b), { write: (c: string) => { other.chunks.push(c); }, end: () => {} }); }
   const nav = page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "commit" }).catch(() => {});
   await served$; await nav;
   for (let i = 0; i < 40 && chunks === 0 && !ended && !renderError; i++) await wait(10);
@@ -122,7 +122,7 @@ const rtWeb = fileURLToPath(new URL("../compile/rt-web.ts", import.meta.url));
 function bundle(dir: string, views: Map<string, string>, entry: string) {
   const cdir = dir + "client/"; mkdirSync(cdir, { recursive: true });
   for (const [name, js] of views) writeFileSync(cdir + name, directives(js, dir + name, "client"));   // the server's filename: the same ids
-  writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app") });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
+  writeFileSync(cdir + "client-entry.mjs", `import main from "./${entry}";\nimport { createApp, flush } from ${JSON.stringify(rtWeb)};\nimport { sharedConfig } from "solid-js";\nconst app = createApp({ root: document.getElementById("app"), scenarioFlights: true });\nwindow.__client = { app, flush, sharedConfig, main };\n`);
   // the dev builds: Solid reports a hydration key miss, a tag mismatch and unclaimed server nodes on the console
   const r = buildSync({ entryPoints: [cdir + "client-entry.mjs"], bundle: true, write: false, format: "esm", platform: "browser", conditions: ["browser", "development"], logLevel: "silent", tsconfigRaw: "{}" });   // (not next's tsconfig paths, which map solid-js to its source)
   return r.outputFiles[0].text;
@@ -149,7 +149,7 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   clientJs = bundle(dir, out.views("dom"), out.entry);
-  const app = createApp(); let ended = false; let chunks = 0;
+  const app = createApp({ scenarioFlights: true }); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
     pending = res => {
@@ -331,7 +331,7 @@ async function runBeforeHydration(sc: Scenario, lines: string[]): Promise<boolea
   for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   clientJs = bundle(dir, out.views("dom"), out.entry);
-  const app = createApp(); let chunks = 0;
+  const app = createApp({ scenarioFlights: true }); let chunks = 0;
   const served$ = new Promise<void>(resolve => {
     pending = res => {
       res.on("error", () => {});

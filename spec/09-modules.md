@@ -174,8 +174,18 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   instead of at every import (S-module-2).
 - **MO-8c.** A JS import, relative (`./util.js`) or a package's, stays an
   ES import in the compiled module, for the bundler to resolve; no
-  `package.json` `#imports` alias is needed. The one exception is `./api`,
-  which is the app's injected API (`createApp({ api })`, CP-4).
+  `package.json` `#imports` alias is needed. For the scenarios and examples,
+  exactly `./api` can name the injected test API (`createApp({ api })`,
+  CP-4c), but only if there is no local implementation relative to the
+  importing file. A neighboring `api.js` or `api.ts` wins; an `api.d.rx`
+  declares the API's rows but is not itself an implementation.
+- **MO-8d.** An `export type` in a JS module's `.d.rx` binds no value.
+  Its name (including a local alias) appears in the type projection, but
+  not in the emitted JS import or runtime bindings. An import with only
+  such names does not load the JS module. The runtime compiler does not
+  read TypeScript types or infer which imports are types from their uses:
+  declare type exports in `.d.rx` to erase them. No `import type` form
+  is needed.
 
 ## MO-9 — A signature read in place of its module
 

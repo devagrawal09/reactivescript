@@ -11,14 +11,14 @@ import { parseScenario, moduleSet, type Scenario } from "../src/scenario.ts";
 import { checkModules } from "../src/check.ts";
 import { projectModules, PRELUDE, type Projected } from "./project.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { loadModules } from "../src/modules.ts";
 
 const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
 /** RX_CRATE=1: the crate's projection of the program, read from the same files ref/ reads. */
 function crateProjection(sc: Scenario, src: string): Projected[] {
   const files: Record<string, string> = {};
-  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
+  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
   loadModules(sc.entry, read);
   const out = JSON.parse(execFileSync(rxc, ["project"], { input: JSON.stringify([{ id: 0, entry: sc.entry, files }]), maxBuffer: 1 << 28 }).toString());
   return out.programs[0].files;

@@ -4,7 +4,7 @@
 // (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The decisions are the
 // oracle's (ref/oracle/lower.ts); this file only makes them at compile time.
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
-import { singleModule, type ModuleSet } from "../src/modules.ts";
+import { joinPath, singleModule, type ModuleSet } from "../src/modules.ts";
 import { innerCatches, nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
@@ -73,10 +73,10 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
 /** `dev`: each source's and equation's creating calls run under its key (`__rt.key(k, () => …)`, model.ts declKeys), so
  *  the runtime names their Solid nodes; `root` is the project root the key's module is relative to. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string } = {}): { files: Map<string, string>; entry: string; css: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
-  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
+  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, jsSpecifier: opts.jsSpecifier });
   const files = new Map<string, string>();
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p.decls);
@@ -107,14 +107,21 @@ class Gen {
   keys = new Map<Decl, string>();                       // dev: each declaration's key (model.ts declKeys); empty otherwise
   /** dev: a keyed declaration's creating call, run under its key. */
   private under(key: string | undefined, call: string): string { return key ? `__rt.key(${J(key)}, () => ${call})` : call; }
+  private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
+  private realImport(from: string, name: string) {
+    return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
+  }
+  private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
+    return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.name === name) : undefined;
+  }
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {
     this.file = path; this.top = []; this.modDecls = decls; this.serverNames = new Map();
     for (const d of decls) if (d.k === "server" || (d.k === "eq" && unwrapServer(d.e))) this.serverNames.set(d.name, `sf$${d.name}`);
-    // a package's JS (\`@solidjs/web/server-functions\`): a real import at module level, where a hoisted server fn's wrappers are
-    for (const d of decls) if (d.k === "import" && !d.resolved && !d.from.startsWith(".")) {
-      const names = d.names.filter(n => !BUILTINS.has(n.name) && n.name !== "log");
-      if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(d.from)};`);
+    // Real JS imports live at module level so a hoisted server function can read them.
+    for (const d of decls) if (d.k === "import" && !d.resolved) {
+      const names = d.names.filter(n => this.realImport(d.from, n.name) && this.jsDecl(d, n.name)?.kind !== "type");
+      if (names.length) this.top.push(`import { ${names.map(n => `${n.name} as w$${n.alias}`).join(", ")} } from ${J(this.mods?.jsSpecifier?.(path, d.from) ?? d.from)};`);
     }
   }
   /** 12 SF-7a: a server fn as Solid's \`"use server"\` function at module level — it may name only its parameters, its locals
@@ -127,7 +134,7 @@ class Gen {
     const chain = (x: Expr): string => {
       if (x.k === "serverfn") return this.serverHoist({ name, params: x.params, body: x.body }, true);
       if (x.k === "call" && x.f.k === "id") {
-        const imp = this.modDecls.find(d => d.k === "import" && !d.resolved && !d.from.startsWith(".") && d.names.some(n => n.alias === (x.f as { name: string }).name));
+        const imp = this.modDecls.find(d => d.k === "import" && !d.resolved && d.names.some(n => n.alias === (x.f as { name: string }).name && (this.realImport(d.from, n.name) || !d.from.startsWith("."))));
         if (!imp) throw new CompileError(`${name}: a server fn's wrapper is a package's function (here, ${x.f.name})`);
         return `w$${x.f.name}(${x.args.map(a => unwrapServer(a) ? chain(a) : a.k === "lit" ? J(a.v) : (() => { throw new CompileError(`${name}: a wrapper's other arguments are literals`); })()).join(", ")})`;
       }
@@ -141,8 +148,9 @@ class Gen {
     const env = new Env(null); const pre: string[] = [];
     for (const x of this.modDecls) {
       if (x.k === "import" && !x.resolved) for (const { name, alias } of x.names) {
+        if (this.jsDecl(x, name)?.kind === "type") continue;
+        if (this.realImport(x.from, name)) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }
         if (name === "log" || BUILTINS.has(name)) continue;
-        if (!x.from.startsWith(".")) { env.vars.set(alias, { kind: "val", js: `w$${alias}` }); continue; }   // a package's: module level
         env.vars.set(alias, { kind: "val", js: mg(alias) });
         pre.push(`const ${mg(alias)} = ${x.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : `__rt.api(${J(name)})`};`);
       }
@@ -158,8 +166,8 @@ class Gen {
     return f;
   }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
-  mods?: { set: ModuleSet; out: (path: string) => string };
-  constructor(u: Usage, mods?: { set: ModuleSet; out: (path: string) => string }) { this.u = u; this.mods = mods; }
+  private mods?: { set: ModuleSet; out: (path: string) => string; jsSpecifier?: (file: string, from: string) => string };
+  constructor(u: Usage, mods?: Gen["mods"]) { this.u = u; this.mods = mods; }
   private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
   /** An imported name's binding, from the exporting module's declaration (MO-3: a source is read-only here, so an accessor). */
@@ -243,7 +251,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(y => y.name === name) : undefined; env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
+      if (d.k === "import") for (const { name, alias } of d.names) { const x = this.jsDecl(d, name); if (x?.kind !== "type") env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
@@ -254,7 +262,8 @@ class Gen {
       if (d.k === "eq") { const jf = d.e.k === "call" && d.e.f.k === "id" ? env.lookup(d.e.f.name) : undefined; env.vars.set(d.name, { kind: "acc", js: mg(d.name), w: this.guessedEq(d) ? `w$${d.name}` : undefined, prev: this.u.prevOf.has(d.name) ? `p$${d.name}` : undefined, ...(jf?.kind === "jfn" ? { inst: `r$${d.name}`, shape: jf.shape } : {}) }); }
     }
     for (const d of decls) if (d.k === "import" && !d.resolved) for (const { name, alias } of d.names) {
-      const v = !d.from.startsWith(".") && !BUILTINS.has(name) && name !== "log" ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from.endsWith("/api") ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
+      if (this.jsDecl(d, name)?.kind === "type") continue;
+      const v = this.realImport(d.from, name) ? `w$${alias}` : name === "log" ? "__B.log" : d.declaredErrors?.includes(name) ? `__rt.jsError(${J(name)})` : BUILTINS.has(name) ? `__B.${name}` : d.from === "./api" ? `__rt.api(${J(name)})` : isPrims(d.from) ? `__rt.prim(${J(name)})` : null;   // MO-10: the prelude's Solid primitives
       if (!v) throw new CompileError(`${name} from "${d.from}" is not in the scenario prelude`);
       out.push(`${pad}const ${mg(alias)} = ${v};\n${pad}__rt.reg(${J(alias)}, { value: ${mg(alias)} });`);
     }

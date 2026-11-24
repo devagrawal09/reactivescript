@@ -57,6 +57,7 @@ Bins:
 | `FALLBACK_FLASH`                  | R   | timing                                                             |
 | `STACKED_HOLDS`                   | R   | timing                                                             |
 | `ABANDONED_FLIGHTS`               | R   | timing                                                             |
+| `MISSING_TEST_API`                | R   | CP-4c / MO-8c: unresolved `./api` test import without an injected API outside the scenario runners |
 | `UNTRACKED_ASYNC_HANDLER`         | R   | timing; the structural half (no write before `await`, no `action`) is S |
 | `HOT_SCOPE_*`                     | R   | profiling                                                          |
 | `WASTED_RECOMPUTE`                | R   | data-dependent                                                     |
