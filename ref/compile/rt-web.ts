@@ -346,7 +346,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
 export type App = ReturnType<typeof createApp>;
 
 /** A path write `x.a.b := v` as a store setter's mutation. */
-const pathWrite = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (keys: (string | number)[], v: unknown) => setStore(() => { let o = H; const n = keys.length - 1; for (let i = 0; i < n; i++) o = S.get(o, keys[i]); S.set(o, keys[n], v); });
+const pathWrite = S.pathWrite;   // ST-2: the store's own setter scope, entered on its target
 /** A guess through an optimistic store's setter: per key, or whole — a whole guess is the setter's return, which Solid
  *  diffs shallowly against the view as guesses. */
 const guessInto = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (v: unknown, keys: (string | number)[] = []) => setStore((d: any) => { if (keys.length === 0) return typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v; let o = H; const n = keys.length - 1; for (let i = 0; i < n; i++) o = S.get(o, keys[i]); const last = keys[n]; S.set(o, last, typeof v === "function" ? (v as (x: unknown) => unknown)(S.out(S.get(o, last))) : v); });

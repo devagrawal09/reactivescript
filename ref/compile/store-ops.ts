@@ -6,6 +6,7 @@
 import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet } from "@solidjs/signals";
 import "./features.ts";   // the manifest's switches (`__RX_STORES__`): a program with no structured value bundles none of the store
 declare const __RX_STORES__: boolean;
+import { $TARGET, isStoreTarget, storeGet, storeHas, storeKeys, storeProxy, storeSet, storeWrite } from "@solidjs/signals";
 
 export const isT = (v: unknown): boolean => __RX_STORES__ && isStoreTarget(v);
 /** A value as JS sees it: a target as its proxy. */
@@ -30,4 +31,10 @@ export const B = {
   every: (xs: any, f: (x: unknown) => unknown): boolean => { if (!(__RX_STORES__ && isStoreTarget(xs))) return xs.every(f); const n = storeGet(xs, "length"); for (let i = 0; i < n; i++) if (storeHas(xs, i) && !f(storeGet(xs, i))) return false; return true; },
   indexOf: (xs: any, f: (x: unknown) => unknown): number => { if (!(__RX_STORES__ && isStoreTarget(xs))) return xs.findIndex(f); const n = storeGet(xs, "length"); for (let i = 0; i < n; i++) if (f(storeGet(xs, i))) return i; return -1; },
   sum: (xs: any): number => { if (!(__RX_STORES__ && isStoreTarget(xs))) return xs.reduce((a: number, b: number) => a + b, 0); const n = storeGet(xs, "length"); let s = 0; for (let i = 0; i < n; i++) if (storeHas(xs, i)) s += storeGet(xs, i); return s; },
+};
+/** A path write `x.a.b := v` (ST-2): Solid's setter scope around the one write, entered on the store's target (`storeWrite`)
+ *  — no setter callback, no draft proxy. A store that is not a target (the server's) is written through its setter. */
+export const pathWrite = (setStore: (f: (d: any) => unknown) => void, H: unknown) => (keys: (string | number)[], v: unknown): void => {
+  if (isStoreTarget(H)) storeWrite(H as never, keys, v);
+  else setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; });
 };
