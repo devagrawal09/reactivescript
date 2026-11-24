@@ -82,5 +82,15 @@ const decl = run(
 );
 check("a .d.rx in include passes", decl.status === 0 && decl.out.trim() === "", decl);
 
+// eval snippets (src/snippet.js): checked as the editor checks them, errors on the snippet's own lines
+const snippet = f => fs.readFileSync(path.join(__dirname, "snippets", f), "utf8");
+const snip = run({ file: "todo.rx", text: () => snippet("todo.rx") }, { file: "editor.rx", text: () => snippet("editor.rx") });
+check("eval snippets pass", snip.status === 0 && snip.out.trim() === "", snip);
+const broken = snippet("editor.rx").replace("{title}", "{titel}").replace("keys := keys + 1", 'code := ""');
+const line = needle => broken.slice(0, broken.indexOf(needle)).split("\n").length;
+const snipErr = run({ file: "editor.rx", text: () => broken });
+check("a snippet's unbound name and write to a binding fail, on its lines",
+  snipErr.status !== 0 && new RegExp(`editor\\.rx:${line("{titel}")}:\\d+ - error UNBOUND`).test(snipErr.out) && new RegExp(`editor\\.rx:${line('code := ""')}:\\d+ - error READ_ONLY`).test(snipErr.out), snipErr);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

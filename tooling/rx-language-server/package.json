@@ -22,7 +22,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test/run.js && node test/tsc.js",
+    "test": "node test/run.js && node test/snippets.js && node test/tsc.js",
     "prepack": "node scripts/wasm.js"
   },
   "dependencies": {
