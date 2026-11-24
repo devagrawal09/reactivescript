@@ -4,10 +4,11 @@
 // transform(), the crate's emit.rs then compile_program() — for the universal, dom and ssr targets, with a scenario table's
 // handler rows as compile/run.ts passes them; the modules must agree (comments dropped, both printed by esbuild), and the
 // crate's source maps onto .rx must hold (checkMap, CP-1c).
+// With --lower --dev: the same, for dev builds (each source's and equation's creating calls under its key, `__rt.key`).
 // With --project (TY-1c, CP-8): every program the checker accepts is projected to TSX by both — types/project.ts and the
 // crate's project.rs — and the files must be the same text, line for line; each of the crate's mappings must join the same
 // text on both sides.
-// Usage: node --experimental-strip-types ref/crate.ts [--lower|--project] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
+// Usage: node --experimental-strip-types ref/crate.ts [--lower [--dev]|--project] [filter]     (builds compiler/ with cargo first; VERBOSE=1 lists each;
 //        DUMP=dir writes the first differing module of a failure, both sides, to dir/{ref,crate}.<target>.js)
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ import { printSignature } from "./src/signature.ts";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lowerMode = process.argv.includes("--lower");
 const projectMode = process.argv.includes("--project");
+const devMode = process.argv.includes("--dev");
 const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const verbose = !!process.env.VERBOSE;
 type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[] };
@@ -101,7 +103,7 @@ async function lower(): Promise<number> {
   const { transformSync } = await import("esbuild");
   const { parseStmts } = await import("./src/parse.ts");
   const norm = (code: string) => { try { return transformSync(code, { loader: "js", format: "esm", legalComments: "none" }).code; } catch (e) { return `esbuild: ${(e as Error).message}\n${code}`; } };
-  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true }))), maxBuffer: 1 << 30 }).toString();
+  const out = execFileSync(join(root, "compiler/target/release/rxc"), ["lower"], { input: JSON.stringify(reqs.map(r => ({ ...r, renderer: STRING_RENDERER, maps: true, ...(devMode ? { dev: true } : {}) }))), maxBuffer: 1 << 30 }).toString();
   const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
   let bad = 0, compiled = 0, modules = 0, mapped = 0;
   for (const r of reqs) {
@@ -113,7 +115,7 @@ async function lower(): Promise<number> {
       if (checkModules(set).diags.length) want = { refused: true };
       else {
         const extra = (r.extra ?? []).map(s => { try { return parseStmts(s); } catch { return []; } });
-        let c; try { c = compileModules(set, { extraStmts: extra }); } catch (e) { if (!(e instanceof CompileError)) throw e; c = null; want = { compileError: (e as Error).message }; }
+        let c; try { c = compileModules(set, { extraStmts: extra, dev: devMode }); } catch (e) { if (!(e instanceof CompileError)) throw e; c = null; want = { compileError: (e as Error).message }; }
         if (c) {
           const files: Record<string, Record<string, string>> = {};
           for (const [k, target] of [["universal", "universal"], ["dom", "dom"], ["ssr", "ssr"]] as const) {
@@ -147,7 +149,7 @@ async function lower(): Promise<number> {
     } else d = diff(want, (({ id: _, ...x }) => x)(have ?? {}));
     if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
   }
-  console.log(`${reqs.length - bad}/${reqs.length} programs lowered alike (${compiled} compiled, ${modules} modules × universal, dom, ssr; ${mapped} source maps onto .rx checked)`);
+  console.log(`${reqs.length - bad}/${reqs.length} programs lowered alike${devMode ? " (dev)" : ""} (${compiled} compiled, ${modules} modules × universal, dom, ssr; ${mapped} source maps onto .rx checked)`);
   return bad ? 1 : 0;
 }
 

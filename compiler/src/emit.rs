@@ -8,6 +8,7 @@ use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
+use crate::model::{decl_keys, module_key};
 use crate::modules::ModuleSet;
 use crate::parse::{JsDecl, Part, Shape as FShape};
 use crate::signature::ExportSig;
@@ -199,6 +200,13 @@ pub fn compile_modules(set: &ModuleSet, extra: &[Vec<Stmt>]) -> R<Compiled> {
 /// `compile_modules`, with each module importing its dependencies by their `.rx` paths (relative to the importer) when
 /// `by_source`, as a bundler resolves them, rather than as the sibling `.mjs` files `compile_modules` names.
 pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> R<Compiled> {
+    compile_dev(set, extra, by_source, None)
+}
+
+/// `compile_linked` for a dev build when `dev` is set: each source's and equation's creating calls run under its key
+/// (`__rt.key(k, () => …)`, model.rs `decl_keys`), so the runtime names their Solid nodes. `dev`: the project root the
+/// key's module is relative to (`""`: the path as the loader has it).
+pub fn compile_dev(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: Option<&str>) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
@@ -209,6 +217,10 @@ pub fn compile_linked(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool) -> 
         let p = &set.programs[path];
         let css0 = g.css.len();
         g.begin_module(path, &p.decls);
+        g.keys = match dev {
+            Some(root) => decl_keys(p, &module_key(path, Some(root))),
+            None => HashMap::new(),
+        };
         let mut deps: Vec<&str> = vec![];
         for d in &p.decls {
             if let Decl::Import { resolved: Some(r), .. } = d {
@@ -269,6 +281,8 @@ struct Gen<'p> {
     hoist_seq: usize,
     frames: Vec<Frame>,
     style_ids: u32,
+    /// dev: each declaration's key (model.rs `decl_keys`); empty otherwise
+    keys: HashMap<*const Decl, String>,
 }
 
 /// MO-10: the scenario prelude's `./prims`, a JS module of Solid primitives (`ref/compile/prims-solid.ts`).
@@ -301,6 +315,7 @@ impl<'p> Gen<'p> {
             hoist_seq: 0,
             frames: vec![],
             style_ids: 0,
+            keys: HashMap::new(),
         }
     }
     // ---- environments
@@ -927,11 +942,12 @@ impl<'p> Gen<'p> {
         }
         let name = d.name().unwrap();
         let b = self.frames[env].vars.get(name).unwrap().clone();
+        let key = self.keys.get(&(d as *const Decl)).cloned();
         let mut out = match d {
-            Decl::Source { question: true, init, .. } => self.hoist(Some(name), init, env, true)?,
+            Decl::Source { question: true, init, .. } => self.hoist_under(Some(name), init, env, true, key.as_deref())?,
             Decl::Eq { e, .. } if !matches!(&e.k, ExprKind::Draft { .. }) => {
-                let mut v = self.hoist(Some(name), e, env, true)?;
-                v.append(&mut self.hoist_catches(name, e, env)?);
+                let mut v = self.hoist_under(Some(name), e, env, true, key.as_deref())?;
+                v.append(&mut self.hoist_catches(name, e, env, key.as_deref())?);
                 v
             }
             _ => vec![],
@@ -942,6 +958,16 @@ impl<'p> Gen<'p> {
     /// 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
     /// reach it hold (E-11, awaits.rs); the equation reads it where the `await` was.
     fn hoist(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool) -> R<Vec<S>> {
+        self.hoist_under(name, e, env, tail, None)
+    }
+    /// dev: a keyed declaration's creating call, run under its key.
+    fn under(key: Option<&str>, call: E) -> E {
+        match key {
+            Some(k) => rtc("key", vec![str(k), thunk(call)]),
+            None => call,
+        }
+    }
+    fn hoist_under(&mut self, name: Option<&str>, e: &Expr, env: Env, tail: bool, key: Option<&str>) -> R<Vec<S>> {
         let mut out = vec![];
         for h in non_tail_awaits(e, tail) {
             let v = format!("a${}${}", name.unwrap_or(""), self.hoist_seq);
@@ -968,7 +994,7 @@ impl<'p> Gen<'p> {
                 let c = it.fold(first, |a, b| bin("&&", a, b));
                 E::Cond(Box::new(c), Box::new(body), Box::new(undef()))
             };
-            out.push(konst(v.clone(), rtc("memo", vec![name.map(str).unwrap_or(E::Null), thunk(f), lv])));
+            out.push(konst(v.clone(), Self::under(key, rtc("memo", vec![name.map(str).unwrap_or(E::Null), thunk(f), lv]))));
             if let Some(n) = name {
                 out.push(sexpr(rtc("hoisted", vec![str(n), id(v)])));
             }
@@ -976,7 +1002,7 @@ impl<'p> Gen<'p> {
         Ok(out)
     }
     /// R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.rs `inner_catches`).
-    fn hoist_catches(&mut self, name: &str, e: &Expr, env: Env) -> R<Vec<S>> {
+    fn hoist_catches(&mut self, name: &str, e: &Expr, env: Env, key: Option<&str>) -> R<Vec<S>> {
         let mut out = vec![];
         for h in inner_catches(e) {
             let ExprKind::Catch { e: x, name: cn, classes, alt } = &h.node.k else { unreachable!() };
@@ -1004,7 +1030,7 @@ impl<'p> Gen<'p> {
                 E::Cond(Box::new(c), Box::new(body), Box::new(undef()))
             };
             self.hoisted_catch.insert(h.node as *const Expr, v.clone());
-            out.push(konst(v, rtc("catchMemo", vec![thunk(f), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)])));
+            out.push(konst(v, Self::under(key, rtc("catchMemo", vec![thunk(f), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)]))));
         }
         Ok(out)
     }
@@ -1022,6 +1048,8 @@ impl<'p> Gen<'p> {
             }
         };
         let pair = || Pat::Arr(vec![b.js.clone(), b.w.clone().unwrap()]);
+        let rx_key = self.keys.get(&(d as *const Decl)).cloned();
+        let k = |call: E| Self::under(rx_key.as_deref(), call);
         match d {
             Decl::Source { name, init, question: false, .. } => {
                 let x = self.expr(init, env, &reactive())?;
@@ -1029,7 +1057,7 @@ impl<'p> Gen<'p> {
                 if self.u.optimistic.contains(name) {
                     args.push(E::Bool(true)); // AC-3: a guess over a writable — an optimistic layer derived from it
                 }
-                let mut out = vec![S::Const(pair(), rtc("source", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), k(rtc("source", args))), self.reg(name, b, true)];
                 prev(&mut out);
                 Ok(out)
             }
@@ -1041,7 +1069,7 @@ impl<'p> Gen<'p> {
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), k(rtc("question", args))), self.reg(name, b, true)];
                 prev(&mut out);
                 Ok(out)
             }
@@ -1056,7 +1084,7 @@ impl<'p> Gen<'p> {
                 if let Some(k) = key {
                     args.push(str(k.clone()));
                 }
-                let mut out = vec![S::Const(pair(), rtc("question", args)), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), k(rtc("question", args))), self.reg(name, b, true)];
                 prev(&mut out);
                 Ok(out)
             }
@@ -1076,23 +1104,23 @@ impl<'p> Gen<'p> {
                     self.set(inner, "d", val("v$d"));
                     let s = self.expr(si, env, &reactive())?;
                     let db = self.draft_body(body, inner)?;
-                    return fin(vec![konst(b.js.clone(), rtc("draft", vec![rtc("untrack", vec![thunk(s)]), arrow_block(vec![P::Id("v$d".into())], db, false)]))], self);
+                    return fin(vec![konst(b.js.clone(), k(rtc("draft", vec![rtc("untrack", vec![thunk(s)]), arrow_block(vec![P::Id("v$d".into())], db, false)])))], self);
                 }
                 // RG-6
                 if let ExprKind::Call { f, .. } = &e.k {
                     if let ExprKind::Id(fname) = &f.k {
                         if self.lookup(env, fname).is_some_and(|x| x.kind == Kind::Ifn) {
                             let v = self.instantiate(e, env)?;
-                            return fin(vec![konst(b.js.clone(), v)], self);
+                            return fin(vec![konst(b.js.clone(), k(v))], self);
                         }
                     }
                 }
                 if let Some(fx) = self.foreign(e, env, &b)? {
                     return fin(fx, self);
                 }
-                if let Some(k) = key {
+                if let Some(sk) = key {
                     let x = self.expr(e, env, &Ctx { tail: true, ..Ctx::default() })?;
-                    return fin(vec![konst(b.js.clone(), rtc("keyed", vec![str(name.clone()), str(k.clone()), thunk(x), E::Bool(matches!(e.k, ExprKind::Rec(_)))]))], self);
+                    return fin(vec![konst(b.js.clone(), k(rtc("keyed", vec![str(name.clone()), str(sk.clone()), thunk(x), E::Bool(matches!(e.k, ExprKind::Rec(_)))])))], self);
                 }
                 // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
                 if let (ExprKind::Catch { e: ce, name: cn, classes, alt }, false) = (&e.k, deferred) {
@@ -1113,20 +1141,20 @@ impl<'p> Gen<'p> {
                         x
                     };
                     let out = vec![
-                        konst(i.clone(), rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv])),
+                        konst(i.clone(), k(rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv]))),
                         konst(
                             b.js.clone(),
-                            rtc(
+                            k(rtc(
                                 "catchMemo",
                                 vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
-                            ),
+                            )),
                         ),
                     ];
                     return fin(out, self);
                 }
                 let x = self.expr(e, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                 let lv = self.loading_value(e, env)?;
-                fin(vec![konst(b.js.clone(), rtc(if *deferred { "deferred" } else { "memo" }, vec![str(name.clone()), arrow(&["__prev"], x), lv]))], self)
+                fin(vec![konst(b.js.clone(), k(rtc(if *deferred { "deferred" } else { "memo" }, vec![str(name.clone()), arrow(&["__prev"], x), lv])))], self)
             }
             _ => fail("unreachable"),
         }
