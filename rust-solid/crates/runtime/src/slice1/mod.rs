@@ -535,7 +535,11 @@ pub struct Runtime {
     /// lanes.ts:166-170 `kept` (node, guess, lane, question, taker) and
     /// `reverted` (a WeakSet of lanes).
     kept: Vec<(NodeId, Slot, Option<TxId>, u64, TxId)>,
+    /// lanes.ts `marked`'s lanes (a revert dissolved them).
     reverted: Vec<TxId>,
+    /// lanes.ts `marked`'s nodes: shown guesses a correction re-homed into
+    /// their hold (#4690).
+    marked_nodes: Vec<NodeId>,
     /// lanes.ts:509 `reverting`.
     reverting: bool,
     /// The store tier's module state (store/*.ts).
@@ -634,6 +638,7 @@ impl Default for Runtime {
             promoted_writes: vec![],
             kept: vec![],
             reverted: vec![],
+            marked_nodes: vec![],
             reverting: false,
             store: store::StoreState::default(),
             passes: vec![],

@@ -394,6 +394,9 @@ impl Runtime {
             }
             if self.txs[l].shown {
                 self.nodes[n].value = self.nodes[n].lane.clone().unwrap_or(Value::NotPending);
+                if self.guessed {
+                    self.mark_guess(n);
+                }
             }
             self.nodes[n].config &= !(CONFIG_OVERRIDE | CONFIG_GUESS);
             self.nodes[n].lane = None;
@@ -494,6 +497,9 @@ impl Runtime {
                     }
                     if self.txs[l].shown {
                         self.nodes[n].value = slot.unwrap_or(Value::NotPending);
+                        if self.guessed {
+                            self.mark_guess(n);
+                        }
                     }
                     self.hold_node(n, into);
                     self.insert_subs(n);
@@ -763,6 +769,13 @@ impl Runtime {
         })
     }
 
+    /// `marked.add(n)` for a node (lanes.ts, #4690).
+    fn mark_guess(&mut self, n: NodeId) {
+        if !self.marked_nodes.contains(&n) {
+            self.marked_nodes.push(n);
+        }
+    }
+
     // Solid: lanes.ts `landing` (#4677): a transaction lands; its lanes end.
     pub(super) fn landing(&mut self, u: TxId) {
         self.walk(u);
@@ -813,6 +826,10 @@ impl Runtime {
 
     // Solid: lanes.ts:906-938
     pub(super) fn end_lanes(&mut self, u: TxId) {
+        if self.guessed {
+            let nodes = &self.txs[u].nodes;
+            self.marked_nodes.retain(|n| !nodes.contains(n));
+        }
         if self.guessed {
             let mut i = self.kept.len() as isize - 1;
             while i >= 0 {
@@ -865,6 +882,17 @@ impl Runtime {
 
     // Solid: lanes.ts:945-947
     pub(super) fn lanes_blocked(&mut self, t: TxId) -> bool {
+        // A shown guess a correction re-homed into `t` (`marked`) keeps it
+        // open on its own flight (#4690).
+        if self.guessed && !self.txs[t].lane {
+            let nodes = self.txs[t].nodes.clone();
+            if nodes
+                .iter()
+                .any(|&n| self.marked_nodes.contains(&n) && self.in_flight(n))
+            {
+                return true;
+            }
+        }
         (self.txs[t].lane && self.link_blocked(t)) || self.nested_blocked(t)
     }
 
