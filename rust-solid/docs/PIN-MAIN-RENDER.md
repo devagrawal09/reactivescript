@@ -80,8 +80,11 @@ HTML.
 - **`isPending` over two rejected sources** (engine, `verdict.ts`): plan fuzz v2.1 seed 19 (`rust: step-getFirstChild`)
   and the same program in the eval fuzz v2.1 (`rust: result`). After `loadIssues` and `loadTotal` reject (steps 5 and
   6), native's `isPending(() => issues().length + total())` stays true ("busy"); Rust's turns false ("ready",
-  `getFirstChild`/`replaceText` at step 6). It agreed at rc.21. Not fixed here: it is the verdict reader's probe over
-  errored nodes, the engine's port.
+  `getFirstChild`/`replaceText` at step 6). It agreed at rc.21. The scenario: step 4 asks `loadIssues#2` and `loadTotal#3`;
+  steps 5 and 6 reject `loadTotal#2` (superseded) and `loadTotal#3` while `loadIssues#2` is still out (it lands at
+  step 10). Rust's `is_pending_window` is Solid's `isPending` line for line, so the difference is upstream of the probe:
+  whether the `<b>` render effect, inside the issues `Loading` that is waiting, reruns at step 6, and what the
+  `issues()` read reports there. Not fixed here; it needs the engine traced against Solid's.
 - **Placement fuzz R ≠ N on 5, 48, 360** (1–1000 run, made while the eval fuzz ran beside it): each agrees, with
   R = N, when rerun alone (twice each). 675 and 932 are the documented unstable seeds (Solid's own client ends
   differently from run to run, docs/HANDOFF.md "Caveats"). The 1–1000 frames summary is not re-recorded: the run was
