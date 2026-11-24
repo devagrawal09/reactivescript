@@ -463,7 +463,9 @@ impl Runtime {
                 }
                 return Ok(self.nodes[el].value.clone());
             }
-            if self.nodes[el].pending.is_some() && status & STATUS_PENDING == 0 {
+            if self.nodes[el].pending.is_some()
+                && (status & STATUS_PENDING == 0 || (self.latest_active && !self.probing))
+            {
                 if self.probing && owned {
                     self.join_pass(c.unwrap(), el);
                 }

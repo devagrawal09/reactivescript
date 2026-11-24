@@ -362,6 +362,9 @@ impl Runtime {
         match r {
             Reaction::Memo(el, pass) => self.microtasks.push_back(Microtask::Landing(el, f, pass)),
             Reaction::ParkDone(r, p) => self.microtasks.push_back(Microtask::ParkDone(r, p)),
+            Reaction::Refresh(n, own, f) => {
+                self.microtasks.push_back(Microtask::RefreshRe(n, own, f))
+            }
             Reaction::Action(a) => {
                 let input = match self.flights[f].result.clone().unwrap() {
                     Ok(v) => Resume::Value(v),

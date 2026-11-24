@@ -469,8 +469,11 @@ pub enum Microtask {
     /// An async memo's flight reaction (async.ts:855-893): the node and the
     /// promise it registered on.
     Landing(NodeId, FlightId, Option<usize>),
-    /// `refresh()`'s deferred waiter (signals.ts:961-998).
-    Waiter(NodeId, Option<TxId>),
+    /// `refresh()`'s deferred waiter (signals.ts `run`): a later refresh
+    /// carries the flight it waited on.
+    Waiter(NodeId, Option<TxId>, Option<FlightId>),
+    /// A later refresh's `re` (`queueMicrotask(run)`).
+    RefreshRe(NodeId, Option<TxId>, FlightId),
     /// verdict.ts `park`'s `done` (the reader, its parked flight).
     ParkDone(NodeId, FlightId),
     /// The host's own continuation: `await Promise.resolve()` (one job,
@@ -498,6 +501,8 @@ enum Reaction {
     /// verdict.ts `park`'s `p.then(done, done)`: the reader and its
     /// parked flight.
     ParkDone(NodeId, FlightId),
+    /// signals.ts `refresh`'s `flight.then(re, re)` (#5101).
+    Refresh(NodeId, Option<TxId>, FlightId),
 }
 
 /// A JS `Set` of nodes, shared by reference: insertion order, and an
@@ -966,7 +971,11 @@ impl Runtime {
                     on_settled(a, r)
                 }
                 Microtask::Landing(el, f, pass) => self.flight_reaction(el, f, pass),
-                Microtask::Waiter(node, own) => self.refresh_waiter(node, own),
+                Microtask::Waiter(node, own, later) => self.refresh_waiter(node, own, later),
+                Microtask::RefreshRe(node, own, f) => {
+                    self.microtasks
+                        .push_back(Microtask::Waiter(node, own, Some(f)))
+                }
                 Microtask::Deliver(waiter) => self.dispose(waiter),
                 Microtask::ParkDone(r, p) => self.park_done(r, p),
                 // A turn's end (`run_microtask_turns`) left in the queue by

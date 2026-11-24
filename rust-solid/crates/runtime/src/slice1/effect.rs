@@ -121,6 +121,21 @@ impl Runtime {
                     .expect("an errored effect carries its error"),
             );
             self.escalate(node, cause);
+        } else if self.nodes[node].effect_type == EFFECT_USER {
+            // A user effect's run owed for a pass a new question has since
+            // made pending is void (F-1, F-2; #4908 T1): it re-runs when that
+            // question settles. A quiet re-ask keeps it (F-9).
+            let src_reask = self.nodes[node]
+                .error
+                .as_ref()
+                .and_then(|e| e.source())
+                .flatten()
+                .is_some_and(|s| self.nodes[s].reask);
+            if actual_status & STATUS_PENDING != 0 && self.nodes[node].modified && !src_reask {
+                self.nodes[node].modified = false;
+                self.nodes[node].x = true;
+                self.nodes[node].blocked = true;
+            }
         } else if self.nodes[node].effect_type == EFFECT_RENDER {
             let actual_error = self.nodes[node].error.clone();
             self.notify(
