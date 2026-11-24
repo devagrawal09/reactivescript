@@ -1,0 +1,6 @@
+node_modules/
+builds/
+logs/
+fuzz/builds/
+fuzz/logs/
+fuzz/failures/

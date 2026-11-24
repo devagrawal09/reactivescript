@@ -1,0 +1,4 @@
+export default component App() {
+  source n := 0
+  <button onClick={() => { n := n + 1 }}>{n}</button>
+}

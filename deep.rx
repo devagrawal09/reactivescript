@@ -1,0 +1,9 @@
+import pure { buildDeep } from "./api"
+export default component App() {
+  source rows := buildDeep(1000)
+  source k := 0
+  <div>
+    <button onClick={() => { rows[k % 1000].a.b.c := "v" + str(k); k := k + 1 }}>write</button>
+    <ul>{for r in rows { <li>{r.a.b.c}</li> }}</ul>
+  </div>
+}

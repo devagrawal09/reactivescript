@@ -1,0 +1,18 @@
+import pure { buildRows, swapRows } from "./api"
+export default component App() {
+  source rows := []
+  source sel := -1
+  source k := 0
+  total = sum(map(rows, r => r.n))
+  <div>
+    <button onClick={() => { rows := buildRows(1000) }}>run</button>
+    <button onClick={() => { rows := buildRows(10000) }}>runlots</button>
+    <button onClick={() => { rows[(k * 10) % len(rows)].label := "upd " + str(k); k := k + 1 }}>update</button>
+    <button onClick={() => { sel := (sel + 1) % 1000 }}>select</button>
+    <button onClick={() => { rows := rs => swapRows(rs) }}>swap</button>
+    <button onClick={() => { rows := [] }}>clear</button>
+    <button onClick={() => { rows[k % len(rows)].n := k; k := k + 1 }}>bump</button>
+    <p>{total}</p>
+    <ul>{for r in rows { <li class={r.id == sel ? "danger" : ""}>{r.id} {r.label}</li> }}</ul>
+  </div>
+}

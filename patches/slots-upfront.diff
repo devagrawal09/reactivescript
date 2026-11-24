@@ -1,0 +1,101 @@
+diff --git a/packages/signals/src/store/index.ts b/packages/signals/src/store/index.ts
+index ac9e88f36..97bb0d008 100644
+--- a/packages/signals/src/store/index.ts
++++ b/packages/signals/src/store/index.ts
+@@ -23,8 +23,11 @@ export {
+   storeGet,
+   storeHas,
+   storeKeys,
+-  storeSet
++  storeSet,
++  storeGetShaped,
++  storeShape
+ } from "./store.js";
++export type { StoreShape } from "./store.js";
+ export { proxyOf as storeProxy } from "./target.js";
+ export { storePath } from "./storePath.js";
+ export type {
+diff --git a/packages/signals/src/store/store.ts b/packages/signals/src/store/store.ts
+index 3949c4d3d..70de60141 100644
+--- a/packages/signals/src/store/store.ts
++++ b/packages/signals/src/store/store.ts
+@@ -321,6 +321,8 @@ function releaseSlot(node: any): void {
+   } else if (key === $DEEP) {
+     if (t.dk === node) t.dk = null;
+   } else if (t.n?.[key as any] === node) {
++    // A shaped record keeps its nodes: its layout is its slots (`storeShape`).
++    if ((t.n as any)[$SHAPED] === true) return;
+     delete t.n![key as any];
+     // An emptied dictionary is dropped (#5024): the target outlives its
+     // readers while the app holds the raw object.
+@@ -2592,6 +2594,48 @@ const ARRAY_SHELL: any[] = [];
+ export function storeGet(t: StoreTarget, key: PropertyKey): any {
+   return traps.get!.call(t, HANDLE, propKey(key) as any, undefined);
+ }
++// ---------------------------------------------------------------------------
++// fixed-shape records (opt-in; an alternate layout of the node map, not a
++// subtraction): a record a compiler knows the fields of keeps its nodes in
++// an object with one in-object slot per field, all made when the record is
++// first read through its shape and never released.
++
++const $SHAPED: unique symbol = Symbol(__DEV__ ? "STORE_SHAPED" : 0);
++
++export interface StoreShape {
++  readonly keys: readonly string[];
++  /** @internal */
++  readonly _nodes: new () => Record<PropertyKey, Signal<any>>;
++}
++
++/** A shape: the string keys every record of it has. */
++export function storeShape(keys: readonly string[]): StoreShape {
++  const Nodes = function (this: any) {
++    for (let i = 0; i < keys.length; i++) this[keys[i]] = undefined;
++  } as unknown as new () => Record<PropertyKey, Signal<any>>;
++  // No inherited key answers for a node (as the keyed map's null prototype).
++  const proto = Object.create(null);
++  proto[$SHAPED] = true;
++  Nodes.prototype = proto;
++  return { keys, _nodes: Nodes };
++}
++
++/** `storeGet(t, key)` for a record of `shape`: its nodes are made on the
++ * first such read, then the read is the trap's. */
++export function storeGetShaped(t: StoreTarget, shape: StoreShape, key: PropertyKey): any {
++  if (t.n === null && !t.ar) {
++    const keys = shape.keys;
++    for (let i = 0; i < keys.length; i++) getNode(t, keys[i]);
++    // Moved into the shape's slots once every one holds its node: no walk
++    // of the map meets an empty slot.
++    const made = t.n as unknown as Record<PropertyKey, Signal<any>>;
++    const slots = new shape._nodes();
++    for (let i = 0; i < keys.length; i++) slots[keys[i]] = made[keys[i]];
++    t.n = slots;
++  }
++  return traps.get!.call(t, HANDLE, propKey(key) as any, undefined);
++}
++
+ /** `key in proxy`. */
+ export function storeHas(t: StoreTarget, key: PropertyKey): boolean {
+   return traps.has!.call(t, HANDLE, propKey(key) as any);
+@@ -2633,10 +2677,20 @@ installTargetList({ _is: isTarget, _get: storeGet, _slice: storeSlice });
+ if (__TEST__ && (globalThis as any).process?.env?.SOLID_STORE_VIA_TARGET) {
+   installViaTarget(t => {
+     const out = (r: any) => (isTarget(r) ? proxyOf(r) : r);
++    // SOLID_STORE_VIA_TARGET=shape: every record is read through a shape of
++    // the string keys it has at its first read (`storeGetShaped`).
++    const shaped = (globalThis as any).process.env.SOLID_STORE_VIA_TARGET === "shape";
++    let shape: StoreShape | undefined;
++    const shapeNow = (): StoreShape =>
++      (shape ??= storeShape(
++        Reflect.ownKeys(untrack(() => readSource(t))).filter(
++          (k): k is string => typeof k === "string"
++        )
++      ));
+     return new Proxy(t.ar ? [] : {}, {
+       get: (shell, key, receiver) =>
+         typeof key === "string" && receiver === t.px
+-          ? out(storeGet(t, key))
++          ? out(shaped && !t.ar ? storeGetShaped(t, shapeNow(), key) : storeGet(t, key))
+           : traps.get!.call(t, shell, key, receiver),
+       has: (_, key) => storeHas(t, key),
+       ownKeys: shell => traps.ownKeys!.call(t, shell),

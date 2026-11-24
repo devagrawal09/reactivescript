@@ -1,0 +1,12 @@
+import pure { buildRows, save } from "./api"
+export default component App() {
+  source rows := buildRows(200)
+  source k := 0
+  action rename(i, t) {
+    try { guess rows[i].label := t; let r = await save(t); rows[i].label := r } catch {}
+  }
+  <div>
+    <button onClick={() => { rename(k % 200, "g" + str(k)); k := k + 1 }}>claim</button>
+    <ul>{for r in rows { <li>{r.label}{pending? r.label ? "…" : ""}</li> }}</ul>
+  </div>
+}

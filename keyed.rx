@@ -1,0 +1,13 @@
+import pure { loadRows } from "./api"
+export default component App() {
+  source page := 0
+  rows key id = await loadRows(page)
+  <div>
+    <button onClick={() => { page := page + 1 }}>next</button>
+    {errored fallback(e) { <p>error</p> } {
+      {loading fallback { <p>loading</p> } {
+        <ul>{for r in rows { <li>{r.id} {r.label}</li> }}</ul>
+      }}
+    }}
+  </div>
+}
