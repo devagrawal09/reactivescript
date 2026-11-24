@@ -79,10 +79,8 @@
   .frame.for { box-shadow: 5px 5px 0 -1.5px #121620, 5px 5px 0 0 color-mix(in srgb, var(--fc) 35%, transparent), 0 4px 0 -1px rgba(4, 6, 10, .5) }
   .ctag { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 7px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 600;
     color: var(--fc); background: color-mix(in srgb, var(--fc) 16%, #161a21); border: 1px solid color-mix(in srgb, var(--fc) 55%, transparent); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 rgba(0, 0, 0, .4) }
-  .ctag::before { font-size: 10px; letter-spacing: .05em; opacity: .85 }
-  .frame.then > .flabel .ctag::before, .frame.else > .flabel .ctag::before { content: "⑂ BRANCH" }
-  .frame.for > .flabel .ctag::before { content: "≡ ROWS" }
-  .frame.loading > .flabel .ctag::before { content: "⧗ LOADING" } .frame.errored > .flabel .ctag::before { content: "⚠ ERRORED" }
+  .ctag .cw { display: inline-flex; align-items: center; gap: 4px; font: 700 9.5px/1 ui-sans-serif, system-ui; letter-spacing: .1em; opacity: .85 }
+  .ctag .cw svg.i { width: 12px; height: 12px }
   .ctag.sel { box-shadow: 0 0 0 2px #fff } .ctag.lit { outline: 1px solid #fff }
   .notifiers { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; color: var(--fc) }
   .notifiers .nref { font: 12px ui-monospace, Menlo, monospace; background: color-mix(in srgb, var(--fc) 10%, #161a21); border: 1px dashed color-mix(in srgb, var(--fc) 60%, transparent); color: var(--text); border-radius: 999px; padding: 1px 8px; cursor: pointer }
@@ -144,7 +142,7 @@
   .s-well.async .tok { background: repeating-linear-gradient(135deg, rgba(255, 255, 255, .16) 0 5px, transparent 5px 10px), var(--face) }
   .chip .g { font-size: 12px; font-weight: 700; line-height: 1 }
   .chip .g.gp { color: var(--pending); filter: drop-shadow(0 0 3px rgba(251, 191, 36, .55)) }
-  .gi { color: var(--pending) } .gi svg.i { display: inline-block; vertical-align: -2px; width: 12px; height: 12px }
+  .gi { color: var(--pending) } .gi.gio, .gi.ga { color: inherit } .gi svg.i { display: inline-block; vertical-align: -2px; width: 12px; height: 12px }
   .chip .g.gp svg.i { width: 13px; height: 13px }
   .chip .g.gq { color: var(--c); border: 1px solid currentColor; border-radius: 50%; width: 15px; height: 15px; display: inline-grid; place-items: center; font-size: 10px }
   .s-well .g.gq { color: #fff }
@@ -153,7 +151,7 @@
   .flabel .chip, aside .chip, .legend .chip { padding-top: 3px; padding-bottom: 5px }
   .flabel .chip .n { font-size: 12.5px }
   .chip:focus-visible { outline: 2px solid #fff; outline-offset: 3px }
-  .chip.io::after { content: "↗"; position: absolute; top: -8px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: #e5e7eb; color: #0f1115; font: 700 11px/16px system-ui; text-align: center; box-shadow: 0 0 0 2px #0f1115, 0 2px 4px rgba(0, 0, 0, .5) }
+  .chip.io::after { content: ""; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 11 11 5M6.5 5H11v4.5' fill='none' stroke='%230f1115' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-size: 12px 12px !important; background-position: center !important; background-repeat: no-repeat !important; position: absolute; top: -8px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: #e5e7eb; color: #0f1115; font: 700 11px/16px system-ui; text-align: center; box-shadow: 0 0 0 2px #0f1115, 0 2px 4px rgba(0, 0, 0, .5) }
   .chip.io.chg-io::after { box-shadow: 0 0 0 2px #0f1115, 0 0 0 4px var(--d-chg) }
   .chip.hit { box-shadow: 0 0 0 2px #fff, 0 0 16px 2px rgba(255, 255, 255, .35) }
   .chip.sel { box-shadow: 0 0 0 2px #fff, 0 0 22px 4px color-mix(in srgb, var(--c) 70%, transparent) }
@@ -211,7 +209,7 @@
   body.diff #diffbar { display: inline-flex }
   #diffbar select { background: rgba(0, 0, 0, .3); color: var(--text); border: 1px solid rgba(150, 180, 255, .2); border-radius: 5px; padding: 4px 6px }
 
-  aside.hud { top: 66px; right: 10px; bottom: 10px; width: var(--panel-w); display: flex; flex-direction: column; overflow: hidden; padding: 0 }
+  aside.hud { top: var(--top-inset); right: 10px; bottom: var(--bottom-inset); width: var(--panel-w); display: flex; flex-direction: column; overflow: hidden; padding: 0 }
   aside.closed { display: none }
   #panel { flex: 1; overflow: auto; padding: 12px 16px 18px; position: relative; scrollbar-width: thin; scrollbar-color: rgba(150, 180, 255, .25) transparent }
   #ptabs { display: flex; align-items: stretch; border-bottom: 1px solid rgba(150, 180, 255, .16); background: rgba(0, 0, 0, .18); position: relative; z-index: 1 }
@@ -279,11 +277,18 @@
   .was { color: var(--d-chg) }
 
   /* minimap, dock, tooltip, toast */
-  #mini { left: 10px; bottom: 10px; padding: 7px 8px 8px; min-width: 130px }
+  /* the HUD frames the world: a header on top, a bar at the bottom; the world is drawn only between them */
+  :root { --top-inset: 64px; --bottom-inset: 58px }
+  #canvas { clip-path: inset(var(--top-inset) 0 var(--bottom-inset) 0) }
+  #bar { left: 10px; right: 10px; bottom: 10px; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 6px }
+  #bar > .spacer { flex: 1 }
+  #mini { left: 10px; bottom: calc(var(--bottom-inset) + 8px); padding: 7px 8px 8px; min-width: 130px }
+  body.mini-off #mini { display: none }
+  #edgesBtn { display: none }
   #mini .micro { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px }
   #mini canvas { display: block; margin: 0 auto; cursor: crosshair; border-radius: 3px }
-  #dock { right: 10px; bottom: 10px; display: flex; gap: 4px; align-items: center; padding: 5px }
-  body.panel-open #dock { right: calc(var(--panel-w) + 20px) }
+  #dock { display: flex; gap: 4px; align-items: center; margin-left: auto }
+  #scrub:not([hidden]) + .spacer { display: none }
   #zoomPct { min-width: 44px; text-align: center; font: 600 10.5px/1 ui-monospace, Menlo, monospace; color: var(--micro) }
   #soundBtn[aria-pressed=false] { color: var(--dim) }
   #tip { pointer-events: none; max-width: 440px; padding: 9px 11px 8px; opacity: 0; transition: opacity .12s; z-index: 20; left: 0; top: 0 }
@@ -293,6 +298,20 @@
   #tip pre.code { margin: 6px 0 4px; font-size: 11.5px }
   #tip .tip-m { color: var(--dim); font-size: 11px }
   #tip .tip-v { margin-top: 4px; font: 11.5px ui-monospace, Menlo, monospace; color: #fff }
+  #devhud { top: var(--top-inset); left: 10px; margin-top: 8px; padding: 4px; z-index: 12; width: 300px }
+  #devhud.collapsed { width: auto }
+  #devhud.collapsed .dh-body { display: none }
+  #devhud.collapsed .dh-toggle svg.i { transform: rotate(-90deg) }
+  .dh-toggle { display: flex; gap: 8px; align-items: center; width: 100%; background: none; border: 0; color: var(--text); cursor: pointer; padding: 5px 6px; font: inherit }
+  .dh-toggle svg.i { margin-left: auto; transition: transform .15s }
+  .dh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pending); box-shadow: 0 0 8px var(--pending) }
+  .dh-seed { color: var(--dim); font-size: 11px }
+  .dh-body { display: grid; gap: 6px; padding: 4px 6px 7px }
+  .dh-row { display: flex; gap: 6px; align-items: center }
+  .dh-row > .micro { width: 34px; flex-shrink: 0 }
+  .dh-row select { flex: 1; min-width: 0; background: rgba(0, 0, 0, .35); color: var(--text); border: 1px solid rgba(150, 180, 255, .2); border-radius: 5px; padding: 3px 4px; font: inherit; font-size: 12px }
+  .dh-row #dhOp { flex: 0 0 76px }
+  .seg { display: inline-flex; gap: 3px } .seg .hbtn { padding: 3px 8px; font-size: 11.5px }
   #toast { top: 66px; left: 50%; transform: translate(-50%, -8px); padding: 8px 14px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 21; max-width: 70vw }
   #toast.on { opacity: 1; transform: translate(-50%, 0) }
 
@@ -333,6 +352,21 @@
   .chip.settle { animation: rx-settle .42s cubic-bezier(.3, .7, .3, 1.4) }
   @keyframes rx-settle { 0% { transform: translateZ(var(--z)) scale(1) } 35% { transform: translateZ(calc(var(--z) - 4px)) scale(1.07, .93) } 100% { transform: translateZ(var(--z)) scale(1) } }
   #liveval pre { margin: 4px 0 }
+  .chip .lv.list .lvv { display: flex; gap: 4px; align-items: center }
+  .chip .lv.list .lc { font-weight: 800; color: #0c0f14; background: rgba(255, 255, 255, .85); border-radius: 3px; padding: 0 4px; min-width: 16px; text-align: center }
+  .chip .lv.list .li { padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, .1); max-width: 12ch; overflow: hidden; text-overflow: ellipsis }
+  .chip .lv.list .lm { color: rgba(255, 255, 255, .65) }
+  .lvlist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font: 11.5px ui-monospace, Menlo, monospace }
+  .lvlist li { padding: 2px 6px; border-left: 2px solid rgba(150, 180, 255, .35); background: rgba(255, 255, 255, .03) }
+  /* a boundary showing its fallback: tripped, unmistakably */
+  .frame.tripped { border-style: solid !important; border-left-width: 4px }
+  .frame.trip-loading { border-color: var(--pending) !important; background: repeating-linear-gradient(135deg, rgba(251, 191, 36, .17) 0 10px, rgba(251, 191, 36, .05) 10px 20px) !important; box-shadow: 0 0 0 1px rgba(251, 191, 36, .5), 0 0 30px rgba(251, 191, 36, .22), 0 4px 0 -1px rgba(4, 6, 10, .5) }
+  .frame.trip-errored { border-color: var(--fail) !important; background: linear-gradient(180deg, rgba(251, 113, 133, .2), rgba(251, 113, 133, .08)) !important; box-shadow: 0 0 0 1px rgba(251, 113, 133, .55), 0 0 30px rgba(251, 113, 133, .25), 0 4px 0 -1px rgba(4, 6, 10, .5) }
+  .frame.tripped > :not(.flabel) { opacity: .42 }
+  .trip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 7px; border-radius: 6px; font-size: 11.5px; max-width: 100%; color: #1a1205; background: var(--pending); box-shadow: 0 0 14px rgba(251, 191, 36, .5) }
+  .trip b { font: 800 9.5px/1 ui-sans-serif, system-ui; letter-spacing: .12em; text-transform: uppercase }
+  .trip span { font-family: ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .trip-errored .trip { color: #fff; background: #e11d48; box-shadow: 0 0 14px rgba(251, 113, 133, .55) }
 
   /* time travel */
   #rewind { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; -webkit-backdrop-filter: grayscale(.9) contrast(1.06) brightness(.9); backdrop-filter: grayscale(.9) contrast(1.06) brightness(.9) }
@@ -344,9 +378,7 @@
   @keyframes rx-sweep { from { transform: translateX(-100%) } to { transform: translateX(300%) } }
   @keyframes rx-sweep-back { from { transform: translateX(300%) } to { transform: translateX(-100%) } }
   body.viewing #canvas::after { content: ""; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(226, 232, 240, .28), inset 0 0 140px rgba(200, 210, 230, .12) }
-  #scrub { bottom: 10px; left: calc(50% - 280px); width: 560px; padding: 7px 10px 8px; display: flex; gap: 10px; align-items: center }
-  body.panel-open #scrub { left: calc((100vw - var(--panel-w) - 20px) / 2 - 280px + 5px) }
-  @media (max-width: 1100px) { #scrub { width: 420px; left: calc(50% - 210px) } body.panel-open #scrub { left: 230px } }
+  #scrub { flex: 0 1 640px; min-width: 0; margin: 0 auto; display: flex; gap: 10px; align-items: center }
   #scrub[hidden] { display: none }
   #scrub.shake { animation: rx-shake .32s }
   @keyframes rx-shake { 25% { translate: -5px 0 } 50% { translate: 4px 0 } 75% { translate: -2px 0 } }
@@ -389,6 +421,34 @@
   .phase { font: 700 9.5px/1 ui-sans-serif, system-ui; letter-spacing: .14em; padding: 4px 7px; border-radius: 4px; border: 1px solid rgba(226, 232, 240, .4); color: #e2e8f0 }
   .phase.failed { border-color: var(--fail); color: var(--fail) }
 
+  /* compact: the devtools dock (a short iframe) or a narrow window. The HUD shrinks to thin bars; the minimap and the
+     fake host's HUD fold into buttons; the panel lays over the world instead of taking room from it */
+  @media (max-height: 520px), (max-width: 900px) {
+    :root { --top-inset: 40px; --bottom-inset: 32px }
+    header.hud { top: 4px; left: 4px; right: 4px; height: 32px; gap: 8px; padding: 0 8px }
+    header label, header .stats { display: none }
+    header h1 { font-size: 11px; gap: 6px } header h1 .logo { width: 14px; height: 14px; border-radius: 4px }
+    header input[type=search] { width: 120px; padding: 3px 7px }
+    header button, .hbtn { padding: 2px 8px; font-size: 11px }
+    #liveBadge { padding: 1px 8px 1px 6px; font-size: 10.5px }
+    #bar { left: 4px; right: 4px; bottom: 4px; height: 24px; gap: 6px; padding: 0 3px }
+    #bar .hbtn.ic, header .hbtn.ic { width: 24px; height: 20px }
+    #bar .hbtn.ic svg.i { width: 13px; height: 13px }
+    #edgesBtn { display: inline-grid }
+    #zoomPct { display: none }
+    #scrub { gap: 6px }
+    #track { height: 16px }
+    #liveBtn { padding: 2px 6px; font-size: 9px; gap: 4px }
+    #seqLabel { min-width: 0; font-size: 10px; white-space: nowrap } #seqLabel small { display: inline; font-size: 8px; margin-right: 4px }
+    aside.hud { right: 4px; width: min(380px, calc(100vw - 8px)); z-index: 15 }
+    #mini { left: 4px; bottom: calc(var(--bottom-inset) + 4px); z-index: 14 }
+    #devhud { left: 4px; margin-top: 4px }
+    body.fake #devhud.collapsed { top: auto; bottom: 4px; left: 34px; margin: 0; height: 24px; padding: 0 2px; display: flex; align-items: center }
+    body.fake #devhud.collapsed .dh-toggle { padding: 0 6px }
+    body.fake #miniBtn { margin-right: 178px }
+    #toast { top: 44px }
+    .hud::after { --k: rgba(160, 195, 255, .5) }
+  }
   @keyframes rx-fade { 0% { opacity: 0 } 15% { opacity: 1 } 100% { opacity: 0 } }
   @keyframes rx-fadein { from { opacity: 0 } to { opacity: 1 } }
   @keyframes rx-fadeout { to { opacity: 0 } }
@@ -426,23 +486,34 @@
 </header>
 <aside id="side" class="hud"><div id="ptabs" role="tablist"></div><div id="panel" role="tabpanel"></div></aside>
 <div id="mini" class="hud" aria-hidden="true"><div class="micro"><span>Map</span><span id="miniInfo"></span></div><canvas id="minic"></canvas></div>
-<div id="dock" class="hud">
-  <button class="hbtn ic" id="zoomOut" title="zoom out (−)" aria-label="zoom out"></button>
-  <span id="zoomPct">100%</span>
-  <button class="hbtn ic" id="zoomIn" title="zoom in (+)" aria-label="zoom in"></button>
-  <button class="hbtn ic" id="frameBtn" title="frame all (F)" aria-label="frame all"></button>
-  <button class="hbtn ic" id="soundBtn" title="sound" aria-label="sound" aria-pressed="true"></button>
-</div>
-<div id="scrub" class="hud" hidden>
-  <button class="hbtn" id="liveBtn" title="back to live">LIVE</button>
-  <div id="track" role="slider" tabindex="0" aria-label="timeline: drag or use the arrow keys to travel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><canvas id="trackc"></canvas><div id="playhead"></div></div>
-  <span id="seqLabel"></span>
+<div id="bar" class="hud">
+  <button class="hbtn ic" id="miniBtn" title="minimap" aria-label="minimap" aria-pressed="true"></button>
+  <div id="scrub" hidden>
+    <button class="hbtn" id="liveBtn" title="back to live">LIVE</button>
+    <div id="track" role="slider" tabindex="0" aria-label="timeline: drag or use the arrow keys to travel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"><canvas id="trackc"></canvas><div id="playhead"></div></div>
+    <span id="seqLabel"></span>
+  </div>
+  <span class="spacer"></span>
+  <div id="dock">
+    <button class="hbtn ic" id="edgesBtn" title="all edges" aria-label="all edges" aria-pressed="false"></button>
+    <button class="hbtn ic" id="zoomOut" title="zoom out (−)" aria-label="zoom out"></button>
+    <span id="zoomPct">100%</span>
+    <button class="hbtn ic" id="zoomIn" title="zoom in (+)" aria-label="zoom in"></button>
+    <button class="hbtn ic" id="frameBtn" title="frame all (F)" aria-label="frame all"></button>
+    <button class="hbtn ic" id="soundBtn" title="sound" aria-label="sound" aria-pressed="true"></button>
+  </div>
 </div>
 <div id="tip" class="hud" role="tooltip"></div>
 <div id="toast" class="hud" role="status"></div>
 <script>
+// the page as it was served, before anything ran: a pop-out window is written from it
+const PRISTINE = "<!doctype html>\n" + document.documentElement.outerHTML;
 const G0 = /*__GRAPH__*/null;
-const LIVE = /*__LIVE__*/false;
+// a pop-out: this page written into a window opened by a map, which relays its host's messages
+const POPOUT = window.name === "rx-map-popout" && (() => { try { return !!window.opener?.__RX_VIEW__?.attach; } catch { return false; } })();
+// `?fake=<seed>` (or pageHTML(graph, { fake })) runs the fake host in the page
+const FAKE_SEED = POPOUT ? null : (() => { const q = new URLSearchParams(location.search).get("fake"); return q != null ? Number(q) || 1 : /*__FAKE__*/null; })();
+const LIVE = /*__LIVE__*/false || FAKE_SEED != null || POPOUT;
 const DIFF = !!G0.diff;
 const RMQ = matchMedia("(prefers-reduced-motion: reduce)");
 const rm = () => RMQ.matches;
@@ -490,6 +561,10 @@ const ICON = {
   comp: svgI(`<path d="M5.4 4.4 2.3 8l3.1 3.6M10.6 4.4 13.7 8l-3.1 3.6M9.1 3.2 6.9 12.8"/>`),
   ctx: svgI(`<circle cx="8" cy="8" r="1.7" fill="currentColor"/><path d="M5.1 5.1a4.1 4.1 0 0 0 0 5.8M10.9 5.1a4.1 4.1 0 0 1 0 5.8M3 3a7 7 0 0 0 0 10M13 3a7 7 0 0 1 0 10"/>`),
   prop: svgI(`<path d="M2.3 8h8.2M7.6 4.9 10.7 8l-3.1 3.1M13.4 3.2v9.6"/>`),
+  io: svgI(`<path d="M4.5 11.5 11.5 4.5M6 4.5h5.5V10"/>`),
+  arrow: svgI(`<path d="M2.5 8h10M9.5 4.5 13 8l-3.5 3.5"/>`),
+  branch: svgI(`<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 3-7 2.5-7 4"/>`),
+  rows: svgI(`<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>`),
   hour: svgI(`<path d="M4.5 2h7M4.5 14h7M5.5 2c0 3.2 5 3.8 5 6s-5 2.8-5 6M10.5 2c0 3.2-5 3.8-5 6s5 2.8 5 6"/><path d="M6.6 12.6h2.8L8 10.8z" fill="currentColor"/>`),
   warn: svgI(`<path d="M8 2.1 14.4 13.4H1.6z"/><path d="M8 6.3v3.3M8 11.4v.2"/>`),
   lock: svgI(`<rect x="3.3" y="7" width="9.4" height="6.8" rx="1.6" fill="currentColor"/><path d="M5.4 7V5.1a2.6 2.6 0 0 1 5.2 0V7"/>`),
@@ -497,12 +572,16 @@ const ICON = {
   rerun: svgI(`<path d="M12.8 8a4.8 4.8 0 1 1-1.6-3.6M13 2.6v2.6h-2.6"/>`),
   plus: svgI(`<path d="M8 3v10M3 8h10"/>`),
   minus: svgI(`<path d="M3 8h10"/>`),
+  popout: svgI(`<path d="M9 2.5h4.5V7M13.5 2.5 7.5 8.5M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3"/>`),
+  chev: svgI(`<path d="M4.5 6.5 8 10l3.5-3.5"/>`),
+  map: svgI(`<path d="M2 4l4-1.5 4 1.5 4-1.5v9.5L10 13.5 6 12 2 13.5z"/><path d="M6 2.5V12M10 4v9.5"/>`),
+  edges: svgI(`<circle cx="3.5" cy="12.5" r="1.5"/><circle cx="12.5" cy="3.5" r="1.5"/><path d="M4.6 11.4C6 6 9 9 11.4 4.6"/>`),
   move: svgI(`<path d="M2.5 8h10M9.5 4.5 13 8l-3.5 3.5"/>`),
   frame: svgI(`<path d="M2.5 5.5v-3h3M10.5 2.5h3v3M13.5 10.5v3h-3M5.5 13.5h-3v-3"/><rect x="5.5" y="5.5" width="5" height="5" rx="1"/>`),
   soundOn: svgI(`<path d="M2.5 6h2.4L8.5 3v10L4.9 10H2.5z" fill="currentColor"/><path d="M10.8 5.6a3.4 3.4 0 0 1 0 4.8M12.6 3.8a6 6 0 0 1 0 8.4"/>`),
   soundOff: svgI(`<path d="M2.5 6h2.4L8.5 3v10L4.9 10H2.5z" fill="currentColor"/><path d="M11 6l3.5 4M14.5 6 11 10"/>`),
 };
-const FRAME = { component: "component", for: "for each", then: "if ▸ then", else: "else", loading: "loading", errored: "errored", children: "renders", imported: "renders (imported)" };
+const FRAME = { component: "component", for: "for each", then: "if · then", else: "else", loading: "loading", errored: "errored", children: "renders", imported: "renders (imported)" };
 const EDGE = {
   // reads: derived teal; the dash says how
   "read:tracked":  { c: "#2dd4bf", d: "",        w: 1.7, label: "tracked read — points at what it reads; re-runs when that changes" },
@@ -567,7 +646,7 @@ function md(t) { return String(t).split("`").map((p, i) => (i % 2 ? `<code class
 let G, nodes, out, inc, regions, compRegion, compOfRegion, ctlInfo, deps, rankMemo, onPath, compLevelMemo, modDeps, modMemo, ctlSites, boundaryCover, keyIds, kindCount, edgeCount;
 const link = e => { (out.get(e.from) ?? out.set(e.from, []).get(e.from)).push(e); (inc.get(e.to) ?? inc.set(e.to, []).get(e.to)).push(e); };
 function loadGraph(g) {
-  G = g;
+  G = { ...g, edges: [...g.edges] };   // the boundary edges below are the map's own: the graph handed in stays as it was
   nodes = new Map(G.nodes.map(n => [n.id, n]));
   out = new Map(); inc = new Map();
   for (const e of G.edges) link(e);
@@ -675,6 +754,8 @@ const firstLine = r => Math.min(...r.nodes.map(n => n.line), ...r.kids.map(first
 const empty = r => r.kind !== "component" && !r.nodes.length && r.kids.every(empty) && r.kind !== "children";
 
 // ---- control flow: what each branch, row and boundary is, read from its source line ----------------------------
+const CTAG = { then: ["branch", "branch"], else: ["branch", "branch"], for: ["rows", "rows"], loading: ["hour", "loading"], errored: ["warn", "errored"] };
+const ctagHTML = kind => (CTAG[kind] ? `<span class="cw">${ICON[CTAG[kind][0]]}${CTAG[kind][1]}</span>` : "");
 function controlInfo(r) {
   if (ctlInfo.has(r.id)) return ctlInfo.get(r.id);
   const L = firstLine(r), ls = (r.status === "removed" ? G.linesBefore : G.lines)?.[G.modules[r.mod]] ?? {};
@@ -740,6 +821,7 @@ function pendingRoots(siteIds) {
 const board = document.getElementById("board"), svg = document.getElementById("edges"), fx = document.getElementById("fx"), trails = document.getElementById("trails");
 const anchors = new Map();   // node or region id → element
 const moduleEls = new Map(); // module index → its plate
+const regionEls = new Map(); // region id → its frame
 const tpl = document.createElement("template");
 const SAMPLE = { source: "count", asource: "user", eq: "total", aeq: "results", props: "props", reader: "{ total }", action: "save", handler: "onClick", effect: "effect", apply: "apply",
   import: "fetchUser", server: "loadUser", fn: "format", comp: "Card", context: "Theme", prop: "title", provide: "Theme", errclass: "NotFound" };
@@ -797,6 +879,7 @@ function grid(frames, min) {
 function frame(r) {
   const el = document.createElement("div");
   el.className = `frame ${r.kind}` + (r.status && r.status !== "same" ? ` d-${r.status}` : "");
+  regionEls.set(r.id, el);
   const lab = document.createElement("div");
   lab.className = "flabel";
   const comp = r.kind === "component" ? G.nodes.find(n => compRegion.get(n.id) === r.id) : null;
@@ -807,7 +890,7 @@ function frame(r) {
     el.classList.add("ctl");
     const info = controlInfo(r);
     const tag = document.createElement("span");
-    tag.className = "ctag"; tag.textContent = info.text; tag.dataset.id = r.id;
+    tag.className = "ctag"; tag.innerHTML = ctagHTML(r.kind); tag.append(info.text); tag.dataset.id = r.id;
     tag.setAttribute("role", "button"); tag.tabIndex = 0;
     tag.setAttribute("aria-label", `${r.kind} ${info.text}${info.line ? `, line ${info.line}` : ""}`);
     anchors.set(r.id, tag);
@@ -855,7 +938,7 @@ function frame(r) {
 
 function render() {
   board.querySelectorAll(".level, .worldrow").forEach(c => c.remove());
-  anchors.clear(); moduleEls.clear();
+  anchors.clear(); moduleEls.clear(); regionEls.clear();
   // the world, on top: everything the program trusts but cannot see into
   const world = G.nodes.filter(n => n.world && !n.from);
   if (world.length) {
@@ -897,6 +980,7 @@ function render() {
   // a big world: chips stay in their row's plane (no own 3D layer each), so panning stays cheap
   document.body.classList.toggle("flat", G.nodes.length > 900);
   applyHidden();
+  paintBoundaries();
   layoutChanged();
 }
 
@@ -1040,7 +1124,7 @@ function diffFacts(n) {
   if ("async" in w) bits.push(n.async ? "became async: can be pending now" : "no longer async");
   if ("io" in w) bits.push(n.io ? "now touches the world (io)" : "no longer touches the world");
   if ("question" in w) bits.push(n.question ? "now re-asks a question" : "no longer re-asks");
-  if ("flavor" in w) bits.push(`${w.flavor || "plain"} → ${n.flavor || "plain"}`);
+  if ("flavor" in w) bits.push(`${w.flavor || "plain"} ${GA} ${n.flavor || "plain"}`);
   return bits.map(b => `<div class="hint was" style="margin-top:4px">Δ ${b}</div>`).join("");
 }
 function section(title, list, dir) {
@@ -1097,7 +1181,7 @@ function showPanel(id) {
   const abs = G.absModules?.[n.mod];
   const facts = [];
   if (n.async) facts.push(`${GI} can be pending: a reader under no <code>loading</code> holds its instant`);
-  if (n.io) facts.push("<b>↗ io</b>: touches the world (R-io)");
+  if (n.io) facts.push(`${GIO} <b>io</b>: touches the world (R-io)`);
   if (n.world) facts.push("trust point: the checker sees only its declared signature");
   if (n.kind === "action") facts.push("writes are held until the action returns; guesses show now");
   const reason = planReason(n.key);
@@ -1152,7 +1236,7 @@ function regionPanel(r) {
       ${i.length ? `<ul>${i.map(e => `<li><a href="#" data-go="${esc(e.from)}"></a><span class="tag">read by</span><a href="#" data-go="${esc(e.via)}"></a></li>`).join("")}</ul>` : `<p class="hint">Nothing read below it can be ${r.kind === "loading" ? "pending" : "rejected"}.</p>`}
       ${r.kind === "errored" ? `<p class="hint">Every <code>await</code> can reject, so these are the async names read below it. The model does not say yet which error classes each one can fail with, so a typed fallback's class is not checked here.</p>` : ""}
       <p class="hint">${sites?.size ?? 0} reader${sites?.size === 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested ${r.kind} boundary report to that one instead${r.kind === "errored" ? ", except a typed one: what it does not catch fails through to here" : ""}.</p>` : ""}`;
-  panel.querySelector(".ctag").textContent = info.text;
+  panel.querySelector(".ctag").innerHTML = ctagHTML(r.kind); panel.querySelector(".ctag").append(info.text);
   if (panel.querySelector("pre.now")) panel.querySelector("pre.now").innerHTML = hl((G.lines[G.modules[r.mod]]?.[info.line] ?? "").trim());
 }
 function bindPanel() {
@@ -1181,15 +1265,15 @@ function bindPanel() {
 }
 function intro(changes) {
   if (changes) return `<h2>What changed</h2>
-  <p class="hint mono">${esc(G.diff.before)} → ${esc(G.diff.after)}</p>
+  <p class="hint mono">${esc(G.diff.before)} ${GA} ${esc(G.diff.after)}</p>
   <p class="hint"><span style="color:var(--d-add)">+ added</span> · <span style="color:var(--d-del)">− removed</span> · <span style="color:var(--d-chg)">Δ changed</span>. Behaviour first: what each action can now reach, then what it writes and calls, then what was added or removed.</p>
   ${G.diff.summary.length ? `<ul id="summary">${G.diff.summary.map((it, i) => `<li data-i="${i}" role="button" tabindex="0">${md(it.text)}</li>`).join("")}</ul>` : `<p class="hint">No change the checker can see: the program reads, writes and calls the same things.</p>`}`;
   const t = (k, name) => tokenHTML(k, { cls: "sample" + (k === "aeq" ? " async" : ""), name, glyphs: k === "aeq" ? GP : "" });
   return `<h2>How to read this</h2>
   <p class="hint">Every name the checker resolved, on the plate of the module that owns it. <b>A token's shape, fill and icon are its role</b>; its colour is the family: <span style="color:var(--state)">state</span>, <span style="color:var(--derived)">derived</span>, <span style="color:var(--imper)">imperative</span>, <span style="color:var(--outside)">outside</span>, <span style="color:var(--struct)">structure</span>, <span style="color:var(--fail)">failure</span>. Hover a token for its role in words.</p>
   <div class="row" style="gap:12px 14px;margin:12px 0 8px">${t("source", "count")}${t("eq", "total")}${t("aeq", "results")}${t("action", "save")}${tokenHTML("effect", { cls: "sample site", name: "effect" })}${t("import", "fetch")}${t("comp", "Card")}</div>
-  <pre class="code">${hl(`source count := 0                    // a well: state\ntotal = count * 2                    // ƒ: always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // ⚡: one change`)}</pre>
-  <p class="hint"><b>Marks are properties</b>, on any role: ${GI} and stripes can be pending, <b>?</b> re-asks a standing question, <b>↗</b> touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
+  <pre class="code">${hl(`source count := 0                    // a well: state\ntotal = count * 2                    // always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // one change`)}</pre>
+  <p class="hint"><b>Marks are properties</b>, on any role: ${GI} and stripes can be pending, <b>?</b> re-asks a standing question, ${GIO} touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
   <p class="hint"><b>Everything points up.</b> A thing sits below what it depends on: modules below the modules they import, components below the components they render, equations below what they read, actions below what they write, handlers below the actions they call. Each row inside a frame is one step deeper.</p>
   <p class="hint"><b>Move around.</b> Drag to pan, wheel or pinch to zoom toward the pointer, double-click a token to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>
   <p class="hint">Hover a token to lift it and see its edges. Click to pin it and trace <b>what it affects</b> (writes and tracked reads, the way a change travels) or <b>what it depends on</b>.</p>
@@ -1221,10 +1305,31 @@ function toScreen(bx, by) {
   return [vw / 2 + X * k, vh / 2 + Y * Math.cos(t) * k];
 }
 function setCamAt(bx, by, s, sx, sy) { const [X, Y] = toPlane(sx, sy); cam.s = s; cam.x = vw / 2 + X - s * bx; cam.y = vh / 2 + Y - s * by; }
+// the part of the screen the world can be seen in: between the header and the bar, and (unless compact, where they
+// lay over it) clear of the side panel and of the minimap's column
+const COMPACT = matchMedia("(max-height: 520px), (max-width: 900px)");
+const compact = () => COMPACT.matches;
+const insets = { t: 64, b: 58 };
+function readInsets() { const cs = getComputedStyle(document.documentElement); insets.t = parseFloat(cs.getPropertyValue("--top-inset")) || 0; insets.b = parseFloat(cs.getPropertyValue("--bottom-inset")) || 0; }
 function freeRect() {
-  const t = 64, r = open ? vw - side.offsetWidth - 20 : vw;
-  return { l: 0, t, r, b: vh, w: r, h: vh - t, cx: r / 2, cy: t + (vh - t) / 2 };
+  const t = insets.t, b = vh - insets.b, c = compact();
+  let l = 0, r = vw;
+  if (!c && open) r = vw - side.offsetWidth - 20;
+  if (!c) {
+    const mini = document.getElementById("mini"), dev = document.getElementById("devhud");
+    if (!document.body.classList.contains("mini-off") && mini.offsetWidth) l = Math.max(l, mini.offsetLeft + mini.offsetWidth + 8);
+    if (dev && !dev.classList.contains("collapsed")) l = Math.max(l, dev.offsetLeft + dev.offsetWidth + 8);
+  }
+  return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2 };
 }
+function onCompact() {
+  readInsets();
+  document.body.classList.toggle("mini-off", compact());
+  document.getElementById("miniBtn").setAttribute("aria-pressed", String(!compact()));
+  document.getElementById("devhud")?.classList.toggle("collapsed", compact());
+  if (cam.ready) { sizeScrub(); renderScrub(); home(); }
+}
+COMPACT.addEventListener("change", onCompact);
 const zoomPct = document.getElementById("zoomPct");
 function applyCam() {
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${cam.s.toFixed(4)})`;
@@ -1266,13 +1371,20 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
   kick();
 }
 function flyToEl(el, s) { const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
-function fitScale() { const fr = freeRect(); return clamp(Math.min((fr.w - 70) / BW, (fr.h - 40) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
+function fitScale() { const fr = freeRect(), m = compact() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
 function frameAll(dur = 600) { flyTo(BW / 2, BH / 2, fitScale(), dur); }
 function home() {
   // a small map is framed whole; a big one starts at the top, as wide as the screen
   const fr = freeRect(), fit = fitScale();
   if (fit >= .8) { setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy); }
-  else { const s = clamp((fr.w - 40) / BW, .45, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 10); }
+  else if (compact()) {
+    // a short dock: as wide as fits but not so small it can't be read, starting at the first module's plate (what is
+    // outside the program is just above, a drag away)
+    const s = Math.min(clamp((fr.w - 12) / BW, .3, 1), Math.max(.62, fr.h / 520));
+    const first = board.querySelector(".level");
+    const y = first ? boxOf(first)?.t ?? 0 : 0;
+    setCamAt(BW / 2, y, s, fr.cx, fr.t + 8 + 8 * s);
+  } else { const s = clamp((fr.w - 30) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
   camChanged();
 }
 function zoomAt(sx, sy, f) {
@@ -1361,8 +1473,12 @@ canvas.addEventListener("wheel", ev => {
   if (!ev.ctrlKey && ev.deltaX !== 0) { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; fly = null; camChanged(); return; }
   zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey ? .01 : .0016)));
 }, { passive: false });
-addEventListener("resize", () => { vw = innerWidth; vh = innerHeight; camChanged(); sizeScrub(); renderScrub(); });
+addEventListener("resize", () => { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(); sizeScrub(); renderScrub(); });
 document.getElementById("zoomIn").innerHTML = ICON.plus;
+document.getElementById("miniBtn").innerHTML = ICON.map;
+document.getElementById("edgesBtn").innerHTML = ICON.edges;
+document.getElementById("miniBtn").onclick = () => { const off = !document.body.classList.toggle("mini-off"); document.getElementById("miniBtn").setAttribute("aria-pressed", String(off)); SFX.toggle(); drawMiniView(); };
+document.getElementById("edgesBtn").onclick = () => { const a = document.getElementById("all"); a.checked = !a.checked; document.getElementById("edgesBtn").setAttribute("aria-pressed", String(a.checked)); document.getElementById("edgesBtn").classList.toggle("on", a.checked); SFX.toggle(); redraw(); };
 document.getElementById("zoomOut").innerHTML = ICON.minus;
 document.getElementById("frameBtn").innerHTML = ICON.frame;
 document.getElementById("zoomIn").onclick = () => { SFX.toggle(); const fr = freeRect(); zoomAtSmooth(fr.cx, fr.cy, 1.3); };
@@ -1569,7 +1685,7 @@ function lrow(key, sample, text, count) {
   const off = hidden.has(key);
   return `<button class="lrow${off ? " off" : ""}${count ? "" : " none"}" data-key="${key}" aria-pressed="${!off}" ${count ? "" : "disabled"} title="${count ? "click to show or hide" : "none in this program"}">${sample}<span class="hint">${text}</span><span class="cnt">${count}</span></button>`;
 }
-const GI = `<span class="gi">${ICON.hour}</span>`;
+const GI = `<span class="gi">${ICON.hour}</span>`, GIO = `<span class="gi gio">${ICON.io}</span>`, GA = `<span class="gi ga">${ICON.arrow}</span>`;
 const GP = `<span class="g gp">${ICON.hour}</span>`, GQ = `<span class="g gq">?</span>`;
 const chipSample = (k, extra = "", glyphs = "", name = "") => tokenHTML(k, { cls: `sample ${extra}`.trim(), glyphs, name: name || SAMPLE[k] || k });
 const lsection = (title, keys, rows, note = "") => `<h4>${title}<span class="lall">${keys.length > 1 ? `<button data-all="${keys.join(",")}">all</button><button data-none="${keys.join(",")}">none</button>` : ""}</span></h4>${note ? `<p class="hint" style="margin:0 0 6px">${note}</p>` : ""}<div class="rows">${rows}</div>`;
@@ -1579,7 +1695,7 @@ const THINGS = [["source", "state"], ["asource", "state"], ["eq", "derived"], ["
 const SITES = [["reader", "derived"], ["handler", "imperative"], ["effect", "imperative"], ["prop", "structure"], ["provide", "structure"]];
 const sampleExtra = k => (k === "asource" || k === "aeq" ? "async" : k === "import" ? "trust" : "");
 const sampleGlyphs = k => (k === "asource" ? GP + GQ : k === "aeq" ? GP : "");
-const SHAPE_WORD = { well: "a filled well", flow: "outlined, ƒ", act: "a chevron, ⚡", ring: "a hollow ring", plug: "slate, a plug", frm: "a violet frame", fail: "rose, ⚠" };
+const SHAPE_WORD = { well: "a filled well", flow: "outlined, a function sign", act: "a chevron with a bolt", ring: "a hollow ring", plug: "slate, a plug", frm: "a violet frame", fail: "rose, a warning sign" };
 const legendHTML = () => `<div class="legend"><h2>Legend</h2>
   <p class="hint" style="margin-top:0">A token's shape, fill and icon are its role; its colour is the family. Marks are properties, and combine on any role. Click a row to show or hide it on the map.</p>
   ${lsection("Things, by role", THINGS.map(([k]) => `k:${k}`), THINGS.map(([k, f]) => lrow(`k:${k}`, chipSample(k, sampleExtra(k), sampleGlyphs(k)), `${fam(f)}<b>${KIND[k].label}</b> (${SHAPE_WORD[SHAPE[k]]}): ${KIND[k].what}`, kindCount[k] ?? 0)).join("")
@@ -1588,7 +1704,7 @@ const legendHTML = () => `<div class="legend"><h2>Legend</h2>
   <h4>Marks</h4><div class="rows">
     <div class="lrow fixed">${chipSample("eq", "async", GP, "results")}<span class="hint">${GI} and stripes: can be pending (it awaits)</span><span></span></div>
     <div class="lrow fixed">${chipSample("source", "", GQ, "user")}<span class="hint"><b>?</b> re-asks a standing question until written</span><span></span></div>
-    <div class="lrow fixed">${chipSample("action", "io", "", "save")}<span class="hint"><b>↗</b> touches the world (io)</span><span></span></div>
+    <div class="lrow fixed">${chipSample("action", "io", "", "save")}<span class="hint">${GIO} touches the world (io)</span><span></span></div>
     <div class="lrow fixed">${chipSample("import", "trust", "", "fetch")}<span class="hint">dashed border: a trust point, the checker sees only its signature</span><span></span></div>
     <div class="lrow fixed">${chipSample("asource", "async io", GP + GQ, "x")}<span class="hint">they combine: a source that awaits, re-asks and touches the world</span><span></span></div>
   </div>
@@ -1599,10 +1715,10 @@ const legendHTML = () => `<div class="legend"><h2>Legend</h2>
     <div class="lrow fixed">${tokenHTML("eq", { cls: "sample d-removed", name: "x", badge: `<span class="d">−</span>` })}<span class="hint">removed: keeps its role colour, ghosted (before / after is in the header)</span><span></span></div>`) : ""}
   <h4>Frames</h4><div class="rows">
     <div class="lrow fixed"><span class="hint" style="color:var(--comp)">component</span><span class="hint">${fam("structure")}owns everything declared in it</span><span></span></div>
-    <div class="lrow fixed"><span class="frame then" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">if c</span></span><span class="hint">sky, solid: created when <code>c</code> holds, disposed when it stops; else is the same</span><span></span></div>
-    <div class="lrow fixed"><span class="frame for" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">for x in xs</span></span><span class="hint">silver, stacked: one row per item, created and disposed with it</span><span></span></div>
-    <div class="lrow fixed"><span class="frame loading" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">loading</span></span><span class="hint">pending accent, dashed: shows its fallback while a reader inside is pending; lists who can make it</span><span></span></div>
-    <div class="lrow fixed"><span class="frame errored" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">errored</span></span><span class="hint">failure accent, dashed: shows its fallback when a reader inside fails; lists who can make it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame then" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">${ctagHTML("then")}if c</span></span><span class="hint">sky, solid: created when <code>c</code> holds, disposed when it stops; else is the same</span><span></span></div>
+    <div class="lrow fixed"><span class="frame for" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">${ctagHTML("for")}for x in xs</span></span><span class="hint">silver, stacked: one row per item, created and disposed with it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame loading" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">${ctagHTML("loading")}loading</span></span><span class="hint">pending accent, dashed: shows its fallback while a reader inside is pending; lists who can make it</span><span></span></div>
+    <div class="lrow fixed"><span class="frame errored" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag">${ctagHTML("errored")}errored</span></span><span class="hint">failure accent, dashed: shows its fallback when a reader inside fails; lists who can make it</span><span></span></div>
   </div></div>`;
 function bindLegend() {
   panel.querySelectorAll(".lrow[data-key]").forEach(b => b.onclick = () => { SFX.toggle(); const k = b.dataset.key; hidden.has(k) ? hidden.delete(k) : hidden.add(k); applyHidden(); });
@@ -1694,12 +1810,50 @@ function ring(el, delay = 0) {
   if (el.classList.contains("pulse")) el.classList.toggle("p2"); else el.classList.add("pulse");
   clearTimeout(el.rxPulse); el.rxPulse = setTimeout(() => el.classList.remove("pulse", "p2"), delay + 1050);
 }
-function setValue(el, text, { dir = "up", delay = 0, prev } = {}) {
+// A list's preview (`[{id: 1, name: "Ada"}, …4]`) reads as a count and its first items
+function listOf(p) {
+  p = String(p ?? "");
+  let m = /^Array\((\d+)\)$/.exec(p);
+  if (m) return { count: +m[1], exact: true, items: [] };
+  if (p[0] !== "[") return null;
+  const items = [];
+  let depth = 0, str = null, cur = "", closed = false;
+  for (let i = 1; i < p.length; i++) {
+    const c = p[i];
+    if (str) { cur += c; if (c === "\\") { cur += p[++i] ?? ""; } else if (c === str) str = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { str = c; cur += c; continue; }
+    if (c === "[" || c === "{" || c === "(") depth++;
+    if (c === "]" || c === "}" || c === ")") { if (!depth) { closed = true; break; } depth--; }
+    if (c === "," && !depth) { items.push(cur.trim()); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim()) items.push(cur.trim());
+  let more = 0, exact = closed;
+  if (items.length && /^…\d+$/.test(items.at(-1))) more = +items.pop().slice(1);
+  else if (!closed && items.length) { items.pop(); exact = false; }   // cut at 80 characters: the last item is partial
+  return { count: items.length + more, exact, items: items.map(itemLabel) };
+}
+function itemLabel(t) {
+  if (t[0] === "{") {
+    const fields = [...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)];
+    const str = fields.find(f => f[2][0] === '"' && !/^(id|key)$/.test(f[1])) ?? fields[0];
+    t = str ? str[2].trim() : "{…}";
+  }
+  if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
+  return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+}
+const plainValue = v => { const l = listOf(v); return l ? `${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}` : String(v ?? ""); };
+function setValue(el, text, { dir = "up", delay = 0, prev, still = false } = {}) {
   let lv = el.querySelector(".lv");
-  const old = prev ?? lv?.querySelector(".lvv").textContent ?? "";
+  const old = prev ?? lv?.dataset.value ?? "";
   if (!lv) { lv = document.createElement("span"); lv.className = "lv"; lv.innerHTML = `<span class="lvv"></span>`; el.append(lv); }
-  lv.querySelector(".lvv").textContent = text;
-  lv.dataset.old = old;
+  lv.dataset.value = text;
+  const vv = lv.querySelector(".lvv"), l = listOf(text);
+  lv.classList.toggle("list", !!l);
+  if (l) vv.innerHTML = `<b class="lc">${l.count}${l.exact ? "" : "+"}</b>${l.count ? l.items.slice(0, 2).map(i => `<span class="li">${esc(i)}</span>`).join("") + (l.count > 2 ? `<span class="lm">+${l.count - Math.min(2, l.items.length)}</span>` : "") : `<span class="lm">empty</span>`}`;
+  else vv.textContent = text;
+  lv.dataset.old = plainValue(old);
+  if (still) return;
   lv.style.setProperty("--pd", `${Math.round(delay)}ms`);
   const a = dir === "down" ? "down" : "up", was = lv.classList.contains(a) ? a : lv.classList.contains(`${a}2`) ? `${a}2` : null;
   lv.classList.remove("up", "up2", "down", "down2");
@@ -1722,19 +1876,29 @@ function toast(html, ms = 2400) { toastEl.innerHTML = html; toastEl.classList.ad
 // ---- live: a host (a running dev build, a fake, a recording) speaks TRACE-CONTRACT v0.1 ---------------------------
 // Messages carry the key a dev build names its Solid nodes with (`rx:<key>`), the same key as a node here. A key this map
 // does not have (a node from outside the program, an older build) is ignored, and so is a message type it does not know.
-const live = { values: new Map(), flying: new Map(), flushes: 0 };
+const live = { values: new Map(), flying: new Map(), flushes: 0, boundaries: new Map() };
 const tl = { steps: [], head: 0, viewing: null, capacity: 2000, flights: [], hmrs: [], target: null };
 // where messages to the host go: an in-page fake (`window.__RX_FAKE__`, with post/subscribe) or the parent window
+// Where messages to the host go. A pop-out hands them to the map that opened it; an in-page fake host
+// (`window.__RX_FAKE__`, with post/subscribe) takes them itself; otherwise the parent window is the host.
+const popups = new Set();   // pop-out windows this map relays to: { win, receive }
+let opener = null;          // in a pop-out: the link to the map that opened it
 const host = {
   post(m) {
     const msg = { source: "rx-map", v: 1, ...m };
     try {
-      if (window.__RX_FAKE__?.post) window.__RX_FAKE__.post(msg);
+      if (opener) opener.post(msg);
+      else if (window.__RX_FAKE__?.post) window.__RX_FAKE__.post(msg);
       else if (window.parent && window.parent !== window) window.parent.postMessage(msg, "*");
     } catch {}
   },
 };
-function receive(d) { if (LIVE && d && d.source === "rx-map" && (d.v === undefined || d.v === 1)) { try { onLive(d); } catch (e) { console.error(e); } } }
+function receive(d) {
+  if (!LIVE || !d || d.source !== "rx-map" || !(d.v === undefined || d.v === 1)) return;
+  try { onLive(d); } catch (e) { console.error(e); }
+  // the same stream goes on to every pop-out; a closed one is dropped
+  for (const p of popups) { try { if (p.win.closed) popups.delete(p); else p.receive(d); } catch { popups.delete(p); } }
+}
 let fakeUnsub = null;
 function connectHost() {
   fakeUnsub?.();
@@ -1742,7 +1906,28 @@ function connectHost() {
   if (f?.subscribe) fakeUnsub = f.subscribe(receive);
   host.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
 }
-window.__RX_VIEW__ = { receive, connect: connectHost };
+// What a view holds, as messages: a pop-out starts from it
+function viewState() {
+  return {
+    graph: hmr.swapped ? G : null,
+    timeline: { source: "rx-map", v: 1, type: "timeline", head: tl.head, viewing: tl.viewing, capacity: tl.capacity, steps: tl.steps, flushes: live.flushes },
+    snapshot: { source: "rx-map", v: 1, type: "snapshot", values: [...live.values].filter(([, v]) => v.preview !== undefined).map(([key, v]) => ({ key, preview: v.preview })),
+      flights: [...live.flying.keys()].map(key => ({ key, since: tl.flights.findLast(f => f.key === key && f.end == null)?.start ?? 0 })),
+      boundaries: [...live.boundaries].map(([region, b]) => ({ region, ...b })) },
+  };
+}
+window.__RX_VIEW__ = {
+  receive, connect: connectHost,
+  // for tests and tools: what the map shows
+  values: () => Object.fromEntries([...live.values].map(([k, v]) => [k, v.preview])),
+  graph: () => G,
+  // a pop-out attaches here: it gets every host message, and its own messages go to this map's host
+  attach(win, rcv) {
+    const p = { win, receive: rcv };
+    popups.add(p);
+    return { post: m => { if (m?.type !== "hello") host.post(m); }, state: viewState, detach: () => popups.delete(p) };
+  },
+};
 if (LIVE) {
   document.body.classList.add("live");
   const b = document.createElement("span");
@@ -1750,7 +1935,30 @@ if (LIVE) {
   document.querySelector("header h1").after(b);
   b.addEventListener("animationend", () => b.classList.remove("beat"));
   liveBadge();
-  addEventListener("message", ev => { if (ev.source !== window) receive(ev.data); });
+  if (!POPOUT) addEventListener("message", ev => { if (ev.source !== window) receive(ev.data); });
+}
+// ---- pop-out: the same live map in a window of its own --------------------------------------------------------------
+function popOut() {
+  const existing = [...popups].find(p => !p.win.closed);
+  if (existing) { existing.win.focus(); return; }
+  const w = window.open("", "rx-map-popout", "width=1280,height=820");
+  if (!w) { toast(`<span class="micro">pop-out</span> the browser blocked the window`); return; }
+  w.document.open(); w.document.write(PRISTINE); w.document.close();
+  SFX.toggle();
+}
+function joinOpener() {
+  try {
+    const o = window.opener;
+    opener = o.__RX_VIEW__.attach(window, receive);
+    const st = opener.state();
+    if (st.graph) { loadGraph(JSON.parse(JSON.stringify(st.graph))); render(); }
+    onTimeline(st.timeline);
+    live.flushes = st.timeline.flushes ?? live.flushes; liveBadge();
+    onSnapshot(st.snapshot);
+    addEventListener("pagehide", () => { try { opener?.detach(); } catch {} });
+    // the map that opened this one can go away (its dock closed): say so, and stop
+    const watch = setInterval(() => { let gone = true; try { gone = o.closed || !o.__RX_VIEW__; } catch {} if (gone) { clearInterval(watch); opener = null; document.body.classList.add("orphan"); toast(`<span class="micro">pop-out</span> the map that opened this window is gone: no more live updates`, 6000); } }, 1000);
+  } catch (e) { console.error(e); }
 }
 function liveBadge() {
   const b = document.getElementById("liveBadge");
@@ -1767,10 +1975,11 @@ function onLive(d) {
     case "resume": return onResume(d);
     case "travel-denied": return onDenied(d);
     case "hmr": return onHmr(d);
+    case "snapshot": return onSnapshot(d);
   }
 }
 function onReset() {
-  live.values.clear(); live.flying.clear(); live.flushes = 0;
+  live.values.clear(); live.flying.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
   Object.assign(tl, { steps: [], head: 0, viewing: null, flights: [], hmrs: [], target: null });
   document.body.classList.remove("viewing");
   document.querySelectorAll("#board .chip.pulse, #board .chip.flying").forEach(c => c.classList.remove("pulse", "p2", "flying"));
@@ -1856,6 +2065,49 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
   }
   if (selected && changes.some(c => c?.key === nodes.get(selected)?.key)) liveValue();
 }
+// What the app shows right now, sent when the map opens (and to a pop-out): values, requests in the air, and which
+// boundaries show their fallback. Applied quietly: nothing changed, the map just catches up.
+function onSnapshot(d) {
+  for (const { key, preview } of d.values ?? []) {
+    if (!keyIds.has(key) || typeof preview !== "string") continue;
+    const v = live.values.get(key) ?? { count: 0 };
+    v.preview = preview; v.seq ??= tl.head; live.values.set(key, v);
+    for (const el of chipsOf(key)) setValue(el, preview, { still: true });
+  }
+  if (Array.isArray(d.flights)) {
+    for (const k of live.flying.keys()) for (const el of chipsOf(k)) { el.classList.remove("flying"); el.querySelector(".orb")?.remove(); }
+    live.flying.clear();
+    for (const { key, since } of d.flights) {
+      if (!keyIds.has(key)) continue;
+      live.flying.set(key, 1);
+      for (const el of chipsOf(key)) { el.classList.add("flying"); orb(el, "start"); }
+      if (!tl.flights.some(f => f.key === key && f.end == null)) tl.flights.push({ key, start: since ?? tl.steps.at(-1)?.at ?? 0, end: null });
+    }
+  }
+  if (Array.isArray(d.boundaries)) {
+    live.boundaries.clear();
+    for (const b of d.boundaries) if (b?.region) live.boundaries.set(b.region, { state: b.state, ...(b.error ? { error: b.error } : {}) });
+    paintBoundaries();
+  }
+  liveValue(); renderScrub();
+}
+// a boundary showing its fallback looks tripped: loading in amber stripes, errored in rose with its error
+function regionOf(ref) { if (regions.has(ref)) return regions.get(ref); for (const r of regions.values()) if (r.key === ref) return r; return null; }
+function paintBoundaries() {
+  for (const el of board.querySelectorAll(".frame.tripped")) { el.classList.remove("tripped", "trip-loading", "trip-errored"); el.querySelector(":scope > .flabel > .trip")?.remove(); }
+  for (const [ref, b] of live.boundaries) {
+    if (b.state !== "fallback" && b.state !== "error") continue;
+    const r = regionOf(ref), el = r && regionEls.get(r.id);
+    if (!el) continue;
+    const kind = b.state === "error" || r.kind === "errored" ? "errored" : "loading";
+    el.classList.add("tripped", `trip-${kind}`);
+    const t = document.createElement("span");
+    t.className = "trip";
+    t.innerHTML = kind === "loading" ? `${ICON.hour}<b>showing fallback</b><span>pending</span>` : `${ICON.warn}<b>showing fallback</b><span></span>`;
+    if (kind === "errored") t.lastElementChild.textContent = b.error ? String(b.error).slice(0, 120) : "failed";
+    el.querySelector(":scope > .flabel")?.append(t);
+  }
+}
 // the selected name's "Live value" section, when it has one
 function liveValue() {
   const box = document.getElementById("liveval");
@@ -1866,6 +2118,8 @@ function liveValue() {
     + (v ? `<div class="hint">changed ${v.count}× · last in flush ${v.seq}<span class="origin"></span>${tl.viewing != null ? ` · viewing #${tl.viewing}` : ""}</div>` : "")
     + (fly ? `<div class="hint" style="color:var(--pending)">${GI} a request is in the air</div>` : "");
   if (box.querySelector("pre")) box.querySelector("pre").textContent = v.preview;
+  const l = v?.preview !== undefined && listOf(v.preview);
+  if (l && l.items.length) box.querySelector("pre").insertAdjacentHTML("afterend", `<div class="hint">${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}</div><ol class="lvlist">${l.items.map(i => `<li>${esc(i)}</li>`).join("")}${l.count > l.items.length ? `<li class="hint">… ${l.count - l.items.length} more</li>` : ""}</ol>`);
   if (v?.origin) box.querySelector(".origin").textContent = ` · by ${v.origin}`;
 }
 
@@ -1882,7 +2136,7 @@ function onTimeline(d) {
   for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key) && typeof c.preview === "string" && (tl.viewing == null || s.seq <= tl.viewing)) {
     const v = live.values.get(c.key) ?? { count: 0 }; v.count++; v.seq = s.seq; v.preview = c.preview; live.values.set(c.key, v);
   }
-  for (const [k, v] of live.values) for (const el of chipsOf(k)) if (v.preview !== undefined) setValue(el, v.preview, { prev: v.preview });
+  for (const [k, v] of live.values) for (const el of chipsOf(k)) if (v.preview !== undefined) setValue(el, v.preview, { still: true });
   live.flushes = Math.max(live.flushes, tl.steps.length);
   liveBadge(); renderScrub();
 }
@@ -1936,6 +2190,7 @@ function travelBy(n) {
 }
 document.getElementById("liveBtn").onclick = () => { SFX.toggle(); if (tl.viewing != null || tl.target != null) resume(); };
 let tW = 0, tH = 0;
+new ResizeObserver(() => { if (cam.ready && LIVE) { sizeScrub(); renderScrub(); } }).observe(track);
 function sizeScrub() { tW = track.clientWidth; tH = track.clientHeight; trackc.width = tW * DPR; trackc.height = tH * DPR; }
 const padX = 6;
 const seqX = i => padX + (tl.steps.length > 1 ? i / (tl.steps.length - 1) : 1) * (tW - 2 * padX);
@@ -2104,7 +2359,7 @@ function swap() {
     } else if (added.has(n.key)) { el.classList.add("h-added"); setTimeout(() => el.classList.remove("h-added"), 600); }
   }
   // what live state the map holds carries over to the new tokens
-  for (const [k, v] of live.values) for (const el of chipsOf(k)) if (v.preview !== undefined) setValue(el, v.preview, { prev: v.preview });
+  for (const [k, v] of live.values) for (const el of chipsOf(k)) if (v.preview !== undefined) setValue(el, v.preview, { still: true });
   for (const k of live.flying.keys()) for (const el of chipsOf(k)) { el.classList.add("flying"); orb(el, "start"); }
   selected = null; focus = null; document.body.classList.remove("focus");
   const sid = selKey && keyIds.get(selKey)?.[0];
@@ -2117,7 +2372,7 @@ function planHTML() {
   const p = d.plan ?? {};
   const item = (k, icon) => `<li><span class="ico-b">${ICON[icon]}</span><a href="#" data-key="${esc(k)}" class="mono">${esc(keyName(k))}</a><span class="tag">${esc(p.reasons?.[k] ?? "")}</span></li>`;
   const groups = PLAN_GROUPS.map(([g, name, icon, what]) => (p[g]?.length ? `<h3>${name} · ${p[g].length}</h3><p class="hint" style="margin:0 0 4px">${what}</p><ul class="plan-list">${p[g].map(k => item(k, icon)).join("")}</ul>` : "")).join("")
-    + (p.moved?.length ? `<h3>Moved · ${p.moved.length}</h3><ul class="plan-list">${p.moved.map(m => `<li><span class="ico-b">${ICON.move}</span><span class="mono">${esc(keyName(m.from))} → ${esc(keyName(m.to))}</span><span class="tag">${esc(p.reasons?.[m.from] ?? p.reasons?.[m.to] ?? "")}</span></li>`).join("")}</ul>` : "");
+    + (p.moved?.length ? `<h3>Moved · ${p.moved.length}</h3><ul class="plan-list">${p.moved.map(m => `<li><span class="ico-b">${ICON.move}</span><span class="mono">${esc(keyName(m.from))} ${GA} ${esc(keyName(m.to))}</span><span class="tag">${esc(p.reasons?.[m.from] ?? p.reasons?.[m.to] ?? "")}</span></li>`).join("")}</ul>` : "");
   const phase = { plan: "plan", apply: "applying", done: "done", failed: "failed" }[hmr.phase] ?? hmr.phase;
   return `<h2>Module replacement <span class="phase ${hmr.phase}">${esc(phase)}</span></h2>
     <p class="hint mono">${(d.modules ?? []).map(esc).join(", ")}</p>
@@ -2125,16 +2380,60 @@ function planHTML() {
     ${groups || `<p class="hint">Nothing changes state.</p>`}`;
 }
 
+// ---- the in-page fake host (`?fake=<seed>`) and a small dev HUD to drive it ----------------------------------------
+const FAKE_LIB = /*__FAKELIB__*/null;
+window.__RX_FAKE_LIB__ = FAKE_LIB;
+const fake = { host: null, timer: 0, n: 0, every: 0, paused: false };
+function startFake(seed) {
+  const h = (fake.host = FAKE_LIB.createFakeHost(JSON.parse(JSON.stringify(G0)), { seed }));
+  window.__RX_FAKE__ = h;
+  document.body.classList.add("fake");
+  // time moves in ticks: requests land, and auto-play acts every few
+  fake.timer = setInterval(() => { if (fake.paused) return; h.tick(1); fake.n++; if (fake.every && fake.n % fake.every === 0) h.act(); }, 200);
+  window.__RX_FAKE_CTL__ = { pause: () => (fake.paused = true), play: () => (fake.paused = false), host: h };
+  const d = document.createElement("div");
+  d.id = "devhud"; d.className = "hud" + (compact() ? " collapsed" : "");
+  d.innerHTML = `<button class="dh-toggle" aria-expanded="true"><span class="dh-dot"></span><span class="micro">fake host</span><span class="mono dh-seed">seed ${esc(seed)}</span>${ICON.chev}</button>
+    <div class="dh-body">
+      <div class="dh-row"><span class="micro">act</span><select id="dhAction"></select><button class="hbtn" id="dhAct">act</button></div>
+      <div class="dh-row"><span class="micro">auto</span><span class="seg" id="dhAuto">${[["off", 0], ["slow", 12], ["normal", 5], ["fast", 2]].map(([t, n]) => `<button class="hbtn${n ? "" : " on"}" data-every="${n}">${t}</button>`).join("")}</span></div>
+      <div class="dh-row"><span class="micro">edit</span><select id="dhMod"></select><select id="dhOp">${["next", "rename", "expr", "type", "add", "remove"].map(o => `<option>${o}</option>`).join("")}</select><button class="hbtn" id="dhEdit">edit</button></div>
+      <div class="dh-row"><button class="hbtn" id="dhTick">tick ×10</button><span class="hint" id="dhInfo">drag the timeline to travel</span></div>
+    </div>`;
+  document.body.append(d);
+  const opts = () => {
+    document.getElementById("dhAction").innerHTML = `<option value="">a random action</option>` + G.nodes.filter(n => n.kind === "action" && n.key).map(n => `<option value="${esc(n.key)}">${esc(n.name)} · ${esc(n.file.split("/").pop())}</option>`).join("");
+    document.getElementById("dhMod").innerHTML = G.modules.map(m => `<option value="${esc(m)}">${esc(m.split("/").slice(-2).join("/"))}</option>`).join("");
+  };
+  opts();
+  d.querySelector(".dh-toggle").onclick = () => { d.classList.toggle("collapsed"); d.querySelector(".dh-toggle").setAttribute("aria-expanded", String(!d.classList.contains("collapsed"))); SFX.toggle(); };
+  document.getElementById("dhAct").onclick = () => h.act(document.getElementById("dhAction").value || undefined);
+  document.getElementById("dhAuto").onclick = ev => { const b = ev.target.closest("button"); if (!b) return; fake.every = +b.dataset.every; d.querySelectorAll("#dhAuto button").forEach(x => x.classList.toggle("on", x === b)); SFX.toggle(); };
+  document.getElementById("dhEdit").onclick = () => { const op = document.getElementById("dhOp").value; h.editModule(document.getElementById("dhMod").value, op === "next" ? undefined : op); setTimeout(opts, 1300); };
+  document.getElementById("dhTick").onclick = () => h.tick(10);
+}
+
 // ---- go ------------------------------------------------------------------------------------------------------------
+readInsets();
+document.body.classList.toggle("mini-off", compact());
+document.getElementById("miniBtn").setAttribute("aria-pressed", String(!compact()));
 loadGraph(G0);
 document.getElementById("board").style.setProperty("--bw", `${clamp(innerWidth - 40, 1040, 1560)}px`);
 render();
 renderPanel();
 BW = board.offsetWidth; BH = board.offsetHeight;
+if (FAKE_SEED != null && FAKE_LIB) startFake(FAKE_SEED);
 cam.ready = true;
 home();
 layoutChanged();
-if (LIVE) { sizeScrub(); renderScrub(); connectHost(); }
+if (LIVE && !POPOUT) {
+  const pb = document.createElement("button");
+  pb.id = "popBtn"; pb.className = "hbtn ic"; pb.title = "pop out: this live map in its own window"; pb.setAttribute("aria-label", "pop out");
+  pb.innerHTML = ICON.popout; pb.onclick = popOut;
+  btns.before(pb);
+}
+if (POPOUT) { document.title = `rx-map · pop-out · ${document.title.replace(/^rx-map · /, "")}`; sizeScrub(); joinOpener(); renderScrub(); }
+else if (LIVE) { sizeScrub(); renderScrub(); connectHost(); }
 // #name selects a name; #name:down / #name:up also traces it
 function fromHash() {
   const [name, dir] = decodeURIComponent(location.hash.slice(1)).split(":");
