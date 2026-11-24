@@ -53,6 +53,46 @@ function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
   walk(p); walk(extra);
   return u;
 }
+// ---------------------------------------------------------------- the feature manifest (spec/11 CP-4a: subtraction only)
+/** Which of Solid's store features the program can reach, decided from its text. `false` is a proof that no store this
+ *  program makes can meet the feature, so the build may compile it out of Solid's store (`__SOLID_STORE_<NAME>__: false`);
+ *  anything not proved stays `true`. `why` names the first use that kept each feature. */
+export type Features = { accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string> };
+export const ALL_FEATURES = (why: string): Features => ({ accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, why: { accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
+const GUARDED_KEYS = new Set(["constructor", "__proto__", "prototype"]);
+/** An index that is a number whatever it reads: a literal, arithmetic, `len`/`indexOf`. */
+const numericKey = (e: Expr): boolean => (e.k === "lit" && typeof e.v === "number") || (e.k === "bin" && ["-", "*", "/", "%"].includes(e.op)) || (e.k === "un" && e.op === "-") || (e.k === "call" && e.f.k === "id" && (e.f.name === "len" || e.f.name === "indexOf"));
+export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Features {
+  // MO-9: a module known only by its signature may make any store
+  if (set.signatures?.size) return ALL_FEATURES("a module compiled from its signature (MO-9)");
+  const f: Features = { accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {} };
+  const keep = (k: Exclude<keyof Features, "why">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
+  const seen = new WeakSet<object>();
+  const walk = (x: unknown): void => {
+    if (!x || typeof x !== "object" || seen.has(x as object)) return; seen.add(x as object);
+    if (Array.isArray(x)) { x.forEach(walk); return; }
+    const o = x as Record<string, any>;
+    // a value made by JS that is not the prelude's or a `pure` function's may be a class instance or carry getters (MO-10)
+    if (o.k === "import" && !o.resolved && (o.declared || !o.from.startsWith(".") || o.side || !o.pure)) keep("accessors", `import from ${JSON.stringify(o.from)} (line ${o.line})`);
+    if (o.k === "member" && GUARDED_KEYS.has(o.p)) keep("guards", `.${o.p}`);
+    if (o.k === "index" && !numericKey(o.i)) keep("guards", "an index that may be a string");
+    if ((o.k === "write" || o.k === "optimistic") && o.target.path.some((p: unknown) => typeof p === "string" ? GUARDED_KEYS.has(p) : !numericKey(p as Expr))) keep("guards", `a path write to ${o.target.name} by a key that may be a string`);
+    if (o.k === "rec" && o.fields.some((x: any) => "key" in x && GUARDED_KEYS.has(x.key))) keep("guards", "a record literal with a guarded key");
+    // derived stores (ST-3, ST-4, ST-5): a draft, a keyed equation or source, a question written or probed by path
+    if (o.k === "eq" && o.e?.k === "draft") keep("families", `${o.name} = draft (ST-3)`);
+    if ((o.k === "eq" || o.k === "source") && o.key) keep("families", `${o.name} key ${o.key} (ST-4)`);
+    if (o.k === "source" && o.question && u.paths.has(o.name)) keep("families", `source ${o.name} = … written or probed by path (ST-5)`);
+    // guesses (AC-3): an optimistic layer is a derived store over the truth
+    if (o.k === "optimistic") { keep("optimistic", `guess ${o.target.name} (AC-3)`); keep("families", `guess ${o.target.name} (AC-3)`); }
+    for (const v of Object.values(o)) walk(v);
+  };
+  for (const p of set.programs.values()) walk(p);
+  walk(extra);
+  // a derive's answer is reconciled into its store, and a guess into its layer: both remove keys and rows
+  if (f.families) keep("delete", f.why.families);
+  return f;
+}
+
 /** Free names of an expression, for ordering declarations (JS consts have a temporal dead zone; memos compute eagerly). */
 function deps(e: unknown, self: string, out = new Set<string>()): Set<string> {
   if (!e || typeof e !== "object") return out;
@@ -70,7 +110,7 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
 
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string; css: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } = {}): { files: Map<string, string>; entry: string; css: string; features: Features } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out });
@@ -87,7 +127,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][] } =
       files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function module(__rt) {\n  const __B = __rt.B;\n${body}\n}\n`);
     }
   }
-  return { files, entry: out(set.entry), css: g.css.join("\n") };   // CSS-4: the modules' stylesheets, beside their JavaScript
+  return { files, entry: out(set.entry), css: g.css.join("\n"), features: features(set, g.u, opts.extraStmts) };   // CSS-4: the modules' stylesheets, beside their JavaScript
 }
 /** Handler rows and resolve values in scenarios: statements over names looked up at run time (rt.lookup). */
 export function compileDynamic(stmts: Stmt[]): string { const g = new Gen(usage({ decls: [], view: [] }, [stmts])); const env = new Env(null); return inferredAction(stmts) ? g.stmts([{ k: "action", body: stmts }], env, { imp: true, dyn: true }, 0) : g.stmts(stmts, env, { imp: true, dyn: true }, 0); }   // AC-1b: a handler row is a handler's body

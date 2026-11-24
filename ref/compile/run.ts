@@ -11,6 +11,9 @@ import { checkModules } from "../src/check.ts";
 import { compileDynamic, compileDynamicExpr, CompileError } from "./emit.ts";
 import { createApp, flush } from "./rt.ts";
 import { build } from "./lowered.ts";
+import { setGlobals } from "./features.ts";
+import type { Features } from "./emit.ts";
+const used: Features[] = [];   // RX_FEATURES=1: each program runs on the store its manifest keeps (Solid's store-select build)
 import { resetErrorHalt } from "@solidjs/signals";
 
 process.on("unhandledRejection", () => {});
@@ -29,7 +32,7 @@ async function runTable(sc: Scenario, t: Scenario["tables"][number], base: Scena
   let entry: string, views: Map<string, string>;
   try {
     const set = moduleSet(sc, src); if (checkModules(set).diags.length) { lines.push(`  ~ ${t.title}: refused by the checker`); return ok; }
-    const out = build(sc, src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); entry = out.entry; views = out.views("universal");
+    const out = build(sc, src, rows.filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); entry = out.entry; views = out.views("universal"); if (process.env.RX_FEATURES) { setGlobals(process.env.RX_FEATURES === "sabotage" ? { ...out.features!, families: false, optimistic: false, delete: false } : out.features); used.push(out.features!); }   // sabotage: drop families whatever the manifest says — programs with derived stores must then fail
   }
   catch (e) { if (e instanceof CompileError) { lines.push(`  ~ ${t.title}: not compiled — ${e.message}`); return ok; } lines.push(`  ✗ ${t.title}: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
@@ -91,5 +94,6 @@ for (const f of readdirSync(dir).filter(f => f.endsWith(".md") && f !== "TEMPLAT
   console.log(`${ok ? (skipped ? "SKIP" : "PASS") : "FAIL"} ${sc.name}`); for (const l of lines) console.log(l);
   if (!ok) fail++; else if (skipped) skip++; else pass++;
 }
+if (process.env.RX_FEATURES) { const n = (k: keyof Features) => used.filter(f => f[k]).length; console.log(`\nmanifests: ${used.length} programs; kept accessors ${n("accessors")}, guards ${n("guards")}, shallow ${n("shallow")}, families ${n("families")}, optimistic ${n("optimistic")}, delete ${n("delete")}`); }
 console.log(`\n${pass} pass, ${fail} fail, ${skip} skip; ${divergent} recorded divergence(s) (compiled → ${SOLID})`);
 process.exit(fail ? 1 : 0);

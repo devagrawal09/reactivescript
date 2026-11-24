@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 import { moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { loadModules } from "../src/modules.ts";
-import { compileModules, CompileError } from "./emit.ts";
+import { compileModules, CompileError, type Features } from "./emit.ts";
 import { lowerViews, STRING_RENDERER, type Target } from "./jsx.ts";
 
-export type Built = { entry: string; css: string; views: (target: Target) => Map<string, string> };
+export type Built = { entry: string; css: string; views: (target: Target) => Map<string, string>; features?: Features };
 export const crate = !!process.env.RX_CRATE;
 const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
 if (crate) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileURLToPath(new URL("../../compiler/", import.meta.url)), stdio: "inherit" });
@@ -19,7 +19,7 @@ if (crate) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileU
 export function build(sc: Scenario, src: string, handlers: string[]): Built {
   if (!crate) {
     const out = compileModules(moduleSet(sc, src), { extraStmts: handlers.map(h => { try { return parseStmts(h); } catch { return []; } }) });
-    return { entry: out.entry, css: out.css, views: t => lowerViews(out.files, t) };
+    return { entry: out.entry, css: out.css, views: t => lowerViews(out.files, t), features: out.features };
   }
   const files: Record<string, string> = {};
   const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
