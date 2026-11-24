@@ -112,7 +112,7 @@ export function startRustLeg(binary: string, plan: string, answers: string): Pro
 export type Build = 'prod' | 'dev';
 // seroval and seroval-plugins as @solidjs/web resolves them in the pinned Solid checkout (their pnpm store folders carry
 // the versions, which move with the pin: 1.7.0 at rc.21, 1.8.x on main).
-const pnpmDist = (name: string) => relative(PNPM, realpathSync(PACKAGES + 'web/node_modules/' + name)).split('\\').join('/') + '/dist/';
+const pnpmDist = (name: string) => relative(realpathSync(PNPM), realpathSync(PACKAGES + 'web/node_modules/' + name)).split('\\').join('/') + '/dist/';
 const PNPM_SEROVAL = pnpmDist('seroval');
 const PNPM_PLUGINS = pnpmDist('seroval-plugins');
 const IMPORTS: Record<Build, Record<string, string>> = {
