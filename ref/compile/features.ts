@@ -24,6 +24,7 @@ export function defines(f: Features | null, opts: { hydrate?: boolean } = {}): R
   for (let grew = true; grew; ) { grew = false; for (const m of [...used]) for (const c of calls.get(m) ?? []) if (!used.has(c)) { used.add(c); grew = true; } }
   const d: Record<string, string> = { __RX_HYDRATE__: String(opts.hydrate ?? true), __RX_STORES__: String(f ? f.stores : true), __RX_FAMILIES__: String(f ? f.families : true), __RX_OPTIMISTIC__: String(f ? f.optimistic : true), __RX_GUESSES__: String(f ? f.guesses : true) };
   for (const n of NAMES) d[`__SOLID_STORE_${n.toUpperCase()}__`] = String(f ? f[n] : true);
+  d.__SOLID_CORE_ASYNC__ = String(f ? f.asyncNodes : true);
   for (const m of members) d[`__RX_USE_${m}__`] = String(used.has(m));
   for (const b of prelude) d[`__RX_B_${b}__`] = String(f ? f.prelude.includes(b) : true);
   return d;
@@ -31,4 +32,4 @@ export function defines(f: Features | null, opts: { hydrate?: boolean } = {}): R
 /** Every switch on (a development bundle, the hydration runner). */
 export const ALL_ON = (): Record<string, string> => defines(null);
 /** The same switches as globals (node runners over Solid's `store-select` build). */
-export function setGlobals(f: Features | undefined) { for (const n of NAMES) (globalThis as Record<string, unknown>)[`__SOLID_STORE_${n.toUpperCase()}__`] = f ? f[n] : true; }
+export function setGlobals(f: Features | undefined) { for (const n of NAMES) (globalThis as Record<string, unknown>)[`__SOLID_STORE_${n.toUpperCase()}__`] = f ? f[n] : true; (globalThis as Record<string, unknown>).__SOLID_CORE_ASYNC__ = f ? f.asyncNodes : true; }

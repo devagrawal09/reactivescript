@@ -57,7 +57,7 @@ function usage(p: Program | Program[], extra: Stmt[][] = []): Usage {
 /** Which of Solid's store features the program can reach, decided from its text. `false` is a proof that no store this
  *  program makes can meet the feature, so the build may compile it out of Solid's store (`__SOLID_STORE_<NAME>__: false`);
  *  anything not proved stays `true`. `why` names the first use that kept each feature. */
-export type Features = { guesses: boolean; stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string>; rt: string[]; prelude: string[]; tier: Tier };   // rt, prelude: the `__rt` members and prelude functions the compiled modules name (a runtime bundles only those)   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
+export type Features = { asyncNodes: boolean; guesses: boolean; stores: boolean; accessors: boolean; guards: boolean; shallow: boolean; families: boolean; optimistic: boolean; delete: boolean; why: Record<string, string>; rt: string[]; prelude: string[]; tier: Tier };   // rt, prelude: the `__rt` members and prelude functions the compiled modules name (a runtime bundles only those)   // stores: any store at all (the runtime's switch, `__RX_STORES__`); the rest are Solid's
 /** The async ladder (spec/05, 06): the highest step any part of the program reaches — the scheduler every node shares.
  *  A0 sync only · A1 actions that never await · A2 writes held across an `await` (an awaiting action or handler) ·
  *  A3 `pending?` / `latest` probes · A4 guesses · A5 questions (an `await` in reactive scope, `refresh`, `affects`,
@@ -106,14 +106,14 @@ export function provablySync(e: Expr): boolean {
     default: return false;
   }
 }
-export const ALL_FEATURES = (why: string): Features => ({ guesses: true, stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, rt: [], prelude: [], tier: { step: "A5", why: { A5: why }, nodes: { memos: 0, syncMemos: 0 } }, why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
+export const ALL_FEATURES = (why: string): Features => ({ asyncNodes: true, guesses: true, stores: true, accessors: true, guards: true, shallow: true, families: true, optimistic: true, delete: true, rt: [], prelude: [], tier: { step: "A5", why: { A5: why }, nodes: { memos: 0, syncMemos: 0 } }, why: { stores: why, accessors: why, guards: why, shallow: why, families: why, optimistic: why, delete: why } });
 const GUARDED_KEYS = new Set(["constructor", "__proto__", "prototype"]);
 /** An index that is a number whatever it reads: a literal, arithmetic, `len`/`indexOf`. */
 const numericKey = (e: Expr): boolean => (e.k === "lit" && typeof e.v === "number") || (e.k === "bin" && ["-", "*", "/", "%"].includes(e.op)) || (e.k === "un" && e.op === "-") || (e.k === "call" && e.f.k === "id" && (e.f.name === "len" || e.f.name === "indexOf"));
 export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Features {
   // MO-9: a module known only by its signature may make any store
   if (set.signatures?.size) return ALL_FEATURES("a module compiled from its signature (MO-9)");
-  const f: Features = { guesses: false, stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {}, rt: [], prelude: [], tier: tier([...set.programs.values()], extra) };
+  const f: Features = { asyncNodes: false, guesses: false, stores: false, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false, why: {}, rt: [], prelude: [], tier: tier([...set.programs.values()], extra) };
   const keep = (k: Exclude<keyof Features, "why" | "rt" | "prelude">, why: string) => { if (!f[k]) { f[k] = true; f.why[k] = why; } };
   const seen = new WeakSet<object>();
   const walk = (x: unknown): void => {
@@ -141,6 +141,11 @@ export function features(set: ModuleSet, u: Usage, extra: Stmt[][] = []): Featur
   walk(extra);
   // a derive's answer is reconciled into its store, and a guess into its layer: both remove keys and rows
   if (f.families) { keep("delete", f.why.families); keep("stores", f.why.families); }
+  // A computation's result may be a promise: a question (A5), or any value JS made — an equation that returns what a JS
+  // function returned is awaited by Solid whether or not the program wrote `await` (the checker's types would say; the
+  // emitter has none, so any JS import other than the prelude's synchronous functions keeps it)
+  if (f.tier.step === "A5") { f.asyncNodes = true; f.why.asyncNodes = f.tier.why.A5; }
+  for (const p of set.programs.values()) for (const d of p.decls) if (d.k === "import" && !d.resolved) for (const n of d.names) if (!SYNC_PRELUDE.has(n.name) && !f.asyncNodes) { f.asyncNodes = true; f.why.asyncNodes = `import ${n.name} from ${JSON.stringify(d.from)}: its results may be promises`; }
   // with no store, none of its features is reachable
   if (!f.stores) for (const k of ["accessors", "guards", "shallow"] as const) f[k] = false;
   return f;

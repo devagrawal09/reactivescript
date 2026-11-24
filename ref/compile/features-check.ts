@@ -5,7 +5,7 @@ import { parseProgram } from "../src/parse.ts";
 import { singleModule } from "../src/modules.ts";
 import { compileModules, type Features } from "./emit.ts";
 
-type Want = Partial<Record<Exclude<keyof Features, "why">, boolean>>;
+type Want = Partial<Record<"asyncNodes" | "guesses" | "stores" | "accessors" | "guards" | "shallow" | "families" | "optimistic" | "delete", boolean>>;
 const OFF: Want = { stores: true, accessors: false, guards: false, shallow: false, families: false, optimistic: false, delete: false };
 const cases: [string, string, Want][] = [
   ["no store feature: a counter", `export default component App() {\n  source n := 0\n  <button onClick={() => { n := n + 1 }}>{n}</button>\n}`, { ...OFF, stores: false }],
@@ -17,6 +17,9 @@ const cases: [string, string, Want][] = [
   ["families: a draft", `export default component App() {\n  source n := 0\n  acc = draft(pre acc -> { total: 0 }) { d.total := d.total + n }\n  <p>{acc.total}</p>\n}`, { families: true, delete: true, optimistic: false }],
   ["guards: a member named constructor", `export default component App() {\n  source o := { a: 1 }\n  <p>{o.constructor}</p>\n}`, { guards: true, families: false }],
   ["guards: an index that may be a string", `export default component App() {\n  source o := { a: 1 }\n  source k := "a"\n  <p>{o[k]}</p>\n}`, { guards: true, families: false }],
+  ["async nodes: off with no question and no JS", `export default component App() {\n  source n := 0\n  double = n * 2\n  <p>{double}</p>\n}`, { asyncNodes: false }],
+  ["async nodes: a question keeps them", `import pure { fetch } from "./prelude"\nexport default component App() {\n  hits = await fetch("q") -> []\n  <p>{len(hits)}</p>\n}`, { asyncNodes: true }],
+  ["async nodes: a JS import keeps them", `import pure { score } from "./api"\nexport default component App() {\n  source n := 0\n  s = score(n)\n  <p>{s}</p>\n}`, { asyncNodes: true }],
   ["accessors: a value from JS that is not pure", `import { widget } from "some-package"\nexport default component App() {\n  source o := { a: 1 }\n  <p>{o.a}</p>\n}`, { accessors: true, families: false }],
 ];
 let bad = 0;
