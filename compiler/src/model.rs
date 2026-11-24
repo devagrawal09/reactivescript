@@ -6,7 +6,84 @@
 //! `tracked` (reactive scope, SC-1), `snapshot` (imperative scope SC-2, `peek` E-5, a seed E-4, a value parameter's
 //! argument E-10) or `pre` (C-2), and a `probe` under `latest` / `pending?` (R-9, R-12).
 
+use crate::ast::{Decl, Markup, MarkupKind, Program};
 use serde_json::{json, Map, Value};
+use std::collections::HashMap;
+
+/// A module's key part: its POSIX path relative to `root` (the project root), or the path as the loader has it.
+pub fn module_key(path: &str, root: Option<&str>) -> String {
+    let p = path.replace('\\', "/");
+    let Some(root) = root.filter(|r| !r.is_empty()) else { return p };
+    let r = format!("{}/", root.replace('\\', "/").trim_end_matches('/'));
+    match p.strip_prefix(&r) {
+        Some(rest) => rest.to_string(),
+        None => p,
+    }
+}
+
+/// A declaration's stable identity, `<module>|<scope>|<name>[#n]` (dev builds name its Solid nodes `rx:` + key): the
+/// scope is the enclosing component's name ("" at module level); `#n` marks the n+1th declaration of the same scope and
+/// name in the module, in source order. Every source and equation declaration gets one (a wrapped server fn too, though
+/// it binds no node and the model gives it none). `ref/src/model.ts` `declKeys`.
+pub fn decl_keys(p: &Program, module: &str) -> HashMap<*const Decl, String> {
+    struct Found {
+        d: *const Decl,
+        at: String,
+        line: usize,
+    }
+    fn decls(ds: &[Decl], scope: &str, out: &mut Vec<Found>) {
+        for d in ds {
+            match d {
+                Decl::Source { name, line, .. } | Decl::Eq { name, line, .. } => out.push(Found { d: d as *const Decl, at: format!("{scope}|{name}"), line: *line }),
+                Decl::Fn { decls: fd, .. } => decls(fd, scope, out),
+                Decl::Component { name, decls: cd, view, .. } => {
+                    decls(cd, name, out);
+                    markup(view, name, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    fn markup(ms: &[Markup], scope: &str, out: &mut Vec<Found>) {
+        for m in ms {
+            match &m.kind {
+                MarkupKind::El { children, .. } => markup(children, scope, out),
+                MarkupKind::Mif { t, t_decls, f, f_decls, .. } => {
+                    decls(t_decls, scope, out);
+                    markup(t, scope, out);
+                    decls(f_decls, scope, out);
+                    markup(f, scope, out);
+                }
+                MarkupKind::Mfor { decls: md, body, .. } => {
+                    decls(md, scope, out);
+                    markup(body, scope, out);
+                }
+                MarkupKind::Loading { fallback, decls: md, body, .. } | MarkupKind::Errored { fallback, decls: md, body, .. } => {
+                    markup(fallback, scope, out);
+                    decls(md, scope, out);
+                    markup(body, scope, out);
+                }
+                MarkupKind::Portal { decls: md, body, .. } => {
+                    decls(md, scope, out);
+                    markup(body, scope, out);
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut found = vec![];
+    decls(&p.decls, "", &mut found);
+    markup(&p.view, "", &mut found);
+    found.sort_by_key(|f| f.line); // stable, as ref's sort
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut keys = HashMap::new();
+    for f in found {
+        let n = seen.entry(f.at.clone()).or_insert(0);
+        keys.insert(f.d, if *n > 0 { format!("{module}|{}#{n}", f.at) } else { format!("{module}|{}", f.at) });
+        *n += 1;
+    }
+    keys
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadMode {
@@ -53,6 +130,8 @@ pub struct ModelSymbol {
     pub question: Option<bool>,
     pub io: bool,
     pub from: Option<String>,
+    /// a source's or an equation's identity (`decl_keys`)
+    pub key: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct Computation {
@@ -185,6 +264,9 @@ impl ModelBuilder {
                 }
                 if let Some(f) = s.from {
                     m.insert("from".into(), json!(f));
+                }
+                if let Some(k) = s.key {
+                    m.insert("key".into(), json!(k));
                 }
                 Value::Object(m)
             })

@@ -9,7 +9,7 @@
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
-use crate::model::{ModelBuilder, ModelSymbol};
+use crate::model::{decl_keys, module_key, ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{js_trim, JsDecl, Part, Shape as FShape};
 use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
@@ -247,6 +247,8 @@ struct Sym<'a> {
     arity: Option<usize>,
     /// RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
     no_props: Option<String>,
+    /// CP-6: a source's or an equation's identity (model.rs `decl_keys`)
+    key: Option<String>,
 }
 impl<'a> Sym<'a> {
     fn new(kind: SymKind, name: &str, region: RId, line: i64) -> Self {
@@ -284,6 +286,7 @@ impl<'a> Sym<'a> {
             reader: false,
             arity: None,
             no_props: None,
+            key: None,
         }
     }
 }
@@ -854,6 +857,8 @@ pub struct Opts<'a> {
     /// CN-3d: a client-only build (no SSR): a first load nothing holds shows nothing, so every reader that can have
     /// no value yet needs a `loading` region above it, as a client question's reader does (SV-7b).
     pub spa: bool,
+    /// the project root a key's module is relative to (`decl_keys`); None: the path as the loader has it
+    pub root: Option<&'a str>,
 }
 
 pub struct Checker<'a> {
@@ -901,6 +906,7 @@ pub struct Checker<'a> {
     reader_f: Vec<(RId, &'a Expr, i64, Fails)>,
     arg_r: Vec<(usize, String)>,
     arg_f: Vec<(usize, String, Fails)>,
+    keys: HashMap<*const Decl, String>,
 }
 
 pub struct CheckResult {
@@ -925,11 +931,15 @@ pub struct Checked {
 }
 /// CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only.
 pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
+    check_modules_in(set, spa, None)
+}
+/// `check_modules`, each symbol's key naming its module relative to `root` (the project root).
+pub fn check_modules_in(set: &ModuleSet, spa: bool, root: Option<&str>) -> Checked {
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, root });
         diags.extend(r.diags);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
@@ -978,6 +988,7 @@ impl<'a> Checker<'a> {
             reader_f: vec![],
             arg_r: vec![],
             arg_f: vec![],
+            keys: HashMap::new(),
         }
     }
 
@@ -1054,11 +1065,13 @@ impl<'a> Checker<'a> {
                 question: if s.kind == SymKind::Source { Some(s.question) } else { None },
                 io: s.io,
                 from: s.imported.clone(),
+                key: s.key.clone(),
             }
         })
     }
 
     pub fn run(&mut self, p: &'a Program) {
+        self.keys = decl_keys(p, &module_key(self.opts.file.as_deref().unwrap_or("main.rx"), self.opts.root));
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
         self.root_env = Some(root);
@@ -1251,6 +1264,9 @@ impl<'a> Checker<'a> {
                     }
                 }
                 _ => {}
+            }
+            if matches!(sym.kind, SymKind::Source | SymKind::Eq) {
+                sym.key = self.keys.get(&(d as *const Decl)).cloned();
             }
             let comp_region = sym.comp_region;
             let s = self.bind(env, name, sym);

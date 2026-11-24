@@ -7,7 +7,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
-import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { ModelBuilder, declKeys, moduleKey, type Model, type RegionKind, type CompKind } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
@@ -91,6 +91,7 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
+  key?: string;                        // CP-6: a source's or an equation's identity (model.ts declKeys)
   ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null };
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
@@ -204,15 +205,15 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]> };
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; root?: string };   // root: the project root a key's module is relative to
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
 export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
+export function checkModules(set: ModuleSet, opts: { root?: string } = {}): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
   return { diags, sigs, models };
 }
 
@@ -252,7 +253,9 @@ class Checker {
   /** CP-6: a symbol bound in `env`, recorded for the model. */
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
+  private keys = new Map<Decl, string>();
   run(p: Program) {
+    this.keys = declKeys(p, moduleKey(this.opts.file ?? "main.rx", this.opts.root));
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
@@ -495,6 +498,7 @@ class Checker {
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
+      if (sym.kind === "source" || sym.kind === "eq") sym.key = this.keys.get(d);
       this.bind(env, d.name, sym);
     }
     this.serverIo(decls, env);

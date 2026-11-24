@@ -16,19 +16,57 @@
 // (AC-3), `refresh` (AC-4) or `affects` (AC-5); `use p := e` writes the context's provided source (RG-7c). A call names a
 // fn, an action, a server fn or a JS import called by name.
 
+import type { Decl, Markup, Program } from "./ast.ts";
+
 export type ReadMode = "tracked" | "snapshot" | "pre";
 export type Read = { sym: number; mode: ReadMode; field?: string; probe?: "latest" | "pending" };
 export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "affects"; path?: true };
 export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string };
-export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string };
+export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
 
 const READ_KINDS = new Set(["source", "eq", "props", "context"]);
 const CALL_KINDS = new Set(["fn", "action", "server", "import"]);
-type SymLike = { kind: string; name: string; region: { id: number }; line: number; question?: boolean; io?: boolean; imported?: string };
+type SymLike = { kind: string; name: string; region: { id: number }; line: number; question?: boolean; io?: boolean; imported?: string; key?: string };
+
+/** A module's key part: its POSIX path relative to `root` (the project root), or the path as the loader has it. */
+export function moduleKey(path: string, root?: string): string {
+  const p = path.replace(/\\/g, "/");
+  if (!root) return p;
+  const r = root.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  return p.startsWith(r) ? p.slice(r.length) : p;
+}
+/** A declaration's stable identity, `<module>|<scope>|<name>[#n]` (dev builds name its Solid nodes `rx:` + key): the
+ *  scope is the enclosing component's name ("" at module level); `#n` marks the n+1th declaration of the same
+ *  scope and name in the module, in source order. Every source and equation declaration gets one (a wrapped server fn
+ *  too, though it binds no node and the model gives it none). */
+export function declKeys(p: Program, module: string): Map<Decl, string> {
+  const found: { d: Decl; at: string; line: number }[] = [];
+  const decls = (ds: Decl[], scope: string) => {
+    for (const d of ds) {
+      if (d.k === "source" || d.k === "eq") found.push({ d, at: `${scope}|${d.name}`, line: d.line });
+      else if (d.k === "fn") decls(d.decls, scope);
+      else if (d.k === "component") { decls(d.decls, d.name); markup(d.view, d.name); }
+    }
+  };
+  const markup = (ms: Markup[], scope: string) => {
+    for (const m of ms) switch (m.k) {
+      case "el": markup(m.children, scope); break;
+      case "mif": decls(m.tDecls, scope); markup(m.t, scope); decls(m.fDecls, scope); markup(m.f, scope); break;
+      case "mfor": decls(m.decls, scope); markup(m.body, scope); break;
+      case "loading": case "errored": markup(m.fallback, scope); decls(m.decls, scope); markup(m.body, scope); break;
+      case "portal": decls(m.decls, scope); markup(m.body, scope); break;
+    }
+  };
+  decls(p.decls, ""); markup(p.view, "");
+  found.sort((a, b) => a.line - b.line);
+  const seen = new Map<string, number>(); const keys = new Map<Decl, string>();
+  for (const f of found) { const n = seen.get(f.at) ?? 0; seen.set(f.at, n + 1); keys.set(f.d, `${module}|${f.at}${n ? `#${n}` : ""}`); }
+  return keys;
+}
 
 /** Filled by the checker during its walk (check.ts): symbols as they are bound, computations as the walk enters them. */
 export class ModelBuilder {
@@ -60,7 +98,7 @@ export class ModelBuilder {
   call(s: SymLike | undefined) { const id = s && this.ids.get(s); if (!this.cur || id === undefined || !CALL_KINDS.has(s!.kind) || this.cur.calls.includes(id)) return; this.cur.calls.push(id); }
   build(file: string): Model {
     return { file, regions: this.regions,
-      symbols: this.syms.map((s, id) => ({ id, name: s.name, kind: s.kind, region: s.region.id, line: s.line, ...(s.kind === "source" ? { question: !!s.question } : {}), ...(s.io ? { io: true as const } : {}), ...(s.imported ? { from: s.imported } : {}) })),
+      symbols: this.syms.map((s, id) => ({ id, name: s.name, kind: s.kind, region: s.region.id, line: s.line, ...(s.kind === "source" ? { question: !!s.question } : {}), ...(s.io ? { io: true as const } : {}), ...(s.imported ? { from: s.imported } : {}), ...(s.key ? { key: s.key } : {}) })),
       computations: this.computations };
   }
 }
