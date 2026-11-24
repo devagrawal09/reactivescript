@@ -8,7 +8,7 @@ import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV,
 } from "solid-js";
 import { getContext, setContext, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -32,6 +32,17 @@ const sameInput = (a: unknown, b: unknown): boolean => {
   return ka.length === kb.length && ka.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameInput((a as any)[k], (b as any)[k]));
 };
 export { flush };
+
+// ---------------------------------------------------------------- identity (11 CP-4b `key`, dev builds)
+/** The key of the declaration whose nodes are being created (`__rt.key`), or null: each Solid primitive a helper creates
+ *  while one is current is named `rx:` + key; with none, its options are as they were. */
+let rxKey: string | null = null;
+const nm = <T,>(o: T): T => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}` }) as T;
+/** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
+ *  production build keeps no names, so there it is the call alone. */
+const key: <T>(k: string, f: () => T) => T = DEV
+  ? (k, f) => { const was = rxKey; rxKey = k; try { return f(); } finally { rxKey = was; } }
+  : (_k, f) => f();
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
@@ -169,22 +180,22 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     source(name: string, init: unknown, guessed = false): [Acc, Writer] {
       void name;
       if (typeof init === "object" && init !== null) {
-        const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+        const [store, setStore] = createStore(init as any, nm(undefined)); const [get, set] = createSignal<unknown>(store, nm(undefined));
         const w: Writer = {
           set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v as any); set(store); } else set(v); },
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
         if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
-          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
+          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}, nm(undefined));
           const acc = () => view; storeAccs.add(acc);
           return [acc, { ...w, guess: guessInto(setView) }];
         }
         return [get, w];
       }
-      const [get, set] = createSignal(init);
+      const [get, set] = createSignal(init, nm(undefined));
       if (guessed) {                                                      // createOptimistic(() => truth()) over createSignal(v)
-        const [view, setGuess] = createOptimistic(() => get());
+        const [view, setGuess] = createOptimistic(() => get(), nm(undefined));
         return [view as Acc, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: setGuess as any }];
       }
       return [get, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); } }];
@@ -196,43 +207,43 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
       const seed = () => key && !mode.record ? [] : {};
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
-        const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined);
+        const [truth, setTruth] = (createStore as any)(derive, seed(), nm(key ? { key } : undefined));
         const tacc = () => truth; storeAccs.add(tacc);
-        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined);
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), nm(key ? { key } : undefined));
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined);
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), nm(key ? { key } : undefined));
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
         return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
       }
       if (mode.optimistic && mode.derived) {                             // AC-3 over an equation: createOptimistic(fn), whose setter only guesses
         const plain = () => { throw new Error("a plain write to an equation"); };
-        const [get, setGuess] = createOptimistic(fn as any, opts as any);
+        const [get, setGuess] = createOptimistic(fn as any, nm(opts) as any);
         return [get as Acc, { set: plain, path: plain, guess: setGuess as any }];
       }
       if (mode.optimistic) {
-        const [truth, setTruth] = createSignal(fn as any, opts as any);
-        const [get, setGuess] = createOptimistic(() => truth());
+        const [truth, setTruth] = createSignal(fn as any, nm(opts) as any);
+        const [get, setGuess] = createOptimistic(() => truth(), nm(undefined));
         truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}, nm(undefined));
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
-      const [get, set] = createSignal(fn as any, opts as any);
+      const [get, set] = createSignal(fn as any, nm(opts) as any);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
-    memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
-    deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
+    memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, nm(opts) as any) as Acc,
+    deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, nm(opts) as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any, nm(undefined)); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, nm({ key }) as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
+    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any, nm(undefined)); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
@@ -319,6 +330,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),

@@ -227,6 +227,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    /** 11 CP-4b: a dev build's keyed creating call (rt-web.ts names its nodes); here, the call alone. */
+    key: <T,>(_k: string, f: () => T): T => f(),
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
