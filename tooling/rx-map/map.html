@@ -895,7 +895,7 @@ function render() {
   document.getElementById("stats").textContent =
     `${G.modules.length} module${G.modules.length > 1 ? "s" : ""} · ${named} names · ${sites} sites · ${G.edges.length} edges`;
   // a big world: chips stay in their row's plane (no own 3D layer each), so panning stays cheap
-  document.body.classList.toggle("flat", G.nodes.length > 260);
+  document.body.classList.toggle("flat", G.nodes.length > 900);
   applyHidden();
   layoutChanged();
 }
@@ -2121,7 +2121,7 @@ function planHTML() {
   const phase = { plan: "plan", apply: "applying", done: "done", failed: "failed" }[hmr.phase] ?? hmr.phase;
   return `<h2>Module replacement <span class="phase ${hmr.phase}">${esc(phase)}</span></h2>
     <p class="hint mono">${(d.modules ?? []).map(esc).join(", ")}</p>
-    <p class="hint">${hmr.phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : hmr.phase === "failed" ? `It failed: ${esc(hmr.error ?? "")}` : "Applied: the map now shows the new graph."}</p>
+    <p class="hint">${hmr.phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : hmr.phase === "failed" ? `It failed: ${esc(hmr.error ?? "")}` : hmr.phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : "Applied: the map now shows the new graph."}</p>
     ${groups || `<p class="hint">Nothing changes state.</p>`}`;
 }
 
