@@ -4,7 +4,8 @@
 // A host is an in-page fake (`window.__RX_FAKE__`, with post / subscribe), the parent window (a dock's iframe), or,
 // in a pop-out, the app page's bridge (`__RX__.connect`) or the map that opened it. Messages in go to the `receive`
 // the page hands to `startLive` (live.rx's dispatch), then on to every pop-out this map feeds.
-import { isLive, isPopout, pristine, bodyClass, fakeSeed, servedGraph } from "./env.js";
+import { isLive, isRecording, isPopout, pristine, bodyClass, fakeSeed, servedGraph } from "./env.js";
+import { replay } from "./replay.js";
 import { startFake } from "./fakehost.js";
 import { previewsOf, setLiveHooks } from "./livestate.js";
 import { toast } from "./fx.js";
@@ -20,6 +21,7 @@ let fakeUnsub = null;
 
 /** Sends a message to the host. */
 export function post(m) {
+  if (isRecording()) return;
   const msg = { source: "rx-map", v: 1, ...m };
   try {
     if (opener) opener.post(msg);
@@ -88,7 +90,11 @@ export function startLive(on) {
   setLiveHooks({ post, apply: (M, hmr) => { playApply(M, hmr); scheduleSwap(on.swap); }, cancelSwap });
   bodyClass("live", true);
   const stops = [];
-  if (isPopout()) {
+  if (isRecording()) {
+    let active = true;
+    replay(receive, () => active);
+    stops.push(() => { active = false; });
+  } else if (isPopout()) {
     // (its title, "rx-map · pop-out · …", is main.rx's: it follows the graph drawn)
     // after the program has mounted: what joinOpener hands in is written as messages
     let stop = () => {};
@@ -108,6 +114,7 @@ export function startLive(on) {
 let popWin = null;   // the pop-out this map opened, while it is open
 /** Opens (or focuses) the pop-out window, written from the page as it was served. */
 export function popOut() {
+  if (isRecording()) return;
   if (popWin && !popWin.closed) { popWin.focus(); return; }
   const w = window.open("", "rx-map-popout", "width=1280,height=820");
   if (!w) { toast(`<span class="micro">pop-out</span> the browser blocked the window`); return; }

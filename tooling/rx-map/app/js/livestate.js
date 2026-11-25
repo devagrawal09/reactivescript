@@ -24,6 +24,7 @@ import { comet, ring, fire, orb, clearOrbs, clearPulses, revert, rewind, shake, 
 import { sfx, note } from "./sound.js";
 import { anchorOf } from "./geometry.js";
 import { putGraph } from "./graphs.js";
+import { isRecording } from "./env.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -159,6 +160,7 @@ function onReset(s) {
   const f = freshLive();
   for (const k of Object.keys(f)) {
     if (k === "connected" || k === "fx" || k === "fxSeq") continue;
+    if (isRecording() && (k === "tl" || k === "flushes")) continue;
     s[k] = f[k];
   }
   emit(s, { k: "reset" });
@@ -294,7 +296,7 @@ function onFlush(s, m) {
   if (s.hmr.plan && m.origin === `hmr ${s.hmr.plan.id}`) for (const c of m.changes) s.hmr.seen[c.key] = { prev: c.prev ?? null, preview: c.preview ?? null, error: c.error ?? null };
   if (typeof m.seq === "number") {
     s.tl.steps.push({ seq: m.seq, at: m.at, origin: m.origin, cause: m.cause, changes: m.changes, order: m.order });
-    if (s.tl.steps.length > s.tl.capacity) s.tl.steps.splice(0, s.tl.steps.length - s.tl.capacity);
+    if (!isRecording() && s.tl.steps.length > s.tl.capacity) s.tl.steps.splice(0, s.tl.steps.length - s.tl.capacity);
     s.tl.head = Math.max(s.tl.head, m.seq);
   }
   s.tl.rev++;
@@ -495,6 +497,7 @@ let played = 0;   // the last fx record played (fxSeq only grows: a reset keeps 
  * (play the apply phase with the plan, and swap soon), `cancelSwap`.
  */
 export function playFx(s, M) {
+  if (isRecording()) return;
   for (const r of s.fx) {
     if (r.n <= played) continue;
     played = r.n;

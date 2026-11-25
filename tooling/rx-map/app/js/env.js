@@ -9,14 +9,21 @@ capturePristine();
 export const pristine = () => PRISTINE;
 
 const BOOT = globalThis.__RX_MAP_BOOT__ ?? { graph: null, live: false, fake: null };
+const query = new URLSearchParams(location.search);
+const TRACE = BOOT.trace?.rxTrace === 1 ? BOOT.trace : null;
+const COVERAGE_LIVE = !TRACE && query.get("coverage") === "live";
 // a pop-out: this page written into a window opened by a map, which relays its host's messages
 const POPOUT = window.name === "rx-map-popout" && (() => { try { return !!window.opener?.__RX_VIEW__?.attach; } catch { return false; } })();
 // `?fake=<seed>` (or pageHTML(graph, { fake })) runs the fake host in the page
-const FAKE_SEED = POPOUT ? null : (() => { const q = new URLSearchParams(location.search).get("fake"); return q != null ? Number(q) || 1 : BOOT.fake; })();
-const LIVE = !!BOOT.live || FAKE_SEED != null || POPOUT;
+const FAKE_SEED = POPOUT || TRACE ? null : (() => { const q = query.get("fake"); return q != null ? Number(q) || 1 : BOOT.fake; })();
+const LIVE = !!BOOT.live || FAKE_SEED != null || POPOUT || COVERAGE_LIVE || !!TRACE;
 
 /** The graph the page was served with. */
 export const servedGraph = () => BOOT.graph;
+export const servedCoverage = () => BOOT.coverage?.rxCoverage === 1 ? BOOT.coverage : null;
+export const coverageLive = () => COVERAGE_LIVE;
+export const servedTrace = () => TRACE;
+export const isRecording = () => TRACE != null;
 export const isLive = () => LIVE;
 export const isPopout = () => POPOUT;
 export const fakeSeed = () => FAKE_SEED;

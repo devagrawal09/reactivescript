@@ -6,7 +6,7 @@
 //
 //   node build.mjs            # write page.mjs
 //   node build.mjs --check    # fail if page.mjs is not what the sources give
-//   node build.mjs --html <graph.json> <out.html> [--live] [--fake <seed>]   # also write one page, for a look
+//   node build.mjs --html <graph.json> <out.html> [--live] [--fake <seed>] [--coverage <file>] [--trace <file>]
 //
 // Where things come from: the compiler's binding (compiler/index.js), esbuild and Solid from ref/node_modules (Solid's
 // built dists, pinned below: the packages' own exports would pull Solid's TypeScript sources in), the runtime from
@@ -52,6 +52,8 @@ const res = await esbuild.build({
   stdin: { contents: readFileSync(path.join(src, "boot.js"), "utf8"), resolveDir: src, sourcefile: "boot.js", loader: "js" },
   bundle: true, write: false, format: "iife", platform: "browser", target: "es2022",
   minify: !process.argv.includes("--no-minify"), legalComments: "none", charset: "utf8",
+  // coverage.mjs also exports an unused Node helper; its dynamic imports are tree-shaken with it.
+  external: ["node:fs/promises", "node:path"],
   alias: { "@reactivescript/runtime": path.join(repo, "runtime/dist/web.js") },
   logLevel: "error",
   plugins: [{
@@ -75,7 +77,7 @@ if (/<\/script/i.test(js)) throw new Error("the bundle contains </script");
 if (/<\/style/i.test(css)) throw new Error("the CSS contains </style");
 
 let html = readFileSync(path.join(src, "shell.html"), "utf8").replace("/*__CSS__*/", () => css).replace("/*__JS__*/", () => js);
-for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "<!--__TITLE__-->"])
+for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "/*__COVERAGE__*/null", "/*__TRACE__*/null", "<!--__TITLE__-->"])
   if (!html.includes(p)) throw new Error(`shell.html lost its ${p} placeholder`);
 
 // what the page was built from: a change to any of these makes page.mjs stale (`--check` fails), so rebuild
@@ -91,19 +93,28 @@ const page = `// Generated from app/ (main.rx and its modules) by build.mjs (npm
 const HTML = ${JSON.stringify(html)};
 
 const esc = s => String(s).replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;"));
+const json = data => JSON.stringify(data).replace(/</g, "\\\\u003c");
 
 /**
  * The map page for \`graph\` (from \`buildGraph\`, or \`diffGraphs\` for a diff), one self-contained HTML document.
  * \`live: true\` makes it listen for the messages \`@reactivescript/map/live\` posts (\`source: "rx-map"\`).
  * \`fake: seed\` runs the fake host (\`@reactivescript/map/fake\`) inside the page, with a dev HUD to drive it.
+ * \`coverage: CoverageFile\` adds a Coverage layer. The \`?coverage=live\` URL flag instead observes the live stream.
+ * \`trace: TraceFile\` runs a read-only replay host instead of connecting to an app.
  */
-export function pageHTML(graph, { live = false, fake = null } = {}) {
+export function pageHTML(graph, { live = false, fake = null, coverage = null, trace = null } = {}) {
+  graph = trace?.graph ?? graph;
   const title = graph.title ?? (graph.modules ?? []).map(m => m.split("/").pop()).join(", ");
-  return HTML
-    .replace("/*__LIVE__*/false", () => String(!!live || fake != null))
-    .replace("/*__FAKE__*/null", () => (fake == null ? "null" : String(Number(fake) || 1)))
-    .replaceAll("<!--__TITLE__-->", () => esc(title))
-    .replace("/*__GRAPH__*/null", () => JSON.stringify(graph).replace(/</g, "\\\\u003c"));
+  const inserts = {
+    "/*__GRAPH__*/null": () => json(graph),
+    "/*__LIVE__*/false": () => String(!!live || fake != null || trace != null),
+    "/*__FAKE__*/null": () => fake == null ? "null" : String(Number(fake) || 1),
+    "/*__COVERAGE__*/null": () => json(coverage),
+    "/*__TRACE__*/null": () => json(trace && { rxTrace: trace.rxTrace, test: trace.test, error: trace.error, messages: trace.messages }),
+    "<!--__TITLE__-->": () => esc(title),
+  };
+  // Replace in one pass: text in a recording or graph is never read as a template placeholder.
+  return HTML.replace(/\\/\\*__(?:GRAPH|LIVE|FAKE|COVERAGE|TRACE)__\\*\\/(?:null|false)|<!--__TITLE__-->/g, p => inserts[p]());
 }
 `;
 const target = path.join(here, "page.mjs");
@@ -122,6 +133,10 @@ if (h >= 0) {
   const { pageHTML } = await import(`${target}?t=${Date.now()}`);
   const graph = JSON.parse(readFileSync(args[h + 1], "utf8"));
   const f = args.indexOf("--fake");
-  writeFileSync(args[h + 2], pageHTML(graph, { live: args.includes("--live"), fake: f >= 0 ? args[f + 1] : null }));
+  const jsonOpt = flag => args.includes(flag) ? JSON.parse(readFileSync(args[args.indexOf(flag) + 1], "utf8")) : null;
+  writeFileSync(args[h + 2], pageHTML(graph, {
+    live: args.includes("--live"), fake: f >= 0 ? args[f + 1] : null,
+    coverage: jsonOpt("--coverage"), trace: jsonOpt("--trace"),
+  }));
   console.log(`wrote ${args[h + 2]}`);
 }

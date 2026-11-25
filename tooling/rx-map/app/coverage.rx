@@ -1,0 +1,43 @@
+import { servedCoverage } from "./js/env.js"
+import { coverageView, coverageGraph, feedCoverage } from "./js/coverage.js"
+import { sfx } from "./js/sound.js"
+
+source file: any := servedCoverage()
+source show := true
+export hasCoverage = file != null
+export showCoverage = hasCoverage && show
+export coverage = coverageView(file)
+
+export action setCoverageGraph(graph: any) {
+  let next = coverageGraph(graph)
+  if (next != null) { file := next }
+}
+
+export action observeCoverage(msg: any) {
+  feedCoverage(msg, next => { file := next })
+}
+
+export component CoverageChip() {
+  {if hasCoverage {
+    <button id="coverageChip" class={[showCoverage && "on"]} aria-pressed={showCoverage ? "true" : "false"}
+      title={`${coverage.covered}/${coverage.total} paths observed · toggle the Coverage layer`}
+      onClick={() => { show := !show; sfx("toggle") }}>{`coverage ${coverage.percent}%`}</button>
+  }}
+}
+
+export component CoveragePaths(props: { target: string }) {
+  entry = coverage.targets[props.target]
+  {if hasCoverage && entry != null {
+    <section class="coverage-paths">
+      <h3>Coverage</h3>
+      <ul>
+        {for p in entry.rows {
+          <li data-path={p.id}>
+            <span class="mono" aria-label={p.seen ? "covered" : "uncovered"}>{p.seen ? "✓" : "✗"}</span>
+            <span>{p.label}{if p.by != "" { <small class="hint">{`by ${p.by}`}</small> }}</span>
+          </li>
+        }}
+      </ul>
+    </section>
+  }}
+}

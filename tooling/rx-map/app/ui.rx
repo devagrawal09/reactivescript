@@ -1,6 +1,6 @@
 // The HUD's own state: the side panel (open, which tab, the tab to give back when a selection is cleared) and search.
 // Selecting from anywhere goes through `pick` here, which opens the panel on the selected name.
-import { isDiff, isLive, loadJSON, saveJSON } from "./js/env.js"
+import { isDiff, isLive, isRecording, loadJSON, saveJSON } from "./js/env.js"
 import { flyToId } from "./js/camera.js"
 import { sfx } from "./js/sound.js"
 import { toSet } from "./js/util.js"
@@ -13,18 +13,18 @@ export panelKey = isDiff() ? "rx-map:panel:diff" : "rx-map:panel"
 // the panel's own tabs (the plan and the selected name's come and go)
 // live: the calls across the trust boundary (live.rx CallsPanel)
 export tabs = [...(isDiff() ? [{ id: "changes", label: "Changes" }] : []), { id: "help", label: "Guide" }, { id: "legend", label: "Legend" },
-  ...(isLive() ? [{ id: "calls", label: "Calls" }] : [])]
-export firstTab = isDiff() ? "changes" : "help"
-saved = loadJSON(panelKey, null)
+  ...(isLive() ? [{ id: "calls", label: "Calls" }] : []), ...(isRecording() ? [{ id: "recording", label: "Recording" }] : [])]
+export firstTab = isRecording() ? "recording" : isDiff() ? "changes" : "help"
+saved = isRecording() ? null : loadJSON(panelKey, null)
 export source tab: string := peek(saved) != null && peek(tabs).some(t => t.id == peek(saved).tab) ? peek(saved).tab : peek(firstTab)
-export source open: boolean := peek(saved) != null ? peek(saved).open == true : isDiff()
+export source open: boolean := peek(saved) != null ? peek(saved).open == true : isDiff() || isRecording()
 // the tab and openness a selection took over, given back when it is cleared
 export source before: { tab: string; open: boolean } | null := null
 
 // remembered: a transient tab (a name, a plan) is remembered as the tab it took over
 effect (tab, open, before) {
   let transient = $0 == "node" || $0 == "plan"
-  saveJSON(panelKey, { tab: transient ? ($2 != null ? $2.tab : firstTab) : $0, open: transient ? ($2 != null ? $2.open : false) : $1 })
+  if (!isRecording()) { saveJSON(panelKey, { tab: transient ? ($2 != null ? $2.tab : firstTab) : $0, open: transient ? ($2 != null ? $2.open : false) : $1 }) }
 }
 
 // ---- select -----------------------------------------------------------------------------------------------------

@@ -38,10 +38,12 @@ function routed(M, L, anchor, fromId, toId, plan, kind = "") {
   return { head, tail, trunk: roundPath(t), key };
 }
 
-export function edgeLayer(M, L, level, focus, all, view, hiddenKeys, caught) {
+export function edgeLayer(M, L, level, focus, all, view, hiddenKeys, caught, coverage) {
   const far = () => level === overviewLevel(), hidden = new Set(hiddenKeys);
+  const covered = e => coverage && e?.type === "read" && e.mode === "tracked" && !e.probe
+    ? coverage[`edge:${M.nodes.get(e.from)?.key}->${M.nodes.get(e.to)?.key}`] : undefined;
   const list = (focus ? focus.edges.map(i => M.G.edges[i]) : far() || all ? M.G.edges
-    : M.diff && !hidden.has("d:changes") ? M.G.edges.filter(e => e.status !== "same") : [])
+    : M.diff || coverage ? M.G.edges.filter(e => (M.diff && !hidden.has("d:changes") && e.status !== "same") || covered(e) !== undefined) : [])
     .filter(e => e && !(view === "before" && e.status === "added") && !(view === "after" && e.status === "removed") && !hidden.has(`e:${edgeKey(e)}`));
   const anchor = id => {
     const n = M.nodes.get(id), t = L.tokens.get(id);
@@ -51,12 +53,12 @@ export function edgeLayer(M, L, level, focus, all, view, hiddenKeys, caught) {
   };
   const markers = new Set();
   const paths = [], glows = [], trunks = new Map();
-  const line = (d, s, { glow, marker = true, width = s.w, opacity, cls = "" } = {}) => {
+  const line = (d, s, { glow, marker = true, width = s.w, opacity, cls = "", faint = false } = {}) => {
     const id = `m${s.c.slice(1)}`;
     if (marker) markers.add(s.c);
-    if (glow || focus) glows.push({ d, c: glow || s.c, w: width + 6, op: glow ? .4 : .14 });
-    paths.push({ cls, d, c: s.c, w: width, dash: s.d || undefined, marker: marker ? `url(#${id})` : undefined,
-      op: opacity ?? (glow ? 1 : focus ? .95 : .55) });
+    if (glow || (focus && !faint)) glows.push({ d, c: glow || s.c, w: width + 6, op: glow ? .4 : .14 });
+    paths.push({ cls: faint ? `${cls} cov-faint` : cls, d, c: s.c, w: width, dash: s.d || undefined, marker: marker ? `url(#${id})` : undefined,
+      op: faint ? .18 : opacity ?? (glow ? 1 : focus ? .95 : .55) });
   };
   // drawn from what depends to what it depends on: a read points at what it reads
   const ends = e => (e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to]);
@@ -69,12 +71,13 @@ export function edgeLayer(M, L, level, focus, all, view, hiddenKeys, caught) {
     const s = edgeStyle(e); if (!s) continue;
     const r = routed(M, L, anchor, fromId, toId, plan, kindOfEdge(e)); if (!r) continue;
     const glow = e.status && e.status !== "same" ? { added: "#22c55e", removed: "#ef4444", changed: "#e879f9" }[e.status] : null;
-    if (r.d) { line(r.d, s, { glow }); continue; }
+    const faint = covered(e) === true;
+    if (r.d) { line(r.d, s, { glow, faint }); continue; }
     // between plates: the stubs per edge, the trunk once per pair of plates and kind of edge (a bundle)
-    if (r.head) line(r.head, s, { glow, marker: false });
-    if (r.tail) line(r.tail, s, { glow });
+    if (r.head) line(r.head, s, { glow, faint, marker: false });
+    if (r.tail) line(r.tail, s, { glow, faint });
     const k = r.key, t = trunks.get(k);
-    if (t) { t.n++; t.glow ||= glow; t.tail ||= !!r.tail; } else trunks.set(k, { d: r.trunk, s, n: 1, glow, tail: !!r.tail });
+    if (t) { t.n++; t.glow ||= glow; t.tail ||= !!r.tail; t.faint &&= faint; } else trunks.set(k, { d: r.trunk, s, n: 1, glow, faint, tail: !!r.tail });
   }
   // caught by: from each failing name to the boundary showing its fallback for it
   for (const [from, rid] of caught) {
@@ -83,7 +86,7 @@ export function edgeLayer(M, L, level, focus, all, view, hiddenKeys, caught) {
     for (const d of [r.d, r.head, r.trunk, r.tail].filter(Boolean)) line(d, s, { glow: "#fb7185", marker: d === (r.d ?? r.tail ?? r.trunk), opacity: 1, cls: "caught" });
   }
   const bundle = far() ? { c: "#9fb4d8", d: "", w: 2 } : null;   // in the overview a bundle is every kind of edge between two modules
-  for (const t of trunks.values()) line(t.d, bundle ?? t.s, { glow: t.glow, marker: !t.tail, width: (bundle ?? t.s).w + Math.min(far() ? 10 : 4, Math.log2(t.n) * (far() ? 2.2 : 1.4)), opacity: t.glow ? 1 : focus ? .9 : far() ? .45 : .5, cls: "trunk" });
+  for (const t of trunks.values()) line(t.d, bundle ?? t.s, { glow: t.glow, faint: t.faint, marker: !t.tail, width: (bundle ?? t.s).w + Math.min(far() ? 10 : 4, Math.log2(t.n) * (far() ? 2.2 : 1.4)), opacity: t.glow ? 1 : focus ? .9 : far() ? .45 : .5, cls: "trunk" });
   return { paths, glows, markers: [...markers], size: far() ? 18 : 12 };
 }
 

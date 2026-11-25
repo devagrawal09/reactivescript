@@ -1,0 +1,35 @@
+import { servedGraph, servedTrace } from "./js/env.js"
+import { traceEvents } from "./js/replay.js"
+
+recording = servedTrace()
+
+export component TraceBadge() {
+  {if recording != null {
+    <div id="traceBadge" title={`${recording.test}${recording.error == null ? "" : ` — ${recording.error}`}`}>
+      <span class="micro">Recording</span>
+      <strong>{recording.test}</strong>
+      {if recording.error != null { <span class="mono trace-error">{recording.error}</span> }}
+    </div>
+  }}
+}
+
+export component TracePanel() {
+  events = traceEvents(servedGraph())
+  <h2>{recording.test}</h2>
+  {if recording.error != null { <pre class="code failpre">{recording.error}</pre> }}
+  <p class="hint">a recording: travel needs the app</p>
+  <h3>Runs, boundaries and reverts</h3>
+  {if events.length == 0 { <p class="hint">No runs, boundary reports or reverts were recorded.</p> }}
+  <ol class="trace-events">
+    {for e in events {
+      <li data-trace-event={e.kind}>
+        <span class="micro">{e.kind}</span>
+        <div>
+          {if e.id != "" { <a href="#" data-go={e.id} class="mono">{e.name}</a> } else { <span class="mono">{e.name}</span> }}
+          <small class="hint">{e.state}{if e.detail != "" { {` · ${e.detail}`} }}</small>
+        </div>
+        <span class="hint mono">{e.when}</span>
+      </li>
+    }}
+  </ol>
+}
