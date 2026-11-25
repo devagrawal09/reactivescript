@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // From tooling/rx-map: node app/build.mjs && node test/shots.mjs <outdir>
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -75,6 +75,19 @@ const post = (page, ...messages) => page.evaluate(messages => {
 const visible = (page, selector) => page.locator(selector).first().waitFor({ state: "visible" });
 
 const live = { live: true };
+// the levels sweep: the tracker app (8 modules), at the overview, just past the switch, and reading size
+const tracker = JSON.parse(readFileSync(new URL("fixtures/tracker.json", import.meta.url), "utf8"));
+// null: frame everything; else the first module's plate at that zoom
+const zoomTo = s => async page => {
+  await page.waitForFunction(() => window.__RX_MAP__?.layout?.plates, null, { timeout: 30000 });
+  await page.evaluate(s => {
+    const M = window.__RX_MAP__;
+    if (s == null) return M.frameAll(0);
+    const p = [...M.layout.plates].find(([k]) => k !== "world")?.[1];
+    M.flyTo(p.x + p.w / 2, p.y + Math.min(p.h, 700) / 2, s, 0);
+  }, s);
+  await page.waitForTimeout(1200);
+};
 const scenarios = [
   { name: "static", caption: "users.rx with no live host" },
   { name: "diff", graph: diff, caption: "users.rx: status → userCountLabel; rename → users changes from a write to a refresh" },
@@ -143,6 +156,9 @@ const scenarios = [
     await visible(popup, "#liveBadge:text-is('live · 1 flush')");
     await visible(popup, `${chip("page")} .lv[data-value="2"]`);
   } },
+  { name: "levels-overview", graph: tracker, caption: "tracker.json framed whole: the overview cards", run: zoomTo(null) },
+  { name: "levels-switch", graph: tracker, caption: "tracker.json at 52% on its first module: just past the switch to detail", run: zoomTo(.52) },
+  { name: "levels-detail", graph: tracker, caption: "tracker.json at 100% on its first module: detail at reading size", run: zoomTo(1) },
   { name: "big", graph: big, caption: `${big.title} (${big.nodes.length} nodes), the largest example graph` },
 ];
 
@@ -154,7 +170,9 @@ catch (error) {
 }
 
 mkdirSync(outdir, { recursive: true });
-const browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] });
+let browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] });
+// a heavy page can leave the browser unable to capture: a fresh one per scenario
+const relaunch = async () => { await browser.close().catch(() => {}); browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] }); };
 const records = {};
 async function capture(scenario, viewport, variant, render, filename, skip) {
   const path = join(outdir, filename);
@@ -171,7 +189,7 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
   });
   try {
     const page = await context.newPage();
-    await page.setContent(render(scenario.graph ?? users, scenario.opts), { timeout: 5000 });
+    await page.setContent(render(scenario.graph ?? users, scenario.opts), { timeout: 30000 });
     if (scenario.opts?.live) {
       // The vanilla listener ignores its own window's messages to avoid echoing host requests.
       // The rig is iframe-less: relay only our self-posted host messages through the view's public receive hook.
@@ -189,9 +207,9 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
       // A partial render is still useful for comparison. Label it, rather than silently passing it off as the scenario.
     }
     // Chromium can miss the first compositor frame on a large board.
-    await target.screenshot({ path, timeout: 5000 }).catch(error => {
+    await target.screenshot({ path, timeout: 30000 }).catch(error => {
       if (!error.message.includes("Unable to capture screenshot")) throw error;
-      return target.screenshot({ path, timeout: 5000 });
+      return target.screenshot({ path, timeout: 30000 });
     });
     record.captured = true;
   } catch (error) {
@@ -205,7 +223,7 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
 const esc = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const sections = [];
 try {
-  for (const scenario of scenarios) for (const viewport of [{ width: 1440, height: 900 }, { width: 1440, height: 360 }]) {
+  for (const scenario of scenarios) { await relaunch(); for (const viewport of [{ width: 1440, height: 900 }, { width: 1440, height: 360 }]) {
     const size = `${viewport.width}x${viewport.height}`;
     const pair = [];
     for (const [variant, render] of variants) {
@@ -226,7 +244,7 @@ ${pair.map(({ filename, variant, record }) => {
 ${record.note ? `<pre>${esc(record.note)}</pre>` : ""}</figure>`;
 }).join("\n")}
 </div></section>`);
-  }
+  } }
 } finally {
   await browser.close();
   writeFileSync(join(outdir, "errors.json"), JSON.stringify(records, null, 2) + "\n");
