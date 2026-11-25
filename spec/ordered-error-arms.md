@@ -51,6 +51,30 @@ row it receives. Any unmatched error at runtime propagates out.
 - `LEGACY_TYPED_HANDLER` shows the rewrite for an annotated catch or
   fallback. `DEAD_TYPED_BOUNDARY` is replaced by arm validation.
 
+## Checker (ref/src/check.ts, compiler/src/check.rs)
+
+- The row a dispatch checks against: the `try` body's (`stmtsFails`), the
+  awaited expression's (`failsOf`), or, for a boundary, every class that
+  reaches its region on a route up from a reader, an application or an
+  argument in its content, before a step that discharges it.
+- `_` and an `Error` arm discharge every class. Other class arms discharge
+  their classes. `Panic` discharges none (R-f-10). A lone `Panic` arm needs
+  no `_`, since it leaves every failure to the code below it.
+- Ordering: `_`, `Error` and `Panic` each take everything that reaches them,
+  so any later arm is `ERROR_ARM_ORDER`. So is a class named twice. Classes
+  are flat (R-f-1). No other class subsumes another.
+- A row is closed when it has no `Error` and no prop's failures, which are
+  known only per application. `UNREACHABLE_ERROR_ARM` and a dead `_` need a
+  closed row.
+- Each arm binds its own `e`. For a rethrow, a class arm's `e` is that
+  class. `_`'s `e` is the rest of the row after the earlier arms. `Panic`'s
+  `e` is nothing (a rethrow is `Error`). The projection's type for `_` is
+  `checkModules(…).armTypes` (crate: `Checked.arm_types`), sorted, or
+  `["Error"]` for an open or unresolved row.
+- Model: `ModelArm { cls, line, dead? }` on `errored` regions (`arms`) and on
+  an action's `ActionCatch` (`arms`; `classes` is the arm names, or `null`
+  with `_`).
+
 ## Tooling
 
 Give each arm a distinct site identity rooted in its dispatch. Trace only

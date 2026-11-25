@@ -35,7 +35,7 @@ export function inferredAction(stmts: Stmt[]): Trigger | null {
         case "write": write = true; break;
         case "let": case "expr": if (stmtAwait(s)) wait = true; break;
         case "sif": go(s.t, local); go(s.f, local); break;
-        case "try": go(s.body, local); if (s.handler) go(s.handler, local); if (s.fin) go(s.fin, local); break;
+        case "try": go(s.body, local); if (s.handler) go(s.handler, local); s.arms?.forEach(a => go(a.body, local)); if (s.fin) go(s.fin, local); break;
       }
     }
   };
@@ -91,6 +91,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
       if (x !== e) { read(x); return; }
       switch (x.k) {
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": return;
+        case "catch": read(x.e); if (x.arms) x.arms.forEach(a => read(a.body)); else read(x.alt); return;   // R-f-4: each arm's expression, in order
         case "call": {
           const c = calledClosure(x, local);
           x.args.forEach(read);
@@ -114,6 +115,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
       if (x !== e) return deps(x, out);
       switch (x.k) {
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": case "await": return out;
+        case "catch": deps(x.e, out); if (x.arms) x.arms.forEach(a => deps(a.body, out)); else deps(x.alt, out); return out;
         default:
           for (const v of Object.values(x as object)) {
             if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) deps((y as { computed: Expr }).computed, out); if ("k" in y) deps(y as Expr, out); else if ("v" in y) deps((y as { v: Expr }).v, out); else if ("spread" in y) deps((y as { spread: Expr }).spread, out); } });
@@ -160,7 +162,9 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         case "try": {
           const before = clone(st);
           const body = walk(s.body, clone(st), sh, local, depth);
-          const caught = s.handler ? walk(s.handler, merge(before, { ...body, dead: false }), s.catchName ? new Set([...sh, s.catchName]) : sh, local, depth) : null;
+          const hsh = s.catchName ? new Set([...sh, s.catchName]) : sh;
+          const arms = s.arms?.map(a => walk(a.body, merge(before, { ...body, dead: false }), hsh, local, depth));   // R-f-4: one arm runs, from where the body failed
+          const caught = s.handler ? walk(s.handler, merge(before, { ...body, dead: false }), hsh, local, depth) : arms?.length ? merge(...arms) : null;
           const end = caught ? merge(body, caught) : body;
           if (s.fin) { const fin = walk(s.fin, merge(before, { ...end, dead: false }), sh, local, depth); Object.assign(st, fin, { dead: fin.dead || end.dead }); }
           else Object.assign(st, end);

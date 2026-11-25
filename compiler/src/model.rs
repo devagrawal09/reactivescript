@@ -82,8 +82,16 @@ pub fn decl_keys(p: &Program, module: &str) -> HashMap<*const Decl, String> {
                     decls(md, scope, out);
                     markup(body, scope, out);
                 }
-                MarkupKind::Loading { fallback, decls: md, body, .. } | MarkupKind::Errored { fallback, decls: md, body, .. } => {
+                MarkupKind::Loading { fallback, decls: md, body, .. } => {
                     markup(fallback, scope, out);
+                    decls(md, scope, out);
+                    markup(body, scope, out);
+                }
+                MarkupKind::Errored { fallback, decls: md, body, arms, .. } => {
+                    markup(fallback, scope, out);
+                    for a in arms.iter().flatten() {
+                        markup(&a.body, scope, out);
+                    }
                     decls(md, scope, out);
                     markup(body, scope, out);
                 }
@@ -147,8 +155,38 @@ pub struct ModelRegion {
     pub name: Option<String>,
     outline: Vec<(OutlinePart, Option<usize>)>,
     clipped: bool,
-    /// R-f-4: the inner catch-all that wraps this typed `errored` region's children
-    pub shadowed: Option<usize>,
+    /// R-f-4: an `errored` region whose boundary dispatches with ordered arms
+    pub arms: Option<Vec<ModelArm>>,
+}
+/// R-f-4: one arm of an ordered error dispatch, in source order (`ref/src/model.ts` `ModelArm`). `dead`: only on `_`, when
+/// the checker proves the row left after the class arms is empty.
+#[derive(Debug, Clone)]
+pub struct ModelArm {
+    pub cls: String,
+    pub line: usize,
+    pub dead: bool,
+}
+fn arms_json(arms: &[ModelArm]) -> Value {
+    Value::Array(
+        arms.iter()
+            .map(|a| {
+                let mut o = Map::new();
+                o.insert("cls".into(), json!(a.cls));
+                o.insert("line".into(), json!(a.line));
+                if a.dead {
+                    o.insert("dead".into(), json!(true));
+                }
+                Value::Object(o)
+            })
+            .collect(),
+    )
+}
+/// An action's own catch (`ref/src/model.ts` `ActionCatch`).
+#[derive(Debug, Clone)]
+pub struct ActionCatch {
+    /// the classes it handles, `None` for a catch-all (an untyped catch, or arms with `_`)
+    pub classes: Option<Vec<String>>,
+    pub arms: Option<Vec<ModelArm>>,
 }
 #[derive(Debug, Clone)]
 pub struct ModelSymbol {
@@ -176,9 +214,9 @@ pub struct Computation {
     pub reads: Vec<Read>,
     pub writes: Vec<Write>,
     pub calls: Vec<usize>,
-    /// an action's own catches (`try … catch`, `await … catch`) in source order: the classes each handles, `None` for a
-    /// catch-all. Only on an action's computation, emitted when non-empty (`ref/src/model.ts` `ActionCatch`).
-    pub catches: Vec<Option<Vec<String>>>,
+    /// an action's own catches (`try … catch`, `await … catch`) in source order. Only on an action's computation, emitted
+    /// when non-empty (`ref/src/model.ts` `ActionCatch`).
+    pub catches: Vec<ActionCatch>,
 }
 
 /// Filled by the checker during its walk: symbols as they are bound (by the checker's own symbol index), computations as
@@ -200,14 +238,26 @@ const READ_KINDS: &[&str] = &["source", "eq", "props", "context"];
 const CALL_KINDS: &[&str] = &["fn", "action", "server", "import"];
 
 impl ModelBuilder {
-    /// R-f-4: a typed `errored` region whose children an inner catch-all wraps. `by` is that catch-all's region.
-    pub fn shadow(&mut self, id: usize, by: usize) {
+    /// R-f-4: an `errored` region's ordered arms.
+    pub fn arms(&mut self, id: usize, arms: Vec<ModelArm>) {
         if let Some(r) = self.regions.iter_mut().find(|r| r.id == id) {
-            r.shadowed = Some(by);
+            r.arms = Some(arms);
+        }
+    }
+    /// R-f-4: mark the `_` arm of a region's dispatch dead.
+    pub fn region_default_dead(&mut self, id: usize) {
+        if let Some(a) = self.regions.iter_mut().find(|r| r.id == id).and_then(|r| r.arms.as_mut()).and_then(|a| a.iter_mut().find(|a| a.cls == "_")) {
+            a.dead = true;
+        }
+    }
+    /// R-f-4: mark the `_` arm of an action's `i`th catch dead.
+    pub fn catch_default_dead(&mut self, comp: usize, i: usize) {
+        if let Some(a) = self.computations.get_mut(comp).and_then(|c| c.catches.get_mut(i)).and_then(|c| c.arms.as_mut()).and_then(|a| a.iter_mut().find(|a| a.cls == "_")) {
+            a.dead = true;
         }
     }
     pub fn region(&mut self, id: usize, kind: &'static str, parent: Option<usize>, name: Option<String>) {
-        self.regions.push(ModelRegion { id, kind, parent, name, outline: vec![], clipped: false, shadowed: None });
+        self.regions.push(ModelRegion { id, kind, parent, name, outline: vec![], clipped: false, arms: None });
     }
     pub fn outline(&mut self, region: usize, mut part: OutlinePart, line: Option<usize>) {
         use OutlinePart::*;
@@ -302,13 +352,21 @@ impl ModelBuilder {
             c.writes.push(w);
         }
     }
-    /// An action's own catch: recorded on the action's computation, only there.
-    pub fn catch(&mut self, classes: Option<&Vec<String>>) {
-        let Some(cur) = self.cur else { return };
+    /// An action's own catch: recorded on the action's computation, only there. With `arms`, its classes are the arms'
+    /// (`None` with a `_`). Returns where it was recorded, `(computation, index)`, for a dead `_` marked later.
+    pub fn catch(&mut self, classes: Option<&Vec<String>>, arms: Option<Vec<ModelArm>>) -> Option<(usize, usize)> {
+        let cur = self.cur?;
         let c = &mut self.computations[cur];
-        if c.kind == "action" {
-            c.catches.push(classes.cloned());
+        if c.kind != "action" {
+            return None;
         }
+        let classes = match &arms {
+            Some(a) if a.iter().any(|a| a.cls == "_") => None,
+            Some(a) => Some(a.iter().map(|a| a.cls.clone()).collect()),
+            None => classes.cloned(),
+        };
+        c.catches.push(ActionCatch { classes, arms });
+        Some((cur, c.catches.len() - 1))
     }
     pub fn call(&mut self, index: Option<usize>, kind: &str) {
         let (Some(cur), Some(index)) = (self.cur, index) else { return };
@@ -336,10 +394,6 @@ impl ModelBuilder {
                 if let Some(n) = &r.name {
                     m.insert("name".into(), json!(n));
                 }
-                if let Some(by) = r.shadowed {
-                    m.insert("deadTyped".into(), json!(true));
-                    m.insert("shadowed".into(), json!(by));
-                }
                 let mut outline = r.outline.as_slice();
                 while let Some((part, _)) = outline.last() {
                     if matches!(part, OutlinePart::Br) || matches!(part, OutlinePart::Text(t) if t == " ") {
@@ -357,6 +411,9 @@ impl ModelBuilder {
                     if let Some(line) = line { value["line"] = json!(line); }
                     value
                 }).collect()));
+                if let Some(a) = &r.arms {
+                    m.insert("arms".into(), arms_json(a));
+                }
                 Value::Object(m)
             })
             .collect();
@@ -450,7 +507,22 @@ impl ModelBuilder {
                 );
                 m.insert("calls".into(), json!(c.calls));
                 if !c.catches.is_empty() {
-                    m.insert("catches".into(), Value::Array(c.catches.iter().map(|k| json!({ "classes": k })).collect()));
+                    m.insert(
+                        "catches".into(),
+                        Value::Array(
+                            c.catches
+                                .iter()
+                                .map(|k| {
+                                    let mut o = Map::new();
+                                    o.insert("classes".into(), json!(k.classes));
+                                    if let Some(a) = &k.arms {
+                                        o.insert("arms".into(), arms_json(a));
+                                    }
+                                    Value::Object(o)
+                                })
+                                .collect(),
+                        ),
+                    );
                 }
                 Value::Object(m)
             })

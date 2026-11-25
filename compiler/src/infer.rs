@@ -114,10 +114,13 @@ pub fn inferred_action(stmts: &[Stmt]) -> Option<Trigger> {
                     go(t, &local, st);
                     go(f, &local, st);
                 }
-                StmtKind::Try { body, handler, fin, .. } => {
+                StmtKind::Try { body, handler, fin, arms, .. } => {
                     go(body, &local, st);
                     if let Some(h) = handler {
                         go(h, &local, st);
+                    }
+                    for a in arms.iter().flatten() {
+                        go(&a.body, &local, st);
                     }
                     if let Some(f) = fin {
                         go(f, &local, st);
@@ -337,9 +340,13 @@ impl<'o> Walker<'o> {
                     }
                 }
             }
-            ExprKind::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, arms, .. } => {
                 self.read(e, st, sh, local, depth);
-                self.read(alt, st, sh, local, depth);
+                match arms {
+                    // R-f-4: each arm's expression, in order
+                    Some(arms) => for a in arms { self.read(&a.body, st, sh, local, depth); },
+                    None => self.read(alt, st, sh, local, depth),
+                }
             }
         }
     }
@@ -423,9 +430,12 @@ impl<'o> Walker<'o> {
                     }
                 }
             }
-            ExprKind::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, arms, .. } => {
                 self.deps(e, st, sh, out);
-                self.deps(alt, st, sh, out);
+                match arms {
+                    Some(arms) => for a in arms { self.deps(&a.body, st, sh, out); },
+                    None => self.deps(alt, st, sh, out),
+                }
             }
         }
     }
@@ -519,16 +529,20 @@ impl<'o> Walker<'o> {
                     let b = self.walk(f, st.clone(), &sh, &local, depth);
                     st = merge(&[&a, &b]);
                 }
-                StmtKind::Try { body, catch_name, handler, fin, .. } => {
+                StmtKind::Try { body, catch_name, handler, fin, arms, .. } => {
                     let before = st.clone();
                     let b = self.walk(body, st.clone(), &sh, &local, depth);
-                    let caught = handler.as_ref().map(|h| {
-                        let mut hs = sh.clone();
-                        if let Some(n) = catch_name {
-                            hs.insert(n.clone());
-                        }
-                        self.walk(h, merge(&[&before, &alive(&b)]), &hs, &local, depth)
-                    });
+                    let mut hs = sh.clone();
+                    if let Some(n) = catch_name {
+                        hs.insert(n.clone());
+                    }
+                    // R-f-4: one arm runs, from where the body failed
+                    let arm_states: Vec<State> = arms.iter().flatten().map(|a| self.walk(&a.body, merge(&[&before, &alive(&b)]), &hs, &local, depth)).collect();
+                    let caught = match handler {
+                        Some(h) => Some(self.walk(h, merge(&[&before, &alive(&b)]), &hs, &local, depth)),
+                        None if !arm_states.is_empty() => Some(merge(&arm_states.iter().collect::<Vec<_>>())),
+                        None => None,
+                    };
                     let end = match &caught {
                         Some(c) => merge(&[&b, c]),
                         None => b,
