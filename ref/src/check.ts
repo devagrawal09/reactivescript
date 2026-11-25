@@ -1237,7 +1237,7 @@ class Checker {
     for (const m of ms) {
       if (m.k === "text" || m.k === "style") continue;
       saw = true;
-      if (m.k === "errored" && !m.classes) { inner = inner ?? m; continue; }
+      if (m.k === "errored" && !m.classes && this.staticFallback(m.fallback)) { inner = inner ?? m; continue; }
       if (m.k === "el" && !/^[A-Z]/.test(m.tag) && m.attrs.every(a => a.e.k === "lit")) {
         const c = this.coveringCatchAll(m.children);
         if (!c) return null;
@@ -1247,6 +1247,11 @@ class Checker {
       return null;
     }
     return saw ? inner : null;
+  }
+  /** A fallback runs outside its own catch. Prove it inert without guessing about readers or foreign code. */
+  private staticFallback(ms: Markup[]): boolean {
+    return ms.every(m => m.k === "text" || m.k === "style" || m.k === "read" && m.e.k === "lit"
+      || m.k === "el" && /^[a-z][a-z0-9]*$/.test(m.tag) && m.attrs.every(a => a.e.k === "lit") && this.staticFallback(m.children));
   }
 
   // ---- SV-7d: the content model across templates ----

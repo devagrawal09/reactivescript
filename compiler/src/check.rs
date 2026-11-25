@@ -2942,7 +2942,7 @@ impl<'a> Checker<'a> {
         for m in ms {
             match &m.kind {
                 MarkupKind::Text(_) | MarkupKind::Style(_) => continue,
-                MarkupKind::Errored { classes: None, .. } => {
+                MarkupKind::Errored { classes: None, fallback, .. } if Self::static_fallback(fallback) => {
                     saw = true;
                     inner = inner.or(Some(m));
                 }
@@ -2955,6 +2955,18 @@ impl<'a> Checker<'a> {
             }
         }
         if saw { inner } else { None }
+    }
+
+    /// A fallback runs outside its own catch. Prove it inert without guessing about readers or foreign code.
+    fn static_fallback(ms: &[Markup]) -> bool {
+        ms.iter().all(|m| match &m.kind {
+            MarkupKind::Text(_) | MarkupKind::Style(_) => true,
+            MarkupKind::Read(e) => matches!(e.k, ExprKind::Lit(_)),
+            MarkupKind::El { tag, attrs, children } => tag.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                && tag.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) && Self::static_fallback(children),
+            _ => false,
+        })
     }
 
     // ---- views ----

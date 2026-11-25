@@ -23,6 +23,24 @@ The typed boundary is inside the catch-all, which is where it can still see
 | --- | --- | --- |
 | 0 | mount | `ok` |
 
+## Variant: a failure in the inner fallback reaches the outer region
+
+```rx
+error NotFound
+error Offline
+export default component App() {
+  failed = throw Offline()
+  fallbackFailed = throw NotFound()
+  errored fallback(e: NotFound) { <p>missing</p> } {
+    errored fallback(e) { <p>{fallbackFailed}</p> } { <p>{failed}</p> }
+  }
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `missing` |
+
 ## Rejected
 
 ```rx
@@ -30,7 +48,7 @@ The typed boundary is inside the catch-all, which is where it can still see
 error NotFound
 export default component App() {
   errored fallback(e: NotFound) { <p>missing</p> } {
-    errored fallback(e) { <p>{e.message}</p> } { <p>x</p> }
+    errored fallback { <p>failed</p> } { <p>x</p> }
   }
 }
 ```
