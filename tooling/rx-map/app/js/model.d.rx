@@ -3,6 +3,8 @@ export type Model = any
 export type Trace = { ids: string[]; edges: number[] }
 export pure fn buildModel(g: any): Model
 export pure fn graphOf(m: Model): any
+/** The page title of a model's graph: its title, else its modules' file names (as page.mjs puts it in <title>). */
+export pure fn titleOf(m: Model): string
 export pure fn nodeOf(m: Model, id: string): any
 export pure fn regionOf(m: Model, id: string): any
 export pure fn isRegion(m: Model, id: string): boolean

@@ -9,7 +9,7 @@
 // (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
 import { isLive, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
 import { icon, keyName } from "./js/vocab.js"
-import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present } from "./js/livestate.js"
+import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present, callsView } from "./js/livestate.js"
 import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
 import { renderScrub, startScrub, startTrack, travelKind, seqBy, sendTravel } from "./js/scrub.js"
 import { beforeSwap, afterSwap } from "./js/swap.js"
@@ -20,7 +20,9 @@ import { listDetail } from "./js/values.js"
 import { graphAt } from "./js/graphs.js"
 import { graphOf, nodeOf, regionOf, inEdges, keyOf, label } from "./js/model.js"
 import { model, selected, select, swapGraph } from "./state.rx"
-import { openTab, pick } from "./ui.rx"
+import { pick, openFor, closeFor, callFilter, showCalls } from "./ui.rx"
+import { closestData, prevent } from "./js/panel.js"
+import { targetValue } from "./js/dom.js"
 
 // ---- the state --------------------------------------------------------------------------------------------------
 export source live: any := freshLive()
@@ -30,7 +32,9 @@ export action dispatch(raw: any) {
   let m = prepare(raw, model)
   if (m != null) {
     live := s => reduce(s, m, model)
-    if (m.type == "hmr" && m.phase == "plan" && selected == null) { openTab("plan") }
+    if (m.type == "hmr" && m.phase == "plan" && selected == null) { openFor("plan") }
+    // the app reloaded (or the pop-out re-attached): the plan is gone; a panel it opened goes back to what it was
+    if (m.type == "reset") { closeFor("plan") }
   }
 }
 
@@ -84,7 +88,7 @@ export component LiveBridge() {
     setCurrentGraph(graphOf($0))
     let r = afterSwap($0, live, (changes) => { dispatch({ type: "~done", changes: changes }) })
     if (r != null) {
-      if (r.id != "") { select(r.id) } else if (r.hadSel) { openTab("plan") }
+      if (r.id != "") { select(r.id) } else if (r.hadSel) { openFor("plan") }
     }
   }
   effect (live.tl.viewing != null) { bodyClass("viewing", $0) }
@@ -287,6 +291,21 @@ export component PlanPanel() {
     <h2>Module replacement <span class={["phase", pv.phase]}>{pv.phaseName}</span></h2>
     <p class="hint mono">{pv.modules}</p>
     <p class="hint">{pv.text}</p>
+    // what went wrong first: the names that lost their state, then what the plan said would happen
+    {if pv.uncarried.length > 0 {
+      <h3 class="plan-lost">{`Not carried · ${pv.uncarried.length}`}</h3>
+      <p class="hint" style={{ margin: "0 0 4px" }}>{`its state couldn't be carried over: the host fell back to ${pv.fallback == "" ? "a refresh" : `a ${pv.fallback}`}`}</p>
+      <ul class="plan-list">
+        {for it in pv.uncarried { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">uncarried</span></li> }}
+      </ul>
+    }}
+    {if pv.reseeded.length > 0 {
+      <h3 class="plan-lost">{`Reseeded · ${pv.reseeded.length}`}</h3>
+      <p class="hint" style={{ margin: "0 0 4px" }}>the plan said kept, but the value came back changed after the swap: it was re-initialised</p>
+      <ul class="plan-list">
+        {for it in pv.reseeded { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">reseeded</span></li> }}
+      </ul>
+    }}
     {for g in pv.groups {
       <h3>{g.title}</h3>
       <p class="hint" style={{ margin: "0 0 4px" }}>{g.what}</p>
@@ -304,14 +323,7 @@ export component PlanPanel() {
         }}
       </ul>
     }}
-    {if pv.uncarried.length > 0 {
-      <h3>{`Not carried · ${pv.uncarried.length}`}</h3>
-      <p class="hint" style={{ margin: "0 0 4px" }}>{`its state couldn't be carried over: the host fell back to ${pv.fallback == "" ? "a refresh" : `a ${pv.fallback}`}`}</p>
-      <ul class="plan-list">
-        {for it in pv.uncarried { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">uncarried</span></li> }}
-      </ul>
-    }}
-    {if pv.groups.length == 0 && pv.moved.length == 0 && pv.uncarried.length == 0 { <p class="hint">Nothing changes state.</p> }}
+    {if pv.groups.length == 0 && pv.moved.length == 0 && pv.uncarried.length == 0 && pv.reseeded.length == 0 { <p class="hint">Nothing changes state.</p> }}
   }}
 }
 
@@ -331,4 +343,70 @@ export component TipLive(props: { nodeKey: string }) {
   {if present(v) && present(v.preview) { <div class="tip-v">{`= ${v.preview}`}</div> }}
   {if present(h) { <div class="tip-m" style={{ color: "var(--pending)" }}>{`held · waiting on ${heldText(h, "an action")}`}</div> }}
   {if present(live.flying[props.nodeKey]) { <div class="tip-m" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> in the air</div> }}
+}
+
+// ---- calls across the trust boundary ------------------------------------------------------------------------------
+// A question asking (its flight) and an action running, each with the JS imports / server fns it calls (static, from
+// the graph), its inputs or args, how it ended, and why it happened. The reducer keeps them (livestate.js callFlight,
+// callRun); a row travels to the step the call landed in (or started at, while it is in the air).
+cv = callsView(live, callFilter)
+
+/** One call: when, which functions, who asked, how it ended, why. A click (not on a link) travels to its step. */
+component CallRow(props: { r: any }) {
+  { r } = props
+  <li class={["call", `o-${r.outcome}`]} data-call={`${r.id}`} data-seq={`${r.seq}`} tabIndex={0}
+    title={r.seq >= 0 ? `travel to ${r.seqText}` : ""}
+    onClick={(ev) => { if (closestData(ev, "a", "key") == "" && closestData(ev, "a", "go") == "" && r.seq >= 0) { travel(r.seq) } }}
+    onKeyDown={(ev) => { if ((ev.key == "Enter" || ev.key == " ") && r.seq >= 0) { prevent(ev); travel(r.seq) } }}>
+    <div class="c-top">
+      <span class="c-when mono">{r.when}</span>
+      <span class="c-fns">
+        {for f in r.fns { <a href="#" data-key={f.key} class="mono c-fn">{f.name}</a> }}
+        {if r.fns.length == 0 { <span class="hint">no JS import in the graph</span> }}
+      </span>
+      <span class={["c-badge", `o-${r.outcome}`]}>{r.badge}</span>
+      <span class="c-dur mono">{r.dur}</span>
+    </div>
+    <div class="c-by">
+      <span class="micro">{r.kind == "run" ? "run" : "ask"}</span>
+      <a href="#" data-key={r.key} class="mono">{r.name}</a>
+      {if r.kind == "run" && r.args != "" { <span class="mono c-args">{`(${r.args})`}</span> }}
+    </div>
+    {if r.error != "" { <div class="c-err mono">{r.error}</div> }}
+    <div class="c-cause">
+      <span class="c-why">{r.cause}</span>
+      {if r.inferred { <span class="c-inf" title="the bridge didn't say; the map inferred it">inferred</span> }}
+      <span class="c-seq mono">{r.seqText}</span>
+    </div>
+  </li>
+}
+
+/** The Calls tab (live): every call, newest first, filtered by function. */
+export component CallsPanel() {
+  <h2>Calls</h2>
+  <p class="hint">Calls across the trust boundary, newest first: a question asking (its JS import runs), an action running. Click a row to travel to the step it landed in.</p>
+  <div class="row calls-filter">
+    <span class="micro">function</span>
+    <select id="callFn" value={callFilter} onChange={(ev) => { showCalls(targetValue(ev)) }}>
+      <option value="">{`all · ${cv.total}`}</option>
+      {for f in cv.fns { <option value={f.key}>{`${f.name} · ${f.n}`}</option> }}
+    </select>
+  </div>
+  {if cv.rows.length == 0 {
+    <p class="hint">{cv.total == 0 ? "No calls yet: nothing has asked or run since the map opened." : "No calls of this function yet."}</p>
+  } else {
+    <ol class="calls">{for r in cv.rows { <CallRow r={r} /> }}</ol>
+  }}
+}
+
+/** A JS import's last few calls, in its node panel, and a way to all of them. */
+export component ImportCalls(props: { nodeKey: string }) {
+  ic = callsView(live, props.nodeKey)
+  <h3>Calls</h3>
+  {if ic.rows.length == 0 {
+    <p class="hint">No calls seen since the map opened.</p>
+  } else {
+    <ol class="calls mini">{for r in ic.rows.slice(0, 4) { <CallRow r={r} /> }}</ol>
+  }}
+  <div class="row"><button class="c-all" onClick={() => { sfx("toggle"); showCalls(props.nodeKey) }}>{`show all · ${ic.rows.length}`}</button></div>
 }

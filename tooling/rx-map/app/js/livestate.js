@@ -41,7 +41,13 @@ export function freshLive() {
     connected: true,
     tl: { steps: [], head: 0, viewing: null, target: null, capacity: 2000, flights: [], hmrs: [], rev: 0 },
     // a module replacement: the plan (its graph kept by number), its phase, and what the board marks for it
-    hmr: { plan: null, phase: null, error: null, swapped: false, pendingDone: null, marks: {}, planned: {}, incoming: {} },
+    hmr: { plan: null, phase: null, error: null, swapped: false, pendingDone: null, marks: {}, planned: {}, incoming: {}, seen: {}, reseeded: [] },
+    // calls across the trust boundary, in arrival order (the last CALLS_MAX): a question's ask, an action's run
+    // { id, kind: "ask" | "run", key, fns: [{ key, name, id }], at, end, outcome, error, args, cause, inferred,
+    //   seqStart, seqEnd, settle, runId, n }
+    calls: [],
+    callSeq: 0,
+    runN: {},          // action key → runs seen (an action's "#3")
     // the transient effects still to play (playFx), each numbered: { n, k, … }
     fx: [],
     fxSeq: 0,
@@ -124,7 +130,7 @@ function waves(M, changes, flush, cause, order) {
 export function reduce(s, m, M) {
   switch (m.type) {
     case "reset": return onReset(s);
-    case "flight": return onFlight(s, m);
+    case "flight": callFlight(s, m, M); return onFlight(s, m);
     case "flush": return onFlush(s, m);
     case "timeline": return onTimeline(s, m, M);
     case "step": return onStep(s, m, M);
@@ -136,7 +142,7 @@ export function reduce(s, m, M) {
     case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null }; return;
     case "held": s.held[m.key] = { by: [...(m.by ?? [])], since: m.at ?? null }; return;
     case "released": del(s.held, m.key); return;   // a key not held: nothing to do
-    case "run": if (m.state === "start") s.runs[m.id] = m.key; else del(s.runs, m.id); return;
+    case "run": callRun(s, m, M); if (m.state === "start") s.runs[m.id] = m.key; else del(s.runs, m.id); return;
     case "~target": s.tl.target = m.seq; s.tl.rev++; return;
     case "~connected": s.connected = m.ok; return;
     case "~flushes": s.flushes = m.n; return;
@@ -176,9 +182,116 @@ function onFlight(s, m) {
   emit(s, { k: "flight", key: m.key, state: m.state, next, ask });
 }
 
+// ---- calls across the trust boundary ---------------------------------------------------------------------------
+// The bridge doesn't see a JS call; it sees what makes it: a question asking (a flight) and an action running. Which
+// JS imports / server fns each one calls is static: the graph's `call` edges from its nodes (through plain fns) to
+// world nodes.
+const CALLS_MAX = 500;
+const fnCache = new WeakMap();   // model → key → fns
+/** The JS imports / server fns a question or action calls (static, from the graph): [{ key, name, id }]. */
+export function callFns(M, key) {
+  let byKey = fnCache.get(M);
+  if (!byKey) fnCache.set(M, byKey = new Map());
+  if (byKey.has(key)) return byKey.get(key);
+  const out = new Map(), seen = new Set(), todo = [...idsOf(M, key)];
+  while (todo.length) {
+    const id = todo.pop();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const e of M.out.get(id) ?? []) {
+      if (e.type !== "call") continue;
+      const n = M.nodes.get(e.to);
+      if (!n) continue;
+      if (n.world) { if (!out.has(n.key ?? n.id)) out.set(n.key ?? n.id, { key: n.key ?? "", name: n.name, id: n.id }); }
+      // through a plain helper, not into another action (that one has runs of its own) or a component
+      else if (n.kind === "fn") todo.push(n.id);
+    }
+  }
+  const fns = [...out.values()];
+  byKey.set(key, fns);
+  return fns;
+}
+const clip = (t, n = 60) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
+const show = v => clip(typeof v === "string" ? v : (() => { try { return JSON.stringify(v) ?? String(v); } catch { return String(v); } })(), 40);
+const causeName = c => (c?.key ? keyName(c.key) : String(c?.name ?? "?").replace(/^rx:/, "").split("|").pop());
+const causeText = c => `${causeName(c)}${c?.prev !== undefined || c?.value !== undefined ? ` ${c.prev !== undefined ? show(c.prev) : "?"}→${c.value !== undefined ? show(c.value) : "?"}` : ""}`;
+// the action running now (the newest open run), as "action save #3"
+function runningNow(s) {
+  for (let i = s.calls.length - 1; i >= 0; i--) { const c = s.calls[i]; if (c.kind === "run" && c.outcome === "pending") return `action ${keyName(c.key)} #${c.n}`; }
+  return "";
+}
+function addCall(s, c) {
+  s.callSeq++;
+  s.calls.push({ id: s.callSeq, end: null, outcome: "pending", error: "", settle: false, seqEnd: null, ...c });
+  if (s.calls.length > CALLS_MAX) s.calls.splice(0, s.calls.length - CALLS_MAX);
+}
+// the flush a call landed in: the last step if it already changed the key; else the next flush (closeCall's settle)
+function closeCall(s, c, outcome, at, error) {
+  c.outcome = outcome; c.end = at; c.error = error ?? "";
+  c.seqEnd = s.tl.head;
+  const last = s.tl.steps.at(-1);
+  const inLast = c.kind === "ask" && last && last.seq > (c.seqStart ?? 0) && (last.changes ?? []).some(x => x.key === c.key);
+  // an action's writes (and an errored one's catch) commit as it ends; an ask's answer (or its error) in a flush that
+  // changes its key. A superseded ask lands nowhere.
+  c.settle = c.kind === "run" || (outcome !== "stale" && !inLast);
+}
+function callFlight(s, m, M) {
+  const at = m.at ?? lastAt(s);
+  if (m.state === "start") {
+    const parts = [], inferred = [];
+    if (typeof m.origin === "string" && m.origin) parts.push(m.origin);
+    const cause = Array.isArray(m.cause) ? m.cause : [];
+    if (cause.length) parts.push(`re-asked: ${cause.map(causeText).join(", ")}`);
+    else if (!s.calls.some(c => c.kind === "ask" && c.key === m.key)) parts.push("first ask");
+    else parts.push("re-asked (no cause sent)");
+    // a refresh inside an action: the action running at that moment, if any (inferred: nothing links them)
+    const run = runningNow(s);
+    if (run && !cause.length) { parts.push(`during ${run}`); inferred.push("during"); }
+    addCall(s, { kind: "ask", key: m.key, fns: callFns(M, m.key), at, args: cause.map(causeText).join(", "),
+      cause: parts.join(" · "), inferred: inferred.length > 0, seqStart: s.tl.head, flightId: m.id ?? null });
+    return;
+  }
+  // land: the newest ask of this key in the air; abandon (superseded, stale, rejected): the oldest. An id, when sent, decides.
+  const open = s.calls.filter(c => c.kind === "ask" && c.key === m.key && c.outcome === "pending");
+  if (!open.length) return;
+  const c = (m.id != null && open.find(c => c.flightId === m.id)) || (m.state === "land" ? open.at(-1) : open[0]);
+  closeCall(s, c, m.state === "land" ? "ok" : typeof m.error === "string" ? "rejected" : "stale", at, m.error);
+}
+function callRun(s, m, M) {
+  const at = m.at ?? lastAt(s);
+  if (m.state === "start") {
+    const n = s.runN[m.key] = (s.runN[m.key] ?? 0) + 1;
+    const args = Array.isArray(m.args) ? m.args.map(show).join(", ") : m.args !== undefined ? show(m.args) : "";
+    // what ran it: the interaction, if the bridge sent one; else who can call it (the graph's call edges: inferred)
+    let cause = typeof m.origin === "string" && m.origin ? m.origin : "", inferred = false;
+    if (!cause) {
+      const by = [...new Set(idsOf(M, m.key).flatMap(id => (M.inc.get(id) ?? []).filter(e => e.type === "call").map(e => M.A.label(e.from))))];
+      cause = by.length ? `called from ${by.slice(0, 2).join(" or ")}${by.length > 2 ? " …" : ""}` : "";
+      inferred = by.length > 0;
+    }
+    addCall(s, { kind: "run", key: m.key, fns: has(M, m.key) ? callFns(M, m.key) : [], at, args, cause: `action ${keyName(m.key)} #${n}${cause ? ` · ${cause}` : ""}`, inferred, seqStart: s.tl.head, runId: m.id, n });
+    return;
+  }
+  const c = s.calls.findLast(c => c.kind === "run" && c.runId === m.id && c.outcome === "pending");
+  if (c) closeCall(s, c, m.state === "error" ? "rejected" : "ok", at, m.state === "error" ? String(m.error ?? "error") : "");
+}
+// the first flush after a call ended: the one it landed in, if it changes the ask's key / comes in the run's turn (≤ 50 ms)
+function settleCalls(s, m) {
+  if (typeof m.seq !== "number") return;
+  for (const c of s.calls) {
+    if (!c.settle) continue;
+    c.settle = false;
+    const near = typeof m.at !== "number" || typeof c.end !== "number" || Math.abs(m.at - c.end) <= 50;
+    if (c.kind === "ask" ? (m.changes ?? []).some(x => x.key === c.key) : near) c.seqEnd = m.seq;
+  }
+}
+
 function onFlush(s, m) {
   emit(s, { k: "flush", w: m.waves });
   s.flushes++;
+  settleCalls(s, m);
+  // a module replacement's own step: what changed in it (a kept name that changed was reseeded: verified, not predicted)
+  if (s.hmr.plan && m.origin === `hmr ${s.hmr.plan.id}`) for (const c of m.changes) s.hmr.seen[c.key] = { prev: c.prev ?? null, preview: c.preview ?? null, error: c.error ?? null };
   if (typeof m.seq === "number") {
     s.tl.steps.push({ seq: m.seq, at: m.at, origin: m.origin, cause: m.cause, changes: m.changes, order: m.order });
     if (s.tl.steps.length > s.tl.capacity) s.tl.steps.splice(0, s.tl.steps.length - s.tl.capacity);
@@ -237,9 +350,13 @@ function onSnapshot(s, d, M) {
       if (!has(M, key)) continue;
       s.flying[key] = 1;
       if (!s.tl.flights.some(f => f.key === key && f.end == null)) s.tl.flights.push({ key, start: since ?? lastAt(s), end: null, state: null });
+      if (!s.calls.some(c => c.kind === "ask" && c.key === key && c.outcome === "pending"))
+        addCall(s, { kind: "ask", key, fns: callFns(M, key), at: since ?? lastAt(s), args: "", cause: "in the air when the map opened", inferred: false, seqStart: s.tl.head, flightId: null });
     }
     // the orbs: off the keys that were in the air, on the ones that are
     emit(s, { k: "orbs", off, on: Object.keys(s.flying) });
+    // an ask the map saw start that is no longer in the air: it ended unseen
+    for (const c of s.calls) if (c.kind === "ask" && c.outcome === "pending" && !s.flying[c.key]) { c.outcome = "unseen"; c.seqEnd = s.tl.head; }
   }
   if (Array.isArray(d.boundaries)) {
     s.boundaries = {};
@@ -248,6 +365,7 @@ function onSnapshot(s, d, M) {
   if (Array.isArray(d.runs)) {
     s.runs = {};
     for (const r of d.runs) s.runs[r.id] = r.key;
+    for (const c of s.calls) if (c.kind === "run" && c.outcome === "pending" && !(c.runId in s.runs)) { c.outcome = "unseen"; c.seqEnd = s.tl.head; }
   }
   s.tl.rev++;
 }
@@ -330,7 +448,7 @@ function onHmr(s, d, M) {
       const mi = modIndex(M.G, String(k).split("|")[0]); if (mi < 0) continue;
       (incoming[mi] ??= []).push({ key: k, name: n.name, kind: n.kind, question: !!n.question, async: !!n.async });
     }
-    s.hmr = { plan: { id: d.id, modules: [...(d.modules ?? [])], plan: p, graphNo: d.graphNo }, phase: "plan", error: null, swapped: false, pendingDone: null, marks, planned, incoming };
+    s.hmr = { plan: { id: d.id, modules: [...(d.modules ?? [])], plan: p, graphNo: d.graphNo }, phase: "plan", error: null, swapped: false, pendingDone: null, marks, planned, incoming, seen: {}, reseeded: [] };
     s.tl.hmrs.push({ seq: s.tl.head, id: d.id });
     s.tl.rev++;
     emit(s, { k: "plan" });
@@ -342,6 +460,13 @@ function onHmr(s, d, M) {
     // v0.7: the keys whose state could not be carried (the host fell back to a refresh for them)
     h.fallback = d.fallback ?? null;
     h.uncarried = Array.isArray(d.uncarried) ? [...d.uncarried] : [];
+    // verify, don't predict: a name the plan said it would keep whose value came back changed (in the replacement's
+    // own step, or in `done`'s changes) was reseeded; one the host could not carry is listed under Not carried
+    const changed = {};
+    for (const [k, v] of Object.entries(h.seen ?? {})) changed[k] = v;
+    for (const c of d.changes ?? []) if (c?.key) changed[c.key] = { prev: c.prev ?? null, preview: c.preview ?? null, error: c.error ?? null };
+    h.reseeded = (h.plan.plan?.kept ?? []).filter(k => !h.uncarried.includes(k) && changed[k]
+      && (changed[k].error != null || changed[k].prev == null || changed[k].prev !== changed[k].preview));
     if (h.swapped) { applyChanges(s, d.known ?? [], d.waves, {}); emit(s, { k: "wave", w: d.waves }); }
     else h.pendingDone = d.changes ?? [];
   } else if (d.phase === "failed") {
@@ -427,6 +552,8 @@ function wave(w, M, flush) {
 /** The reload plan's line for a key: "kept (unchanged)", "moved to x (renamed)", or "". */
 export function planReason(hmr, key) {
   const p = hmr?.plan?.plan; if (!p || !key) return "";
+  if (hmr.uncarried?.includes(key)) return "not carried (the host fell back to a refresh)";
+  if (hmr.reseeded?.includes(key)) return "reseeded (the plan said kept; its value changed)";
   for (const [g, name] of PLAN_GROUPS) if (p[g]?.includes(key)) return `${name.toLowerCase()} (${p.reasons?.[key] ?? "?"})`;
   const m = p.moved?.find(m => m.from === key);
   return m ? `moved to ${keyName(m.to)} (${p.reasons?.[key] ?? p.reasons?.[m.to] ?? "moved"})` : "";
@@ -458,17 +585,49 @@ export const incomingHTML = ns => `<span class="micro">incoming</span>` + ns.map
 export function planView(hmr) {
   const p = hmr?.plan?.plan ?? {};
   const item = k => ({ key: k, name: keyName(k), reason: p.reasons?.[k] ?? "" });
-  const groups = PLAN_GROUPS.filter(([g]) => p[g]?.length).map(([g, name, icon, what]) => ({ group: g, title: `${name} · ${p[g].length}`, icon, what, items: p[g].map(item) }));
+  // after `done`: a kept name that was reseeded or not carried is not listed as kept
+  const off = new Set([...(hmr?.reseeded ?? []), ...(hmr?.uncarried ?? [])]);
+  const keysOf = g => (p[g] ?? []).filter(k => g !== "kept" || !off.has(k));
+  const groups = PLAN_GROUPS.filter(([g]) => keysOf(g).length).map(([g, name, icon, what]) => ({ group: g, title: `${name} · ${keysOf(g).length}`, icon, what, items: keysOf(g).map(item) }));
+  const reseeded = (hmr?.reseeded ?? []).map(k => ({ key: k, name: keyName(k), reason: "listed kept; its value changed" }));
   const moved = (p.moved ?? []).map(m => ({ from: keyName(m.from), to: keyName(m.to), reason: p.reasons?.[m.from] ?? p.reasons?.[m.to] ?? "" }));
   const phase = hmr?.phase ?? "";
   return {
-    groups, moved, phase,
+    groups, moved, phase, reseeded,
     // v0.7: what the host could not carry over (a refresh fallback re-initialised it)
     uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k) })), fallback: hmr?.fallback ?? "",
     phaseName: ({ plan: "plan", apply: "applying", done: "done", failed: "failed" })[phase] ?? phase,
     modules: (hmr?.plan?.modules ?? []).join(", "),
-    text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : (hmr?.uncarried?.length ? "Applied, with a refresh fallback: the map now shows the new graph; the names below lost their state." : "Applied: the map now shows the new graph."),
+    text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : (hmr?.uncarried?.length ? "Applied, with a refresh fallback: the map now shows the new graph; the names under Not carried lost their state."
+      : hmr?.reseeded?.length ? "Applied: the map now shows the new graph; the names under Reseeded were planned kept but came back with a new value."
+      : "Applied: the map now shows the new graph."),
   };
+}
+/** The Calls tab: newest first, filtered to the calls of one import (by key; "" for all), and the imports that have calls. */
+export function callsView(live, fnKey) {
+  const calls = live.calls ?? [];
+  let now = lastAt(live);
+  for (const c of calls) now = Math.max(now, c.at ?? 0, c.end ?? 0);
+  const ago = t => { const d = Math.max(0, now - (t ?? now)); return d < 1 ? "now" : d < 1000 ? `${Math.round(d)}ms ago` : d < 60000 ? `${(d / 1000).toFixed(1)}s ago` : `${Math.floor(d / 60000)}m ago`; };
+  const fns = new Map();
+  for (const c of calls) for (const f of c.fns) if (f.key && !fns.has(f.key)) fns.set(f.key, { key: f.key, name: f.name, n: 0 });
+  for (const c of calls) for (const f of c.fns) if (fns.has(f.key)) fns.get(f.key).n++;
+  const rows = [];
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i];
+    if (fnKey && !c.fns.some(f => f.key === fnKey)) continue;
+    const pending = c.outcome === "pending";
+    const seq = pending ? c.seqStart : c.seqEnd ?? c.seqStart;
+    rows.push({
+      id: c.id, kind: c.kind, key: c.key, name: keyName(c.key), fns: c.fns.map(f => ({ key: f.key, name: f.name })),
+      when: ago(c.at), args: c.args ?? "", cause: c.cause ?? "", inferred: !!c.inferred,
+      dur: pending ? "in the air" : typeof c.end === "number" && typeof c.at === "number" ? `${Math.max(0, Math.round(c.end - c.at))} ms` : "",
+      outcome: c.outcome, badge: ({ ok: "ok", rejected: "rejected", stale: "stale", pending: c.kind === "run" ? "running" : "pending", unseen: "ended" })[c.outcome] ?? c.outcome,
+      error: c.error ?? "", seq: typeof seq === "number" ? seq : -1,
+      seqText: typeof seq !== "number" ? "" : pending ? `from #${seq}` : `#${seq}`,
+    });
+  }
+  return { rows, fns: [...fns.values()].sort((a, b) => a.name.localeCompare(b.name)), total: calls.length };
 }
 /** `x != null` as JS means it (RX's `!=` is strict: a missing key's `undefined` is not `null`). */
 export const present = x => x != null;

@@ -205,6 +205,10 @@ try {
   wheel({ deltaY: -120, ctrlKey: true }); await sleep(40); const z4 = zp();
   const t5 = tf(); wheel({ deltaY: 120, shiftKey: true }); await sleep(40); const z5 = zp();
   check("a mouse wheel zooms; a trackpad scroll pans (the whole gesture); ctrl + wheel zooms; shift + wheel pans", z1 !== z0 && z2 === z1 && t2 !== t1 && z3 === z1 && z4 !== z3 && z5 === z4 && tf() !== t5, [z0, z1, z2, z3, z4, z5]);
+  // one notch is a gentle step, whatever the device sends: 3 lines, or an accelerated 1000 px
+  const sa = win.__RX_MAP__.cam.s; wheel({ deltaY: -3, deltaMode: 1 }); await sleep(40); const sb1 = win.__RX_MAP__.cam.s;
+  await sleep(450); wheel({ deltaY: -1000 }); await sleep(40); const sc = win.__RX_MAP__.cam.s;
+  check("a wheel notch zooms ×1.13, however big its delta", Math.abs(sb1 / sa - 1.13) < .01 && Math.abs(sc / sb1 - 1.13) < .01, [sa, sb1, sc]);
   win.__RX_MAP__.zoomAt(600, 400, s0 / win.__RX_MAP__.cam.s); await sleep(40);
   post({ v: 1, type: "snapshot", values: [], flights: [], boundaries: [], held: [] });
   post({ v: 1, type: "flush", seq: 4, at: 32, changes: [{ key: K("total").key, name: "y", preview: "2" }] });
@@ -293,6 +297,77 @@ try {
     post({ type: "reset" });
     await sleep(50);
     check("reset clears values, glow and count", badge() === "live · 0 flushes" && !doc.querySelector("#board .lv, #board .flying"));
+
+    // v0.9 calls: every ask (a flight) and run, with the JS imports it calls, how it ended and why
+    const U = K("users").key;
+    post({ v: 1, type: "flush", seq: 1, at: 100, changes: [ch("page", "2", "1")], origin: 'click button "Next"' });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 110, origin: 'click button "Next"', cause: [{ key: K("page").key, name: `rx:${K("page").key}`, prev: "1", value: "2" }] });
+    post({ v: 1, type: "flight", key: U, state: "land", at: 150 });
+    post({ v: 1, type: "flush", seq: 2, at: 151, changes: [ch("users", "[…]")] });
+    post({ v: 1, type: "run", key: K("rename").key, id: "r1", state: "start", args: [7, "Ada"], at: 200 });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 210 });
+    post({ v: 1, type: "flight", key: U, state: "abandon", at: 230, error: "RateLimited: slow down" });
+    post({ v: 1, type: "run", key: K("rename").key, id: "r1", state: "error", error: "ServerError: 503", at: 240 });
+    post({ v: 1, type: "flush", seq: 3, at: 241, changes: [ch("saveError", '"could not save Ada"', '""')] });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 300, cause: [{ key: K("query").key, name: `rx:${K("query").key}`, prev: '""', value: '"a"' }] });
+    post({ v: 1, type: "flight", key: U, state: "abandon", at: 310 });
+    await sleep(60);   // (the land above asked the bridge for a snapshot: its answer, with nothing in the air, comes first)
+    post({ v: 1, type: "flight", key: U, state: "start", at: 311 });
+    await sleep(60);
+    doc.querySelector('#ptabs [data-tab="calls"]')?.click();
+    await sleep(40);
+    const rows = () => [...doc.querySelectorAll("#panel ol.calls > li.call")];
+    const rowText = r => r?.textContent.replace(/\s+/g, " ") ?? "";
+    const rs = rows();
+    check("calls: a Calls tab, a row per ask and run, newest first", rs.length === 5 && rs[0].classList.contains("o-pending") && /in the air/.test(rowText(rs[0])), rs.map(rowText));
+    const r1 = rs[4], run = rs[3], r2 = rs[2], r3 = rs[1];
+    check("calls: an ask names its JS import, its question, its outcome, duration, landing step and cause",
+      r1?.querySelector(".c-fn")?.textContent === "fetchUsers" && r1.classList.contains("o-ok") && /40 ms/.test(rowText(r1)) && /#2/.test(r1.querySelector(".c-seq")?.textContent ?? "")
+      && /click button "Next"/.test(rowText(r1)) && /re-asked: page 1→2/.test(rowText(r1)) && r1.querySelector(".c-by a")?.textContent === "users", rowText(r1));
+    check("calls: a rejected ask says its error; a refresh during an action is attributed to it, marked inferred",
+      r2?.classList.contains("o-rejected") && /RateLimited: slow down/.test(r2.querySelector(".c-err")?.textContent ?? "") && /during action rename #1/.test(rowText(r2)) && !!r2.querySelector(".c-inf"), rowText(r2));
+    check("calls: a run with its args, its import, its error and the step it ended in",
+      run?.querySelector(".c-fn")?.textContent === "saveUser" && /\(7, Ada\)/.test(rowText(run)) && run.classList.contains("o-rejected") && /ServerError: 503/.test(rowText(run)) && /#3/.test(run.querySelector(".c-seq")?.textContent ?? ""), rowText(run));
+    check("calls: a superseded ask is stale", r3?.classList.contains("o-stale") && /re-asked: query/.test(rowText(r3)), rowText(r3));
+    const sel = doc.getElementById("callFn");
+    check("calls: the filter lists the imports that have calls", [...sel.options].map(o => o.textContent).join("|") === "all · 5|fetchUsers · 4|saveUser · 1", [...sel.options].map(o => o.textContent));
+    sel.value = K("saveUser").key; sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(40);
+    check("calls: filtered to one function", rows().length === 1 && rows()[0].querySelector(".c-fn")?.textContent === "saveUser", rows().map(rowText));
+    sel.value = ""; sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+    await sleep(40);
+    sent.length = 0;
+    rows()[4]?.querySelector(".c-cause")?.click();
+    await sleep(120);
+    check("calls: clicking a row travels to the step it landed in", sent.some(m => m.type === "travel" && m.to === 2), sent);
+    post({ v: 1, type: "resume", head: 3, changes: [] });
+    await sleep(40);
+    win.select(K("fetchUsers").id); await sleep(40);
+    const ic = [...doc.querySelectorAll("#panel ol.calls.mini > li.call")];
+    check("calls: a JS import's panel lists its last calls", ic.length === 4 && /Calls/.test(doc.getElementById("panel").textContent), ic.length);
+    doc.querySelector("#panel button.c-all")?.click();
+    await sleep(40);
+    check("calls: show all opens the Calls tab filtered to it", doc.querySelector('#ptabs [data-tab="calls"]')?.getAttribute("aria-selected") === "true" && doc.getElementById("callFn")?.value === K("fetchUsers").key && rows().length === 4, [doc.getElementById("callFn")?.value, rows().length]);
+
+    // the reload plan, verified: a kept name whose value changed was reseeded; Not carried comes first
+    doc.querySelector("#ptabs .close").click();
+    await sleep(20);
+    const plan2 = { kept: [K("page").key, U, K("query").key], reset: [], rerun: [], added: [], removed: [], moved: [], reasons: { [K("page").key]: "unchanged", [U]: "unchanged", [K("query").key]: "unchanged" } };
+    post({ v: 1, type: "hmr", phase: "plan", id: "h2", modules: ["examples/users.rx"], graph: { ...JSON.parse(JSON.stringify(graph)), title: "users.rx v2" }, plan: plan2 });
+    post({ v: 1, type: "hmr", phase: "apply", id: "h2" });
+    post({ v: 1, type: "flush", seq: 4, at: 400, origin: "hmr h2", changes: [ch("page", "1", "2")] });
+    post({ v: 1, type: "hmr", phase: "done", id: "h2", changes: [], fallback: "refresh", uncarried: [U] });
+    await sleep(1300);
+    const ph = doc.getElementById("panel");
+    const h3s = [...ph.querySelectorAll("h3")].map(h => h.textContent);
+    check("plan: the panel opened on it; Not carried first, the sentence points at it", !doc.getElementById("side").classList.contains("closed") && /^Not carried/.test(h3s[0] ?? "") && /under Not carried lost their state/.test(ph.textContent), h3s);
+    check("plan: a kept name that came back changed is reseeded, not kept", h3s.includes("Reseeded · 1") && h3s.includes("Kept · 1") && /page/.test([...ph.querySelectorAll("h3")].find(h => /Reseeded/.test(h.textContent))?.nextElementSibling?.nextElementSibling?.textContent ?? ""), h3s);
+    post({ type: "reset" });
+    await sleep(40);
+    check("plan: after the app reloads, a panel the plan opened closes again (no Guide popping up)", doc.getElementById("side").classList.contains("closed"), doc.getElementById("side").className);
+    check("calls: a reset clears them", (doc.querySelector('#ptabs [data-tab="calls"]')?.click(), await sleep(30), rows().length === 0));
+    check("the header title follows the graph drawn", /^users\.rx v2$/.test(doc.querySelector("header h1 small")?.textContent ?? "") && doc.title === `rx-map · ${doc.querySelector("header h1 small").textContent}`, [doc.title, doc.querySelector("header h1 small")?.textContent]);
+    doc.querySelector("#ptabs .close").click();
     // pop-out, direct: it attaches to the app page's bridge (__RX__.connect), so it outlives the dock's iframe, says
     // "disconnected" when the feed stops, and says hello again after the app reloads
     const feed = { posts: [], sends: [] };
