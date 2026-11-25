@@ -479,6 +479,7 @@ class Gen {
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
+      case "as": return go(e.e);                                                    // 07 §3: a type assertion, erased
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5

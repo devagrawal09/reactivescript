@@ -127,6 +127,7 @@ Added:
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
+| `e as T` | a type assertion, TypeScript's, erased at run time; the projection keeps it so the type layer checks it (13 TY-2). Same line as `e` — a newline is the next statement | TY-2 |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
 | `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
