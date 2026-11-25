@@ -232,7 +232,9 @@ async function saveRx(page, file, text) {
 }
 
 try {
-  if (args.includes("--hmr-only")) {
+  if (args.includes("--reask-only")) {
+    await failedReask();
+  } else if (args.includes("--hmr-only")) {
     await realHmr();
     if (linkedRuntime) await runtimeReload();
   } else {
@@ -426,12 +428,39 @@ try {
   await page.close();
 
   await roundThree();
+  await failedReask();
   await realHmr();
   if (linkedRuntime) await runtimeReload();
   }
 } finally {
   await browser.close();
   vite.kill();
+}
+
+async function failedReask() {
+  const page = await openApp("?fail-reask");
+  const key = "src/App.rx|App|books";
+  try {
+    await page.getByRole("button", { name: "Refresh shelf", exact: true }).click();
+    await page.waitForFunction(k => globalThis.__T.msgs.some(m => m.type === "flush" &&
+      m.changes.some(c => c.key === k && c.error?.includes("RateLimited"))), key);
+    const failed = await page.evaluate(k => {
+      const { msgs, dom } = globalThis.__T;
+      const frame = msgs.find(m => m.type === "flush" && m.changes.some(c => c.key === k && c.error?.includes("RateLimited")));
+      return { seq: frame.seq, html: dom[frame.seq], asks: msgs.filter(m => m.type === "flight" && m.key === k) };
+    }, key);
+    assert.match(failed.html, /Retry in 5s/);
+    assert.ok(failed.asks.some(m => m.state === "start" && m.cause?.some(c => c.kind === "refresh")), JSON.stringify(failed.asks));
+    await page.getByRole("button", { name: "Refresh shelf", exact: true }).click();
+    await page.locator(".counts").waitFor();
+    await waitIdle(page);
+    await post(page, { type: "travel", to: failed.seq });
+    await page.waitForFunction(n => globalThis.__T.msgs.some(m => m.type === "step" && m.to === n), failed.seq);
+    const history = (await drain(page)).find(m => m.type === "step" && m.to === failed.seq);
+    assert.ok(history.inexact.includes(key));
+    assert.ok(history.recordedErrors.includes(key));
+    console.log("ok   refresh rejection shows the live fallback and is marked recorded-only when rewound");
+  } finally { await page.close(); }
 }
 
 async function runtimeReload() {
