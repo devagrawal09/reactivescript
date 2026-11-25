@@ -14,11 +14,7 @@ export type Label = string
 ## Program
 
 ```rx
-import { Label } from "./labels"
-export default component App() {
-  x: Label = "labels"
-  <p>{x}</p>
-}
+export default component App() { <p>labels</p> }
 ```
 
 ## Frames
