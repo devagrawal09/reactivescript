@@ -4496,7 +4496,7 @@ impl<'a> Checker<'a> {
                             self.err(
                                 "UNCAUGHT_ACTION_FAILURE",
                                 "R-f-6",
-                                format!("action {} in <{}> reads props.{}, which can fail with {} here (line {}), and does not catch it", tname, atag, field, cl, aline),
+                                format!("action {} in <{}> reads props.{}, which can fail with {} here (line {}). A surrounding errored region catches render reads, not action snapshots — catch the read in the action, or pass a plain value from the handler", tname, atag, field, cl, aline),
                             );
                         }
                         continue;
