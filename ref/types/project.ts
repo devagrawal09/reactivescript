@@ -122,6 +122,8 @@ class Proj {
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private slots = new Set<string>();                        // sources and equations: a write checks this type, not a branch's narrowing (TY-2)
+  private snap = new Set<string>();                         // a handler read is a fresh snapshot of this name's type (TY-2)
+  private rename: Map<string, string> | null = null;       // inside a handler, a snap name reads as its snapshot binding
   private ambients = new Set<string>();                    // a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
@@ -144,7 +146,7 @@ class Proj {
   decls(ds: Decl[], ind: string, top = false) {
     const ex = (d: Decl) => top && (d as { exported?: boolean }).exported ? "export " : "";
     for (const d of ds) if ("name" in d) this.declared.add(d.name);
-    for (const d of ds) if (d.k === "source" || d.k === "eq") this.slots.add(d.name);   // before actions, whose writes name them
+    for (const d of ds) if (d.k === "source" || d.k === "eq") { this.slots.add(d.name); this.snap.add(d.name); }   // before actions, whose writes name them
     for (const d of ds) {
       if (d.k === "import") this.importDecl(d, ind);
       if (d.k === "typedecl") this.w.emit(`${ind}${ex(d)}${d.text ?? `type ${d.name} = any;`}`, d.line);
@@ -201,6 +203,45 @@ class Proj {
     const parts = rest.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
     const def = rest.find(n => n.name === "default")?.alias;
     this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+    for (const n of rest) if (!this.isTypeImport(d, n.name)) this.snapAlias(n.alias, ind, d.line);
+  }
+  /** A type export binds no value (MO-6c); `typeof` it is not a snapshot. */
+  private isTypeImport(d: Extract<Decl, { k: "import" }>, name: string): boolean {
+    if (!d.resolved) return false;
+    if (this.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name)) return true;
+    return this.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type";
+  }
+  /** Snap names a handler reads, not counting its parameters, its locals, or a nested arrow (that one snapshots itself). Sorted, so both projections agree. */
+  private handlerSnaps(fn: Extract<Expr, { k: "fn" }>): string[] {
+    const bound = new Set(fn.params);
+    const out = new Set<string>();
+    const expr = (e: Expr) => {
+      if (!e?.k) return;
+      if (e.k === "fn" || e.k === "serverfn" || e.k === "draft") return;
+      if (e.k === "id") { if (this.snap.has(e.name) && !bound.has(e.name)) out.add(e.name); return; }
+      for (const v of Object.values(e)) {
+        if (Array.isArray(v)) { for (const x of v) if (x && typeof x === "object") { if ("k" in x) expr(x as Expr); else if ("v" in x) expr((x as { v: Expr }).v); else if ("spread" in x) expr((x as { spread: Expr }).spread); } }
+        else if (v && typeof v === "object" && "k" in v) expr(v as Expr);
+      }
+    };
+    const stmts = (ss: Stmt[]) => {
+      for (const s of ss) {
+        if (s.k === "let") { expr(s.e); bound.add(s.name); continue; }
+        if (s.k === "write" || s.k === "optimistic") { for (const p of s.target.path) if (typeof p !== "string") expr(p); expr(s.e); continue; }
+        if (s.k === "sif") { expr(s.c); stmts(s.t); stmts(s.f); continue; }
+        if (s.k === "try") { stmts(s.body); if (s.handler) stmts(s.handler); if (s.fin) stmts(s.fin); continue; }
+        if (s.k === "action") { stmts(s.body); continue; }
+        if (s.k === "throw" || s.k === "expr") expr(s.k === "throw" ? s.e : s.e);
+        if (s.k === "return" && s.e) expr(s.e);
+      }
+    };
+    if (fn.stmts) stmts(fn.stmts); else expr(fn.body);
+    return [...out].sort();
+  }
+  /** A handler's read of this name is a snapshot of its type, not a branch's narrowing (TY-2). */
+  private snapAlias(alias: string, ind: string, line: number) {
+    this.snap.add(alias);
+    this.w.emit(`${ind}type __W_${alias} = typeof ${alias};`, line);
   }
   /** TY-4b: check the import against its `.d.rx`, not whatever TypeScript would resolve the JS module to. */
   private declaredImport(d: Extract<Decl, { k: "import" }>, rest: { name: string; alias: string }[], decls: JsDecl[], ind: string) {
@@ -220,7 +261,7 @@ class Proj {
     for (const n of rest) {
       const x = of(n.name);
       if (!x || x.kind === "type") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
-      else this.w.emit(`${ind}const ${n.alias} = __js_${n.alias} as typeof ${ns}.${n.name};`, d.line);
+      else { this.w.emit(`${ind}const ${n.alias} = __js_${n.alias} as typeof ${ns}.${n.name};`, d.line); this.snapAlias(n.alias, ind, d.line); }
       if (x?.kind === "error") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
     }
   }
@@ -284,7 +325,7 @@ class Proj {
     const go = (x: Expr) => this.expr(x, imp, self);
     switch (e.k) {
       case "lit": return J(e.v);
-      case "id": if (BUILTINS.has(e.name) && !this.declared.has(e.name)) this.used.add(e.name); return e.name;
+      case "id": if (BUILTINS.has(e.name) && !this.declared.has(e.name)) this.used.add(e.name); return this.rename?.get(e.name) ?? e.name;
       case "pre": return e.name === self ? (e.init ? `__.pre(${go(e.init)})` : `__.pre<any>()`) : `__.pre<typeof ${e.name}>(${e.init ? go(e.init) : ""})`;
       case "peek": case "latest": return go(e.e);
       case "pending": return `__.pending(${go(e.e)})`;
@@ -309,9 +350,17 @@ class Proj {
       case "omit": return `__.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;
       case "fn": {
         const ps = e.params.join(", ");
-        if (!e.stmts) return `((${ps}) => ${this.expr(e.body, imp, self)})`;
-        const w = new W(); const saved = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = saved;
-        return `(${hasAwait(e.stmts) ? "async " : ""}(${ps}) => {\n${w.out.join("\n")}\n})`;
+        const names = imp ? this.handlerSnaps(e) : [];   // TY-2: a handler's reads are snapshots, so a view branch does not narrow them
+        const saved = this.rename;
+        if (names.length) { this.rename = new Map(saved); for (const n of names) this.rename.set(n, `__s_${n}`); }
+        let inner: string; let async = false;
+        if (!e.stmts) inner = this.expr(e.body, imp, self);
+        else { async = hasAwait(e.stmts); const w = new W(); const sw = this.w; this.w = w; this.stmts(e.stmts, "  "); this.w = sw; inner = w.out.join("\n"); }
+        this.rename = saved;
+        if (!names.length) return e.stmts ? `(${async ? "async " : ""}(${ps}) => {\n${inner}\n})` : `((${ps}) => ${inner})`;
+        const params = names.map(n => `__s_${n}: __W_${n}`).join(", ");
+        const args = names.join(", ");
+        return e.stmts ? `((${ps}) => ((${params}) => {\n${inner}\n})(${args}))` : `((${ps}) => ((${params}) => ${inner})(${args}))`;
       }
       case "serverfn": {                                                                       // SF-1d: an async function, its wire checked (TY-5a)
         const ps = e.params.map((n, i) => `${n}${e.ptypes?.[i] ? `: ${e.ptypes[i]}` : ""}`).join(", ");
