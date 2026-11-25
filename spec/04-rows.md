@@ -228,10 +228,13 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   - `errored fallback(e: A | B) { … } { … }`, for every reader in its
     content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges
     every class. A typed boundary whose children are wrapped by an inner
-    catch-all is dead: the catch-all takes those classes first, so the typed
+    catch-all with a static fallback is dead: the catch-all takes those classes first, so the typed
     fallback never shows (`DEAD_TYPED_BOUNDARY`, bin S, both lines; the
     model marks the typed region `deadTyped: true` and `shadowed` by the
-    inner one, for the map).
+    inner one, for the map). A fallback is outside its own catch and may
+    fail into the outer region. The diagnostic only proves static fallback
+    markup (literal text and literals inside ordinary HTML elements), not
+    fallbacks that read values or render components.
     Put the typed boundary inside the catch-all. At run time a failure of another class passes the boundary
     to the next one up — the boundary does not show its fallback for it, and
     re-decides when the failure it shows changes class (S-fail-1 instant 6).
