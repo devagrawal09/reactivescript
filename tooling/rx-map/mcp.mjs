@@ -6,6 +6,8 @@ import { LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
 const imports = { type: "boolean", default: false };
+const selection = { key: str, instance: str, kinds: { type: "array", minItems: 1, maxItems: 16,
+  items: { type: "string", enum: ["flush", "flight", "run", "boundary", "held", "released", "revert"] } } };
 const tool = (name, description, properties = {}, required = []) => ({
   name, description, annotations: { readOnlyHint: true },
   inputSchema: { type: "object", properties: { ...properties, format: { type: "string", enum: ["text", "json"] } },
@@ -22,12 +24,12 @@ const tools = [
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
   tool("tail", "Read recent flushes, flights, boundaries, runs and reverts. since is an exclusive record sequence number.",
-    { since: integer(0), limit: { ...integer(1), maximum: 5000 }, filter: { type: "string", enum: ["semantic", "all"] } }),
+    { ...selection, since: integer(0), limit: { ...integer(1), maximum: 5000 }, filter: { type: "string", enum: ["semantic", "all"] } }),
   { ...tool("record", "Mark and retrieve a trace recording.", { action: { type: "string", enum: ["start", "stop", "status"] },
-    filter: { type: "string", enum: ["semantic", "all"] } }, ["action"]), annotations: { readOnlyHint: false } },
-  tool("value", "Read the latest value preview for a key in the running page.", { key: str }, ["key"]),
-  tool("state", "Read current value, pending and error for a key, or current values, flights, tripped boundaries, running actions and recent reverts.", { key: str }),
-  tool("why", "Show current state, the last change, other keys in that flush, and related actions and reverts.", { key: str }, ["key"]),
+    ...selection, filter: { type: "string", enum: ["semantic", "all"] } }, ["action"]), annotations: { readOnlyHint: false } },
+  tool("value", "Read live previews for a key, optionally narrowed to one instance.", { key: str, instance: str }, ["key"]),
+  tool("state", "Read live value, pending and error, optionally narrowed to one instance.", { key: str, instance: str }),
+  tool("why", "Show current state, the last change, other keys in that flush, and related actions and reverts.", { key: str, instance: str }, ["key"]),
   tool("pending", "List nodes waiting for a request to finish."),
 ];
 const resources = ["graph", "model"].map(name => ({ uri: `rx://${name}`, name, mimeType: "application/json" }));
@@ -43,7 +45,8 @@ function validate({ name, inputSchema: s }, args) {
   for (const k of s.required) if (!Object.hasOwn(args, k)) throw new Error(`missing ${k}; see tools/list for ${name}`);
   for (const [k, v] of Object.entries(args)) {
     const p = Object.hasOwn(s.properties, k) && s.properties[k];
-    const valid = p && (p.type === "boolean" ? typeof v === "boolean"
+    const valid = p && (p.type === "array" ? Array.isArray(v) && v.length >= p.minItems && v.length <= p.maxItems && v.every(x => p.items.enum.includes(x))
+      : p.type === "boolean" ? typeof v === "boolean"
       : p.type === "integer" ? Number.isSafeInteger(v) && v >= p.minimum && !(v > p.maximum)
       : typeof v === "string" && !(v.length < p.minLength || v.length > p.maxLength) && (!p.enum || p.enum.includes(v)));
     if (!valid) throw new Error(`invalid argument ${k}; see tools/list for ${name}`);
@@ -89,7 +92,10 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         });
         answer = { data, text: liveText(method, data) };
       } else if (name === "check") {
-        const data = projectFor().check();
+        const app = projectFor();
+        const data = app.check(true);
+        const stale = app.staleTransforms();
+        warning = stale.map(s => `stale entry transform: ${s.file} (changed: ${s.files.join(", ")}). ${s.fix}`).join("\n");
         answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`).join("\n") || "ok" };
       } else if (name === "diff") {
         try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; answer = queryDiff(graph); }

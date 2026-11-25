@@ -437,7 +437,9 @@ class Gen {
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */
   private foreign(d: Extract<Decl, { k: "eq" }>, env: Env, b: Bind, pad: string): string | null {
     const e = d.e;
-    const part = (r: string, p: Shape) => p === "ref" ? r : `() => ${r}`;
+    const part = (r: string, p: Shape) => p === "ref"
+      ? this.keys.has(d) ? `__rt.memo(null, () => ${r}())` : r
+      : `() => ${r}`;
     const keyed = (expr: string) => this.under(this.keys.get(d), expr);
     if (e.k === "call" && e.f.k === "id") {
       const f = env.lookup(e.f.name); if (f?.kind !== "jfn") return null;

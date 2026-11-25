@@ -207,8 +207,8 @@ export function queryGraph(g, method, p) {
   const todo = [[n.id, !down || !["source", "eq", "props", "reader", "prop"].includes(n.kind), 0]];
   const seen = new Set(), found = new Map();
   if (!down) todo.push([n.id, false, 0]);
-  for (const [id, imperative, depth] of todo) {
-    const state = `${id}:${imperative}`;
+  for (const [id, imperative, depth, path = id === n.id ? field : undefined] of todo) {
+    const state = JSON.stringify([id, imperative, path]);
     if (seen.has(state)) continue;
     seen.add(state);
     if (id !== n.id && !found.has(id)) {
@@ -217,20 +217,21 @@ export function queryGraph(g, method, p) {
     }
     if (depth === p.depth) continue;
     for (const e of (down ? out : inc).get(id) ?? []) {
-      if (field && id === n.id) {
+      if (path) {
         // An equation's inbound reads may contribute to any output field.
         // The known target/source paths constrain only writes, passes and
         // downstream reads at the starting node.
         if (down && e.type !== "read") continue;
-        if ((down || e.type === "write" || e.type === "passes") && !overlaps(field, e.field)) continue;
+        if ((down || e.type === "write" || e.type === "passes") && !overlaps(path, e.field)) continue;
       }
       const data = e.type === "passes" || e.type === "renders" || (e.type === "read" && (e.mode === "tracked" || e.probe));
       const next = down ? e.to : e.from;
       if (down) {
-        if (data || (imperative && (e.type === "write" || e.type === "call"))) todo.push([next, e.type === "call", depth + 1]);
+        if (data || (imperative && (e.type === "write" || e.type === "call"))) todo.push([next, e.type === "call", depth + 1, e.type === "passes" ? e.field : undefined]);
       } else if (imperative ? e.type === "call" : (data || e.type === "write")) {
-        todo.push([next, !data, depth + 1]);
-        if (data) todo.push([next, true, depth + 1]);
+        const nextPath = e.type === "read" && nodes.get(next)?.kind === "props" ? e.field : undefined;
+        todo.push([next, !data, depth + 1, nextPath]);
+        if (data) todo.push([next, true, depth + 1, nextPath]);
       }
     }
   }
@@ -253,20 +254,24 @@ export function queryDiff(g) {
 export function liveText(method, data) {
   const at = t => `${Math.round(t)}ms`;
   const since = r => r.since === undefined ? "" : ` since ${at(r.since)}`;
-  const val = r => `${r.key ?? r.name}=${String(r.preview ?? "(no value)").replace(/\r?\n/g, "\\n")}${r.path ? ` [${r.path}]` : ""}${location(r)}`;
-  const waiting = r => `${r.key}  held${r.by.length ? `: waiting on ${r.by.join(", ")}` : ""}${since(r)}`;
+  const who = r => `${r.key ?? r.name}${r.instance === undefined ? "" : ` [instance ${r.instance}${r.ownerPath?.length ? ` · ${r.ownerPath.join(" › ")}` : ""}]`}`;
+  const val = r => `${who(r)}=${String(r.preview ?? "(no value)").replace(/\r?\n/g, "\\n")}${r.path ? ` [${r.path}]` : ""}${location(r)}`;
+  const waiting = r => `${who(r)}  held${since(r)}${r.blockers?.length ? `: waiting on ${r.blockers.map(b => `${who(b)} ${b.type} #${b.id}${since(b)}${b.via?.length ? ` via ${b.via.join(" → ")}` : ""}`).join(", ")}` : " (no blocker observed)"}`;
   const value = r => `${r.error || r.observation || (r.pending && r.preview === undefined)
-    ? `${r.key ?? ""}  ${r.observation ?? (r.error ? `error: ${r.error}` : "pending (no value yet)")}${location(r)}`
-    : `${val(r)}${r.pending ? `  pending${since(r)}` : ""}`}${r.held ? `\n${waiting(r.held)}` : ""}`;
+    ? `${who(r)}  ${r.observation ?? (r.error ? `${r.failedUntripped ? "failed, untripped" : "error"}: ${r.error}` : "pending (no value yet)")}${location(r)}`
+    : `${val(r)}${r.pending ? `  pending${since(r)}` : ""}`}${r.held ? `\n${waiting(r.held)}` : ""}${r.untripped
+      ? `\nfailed but not tripped: no live reader under ${r.untripped.boundary} because ${r.untripped.guards.join(", ")} ${r.untripped.guards.length === 1 ? "is" : "are"} false` : ""}`;
   const boundary = r => `${r.region}  ${r.state}${r.error ? `: ${r.error}` : ""}`;
   const running = r => `${r.key}  running #${r.id}${since(r)}`;
   const event = r => {
     const label = r.type === "boundary" ? `${boundary(r)}${r.origin ? ` ← ${r.origin}` : ""}`
       : r.type === "held" ? waiting(r)
-      : `${r.key}  ${[r.type, r.state, r.id === undefined ? "" : `#${r.id}`, r.args, r.error, r.reason, r.origin].filter(Boolean).join(" ")}${location(r)}`;
+      : `${who(r)}  ${[r.type, r.state, r.id === undefined ? "" : `#${r.id}`, r.args, r.error, r.reason,
+        r.type === "revert" && r.reason === "superseded" ? "(replaced by the answer, not a failure)" : "", r.origin].filter(Boolean).join(" ")}${location(r)}`;
     return `${r.seq}  ${at(r.at)}  ${label}`;
   };
-  const change = r => `${r.error ? `${r.key}  error: ${r.error}` : val(r)}  ${r.origin ?? "unknown origin"}`;
+  const change = r => `${r.error ? `${who(r)}  error: ${r.error}` : val(r)}  ${r.origin ?? "unknown origin"}`;
+  if (data.instances) return data.instances.map(r => liveText(method, r)).join("\n");
   switch (method) {
     case "status": return `connected pages: ${data.pages}\nflushes: ${data.flushes}\nuptime: ${at(data.uptime)}`;
     case "tail": return data.flatMap(r => r.type === "flush" ? r.changes.map(c => `${r.seq}  ${at(r.at)}  ${change(c)}`) : event(r)).join("\n") || "no records";

@@ -96,13 +96,15 @@ check("a .d.rx wins over the sibling .ts (ref is string, not Accessor)", refWin.
 const sharedTypes = [
   { file: "shared.d.rx", text: () => "export type Label = { text: string }\n" },
   { file: "shared.ts", text: () => "export type Label = number;\n" },
-  { file: "labels.d.rx", text: () => 'import { Label as TextLabel } from "./shared"\nexport pure fn labelText(x: TextLabel): string\n' },
-  { file: "labels.js", text: () => "export const labelText = x => x.text;\n" },
+  { file: "labels.d.rx", text: () => 'import { Label as TextLabel } from "./shared"\nexport pure fn labelText(x?: TextLabel): string\n' },
+  { file: "labels.js", text: () => "export const labelText = x => x?.text ?? '';\n" },
 ];
 const labels = value => ({ file: "main.rx", text: () =>
   `import { labelText } from "./labels"\nexport default component App() { <p>{labelText(${value})}</p> }\n` });
 const declaredType = run(...sharedTypes, labels('{ text: "ok" }'));
 check("a .d.rx can import an aliased type from another .d.rx", declaredType.status === 0 && declaredType.out.trim() === "", declaredType);
+const omitted = run(...sharedTypes, labels(""));
+check("an optional .d.rx parameter can be omitted", omitted.status === 0 && omitted.out.trim() === "", omitted);
 const wrongType = run(...sharedTypes, labels("123"));
 check("the imported .d.rx type rejects the sibling TS type", wrongType.status !== 0 && /main\.rx\(2,\d+\): error TS2345/.test(wrongType.out), wrongType);
 

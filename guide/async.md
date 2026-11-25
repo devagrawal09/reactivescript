@@ -30,6 +30,32 @@ onFlush(() => { text := "" })
 addTodo(t)
 ```
 
+### Which flight is holding this write?
+
+Start with the run that wrote the value, not the component that displays
+it. Include its other writes, what their readers compute, and every
+question the run opens that a display is waiting for (H-2). Two changes
+can join: a new reader pass triggered by one change consumes a derivation
+of the other's held value, or both write the same held slot (H-2, H-3,
+H-3a). Merely having two outstanding requests doesn't join them.
+
+For example, a move waits for `moveCard`, writes the returned card and
+undo entry, and does `refresh activity`. If a reader awaits that refreshed
+activity, the undo entry can stay held after `moveCard` resolves and the
+action reports `run end`. The activity flight lands, then the frame with
+the card and undo entry commits. A timer polling presence or chat in a
+separate run can still land independently, provided its readers don't
+join the move's change. But a new badge pass computing from both the held
+history and the fresh presence may join them; separate components alone
+are not a guarantee.
+
+When debugging, compare the action end, the pending readers and flights,
+and the write's `held`/`released` in the trace. Keep reads in the UI that
+needs them. Use a separate run for independent UI state and `deferred`
+when it's acceptable for an already loaded answer to lag (H-1). Don't
+split the card and undo entry into separate writes just to make the button
+appear faster.
+
 ## 1. Reading from the server: an equation
 
 ```rx
@@ -78,6 +104,26 @@ client's own state: a plain source the action's `catch` writes, shown beside the
 - An answer that means "missing" (`null`) is a failure you declare: `export error NotFound(id: number) => …`, and
   `found(await fetchUser(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
 - Retry is `refresh x`. It is quiet (AC-4): the failure stays on screen until the new answer replaces it (H-12).
+
+An `errored` region does not watch equations just because they are in scope.
+Equations are lazy (E-3, E-8): if `shown` is false, `if shown { … }` skips
+the body, and no `details` read there can trip the boundary. If the region
+should report missing details even when their view is hidden, read them
+first, inside the region:
+
+```rx
+errored fallback(e) { <p>{e.message}</p> } {
+  loading fallback { <p>Loading…</p> } {
+    if details && shown { <p>{details.title}</p> }
+  }
+}
+```
+
+This also demands the question while `shown` is false. If hiding the pane
+should avoid the request, keep `shown` first. The MCP live model's
+`failedUntripped` means the inspector saw an error but no instrumented
+boundary currently reports that same error. It doesn't prove why no
+boundary tripped, and inspecting a lazy equation can evaluate it.
 
 ## 3. Writing to the server: an action
 

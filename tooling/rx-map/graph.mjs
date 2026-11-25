@@ -47,8 +47,10 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
     for (const s of m.symbols) {
       if (s.from) continue;                        // folded below
       const id = `${mi}:s${s.id}`;
+      const spec = /^\s*import\b[^"']*?\bfrom\s+["']([^"']+)["']/.exec(src[mi].slice(s.line - 1, s.line + 20).join("\n"))?.[1];
       nodes.push({ id, mod: mi, file, kind: s.kind, name: s.name, line: s.line, region: `${mi}:r${s.region}`,
         io: !!s.io, question: !!s.question, async: !!s.question, world: s.kind === "import",
+        ...(spec && !spec.endsWith(".rx") ? { jsFrom: spec } : {}),
         ...(s.key ? { rxKey: s.key } : {}) });
       symNode.set(`${mi}:${s.id}`, id);
       byName.set(`${files[mi]}:${s.name}`, id);

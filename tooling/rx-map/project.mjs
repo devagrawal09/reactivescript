@@ -55,7 +55,7 @@ function discover(files) {
   return modules.filter(f => !imported.has(f));
 }
 
-export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false, lastGood = new Map() } = {}) {
+export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false, lastGood = new Map(), frontends = new Map() } = {}) {
   root = resolve(root);
   entries = [...new Set(entries.map(f => resolve(root, f)))];
   const binary = rxc && /[\\/]/.test(rxc) ? resolve(rxc) : rxc || "rxc";
@@ -118,8 +118,9 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
   function buildDiagnostics(s, entry) {
     const builds = s.builds ??= new Map();
     if (!builds.has(entry)) {
-      const native = nativeCompiler();
-      const out = JSON.parse(native?.app ? native.app(entry, "dom", null, spa)
+      const frontend = frontends.get(entry);
+      const native = frontend ? undefined : nativeCompiler();
+      const out = frontend ? frontend.check() : JSON.parse(native?.app ? native.app(entry, "dom", null, spa)
         : compiler(root, ["app", entry, ...(spa ? ["--spa"] : [])]));
       builds.set(entry, out.diagnostics?.length ? out.diagnostics : out.error
         ? [{ file: entry, code: "BUILD", message: out.error }] : []);
@@ -137,9 +138,9 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         let saved;
         let fresh = false;
         try {
-          const model = modelOf([entry], root, true);
           const diagnostics = buildDiagnostics(s, entry);
           if (diagnostics.length) throw Object.assign(new Error(diagnostics.map(d => d.msg ?? d.message).join("\n")), { diagnostics });
+          const model = frontends.get(entry)?.model() ?? modelOf([entry], root, true);
           const texts = new Map(model.map(m => {
             const f = resolve(root, m.file);
             let text; try { text = readFileSync(f, "utf8"); } catch { text = ""; }
@@ -185,12 +186,14 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
     for (const file of texts.keys()) if (!out.has(file)) out.set(file, statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null);
     return out;
   }
-  function check() {
+  function check(force = false) {
     const s = snapshot();
+    if (force && frontends.size) { delete s.builds; delete s.diagnostics; }
     if (!s.diagnostics) {
-      const data = JSON.parse(compiler(root, ["check", "--json", ...(spa ? ["--spa"] : []), ...requireEntries(s)], true));
+      const entries = requireEntries(s);
+      const data = frontends.size ? null : JSON.parse(compiler(root, ["check", "--json", ...(spa ? ["--spa"] : []), ...entries], true));
       const unique = new Map();
-      const diagnostics = data.diagnostics.length ? data.diagnostics : s.entries.flatMap(f => buildDiagnostics(s, f));
+      const diagnostics = data?.diagnostics.length ? data.diagnostics : entries.flatMap(f => buildDiagnostics(s, f));
       for (const d of diagnostics) {
         const diag = { file: isAbsolute(d.file) ? where(root, d.file) : d.file,
           line: d.range?.start?.line ?? d.line ?? 1, column: (d.range?.start?.column ?? 0) + 1,
@@ -204,6 +207,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         }
         unique.set(JSON.stringify(diag), diag);
       }
+      if (frontends.size) return s.diagnostics = [...unique.values()];
       // Run the project's own Volar/TypeScript projection, when installed.
       let tsc;
       try { tsc = require.resolve("@reactivescript/language-server/bin/tsc.js"); } catch {}
@@ -224,6 +228,15 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       s.diagnostics = [...unique.values()];
     }
     return s.diagnostics;
+  }
+  function staleTransforms() {
+    return [...frontends].flatMap(([entry, frontend]) => {
+      const files = frontend.transformed?.();
+      if (!files?.length) return [];
+      const file = where(root, entry);
+      return [{ file, files: files.map(f => where(root, f)),
+        fix: `Touch ${file} and reload the page. If it is still stale, restart the Vite dev server and reload.` }];
+    });
   }
   function diff(ref) {
     const s = load();
@@ -249,5 +262,5 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       rmSync(scratch, { recursive: true, force: true });
     }
   }
-  return { load, check, diff };
+  return { load, check, diff, staleTransforms };
 }
