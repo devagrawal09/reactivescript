@@ -150,43 +150,45 @@ if (!filter || "shared".includes(filter)) {   // two programs on one page, shari
 if (!filter || "ts-module".includes(filter)) {   // 09 MO-11: an .rx program over a .ts with no .d.rx — its declaration generated in process
   const dir = project("ts-module", "dts/main.rx");
   const src = path.join(dir, "src/dts"); mkdirSync(src);
-  // the brands package, types only: the repository's, else the six aliases it is
-  const brands = path.join(dir, "node_modules/@reactivescript/types");
-  if (existsSync(path.join(repo, "types/index.d.ts"))) symlinkSync(path.join(repo, "types"), brands);
-  else {
-    mkdirSync(brands, { recursive: true });
-    writeFileSync(path.join(brands, "package.json"), `{ "name": "@reactivescript/types", "types": "./index.d.ts", "sideEffects": false }\n`);
-    writeFileSync(path.join(brands, "index.d.ts"), "export type Pure<R> = R;\nexport type Rejects<P extends PromiseLike<unknown>, E extends Error> = P;\nexport type Ref<T> = () => T;\nexport type Instantiates<R> = R;\nexport type Server<R> = R;\nexport type Client<R> = R;\n");
-  }
-  writeFileSync(path.join(src, "api.ts"), `import type { Pure, Rejects } from "@reactivescript/types";
+  // the helpers package (@reactivescript/js), as a project installs it: the repository's
+  symlinkSync(path.join(repo, "js"), path.join(dir, "node_modules/@reactivescript/js"), "dir");
+  writeFileSync(path.join(src, "api.ts"), `import { pure, rejects } from "@reactivescript/js";
 export class NotFound extends Error {}
 export type User = { id: number; name: string };
-export async function fetchUser(id: number): Pure<Rejects<Promise<User>, NotFound>> {
+export const fetchUser = pure(rejects([NotFound], async (id: number): Promise<User> => {
   if (id === 2) throw new NotFound("no user 2");
   return { id, name: "Ann" };
-}
+}));
+export function greeting(name: string) { return "hi " + name; }
 `);
   // \`User\` is a type: it must not reach the emitted import (MO-8d), or the bundler finds no such export in api.ts.
-  // \`fetchUser\` is pure by its brand (awaited in an equation), and its NotFound is caught at the await.
+  // \`fetchUser\` is pure by its helper (awaited in an equation), and its NotFound is caught at the await. \`greeting\`
+  // states nothing, so \`import pure\` still narrows it, with the warning IMPORT_ROW_DEPRECATED (MO-11e): the build succeeds.
   writeFileSync(path.join(src, "main.rx"), `import { fetchUser, NotFound, User } from "./api"
+import pure { greeting } from "./api"
 export default component Main() {
   source id := 1
   user: User | null = await fetchUser(id) catch (e: NotFound) => null
   <main>
     <button onClick={() => { id := 2 }}>next</button>
     {loading fallback { <p>loading…</p> } {
-      <p>{user == null ? "nobody" : user.name}</p>
+      <p>{user == null ? "nobody" : greeting(user.name)}</p>
     }}
   </main>
 }
 `);
   try {
-    await vite.build(config(dir, "dts/main.rx"));
+    const said = [], warn = console.warn;
+    console.warn = (...a) => { said.push(a.join(" ")); };
+    try { await vite.build(config(dir, "dts/main.rx")); } finally { console.warn = warn; }
+    const warned = said.join("\n").split("\n").filter(l => /: warning IMPORT_ROW_DEPRECATED \[MO-11e\] .*greeting/.test(l));
+    if (warned.length !== 1) throw new Error(`the warning, once: ${JSON.stringify(said).slice(0, 600)}`);
+    if (!warned[0].includes("`export const greeting = pure(…)`")) throw new Error(`the fix: ${warned[0]}`);
     const dist = path.join(dir, "dist");
     const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
     await new Promise(r => http.listen(0, "127.0.0.1", r));
     await drive("ts-module (build): a .ts with no .d.rx", `http://127.0.0.1:${http.address().port}/`, async page => {
-      const t1 = await page.textContent("#app"); if (!t1.includes("Ann")) throw new Error(`first: ${t1}`);
+      const t1 = await page.textContent("#app"); if (!t1.includes("hi Ann")) throw new Error(`first: ${t1}`);
       await page.click("text=next"); await page.waitForTimeout(200);
       const t2 = await page.textContent("#app"); if (!t2.includes("nobody")) throw new Error(`after NotFound: ${t2}`);
     });
