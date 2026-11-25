@@ -272,6 +272,55 @@ function makeBroken(graph, opts) {
   }
 }
 
+// First-change prev (§4b): a key first changed at seq 3 had its `prev` at seqs 1-2. A host that replays without that
+// rule (the key absent before its first change) fails the travel checks; one that follows it passes.
+{
+  const [k1, k2] = users.nodes.filter(n => n.key && n.kind === "source").map(n => n.key);
+  const scripted = firstPrev => () => {
+    const subs = new Set(), steps = [];
+    let viewing = null;
+    const emit = m => { for (const f of subs) f({ source: "rx-map", v: 1, ...m }); };
+    const valuesAt = n => {
+      const m = new Map(), seen = new Set();
+      if (firstPrev) for (const s of steps) for (const c of s.changes) if (!seen.has(c.key)) { seen.add(c.key); if (c.prev !== undefined) m.set(c.key, c.prev); }
+      for (const s of steps) if (s.seq <= n) for (const c of s.changes) m.set(c.key, c.preview);
+      return m;
+    };
+    const diff = (a, b) => [...new Set([...a.keys(), ...b.keys()])].filter(k => a.get(k) !== b.get(k))
+      .map(k => ({ key: k, name: k, ...(a.has(k) ? { prev: a.get(k) } : {}), ...(b.has(k) ? { preview: b.get(k) } : {}) }));
+    return {
+      subscribe: f => (subs.add(f), () => subs.delete(f)),
+      act() {
+        const seq = steps.length + 1;
+        const changes = [{ key: k1, name: "a", prev: String(seq - 1), preview: String(seq) }];
+        if (seq === 3) changes.push({ key: k2, name: "b", prev: "\"before\"", preview: "\"after\"" });
+        steps.push({ seq, at: seq, changes });
+        if (viewing == null) emit({ type: "flush", seq, at: seq, changes });
+      },
+      tick() {},
+      post(m) {
+        const head = steps.length;
+        if (m.type === "hello") emit({ type: "timeline", head, viewing, steps, capacity: 2000 });
+        else if (m.type === "travel") {
+          if (m.to < 1 || m.to > head) return emit({ type: "travel-denied", to: m.to, reason: "evicted" });
+          const from = viewing ?? head;
+          viewing = m.to;
+          emit({ type: "step", from, to: m.to, direction: "back", changes: diff(valuesAt(from), valuesAt(m.to)) });
+        } else if (m.type === "resume") {
+          const from = viewing ?? head;
+          viewing = null;
+          emit({ type: "resume", head, changes: diff(valuesAt(from), valuesAt(head)) });
+        }
+      },
+      editModule() { throw new Error("no hmr"); },
+    };
+  };
+  const travelChecks = ["travel matches replay", "step changes exact", "travel commutative", "resume matches live"];
+  const okOf = r => travelChecks.map(c => r.find(x => x.check === c && x.graph)?.ok);
+  check("a host following first-change prev passes the travel checks", okOf(runConformance(scripted(true), [users])).every(Boolean));
+  check("a host ignoring it fails them", !okOf(runConformance(scripted(false), [users]))[1]);
+}
+
 // The async runner (a host whose calls take time, e.g. a real app in a browser) reports what the sync one does, and
 // a rejected call lands on the check that made it.
 {

@@ -813,7 +813,13 @@ export function createFakeHost(graph, opts = {}) {
   }
 
   function valuesAt(seqN) {
-    const m = new Map(base);
+    // before a key's first recorded change, its value is that change's `prev` (TRACE-CONTRACT §4b)
+    const m = new Map(base), seen = new Set(base.keys());
+    for (const s of steps) for (const c of s.changes) {
+      if (c.key == null || seen.has(c.key)) continue;
+      seen.add(c.key);
+      if (c.prev !== undefined) m.set(c.key, c.prev);
+    }
     for (const s of steps) {
       if (s.seq > seqN) break;
       for (const c of s.changes) {

@@ -1,0 +1,110 @@
+import pure { load } from "./server"
+import { save, newId } from "./server"
+import { BookRow, Book } from "./components/Book.rx"
+
+type Filter = "all" | "unread" | "read"
+
+fn matches(b: Book, f: Filter, q: string): boolean =>
+  (f == "all" || (f == "read") == b.read) &&
+  (q == "" || b.title.toLowerCase().includes(q) || b.author.toLowerCase().includes(q))
+
+export default component App() {
+  books key id = await load()
+  source filter: Filter := "all"
+  source query := ""
+  source title := ""
+  source author := ""
+  source saveError := ""
+  filters: Filter[] = ["all", "unread", "read"]
+
+  q = query.trim().toLowerCase()
+  shown = books.filter(b => matches(b, filter, q))
+  total = books.length
+  unread = books.filter(b => !b.read).length
+
+  action add(id: string, t: string, a: string) {
+    onFlush(() => { saveError := "" })
+    try {
+      guess books := bs => [...bs, { id: id, title: t, author: a, read: false }]
+      await save({ id: id, title: t, author: a, read: false })
+      refresh books
+    } catch (e) {
+      saveError := `Could not add "${t}": ${e.message}`
+    }
+  }
+
+  action toggle(b: Book, read: boolean, i: number) {
+    onFlush(() => { saveError := "" })
+    try {
+      guess books[i].read := read
+      await save({ id: b.id, title: b.title, author: b.author, read: read })
+      refresh books
+    } catch (e) {
+      saveError := `Could not update: ${e.message}`
+    }
+  }
+
+  <style>
+    .shelf {
+      max-width: 36rem;
+      margin: 0 auto;
+    }
+    .counts {
+      color: #52525b;
+    }
+    .error {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+    .chips button.on {
+      background: #1d4ed8;
+      color: white;
+    }
+    .add, .chips {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin: 0.75rem 0;
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+  </style>
+  <main class="shelf">
+    <h1>Shelf</h1>
+    {errored fallback(e) {
+      <p class="error">Could not load your books: {e.message}</p>
+      <button type="button" onClick={() => { refresh books }}>Retry</button>
+    } {
+      {loading fallback { <p>Loading books…</p> } {
+        <p class="counts">{total} books · {unread} unread</p>
+        <form class="add" onSubmit={e => {
+          e.preventDefault()
+          let t = title.trim()
+          let a = author.trim()
+          if (t == "" || a == "") return
+          onFlush(() => { title := ""; author := "" })
+          add(newId(), t, a)
+        }}>
+          <input placeholder="Title" value={title} onInput={e => { title := e.target.value }} />
+          <input placeholder="Author" value={author} onInput={e => { author := e.target.value }} />
+          <button type="submit">Add</button>
+        </form>
+        {if saveError != "" { <p class="error" role="alert">{saveError}</p> }}
+        <div class="chips">
+          {for f in filters {
+            <button type="button" class={filter == f ? "on" : ""} onClick={() => { filter := f }}>{f}</button>
+          }}
+          <input placeholder="Search title or author" value={query} onInput={e => { query := e.target.value }} />
+        </div>
+        <ul>
+          {for b in shown {
+            <BookRow book={b} onToggle={(id, read) => { toggle(b, read, books.findIndex(x => x.id == id)) }} />
+          }}
+        </ul>
+        {if shown.length == 0 { <p>No books match.</p> }}
+      }}
+    }}
+  </main>
+}

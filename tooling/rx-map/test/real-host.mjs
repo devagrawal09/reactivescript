@@ -1,30 +1,80 @@
 #!/usr/bin/env node
 // The trace contract's conformance suite against the REAL host (`./live` in a running .rx dev app), plus DOM checks
-// of time travel. Not part of `npm test`: it needs a Vite app and a Solid with `openView` (#5089).
+// of time travel. Needs a Solid with `openView` (solidjs/solid#5089), Playwright, and pnpm.
 //
-//   APP=<dir of a Vite .rx app> node test/real-host.mjs [--shots <dir>]
+//   SOLID_VIEW=<solid checkout or its packages dir, built> node test/real-host.mjs [--shots <dir>]
+//   APP=<dir of an installed copy of test/shelf-app> node test/real-host.mjs
 //
-// The app is the shelf template (rx-r1-browser) with a deterministic fake server (`save` fails every 4th call, fixed
-// delays, counted ids) and `?cap=N` in main.ts setting `globalThis.__RX_TIMELINE_CAPACITY__`. Playwright comes from
-// $NODE_PATH; Chromium from $CHROME or Playwright's headless shell.
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+// With SOLID_VIEW, the app is test/shelf-app (the rx-r1 shelf template with a deterministic fake server: `save` fails
+// every 4th call, fixed delays, counted ids; `?cap=N` sets `globalThis.__RX_TIMELINE_CAPACITY__`), copied to a temp
+// dir and installed with pnpm, linked to this repository and to SOLID_VIEW's solid-js, @solidjs/signals and
+// @solidjs/web. Without SOLID_VIEW or APP it skips. `npm test` runs it. Playwright comes from $NODE_PATH; Chromium from
+// $CHROME or Playwright's headless shell.
+import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runConformanceAsync } from "../conformance.mjs";
 
+const here = dirname(fileURLToPath(import.meta.url));
+const repo = resolve(here, "../../..");
+if (!process.env.APP && !process.env.SOLID_VIEW) {
+  console.log("skip real-host.mjs: set SOLID_VIEW to a built Solid with openView (or APP to an installed shelf app)");
+  process.exit(0);
+}
+const die = msg => { console.error(`FAIL real-host.mjs: ${msg}`); process.exit(1); };
 const require = createRequire(import.meta.url);
-const { chromium } = require("playwright");
+let chromium;
+try { ({ chromium } = require("playwright")); } catch { die("no playwright: put its node_modules on NODE_PATH"); }
 const args = process.argv.slice(2);
 const shots = args.includes("--shots") ? resolve(args[args.indexOf("--shots") + 1]) : null;
-const app = resolve(process.env.APP ?? "/tmp/r4-shelf");
+const app = process.env.APP ? resolve(process.env.APP) : setUpApp(resolve(process.env.SOLID_VIEW));
 const chrome = process.env.CHROME ?? (() => {
   const base = join(homedir(), ".cache/ms-playwright");
   const dir = existsSync(base) && readdirSync(base).filter(d => d.startsWith("chromium_headless_shell")).sort().pop();
   return dir ? join(base, dir, "chrome-headless-shell-linux64/chrome-headless-shell") : undefined;
 })();
 const TICK = Number(process.env.TICK_MS ?? 80);
+
+// test/shelf-app in a temp dir, linked to this repository and to SOLID_VIEW's packages; reinstalled when the links change.
+function setUpApp(solidView) {
+  const pkgs = existsSync(join(solidView, "packages/solid")) ? join(solidView, "packages") : solidView;
+  for (const p of ["solid/dist", "signals/dist", "web/dist"]) if (!existsSync(join(pkgs, p))) die(`${join(pkgs, p)} missing: build Solid first`);
+  if (!readFileSync(join(pkgs, "signals/dist/dev.attribution.js"), "utf8").includes("openView")) die(`${pkgs}: this Solid has no openView`);
+  if (!readdirSync(join(repo, "compiler")).some(f => f.endsWith(".node"))) die("build the compiler first (cd compiler && npm run build)");
+  if (!existsSync(join(repo, "runtime/dist/web.js"))) die("build the runtime first (cd runtime && node build.mjs)");
+  const link = p => `link:${p}`;
+  const pkg = {
+    name: "rx-real-host-shelf", private: true, type: "module",
+    dependencies: {
+      "@reactivescript/runtime": link(join(repo, "runtime")),
+      "solid-js": link(join(pkgs, "solid")), "@solidjs/signals": link(join(pkgs, "signals")), "@solidjs/web": link(join(pkgs, "web")),
+    },
+    devDependencies: {
+      "@reactivescript/compiler": link(join(repo, "compiler")), "@reactivescript/map": link(join(repo, "tooling/rx-map")),
+      "@solidjs/diagnostics": "^2.0.0", "@solidjs/vite-plugin": "^3.0.1", vite: "^8.3.8",
+    },
+  };
+  const workspace = `minimumReleaseAgeExclude:\n  - solid-js\n  - '@solidjs/*'\n  - '@reactivescript/*'\noverrides:\n`
+    + ["solid-js", "@solidjs/signals", "@solidjs/web"].map(n => `  '${n}': ${pkg.dependencies[n]}\n`).join("");
+  const dir = join(tmpdir(), `rx-real-host-${createHash("sha1").update(repo + pkgs).digest("hex").slice(0, 10)}`);
+  mkdirSync(dir, { recursive: true });
+  cpSync(join(here, "shelf-app"), dir, { recursive: true, force: true });
+  const manifest = JSON.stringify(pkg, null, 2) + "\n";
+  const fresh = !existsSync(join(dir, "node_modules/.bin/vite")) || !existsSync(join(dir, "package.json"))
+    || readFileSync(join(dir, "package.json"), "utf8") !== manifest;
+  writeFileSync(join(dir, "package.json"), manifest);
+  writeFileSync(join(dir, "pnpm-workspace.yaml"), workspace);
+  if (fresh) {
+    console.log(`installing the shelf app in ${dir}`);
+    const r = spawnSync("pnpm", ["install", "--prefer-offline"], { cwd: dir, stdio: ["ignore", "inherit", "inherit"] });
+    if (r.status !== 0) die(`pnpm install failed in ${dir}`);
+  }
+  return dir;
+}
 
 // ---- the dev server ------------------------------------------------------------------------------------------------
 const port = 3190 + Math.floor(Math.random() * 400);
@@ -200,30 +250,66 @@ try {
     console.log(`wrote ${join(shots, "travel-mid.png")}`);
   }
 
-  // live work beneath the view is hidden, and lands at resume
+  // read-only while viewing (§4b): input on the app does nothing at all, and a badge says why
   const beneath = await page.evaluate(() => globalThis.__T.html());
-  await page.getByRole("button", { name: "read", exact: true }).first().click({ force: true });
+  const badgeText = () => page.evaluate(() => document.querySelector("[data-rx-viewing-badge]")?.shadowRoot.textContent ?? null);
+  check(`a badge says the app is viewing #${mid}`, (await badgeText())?.includes(`viewing #${mid}`), await badgeText());
+  await page.getByRole("button", { name: "read", exact: true }).first().click();
+  await page.getByPlaceholder("Search title or author", { exact: true }).click();
+  await page.keyboard.type("piranesi");
+  await page.getByPlaceholder("Title", { exact: true }).fill("not while viewing").catch(() => {});
   await sleep(300);
   const during = await drain(page);
-  check("a click while viewing changes nothing shown", (await page.evaluate(() => globalThis.__T.html())) === beneath);
-  check("…and sends no flush", !during.some(m => m.type === "flush"), during.map(m => m.type));
+  const typed = await page.evaluate(() => [...document.querySelectorAll("input")].map(i => i.value).join("|"));
+  check("clicks and typing while viewing change nothing shown", (await page.evaluate(() => globalThis.__T.html())) === beneath && !/piranesi|not while/.test(typed), typed);
+  check("…and run nothing: no flush, no action", !during.some(m => m.type === "flush" || m.type === "run"), during.map(m => m.type));
   await post(page, { type: "resume" });
   await sleep(100);
   const resumed = await drain(page);
   const r = resumed.find(m => m.type === "resume");
-  const after = await page.evaluate(() => ({ html: globalThis.__T.html(), on: document.querySelector(".chips button.on")?.textContent }));
-  check("resume lands the click made while viewing", r && after.on === "read", { resume: r && { head: r.head, changes: r.changes.map(c => c.name) }, on: after.on });
-  check("…as one new step after the old head", r?.head === head + 1 && resumed.some(m => m.type === "flush" && m.seq === head + 1), resumed.map(m => `${m.type}${m.seq ?? ""}`));
-  const filterChange = r?.changes.find(c => c.name === "filter");
-  check("…whose resume changes run from the viewed seq to live (filter: prev → preview)", filterChange && filterChange.preview === '"read"', r?.changes);
-
-  // back to a recorded seq, then live, with nothing done beneath: the DOM is live's again
+  check("resume with nothing written beneath lands no step and gives back the exact live DOM",
+    r?.head === head && !resumed.some(m => m.type === "flush") && (await page.evaluate(() => globalThis.__T.html())) === liveDom,
+    { head: r?.head, msgs: resumed.map(m => m.type) });
+  check("…and the badge is gone", (await badgeText()) === null);
+  check("…and input works again", await (async () => {
+    await page.getByRole("button", { name: "read", exact: true }).first().click();
+    await sleep(100);
+    const on = await page.evaluate(() => document.querySelector(".chips button.on")?.textContent);
+    await page.getByRole("button", { name: "all", exact: true }).click();
+    await sleep(100);
+    await waitIdle(page);
+    return on === "read";
+  })());
   const liveNow = await page.evaluate(() => globalThis.__T.html());
+  await drain(page);
+
+  // the badge's Resume button resumes
   await shownAt(exact[1]);
-  await post(page, { type: "resume" });
+  await page.locator("[data-rx-viewing-badge] button").click();
+  await sleep(100);
   const r2 = (await drain(page)).find(m => m.type === "resume");
-  const back = await page.evaluate(() => globalThis.__T.html());
-  check("resume with nothing beneath restores the live DOM", back === liveNow && r2?.head === head + 1, { head: r2?.head, diff: back === liveNow ? null : firstDiff(liveNow, back) });
+  check("the badge's Resume button resumes to the live DOM", r2 && (await page.evaluate(() => globalThis.__T.html())) === liveNow, r2);
+
+  // step.inexact: a seq before a store guess lists the store and what reads it
+  if (gap.length) {
+    const { reply } = await shownAt(gap[0]);
+    const want = ["src/App.rx|App|books", "src/App.rx|App|shown", "src/App.rx|App|total"];
+    check(`travel(${gap[0]}), before a store guess, marks books and its readers inexact`, want.every(k => reply?.inexact?.includes(k)), reply?.inexact);
+    const { reply: late } = await shownAt(head);
+    check(`travel(${head}), after the last guess, marks nothing inexact`, late?.type === "step" && late.inexact === undefined, late?.inexact);
+    await post(page, { type: "resume" });
+    await drain(page);
+  }
+
+  // first-change prev: a name whose first value never came in a flush has it as the first change's prev
+  const firstFilter = (await page.evaluate(() => {
+    let tl;
+    const v = globalThis.__RX__.attach(m => { if (m.type === "timeline") tl = m; });
+    v.post({ type: "hello", want: ["timeline"] });
+    v.detach();
+    return tl.steps.flatMap(s => s.changes).find(c => c.key === "src/App.rx|App|filter");
+  }));
+  check("the first change of filter carries its value before (\"all\")", firstFilter?.prev === '"all"', firstFilter);
 
   if (shots) {
     await drain(page);

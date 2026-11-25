@@ -60,6 +60,6 @@
   "scripts": {
     "build": "node build.mjs",
     "prepack": "node build.mjs",
-    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs && node test/conformance.test.mjs && node test/run.mjs"
+    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
   }
 }
