@@ -17,9 +17,13 @@ let db: Book[] = [
 
 let failNext = typeof location !== 'undefined' && new URLSearchParams(location.search).has('fail');
 let saves = 0;
+let loads = 0;
 
 export async function load(): Promise<Book[]> {
+  const number = ++loads;
   await delay(300);
+  if (number === 2 && new URLSearchParams(location.search).has("fail-reask"))
+    throw Object.assign(new Error("Retry in 5s"), { name: "RateLimited" });
   if (failNext) {
     failNext = false;
     throw new Error('load failed');

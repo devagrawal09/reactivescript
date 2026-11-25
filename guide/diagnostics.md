@@ -145,6 +145,18 @@ action or an instantiating function, pass each argument separately
 (`save(pair[0], pair[1])`). This makes the action's arity and an
 instantiation's `ref` arguments explicit (AC-1f, E-10).
 
+### JS_NEW
+
+Declare an RX error with `error Missing(id: string) => id` and throw it
+with `throw Missing(id)`. There is no `new` expression. Construct host
+objects such as `Date` in JS and import the function.
+
+### MARKUP_STRING
+
+A quoted string inside a markup branch needs a reader:
+`{if c { {"text"} }}`. Inside an element, write text without quotes:
+`{if c { <span>text</span> }}`.
+
 ### ASSIGNMENT
 
 A source is written with `:=` as a statement, in a handler or an action (W-1). There is no `=`, `+=` or `++` on state.

@@ -64,6 +64,7 @@ export function declKeys(p: Program, module: string): Map<Decl, string> {
   const decls = (ds: Decl[], scope: string) => {
     for (const d of ds) {
       if (d.k === "source" || d.k === "eq" || d.k === "action") found.push({ d, at: `${scope}|${d.name}`, line: d.line });
+      if (d.k === "effect") found.push({ d, at: `${scope}|@effect`, line: d.line });
       else if (d.k === "fn") decls(d.decls, scope);
       else if (d.k === "component") { decls(d.decls, d.name); markup(d.view, d.name); }
     }

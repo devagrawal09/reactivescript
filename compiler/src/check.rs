@@ -2437,13 +2437,9 @@ impl<'a> Checker<'a> {
                 }
                 self.expr(alt, ienv, ctx, None);
             }
-            ExprKind::Bin { op, l, r } => {
+            ExprKind::Bin { l, r, .. } => {
                 self.expr(l, env, ctx, None);
-                if op == "instanceof" {
-                    if !matches!(&r.k, ExprKind::Id(n) if n != "Panic" && self.lookup(env, n).map_or(n == "Error", |s| self.syms[s].kind == SymKind::ErrClass)) {
-                        self.err("NOT_AN_ERROR_CLASS", "R-f-1", "`instanceof` tests an error class: write `e instanceof Error` or name a declared or imported error class".into());
-                    }
-                } else { self.expr(r, env, ctx, None); }
+                self.expr(r, env, ctx, None);
             }
             ExprKind::If { c, t, f } => {
                 self.expr(c, env, ctx, None);

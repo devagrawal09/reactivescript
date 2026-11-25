@@ -315,7 +315,7 @@ try {
     post({ v: 1, type: "flight", key: U, state: "start", at: 300, cause: [{ key: K("query").key, name: `rx:${K("query").key}`, prev: '""', value: '"a"' }] });
     post({ v: 1, type: "flight", key: U, state: "abandon", at: 310 });
     await sleep(60);   // (the land above asked the bridge for a snapshot: its answer, with nothing in the air, comes first)
-    post({ v: 1, type: "flight", key: U, state: "start", at: 311 });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 311, retryAfterRejection: true });
     await sleep(60);
     doc.querySelector('#ptabs [data-tab="calls"]')?.click();
     await sleep(40);
@@ -329,6 +329,10 @@ try {
       && /click button "Next"/.test(rowText(r1)) && /re-asked: page 1→2/.test(rowText(r1)) && r1.querySelector(".c-by a")?.textContent === "users", rowText(r1));
     check("calls: a rejected ask says its error; a refresh during an action is attributed to it, marked inferred",
       r2?.classList.contains("o-rejected") && /RateLimited: slow down/.test(r2.querySelector(".c-err")?.textContent ?? "") && /during action rename #1/.test(rowText(r2)) && !!r2.querySelector(".c-inf"), rowText(r2));
+    check("calls: an unpublished rejection does not link to an unrelated frame",
+      r2?.dataset.seq === "-1" && /no error frame recorded/.test(rowText(r2)), rowText(r2));
+    check("calls: a retry after rejection is distinct from an explicit refresh",
+      /retried after rejection/.test(rowText(rs[0])) && !rs[0]?.querySelector(".c-inf"), rowText(rs[0]));
     check("calls: a run with its args, its import, its error and the step it ended in",
       run?.querySelector(".c-fn")?.textContent === "saveUser" && /\(7, Ada\)/.test(rowText(run)) && run.classList.contains("o-rejected") && /ServerError: 503/.test(rowText(run)) && /#3/.test(run.querySelector(".c-seq")?.textContent ?? ""), rowText(run));
     check("calls: a superseded ask is stale", r3?.classList.contains("o-stale") && /re-asked: query/.test(rowText(r3)), rowText(r3));

@@ -971,13 +971,7 @@ class Checker {
         const inner = new Env(env, env.region); if (e.name) inner.vars.set(e.name, { kind: "value", name: e.name, region: env.region, line: this.line });
         this.expr(e.alt, inner, ctx); return;
       }
-      case "bin":
-        go(e.l);
-        if (e.op === "instanceof") {
-          if (e.r.k !== "id" || e.r.name === "Panic" || (e.r.name === "Error" ? env.lookup("Error") && env.lookup("Error")?.kind !== "errclass" : env.lookup(e.r.name)?.kind !== "errclass"))
-            this.err("NOT_AN_ERROR_CLASS", "R-f-1", "`instanceof` tests an error class: write `e instanceof Error` or name a declared or imported error class");
-        } else go(e.r);
-        return;
+      case "bin": go(e.l); go(e.r); return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
       case "member":

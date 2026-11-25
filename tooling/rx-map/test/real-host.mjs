@@ -232,7 +232,9 @@ async function saveRx(page, file, text) {
 }
 
 try {
-  if (args.includes("--hmr-only")) {
+  if (args.includes("--reask-only")) {
+    await failedReask();
+  } else if (args.includes("--hmr-only")) {
     await realHmr();
     if (linkedRuntime) await runtimeReload();
   } else {
@@ -426,12 +428,48 @@ try {
   await page.close();
 
   await roundThree();
+  await failedReask();
   await realHmr();
   if (linkedRuntime) await runtimeReload();
   }
 } finally {
   await browser.close();
   vite.kill();
+}
+
+async function failedReask() {
+  const page = await openApp("?fail-reask");
+  const key = "src/App.rx|App|books";
+  try {
+    await page.getByRole("button", { name: "Refresh shelf", exact: true }).click();
+    await page.waitForFunction(k => globalThis.__T.msgs.some(m => m.type === "flush" &&
+      m.changes.some(c => c.key === k && c.error?.includes("RateLimited"))), key);
+    const failed = await page.evaluate(k => {
+      const { msgs, dom } = globalThis.__T;
+      const frame = msgs.find(m => m.type === "flush" && m.changes.some(c => c.key === k && c.error?.includes("RateLimited")));
+      return { seq: frame.seq, html: dom[frame.seq], asks: msgs.filter(m => m.type === "flight" && m.key === k) };
+    }, key);
+    assert.match(failed.html, /Retry in 5s/);
+    assert.ok(failed.asks.some(m => m.state === "start" && m.cause?.some(c => c.kind === "refresh")), JSON.stringify(failed.asks));
+    await page.getByRole("button", { name: "Refresh shelf", exact: true }).click();
+    await page.locator(".counts").waitFor();
+    await waitIdle(page);
+    await post(page, { type: "travel", to: failed.seq });
+    await page.waitForFunction(n => globalThis.__T.msgs.some(m => m.type === "step" && m.to === n), failed.seq);
+    const history = (await drain(page)).find(m => m.type === "step" && m.to === failed.seq);
+    // The app at that step: Solid's view pins values, not an error status (solid-asks.md #10), so the tripped boundary
+    // isn't replayed today. Either the DOM shows the fallback the page showed then, or the step says it can't.
+    const shownThen = await page.evaluate(() => globalThis.__T.html());
+    const replayed = /Retry in 5s/.test(shownThen);
+    const marked = history.inexact?.includes(key) && history.recordedErrors?.includes(key);
+    assert.ok(replayed || marked, `travel(${failed.seq}): no fallback in the DOM and not marked: ${JSON.stringify(history)}`);
+    if (!replayed) assert.ok(marked, "an error not replayed must be marked inexact and recorded");
+    console.log(`ok   refresh rejection shows the live fallback; rewound, ${replayed
+      ? "the app shows the fallback again"
+      : "the app shows the rows (Solid can't pin an error: solid-asks #10) and the step marks it inexact + recordedErrors"}`);
+    await post(page, { type: "resume" });
+    await waitIdle(page);
+  } finally { await page.close(); }
 }
 
 async function runtimeReload() {

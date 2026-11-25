@@ -9,6 +9,8 @@ const JS_APIS = /\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|cre
  *  `src/parse.rs` `hint` is the same function. */
 export function hint(src: string, i: number, msg: string): [string, string] | null {
   const rest = src.slice(i);
+  if (msg === "constructor expression") return ["JS_NEW", "use `error E(message: string) => message` and `throw E(message)` for an RX error; construct host objects such as Date in an imported JS function"];
+  if (msg === "bare string in markup") return ["MARKUP_STRING", 'wrap quoted text in a reader: `{if c { {"text"} }}`, or write `<span>text</span>`'];
   if (msg === "action parameter default") return ["ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call"];
   const at = rest.length && !/^\s*$/.test(rest.split("\n")[0]) ? i : src.slice(0, i).trimEnd().length - 1;
   const p = Math.max(0, at);
@@ -608,9 +610,7 @@ function parseBin(c: Cursor, lvl: number): Expr {
       c.ws(); l = { k: "as", e: l, ty: assertionType(c) };
       continue;
     }
-    if (lvl === 4 && c.keyword("instanceof")) {
-      c.ws(); l = { k: "bin", op: "instanceof", l, r: parseBin(c, lvl + 1) }; continue;
-    }
+    if (lvl === 4 && /^instanceof\b/.test(c.src.slice(c.i))) c.fail("use a typed catch or errored fallback to distinguish error classes; RX has no `instanceof`");
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();
@@ -722,6 +722,7 @@ function stringEscape(c: Cursor): string {
 }
 function parsePrimary(c: Cursor): Expr {
   c.ws();
+  if (/^new\s+[A-Za-z_$]/.test(c.src.slice(c.i))) c.fail("constructor expression");
   if (/^<style\b/.test(c.src.slice(c.i))) {                           // 07 CSS-5: a stylesheet as a value — its class map
     const line = c.line; c.i += "<style".length; c.ws(); if (!c.eat(">")) c.fail("CSS-5: a class map is `<style>…</style>`, with no attributes");
     const end = c.src.indexOf("</style>", c.i); if (end < 0) c.fail("expected </style>");
@@ -804,6 +805,7 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     }
     if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push({ ...ctl, line }); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
+    if (!inElement && ['"', "'", "`"].includes(c.peek())) c.fail("bare string in markup");
     // Normalize a whole JSX text child, not one line at a time.
     const start = c.i;
     let s = "";

@@ -76,7 +76,7 @@ export component Token(props: { c: any; extra: string }) {
   <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
       (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur", holeId == c.id && "xhl",
-      failed && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
+      failed && live.recordedErrors[k] != true && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
       present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact", uncovered && "cov-uncovered"]}
     style={{ ...c.style, display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
     data-id={c.id} data-level={c.level} role="button" tabIndex={overview ? -1 : 0} aria-label={c.aria}>
@@ -93,7 +93,9 @@ export component Token(props: { c: any; extra: string }) {
     {if hasValue { <ValueBadge v={v} /> }}
     {if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
     {if present(held) { <span class="hm" innerHTML={heldHTML(held)}></span> }}
-    {if live.inexact[k] == true { <span class="inx" title="the app can't show this value exactly at this point in time">can't rewind</span> }}
+    {if live.recordedErrors[k] == true {
+      <span class="inx" title="Recorded from the live frame; time travel cannot restore the error boundary">recorded error · not replayed</span>
+    } else if live.inexact[k] == true { <span class="inx" title="the app can't show this value exactly at this point in time">can't rewind</span> }}
     {if present(mark) { <span class="pb" innerHTML={planIconHTML(mark)}></span> }}
   </span>
 }

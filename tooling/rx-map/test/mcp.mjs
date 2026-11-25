@@ -205,7 +205,8 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   const ws = new EventEmitter();
   const endpoints = new Map();
   const http = createServer((req, res) => { const endpoint = endpoints.get(req.url); req.url = ""; void endpoint(req, res); });
-  const config = { ws, config: { root: repo }, middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} };
+  const watcher = Object.assign(new EventEmitter(), { add() {} });
+  const config = { ws, watcher, config: { root: repo }, middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} };
   rxMap().configureServer(config);
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   t.after(() => http.close());
