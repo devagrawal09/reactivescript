@@ -7,7 +7,7 @@ import { pureGlobal } from "./pure-globals.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
-import { brandsOf } from "./parse.ts";
+import { helpersOf } from "./parse.ts";
 import type { SymDecl } from "./model.ts";
 /** MO-11f: a declaration's line, as its file has it. */
 const declLine = (x: JsDecl) => x.src ?? "";
@@ -214,18 +214,32 @@ export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; root?: string };   // root: the project root a key's module is relative to
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries }; }
+export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, warnings: c.warnings, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries }; }
+/** MO-11e: IMPORT_ROW_DEPRECATED's message for the words on an import that narrow a TS module's defaulted facts (`pure`,
+ *  `fails A | B`, `server`/`client`), naming the helpers that state them in the `.ts`, nested in one initializer. */
+export function deprecatedNarrowing(name: string, tsFile: string, pure: boolean, fails: string[] | undefined, side: "server" | "client" | undefined): string | null {
+  const open: string[] = [], words: string[] = [];
+  if (pure) { open.push("pure("); words.push("`pure`"); }
+  if (fails) { open.push(`rejects([${fails.join(", ")}], `); words.push(`\`fails ${fails.join(" | ")}\``); }
+  if (side) { open.push(`${side}(`); words.push(`\`${side}\``); }
+  if (!open.length) return null;
+  const helpers = `${open.join("")}…${")".repeat(open.length)}`;
+  const exp = name === "default" ? `export default ${helpers}` : `export const ${name} = ${helpers}`;
+  const said = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+  return `${said} on the import ${words.length === 1 ? "narrows" : "narrow"} ${name}'s defaulted rows, which is deprecated: in ${tsFile}, \`${exp}\` (\`${open.map(o => o.split("(")[0]).join("`, `")}\` from "@reactivescript/js"), then import it without ${said} — this is an error in the next minor`;
+}
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
 export function checkModules(set: ModuleSet, opts: { root?: string } = {}) {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  const boundaries = new Map<Markup, number>();
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); }
-  return { diags, sigs, models, boundaries };
+  const boundaries = new Map<Markup, number>(); const warnings: Diagnostic[] = [];
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); warnings.push(...r.warnings); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); }
+  return { diags, warnings, sigs, models, boundaries };
 }
 
 class Checker {
   diags: Diagnostic[] = [];
+  warnings: Diagnostic[] = [];                                          // reported, never refusing the program (MO-11e)
   model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
   boundaries = new Map<Markup, number>();
   private opts: Opts;
@@ -249,6 +263,7 @@ class Checker {
   private compSyms = new Map<Region, Sym>();
   private rowsBusy = new Set<string>();
   private retains = new Map<Region, Map<string, Set<string>>>();   // O-3: per component, the props it stores where they outlive it — "d:<depth>" (a source), "p:<key>" (a provision above)
+  private warn(code: string, rule: string, msg: string) { if (!this.warnings.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.warnings.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}), severity: "warning" }); }
   private err(code: string, rule: string, msg: string) { if (!this.diags.some(d => d.code === code && d.line === this.line && d.msg === msg)) this.diags.push({ code, rule, line: this.line, msg, ...(this.opts.file ? { file: this.opts.file } : {}) }); }
   private region(parent: Region | null, kind: RegionKind, opts: { component?: boolean; provParent?: Region | null; name?: string } = {}): Region {
     const r: Region = { id: this.seq++, depth: parent ? parent.depth + 1 : 0, parent, component: null, isComponentRoot: !!opts.component, provParent: opts.provParent === undefined ? parent : opts.provParent, appSites: [], provides: new Set() };
@@ -632,7 +647,7 @@ class Checker {
     const tsFile = ts?.split("/").pop();
     const rule = ts ? "MO-11e" : "MO-8";
     if (d.fails && !ts) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
-    const decl = (x: JsDecl): SymDecl => { const brands = x.origin === "generated" ? brandsOf(x) : []; return { line: declLine(x), from: moduleKey(x.origin === "generated" ? x.generatedFrom! : d.declared!, this.opts.root), origin: x.origin !== "generated" ? "written" : brands.length ? "brand" : "default", brands }; };   // MO-11f
+    const decl = (x: JsDecl): SymDecl => { const helpers = x.origin === "generated" ? helpersOf(x) : []; return { line: declLine(x), from: moduleKey(x.origin === "generated" ? x.generatedFrom! : d.declared!, this.opts.root), origin: x.origin !== "generated" ? "written" : helpers.length ? "helper" : "default", helpers }; };   // MO-11f
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.kind !== "import" && y.name === name && (y.kind !== "type" || y.exported));
       if (!x) {
@@ -644,11 +659,12 @@ class Checker {
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line, decl: decl(x) }); continue; }
       if (x.kind === "const") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side, decl: decl(x) }); continue; }   // MO-11b: a JS value — R-io-4 and R-f-8, narrowed at the import
       const gen = x.origin === "generated";
-      // MO-11e: per fact, a written line beats a brand beats the import beats the default; the import may narrow only a defaulted fact
+      // MO-11e: per fact, a written line beats a helper beats the import beats the default; the import may narrow only a defaulted fact
       if (d.fails && ts && !gen) this.err("IMPORT_ROW_MISMATCH", rule, `${name}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
-      if (d.fails && gen && x.rejects) this.err("IMPORT_ROW_MISMATCH", rule, `${name} rejects with ${x.rejects.join(" | ")} by its \`Rejects<…>\` brand in ${tsFile}; \`fails\` on the import cannot restate it`);
+      if (d.fails && gen && x.rejects) this.err("IMPORT_ROW_MISMATCH", rule, `${name} rejects with ${x.rejects.join(" | ")} by its \`rejects\` helper in ${tsFile}; \`fails\` on the import cannot restate it`);
       if (d.pure && !x.pure && !gen) this.err("IMPORT_ROW_MISMATCH", rule, `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
-      if (d.side && x.side !== d.side && (!gen || x.side)) this.err("IMPORT_ROW_MISMATCH", ts ? rule : "SF-5", gen ? `${name} is \`${x.side}\` by its \`${x.side === "server" ? "Server" : "Client"}<…>\` brand in ${tsFile}; \`${d.side}\` on the import cannot restate it` : `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
+      if (d.side && x.side !== d.side && (!gen || x.side)) this.err("IMPORT_ROW_MISMATCH", ts ? rule : "SF-5", gen ? `${name} is \`${x.side}\` by its \`${x.side}\` helper in ${tsFile}; \`${d.side}\` on the import cannot restate it` : `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
+      if (gen) { const m = deprecatedNarrowing(name, tsFile!, !!d.pure && !x.pure, x.rejects ? undefined : d.fails, x.side ? undefined : d.side); if (m) this.warn("IMPORT_ROW_DEPRECATED", "MO-11e", m); }   // MO-11e: narrowing a defaulted fact still works, and is deprecated
       if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), decl: decl(x) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
       const pure = x.pure || (gen && d.pure);
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, rejects: new Set(x.rejects ?? (gen ? d.fails : undefined) ?? ["Error"]), side: x.side ?? (gen ? d.side : undefined), decl: decl(x) });

@@ -160,7 +160,7 @@ pub struct ModelSymbol {
     pub from: Option<String>,
     /// a source's or an equation's identity (`decl_keys`)
     pub key: Option<String>,
-    /// MO-11f: a JS import's declaration — `{line, from, origin, brands}`
+    /// MO-11f: a JS import's declaration — `{line, from, origin, helpers}`
     pub decl: Option<Value>,
 }
 #[derive(Debug, Clone)]

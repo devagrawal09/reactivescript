@@ -81,7 +81,8 @@ pub fn target(name: &str) -> Target {
     }
 }
 
-/// `{entry, css, modules: {path: {code, map, css}}}` (the program's stylesheet, and each module's own), or `{diagnostics: [...]}` / `{error}`. `entry` is an absolute path.
+/// `{entry, css, modules: {path: {code, map, css}}, warnings?}` (the program's stylesheet, and each module's own; `warnings`
+/// only when there are some, each with `severity: "warning"`), or `{diagnostics: [...]}` (errors, then warnings) / `{error}`. `entry` is an absolute path.
 /// `spa`: a client-only build, checked under 08 CN-3d.
 pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
     app_dev(entry, target, module_name, spa, None)
@@ -114,8 +115,16 @@ pub fn app_hot_with(entry: &str, target: Target, module_name: &str, spa: bool, d
             json!({ "diagnostics": [d] })
         })?;
         let checked = check_modules(&set, spa);
+        let with_file = |mut j: Value| {
+            if j["file"].is_null() {
+                j["file"] = json!(set.entry);
+            }
+            j
+        };
+        // warnings never refuse the program: with errors they follow them, else they ride along with the modules
+        let warnings: Vec<Value> = checked.warnings.iter().map(|d| with_file(d.to_json_warning())).collect();
         if !checked.diags.is_empty() {
-            return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
+            return Err(json!({ "diagnostics": checked.diags.iter().map(|d| with_file(d.to_json())).chain(warnings).collect::<Vec<_>>() }));
         }
         let out = crate::emit::compile_with_hot(&set, &[], true, dev, None, hot).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
         let mut modules = Map::new();
@@ -134,6 +143,9 @@ pub fn app_hot_with(entry: &str, target: Target, module_name: &str, spa: bool, d
             modules.insert(path.clone(), json!({ "code": l.code, "map": l.map, "css": out.module_css[name] }));
         }
         let mut result = json!({ "entry": set.entry, "css": out.css, "modules": modules });
+        if !warnings.is_empty() {
+            result["warnings"] = json!(warnings);
+        }
         if dev.is_some() {
             result["declarations"] = json!(set.declarations.keys().collect::<Vec<_>>());
         }

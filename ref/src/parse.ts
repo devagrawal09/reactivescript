@@ -147,16 +147,16 @@ export type JsDecl = (
   | { kind: "const"; name: string; line: number; type?: string }   // MO-11b: a JS value, as an undeclared JS import is
   | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; target?: string; rx?: boolean }   // MO-8e: types only; target/rx filled by the loader
 ) & { origin?: "written" | "generated"; generatedFrom?: string; src?: string };   // src: the declaration's line, as its file has it (MO-11f)   // MO-11: set by the loader on a declaration it keeps — a line of the written `.d.rx`, or one generated from the TS module (`generatedFrom`, its path)
-/** MO-11c: the brands a generated line's rows say were written in the `.ts` (a fact without one is defaulted). */
-export function brandsOf(d: JsDecl): string[] {
+/** MO-11c: the helpers a generated line's rows say the `.ts` states (`pure`, `rejects`, `ref`, `instantiates`, `server`,
+ *  `client`); a fact without one is defaulted. */
+export function helpersOf(d: JsDecl): string[] {
   if (d.kind !== "fn") return [];
   const out: string[] = [];
-  if (d.pure) out.push("Pure");
-  if (d.rejects) out.push("Rejects");
-  if (d.refs?.some(x => x) || shapeHasRef(d.shape)) out.push("Ref");
-  if (d.instWritten) out.push("Instantiates");
-  if (d.side === "server") out.push("Server");
-  if (d.side === "client") out.push("Client");
+  if (d.pure) out.push("pure");
+  if (d.rejects) out.push("rejects");
+  if (d.refs?.some(x => x) || shapeHasRef(d.shape)) out.push("ref");
+  if (d.instWritten) out.push("instantiates");
+  if (d.side) out.push(d.side);
   return out;
 }
 function typeParams(c: Cursor): string | undefined {

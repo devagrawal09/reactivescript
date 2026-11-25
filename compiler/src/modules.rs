@@ -190,7 +190,7 @@ fn base(p: &str) -> &str {
 }
 fn rule_of(code: &str) -> &'static str {
     match code {
-        "DECLARATION_BRAND" => "MO-11c",
+        "DECLARATION_HELPER" => "MO-11c",
         "DECLARATION_UNAVAILABLE" => "MO-11d",
         _ => "MO-11",
     }

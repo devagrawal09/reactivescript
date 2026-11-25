@@ -64,7 +64,7 @@ export function readRecord(read: (path: string) => string | undefined, stem: str
   return { from: r.from, text: r.text, errors: Array.isArray(r.errors) ? r.errors : [], files: Array.isArray(r.files) ? r.files : [] };
 }
 const base = (p: string) => p.split("/").pop() ?? p;
-const ruleOf = (code: string) => code === "DECLARATION_BRAND" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11";
+const ruleOf = (code: string) => code === "DECLARATION_HELPER" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11";
 export const UNAVAILABLE_FIX = "install the generator, `npm i -D @reactivescript/compiler typescript`, or set RX_DTS to a command that prints it (`rx-dts --record <stem>`)";
 
 /** Load `entry` and everything it imports from `.rx`. `read` returns a module's source, or undefined when there is none. */

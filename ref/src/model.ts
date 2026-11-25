@@ -28,8 +28,8 @@ export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "re
 export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
 export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; shadowed?: number; deadTyped?: true };
 /** MO-11f: a JS import's declaration — its effective `.d.rx` line, the file it is from (the written `.d.rx`, or the TS module it
- *  was generated from), and where its facts came from: `written`, `brand` (with the brands) or `default`. */
-export type SymDecl = { line: string; from: string; origin: "written" | "brand" | "default"; brands: string[] };
+ *  was generated from), and where its facts came from: `written`, `helper` (with the helpers) or `default`. */
+export type SymDecl = { line: string; from: string; origin: "written" | "helper" | "default"; helpers: string[] };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string; decl?: SymDecl };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
