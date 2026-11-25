@@ -8,13 +8,17 @@ type; it neither supplies a default nor changes the function's row.
 ```rx
 -- module: ./labels.d.rx
 export pure fn label(x?: string): string
+export type Label = string
 ```
 
 ## Program
 
 ```rx
-import { label } from "./labels"
-export default component App() { <p>labels</p> }
+import { Label } from "./labels"
+export default component App() {
+  x: Label = "labels"
+  <p>{x}</p>
+}
 ```
 
 ## Frames
