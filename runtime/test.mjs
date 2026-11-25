@@ -20,10 +20,15 @@ try {
     const keys = execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", probe], { cwd: tmp }).toString().trim();
     check(`${build} build (${cond})`, keys.includes("createApp"), keys);
     const api = `import assert from "node:assert/strict"; import { createApp } from "@reactivescript/runtime";
-      assert.throws(() => createApp({ root: null }).api("load"), /MISSING_TEST_API.*load.*createApp/);
+      assert.throws(() => createApp({ root: null }).api("load"), /cannot bind load.*createApp/);
+      assert.equal(createApp({ root: null }).jsError, undefined);
       assert.equal(createApp({ root: null, api: { load: () => "loaded" } }).api("load")(), "loaded");`;
     execFileSync(process.execPath, ["--conditions=" + cond, "--input-type=module", "-e", api], { cwd: tmp });
-    check(`${build} reports a missing test API and accepts an injected one`, true);
+    execFileSync(process.execPath, ["--conditions=" + cond, "--conditions=development", "--input-type=module", "-e", `
+      import assert from "node:assert/strict"; import { createApp } from "@reactivescript/runtime";
+      assert.throws(() => createApp({ root: null }).api("load"), /MISSING_TEST_API/);
+      assert.equal(typeof createApp({ root: null }).jsError, "function");`], { cwd: tmp });
+    check(`${build} gates the reference API behind development`, true);
   }
   const { app: compile } = createRequire(import.meta.url)("../compiler/index.js");
   const out = JSON.parse(compile(path.resolve(here, "../examples/todo.rx"), "ssr"));

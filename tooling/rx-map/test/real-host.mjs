@@ -406,7 +406,7 @@ async function realHmr() {
   const rows = join(app, "src/components/Book.rx");
   const originalRows = readFileSync(rows, "utf8");
   let text = original.replace('  source filter:', `  source counter: number := 0
-  source answer: string = await loadAnswer("first")
+  source answer: string = str(await loadAnswer("first"))
   doubled = counter * 2
   source filter:`).replace("import pure { load }", "import pure { load, loadAnswer }")
     .replace("    <h1>Shelf</h1>", `    <h1>Shelf</h1>
@@ -499,13 +499,15 @@ async function realHmr() {
     await post(page, { type: "resume" });
     await state("counter", "4");
     console.log(`ok   HMR travel across #${changed.flush.seq} reports the old expression; travel to the HMR step shows counter 3 instead of 4`);
-    await edit("standing question re-asks and shows its old answer until landing", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
+    await edit("standing question with a hoisted await re-asks and keeps its previous answer", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
       { answer: "expr-changed" }, async ({ done }) => {
+        assert.ok(!done.uncarried?.includes(key("answer")));
         await shown("answer", "first"); await shown("answer", "second");
         assert.equal((await values())[key("answer")], '"second"');
         const records = await page.evaluate(() => globalThis.__T.msgs);
         assert.ok(records.some(m => m.type === "flight" && m.key === key("answer") && m.state === "start"));
-        assert.ok(records.some(m => m.type === "flush" && m.origin === `hmr ${done.id}` && m.changes.some(c => c.key === key("answer") && c.preview === '"second"')));
+        assert.ok(records.some(m => m.type === "flush" && m.origin === `hmr ${done.id}` && m.changes.some(c => c.key === key("answer") && c.preview === '"second"')),
+          JSON.stringify(records.filter(m => m.type === "flush").slice(-8).map(m => [m.origin, m.changes.filter(c => c.key === key("answer"))])));
       });
     await edit("renamed: moved source keeps 4", s => s.replace(/\bcounter\b/g, (word, i) => s.slice(i - 4, i) === "hmr-" ? word : "tally"),
       { counter: "renamed", tally: "unchanged" }, async ({ plan }) => {
@@ -578,6 +580,7 @@ async function roundThree() {
   await toggle(1);
   await toggle(2);
   await toggle(3);
+  await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 3);
   const entries = () => page.evaluate(() => [...document.querySelectorAll(".undo-entry")].map(b => b.textContent));
   // The action can finish before Solid releases the held undo list.
   await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 3);

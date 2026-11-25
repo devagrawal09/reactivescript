@@ -2,7 +2,7 @@
 // runs what the scenarios run: each is transpiled to dist/ as it is (Solid stays external, a peer of the app's), with
 // its declarations.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -12,8 +12,17 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, "../ref/compile");
 const dist = path.join(here, "dist");
 rmSync(dist, { recursive: true, force: true }); mkdirSync(dist);
-for (const [from, to] of [["rt-web.ts", "web"], ["rt-server.ts", "server"]]) {
-  await build({ entryPoints: [path.join(src, from)], outfile: path.join(dist, `${to}.js`), format: "esm", platform: "neutral", target: "es2022", bundle: true, packages: "external", logLevel: "warning" });
+for (const [from, to] of [["rt-web.ts", "web"], ["rt-server.ts", "server"]]) for (const dev of [false, true]) {
+  await build({ entryPoints: [path.join(src, from)], outfile: path.join(dist, `${to}${dev ? ".dev" : ""}.js`), format: "esm", platform: "neutral", target: "es2022", bundle: true, packages: "external", logLevel: "warning", minifySyntax: true,
+    plugins: [{ name: "rx-runtime-tier", setup(build) {
+      build.onLoad({ filter: /rt-(web|server)\.ts$/ }, ({ path }) => ({
+        loader: "ts", contents: readFileSync(path, "utf8")
+          .replace(/^const RX_(?:INSTRUMENT|HARNESS) = .*;\n/gm, "")
+          .replace(/\bRX_INSTRUMENT\b/g, dev ? "!!DEV" : "false")
+          .replace(/\bRX_HARNESS\b/g, String(dev)),
+      }));
+    } }],
+  });
 }
 // declarations, unchecked: the runtime uses Solid internals its types leave out (createErrorBoundary, sharedConfig,
 // runInServerComponentScope); Solid's types resolve from this package's node_modules

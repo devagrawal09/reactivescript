@@ -10,6 +10,9 @@
   },
   "type": "module",
   "sideEffects": false,
+  "dependencies": {
+    "@reactivescript/compiler": "^0.3.1"
+  },
   "bin": {
     "rx-map": "./rx-map.mjs"
   },
