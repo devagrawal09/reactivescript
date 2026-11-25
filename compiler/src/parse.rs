@@ -326,7 +326,7 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
         return Some(("JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`".into()));
     }
     if msg == "in" && rest.trim_start().starts_with(',') && FOR_NAME.is_match(line) {
-        return Some(("FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`".into()));
+        return Some(("FOR_INDEX", "`for` binds one name: for records with stable IDs, write `rows key id = xs.map((x, i) => ({ id: x.id, x, i }))`, then `for row in rows { … }` using `row.x` and `row.i`".into()));
     }
     None
 }

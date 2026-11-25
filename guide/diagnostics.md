@@ -117,7 +117,11 @@ export default component App() {
 
 ### FOR_INDEX
 
-`for` binds one name. The index is `xs.indexOf(x)` in the body, or map the list to pairs first.
+`for` binds one name. Give the rows their index in a keyed equation first:
+`rows key id = xs.map((x, i) => ({ id: x.id, x, i }))`. Then use
+`for row in rows { … }` and read `row.x` and `row.i`. Use the item's stable
+key (e.g. `date` for a daily chart), not the index, to preserve row state
+on reorder. `xs.indexOf(x)` gives only the first match when values repeat.
 
 ```rx before
 export default component App() {

@@ -35,7 +35,7 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   if (msg === "expression" && rest.startsWith("<") && before.includes("?"))
     return ["JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`"];
   if (msg === "in" && /^\s*,/.test(rest) && /\bfor\s+[A-Za-z_$]/.test(line))
-    return ["FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`"];
+    return ["FOR_INDEX", "`for` binds one name: for records with stable IDs, write `rows key id = xs.map((x, i) => ({ id: x.id, x, i }))`, then `for row in rows { … }` using `row.x` and `row.i`"];
   return null;
 }
 let viewAt = 0;
