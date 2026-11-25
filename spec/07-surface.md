@@ -134,6 +134,8 @@ Added:
 | `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `from` is contextual in an import and can be used as a name elsewhere.
+`new` expressions are not part of RX. An RX error is constructed by
+calling its declared name, as in `throw Missing(id)` (R-f-1).
 
 String and template literals cook JavaScript's escapes: control escapes
 (`\n`, `\t`, etc.), escaped delimiters and backslashes, `\xHH`, `\uHHHH`,

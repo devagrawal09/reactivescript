@@ -26,6 +26,20 @@ export default component App() {
 | 0 | mount | |
 | 1 | handler `check()` | `2:7` |
 
+## Variant: null-only equality and a presence check
+
+```rx
+fn label(m: string | null | undefined): string =>
+  m != null && m != undefined ? m.toUpperCase() : "missing"
+export default component App() {
+  <p>{label(undefined)}:{label("ok")}</p>
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `missing:OK` |
+
 ## Rejected
 
 ```rx
@@ -46,4 +60,14 @@ export default component App() {
 export default component App() {
   <input onInput={e => { e.currentTarget.value = "" }} />
 }
+```
+
+```rx
+-- reject: JS_NEW
+export default component App() { <p>{new Date()}</p> }
+```
+
+```rx
+-- reject: MARKUP_STRING
+export default component App() { <p>{if true { "text" }}</p> }
 ```

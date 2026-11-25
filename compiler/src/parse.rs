@@ -279,6 +279,7 @@ fn parse_class_list(c: &mut Cursor, commas: bool) -> R<Option<Vec<String>>> {
 
 re!(JS_APIS, r"\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|createSignal|createMemo|createEffect|createStore|createResource|createAsync)\s*\(");
 re!(JS_FUNCTION, r"^(export\s+)?(default\s+)?(async\s+)?function\b");
+re!(JS_NEW, r"^new\s+[A-Za-z_$]");
 re!(JS_LOCAL, r"^(const|let|var)\b");
 re!(JS_RETURN, r"^return\b");
 re!(FOR_NAME, r"\bfor\s+[A-Za-z_$]");
@@ -289,6 +290,12 @@ re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 /// What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: its code and the
 /// text appended to the message. `ref/src/parse.ts` `hint` is the same function.
 pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
+    if msg == "constructor expression" {
+        return Some(("JS_NEW", "use `error E(message: string) => message` and `throw E(message)` for an RX error; construct host objects such as Date in an imported JS function".into()));
+    }
+    if msg == "bare string in markup" {
+        return Some(("MARKUP_STRING", "wrap quoted text in a reader: `{if c { {\"text\"} }}`, or write `<span>text</span>`".into()));
+    }
     if msg == "action parameter default" {
         return Some(("ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call".into()));
     }
@@ -2053,6 +2060,7 @@ fn string_escape(c: &mut Cursor, out: &mut String) -> R<()> {
 
 fn parse_primary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
+    if JS_NEW.is_match(c.rest()) { return c.fail("constructor expression"); }
     let start = c.i;
     if STYLE.is_match(c.rest()) {
         let line = c.line();
@@ -2343,6 +2351,7 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         if matches!(close, Close::Top) && looks_like_decl(c) {
             return c.fail("declaration after markup: a block is declarations, then its view");
         }
+        if !in_element && matches!(c.peek(), '"' | '\'' | '`') { return c.fail("bare string in markup"); }
         let s0 = c.i;
         let stops = if in_element { "<{}" } else { "<{}\n" };
         while !c.eof() && !stops.contains(c.peek()) {
