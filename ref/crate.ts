@@ -79,7 +79,7 @@ export default component App() {
 }
 `],
     ["src/api.ts", `import type { Shelf } from "./shelf";\nexport type Book = { title: string; shelf?: Shelf };\nexport const load = (): Book => ({ title: "A" });\nexport function count(...xs: Book[]): number { return xs.length; }\n`],
-    ["src/api.d.rx", `import { Shelf } from "./shelf"\nexport pure fn load(s?: Shelf): Book\n`],
+    ["src/api.d.rx", `import { Shelf } from "./shelf"\nexport pure fn load(s?: Shelf): Book\nexport type Pick = { shelf: Shelf }\n`],
     ["src/shelf.ts", `export type Shelf<T = string> = { name: T };\nexport const shelves = 3;\n`],
   ]);
   add("MO-11 generated, merged, and a type import from a TS module", "src/main.rx", withDeclarations(p => files.get(p), files), lowerMode ? [] : undefined);

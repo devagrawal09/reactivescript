@@ -41,6 +41,8 @@ export declare const limit: number;
 -- module: ./api.d.rx
 // one export of ./api.d.ts, written: the rest are generated from it (MO-11e)
 export fn saveUser(id: number, name: string): Promise<User> rejects(Offline)
+// a type of its own, which ./api.d.ts does not export: it binds no value, so it adds a type only (MO-11e)
+export type Rename = { id: number; name: string }
 ```
 
 ```ts
@@ -71,7 +73,7 @@ export const limit: number
 ## Program
 
 ```rx
-import { fetchUser, saveUser, NotFound, Offline, User } from "./api"
+import { fetchUser, saveUser, NotFound, Offline, User, Rename } from "./api"
 import { logVisit } from "./api" fails Offline
 import { createShout } from "./prims"
 export default component App() {
@@ -81,6 +83,7 @@ export default component App() {
   user: User | null = await fetchUser(id) catch (e: NotFound) => null
   name = user == null ? "nobody" : user.name
   loud = createShout(greeting)
+  draft: Rename = { id: id, name: name }
   action rename(n) {
     try { await saveUser(id, n); status := "saved" }
     catch (e: Offline) { status := "offline" }

@@ -110,6 +110,10 @@ fn a_written_line_overrides_one_export() {
     // deleteUser: a written line for a name the TS module lacks; fetchUser: written io, so `pure` cannot lower it
     assert!(got.contains(&("NOT_EXPORTED".into(), "MO-11e".into(), "api.d.rx".into(), 3)), "{got:?}");
     assert!(got.contains(&("IMPORT_ROW_MISMATCH".into(), "MO-11e".into(), "main.rx".into(), 1)), "{got:?}");
+    // a written type T does not export is the declaration's own (it binds no value): no NOT_EXPORTED
+    let own = "export type Bar = { id: number }\nexport fn saveUser(u: Bar): Promise<void>\n";
+    let bar = "import { saveUser, Bar } from \"./api\"\nexport default component App() { action a() { try { await saveUser({ id: 1 }) } catch (e) {} } <p>x</p> }\n";
+    assert_eq!(codes(&[("main.rx", bar), ("api.ts", API_TS), ("api.d.rx", own), ("rx-dts:api", &rec)]), Vec::<String>::new());
     // the generated lines W does not name stay
     let other = "import { saveUser } from \"./api\"\nexport default component App() { action a() { try { await saveUser(1) } catch (e) {} } <p>x</p> }\n";
     assert_eq!(codes(&[("main.rx", other), ("api.ts", API_TS), ("api.d.rx", "export fn fetchUser(id: number)\n"), ("rx-dts:api", &rec)]), Vec::<String>::new());

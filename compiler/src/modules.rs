@@ -349,7 +349,8 @@ impl Loader<'_> {
         let exports_of = |ds: &[JsDecl]| -> HashSet<String> { ds.iter().filter(|x| x.exported()).map(|x| x.name().to_string()).collect() };
         let (mine, theirs) = (exports_of(&ws), exports_of(&gen));
         for x in &ws {
-            if x.exported() && !theirs.contains(x.name()) {
+            // a written type is the declaration's own: it binds no value
+            if x.exported() && !matches!(x, JsDecl::Type { .. }) && !theirs.contains(x.name()) {
                 self.diags.push(Diagnostic {
                     code: "NOT_EXPORTED".into(),
                     rule: "MO-11e".into(),

@@ -106,7 +106,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     ws = ws.map(x => x.kind === "import" ? x : { ...x, origin: "written" as const });
     const exportsOf = (ds: JsDecl[]) => new Set(ds.filter(x => x.kind !== "import" && (x.kind !== "type" || x.exported)).map(x => (x as { name: string }).name));
     const mine = exportsOf(ws), theirs = exportsOf(gen);
-    for (const x of ws) if (x.kind !== "import" && (x.kind !== "type" || x.exported) && !theirs.has(x.name))
+    for (const x of ws) if (x.kind !== "import" && x.kind !== "type" && !theirs.has(x.name))   // a written type is the declaration's own: it binds no value
       diags.push({ code: "NOT_EXPORTED", rule: "MO-11e", line: x.line, file: dts, msg: `${base(dts)}: ${base(rec.from)} exports no ${x.name} — a written line overrides an export of the TS module; remove the line, or export ${x.name} from ${base(rec.from)}` });
     declarations.set(dts, [...ws, ...gen.filter(x => !mine.has((x as { name: string }).name))]);
     resolveDeclImports(dts);
