@@ -59,7 +59,8 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
   same change: its writes land with the body's end. A rejected body commits its plain writes and reverts its guesses
   (AC-1, DV-2).
 - `guess x := e`: a guess on a source or an equation, shown now, kept until the action's change commits or `x`'s own
-  answer differs (AC-3, H-11); on a `:=` source the truth is its plain writes, which land with that change. Guesses on one source hold together.
+  answer differs (AC-3, H-11). A `:=` source needs no question: its plain writes land with the action's change,
+  and if there were none, the guess ends and the previous value shows. Guesses on one source hold together.
 - `refresh x`: asks `x` again, quietly (no `pending?`; the old value stays up until the new one lands). Inside an
   action, the answer lands with the action's commit (AC-4).
 - `affects x`: `pending? x` is true until this change commits (AC-5).
