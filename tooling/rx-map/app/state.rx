@@ -1,15 +1,15 @@
 // The map's state: the graph and its model, what is selected, hovered, traced and hidden, and the layout the edges
 // are drawn on. Every view reads it; only the actions here write it.
 import { isDiff, loadJSON, saveJSON } from "./js/env.js"
-import { graphAt, putGraph } from "./js/graphs.js"
+import { graphSignal } from "./js/graphs.js"
 import { toSet } from "./js/util.js"
 import { buildModel, neighbourhood, downstream, upstream } from "./js/model.js"
 import { boardView, detailLevel, overviewLevel } from "./js/layout.js"
 
 // ---- the graph -----------------------------------------------------------------------------------------------
-// the graph is held by number (graphs.js): a source holding the graph itself would be a store over all of it
-export source graphNo: number := 0
-export model = buildModel(graphAt(graphNo))
+// the graph comes through a host signal (graphs.js, MO-10 `ref`): a source holding it would be a store over all of it
+[graph, setGraph] = graphSignal()
+export model = buildModel(graph)
 export board = boardView(model)
 export diff = isDiff()
 
@@ -56,4 +56,4 @@ export action setAllEdges(on: boolean) { allEdges := on }
 export action toggleHidden(k: string) { hidden := hidden.includes(k) ? hidden.filter(x => x != k) : [...hidden, k] }
 export action showKinds(ks: string[]) { hidden := hidden.filter(x => !ks.includes(x)) }
 export action hideKinds(ks: string[]) { hidden := [...hidden.filter(x => !ks.includes(x)), ...ks] }
-export action swapGraph(g: any) { graphNo := putGraph(g) }
+export action swapGraph(g: any) { setGraph(g) }
