@@ -780,7 +780,7 @@ export class Runtime {
   private nodeOf(e: Expr, region: Region, env?: Map<string, unknown>): Node | null {
     if (e.k === "id") { if (env?.has(e.name)) return null; const b = region.lookup(e.name); return b instanceof Node ? b : null; }
     if (e.k === "member" || e.k === "index") return this.nodeOf(e.o, region, env);
-    if (e.k === "latest") return this.nodeOf(e.e, region, env);
+    if (e.k === "latest" || e.k === "as") return this.nodeOf(e.e, region, env);
     return null;
   }
   private ev(e: Expr, region: Region, env?: Map<string, unknown>): unknown {
@@ -801,6 +801,7 @@ export class Runtime {
         if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
+      case "as": return this.ev(e.e, region, env);                     // 07 §3: erased
       case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
       case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
       case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }

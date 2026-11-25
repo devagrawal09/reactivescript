@@ -150,7 +150,7 @@ impl Spans<'_> {
                 sub(l);
                 sub(r);
             }
-            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => sub(e),
+            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) | ExprKind::As { e, .. } => sub(e),
             ExprKind::Pre { init, .. } => init.iter().for_each(|x| sub(x)),
             ExprKind::Await { e, init, .. } => {
                 sub(e);
@@ -353,7 +353,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
         match &e.k {
             ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
             ExprKind::Bin { l, r, .. } => sub.extend([&**l, &**r]),
-            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => sub.push(e),
+            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) | ExprKind::As { e, .. } => sub.push(e),
             ExprKind::Pre { init, .. } => sub.extend(init.iter().map(|x| &**x)),
             ExprKind::Await { e, init, .. } => sub.extend(std::iter::once(&**e).chain(init.iter().map(|x| &**x))),
             ExprKind::If { c, t, f } => sub.extend([&**c, &**t, &**f]),

@@ -1490,6 +1490,7 @@ impl<'p> Gen<'p> {
                 E::Index(Box::new(o), Box::new(self.expr(i, env, &sub)?), true)
             }
             // 07 CSS-5
+            ExprKind::As { e, .. } => self.expr(e, env, ctx)?,   // 07 §3: a type assertion, erased
             ExprKind::StyleMap { css, line } => self.class_map(css, *line)?,
             ExprKind::Call { f, args } => {
                 // AC-6: Solid's until; the predicate is reactive scope

@@ -98,6 +98,8 @@ pub enum ExprKind {
     Catch { e: Box<Expr>, name: Option<String>, classes: Option<Vec<String>>, alt: Box<Expr> },
     /// 07 CSS-5
     StyleMap { css: String, line: usize },
+    /// 07 §3: `e as T` — a type assertion, erased at run time; the projection keeps it
+    As { e: Box<Expr>, ty: String },
     /// 12 SF-1d
     ServerFn { params: Vec<String>, ptypes: Vec<Option<String>>, ret: Option<String>, body: Vec<Stmt> },
 }
@@ -428,6 +430,7 @@ impl Expr {
             ExprKind::Throw(_) => "throw",
             ExprKind::Catch { .. } => "catch",
             ExprKind::StyleMap { .. } => "stylemap",
+            ExprKind::As { .. } => "as",
             ExprKind::ServerFn { .. } => "serverfn",
         }
     }
@@ -473,6 +476,7 @@ impl Expr {
             ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
             ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
             ExprKind::StyleMap { css, line } => obj(vec![("k", k), ("css", s(css)), ("line", num(*line))]),
+            ExprKind::As { e, ty } => obj(vec![("k", k), ("e", b(e)), ("type", s(ty))]),
             ExprKind::ServerFn { params, ptypes, ret, body } => obj(vec![("k", k), ("params", Some(strs(params))), ("ptypes", Some(ostrs(ptypes))), ("ret", os(ret)), ("body", Some(stmts_json(body)))]),
         }
     }

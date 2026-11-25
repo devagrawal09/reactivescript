@@ -40,6 +40,7 @@ does for `.tsrx`. Nothing here is a second type system.
 | `use c` / `provide c = e` | the context's type / `e` checked against it (RG-7) |
 | `error C(a: T) => …` | a class `C` (a subclass of `Error` with the field `a: T`), constructed by `C(a)` |
 | `fn`, `action`, `server fn` | functions of their parameters; an action and a server fn return a promise |
+| `e as T` | `e` asserted as `T` (07 §3); erased where the program runs |
 | `if x { … }` | the branch narrows `x` (RG-1c); a handler is a closure that runs later, and TypeScript's rules for closures apply to it |
 | `for x in xs { … }` | `x` is an element of `xs` |
 

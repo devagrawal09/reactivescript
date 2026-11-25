@@ -786,6 +786,7 @@ impl Proj<'_> {
                 go!(o).t(if *opt { "?" } else { "" }).at(&dot, at)
             }
             ExprKind::Index { o, i, opt } => go!(o).t(if *opt { "?.[" } else { "[" }).c(go!(i)).t("]"),
+            ExprKind::As { e, ty } => Code::of("(").c(go!(e)).t(" as ").t(ty).t(")"),   // 07 §3: the assertion is what TypeScript checks
             ExprKind::StyleMap { css, .. } => Code::of(&class_map(css)),
             ExprKind::Call { f, args } => {
                 let fc = go!(f);
