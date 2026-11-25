@@ -105,7 +105,7 @@ class Gen {
     return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
   }
   private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
-    return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.name === name) : undefined;
+    return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.kind !== "import" && x.name === name) : undefined;
   }
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {

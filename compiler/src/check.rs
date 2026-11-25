@@ -1522,7 +1522,7 @@ impl<'a> Checker<'a> {
                 continue;
             };
             match x {
-                JsDecl::Type { .. } => continue,
+                JsDecl::Type { .. } | JsDecl::Import { .. } => continue,
                 JsDecl::Error { .. } => {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;
