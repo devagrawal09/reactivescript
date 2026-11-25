@@ -24,8 +24,8 @@
 //   filter              run only scenarios whose file name contains it
 //   RX_SCENARIO_DUMP=<file>  also write every table's raw bridge messages (for debugging the collector)
 //
-// Needs: rxc ($RXC, compiler/target/{release,debug}/rxc), the compiler's Node-API binding (compiler/index.js, for the
-// graph), runtime/dist/web.dev.js, a Solid dev build with attribution ($SOLID_VIEW: a solid checkout, or
+// Needs: rxc ($RXC, compiler/target/{release,debug}/rxc: `rxc lower` for the code, `rxc model` for the graph, so both come
+// from one build), runtime/dist/web.dev.js, a Solid dev build with attribution ($SOLID_VIEW: a solid checkout, or
 // $SOLID_PACKAGES: its packages dir; default ../solid-view next to the repo), Playwright ($NODE_PATH or resolvable from
 // here) and its Chromium ($CHROME to override). Exit 1 when a table fails.
 import { execFileSync } from "node:child_process";
@@ -63,7 +63,6 @@ for (const [what, f] of [["Solid dev build ($SOLID_VIEW / $SOLID_PACKAGES)", pat
 const ref = p => import(pathToFileURL(path.join(repo, "ref", p)).href);
 const [{ parseScenario }, { parseStmts }, { compileDynamic, compileDynamicExpr }, { loadModules }, { withDeclarations }] =
   await Promise.all([ref("src/scenario.ts"), ref("src/parse.ts"), ref("compile/emit.ts"), ref("src/modules.ts"), ref("src/dts-host.ts")]);
-const { model } = createRequire(path.join(repo, "compiler/package.json"))("./index.js");
 const { buildGraph } = await import("./graph.mjs");
 
 function loadPlaywright() {
@@ -139,7 +138,8 @@ todo.forEach((t, i) => {
 
 // ---- graphs: one per example program, keys relative to the repo ----------------------------------------------------
 const graphs = new Map();
-for (const t of tables) if (!graphs.has(t.entry)) graphs.set(t.entry, buildGraph(JSON.parse(model([path.join(repo, t.entry)], repo)), { root: repo }));
+const model = entry => execFileSync(rxc, ["model", entry], { cwd: repo, maxBuffer: 1 << 30 }).toString();
+for (const t of tables) if (!graphs.has(t.entry)) graphs.set(t.entry, buildGraph(JSON.parse(model(t.entry)), { root: repo }));
 
 // ---- the page -------------------------------------------------------------------------------------------------------
 const IMPORTS = {

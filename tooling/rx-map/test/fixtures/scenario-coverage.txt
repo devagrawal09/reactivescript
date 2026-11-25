@@ -101,3 +101,17 @@ examples/shop/cart.rx:15              no test carries a change from products to 
 examples/signup.rx:20                 no test carries a change from checking to valid
 examples/signup.rx:20                 no test carries a change from emailError to valid
 examples/signup.rx:20                 no test carries a change from usernameError to valid
+
+Untyped failures (not in the percentage):
+  `sendMessage` (examples/ai/feed.rx:7) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `submitSignup` (examples/ai/wizard.rx:13) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `saveSettings` (examples/ai2/settings/settings.rx:5) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `assign` (examples/ai2/tracker/issues.rx:7) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `checkout` (examples/cart.rx:6) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `checkout` (examples/shop/cart.rx:3) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `register` (examples/signup.rx:4) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `addTodo` (examples/todos.rx:12) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `removeTodo` (examples/todos.rx:12) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `removeTodos` (examples/todos.rx:12) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `toggleTodo` (examples/todos.rx:12) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
+  `saveUser` (examples/users.rx:4) can fail with an untyped error — declare `rejects([...], fn)` with @reactivescript/js
