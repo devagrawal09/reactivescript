@@ -167,7 +167,7 @@ export const greeting = pure((name: string) => "hi " + name);
 import pure { greeting } from "./api"
 export default component Main() {
   source id := 1
-  user: User | null = await fetchUser(id) catch (e: NotFound) => null
+  user: User | null = await fetchUser(id) catch (e) { NotFound => { null } }
   <main>
     <button onClick={() => { id := 2 }}>next</button>
     {loading fallback { <p>loading…</p> } {
