@@ -93,6 +93,7 @@ export default component App() {
   </style>
   <main class="shelf">
     <h1>Shelf</h1>
+    <button type="button" onClick={() => { refresh books }}>Refresh shelf</button>
     {errored fallback(e) {
       <p class="error">Could not load your books: {e.message}</p>
       <button type="button" onClick={() => { refresh books }}>Retry</button>
