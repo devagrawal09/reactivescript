@@ -10,7 +10,7 @@ import {
   Show, For, Loading, Errored, createComponent,
   flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV,
 } from "solid-js";
-import { getContext, setContext, $TARGET } from "@solidjs/signals";
+import { getContext, setContext, $REFRESH, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
@@ -39,13 +39,16 @@ export { flush };
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
 type Inspect = <T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean };
+type Carry = { value: unknown; used?: boolean; question?: boolean; keepAnswer?: boolean };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
 type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string } | { type: "run"; key: string; id: number; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
   __RX_TRACE__?: (event: DevEvent) => void;
+  __RX_HMR__?: { carry: Map<string, Carry> };
 };
+const carry = () => rxKey === null ? undefined : dev.__RX_HMR__?.carry.get(rxKey);
 const trace = (e: DevEvent) => { try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
 let runId = 0;
 function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
@@ -89,6 +92,8 @@ const key: <T>(k: string, f: () => T) => T = DEV
               return { error: status?.constructor?.name === "StatusError" && status.source ? status.cause : e };
             }
           }, false));
+          // The bridge keeps handles only for the lifetime of this declaration.
+          Object.assign(inspect, { node: (get as any)[$REFRESH], hmrValue: () => inspect(latestWhole) });
           const nodes = dev.__RX_NODES__ ??= new Map();
           remember(nodes, k, inspect, () => { if (!nodes.has(k)) trace({ type: "dispose", key: k }); });
           trace({ type: "node", key: k });
@@ -280,18 +285,32 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
+      const carried = DEV && !mode.derived ? carry() : undefined;
+      const answer = carried?.used ? undefined : carried;
+      if (answer) {
+        answer.used = true;
+        // A question without tracked inputs can keep its answer without starting
+        // I/O. Explicit refresh still calls the new question.
+        if (answer.keepAnswer) {
+          let first = true;
+          const ask = compute;
+          compute = prev => { if (!first) return ask(prev); first = false; return answer.value; };
+        }
+        opts = { ...opts, loadingValue: answer.value };
+      }
       const fn = named(name, compute);
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
-      const seed = () => key && !mode.record ? [] : {};
+      const seed = () => answer && answer.value && typeof answer.value === "object" ? answer.value : key && !mode.record ? [] : {};
+      const storeOptions = () => nm({ ...(key ? { key } : {}), ...(answer ? { seedLoadingValue: true } : {}) });
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
-        const [truth, setTruth] = (createStore as any)(derive, seed(), nm(key ? { key } : undefined));
+        const [truth, setTruth] = (createStore as any)(derive, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const tacc = () => truth; storeAccs.add(tacc);
-        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), nm(key ? { key } : undefined));
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), nm(key ? { key } : undefined));
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
         return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
@@ -308,7 +327,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}, nm(undefined));
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, answer ? seed() : {}, answer ? storeOptions() : nm(undefined));
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
@@ -453,6 +472,28 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
     },
   };
+  if (DEV) {
+    const { source, module, untrack } = app;
+    // The dev lowering evaluates `__rt.untrack(() => init)` inside key().
+    app.untrack = (...args: Parameters<typeof untrack>) => {
+      const seed = carry();
+      return seed && !seed.used && !seed.question ? seed.value : untrack(...args);
+    };
+    app.source = (name, init, guessed) => {
+      const seed = carry();
+      if (!seed || seed.used) return source(name, init, guessed);
+      seed.used = true;
+      return source(name, seed.value, guessed);
+    };
+    let replacement: typeof dev.__RX_HMR__;
+    app.module = (key, factory) => {
+      if (dev.__RX_HMR__ && replacement !== dev.__RX_HMR__) {
+        replacement = dev.__RX_HMR__;
+        modules.clear();
+      }
+      return module(key, factory);
+    };
+  }
   return app;
 }
 export type App = ReturnType<typeof createApp>;
