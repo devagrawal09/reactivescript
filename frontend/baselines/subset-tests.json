@@ -92,6 +92,7 @@
   "plan/plan.test.ts :: plan v2: TSX, RX and yield emit the same like plan, byte-identical to like.plan-v2.json",
   "plan/plan.test.ts :: plan v2: the like plan alone, built with Solid primitives, renders the scenario frames",
   "plan/plan.test.ts :: plan v2: unsupported shapes and facts the plan cannot encode are refused, never emitted partially",
+  "plan/plan.test.ts :: plan v2: AST fields and kinds newer than the pinned ReactiveScript are refused by name",
   "plan/plan.test.ts :: plan v2: checker errors in the tracker are not turned into plans, by the builder or by emit.ts",
   "plan/plan.test.ts :: emit.ts: the plan schema follows the slice scenario's format version, and is refused without one",
   "plan/plan.test.ts :: Rust consumes the tracker plan freshly emitted from each frontend",

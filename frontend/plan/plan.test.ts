@@ -119,6 +119,33 @@ test('plan v2: unsupported shapes and facts the plan cannot encode are refused, 
   assert.throws(()=>resolvePlan(loadTracker(rx)),/unsupported expression rec/);
 });
 
+// rx/integ's AST (error arms, `as`, computed record keys) reaches these builders as fields and kinds the pinned
+// ReactiveScript doesn't define; plan/surface.ts refuses them by name instead of building a plan that drops them.
+test('plan v2: AST fields and kinds newer than the pinned ReactiveScript are refused by name',()=>{
+  const first=(x:unknown,k:string):Record<string,unknown>|undefined=>{
+    if(!x||typeof x!=='object')return undefined;
+    if((x as {k?:string}).k===k)return x as Record<string,unknown>;
+    for(const v of Object.values(x)){const hit=first(v,k);if(hit)return hit;}
+  };
+  const asyncRx=slice('tracker-async','tracker-async.rx');
+  const builds={
+    tracker:()=>loadTracker(read(trackerRx)!),
+    async:()=>loadTsxModules(asyncRx,read),
+  };
+  for(const [program,kind,grow,error] of [
+    ['async','errored',(n:Record<string,unknown>)=>{n.arms=[{cls:'_',body:n.fallback,line:1}];n.fallback=[];},/`arms` on `errored`/],
+    ['tracker','try',(n:Record<string,unknown>)=>{n.arms=[{cls:'_',body:n.handler,line:1}];},/`arms` on `try`/],
+    ['tracker','read',(n:Record<string,unknown>)=>{n.e={k:'as',e:n.e,ty:'string'};},/`as`/],
+    ['tracker','rec',(n:Record<string,unknown>)=>{(n.fields as Record<string,unknown>[])[0].computed={k:'lit',v:'id'};},/a node with `key`, `v`, `computed`/],
+  ] as const){
+    const set=builds[program]();
+    const node=first([...set.programs.values()].map(p=>p.decls),kind);
+    assert.ok(node,kind);
+    grow(node!);
+    assert.throws(()=>resolvePlanV2(set,program==='async'?{async:true}:{}),error,kind);
+  }
+});
+
 // A scratch slice directory: the tracker's RX source (possibly changed), host declaration and, optionally, scenario.
 const scratch=(rx:string,scenario:boolean)=>{
   const dir=mkdtempSync(join(process.env.TMPDIR??tmpdir(),'tracker-plan-'));

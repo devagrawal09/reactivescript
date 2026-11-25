@@ -117,6 +117,7 @@ New at e650b85, refused by name in every plan builder (v1 `resolve.ts`, v2/v2.1 
 | imported `.d.rx` library declarations (`ref` params, `instantiates`) | 0b30229, MO-10 | `a .d.rx library declaration (`ref` parameters or `instantiates`, MO-10): f is outside plan v2` |
 | destructuring defaults, array destructuring | 08255de | refused by the existing expression rules (`unsupported literal undefined`, `unsupported expression index`) |
 | destructuring `let` | 08255de | several `let`s, refused as hand-written `let`s are |
+| any AST kind or field the pinned `ref/src/ast.ts` does not define (rx/integ's error `arms`, `as`, computed record keys, …) | after e650b85 | `` `arms` on `errored` (RX surface newer than the pinned ReactiveScript) is outside plan v2 ``; `plan/surface.ts` keeps the allow list, re-read on every pin move |
 
 Not refused, because they are parse-level sugar whose AST is the hand-written expansion's, checked byte for byte in
 `plan/plan.test.ts` ("unsupported shapes…"): `else if c { … }` (= `else { if c { … } }`) and a destructuring
