@@ -428,6 +428,7 @@ class Gen {
   private foreign(d: Extract<Decl, { k: "eq" }>, env: Env, b: Bind, pad: string): string | null {
     const e = d.e;
     const part = (r: string, p: Shape) => p === "ref" ? r : `() => ${r}`;
+    const keyed = (expr: string) => this.under(this.keys.get(d), expr);
     if (e.k === "call" && e.f.k === "id") {
       const f = env.lookup(e.f.name); if (f?.kind !== "jfn") return null;
       const args = e.args.map((a, i) => {
@@ -437,13 +438,13 @@ class Gen {
       });
       const r = b.inst!; const sh = f.shape!;
       const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
+      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${keyed(whole)};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
       const key = e.k === "index" ? (e.i as { v: any }).v : e.p;
       const p = "items" in sh ? sh.items[key] : sh.fields.find(f => f[0] === key)?.[1]; if (!p) return null;
-      return `${pad}const ${b.js} = ${part(`${ob.inst}[${J(key)}]`, p)};`;
+      return `${pad}const ${b.js} = ${keyed(part(`${ob.inst}[${J(key)}]`, p))};`;
     }
     return null;
   }

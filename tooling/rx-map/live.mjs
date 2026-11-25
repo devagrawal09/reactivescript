@@ -19,7 +19,7 @@ let recording;
 // in the same turn, before a lazy attribution import would finish.
 const engine = await Promise.all([import("solid-js"), import("solid-js/attribution")]).catch(() => []);
 const untracked = fn => engine[0]?.runWithOwner ? engine[0].runWithOwner(null, fn) : fn();
-const errorPreview = error => untracked(() => preview(error));
+const errorPreview = error => untracked(() => preview(error, 200));
 function previews(value) {
   const out = { preview: preview(value) };
   if (value !== null && typeof value === "object" && !(value instanceof Error)) {
@@ -28,18 +28,19 @@ function previews(value) {
   }
   return out;
 }
-function inspect(key) {
+function inspect(key, format = previews) {
   const entries = globalThis.__RX_NODES__?.get(key);
   if (!entries?.size) return;
-  try { return [...entries].at(-1)(previews); } catch { /* instrumentation is best effort */ }
+  try { return [...entries].at(-1)(format); } catch { /* instrumentation is best effort */ }
 }
 
 /** Adds a program's graph (from `@reactivescript/map/graph`'s `buildGraph`). Re-registering its entry replaces it. */
 export function register(graph, { hot } = {}) {
   getRecorder();
   if (hot) connect(hot);
-  const entry = graph?.modules?.[0];
-  const i = graphs.findIndex(g => g.modules?.[0] === entry);
+  // Models are dependency-first: shared imports do not identify the entry.
+  const entry = graph?.modules?.at(-1);
+  const i = graphs.findIndex(g => g.modules?.at(-1) === entry);
   if (i >= 0) {
     if (JSON.stringify(graphs[i]) === JSON.stringify(graph)) return;
     graphs[i] = graph;
@@ -57,11 +58,12 @@ function receiveFromView(data, reply) {
   const recorder = getRecorder();
   if (data.type === "hello") {
     reply(recorder.snapshot());
-    reply(recorder.timeline());
+    reply(recorder.timeline(wantsInternals(data)));
   } else if (data.type === "snapshot?") reply(recorder.snapshot());
   else if (data.type === "travel") recorder.travel(data.to);
   else if (data.type === "resume") recorder.resume();
 }
+const wantsInternals = data => Array.isArray(data.want) && data.want.includes("internals");
 
 /**
  * A view without the map page: `listener` gets every host message (`{source: "rx-map", v: 1, ...}`) and `post` takes
@@ -69,10 +71,15 @@ function receiveFromView(data, reply) {
  */
 export function attach(listener) {
   const recorder = getRecorder();
-  const deliver = msg => listener(msg);
+  let internals = false;
+  const deliver = (msg, raw) => listener(internals && raw ? raw : msg);
   recorder.listeners.add(deliver);
   return {
-    post(msg) { if (msg && typeof msg === "object") receiveFromView(msg, deliver); },
+    post(msg) {
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "hello") internals = wantsInternals(msg);
+      receiveFromView(msg, deliver);
+    },
     detach() { recorder.listeners.delete(deliver); },
   };
 }
@@ -83,13 +90,17 @@ export function mount(el) {
   iframe.title = "rx-map";
   iframe.style.cssText = "display:block;width:100%;height:100%;border:0";
   el.setAttribute("data-rx-map", ""); // input here stays live while the app is read-only (viewing)
-  let ready = false;
+  let ready = false, internals = false;
   const post = msg => {
-    if (ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
+    if (msg && ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
   };
+  const forward = (msg, raw) => post(internals && raw ? raw : msg);
   const receive = ({ source, data }) => {
     if (source !== iframe.contentWindow || data?.source !== SOURCE || data.v !== 1) return;
-    if (data.type === "hello") ready = true;
+    if (data.type === "hello") {
+      ready = true;
+      internals = wantsInternals(data);
+    }
     receiveFromView(data, post);
   };
   window.addEventListener("message", receive);
@@ -102,10 +113,10 @@ export function mount(el) {
   m.load();
   el.append(iframe);
   mounts.add(m);
-  getRecorder().listeners.add(post);
+  getRecorder().listeners.add(forward);
   return () => {
     if (!mounts.delete(m)) return;
-    recording?.listeners.delete(post);
+    recording?.listeners.delete(forward);
     window.removeEventListener("message", receive);
     iframe.remove();
   };
@@ -138,9 +149,10 @@ function getRecorder() {
   // The timeline: one step per flush, `capacity` of them (TRACE-CONTRACT §4). Beside each step, the engine nodes it
   // changed and what each showed before, which is what travel pins (Solid's openView).
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
-  const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity);
+  const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity), internals = new Array(capacity);
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
+  const activeErrors = new Map(), held = new Map(), writes = new Set(), dirty = new Set();
   const start = performance.now();
   let seq = 0, flushes = 0;
   // Travel: the open view, the seq it shows, and a resume whose landing waits on async work.
@@ -164,27 +176,80 @@ function getRecorder() {
     ring[(seq - 1) % size] = record;
     return record;
   };
-  const publish = msg => { for (const post of listeners) post(message(msg)); };
+  const publish = (msg, raw) => { for (const post of listeners) post(msg && message(msg), raw && message(raw)); };
   const flightKeys = () => {
     const keys = new Map();
     for (const r of flights.values()) if (!keys.has(r.key) || keys.get(r.key).since > r.since) keys.set(r.key, r);
     return keys;
   };
-  const addStep = (at, changes, raw, quiet) => {
+  function heldBy(key) {
+    const blocking = new Set(flightKeys().keys());
+    const reached = new Set([key]);
+    for (const g of graphs) {
+      const keys = new Map(g.nodes.map(n => [n.id, n.key]));
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const e of g.edges) {
+          const from = keys.get(e.from), to = keys.get(e.to);
+          if (e.type === "read" && e.mode === "tracked" && reached.has(from) && to && !reached.has(to)) {
+            reached.add(to); grew = true;
+          }
+        }
+      }
+    }
+    return [...blocking].filter(k => reached.has(k));
+  }
+  function reconcileWrites(at) {
+    for (const key of writes) {
+      const now = inspect(key, () => undefined);
+      const old = held.get(key);
+      if (now?.held) {
+        const by = heldBy(key);
+        if (!old || by.join("|") !== old.by.join("|")) {
+          held.set(key, { key, by, since: old?.since ?? at });
+          send({ type: "held", key, by, at });
+        }
+      } else {
+        if (held.delete(key)) send({ type: "released", key, at });
+      }
+    }
+  }
+  function reconcileErrors(changes) {
+    for (const key of dirty) {
+      const entry = inspect(key);
+      const error = entry?.error == null ? undefined : errorPreview(entry.error);
+      const before = activeErrors.get(key);
+      if (error === before) continue;
+      if (error !== undefined) {
+        activeErrors.set(key, error);
+        changes.push({ key, name: RX + key, error });
+      } else {
+        activeErrors.delete(key);
+        if (entry?.value) changes.push({ key, name: RX + key, ...entry.value });
+      }
+    }
+    dirty.clear();
+    return changes;
+  }
+  const withInternals = (step, internal) => internal.length ? { ...step, changes: [...step.changes, ...internal] } : step;
+  const publishStep = (step, internal) => publish({ type: "flush", ...step }, { type: "flush", ...withInternals(step, internal) });
+  const addStep = (at, changes, raw, internal, quiet = false) => {
     const i = flushes % capacity;
     // the step falling out of the ring folds into the base the others replay from
     if (flushes >= capacity) applyPreviews(base, steps[i].changes);
     const step = { seq: ++flushes, at, changes };
     steps[i] = step;
     raws[i] = raw;
+    internals[i] = internal;
     // Solid records a store guess on the store's guess carrier (`<store>.$guess`), not on the property nodes it moves
     guesses[i] = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
-    const record = addRecord({ type: "flush", at, changes });
+    const record = changes.length && addRecord({ type: "flush", at, changes });
     for (const c of changes) if (c.key) {
       if (c.preview !== undefined) latest.set(c.key, c);
       last.set(c.key, { change: c, record });
     }
-    if (!quiet) publish({ type: "flush", ...step });
+    if (!quiet) publishStep(step, internal);
     return step;
   };
   const send = (msg, flightId, since, origin) => {
@@ -193,16 +258,22 @@ function getRecorder() {
       if (view) return;
       if (landing) return void landing.records.push(msg);
       const raw = recordRaw(msg.raw);
-      const changes = msg.changes.map(({ before, ...c }) => {
+      const all = reconcileErrors(msg.changes);
+      const errors = new Map(all.filter(c => c.key && c.error !== undefined).map(c => [c.key, c]));
+      const internal = all.filter(c => !c.key);
+      const changes = all.filter(c => c.key && (!errors.has(c.key) || errors.get(c.key) === c)).map(({ before, ...c }) => {
         const prev = c.key && latest.has(c.key) ? latest.get(c.key).preview : before;
         return { ...c, ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
       });
-      addStep(msg.at, changes, raw);
+      // Keyless engine nodes are still part of the app frame, even when
+      // hidden from the map. Keep their raw bodies for openView.
+      if (changes.length || internal.length || raw.length) addStep(msg.at, changes, raw, internal);
     } else if (msg.type === "flight") {
       const at = performance.now();
       const before = [...flights.values()].some(r => r.key === msg.key);
       if (msg.state === "start") flights.set(flightId, { key: msg.key, since: since ?? at, ...locate(msg.key) });
       else if (!flights.delete(flightId)) return;
+      dirty.add(msg.key);
       const after = [...flights.values()].some(r => r.key === msg.key);
       if (before === after) return;
       addRecord({ ...msg, at, origin, ...locate(msg.key) });
@@ -212,7 +283,10 @@ function getRecorder() {
       publish(msg);
     }
   };
-  listen(send);
+  listen((msg, ...args) => {
+    send(msg, ...args);
+    queueReconcile();
+  }, key => dirty.add(key));
   // The compiler supplies the resolved region ID. Keep graph path numbering (including #n)
   // in the graph builder, rather than deriving a second path by walking the JSX.
   const regionRefs = () => new Map(graphs.flatMap(g => g.regions
@@ -238,11 +312,32 @@ function getRecorder() {
   }
   // Fallback cleanup can happen in the same turn as a replacement fallback mounts.
   let boundariesQueued = false;
+  let reconcileQueued = false;
+  const queueReconcile = () => {
+    if (reconcileQueued) return;
+    reconcileQueued = true;
+    queueMicrotask(() => {
+      reconcileQueued = false;
+      const at = performance.now();
+      if (!view && !landing) reconcileWrites(at);
+      send({ type: "flush", at, changes: [] });
+    });
+  };
   const trace = event => {
+    if (event.type === "write" || event.type === "node") {
+      if (event.type === "write") writes.add(event.key);
+      dirty.add(event.key);
+      queueReconcile();
+      return;
+    }
     if (event.type === "dispose") {
       for (const [id, f] of flights) if (f.key === event.key)
         send({ type: "flight", key: event.key, state: "abandon" }, id);
       latest.delete(event.key);
+      activeErrors.delete(event.key);
+      writes.delete(event.key);
+      if (held.delete(event.key)) send({ type: "released", key: event.key, at: performance.now() });
+      queueReconcile();
       return;
     }
     if (event.type === "boundary") {
@@ -271,11 +366,12 @@ function getRecorder() {
       if (state === "error") msg.error = errorPreview(error);
     }
     send(msg);
+    queueReconcile();
   };
   globalThis.__RX_TRACE__ = trace;
   function current(key, flight) {
     const now = inspect(key);
-    if (now) return { key, ...now.value, ...(now.error ? { error: now.error.preview } : {}),
+    if (now) return { key, ...now.value, ...(now.error ? { error: errorPreview(now.error) } : {}),
       pending: !!(!now.error && (flight || now.pending)), ...(!now.error && flight ? { since: flight.since } : {}), ...locate(key) };
     const old = latest.get(key);
     // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.
@@ -293,13 +389,17 @@ function getRecorder() {
   function snapshot() {
     const all = states(), at = performance.now();
     return message({ type: "snapshot", at,
-      values: all.filter(s => s.preview !== undefined).map(({ key, preview, full }) => ({ key, preview, full })),
+      values: all.filter(s => s.preview !== undefined || s.error || s.pending).map(({ key, preview, full, error, pending }) => ({
+        key, preview, full, ...(error ? { error } : {}), ...(pending ? { pending: true } : {}) })),
       flights: all.filter(s => s.pending && s.since !== undefined).map(({ key, since }) => ({ key, since })),
-      boundaries: allBoundaries(), runs: [...runs.values()] });
+      boundaries: allBoundaries(), runs: [...runs.values()], held: [...held.values()] });
   }
-  function timeline() {
+  function timeline(showInternals = false) {
     const history = [];
-    for (let i = Math.max(0, flushes - capacity); i < flushes; i++) history.push(steps[i % capacity]);
+    for (let i = Math.max(0, flushes - capacity); i < flushes; i++) {
+      const slot = i % capacity;
+      history.push(showInternals ? withInternals(steps[slot], internals[slot]) : steps[slot]);
+    }
     return message({ type: "timeline", head: flushes, viewing, steps: history, capacity });
   }
 
@@ -383,7 +483,8 @@ function getRecorder() {
   function travel(to) {
     // A question in the air or an action still running is a hold that has not landed: its landing would come
     // beneath the view and could not be told apart from what the view shows.
-    if (landing || flightKeys().size || runs.size) return deny(to, "pending");
+    if (landing || flightKeys().size || runs.size || held.size || [...writes].some(key => inspect(key, () => undefined)?.held))
+      return deny(to, "pending");
     if (!Number.isInteger(to) || to < oldest() || to > flushes) return deny(to, "evicted");
     const openView = engine[1]?.openView;
     if (typeof openView !== "function") return deny(to, "unsupported");
@@ -457,8 +558,9 @@ function getRecorder() {
       if (cur?.value && cur.value.preview !== head.get(key)) now.set(key, { key, name: nameOf(key), ...cur.value });
     }
     const changes = [];
-    for (const [key, c] of now) {
-      if (head.has(key) && head.get(key) === c.preview) continue;
+    const landed = new Map(reconcileErrors([...now.values()]).map(c => [c.key, c]));
+    for (const [key, c] of landed) {
+      if (!c.error && head.has(key) && head.get(key) === c.preview) continue;
       const out = { ...c, ...locate(key) };
       delete out.prev;
       if (head.has(key)) out.prev = head.get(key);
@@ -471,13 +573,11 @@ function getRecorder() {
     }
     // The landing is one new step when something keyed moved; otherwise its records are only the pins coming off.
     // The view hears the step after the resume, as the flush that brings it live again.
-    let step = null;
-    if (changes.length) {
-      for (const r of records) for (const { before, ...c } of r.changes) if (!c.key) changes.push(c);
-      step = addStep(at, changes, raw, true);
-    }
+    const internal = records.flatMap(r => r.changes.filter(c => !c.key));
+    const step = changes.length ? addStep(at, changes, raw, internal, true) : null;
     publish({ type: "resume", head: flushes, changes: diffValues(valuesAt(from), valuesAt(flushes)) });
-    if (step) publish({ type: "flush", ...step });
+    if (step) publishStep(step, internal);
+    queueReconcile();
   }
   function query(method, { key, since = 0, limit = 20 } = {}) {
     const known = () => {
@@ -505,10 +605,10 @@ function getRecorder() {
           const boundary = allBoundaries().find(b => b.region === key);
           if (boundary) return boundary;
           known();
-          return { ...current(key, flightKeys().get(key)), runs: [...runs.values()].filter(r => r.key === key) };
+          return { ...current(key, flightKeys().get(key)), held: held.get(key), runs: [...runs.values()].filter(r => r.key === key) };
         }
         return { values: states(), flights: pending(), boundaries: allBoundaries().filter(b => b.state !== "ok"),
-          runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
+          held: [...held.values()], runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
       case "why": {
         known();
         const hit = last.get(key);
@@ -517,7 +617,7 @@ function getRecorder() {
           const byId = new Map(g.nodes.map(n => [n.id, n.key]));
           for (const e of g.edges) if (e.type === "write" && byId.get(e.to) === key) related.add(byId.get(e.from));
         }
-        const events = recent().filter(r => (r.type === "run" || r.type === "revert") && related.has(r.key)).slice(-10);
+        const events = recent().filter(r => ["run", "revert", "held", "released"].includes(r.type) && related.has(r.key)).slice(-10);
         const state = current(key, flightKeys().get(key));
         if (!hit) return { ...state, others: [], events };
         const { change, record } = hit;
@@ -587,7 +687,7 @@ function applyPreviews(map, changes) {
 
 // ---- the engine's records ---------------------------------------------------------------------------------------
 // Without a dev Solid (no records channel), the map is drawn and stays still.
-function listen(post) {
+function listen(post, dirty) {
   const [solid, attr] = engine;
   const records = solid?.OBSERVE?.records;
   const attribution = attr?.attribution;
@@ -597,16 +697,17 @@ function listen(post) {
   // A flush lists every node whose shown value it changed; with `bodies`, the values beside them (live, so they are
   // previewed now).
   const onFlush = (event, live) => {
-    if (!event.changes?.length) return;
     const roots = new Map();
-    const changes = event.changes.map((c, i) => {
+    const changes = (event.changes ?? []).map((c, i) => {
       const out = { name: c.nodeName, key: keyOf(c.nodeName) };
       const body = live?.changes?.[i];
       if (out.key) {
+        dirty(out.key);
         if (!roots.has(out.key)) roots.set(out.key, inspect(out.key));
         const root = roots.get(out.key);
         if (c.key !== undefined && c.key !== "$guess") out.path = storePath(body?.node, c.key);
-        if (root?.value) Object.assign(out, root.value);
+        if (root?.error != null) out.error = errorPreview(root.error);
+        else if (root?.value) Object.assign(out, root.value);
         else if (!root && !out.path && body && "value" in body) Object.assign(out, untracked(() => previews(body.value)));
         // the node's own value before (not a store property's): the prev of a key's first change
         if (c.nodeName === RX + out.key && body?.prev !== undefined) out.before = untracked(() => preview(body.prev));
@@ -634,6 +735,7 @@ function listen(post) {
   const onRun = (event, node) => {
     const key = keyOf(event.nodeName);
     if (!key || !node) return;
+    dirty(key);
     const flight = node._x?._inFlight;
     if (flight && announced.get(node) !== flight) {
       announced.set(node, flight);
@@ -714,7 +816,7 @@ function show(v, depth, max) {
   }
   if (v === null) return "null";
   if (v instanceof Date) return isNaN(v) ? "Invalid Date" : v.toISOString();
-  if (v instanceof Error) return `${v.name}: ${v.message}`;
+  if (v instanceof Error) return `${v.name === "Error" && v.constructor?.name ? v.constructor.name : v.name}: ${v.message}`;
   if (typeof v.then === "function") return "Promise";
   const arr = Array.isArray(v);
   if (depth <= 0) return arr ? `Array(${v.length})` : "{…}";
@@ -778,17 +880,17 @@ export function mergeGraphs(list) {
 // is the merged graph; `close()` detaches. A post that throws (its window is gone) detaches it.
 export function connectView(post) {
   const recorder = getRecorder();
-  let ready = false, closed = false;
-  const deliver = msg => {
+  let ready = false, closed = false, internals = false;
+  const deliver = (msg, raw) => {
     if (!ready || closed) return;
-    try { post(msg); } catch { close(); }
+    try { post(internals && raw ? raw : msg); } catch { close(); }
   };
   const close = () => { closed = true; recorder.listeners.delete(deliver); };
   recorder.listeners.add(deliver);
   return {
     send(data) {
       if (closed || data?.source !== SOURCE || data.v !== 1) return;
-      if (data.type === "hello") ready = true;
+      if (data.type === "hello") { ready = true; internals = wantsInternals(data); }
       receiveFromView(data, deliver);   // the same handling a mounted map's messages get (hello, snapshot?, travel, resume)
     },
     graph: () => mergeGraphs(graphs),

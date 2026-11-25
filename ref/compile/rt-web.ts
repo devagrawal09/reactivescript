@@ -38,9 +38,9 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
-type Inspect = <T>(format: (value: unknown) => T) => { value?: T; error?: T; pending?: boolean };
+type Inspect = <T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
-type DevEvent = { type: "boundary"; region: string } | { type: "dispose"; key: string } | { type: "run"; key: string; id: number; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string } | { type: "run"; key: string; id: number; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
@@ -67,15 +67,36 @@ const key: <T>(k: string, f: () => T) => T = DEV
         if (typeof get === "function") {
           // Capture only the accessor, not a value at declaration. Hoisted awaits share this key; the
           // declared accessor registers last, and multiple mounted instances have separate lifetimes.
-          const owner = getOwner();
-          const inspect: Inspect = format => runWithOwner(owner, () => untrack(() => {
+          const writer: Writer | undefined = Array.isArray(out) ? out[1] : undefined;
+          const inspect: Inspect = format => runWithOwner(null, () => untrack(() => {
             try {
-              const value = format(get());
-              return { value, pending: isPending(() => readWhole(get())) };
-            } catch (e) { return e instanceof NotReadyError ? { pending: true } : { error: format(e) }; }
+              const shown = get();
+              const value = format(shown);
+              const pending = isPending(() => readWhole(get()));
+              let held = false;
+              if (writer && pending) {
+                try {
+                  const proposal = latest(() => latestWhole(get()));
+                  held = !sameInput(latestWhole(shown), proposal);
+                } catch { /* no ahead value to compare */ }
+              }
+              return { value, pending, held };
+            } catch (e) {
+              if (e instanceof NotReadyError) return { pending: true };
+              // Solid's unowned reads surface the status wrapper, whereas the
+              // boundary gets its cause. Keep the declared error class.
+              const status = e as Error & { source?: unknown };
+              return { error: status?.constructor?.name === "StatusError" && status.source ? status.cause : e };
+            }
           }, false));
           const nodes = dev.__RX_NODES__ ??= new Map();
           remember(nodes, k, inspect, () => { if (!nodes.has(k)) trace({ type: "dispose", key: k }); });
+          trace({ type: "node", key: k });
+          if (writer) {
+            const { set, path } = writer;
+            writer.set = v => { set(v); trace({ type: "write", key: k }); };
+            writer.path = (p, v) => { path(p, v); trace({ type: "write", key: k }); };
+          }
         }
         return out;
       } finally { rxKey = was; }

@@ -69,7 +69,7 @@ try {
   const f = messages.find(m => m.type === "flush");
   const pageChange = f?.changes.find(c => c.key === K("page"));
   check("a flush names the RX node that changed, with its value", pageChange?.name === `rx:${K("page")}` && pageChange.preview === "2", f);
-  check("a non-RX node comes with key null", f?.changes.some(c => c.name === "plain" && c.key === null), f);
+  check("non-RX nodes are omitted by default", !f?.changes.some(c => c.key === null), f);
   check("flush has seq and at", typeof f?.seq === "number" && typeof f?.at === "number");
   const flights = messages.filter(m => m.type === "flight").map(m => m.state).join(",");
   check("a re-run's new flight abandons the old one and starts", flights === "abandon,start", flights);
@@ -93,6 +93,9 @@ try {
   await sleep(30);
   const landed = messages.find(m => m.type === "flush" && m.changes.some(c => c.key === K("users")));
   check("a later landed value comes in a flush", landed?.changes.find(c => c.key === K("users"))?.preview === '[{id: 3, name: "Ada"}, {id: 4, name: "Grace"}]', messages);
+  frame.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello",want:["internals"]}, "*")');
+  await sleep(20);
+  check("an opt-in viewer can still see internals", messages.findLast(m => m.type === "timeline")?.steps.some(s => s.changes.some(c => c.key === null && c.name === "plain")));
   check("the map shows it (its full preview; the token shows a count and the first items)", chip("users").querySelector(".lv")?.dataset.value?.startsWith("[{id: 3"));
   check("the badge counts flushes", /^live · [1-9]\d* flush/.test(doc.getElementById("liveBadge").textContent), doc.getElementById("liveBadge").textContent);
 
@@ -209,6 +212,50 @@ try {
     second.contentDocument.querySelector(".trip-errored"));
   unmount();
   check("runtime registry removes disposed instances", !globalThis.__RX_NODES__.has(store));
+  // Resolve the same external module from several nested views, as the app
+  // does. A first rejected answer is not a Solid value change.
+  const extra = { ...graph, regions: [...graph.regions, {
+    ...errored, id: `${errored.mod}:r900`, key: `${errored.key}/errored`, parent: errored.id,
+  }] };
+  register(extra, { hot });
+  const typed = extra.regions.at(-1);
+  const NotFound = class NotFound extends Error {};
+  let rejectQuestion, answerRows, releaseWrite, change;
+  const update = () => {};
+  const disposeModule = rt.mount(() => {
+    const mod = rt.module(update, () => {
+      const question = rt.key(K("query"), () => rt.memo("query", () => new Promise((_, reject) => { rejectQuestion = reject; })));
+      const rows = rt.key(store, () => rt.keyed("users", "id", () => new Promise(ok => { answerRows = ok; })));
+      const [status, writer] = rt.key(K("page"), () => rt.source("page", 1));
+      change = rt.action(function* () { writer.set(2); yield new Promise(ok => { releaseWrite = ok; }); }, action);
+      return { question, rows, status };
+    });
+    return [rt.DevLoading({ region: ref(loading), fallback: "waiting for rows", get children() {
+      return () => `${mod.status()} ${mod.rows().length} ${mod.rows()[0]?.name ?? ""}`;
+    } }),
+      rt.DevErrored({ region: ref(errored), fallback: () => "wrong boundary", get children() {
+        return rt.TypedErrored({ region: ref(typed), classes: [NotFound], fallback: e => e().message, get children() {
+          return rt.DevLoading({ region: ref(loading), fallback: "waiting", get children() { return () => mod.question(); } });
+        } });
+      } })];
+  });
+  answerRows([{ id: 1, name: "Ada" }]);
+  rejectQuestion(new NotFound("missing issue"));
+  await sleep(20);
+  check("module store question exposes the landed root value", ask("value", { key: store }).result.preview === '[{id: 1, name: "Ada"}]');
+  check("module question rejection is keyed with its typed error", ask("tail").result.some(r => r.changes?.some(c => c.key === K("query") && c.error === "NotFound: missing issue" && !("preview" in c))));
+  check("the typed boundary reports the error, not its enclosing boundary", ask("state").result.boundaries.some(b => b.region === typed.key && b.error === "NotFound: missing issue") &&
+    ask("state", { key: errored.key }).result.state === "ok", ask("state").result.boundaries);
+  const write = change();
+  await sleep(20);
+  check("a parked source retains its shown value and reports held", ask("value", { key: K("page") }).result.preview === "1" &&
+    ask("state").result.held.some(h => h.key === K("page")));
+  releaseWrite();
+  await write;
+  await sleep(20);
+  check("the source releases when the write lands", !ask("state").result.held.length &&
+    ask("tail").result.some(r => r.type === "released" && r.key === K("page")));
+  disposeModule();
   closeMap();
   hotDispose();
   check("HMR disposal detaches the socket but keeps the session recorder", OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
