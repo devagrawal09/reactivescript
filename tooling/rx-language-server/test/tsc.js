@@ -82,5 +82,15 @@ const decl = run(
 );
 check("a .d.rx in include passes", decl.status === 0 && decl.out.trim() === "", decl);
 
+// TY-4b: the sibling .ts is what the bundler runs; the .d.rx is what .rx is checked against.
+// createHash's implementation returns Accessor<string>; .d.rx says `ref string`, which .rx reads as string.
+const refWin = run(
+  { include: ["."] },
+  { file: "hash.d.rx", text: () => "export pure fn createHash(): ref string\nexport pure fn createDebounced(ref source: string, ms: number): ref string\n" },
+  { file: "hash.ts", text: () => "import { type Accessor, createSignal } from 'solid-js';\nexport function createHash(): Accessor<string> { return createSignal('')[0]; }\nexport function createDebounced(source: Accessor<string>, _ms: number): Accessor<string> { return source; }\n" },
+  { file: "main.rx", text: () => 'import pure { createHash, createDebounced } from "./hash"\nexport default component App() {\n  source q := ""\n  h = createHash().trim()\n  d = createDebounced(q, 10)\n  <p>{h}{d}</p>\n}\n' },
+);
+check("a .d.rx wins over the sibling .ts (ref is string, not Accessor)", refWin.status === 0 && refWin.out.trim() === "", refWin);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

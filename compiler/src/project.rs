@@ -156,6 +156,14 @@ fn j(l: &Lit) -> String {
 fn js_str(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
+/// The namespace a `.d.rx` is declared as. Same spelling as `ref/types/project.ts`.
+fn ns_name(declared: &str) -> String {
+    let mut s = String::from("__D_");
+    for c in declared.chars() {
+        s.push(if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' });
+    }
+    s
+}
 fn is_handler(a: &str) -> bool {
     crate::awaits::is_handler(a)
 }
@@ -179,7 +187,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), ambients: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -289,6 +297,8 @@ struct Proj<'a> {
     declared: HashSet<String>,
     /// sources and equations: a write checks this type, not a branch's narrowing (TY-2)
     slots: HashSet<String>,
+    /// a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
+    ambients: HashSet<String>,
     prelude: Option<&'a str>,
 }
 
@@ -557,6 +567,13 @@ impl Proj<'_> {
                 s.insert(n.name.clone());
             }
         }
+        if let Some(dts) = declared {
+            if let Some(decls) = self.set.declarations.get(dts) {
+                // TY-4b: the `.d.rx` is the type, even where a `.ts` sits beside it
+                self.declared_import(d, &rest, decls, ind);
+                return;
+            }
+        }
         let mut at = sp.start as usize;
         let def = rest.iter().find(|n| n.name == "default").map(|n| self.name(&n.alias, sp, &mut at));
         let parts: Vec<Code> = rest
@@ -583,6 +600,45 @@ impl Proj<'_> {
         let fa = self.find(&q[1..q.len() - 1], sp, at).map(|a| a - 1).filter(|a| self.src[*a..].starts_with(&q));
         c = c.t(" from ").at(&q, fa).t(";");
         self.w.emit(c, *line);
+    }
+    /// TY-4b: check the import against its `.d.rx`, not whatever TypeScript would resolve the JS module to.
+    fn declared_import(&mut self, d: &Decl, rest: &[&ImportName], decls: &[JsDecl], ind: &str) {
+        let Decl::Import { from, line, declared, .. } = d else { return };
+        // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
+        let ns = ns_name(declared.as_deref().unwrap_or(from));
+        if declared.as_ref().is_some_and(|p| self.ambients.insert(p.clone())) {
+            let body = declaration_file(decls).trim_end().replace("export declare ", "export ").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
+            self.w.emit(Code::of(&format!("{ind}declare namespace {ns} {{\n{body}\n{ind}}}")), *line);
+        }
+        let of = |n: &str| decls.iter().find(|x| x.name() == n);
+        let values: Vec<&&ImportName> = rest.iter().filter(|n| !matches!(of(&n.name), Some(JsDecl::Type { .. }))).collect();
+        if !values.is_empty() {
+            let def = values.iter().find(|n| n.name == "default");
+            let parts: Vec<String> = values.iter().filter(|n| n.name != "default").map(|n| format!("{} as __js_{}", n.name, n.alias)).collect();
+            let mut s = format!("{ind}import ");
+            if let Some(def) = def {
+                s.push_str(&format!("__js_{}", def.alias));
+                if !parts.is_empty() {
+                    s.push_str(", ");
+                }
+            }
+            if !parts.is_empty() {
+                s.push_str(&format!("{{ {} }}", parts.join(", ")));
+            }
+            s.push_str(&format!(" from {};", js_str(from)));
+            self.w.emit(Code::of(&s), *line);
+        }
+        for n in rest {
+            let x = of(&n.name);
+            if x.is_none() || matches!(x, Some(JsDecl::Type { .. })) {
+                self.w.emit(Code::of(&format!("{ind}type {} = {ns}.{};", n.alias, n.name)), *line);
+            } else {
+                self.w.emit(Code::of(&format!("{ind}const {} = __js_{} as typeof {ns}.{};", n.alias, n.alias, n.name)), *line);
+            }
+            if matches!(x, Some(JsDecl::Error { .. })) {
+                self.w.emit(Code::of(&format!("{ind}type {} = {ns}.{};", n.alias, n.name)), *line);
+            }
+        }
     }
     /// A JS import's module, from the program's root (where the stubs are written).
     fn mod_path(&self, from: &str) -> String {

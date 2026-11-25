@@ -122,6 +122,7 @@ class Proj {
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
   private slots = new Set<string>();                        // sources and equations: a write checks this type, not a branch's narrowing (TY-2)
+  private ambients = new Set<string>();                    // a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -195,9 +196,33 @@ class Proj {
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
     }
     void names; void dflt;
+    const decls = d.declared ? this.set.declarations?.get(d.declared) : undefined;
+    if (decls) { this.declaredImport(d, rest, decls, ind); return; }   // TY-4b: the `.d.rx` is the type, even where a `.ts` sits beside it
     const parts = rest.filter(n => n.name !== "default").map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`);
     const def = rest.find(n => n.name === "default")?.alias;
     this.w.emit(`${ind}import ${def ? def + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from "${from}";`, d.line);
+  }
+  /** TY-4b: check the import against its `.d.rx`, not whatever TypeScript would resolve the JS module to. */
+  private declaredImport(d: Extract<Decl, { k: "import" }>, rest: { name: string; alias: string }[], decls: JsDecl[], ind: string) {
+    const ns = "__D_" + d.declared!.replace(/[^A-Za-z0-9_]/g, "_");   // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
+    if (!this.ambients.has(d.declared!)) {
+      this.ambients.add(d.declared!);
+      const body = declarationFile(decls).trimEnd().replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
+      this.w.emit(`${ind}declare namespace ${ns} {\n${body}\n${ind}}`, d.line);
+    }
+    const of = (n: string) => decls.find(x => x.name === n);
+    const values = rest.filter(n => of(n.name)?.kind !== "type");
+    if (values.length) {
+      const parts = values.filter(n => n.name !== "default").map(n => `${n.name} as __js_${n.alias}`);
+      const def = values.find(n => n.name === "default");
+      this.w.emit(`${ind}import ${def ? `__js_${def.alias}` + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from ${J(d.from)};`, d.line);
+    }
+    for (const n of rest) {
+      const x = of(n.name);
+      if (!x || x.kind === "type") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
+      else this.w.emit(`${ind}const ${n.alias} = __js_${n.alias} as typeof ${ns}.${n.name};`, d.line);
+      if (x?.kind === "error") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
+    }
   }
   /** A JS import's module, from the program's root (where the stubs are written). */
   private modPath(from: string) { const base = this.path.split("/").slice(0, -1); const parts = [...base]; for (const seg of from.split("/")) { if (seg === "." || !seg) continue; if (seg === "..") parts.pop(); else parts.push(seg); } return parts.join("/"); }
