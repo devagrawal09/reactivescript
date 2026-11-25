@@ -11,13 +11,25 @@ import { closestId, closestGo, leftId, within } from "./js/dom.js"
 import { flyToId, ensureVisibleId } from "./js/camera.js"
 import { sfx } from "./js/sound.js"
 import { pointerAt, placeTipAt } from "./js/tip.js"
+import { lvView, plainValue } from "./js/values.js"
+import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
+import { live } from "./live.rx"
 
 // one token: its cast shadow, its body (the shape), its icon, then its name and marks
 export component Token(props: { c: Chip; extra: string }) {
   { c } = props
+  // live: its value (and the badge's roll), a failure, a held write, a request in the air, its place in a reload plan
+  k = present(c.key) ? c.key : ""
+  v = live.values[k]
+  held = live.held[k]
+  mark = live.hmr.marks[k]
+  hasValue = present(v) && present(v.preview)
+  failed = present(v) && present(v.error)
   <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
-      (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur"]}
+      (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur",
+      failed && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
+      present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact"]}
     style={{ display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
     data-id={c.id} role="button" tabIndex={0} aria-label={c.aria}>
     {if c.status != "" { <span class="d">{c.mark}</span> }}
@@ -28,6 +40,31 @@ export component Token(props: { c: Chip; extra: string }) {
     {if c.async { <span class={["g", "gp", c.chgAsync && "chg"]} title="can be pending" innerHTML={icon("hour")}></span> }}
     {if c.question { <span class={["g", "gq", c.chgQuestion && "chg"]} title="re-asks a standing question until written">?</span> }}
     {for b in c.badges { <span class="b">{b}</span> }}
+    {if hasValue { <ValueBadge v={v} /> }}
+    {if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
+    {if present(held) { <span class="hm" innerHTML={heldHTML(held)}></span> }}
+    {if live.inexact[k] == true { <span class="inx" title="the app can't show this value exactly at this point in time">can't rewind</span> }}
+    {if present(mark) { <span class="pb" innerHTML={planIconHTML(mark)}></span> }}
+  </span>
+}
+
+// a token's live value: a list reads as a count and its first items; a change rolls the old text out (up, or down
+// when travelling back), each wave a beat after the one it reads
+component ValueBadge(props: { v: any }) {
+  { v } = props
+  lv = lvView(v.preview)
+  <span class={["lv", lv.list && "list", v.anim]} data-value={v.preview} data-old={plainValue(v.old)} style={{ "--pd": `${v.delay}ms` }}>
+    <span class="lvv">
+      {if lv.list {
+        <b class="lc">{lv.count}</b>
+        {if lv.empty { <span class="lm">empty</span> } else {
+          {for i in lv.items { <span class="li">{i}</span> }}
+          {if lv.more != "" { <span class="lm">{lv.more}</span> }}
+        }}
+      } else {
+        {lv.text}
+      }}
+    </span>
   </span>
 }
 
@@ -35,7 +72,15 @@ export component Token(props: { c: Chip; extra: string }) {
 export component FrameBox(props: { f: Frame }) {
   { f } = props
   h = f.head
-  <div class={["frame", f.kind, f.ctl && "ctl", f.module != null && "module", f.status != "" && `d-${f.status}`]}
+  // live: a boundary showing its fallback is tripped (loading: amber stripes; errored: rose, with its error)
+  b = boundaryOf(live, f.key, f.id)
+  tripped = present(b) && (b.state == "fallback" || b.state == "error")
+  trip = present(b) && (b.state == "error" || f.kind == "errored") ? "errored" : "loading"
+  // a module replacement's plan: the plate is marked, and what it adds waits in a tray
+  modNo = f.module != null ? `${f.module.index}` : ""
+  incoming = live.hmr.incoming[modNo]
+  <div class={["frame", f.kind, f.ctl && "ctl", f.module != null && "module", f.status != "" && `d-${f.status}`,
+      tripped && "tripped", tripped && `trip-${trip}`, modNo != "" && live.hmr.planned[modNo] == true && "planned"]}
     data-mod={f.module != null ? `${f.module.index}` : undefined}>
     {if f.module != null {
       <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}><span>module</span> <b>{f.module.path}</b></div>
@@ -53,6 +98,7 @@ export component FrameBox(props: { f: Frame }) {
             {for n in h.notifiers { <button class="nref" data-go={n.id} title="select it">{n.label}</button> }}
           </span>
         }}
+        {if tripped { <span class="trip" data-id={f.id} role="button" tabIndex={0} title="open this boundary" innerHTML={tripHTML(trip, b.error)}></span> }}
       </div>
     } else if h.b != "" {
       <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}>{h.text} <b>{h.b}</b></div>
@@ -65,6 +111,7 @@ export component FrameBox(props: { f: Frame }) {
     {if f.view.length > 0 { <Grid frames={f.view} min={300} /> }}
     {if f.mounts.length > 0 { <div class="mounts">{for k in f.mounts { <FrameBox f={k} /> }}</div> }}
     {for k in f.extra { <FrameBox f={k} /> }}
+    {if present(incoming) { <div class="incoming" innerHTML={incomingHTML(incoming)}></div> }}
   </div>
 }
 

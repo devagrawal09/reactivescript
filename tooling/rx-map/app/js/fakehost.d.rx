@@ -1,0 +1,6 @@
+// The in-page fake host (fakehost.js), as the dev HUD drives it.
+export fn fakeAct(key: string): void
+export fn fakeEvery(n: number): void
+export fn fakeEdit(mod: string, op: string): void
+export fn fakeTick(n: number): void
+export fn selectValue(id: string): string

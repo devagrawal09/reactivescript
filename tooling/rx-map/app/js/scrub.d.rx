@@ -1,0 +1,8 @@
+// The timeline's canvas, track and travel throttle (scrub.js).
+export type TrackHooks = { travel: (seq: number) => void; travelBy: (n: number) => void; resume: () => void }
+export fn renderScrub(m: any): void
+export fn startScrub(draw: () => void): () => void
+export fn startTrack(on: TrackHooks): () => void
+export fn travelKind(seq: number): string
+export fn seqBy(n: number): number
+export fn sendTravel(seq: number): void

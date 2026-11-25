@@ -1,0 +1,5 @@
+// A module replacement's swap (swap.js): FLIP, carrying live state over, the selection by key.
+export type AfterSwap = { id: string; hadSel: boolean }
+export fn beforeSwap(m: any, selected: string | null): void
+export fn afterSwap(m: any, done: (changes: any[]) => void): AfterSwap | null
+export fn cancelSwap(): void
