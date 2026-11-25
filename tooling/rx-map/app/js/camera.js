@@ -1,0 +1,315 @@
+import { compactNow, onCompactChange, reducedMotion } from "./env.js";
+import { boardSize, boxOf, boxOfId } from "./geometry.js";
+import { buildMini, drawMiniView } from "./minimap.js";
+
+const PERSP = 1500, TILT = 10;
+const initialCam = () => ({ x: 0, y: 0, s: 1, rx: 0, ry: 0, trx: 0, try: 0, ready: false });
+let cam = initialCam();
+let canvas, world, board, floor, zoomPct, disposeCamera;
+let vw = 0, vh = 0, BW = 1400, BH = 1000;
+const rad = d => d * Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// screen ↔ plane ↔ board. Tilt pivots on the viewport's centre.
+function toPlane(sx, sy) {
+  const t = rad(TILT + cam.rx), dx = sx - vw / 2, dy = sy - vh / 2;
+  const Y = dy * PERSP / (PERSP * Math.cos(t) + dy * Math.sin(t));
+  const k = PERSP / (PERSP - Y * Math.sin(t));
+  return [dx / k, Y];
+}
+export function toBoard(sx, sy) { const [X, Y] = toPlane(sx, sy); return [(vw / 2 + X - cam.x) / cam.s, (vh / 2 + Y - cam.y) / cam.s]; }
+export function toScreen(bx, by) {
+  const t = rad(TILT + cam.rx), X = cam.x + cam.s * bx - vw / 2, Y = cam.y + cam.s * by - vh / 2;
+  const k = PERSP / (PERSP - Y * Math.sin(t));
+  return [vw / 2 + X * k, vh / 2 + Y * Math.cos(t) * k];
+}
+function setCamAt(bx, by, s, sx, sy) { const [X, Y] = toPlane(sx, sy); cam.s = s; cam.x = vw / 2 + X - s * bx; cam.y = vh / 2 + Y - s * by; }
+
+// Clear of the header, bar and (unless compact) the HUD columns.
+const insets = { t: 64, b: 58 };
+function readInsets() {
+  const cs = getComputedStyle(document.documentElement);
+  insets.t = parseFloat(cs.getPropertyValue("--top-inset")) || 0;
+  insets.b = parseFloat(cs.getPropertyValue("--bottom-inset")) || 0;
+}
+export function freeRect() {
+  const t = insets.t, b = vh - insets.b;
+  let l = 0, r = vw;
+  if (!compactNow()) {
+    const side = document.getElementById("side"), mini = document.getElementById("mini"), dev = document.getElementById("devhud");
+    if (side && !side.classList.contains("closed")) r = vw - side.offsetWidth - 20;
+    if (!document.body.classList.contains("mini-off") && mini?.offsetWidth) l = Math.max(l, mini.offsetLeft + mini.offsetWidth + 8);
+    if (dev && !dev.classList.contains("collapsed")) l = Math.max(l, dev.offsetLeft + dev.offsetWidth + 8);
+  }
+  return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2 };
+}
+export function onCompact() {
+  readInsets();
+  if (cam.ready) home();
+}
+
+let LZ = 1, crispT = 0;
+let fly = null, inertia = null, tickId = 0, camDirty = false;
+const pointers = new Map();
+let drag = null, pinch = null, suppressClick = false;
+export const isMoving = () => !!(fly || inertia || drag?.moved || pinch);
+
+// The board never leaves the screen entirely.
+function keepInView() {
+  if (!cam.ready) return;
+  const fr = freeRect(), m = Math.min(220, fr.h / 3, fr.w / 3) + 80 * cam.s;
+  const [lx] = toPlane(fr.l + m, fr.cy), [rx] = toPlane(fr.r - m, fr.cy), [, ty] = toPlane(fr.cx, fr.t + m), [, by] = toPlane(fr.cx, fr.b - m);
+  const X0 = cam.x - vw / 2, Y0 = cam.y - vh / 2, w = cam.s * BW, h = cam.s * BH;
+  if (X0 > rx) cam.x -= X0 - rx; else if (X0 + w < lx) cam.x += lx - (X0 + w);
+  if (Y0 > by) cam.y -= Y0 - by; else if (Y0 + h < ty) cam.y += ty - (Y0 + h);
+}
+function applyCam() {
+  keepInView();
+  world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
+  zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
+  drawMiniView();
+  clearTimeout(crispT); crispT = setTimeout(crisp, 70);
+}
+// Scale the board as one picture while moving; lay it out at the zoom once settled.
+function crisp() {
+  if (isMoving()) { crispT = setTimeout(crisp, 60); return; }
+  const L = Math.round(clamp(cam.s, .3, 3) * 20) / 20;
+  if (L === LZ) return;
+  LZ = L;
+  board.style.zoom = String(L); floor.style.zoom = String(L);
+  applyCam();
+}
+const kick = () => { if (cam.ready && !tickId) tickId = requestAnimationFrame(tick); };
+const camChanged = () => { camDirty = true; kick(); };
+const ease = t => (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+function tick(now) {
+  tickId = 0;
+  let more = false;
+  if (fly) {
+    const p = Math.min(1, (now - fly.t0) / fly.dur), e = ease(p);
+    const s = fly.s0 * Math.pow(fly.s1 / fly.s0, e);
+    setCamAt(fly.b0[0] + (fly.b1[0] - fly.b0[0]) * e, fly.b0[1] + (fly.b1[1] - fly.b0[1]) * e, s, fly.tx, fly.ty);
+    camDirty = true;
+    if (p < 1) more = true; else fly = null;
+  }
+  if (inertia) {
+    const dt = Math.min(40, now - inertia.t); inertia.t = now;
+    cam.x += inertia.vx * dt; cam.y += inertia.vy * dt;
+    const f = Math.exp(-dt / 230); inertia.vx *= f; inertia.vy *= f;
+    camDirty = true;
+    if (Math.hypot(inertia.vx, inertia.vy) > .01) more = true; else inertia = null;
+  }
+  if (Math.abs(cam.trx - cam.rx) > .005 || Math.abs(cam.try - cam.ry) > .005) {
+    cam.rx += (cam.trx - cam.rx) * .1; cam.ry += (cam.try - cam.ry) * .1; camDirty = true; more = true;
+  }
+  if (camDirty) { camDirty = false; applyCam(); }
+  if (more) kick();
+}
+function flyTo(bx, by, s = cam.s, dur = 560) {
+  if (!cam.ready) return;
+  const fr = freeRect();
+  inertia = null;
+  if (reducedMotion() || !dur) { setCamAt(bx, by, s, fr.cx, fr.cy); fly = null; camChanged(); return; }
+  fly = { t0: performance.now(), dur, s0: cam.s, s1: s, b0: toBoard(fr.cx, fr.cy), b1: [bx, by], tx: fr.cx, ty: fr.cy };
+  kick();
+}
+export function flyToBox(box, scale) {
+  if (box) flyTo(box.x, box.y, scale ?? clamp(Math.max(cam.s, .9), .3, 2.6));
+}
+export function flyToId(id, mode) {
+  const s = mode === "dbl" ? clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2) : mode === "search" ? Math.max(cam.s, .8) : undefined;
+  flyToBox(boxOfId(id), s);
+}
+function fitScale() { const fr = freeRect(), m = compactNow() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
+const frameWidthScale = fr => clamp((fr.w - (compactNow() ? 12 : 40)) / BW, .3, 1);
+
+// Frame the whole board if readable, or fit its width and stay at the current height.
+export function frameAll(dur = 600) {
+  const whole = fitScale(), fr = freeRect();
+  if (whole >= .5) return flyTo(BW / 2, BH / 2, whole, dur);
+  const s = frameWidthScale(fr);
+  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
+  flyTo(BW / 2, y, s, dur);
+}
+export function isFramed() {
+  const fr = freeRect(), [bx] = toBoard(fr.cx, fr.cy);
+  return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - fitScale()) < .01 || Math.abs(cam.s - frameWidthScale(fr)) < .01);
+}
+export function home() {
+  if (!cam.ready) return;
+  // A small map is framed whole; a big one starts at the top.
+  const fr = freeRect(), fit = fitScale();
+  if (fit >= .8) { setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy); }
+  else if (compactNow()) {
+    // A short dock starts at the first module's plate.
+    const s = Math.min(clamp((fr.w - 12) / BW, .3, 1), Math.max(.62, fr.h / 520));
+    const y = boxOf(board.querySelector(".level"))?.t ?? 0;
+    setCamAt(BW / 2, y, s, fr.cx, fr.t + 8 + 8 * s);
+  } else { const s = clamp((fr.w - 30) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+  camChanged();
+}
+function zoomAt(sx, sy, f) {
+  const [bx, by] = toBoard(sx, sy);
+  fly = null;
+  setCamAt(bx, by, clamp(cam.s * f, .08, 2.6), sx, sy);
+  camDirty = false; applyCam();   // now, not next frame: the wheel feels direct
+}
+export function zoomBy(f) {
+  const fr = freeRect(), [bx, by] = toBoard(fr.cx, fr.cy);
+  flyTo(bx, by, clamp(cam.s * f, .08, 2.6), 260);
+}
+export function ensureVisibleId(id) {
+  const b = boxOfId(id); if (!b) return;
+  const [x, y] = toScreen(b.x, b.y), fr = freeRect();
+  if (x < fr.l + 60 || x > fr.r - 60 || y < fr.t + 40 || y > fr.b - 60) flyTo(b.x, b.y, cam.s, 380);
+}
+export function centreOn(bx, by) {
+  if (!cam.ready) return;
+  const fr = freeRect();
+  setCamAt(bx, by, cam.s, fr.cx, fr.cy);
+  fly = null; inertia = null; camChanged();
+}
+
+// Drag pans with inertia, two fingers pinch, a still pointer tilts the world.
+function pointerDown(ev) {
+  if (ev.pointerType === "mouse" && ev.button !== 0) return;
+  suppressClick = false;
+  pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  fly = null; inertia = null;
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), m: [(a.x + b.x) / 2, (a.y + b.y) / 2] };
+    drag = null;
+  } else drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, moved: false, samples: [] };
+}
+function pointerMove(ev) {
+  if (pointers.has(ev.pointerId)) pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pinch && pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a.x - b.x, a.y - b.y), m = [(a.x + b.x) / 2, (a.y + b.y) / 2];
+    const [X0, Y0] = toPlane(...pinch.m), [X1, Y1] = toPlane(...m);
+    cam.x += X1 - X0; cam.y += Y1 - Y0;
+    zoomAt(m[0], m[1], d / pinch.d);
+    pinch = { d, m }; suppressClick = true;
+    return;
+  }
+  if (drag && ev.pointerId === drag.id) {
+    if (!drag.moved && Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) > 4) {
+      drag.moved = true; canvas.setPointerCapture(ev.pointerId); canvas.classList.add("grabbing");
+      document.getElementById("tip")?.classList.remove("on");
+    }
+    if (drag.moved) {
+      const [X0, Y0] = toPlane(drag.x, drag.y), [X1, Y1] = toPlane(ev.clientX, ev.clientY);
+      cam.x += X1 - X0; cam.y += Y1 - Y0;
+      drag.x = ev.clientX; drag.y = ev.clientY;
+      const t = performance.now();
+      drag.samples.push({ t, dx: X1 - X0, dy: Y1 - Y0 });
+      while (drag.samples.length && t - drag.samples[0].t > 90) drag.samples.shift();
+      camChanged();
+    }
+    return;
+  }
+  if (ev.pointerType === "mouse" && !reducedMotion()) {
+    cam.try = (ev.clientX / vw - .5) * 3.2;
+    cam.trx = -(ev.clientY / vh - .5) * 2.2;
+    kick();
+  }
+}
+function endPointer(ev) {
+  pointers.delete(ev.pointerId);
+  if (pointers.size < 2) pinch = null;
+  if (drag && ev.pointerId === drag.id) {
+    if (drag.moved) {
+      suppressClick = true;
+      canvas.classList.remove("grabbing");
+      const s = drag.samples, t = performance.now();
+      if (!reducedMotion() && s.length > 1 && t - s.at(-1).t < 60) {
+        const span = Math.max(16, s.at(-1).t - s[0].t);
+        const vx = s.reduce((a, x) => a + x.dx, 0) / span, vy = s.reduce((a, x) => a + x.dy, 0) / span;
+        if (Math.hypot(vx, vy) > .05) { inertia = { vx, vy, t }; kick(); }
+      }
+    }
+    drag = null;
+  }
+}
+function pointerLeave() { cam.trx = 0; cam.try = 0; kick(); }
+function click(ev) { if (suppressClick) { ev.stopPropagation(); ev.preventDefault(); suppressClick = false; } }
+function wheel(ev) {
+  ev.preventDefault();
+  const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
+  // Shift scrolls sideways; ctrl / ⌘ + wheel or a trackpad pinch zooms toward the pointer.
+  if (ev.ctrlKey || ev.metaKey) {
+    zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0022)));
+    return;
+  }
+  fly = null; inertia = null;
+  if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
+  else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
+  camDirty = false; applyCam();
+}
+function resize() { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(); }
+
+// After layout: the board's size, the floor under it, the minimap, the edges.
+let layoutRaf = 0;
+const layoutListeners = new Set();
+function measureBoard() { ({ w: BW, h: BH } = boardSize()); }
+export function layoutChanged() {
+  if (!cam.ready) return;
+  cancelAnimationFrame(layoutRaf);
+  layoutRaf = requestAnimationFrame(() => {
+    layoutRaf = 0;
+    measureBoard();
+    const m = 700;
+    Object.assign(floor.style, { left: `${-m}px`, top: `${-m}px`, width: `${BW + 2 * m}px`, height: `${BH + 2 * m}px` });
+    buildMini();
+    for (const f of layoutListeners) f();
+  });
+}
+export function onLayout(f) { layoutListeners.add(f); return () => { layoutListeners.delete(f); }; }
+
+export function setBoardWidth() {
+  document.getElementById("board").style.setProperty("--bw", `${clamp(innerWidth - 40, 1040, 1560)}px`);
+}
+export function startCamera() {
+  if (disposeCamera) return disposeCamera;
+  canvas = document.getElementById("canvas"); world = document.getElementById("world");
+  board = document.getElementById("board"); floor = document.getElementById("floor");
+  zoomPct = document.getElementById("zoomPct");
+  vw = innerWidth; vh = innerHeight;
+  readInsets();
+  setBoardWidth();
+  measureBoard();
+  const events = [
+    ["pointerdown", pointerDown], ["pointermove", pointerMove], ["pointerup", endPointer],
+    ["pointercancel", endPointer], ["pointerleave", pointerLeave], ["click", click, true], ["wheel", wheel, { passive: false }],
+  ];
+  for (const event of events) canvas.addEventListener(...event);
+  window.addEventListener("resize", resize);
+  const offCompact = onCompactChange(onCompact);
+  const observer = new ResizeObserver(layoutChanged);
+  observer.observe(board);
+  cam.ready = true;
+  home();
+  layoutChanged();
+
+  const dispose = () => {
+    if (disposeCamera !== dispose) return;
+    for (const event of events) canvas.removeEventListener(...event);
+    window.removeEventListener("resize", resize);
+    offCompact();
+    observer.disconnect();
+    cancelAnimationFrame(layoutRaf); cancelAnimationFrame(tickId); clearTimeout(crispT);
+    layoutRaf = tickId = crispT = 0;
+    for (const id of pointers.keys()) if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+    pointers.clear();
+    layoutListeners.clear();
+    canvas.classList.remove("grabbing");
+    board.style.zoom = floor.style.zoom = "";
+    LZ = 1;
+    cam = initialCam();
+    fly = inertia = drag = pinch = null;
+    camDirty = suppressClick = false;
+    canvas = world = board = floor = zoomPct = disposeCamera = undefined;
+  };
+  return disposeCamera = dispose;
+}

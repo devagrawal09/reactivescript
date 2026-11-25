@@ -1,0 +1,9 @@
+export fn startCamera(): () => void
+export fn home(): void
+export fn frameAll(): void
+export fn isFramed(): boolean
+export fn zoomBy(f: number): void
+export fn flyToId(id: string, mode: string): void
+export fn ensureVisibleId(id: string): void
+export fn layoutChanged(): void
+export fn onLayout(f: () => void): () => void
