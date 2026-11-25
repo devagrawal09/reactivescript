@@ -382,7 +382,7 @@ async function declarations(c) {
   assert.match(await c.text("node", { key: "main.rx||save" }), /^  imported: .* from users\.d\.rx  \(written\)$/m);
 }
 
-test("MO-11 through $RXC: rxc runs $RX_DTS; node shows each import's declaration; check reports a misplaced helper in the .ts, and a deprecated narrowing apart as a warning", { timeout: 30000 }, async t => {
+test("MO-11 through $RXC: rxc runs $RX_DTS; node shows declarations; check rejects misplaced helpers and import rows", { timeout: 30000 }, async t => {
   const { root, put, users } = tsModuleApp(t);
   const c = client(t, ["--root", root], { ...process.env, RXC, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` });
   assert.equal(await c.text("check"), "ok");

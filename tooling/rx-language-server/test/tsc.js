@@ -98,7 +98,7 @@ const refWin = run(
   { include: ["."] },
   { file: "hash.d.rx", text: () => "export pure fn createHash(): ref string\nexport pure fn createDebounced(ref source: string, ms: number): ref string\n" },
   { file: "hash.ts", text: () => "import { type Accessor, createSignal } from 'solid-js';\nexport function createHash(): Accessor<string> { return createSignal('')[0]; }\nexport function createDebounced(source: Accessor<string>, _ms: number): Accessor<string> { return source; }\n" },
-  { file: "main.rx", text: () => 'import pure { createHash, createDebounced } from "./hash"\nexport default component App() {\n  source q := ""\n  hash = createHash()\n  h = hash.trim()\n  d = createDebounced(q, 10)\n  <p>{h}{d}</p>\n}\n' },
+  { file: "main.rx", text: () => 'import { createHash, createDebounced } from "./hash"\nexport default component App() {\n  source q := ""\n  hash = createHash()\n  h = hash.trim()\n  d = createDebounced(q, 10)\n  <p>{h}{d}</p>\n}\n' },
 );
 check("a .d.rx wins over the sibling .ts (ref is string, not Accessor)", refWin.status === 0 && refWin.out.trim() === "", refWin);
 
