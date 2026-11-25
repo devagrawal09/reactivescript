@@ -1342,6 +1342,7 @@ board.addEventListener("click", ev => {
 }, true);
 // On a huge map, a selection folds the modules it does not touch, and unfolds the ones it does; clearing it unfolds them
 function autoFold(ids) {
+  if (!ids && autoClosed.size) { for (const mi of [...autoClosed]) { autoClosed.delete(mi); setCollapsed(mi, false); } relayout(); return; }
   if (G.nodes.length < (window.__RX_HUGE__ ?? HUGE) || ovMode) return;
   const keep = new Set();
   for (const id of ids ?? []) { const n = nodes.get(id) ?? regions.get(id); if (n && !(n.world && !n.from)) keep.add(n.mod); }
