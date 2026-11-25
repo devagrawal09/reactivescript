@@ -110,10 +110,10 @@ function signatureStub(sig: ModSig): string {
 /** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
 function declarationFile(decls: JsDecl[]): string {
   return decls.map(d => {
-    if (d.kind === "type") return `export ${d.text ?? `type ${d.name} = any`}`;
+    if (d.kind === "type") return `${d.exported ? "export " : ""}${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
     const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
-    return `export declare function ${d.name}(${ps}): ${d.ret ?? "any"};`;
+    return `export declare function ${d.name}${d.generics ?? ""}(${ps}): ${d.ret ?? "any"};`;
   }).join("\n") + "\n";
 }
 
@@ -183,10 +183,11 @@ class Proj {
   private importDecl(d: Extract<Decl, { k: "import" }>, ind: string) {
     const names = d.names.map(n => n.name === "default" ? null : n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).filter(Boolean);
     const dflt = d.names.find(n => n.name === "default")?.alias;
-    for (const n of d.names) if (BUILTINS.has(n.name)) this.declared.delete(n.alias);   // the prelude's own (`import { log } from "./prelude"`)
-    const prelude = d.names.filter(n => BUILTINS.has(n.name));
+    const isPrelude = (n: string) => d.from === "./prelude" && BUILTINS.has(n);
+    for (const n of d.names) if (isPrelude(n.name)) this.declared.delete(n.alias); else this.declared.add(n.alias);
+    const prelude = d.names.filter(n => isPrelude(n.name));
     if (prelude.length) { for (const n of prelude) this.used.add(n.name); }
-    const rest = d.names.filter(n => !BUILTINS.has(n.name)); if (!rest.length) return;
+    const rest = d.names.filter(n => !isPrelude(n.name)); if (!rest.length) return;
     let from = d.from;
     if (!d.resolved && !d.declared) {                                                        // a JS module with no declaration: `any`
       const key = this.modPath(d.from) + ".ts"; let s = this.jsStubs.get(key); if (!s) this.jsStubs.set(key, (s = new Set())); for (const n of rest) s.add(n.name); from = d.from;
