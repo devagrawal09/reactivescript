@@ -1,0 +1,6 @@
+export fn startSound(): () => void
+export fn soundOn(): boolean
+export fn setSound(on: boolean): void
+export fn sfx(name: string): void
+export fn sfxDir(name: string, dir: string): void
+export fn note(family: string, at: number): void

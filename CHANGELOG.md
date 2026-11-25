@@ -42,6 +42,9 @@
 - `guide/async.md`: "One store over the server"; the `GUESS_WHILE_LOADING` advice says what holds when a selection
   changes while a guess is out (05 DV-22).
 
+- `@reactivescript/map` adds static and live app maps, read-only MCP queries, time travel, and dev hot replacement.
+  The latter two have requirements listed in the map package README.
+
 ## 0.3.1
 
 **New**

@@ -401,5 +401,24 @@ TY-1c), so every position has to cross between `.rx` and the projection.
    project has `@reactivescript/map`. A declared JS primitive's instance
    (MO-10) is not keyed: its nodes are the library's.
 
-   The runtime’s development export contains the instrumentation and the
+12. **Dev-only keyed replacement** (taken by default — veto here).
+   With Vite HMR on, a save checks the affected RX program and compares its
+   old and new graphs. The optional map observes the plan, but is not
+   required. The compiled entry is a stable app-factory boundary:
+   Solid replaces its rendered scope without reloading its JS importer or
+   the page. It recreates declarations using the new code. Live source
+   values are carried by key (or a recognized move), not by declaration
+   order, within one app. The runtime skips a carried initializer; a reset
+   starts fresh. Only the primary source accessor supplies a seed, not its
+   hoisted awaits/catches. An edited standing question uses its carried
+   answer as its loading value while it asks again. Repeated instances pair
+   in mount order at a stable, unambiguous render site. Ambiguous, held or
+   unavailable source instances are reported as uncarried. Unchanged
+   dependency modules keep their live owners and are not reinitialized.
+   A failed replacement of the whole boundary may reload; waiting for a
+   travel landing is bounded.
+   The host records replacement as a flush. Travel uses the current code
+   and reports historical values it cannot reproduce exactly. None of this
+   changes production lowering or adds a production runtime dependency.
+   The runtime's development export contains the instrumentation and the
    reference harness API; production exports leave them out.

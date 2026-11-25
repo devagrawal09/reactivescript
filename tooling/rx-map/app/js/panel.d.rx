@@ -1,0 +1,21 @@
+// The side panel's lookups and event reading (panel.js).
+export type KindWords = { k: string; label: string; what: string }
+export type EdgeRow = { k: string; c: string; d: string; w: number; label: string }
+export type Change = { text: string; color: string }
+export type Fact = { cls: string; color: string; html: string }
+export pure fn kindMeta(kk: string): KindWords
+export pure fn famName(kk: string): string
+export pure fn famColor(kk: string): string
+export pure fn shapeOf(kk: string): string
+export pure fn sampleName(kk: string): string
+export pure fn shapeWord(kk: string): string
+export pure fn countOf(counts: any, k: string): number
+export pure fn edgeStyles(): EdgeRow[]
+export pure fn ctlWhat(kind: string): string
+export pure fn edgeWhat(e: any): string
+export pure fn edgeChange(e: any): Change | null
+export pure fn diffFacts(g: any, n: any): Fact[]
+export pure fn closestData(ev: any, sel: string, name: string): string
+export pure fn eventKey(ev: any): string
+export fn prevent(ev: any): void
+export fn panelTop(): void

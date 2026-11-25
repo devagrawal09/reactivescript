@@ -1,0 +1,350 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map live: engine harness</title>
+<!-- Real Solid dev build (served by run.mjs at /solid/, mapped below), nodes named the way a dev .rx build names them
+     (`rx:<key>`), and ../live.mjs mounted: checks the messages live.mjs forwards from the engine's records and what
+     the map does with them. Results go in #result. -->
+<script type="importmap">
+{ "imports": {
+  "solid-js": "/solid/solid/dist/solid.dev.js",
+  "solid-js/attribution": "/solid/solid/dist/attribution.js",
+  "solid-js/internal": "/solid/solid/dist/internal.js",
+  "@solidjs/web": "/solid/web/dist/web.dev.js",
+  "@solidjs/signals": "/solid/signals/dist/dev.js",
+  "@solidjs/signals/attribution": "/solid/signals/dist/dev.attribution.js"
+} }
+</script>
+<style>html, body { margin: 0; height: 100%; background: #000 } #host { position: fixed; inset: 0 }</style>
+<div id="host"></div>
+<pre id="result" hidden></pre>
+<script type="module">
+import { createSignal, createMemo, createEffect, createRoot, createStore, untrack, flush, OBSERVE } from "solid-js";
+import { register } from "../live.mjs";
+import { createApp } from "/runtime/rt-web.ts";
+
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks, messages }); };
+const messages = [];
+
+try {
+  const graph = await (await fetch("/graph.json")).json();
+  const K = name => `examples/users.rx||${name}`;
+  const nodeOf = name => graph.nodes.find(n => n.key === K(name));
+  register(graph);
+  const dispose = globalThis.__RX__.mount(document.getElementById("host"));
+  const frame = document.querySelector("#host iframe");
+  await new Promise(r => frame.addEventListener("load", r, { once: true }));
+  frame.contentWindow.addEventListener("message", e => { if (e.data?.source === "rx-map") messages.push(e.data); });
+  frame.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello"}, "*")');
+  await sleep(30);
+  for (let i = 0; i < 100 && !OBSERVE.records.observed("flush"); i++) await sleep(10);
+  check("mount subscribes to flush records", OBSERVE.records.observed("flush"));
+  check("…with bodies", OBSERVE.records.observed("flush", "bodies"));
+
+  const doc = frame.contentDocument;
+  const chip = name => doc.querySelector(`#board .chip[data-id="${nodeOf(name).id}"]`);
+  let answer;
+  const [page, setPage] = createSignal(1, { name: `rx:${K("page")}` });
+  const [plain, setPlain] = createSignal(0, { name: "plain" });
+  createRoot(() => {
+    const users = createMemo(async () => {
+      const p = page();
+      return new Promise(r => (answer = () => r([{ id: p, name: "Ada" }, { id: p + 1, name: "Grace" }])));
+    }, { name: `rx:${K("users")}` });
+    createEffect(() => [users(), plain()], () => {});
+  });
+  flush();
+  await sleep(30);
+  const firstStart = messages.find(m => m.type === "flight" && m.state === "start");
+  check("a new async node announces its flight", firstStart?.key === K("users"), messages.slice());
+  check("its chip glows", chip("users").classList.contains("flying"));
+
+  messages.length = 0;
+  setPage(2);
+  setPlain(5);
+  flush();
+  await sleep(30);
+  const f = messages.find(m => m.type === "flush");
+  const pageChange = f?.changes.find(c => c.key === K("page"));
+  check("a flush names the RX node that changed, with its value", pageChange?.name === `rx:${K("page")}` && pageChange.preview === "2", f);
+  check("non-RX nodes are omitted by default", !f?.changes.some(c => c.key === null), f);
+  check("flush has seq and at", typeof f?.seq === "number" && typeof f?.at === "number");
+  const flights = messages.filter(m => m.type === "flight").map(m => m.state).join(",");
+  check("a re-run's new flight abandons the old one and starts", flights === "abandon,start", flights);
+  check("the map shows the value", chip("page").querySelector(".lv")?.textContent === "2");
+
+  messages.length = 0;
+  answer();
+  await sleep(30);
+  flush();
+  await sleep(30);
+  check("the landing is forwarded", messages.some(m => m.type === "flight" && m.key === K("users") && m.state === "land"), messages);
+  check("the glow ends", !chip("users").classList.contains("flying"));
+  // a node's first value is not a change (FlushEvent.changes): the next answer is
+  messages.length = 0;
+  setPage(3);
+  flush();
+  await sleep(30);
+  answer();
+  await sleep(30);
+  flush();
+  await sleep(30);
+  const landed = messages.find(m => m.type === "flush" && m.changes.some(c => c.key === K("users")));
+  check("a later landed value comes in a flush", landed?.changes.find(c => c.key === K("users"))?.preview === '[{id: 3, name: "Ada"}, {id: 4, name: "Grace"}]', messages);
+  frame.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello",want:["internals"]}, "*")');
+  await sleep(20);
+  check("an opt-in viewer can still see internals", messages.findLast(m => m.type === "timeline")?.steps.some(s => s.changes.some(c => c.key === null && c.name === "plain")));
+  check("the map shows it (its full preview; the token shows a count and the first items)", chip("users").querySelector(".lv")?.dataset.value?.startsWith("[{id: 3"));
+  check("the badge counts flushes", /^live · [1-9]\d* flush/.test(doc.getElementById("liveBadge").textContent), doc.getElementById("liveBadge").textContent);
+
+  dispose();
+  check("closing the map leaves recording on", OBSERVE.records.observed("flush"));
+
+  const handlers = new Map();
+  const sent = [];
+  let hotDispose;
+  const hot = {
+    on: (name, fn) => handlers.set(name, fn),
+    off: name => handlers.delete(name),
+    send: (name, payload) => sent.push({ name, payload }),
+    dispose: fn => { hotDispose = fn; },
+  };
+  register(graph, { hot });
+  register(graph, { hot });
+  check("hot registers once and starts recording without a mount", sent.length === 1 &&
+    sent[0].name === "rx:live:ready" && OBSERVE.records.observed("flush", "bodies"));
+  const ask = (method, params) => {
+    handlers.get("rx:live:request")({ id: 7, method, params });
+    const { name, payload } = sent.pop();
+    if (name !== "rx:live:response" || payload.id !== 7) throw new Error("bad response");
+    return payload;
+  };
+  const emit = (type, ...args) => OBSERVE.records.emit(type, ...args);
+  const before = ask("tail", { limit: 1 }).result.at(-1)?.seq ?? 0;
+  const flushes = ask("status").result.flushes;
+  const onScreen = (i, name) => ({ nodeId: i, nodeName: `rx:${K(name)}`, origin: { kind: "action", name: "setPage" } });
+  emit("create", { nodeId: 3, nodeName: `rx:${K("users")}`, at: 10 }, { _x: { _inFlight: {} } });
+  check("pending has the key and start time", ask("pending").result[0]?.key === K("users") &&
+    ask("pending").result[0]?.since === 10);
+  emit("flight", { nodeId: 3, nodeName: `rx:${K("users")}`, outcome: "landed" });
+  check("land clears pending", ask("pending").result.length === 0);
+  for (let i = 1; i <= 2002; i++) {
+    emit("flush", { at: i, changes: [onScreen(1, "page"), onScreen(2, "total")] }, { changes: [{ value: i }, { value: -i }] });
+  }
+  const tail = ask("tail", { limit: 2000 }).result;
+  check("ring holds the last 2000 records", tail.length === 2000 && tail[0].seq === before + 5 && tail.at(-1).seq === before + 2004);
+  check("tail honors since", ask("tail", { since: before + 2003 }).result.length === 1);
+  check("value reports the latest preview and file", ask("value", { key: K("page") }).result.preview === "2002" &&
+    ask("value", { key: K("page") }).result.file === "examples/users.rx");
+  const why = ask("why", { key: K("page") }).result;
+  check("why identifies origin and other keyed changes", why.seq === before + 2004 && why.origin.includes("setPage") &&
+    why.others[0].key === K("total"));
+  check("status counts flushes, not flights", ask("status").result.flushes === flushes + 2002);
+  check("unknown live key reports an actionable error", /unknown key.*Use find/.test(ask("value", { key: "unknown" }).error));
+  const action = K("rename"), store = K("users");
+  const loading = graph.regions.find(r => r.kind === "loading"), errored = graph.regions.find(r => r.kind === "errored");
+  const ref = r => `${graph.modules[r.mod]}|${r.id.split(":r").at(-1)}`;
+  const root = document.createElement("div");
+  document.body.append(root);
+  const app = createApp({ root }), rt = app;
+  let release, answerFirst, run, rejected, trip, edit;
+  const unmount = app.mount(() => {
+    const [rows, write] = rt.key(store, () => rt.source("users", [{ id: 1, name: "Ada" }], true));
+    const [plainRows, plainWrite] = rt.key(K("editing"), () => rt.source("editing", [{ id: 2, name: "Ada" }]));
+    edit = plainWrite.path;
+    const first = rt.key(K("status"), () => rt.memo("status", () => new Promise(ok => { answerFirst = ok; })));
+    const [fail, setFail] = createSignal(false);
+    trip = setFail;
+    run = rt.action(function* (value) {
+      write.guess(value, [0, "name"]);
+      yield new Promise(ok => { release = ok; });
+    }, action);
+    rejected = rt.action(function* () { throw new Error("boom"); }, action);
+    return rt.DevErrored({ region: ref(errored), fallback: e => e().message, get children() {
+      return rt.DevLoading({ region: ref(loading), fallback: "waiting", get children() {
+        return () => { if (fail()) throw new Error("broken"); return `${first()} ${rows()[0].name} ${plainRows()[0].name}`; };
+      } });
+    } });
+  });
+  flush();
+  const saved = ask("state").result;
+  check("initial store value is readable without a store flush", saved.values.find(r => r.key === store)?.preview === '[{id: 1, name: "Ada"}]', saved);
+  check("why works before a keyed node has changed", ask("why", { key: K("status") }).result?.pending);
+  check("loading is currently tripped", saved.boundaries.some(b => b.region === loading.key && b.state === "fallback"), saved.boundaries);
+  check("a never-answered question has no preview", saved.values.find(r => r.key === K("status"))?.preview === undefined);
+  answerFirst("ready");
+  await sleep(0);
+  flush();
+  check("loading recovers", ask("state", { key: loading.key }).result.state === "ok");
+  const p = run("Grace");
+  flush();
+  const running = ask("state").result;
+  check("an action stays open during its await", running.runs.length === 1 && running.runs[0].key === action);
+  edit([0, "name"], "Grace");
+  flush();
+  check("store property changes contain root preview and path", ask("tail").result.some(r => r.changes?.some(c => c.key === K("editing") && c.path === "0.name" && c.preview === '[{id: 2, name: "Grace"}]')), ask("tail", { limit: 3 }).result);
+  const closeMap = globalThis.__RX__.mount(document.getElementById("host"));
+  const second = document.querySelector("#host iframe");
+  await new Promise(r => second.addEventListener("load", r, { once: true }));
+  const got = [];
+  second.contentWindow.addEventListener("message", e => { if (e.data?.source === "rx-map") got.push(e.data); });
+  second.contentWindow.eval('parent.postMessage({source:"rx-map",v:1,type:"hello"}, "*")');
+  await sleep(30);
+  check("hello answers with current snapshot, then a bounded timeline", got[0]?.type === "snapshot" && got[0]?.v === 1 &&
+    got[0]?.runs[0]?.key === action && got[1]?.type === "timeline" && got[1].steps.length === 2000, got.map(e => e.type));
+  check("a late map lights the already running action", second.contentDocument.querySelector(`.chip[data-id="${nodeOf("rename").id}"]`).classList.contains("flying"));
+  check("reopening the map preserves the count", second.contentDocument.querySelector("#liveBadge").textContent.includes(`${ask("status").result.flushes} flush`));
+  release();
+  await p;
+  flush();
+  await sleep(20);
+  check("reverts are recorded and flash the token", ask("state").result.reverts.some(r => r.key === store) &&
+    second.contentDocument.querySelector(`.chip[data-id="${nodeOf("users").id}"]`).classList.contains("reverting"), ask("tail", { limit: 8 }).result);
+  check("run end pairs with start", got.some(r => r.type === "run" && r.state === "end" && r.id === running.runs[0].id));
+  await rejected().catch(() => {});
+  check("unhandled action errors are reported", ask("tail").result.some(r => r.type === "run" && r.state === "error" && r.error.includes("boom")));
+  trip(true);
+  flush();
+  await sleep(20);
+  check("errored fallback updates a mounted map", got.some(r => r.type === "boundary" && r.region === errored.key && r.state === "error" && /broken/.test(r.error)) &&
+    second.contentDocument.querySelector(".trip-errored"));
+  unmount();
+  check("runtime registry removes disposed instances", !globalThis.__RX_NODES__.has(store));
+  // Resolve the same external module from several nested views, as the app
+  // does. A first rejected answer is not a Solid value change.
+  const extra = { ...graph, regions: [...graph.regions, {
+    ...errored, id: `${errored.mod}:r900`, key: `${errored.key}/errored`, parent: errored.id,
+  }] };
+  register(extra, { hot });
+  const typed = extra.regions.at(-1);
+  const NotFound = class NotFound extends Error {};
+  let rejectQuestion, answerRows, releaseWrite, change;
+  const update = () => {};
+  const disposeModule = rt.mount(() => {
+    const mod = rt.module(update, () => {
+      const question = rt.key(K("query"), () => rt.memo("query", () => new Promise((_, reject) => { rejectQuestion = reject; })));
+      const rows = rt.key(store, () => rt.keyed("users", "id", () => new Promise(ok => { answerRows = ok; })));
+      const [status, writer] = rt.key(K("page"), () => rt.source("page", 1));
+      change = rt.action(function* () { writer.set(2); yield new Promise(ok => { releaseWrite = ok; }); }, action);
+      return { question, rows, status };
+    });
+    return [rt.DevLoading({ region: ref(loading), fallback: "waiting for rows", get children() {
+      return () => `${mod.status()} ${mod.rows().length} ${mod.rows()[0]?.name ?? ""}`;
+    } }),
+      rt.DevErrored({ region: ref(errored), fallback: () => "wrong boundary", get children() {
+        return rt.TypedErrored({ region: ref(typed), classes: [NotFound], fallback: e => e().message, get children() {
+          return rt.DevLoading({ region: ref(loading), fallback: "waiting", get children() { return () => mod.question(); } });
+        } });
+      } })];
+  });
+  answerRows([{ id: 1, name: "Ada" }]);
+  rejectQuestion(new NotFound("missing issue"));
+  await sleep(20);
+  check("module store question exposes the landed root value", ask("value", { key: store }).result.preview === '[{id: 1, name: "Ada"}]');
+  check("module question rejection is keyed with its typed error", ask("tail").result.some(r => r.changes?.some(c => c.key === K("query") && c.error === "NotFound: missing issue" && !("preview" in c))));
+  check("the typed boundary reports the error, not its enclosing boundary", ask("state").result.boundaries.some(b => b.region === typed.key && b.error === "NotFound: missing issue") &&
+    ask("state", { key: errored.key }).result.state === "ok", ask("state").result.boundaries);
+  const write = change();
+  await sleep(20);
+  const parked = ask("state", { key: K("page") }).result;
+  check("a parked source retains its shown value and reports held", parked.preview === "1" &&
+    parked.held?.blockers.some(b => b.key === action && b.type === "action" && typeof b.since === "number"), parked);
+  releaseWrite();
+  await write;
+  await sleep(20);
+  check("the source releases when the write lands", !ask("state").result.held.length &&
+    ask("tail").result.some(r => r.type === "released" && r.key === K("page")));
+  disposeModule();
+  let changeSecond;
+  const disposeColumns = rt.mount(() => {
+    const [first] = rt.key(K("page"), () => rt.source("page", 10));
+    const [second, writer] = rt.key(K("page"), () => rt.source("page", 20));
+    changeSecond = () => writer.set(21);
+    return () => `${first()} ${second()}`;
+  });
+  const columns = ask("value", { key: K("page") }).result.instances;
+  check("repeated keys keep separate live instances", columns?.length === 2 && columns[0].instance !== columns[1].instance &&
+    columns.map(c => c.preview).join(",") === "10,20", columns);
+  changeSecond();
+  await sleep(10);
+  check("why selects the changed instance", columns?.length === 2 &&
+    ask("why", { key: K("page"), instance: columns[1].instance }).result.current?.preview === "21");
+  disposeColumns();
+  let callback, fire;
+  const callbackKey = K("callbackData");
+  const disposeCallback = rt.mount(() => {
+    const [get, writer] = rt.key(callbackKey, () => rt.source("callbackData", { total: 1 }));
+    fire = rt.action(function* () {
+      callback = rt.traceCallback(() => writer.path(["total"], 2));
+    }, action);
+    return () => String(get().total);
+  });
+  await fire();
+  callback();
+  await sleep(20);
+  const address = `${callbackKey}.total`;
+  const callbackWhy = ask("why", { key: address }).result;
+  check("live field why previews the field and attributes a deferred JS callback",
+    callbackWhy.current?.key === address && callbackWhy.current.preview === "2" && callbackWhy.origin?.includes(`RX callback from ${action} #`), callbackWhy);
+  disposeCallback();
+  const foreign = "examples/users.rx||externalFlag", js = "examples/users.rx||adapter";
+  register({ ...extra, nodes: [...extra.nodes,
+    { ...nodeOf("page"), id: "externalFlag", key: foreign, name: "externalFlag" },
+    { ...nodeOf("page"), id: "adapter", key: js, name: "adapter", jsFrom: "./adapter" }],
+    edges: [...extra.edges, { type: "call", from: "externalFlag", to: "adapter" }] }, { hot });
+  const [flag, setFlag] = createSignal(false);
+  const disposeFlag = rt.mount(() => {
+    const value = rt.key(foreign, () => rt.memo(null, flag));
+    return () => value() ? "trouble" : "ready";
+  });
+  setFlag(true);
+  await sleep(10);
+  check("an external signal change has its JS call origin in the trace", ask("tail").result.some(r =>
+    r.changes?.some(c => c.key === foreign && c.preview === "true" && c.origin?.includes("JS call adapter from ./adapter"))));
+  disposeFlag();
+  const guard = K("shown"), failed = K("failedDetail"), guardRegion = `${errored.mod}:r901`;
+  register({ ...extra, regions: [...extra.regions,
+    { id: guardRegion, kind: "then", parent: errored.id, head: { text: "if shown" } }],
+    nodes: [...extra.nodes, { ...nodeOf("page"), id: "shown", name: "shown", key: guard },
+      { ...nodeOf("page"), id: "failedDetail", key: failed },
+      { ...nodeOf("page"), id: "guardedRead", key: K("guardedRead"), region: guardRegion }],
+    edges: [...extra.edges, { type: "read", mode: "tracked", from: "failedDetail", to: "guardedRead" }] }, { hot });
+  const disposeGuard = rt.mount(() => {
+    rt.key(guard, () => rt.source("shown", false));
+    rt.key(failed, () => () => { throw new NotFound("missing detail"); });
+    return rt.DevErrored({ region: ref(errored), fallback: () => "unexpected fallback", children: "guard closed" });
+  });
+  await sleep(10);
+  const failedWhy = ask("why", { key: failed }).result;
+  check("why explains a failed value whose boundary reader is guarded off",
+    (failedWhy.current ?? failedWhy).untripped?.guards.join() === "shown", failedWhy);
+  disposeGuard();
+  closeMap();
+  hotDispose();
+  check("HMR disposal detaches the socket but keeps the session recorder", OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
+
+  // The bridge previews app values where the app is (an action's args, in its click handler): inside a strict-read
+  // scope that must raise no STRICT_READ_UNTRACKED, which would be the bridge's read blamed on the app.
+  {
+    const strict = [];
+    const off = OBSERVE.diagnostics?.subscribe(e => { if (e.code === "STRICT_READ_UNTRACKED") strict.push(e); });
+    const [rows] = createStore([{ id: 1, title: "Ada" }], { name: "rx:examples/users.rx||strictRows" });
+    untrack(() => void rows[0].title, "StrictProbe");
+    const control = strict.length;
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9001, state: "start", args: [rows] });
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9001, state: "end" });
+    untrack(() => globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9002, state: "start", args: [rows] }), "StrictProbe");
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9002, state: "end" });
+    off?.();
+    check("an arg preview in a strict-read scope raises no STRICT_READ_UNTRACKED", strict.length === control,
+      { control, after: strict.length, codes: strict.map(e => e.message ?? e.code) });
+    check("…(the probe: a direct read there does raise it)", control > 0, control);
+  }
+  done();
+} catch (e) {
+  check(`threw: ${e?.stack ?? e}`, false);
+  done();
+}
+</script>

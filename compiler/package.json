@@ -11,6 +11,9 @@
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {
+    "./hot": "./hot.mjs",
+    "./hmr": "./hmr.mjs",
+    "./graph": "./graph.mjs",
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
@@ -21,6 +24,9 @@
     }
   },
   "files": [
+    "hot.mjs",
+    "hmr.mjs",
+    "graph.mjs",
     "index.js",
     "index.d.ts",
     "vite.mjs",
@@ -35,7 +41,7 @@
     "create-npm-dirs": "napi create-npm-dirs",
     "version": "napi version && node scripts/sync-optional-deps.mjs",
     "prepack": "node scripts/guide.mjs",
-    "test": "node test/node.mjs"
+    "test": "node test/node.mjs && node --test test/hmr.mjs"
   },
   "napi": {
     "binaryName": "compiler",

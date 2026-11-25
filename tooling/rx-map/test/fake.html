@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map fake: the page runs the fake host itself</title>
+<!-- The users.rx map with `fake` set: the page runs createFakeHost (embedded at build time) behind window.__RX_FAKE__.
+     Drives it, then checks that what the page shows is what the host said: after flushes, after travel and resume, and
+     after every kind of module edit (no orphan tokens). Also runs the conformance suite in the browser against the
+     host embedded in the page. Results go in #result (run.mjs reads them with --dump-dom). -->
+<style>html, body { margin: 0; height: 100%; background: #000 } iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0 }</style>
+<pre id="result" hidden></pre>
+<script type="module">
+import { pageHTML } from "../page.mjs";
+import { runConformance } from "../conformance.mjs";
+
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks }); };
+
+try {
+  const graph = await (await fetch("/graph.json")).json();
+  const f = document.createElement("iframe");
+  f.srcdoc = pageHTML(graph, { fake: 3 });
+  document.body.append(f);
+  await new Promise(r => f.addEventListener("load", r, { once: true }));
+  const win = f.contentWindow, doc = f.contentDocument;
+  const errors = [];
+  win.addEventListener("error", e => errors.push(String(e.message)));
+  check("fake mode: the page runs a host behind __RX_FAKE__", typeof win.__RX_FAKE__?.act === "function" && !!doc.getElementById("devhud"));
+  check("fake mode: the page is live", !!doc.getElementById("liveBadge") && !doc.getElementById("scrub").hidden);
+  win.__RX_FAKE_CTL__.pause();
+  const h = win.__RX_FAKE__;
+
+  // what the host says the app shows, folded from its own stream
+  const want = new Map(), open = new Map(), failedSeen = new Set();
+  let heldSeen = 0;
+  let lastGraph = null;
+  h.subscribe(m => {
+    const fold = cs => { for (const c of cs ?? []) if (c?.key) (c.preview === undefined ? want.delete(c.key) : want.set(c.key, c.preview)); };
+    if (m.type === "flush" || m.type === "step" || m.type === "resume") fold(m.changes);
+    if (m.type === "flush") for (const c of m.changes ?? []) if (c.error) failedSeen.add(c.key);
+    if (m.type === "held") heldSeen++;
+    if (m.type === "hmr" && m.phase === "done") fold(m.changes);
+    if (m.type === "hmr" && m.phase === "plan") lastGraph = m.graph;
+    if (m.type === "flight") open.set(m.key, (open.get(m.key) ?? 0) + (m.state === "start" ? 1 : -1));
+  });
+  // travel is denied while a request or an action's held writes are landing: let them land
+  const settle = () => { for (let i = 0; i < 300 && [...open.values()].some(n => n > 0); i++) h.tick(1); h.tick(60); };
+  const compare = what => {
+    const shown = win.__RX_VIEW__.values(), bad = [];
+    for (const [k, v] of want) {
+      const el = doc.querySelector(`#board .chip[data-id="${win.__RX_VIEW__.graph().nodes.find(n => n.key === k && !n.site)?.id}"] .lv`);
+      if (!win.__RX_VIEW__.graph().nodes.some(n => n.key === k)) continue;
+      if (shown[k] !== v || (el && el.dataset.value !== v)) bad.push({ k, want: v, shown: shown[k], dom: el?.dataset.value });
+    }
+    check(`${what}: values shown == host values (${want.size} keys)`, want.size > 0 && !bad.length, bad.slice(0, 4));
+  };
+
+  for (let i = 0; i < 14; i++) { h.act(); h.tick(3); }
+  settle();
+  await sleep(50);
+  compare("after 14 actions");
+  check("fake: some answers fail, and the page marks them", !failedSeen.size || [...failedSeen].some(k => doc.querySelector(`#board .chip.failed[data-id="${win.__RX_VIEW__.graph().nodes.find(n => n.key === k && !n.site)?.id}"]`) || win.__RX_VIEW__.values()[k] !== undefined), [...failedSeen]);
+  check("the timeline has the flushes", doc.querySelectorAll("#board .chip .lv").length > 0 && /#\d+/.test(doc.getElementById("seqLabel").textContent), doc.getElementById("seqLabel").textContent);
+
+  const track = doc.getElementById("track");
+  track.focus();
+  for (let i = 0; i < 4; i++) { track.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })); await sleep(110); }
+  await sleep(100);
+  check("travel: the page views the past", doc.body.classList.contains("viewing"), doc.getElementById("seqLabel").textContent);
+  compare("after travelling back 4");
+  doc.getElementById("liveBtn").click();
+  await sleep(100);
+  check("resume: back to live", !doc.body.classList.contains("viewing"));
+  compare("after resume");
+
+  const mod = graph.modules[0];
+  for (const op of ["rename", "expr", "type", "add", "remove"]) {
+    settle();
+    h.editModule(mod, op);
+    await sleep(1400);
+    const g = win.__RX_VIEW__.graph();
+    const ids = new Set(g.nodes.map(n => n.id));
+    const chips = [...doc.querySelectorAll("#board .chip[data-id]")];
+    const orphans = chips.filter(c => !ids.has(c.dataset.id)).map(c => c.dataset.id);
+    const missing = g.nodes.filter(n => !n.world || n.from).filter(n => !doc.querySelector(`#board [data-id="${CSS.escape(n.id)}"]`)).filter(n => !n.site || !/^(if|for|loading on)$/.test(n.name)).map(n => n.name);
+    check(`hmr ${op}: the new graph is swapped in, no orphan tokens`, lastGraph && g.nodes.length === lastGraph.nodes.length && !orphans.length && !doc.querySelector("#board .incoming, #board .chip.plan, #board .chip.ghost"), { orphans, n: g.nodes.length, want: lastGraph?.nodes.length });
+    check(`hmr ${op}: every node has its token`, !missing.length, missing.slice(0, 5));
+    // a fresh act after an edit, then compare
+    h.act(); h.tick(3); settle(); await sleep(30);
+    compare(`after hmr ${op}`);
+  }
+  check("no page errors", !errors.length, errors);
+
+  // the conformance suite, in the browser, against the host embedded in the page
+  const lib = win.__RX_FAKE_LIB__;
+  const graphs = [graph];
+  for (const f of ["notes", "settings", "todos"]) { const r = await fetch(`/test/fixtures/${f}.json`); if (r.ok) graphs.push(await r.json()); }
+  const results = [...runConformance((g, o) => lib.createFakeHost(g, o), graphs), ...runConformance((g, o) => lib.createFakeHost(g, { ...o, failRate: .2 }), graphs, { seed: 5 })];
+  const failed = results.filter(r => !r.ok);
+  check(`conformance in the browser: ${results.length} checks over ${graphs.length} graphs`, results.length > 10 && !failed.length, failed.slice(0, 5));
+} catch (e) {
+  check(`threw: ${e?.stack ?? e}`, false);
+}
+done();
+</script>

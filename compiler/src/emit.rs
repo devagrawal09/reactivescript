@@ -212,10 +212,15 @@ pub fn compile_dev(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: O
 
 /// For a sibling-file build written elsewhere, keep relative JS imports relative to their RX importer.
 pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: Option<&str>, out_dir: Option<&str>) -> R<Compiled> {
+    compile_with_hot(set, extra, by_source, dev, out_dir, false)
+}
+
+pub(crate) fn compile_with_hot(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: Option<&str>, out_dir: Option<&str>, hot: bool) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
     g.out_dir = out_dir;
+    g.hot = hot;
     if dev.is_some() {
         g.boundaries = crate::check::boundary_regions(set);
     }
@@ -252,7 +257,7 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
                 is_async: false,
                 generator: false,
             };
-            body.push(S::ExportDefault(main));
+            body.push(if hot { S::Func(main) } else { S::ExportDefault(main) });
         } else {
             let exported: Vec<&str> = p.decls.iter().filter(|d| d.exported() && !matches!(d, Decl::TypeDecl { .. })).filter_map(|d| d.name()).collect();
             let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n));
@@ -272,6 +277,7 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
 }
 
 struct Gen<'p> {
+    hot: bool,
     u: Usage,
     set: &'p ModuleSet,
     file: String,
@@ -331,6 +337,7 @@ impl<'p> Gen<'p> {
             set,
             file: "main.rx".into(),
             by_source: false,
+            hot: false,
             out_dir: None,
             css: vec![],
             top: vec![],
@@ -657,8 +664,11 @@ impl<'p> Gen<'p> {
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
                 // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
-                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
-                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
+                let (method, key) = if self.hot {
+                    let joined = crate::modules::join_path(&self.dev_module, &relative(&self.file, r));
+                    ("moduleDev", str(joined))
+                } else { ("module", if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) }) };
+                out.push(konst(iv.clone(), rtc(method, vec![key, id(self.dep_var(r))])));
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))

@@ -43,10 +43,15 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
+type Carry = { value: unknown; keepAnswer?: boolean; instance?: string };
+let consumedCarry: { replaces?: string; carryStatus: string } | undefined;
+type CarryGroup = { entries: Carry[]; used: number };
+type DeferredCarries = Map<string, { path: string; value: Carry; used?: () => void }>;
 let instanceId = 0;
 let rxInstance: string | undefined;
 type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
   instance?: string; ownerPath?: string[];
+  hmrValue?: () => { value?: unknown; held?: boolean };
   source?: boolean;
 };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
@@ -75,12 +80,13 @@ const pathOfKey = (k: string) => {
 };
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
-const key: <T>(k: string, f: () => T) => T = RX_INSTRUMENT
-  ? (k, f) => {
+const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>, reads?: Set<Inspect>) => T = RX_INSTRUMENT
+  ? (k, f, own, reads) => {
       const instance = String(++instanceId);
       const ownerPath = pathOfKey(k);
-      const was = rxKey, wasInstance = rxInstance;
+      const was = rxKey, wasInstance = rxInstance, previousCarry = consumedCarry;
       rxKey = k; rxInstance = instance;
+      consumedCarry = undefined;
       try {
         const out = f();
         const get = Array.isArray(out) ? out[0] : out;
@@ -110,9 +116,14 @@ const key: <T>(k: string, f: () => T) => T = RX_INSTRUMENT
             }
           }, false));
           // The bridge keeps handles only for the lifetime of this declaration.
-          Object.assign(inspect, { node: (get as any)[$REFRESH] });
+          Object.assign(inspect, { node: (get as any)[$REFRESH], hmrValue: () => inspect(latestWhole) });
           const nodes = dev.__RX_NODES__ ??= new Map();
-          Object.assign(inspect, { instance, ownerPath, source: !!writer });
+          Object.assign(inspect, { instance, ownerPath, source: !!writer, ...consumedCarry });
+          if (own && writer) remember(own, k, inspect);
+          if (reads) {
+            reads.add(inspect);
+            if (getOwner()) onCleanup(() => { reads.delete(inspect); });
+          }
           remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
           trace({ type: "node", key: k, instance });
           if (writer) {
@@ -124,7 +135,7 @@ const key: <T>(k: string, f: () => T) => T = RX_INSTRUMENT
           }
         }
         return out;
-      } finally { rxKey = was; rxInstance = wasInstance; }
+      } finally { rxKey = was; rxInstance = wasInstance; consumedCarry = previousCarry; }
     }
   : (_k, f) => f();
 
@@ -230,6 +241,31 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
   const modules = new Map<unknown, Record<string, unknown>>();
+  const sources = RX_INSTRUMENT ? new Map<string, Set<Inspect>>() : undefined;
+  const reads = RX_INSTRUMENT ? new Set<Inspect>() : undefined;
+  let carries: Map<string, CarryGroup> | undefined;
+  let deferred: DeferredCarries | undefined;
+  const inputEvents = ["pointerdown", "keydown", "input", "click"];
+  const clearDeferred = () => {
+    if (!deferred) return;
+    deferred = undefined;
+    for (const type of inputEvents) opts.root?.removeEventListener?.(type, clearDeferred, true);
+  };
+  const takeCarry = () => {
+    if (rxKey === null) return;
+    const group = carries?.get(rxKey);
+    if (group) return group.entries[group.used++];
+    const seed = deferred?.get(rxKey);
+    if (!seed || pathOfKey(rxKey)?.join("/") !== seed.path) return;
+    // There may be a second candidate mount as the pending ancestor lands.
+    // Keep the seed for the bounded replacement window, not for user remounts.
+    seed.used?.();
+    return seed.value;
+  };
+  // Only a Vite hot boundary enables persistent module owners. Do not change
+  // production or non-HMR hydration's owner order.
+  let moduleOwner: ReturnType<typeof getOwner> | undefined;
+  const persistent = new Map<string, { exports: Record<string, unknown>; dispose: () => void }>();
   // An equation's hoisted awaits, re-asked with it by `refresh`. They are emitted just before the equation and claimed
   // by its accessor when it registers, so a refresh reaches only its own instance's (never a disposed mount's).
   const hoistedBy = new Map<string, Acc[]>();
@@ -310,24 +346,39 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     },
     ...(RX_INSTRUMENT || RX_HARNESS ? {
       sourceDev(name: string, init: Acc, guessed = false): [Acc, Writer] {
-        return app.source(name, untrack(init), guessed);
+        const seed = takeCarry();
+        if (seed) consumedCarry = { replaces: seed.instance, carryStatus: "carried" };
+        return app.source(name, seed ? seed.value : untrack(init), guessed);
       },
     } : {}),
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
+      const answer = RX_INSTRUMENT && !mode.derived ? takeCarry() : undefined;
+      if (answer) {
+        consumedCarry = { replaces: answer.instance, carryStatus: answer.keepAnswer && !hoistedBy.get(name)?.length ? "carried" : "re-asked" };
+        // A question without tracked inputs can keep its answer without starting
+        // I/O. Explicit refresh still calls the new question.
+        if (answer.keepAnswer && !hoistedBy.get(name)?.length) {
+          let first = true;
+          const ask = compute;
+          compute = prev => { if (!first) return ask(prev); first = false; return answer.value; };
+        }
+        opts = { ...opts, loadingValue: answer.value };
+      }
       const fn = named(name, compute);
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
-      const seed = () => key && !mode.record ? [] : {};
+      const seed = () => answer && answer.value && typeof answer.value === "object" ? answer.value : key && !mode.record ? [] : {};
+      const storeOptions = () => nm({ ...(key ? { key } : {}), ...(answer ? { seedLoadingValue: true } : {}) });
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
-        const [truth, setTruth] = (createStore as any)(derive, seed(), nm(key ? { key } : undefined));
+        const [truth, setTruth] = (createStore as any)(derive, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const tacc = () => truth; storeAccs.add(tacc);
-        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), nm(key ? { key } : undefined));
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), nm(key ? { key } : undefined));
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), answer ? storeOptions() : nm(key ? { key } : undefined));
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
         return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
@@ -344,7 +395,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}, nm(undefined));
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, answer ? seed() : {}, answer ? storeOptions() : nm(undefined));
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
@@ -480,7 +531,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
-    key,
+    key: RX_INSTRUMENT ? <T>(k: string, f: () => T) => key(k, f, sources, reads) : key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -516,7 +567,50 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
     },
   };
-  return app;
+  const rt = Object.assign(app, RX_INSTRUMENT ? {
+    moduleDev(path: string, factory: (rt: unknown) => Record<string, unknown>) {
+      if (!moduleOwner || sharedConfig.hydrating) return app.module(path, factory);
+      if (!persistent.has(path)) runWithOwner(moduleOwner, () => createRoot(dispose => {
+        persistent.set(path, { exports: factory(rt), dispose });
+      }, { transparent: true }));
+      return persistent.get(path)!.exports;
+    },
+    hotRuntime: {
+      activate() {
+        if (moduleOwner !== undefined || sharedConfig.hydrating) return;
+        moduleOwner = getOwner();
+        if (moduleOwner) onCleanup(() => {
+          clearDeferred();
+          for (const m of [...persistent.values()].reverse()) m.dispose();
+          persistent.clear();
+          moduleOwner = undefined;
+        });
+      },
+      sources,
+      begin(carry: Map<string, CarryGroup>, modules: Set<string>) {
+        clearDeferred();
+        carries = carry;
+        for (const [path, m] of [...persistent].reverse()) if (modules.has(path)) {
+          persistent.delete(path);
+          m.dispose();
+        }
+      },
+      async defer(seeds: DeferredCarries) {
+        // Without a pending read the branch is absent, not waiting to mount.
+        const pending = () => [...reads!].some(read => read(() => undefined).pending);
+        if (!seeds.size || !pending()) return;
+        deferred = seeds;
+        // Never restore a stale draft on a later user-driven remount.
+        for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
+        const deadline = performance.now() + 10000;
+        while (deferred === seeds && pending() && performance.now() < deadline)
+          await new Promise(resolve => setTimeout(resolve, 16));
+        if (deferred === seeds) clearDeferred();
+      },
+      end() { carries = undefined; },
+    },
+  } : {});
+  return rt;
 }
 export type App = ReturnType<typeof createApp>;
 

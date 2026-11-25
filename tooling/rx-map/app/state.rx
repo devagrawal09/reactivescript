@@ -1,0 +1,59 @@
+// The map's state: the graph and its model, what is selected, hovered, traced and hidden, and the layout the edges
+// are drawn on. Every view reads it; only the actions here write it.
+import { isDiff, loadJSON, saveJSON } from "./js/env.js"
+import { graphSignal } from "./js/graphs.js"
+import { toSet } from "./js/util.js"
+import { buildModel, neighbourhood, downstream, upstream } from "./js/model.js"
+import { boardView, detailLevel, overviewLevel } from "./js/layout.js"
+
+// ---- the graph -----------------------------------------------------------------------------------------------
+// the graph comes through a host signal (graphs.js, MO-10 `ref`): a source holding it would be a store over all of it
+[graph, setGraph] = graphSignal()
+export model = buildModel(graph)
+export board = boardView(model)
+export diff = isDiff()
+
+// ---- what is looked at ---------------------------------------------------------------------------------------
+// selected: the pinned name or region; focus: the trace lit on the map (a selection's neighbourhood, a hover's, or
+// what a trace button asked for); null when nothing is lit
+export source selected: string | null := null
+export source focus: { ids: string[]; edges: number[] } | null := null
+export source hoverId: string | null := null
+// the before / after view of a diff
+export source diffView: string := "both"
+// every edge, not just the lit ones
+export source allEdges := false
+// legend toggles: `k:<kind>`, `e:<edge key>`, `d:changes`; remembered
+export source hidden: string[] := loadJSON("rx-map:hidden", [])
+effect (hidden) { saveJSON("rx-map:hidden", $0) }
+// a diff summary item marks its first name as if selected, without selecting it
+export source marked: string | null := null
+export action mark(id: string | null) { marked := id }
+
+// what is lit, as a lookup: a view asks `lit[id]`
+export lit = toSet(focus == null ? [] : focus.ids)
+
+export source level := detailLevel()
+export overview = level == overviewLevel()
+export action showLevel(l: number) { level := l }
+
+// ---- selection and traces --------------------------------------------------------------------------------------
+export action hover(id: string | null) {
+  hoverId := id
+  if (selected == null) { focus := id == null ? null : neighbourhood(model, id, diffView) }
+}
+export action select(id: string | null) {
+  selected := id
+  marked := null
+  focus := id == null ? null : neighbourhood(model, id, diffView)
+}
+export action traceFrom(dir: string) {
+  if (selected != null) { focus := dir == "down" ? downstream(model, selected, diffView) : upstream(model, selected, diffView) }
+}
+export action showTrace(t: { ids: string[]; edges: number[] } | null) { focus := t }
+export action setDiffView(v: string) { diffView := v }
+export action setAllEdges(on: boolean) { allEdges := on }
+export action toggleHidden(k: string) { hidden := hidden.includes(k) ? hidden.filter(x => x != k) : [...hidden, k] }
+export action showKinds(ks: string[]) { hidden := hidden.filter(x => !ks.includes(x)) }
+export action hideKinds(ks: string[]) { hidden := [...hidden.filter(x => !ks.includes(x)), ...ks] }
+export action swapGraph(g: any) { setGraph(g) }

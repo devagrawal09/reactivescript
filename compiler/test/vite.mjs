@@ -158,5 +158,97 @@ if (!filter || "todo".includes(filter)) {   // the dev server: modules transform
   });
   await server.close();
 }
+if (!filter || "hmr".includes(filter)) {
+  const dir = project("hmr-without-map", "hot/main.rx");
+  const src = path.join(dir, "src/hot");
+  mkdirSync(src);
+  const original = `import pure { seed } from "./sample.js"
+import { sensor } from "./shared.rx"
+import { Badge } from "./badge.rx"
+export default component Main() {
+  source counter := seed()
+  <main>
+    <button onClick={() => { counter := c => c + 1 }}>{counter}</button>
+    <p>{sensor}</p>
+    <Badge />
+  </main>
+}
+`;
+  writeFileSync(path.join(src, "main.rx"), original);
+  writeFileSync(path.join(src, "shared.rx"), `import pure { sample } from "./sample.js"
+export source sensor: number = sample()
+`);
+  writeFileSync(path.join(src, "sample.d.rx"), `export pure fn sample(): number\nexport pure fn seed(): number\n`);
+  writeFileSync(path.join(src, "sample.js"), `export function sample() { return globalThis.samples = (globalThis.samples ?? 0) + 1; }
+export function seed() { globalThis.seeds = (globalThis.seeds ?? 0) + 1; return 0; }\n`);
+  const badge = path.join(src, "badge.rx");
+  writeFileSync(badge, `export component Badge() { <span>old</span> }\n`);
+  writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";
+import main from "./hot/main.rx";
+document.body.innerHTML = '<div id="app"></div><div id="app2"></div>';
+for (const root of document.body.children) { const app = createApp({ root }); app.mount(main(app)); }
+`);
+  const server = await vite.createServer(config(dir, "hot/main.rx")); await server.listen(0);
+  try {
+    await drive("HMR without map: two app instances and an untouched shared module", server.resolvedUrls.local[0], async page => {
+      await page.locator("#app button").click();
+      await page.locator("#app2 button").click();
+      await page.locator("#app2 button").click();
+      const before = await page.evaluate(() => ({ samples: globalThis.samples, seeds: globalThis.seeds, sensors: [...document.querySelectorAll("main p")].map(el => el.textContent) }));
+      writeFileSync(badge, `export component Badge() { <span>new badge</span> }\n`);
+      await page.waitForFunction(() => document.querySelector("#app2 span")?.textContent === "new badge", null, { timeout: 8000 });
+      const after = await page.evaluate(() => ({
+        counters: [...document.querySelectorAll("main button")].map(el => el.textContent),
+        samples: globalThis.samples, seeds: globalThis.seeds, sensors: [...document.querySelectorAll("main p")].map(el => el.textContent),
+      }));
+      if (JSON.stringify(after.counters) !== '["1","2"]' || after.samples !== before.samples || before.seeds !== 2 || after.seeds !== before.seeds ||
+        JSON.stringify(after.sensors) !== JSON.stringify(before.sensors) || await page.evaluate(() => !!globalThis.__RX__))
+        throw new Error(`incorrect carry: ${JSON.stringify({ before, after })}`);
+    });
+  } finally { await server.close(); }
+}
+if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a dependency's <style> edit reaches the page
+  const dir = project("styles-dev", "styled/main.rx");
+  mkdirSync(path.join(dir, "src/styled"));
+  writeFileSync(path.join(dir, "src/styled/main.rx"), `import { Badge } from "./badge.rx"\n\nexport default component Main() {\n  <main><Badge /></main>\n}\n`);
+  const badge = path.join(dir, "src/styled/badge.rx");
+  const style = color => `export component Badge() {\n  <style>\n    .badge { color: ${color} }\n  </style>\n  <p class="badge">badge</p>\n}\n`;
+  writeFileSync(badge, style("rgb(0, 0, 255)"));
+  const server = await vite.createServer(config(dir, "styled/main.rx")); await server.listen(0);
+  const url = server.resolvedUrls.local[0];
+  const color = page => page.$eval(".badge", e => getComputedStyle(e).color);
+  const until = async (page, want, what) => {
+    for (let i = 0; i < 40 && await color(page).catch(() => "") !== want; i++) await page.waitForTimeout(100);
+    const got = await color(page).catch(e => e.message.split("\n")[0]); if (got !== want) throw new Error(`${what}: color ${got}, not ${want}`);
+  };
+  await drive("styles (dev)", url, async page => {
+    await until(page, "rgb(0, 0, 255)", "first load");
+    writeFileSync(badge, style("rgb(255, 0, 0)"));
+    await until(page, "rgb(255, 0, 0)", "after the edit");
+    await page.reload(); await until(page, "rgb(255, 0, 0)", "after a reload");
+    const fresh = await browser.newPage();
+    try { await fresh.goto(url); await until(fresh, "rgb(255, 0, 0)", "in a new page"); } finally { await fresh.close(); }
+  });
+  await server.close();
+}
+if (!filter || "cold".includes(filter)) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
+  const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
+  const root = project("cold", "shop/main.rx"), catalog = path.join(root, "src/shop/catalog.rx");
+  const ctx = (id, moduleId) => ({ id, moduleId, root, ssr: false, solid: { generate: "dom", hydratable: false }, addWatchFile() {} });
+  try {
+    // a commented-out import is not an edge: read as one, it would make main.rx look imported and leave no entry
+    writeFileSync(catalog, readFileSync(catalog, "utf8") + `\n// import { x } from "./main.rx"\n`);
+    const warm = rx(); warm.compile("", ctx(path.join(root, "src/shop/main.rx"), path.join(root, "src/shop/main.rx")));
+    const want = warm.compile("", ctx(catalog, `${catalog}?rx-dep`)).code;
+    const got = rx().compile("", ctx(catalog, `${catalog}?rx-dep`)).code;
+    if (got !== want) throw new Error("the dependency compiled cold differs from the one compiled after its entry");
+    writeFileSync(catalog, readFileSync(catalog, "utf8") + "\nexport bad = missingName\n");
+    let report = "";
+    try { rx().compile("", ctx(catalog, `${catalog}?rx-dep`)); } catch (e) { report = e.message; }
+    if (!/catalog\.rx:\d+(:\d+)?: error /.test(report)) throw new Error(`a cold dependency that does not compile reports ${JSON.stringify(report.slice(0, 200))}`);
+    pass++; console.log("✓ cold dependency: compiled from the program that holds it, or that program's diagnostics");
+  } catch (e) { fail++; console.log(`✗ cold dependency: ${e.message.split("\n")[0]}`); }
+}
+await browser.close();
 console.log(`\n${pass} pass, ${fail} fail (vite ${vite.version}, @solidjs/vite-plugin ${JSON.parse(readFileSync(path.join(pluginDir, "package.json"), "utf8")).version})`);
 process.exit(fail ? 1 : 0);

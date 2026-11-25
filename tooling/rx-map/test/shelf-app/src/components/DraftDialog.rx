@@ -1,0 +1,9 @@
+import { DraftPreview } from "./DraftPreview.rx"
+
+export component DraftDialog() {
+  source text: string := ""
+  <dialog open aria-label="Draft">
+    <textarea aria-label="Draft text" value={text} onInput={e => { text := e.target.value }} />
+    <DraftPreview text={text} />
+  </dialog>
+}

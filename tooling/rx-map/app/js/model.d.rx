@@ -1,0 +1,33 @@
+// The map's model of a graph (model.js): indexes, traces, search and tips.
+export type Model = any
+export type Trace = { ids: string[]; edges: number[] }
+export pure fn buildModel(g: any): Model
+export pure fn graphOf(m: Model): any
+/** The page title of a model's graph: its title, else its modules' file names (as page.mjs puts it in <title>). */
+export pure fn titleOf(m: Model): string
+export pure fn nodeOf(m: Model, id: string): any
+export pure fn regionOf(m: Model, id: string): any
+export pure fn isRegion(m: Model, id: string): boolean
+export pure fn regionByRef(m: Model, which: string): any
+export pure fn idsOfKey(m: Model, key: string): string[]
+export pure fn hasKey(m: Model, key: string): boolean
+export pure fn keyOf(m: Model, id: string): string | null
+export pure fn inEdges(m: Model, id: string): any[]
+export pure fn outEdges(m: Model, id: string): any[]
+export pure fn kindCount(m: Model): any
+export pure fn edgeCount(m: Model): any
+export pure fn label(m: Model, id: string): string
+export pure fn lineOf(m: Model, n: any): string
+export pure fn moduleLine(m: Model, mod: number, line: number): string
+export pure fn controlInfo(m: Model, r: any): any
+export pure fn coverCount(m: Model, id: string): number
+export pure fn readsOf(m: Model, n: any): string
+export pure fn neighbourhood(m: Model, id: string, view: string): Trace
+export pure fn downstream(m: Model, id: string, view: string): Trace
+export pure fn upstream(m: Model, id: string, view: string): Trace
+export pure fn summaryTrace(m: Model, i: number): any
+export pure fn searchHits(m: Model, q: string, hidden: string[]): string[]
+export pure fn edgesAt(m: Model, idxs: number[]): any[]
+export type TipInfo = { region: boolean; micro: string; name: string; code: string; kk: string; fam: string; hex: string; label: string; flags: string; where: string; key: string }
+export pure fn tipInfo(m: Model, id: string): TipInfo | null
+export pure fn findByName(m: Model, name: string): string

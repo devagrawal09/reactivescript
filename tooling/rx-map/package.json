@@ -1,0 +1,70 @@
+{
+  "name": "@reactivescript/map",
+  "description": "rx-map: a .rx program drawn from the checker's resolved model, as a static page or live beside a dev build",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/reactivescript.git",
+    "directory": "tooling/rx-map"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "dependencies": {
+    "@reactivescript/compiler": "^0.3.1"
+  },
+  "bin": {
+    "rx-map": "./rx-map.mjs"
+  },
+  "exports": {
+    "./graph": "./graph.mjs",
+    "./page": "./page.mjs",
+    "./live": {
+      "types": "./live.d.ts",
+      "default": "./live.mjs"
+    },
+    "./diff": "./diff.mjs",
+    "./mcp": "./mcp.mjs",
+    "./vite": {
+      "types": "./vite.d.ts",
+      "default": "./vite.mjs"
+    },
+    "./fake": "./fake.mjs",
+    "./hmr": "./hmr.mjs",
+    "./layout": "./layout.mjs",
+    "./conformance": "./conformance.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "graph.mjs",
+    "page.mjs",
+    "live.mjs",
+    "diff.mjs",
+    "mcp.mjs",
+    "project.mjs",
+    "query.mjs",
+    "live-protocol.mjs",
+    "vite.mjs",
+    "fake.mjs",
+    "hmr.mjs",
+    "layout.mjs",
+    "conformance.mjs",
+    "rx-map.mjs",
+    "README.md",
+    "vite.d.ts",
+    "live.d.ts"
+  ],
+  "peerDependencies": {
+    "solid-js": "^2.0.0-rc.23"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepack": "node build.mjs",
+    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs test/layout.test.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
+  }
+}

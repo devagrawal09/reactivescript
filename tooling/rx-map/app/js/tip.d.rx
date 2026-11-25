@@ -1,0 +1,5 @@
+// The tooltip's place (tip.js).
+export fn placeTip(x: number, y: number): void
+export fn placeTipAt(id: string): void
+export fn pointerAt(ev: any): void
+export fn placeTipNow(): void

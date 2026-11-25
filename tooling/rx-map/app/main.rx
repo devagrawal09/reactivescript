@@ -1,0 +1,133 @@
+// rx-map: a .rx program drawn from the checker's resolved model, as a world of plates and tokens under a HUD.
+// The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
+import { icon } from "./js/vocab.js"
+import { setDocTitle, bodyClass, isLive, isPopout, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
+import { startCamera, layoutChanged, zoomBy, frameAll, isFramed, flyToId } from "./js/camera.js"
+import { fitCards } from "./js/layout.js"
+import { startSound, soundOn, setSound, sfx } from "./js/sound.js"
+import { sparkle } from "./js/fx.js"
+import { neighbourhood, downstream, upstream, edgesAt, findByName, titleOf } from "./js/model.js"
+import { startMinimap } from "./js/minimap.js"
+import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive, nextFrame, focusIsBodyOr } from "./js/dom.js"
+import { Board } from "./board.rx"
+import { PanelButton, Side } from "./panel.rx"
+import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, travelBy } from "./live.rx"
+import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
+import { Tip } from "./tip.rx"
+import { board, model, selected, focus, hidden, diff, diffView, allEdges, level, showLevel, hover, setDiffView, setAllEdges, showTrace } from "./state.rx"
+
+title = titleOf(model)
+
+export default component App() {
+  source miniOn := !compactNow()
+  source sound := loadText("rx-map:sound") == "on"
+
+  effect () { return startSound() }
+  effect () { return onCompactChange((c) => { miniOn := !c }) }
+  // a selection sends one light wave along its edges
+  effect (selected) { if ($0 != null) { sparkle(edgesAt(model, neighbourhood(model, $0, diffView).edges), false) } }
+  // search: the first match is flown to as the query changes (not when the matches change for another reason, such
+  // as a legend toggle: rx-map MCP `reach state.rx||hidden` showed hidden → hits → this effect)
+  effect (query) { if (hits.length > 0) { flyToId(hits[0], "search") } }
+  // #name selects a name; #name:down / #name:up also traces it
+  action fromHash(h: string) {
+    let parts = h.split(":")
+    let id = findByName(model, parts[0])
+    if (id != "") {
+      pick(id, true)
+      if (parts[1] == "down") { showTrace(downstream(model, id, diffView)) }
+      if (parts[1] == "up") { showTrace(upstream(model, id, diffView)) }
+    }
+  }
+  effect () { return nextFrame(() => { fromHash(hash()) }) }
+  effect () { return onHashChange((h) => { fromHash(h) }) }
+  // keys: / searches, Esc clears a selection, then frames, then closes the panel; F frames; + / - zoom
+  effect () {
+    return onKey((ev) => {
+      if (ev.key == "/" && !typing()) { ev.preventDefault(); focusEl("q") }
+      else if (ev.key == "Escape") {
+        if (typing()) { blurActive() }
+        else if (selected != null) { pick(null, false) }
+        else if (!isFramed()) { frameAll() }
+        else if (open) { closePanel() }
+      }
+      else if (!typing() && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        if (ev.key == "f" || ev.key == "F") { frameAll() }
+        else if (ev.key == "+" || ev.key == "=") { zoomBy(1.3) }
+        else if (ev.key == "-" || ev.key == "_") { zoomBy(1 / 1.3) }
+        else if (isLive() && (ev.key == "ArrowLeft" || ev.key == "ArrowRight") && focusIsBodyOr("track")) { ev.preventDefault(); travelBy(ev.key == "ArrowLeft" ? -1 : 1) }
+      }
+    })
+  }
+
+  // the camera and the minimap are JS; they start once the world is on the page
+  effect () { return startMinimap() }
+  effect () { return startCamera({ board: () => board, model: () => model, level: l => { showLevel(l) }, drag: () => { hover(null) } }) }
+  effect (board, hidden, diffView) { layoutChanged() }
+  // whole modes key off classes on <body>
+  effect (focus != null) { bodyClass("focus", $0) }
+  effect (board.flat) { bodyClass("flat", $0) }
+  effect (diff) { bodyClass("diff", $0) }
+  effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
+  effect (miniOn) { bodyClass("mini-off", !$0) }
+  // the title follows the graph drawn: a module replacement or a pop-out's catch-up can swap in another
+  effect (title) { setDocTitle(`rx-map · ${isPopout() ? "pop-out · " : ""}${$0}`) }
+
+  <div id="canvas" onClick={(ev) => { if (!within(ev, "#board [data-id], .nref") && selected != null) { pick(null, false) } }}>
+    <div id="world">
+      <div id="floor"></div>
+      <Board />
+    </div>
+  </div>
+  <div id="rewind"></div>
+  <header class="hud">
+    <h1><span class="logo"></span>RX·MAP <small class="mono">{title}</small></h1>
+    <LiveBadge />
+    <span id="qwrap">
+      <input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount" value={query}
+        onInput={(ev) => { setQuery(targetValue(ev)) }}
+        onKeyDown={(ev) => {
+          if (ev.key == "ArrowDown" || ev.key == "ArrowUp") { ev.preventDefault(); searchGo(hitAt + (ev.key == "ArrowDown" ? 1 : -1)) }
+          else if (ev.key == "Enter") {
+            ev.preventDefault()
+            if (hits.length > 0) { if (ev.shiftKey) { searchGo(hitAt - 1) } else { pick(hits[hitAt < 0 ? 0 : hitAt], true) } }
+          }
+        }} />
+      <span id="qcount" class="mono" aria-live="polite">{query.trim() == "" ? "" : hits.length == 0 ? "0" : `${hitAt + 1}/${hits.length}`}</span>
+    </span>
+    <label><input type="checkbox" id="all" checked={allEdges} onChange={(ev) => { sfx("toggle"); setAllEdges(targetChecked(ev)) }} /> all edges</label>
+    <button id="hiddenBtn" hidden={hidden.length == 0} title="open the legend to show them again" onClick={() => { openTab("legend") }}>{hidden.length} hidden</button>
+    <span id="diffbar">
+      <select id="view" value={diffView} onChange={(ev) => { sfx("toggle"); setDiffView(targetValue(ev)) }}>
+        <option value="both">before + after</option><option value="before">before</option><option value="after">after</option>
+      </select>
+    </span>
+    <span class="spacer"></span>
+    <span class="stats" id="stats">{board.stats}</span>
+    <PopButton />
+    <span id="panelBtns"><PanelButton /></span>
+    <ViewNote />
+  </header>
+  <Side />
+  <div id="mini" class="hud" aria-hidden="true"><div class="micro"><span>Map</span><span id="miniInfo"></span></div><canvas id="minic"></canvas></div>
+  <div id="bar" class="hud">
+    <button class="hbtn ic" id="miniBtn" title="minimap" aria-label="minimap" aria-pressed={miniOn ? "true" : "false"} innerHTML={icon("map")}
+      onClick={() => { sfx("toggle"); miniOn := !miniOn }}></button>
+    <Scrub />
+    <span class="spacer"></span>
+    <div id="dock">
+      <button class={["hbtn", "ic", allEdges && "on"]} id="edgesBtn" title="all edges" aria-label="all edges" aria-pressed={allEdges ? "true" : "false"} innerHTML={icon("edges")}
+        onClick={() => { sfx("toggle"); setAllEdges(!allEdges) }}></button>
+      <button class="hbtn ic" id="zoomOut" title="zoom out (−)" aria-label="zoom out" innerHTML={icon("minus")} onClick={() => { sfx("toggle"); zoomBy(1 / 1.3) }}></button>
+      <span id="zoomPct">100%</span>
+      <button class="hbtn ic" id="zoomIn" title="zoom in (+)" aria-label="zoom in" innerHTML={icon("plus")} onClick={() => { sfx("toggle"); zoomBy(1.3) }}></button>
+      <button class="hbtn ic" id="frameBtn" title="frame all (F)" aria-label="frame all" innerHTML={icon("frame")} onClick={() => { sfx("toggle"); frameAll() }}></button>
+      <button class="hbtn ic" id="soundBtn" title={sound ? "sound on (click to mute)" : "sound muted"} aria-label="sound" aria-pressed={sound ? "true" : "false"}
+        innerHTML={icon(sound ? "soundOn" : "soundOff")} onClick={() => { let on = !soundOn(); setSound(on); sound := on }}></button>
+    </div>
+  </div>
+  <Tip />
+  <div id="toast" class="hud" role="status"></div>
+  <DevHud />
+  <LiveBridge />
+}

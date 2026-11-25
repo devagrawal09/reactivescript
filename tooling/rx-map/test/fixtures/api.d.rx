@@ -1,0 +1,3 @@
+export error NotFound
+export error ServerError
+export pure fn fetchIssue(id: number): Promise<string> rejects(NotFound | ServerError)

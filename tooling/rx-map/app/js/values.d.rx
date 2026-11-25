@@ -1,0 +1,9 @@
+export type ListDetail = { count: number; exact: boolean; items: string[] }
+export type LvView = { list: boolean; text: string; count: string; items: string[]; more: string; empty: boolean }
+export type TimelineValue = { preview?: string; error?: string }
+export pure fn listOf(text: string): ListDetail | null
+export pure fn itemLabel(text: string): string
+export pure fn plainValue(text: string): string
+export pure fn listDetail(text: string): ListDetail | null
+export pure fn lvView(text: string): LvView
+export pure fn valueAt(steps: any[], key: string, seq: number): TimelineValue | null

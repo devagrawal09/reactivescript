@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map view text: the static content of views beside their sites</title>
+<!-- fixtures/outline-graph.json is fixtures/outline.rx through `rx-map.mjs --json` (regions[].outline, VIEW-OUTLINE §1-2).
+     Checks the strip of each region (§3): static text, holes linked to their sites (live values), child regions as
+     tags, the expander, hiding when zoomed out. Results in #result. -->
+<style>html, body { margin: 0; height: 100%; background: #000 } iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0 }</style>
+<pre id="result" hidden></pre>
+<script type="module">
+import { pageHTML } from "../page.mjs";
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks }); };
+try {
+  const graph = await (await fetch("/test/fixtures/outline-graph.json")).json();
+  const f = document.createElement("iframe");
+  f.srcdoc = pageHTML(graph, { live: true });
+  document.body.append(f);
+  await new Promise(r => f.addEventListener("load", r, { once: true }));
+  await sleep(200);
+  const w = f.contentWindow, doc = f.contentDocument;
+  const M = w.__RX_MAP__;
+  M.flyTo(M.BW / 2, M.BH / 2, .9, 0); await sleep(150);
+  const strips = [...doc.querySelectorAll("#board .ostrip")];
+  const app = strips.find(s => /Clicks:/.test(s.textContent));
+  check("a region's view text reads in document order", app && /Clicks:\s*\S+\s*& 2!/.test(app.querySelector(".otext").textContent), app?.querySelector(".otext").textContent);
+  check("no elements, only text: no tag names", strips.every(s => !/<h1|<p>|<main|<input/.test(s.textContent)));
+  const then = strips.find(s => /Milestone reached:/.test(s.textContent));
+  const hole = then?.querySelector(".oh");
+  check("a hole is a link to its site token", hole && doc.querySelector(`#board .chip[data-id="${hole.dataset.hole}"]`), then?.innerHTML);
+  check("a child region is an inline frame tag", [...doc.querySelectorAll("#board .ostrip .orr")].some(t => /for name in rows/.test(t.textContent)));
+  check("attributes with human text are quoted", /placeholder "Enter "name""/.test(app?.textContent ?? ""), app?.textContent);
+  check("a long strip has an expander", !!app?.querySelector(".oexp"));
+  app.querySelector(".oexp").click(); await sleep(30);
+  check("the expander opens it to its lines", app.classList.contains("open") && app.querySelector(".otext").offsetHeight > 24);
+  const count = graph.nodes.find(n => n.name === "count" && !n.site);
+  w.__RX_VIEW__.receive({ source: "rx-map", v: 1, type: "snapshot", values: [{ key: count.key, preview: "42" }], flights: [], boundaries: [] });
+  await sleep(30);
+  check("live: a hole shows the value it reads", hole.textContent === "42", hole.textContent);
+  w.__RX_VIEW__.receive({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [{ key: count.key, name: "count", preview: "43" }] });
+  await sleep(30);
+  check("live: and follows it", hole.textContent === "43", hole.textContent);
+  M.flyTo(M.BW / 2, M.BH / 2, .35, 0);
+  // the camera settles on its next frames, and the level follows them (one commit later on the RX page); a loaded
+  // machine can take a few hundred ms per frame
+  for (let i = 0; i < 60 && M.level === 2; i++) await sleep(50);
+  { const still = f.contentDocument.createElement("style"); still.textContent = "* { transition: none !important }"; f.contentDocument.head.append(still); }
+  check("zoomed out, the view text hides (the overview)", M.level === 1 && (w.getComputedStyle(app).opacity === "0" || w.getComputedStyle(app.closest(".frame.module > *") ?? app).opacity === "0" || !app.offsetParent), [M.level, w.getComputedStyle(app).opacity]);
+} catch (e) { check(`threw: ${e?.stack ?? e}`, false); }
+done();
+</script>
