@@ -42,7 +42,7 @@ export function prepareCarry(before, after, plan, sources, changedModules) {
     }
     const keepAnswer = n.question && kept.has(key) && !after.edges.some(e => e.to === n.id && e.type === "read" && e.mode === "tracked");
     expected.set(key, ownerPaths);
-    carry.set(key, { entries: shown.map((v, i) => ({ value: v.value, keepAnswer, instance: reads[i].instance })), used: 0 });
+    carry.set(key, { entries: shown.map((v, i) => ({ value: v.value, keepAnswer, instance: reads[i].instance })), used: 0, question: !!n.question });
   }
   return { carry, fallback, expected, reasons };
 }
@@ -60,8 +60,9 @@ function equalCarryValue(a, b, seen = new WeakMap()) {
   return keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && equalCarryValue(a[k], b[k], seen));
 }
 
-export function finishCarry({ carry, fallback, expected, reasons }, sources) {
+export function finishCarry({ carry, fallback, expected, reasons }, sources, select = () => true) {
   for (const [key, group] of carry) {
+    if (!select(group)) continue;
     const readers = [...(sources.get(key) ?? [])];
     const actual = paths(readers);
     const reason = !actual.length ? "instance-not-mounted"
@@ -77,7 +78,8 @@ export function finishCarry({ carry, fallback, expected, reasons }, sources) {
 }
 
 // An entry replaced above Loading can have no new owner at its first flush.
-// Only a wholly absent singleton can be matched later without guessing order.
+// Only a singleton can be matched later without guessing order. It can be
+// absent or, during a pending replacement, an already mounted candidate.
 export function deferredCarry({ carry, expected }, sources, includeMounted = false) {
   return new Map([...carry].flatMap(([key, group]) => {
     const [path] = expected.get(key);
