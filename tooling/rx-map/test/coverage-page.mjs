@@ -15,6 +15,8 @@ const paths = [
   { id: `action:${action.key}:ok`, kind: "action", target: action.key, label: "rename succeeds", line: action.line },
   { id: `loading:${loading.key}`, kind: "loading", target: loading.key, label: "loading shows its fallback", line: 55 },
   { id: `edge:${source.key}->${equation.key}`, kind: "edge", target: equation.key, label: "page carries a change to users", line: equation.line },
+  // an `rx-coverage-ignore`d path: neutral (not dimmed), out of the totals, listed with its reason
+  { id: `node:${equation.key}`, kind: "node", target: equation.key, label: "users changes", line: equation.line, ignored: "the server feeds it" },
 ];
 const coverage = {
   rxCoverage: 1, modules: [module], paths: Object.fromEntries(paths.map(p => [p.id, { ...p, module }])),
@@ -72,6 +74,8 @@ try {
   assert.match(await page.locator(".coverage-paths").textContent(), /✓page changesby next page/);
   await select(action.id);
   assert.match(await page.locator(".coverage-paths").textContent(), /✗rename succeeds/);
+  await select(equation.id);
+  assert.match(await page.locator(".coverage-paths").textContent(), /–users changesignored \(the server feeds it\)/);
   await chip.click();
   assert.equal(await chip.getAttribute("aria-pressed"), "false");
   assert.equal(await page.locator(".cov-uncovered, .cov-dot, .cov-faint, .ps-coverage").count(), 0);
