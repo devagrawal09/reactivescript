@@ -8,10 +8,14 @@ import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV, OBSERVE,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, createRoot, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV, OBSERVE,
 } from "solid-js";
 import { getContext, setContext, $REFRESH, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
+
+// Inlined at each use by runtime/build.mjs. The raw reference runtime retains its test API.
+const RX_INSTRUMENT = !!DEV;
+const RX_HARNESS = true;
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -38,11 +42,14 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
-type Carry = { value: unknown; used?: boolean; question?: boolean; keepAnswer?: boolean };
+type Carry = { value: unknown; keepAnswer?: boolean };
+type CarryGroup = { entries: Carry[]; used: number };
 let instanceId = 0;
 let rxInstance: string | undefined;
 type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
   instance?: string; ownerPath?: string[];
+  hmrValue?: () => { value?: unknown; held?: boolean };
+  source?: boolean;
 };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
 type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
@@ -50,10 +57,8 @@ const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
   __RX_TRACE__?: (event: DevEvent) => void;
-  __RX_HMR__?: { carry: Map<string, Carry> };
 };
-const carry = () => rxKey === null ? undefined : dev.__RX_HMR__?.carry.get(rxKey);
-const trace = (e: DevEvent) => { try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
+const trace = (e: DevEvent) => { if (RX_INSTRUMENT) try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
 let runId = 0;
 let currentRun: number | undefined;
 function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
@@ -63,11 +68,11 @@ function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: ()
   entries.add(value);
   if (getOwner()) onCleanup(() => { entries.delete(value); if (!entries.size) map.delete(k); removed?.(); });
 }
-const nm: <T>(o: T) => T = DEV ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}~i${rxInstance}` }) as typeof o : o => o;
+const nm: <T>(o: T) => T = RX_INSTRUMENT ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}~i${rxInstance}` }) as typeof o : o => o;
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
-const key: <T>(k: string, f: () => T) => T = DEV
-  ? (k, f) => {
+const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>) => T = RX_INSTRUMENT
+  ? (k, f, own) => {
       const instance = String(++instanceId);
       const path = OBSERVE?.ownerPath?.(getOwner());
       const scope = k.split("|").at(-2);
@@ -105,7 +110,8 @@ const key: <T>(k: string, f: () => T) => T = DEV
           // The bridge keeps handles only for the lifetime of this declaration.
           Object.assign(inspect, { node: (get as any)[$REFRESH], hmrValue: () => inspect(latestWhole) });
           const nodes = dev.__RX_NODES__ ??= new Map();
-          Object.assign(inspect, { instance, ownerPath });
+          Object.assign(inspect, { instance, ownerPath, source: !!writer });
+          if (own && writer) remember(own, k, inspect);
           remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
           trace({ type: "node", key: k, instance });
           if (writer) {
@@ -122,6 +128,7 @@ const key: <T>(k: string, f: () => T) => T = DEV
 // Solid's boundary doesn't accept a name, and the fallback record only arrives when Loading hides.
 // Use the fallback's render effect and disposal: Solid builds it separately, and disposes it on recovery.
 function traceBoundary(region: string, state: "fallback" | "error") {
+  if (!RX_INSTRUMENT) return (_error?: Acc) => {};
   const current: BoundaryState = { state: "ok" };
   const change = () => trace({ type: "boundary", region });
   remember(dev.__RX_BOUNDARIES__ ??= new Map(), region, current, change);
@@ -215,13 +222,23 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const contexts = new Map<string, ReturnType<typeof createContext<Entry | undefined>>>();
   const storeAccs = new WeakSet<object>();
   const modules = new Map<unknown, Record<string, unknown>>();
+  const sources = RX_INSTRUMENT ? new Map<string, Set<Inspect>>() : undefined;
+  let carries: Map<string, CarryGroup> | undefined;
+  const takeCarry = () => {
+    const group = rxKey === null ? undefined : carries?.get(rxKey);
+    return group?.entries[group.used++];
+  };
+  // Only a Vite hot boundary enables persistent module owners. Do not change
+  // production or non-HMR hydration's owner order.
+  let moduleOwner: ReturnType<typeof getOwner> | undefined;
+  const persistent = new Map<string, { exports: Record<string, unknown>; dispose: () => void }>();
   // An equation's hoisted awaits, re-asked with it by `refresh`. They are emitted just before the equation and claimed
   // by its accessor when it registers, so a refresh reaches only its own instance's (never a disposed mount's).
   const hoistedBy = new Map<string, Acc[]>();
   const hoistedOf = new WeakMap<Acc, Acc[]>();
   const log: string[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
-  const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
+  const harnessErrors = RX_HARNESS ? new Map<string, unknown>() : undefined;
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   // During hydration Solid runs a compute under `subFetch` to learn its inputs, with `fetch` and `Promise` mocked, and keeps
   // the server's answer (SV-3b). A flight asked there is that trace, not a question: it is not registered.
@@ -249,11 +266,11 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
-    jsError: (name: string) => jsErrors.get(name) ?? (jsErrors.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), jsErrors.get(name)),
+    ...(RX_HARNESS ? { jsError: (name: string) => harnessErrors!.get(name) ?? (harnessErrors!.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), harnessErrors!.get(name)) } : {}),
     api: (name: string) => {
       if (!opts.api) {
-        if (opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
-        throw new Error(`MISSING_TEST_API: cannot bind ${name} from "./api"; pass createApp({ api }) or provide a local JS module`);
+        if (RX_HARNESS && opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+        throw new Error(`${RX_HARNESS ? "MISSING_TEST_API: " : ""}cannot bind ${name} from "./api"; pass createApp({ api }) or provide a local JS module`);
       }
       return opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); });
     },
@@ -293,16 +310,20 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       }
       return [get, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); } }];
     },
+    ...(RX_INSTRUMENT || RX_HARNESS ? {
+      sourceDev(name: string, init: Acc, guessed = false): [Acc, Writer] {
+        const seed = takeCarry();
+        return app.source(name, seed ? seed.value : untrack(init), guessed);
+      },
+    } : {}),
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
-      const carried = DEV && !mode.derived ? carry() : undefined;
-      const answer = carried?.used ? undefined : carried;
+      const answer = RX_INSTRUMENT && !mode.derived ? takeCarry() : undefined;
       if (answer) {
-        answer.used = true;
         // A question without tracked inputs can keep its answer without starting
         // I/O. Explicit refresh still calls the new question.
-        if (answer.keepAnswer) {
+        if (answer.keepAnswer && !hoistedBy.get(name)?.length) {
           let first = true;
           const ask = compute;
           compute = prev => { if (!first) return ask(prev); first = false; return answer.value; };
@@ -362,7 +383,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
-      if (DEV && key) {
+      if (RX_INSTRUMENT && key) {
         const ownerPath = OBSERVE?.ownerPath?.(getOwner());
         const run = action(function* (id: number, ...a: unknown[]) {
           const iter = gen(...a);
@@ -459,7 +480,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
-    key,
+    key: RX_INSTRUMENT ? <T>(k: string, f: () => T) => key(k, f, sources) : key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -468,14 +489,14 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
     DevLoading(props: { region: string; on?: unknown; fallback: any; children: any }) {
-      if (!DEV) return Loading(props);
+      if (!RX_INSTRUMENT) return Loading(props);
       const show = traceBoundary(props.region, "fallback");
       const wrapped = { get fallback() { show(); return props.fallback; }, get children() { return props.children; } };
       if ("on" in props) Object.defineProperty(wrapped, "on", { get: () => props.on });
       return Loading(wrapped);
     },
     DevErrored(props: { region: string; fallback: (err: Acc, reset: () => void) => any; children: any }) {
-      if (!DEV) return Errored(props);
+      if (!RX_INSTRUMENT) return Errored(props);
       const show = traceBoundary(props.region, "error");
       return Errored({ fallback: (err, reset) => { show(err); return props.fallback(err, reset); }, get children() { return props.children; } });
     },
@@ -483,7 +504,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { region?: string; classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
-      const region = DEV && props.region;
+      const region = RX_INSTRUMENT && props.region;
       const show = region ? traceBoundary(region, "error") : undefined;
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => {
@@ -495,29 +516,36 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
     },
   };
-  if (DEV) {
-    const { source, module, untrack } = app;
-    // The dev lowering evaluates `__rt.untrack(() => init)` inside key().
-    app.untrack = (...args: Parameters<typeof untrack>) => {
-      const seed = carry();
-      return seed && !seed.used && !seed.question ? seed.value : untrack(...args);
-    };
-    app.source = (name, init, guessed) => {
-      const seed = carry();
-      if (!seed || seed.used) return source(name, init, guessed);
-      seed.used = true;
-      return source(name, seed.value, guessed);
-    };
-    let replacement: typeof dev.__RX_HMR__;
-    app.module = (key, factory) => {
-      if (dev.__RX_HMR__ && replacement !== dev.__RX_HMR__) {
-        replacement = dev.__RX_HMR__;
-        modules.clear();
-      }
-      return module(key, factory);
-    };
-  }
-  return app;
+  const rt = Object.assign(app, RX_INSTRUMENT ? {
+    moduleDev(path: string, factory: (rt: unknown) => Record<string, unknown>) {
+      if (!moduleOwner || sharedConfig.hydrating) return app.module(path, factory);
+      if (!persistent.has(path)) runWithOwner(moduleOwner, () => createRoot(dispose => {
+        persistent.set(path, { exports: factory(rt), dispose });
+      }, { transparent: true }));
+      return persistent.get(path)!.exports;
+    },
+    hotRuntime: {
+      activate() {
+        if (moduleOwner !== undefined || sharedConfig.hydrating) return;
+        moduleOwner = getOwner();
+        if (moduleOwner) onCleanup(() => {
+          for (const m of [...persistent.values()].reverse()) m.dispose();
+          persistent.clear();
+          moduleOwner = undefined;
+        });
+      },
+      sources,
+      begin(carry: Map<string, CarryGroup>, modules: Set<string>) {
+        carries = carry;
+        for (const [path, m] of [...persistent].reverse()) if (modules.has(path)) {
+          persistent.delete(path);
+          m.dispose();
+        }
+      },
+      end() { carries = undefined; },
+    },
+  } : {});
+  return rt;
 }
 export type App = ReturnType<typeof createApp>;
 

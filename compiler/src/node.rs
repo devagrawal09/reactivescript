@@ -7,10 +7,10 @@ use napi_derive::napi;
 /// hydratable), checked under 08 CN-3d. `dev`: a dev build — each source's and equation's creating calls run under its
 /// key (`__rt.key`), its module relative to `root` (the process's cwd by default).
 #[napi]
-pub fn app(entry: String, target: Option<String>, module_name: Option<String>, spa: Option<bool>, dev: Option<bool>, root: Option<String>) -> String {
+pub fn app(entry: String, target: Option<String>, module_name: Option<String>, spa: Option<bool>, dev: Option<bool>, root: Option<String>, hot: Option<bool>) -> String {
     let target = crate::app::target(target.as_deref().unwrap_or("dom"));
     let root = dev.unwrap_or(false).then(|| root.unwrap_or_else(cwd));
-    crate::app::app_dev(&entry, target, module_name.as_deref().unwrap_or("@solidjs/web"), spa.unwrap_or(false), root.as_deref()).to_string()
+    crate::app::app_hot(&entry, target, module_name.as_deref().unwrap_or("@solidjs/web"), spa.unwrap_or(false), root.as_deref(), hot.unwrap_or(false)).to_string()
 }
 
 /// `rxc model`'s answer, as JSON text: the resolved model (CP-6) of every module the programs `entries` (absolute paths)

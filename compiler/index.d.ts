@@ -15,7 +15,7 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
  * hydratable), checked under 08 CN-3d. `dev`: a dev build — each source's and equation's creating calls run under its
  * key (`__rt.key`), its module relative to `root` (the process's cwd by default).
  */
-export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null, dev?: boolean | undefined | null, root?: string | undefined | null): string
+export declare function app(entry: string, target?: string | undefined | null, moduleName?: string | undefined | null, spa?: boolean | undefined | null, dev?: boolean | undefined | null, root?: string | undefined | null, hot?: boolean | undefined | null): string
 
 /**
  * `rxc model`'s answer, as JSON text: the resolved model (CP-6) of every module the programs `entries` (absolute paths)

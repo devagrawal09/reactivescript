@@ -406,7 +406,7 @@ async function realHmr() {
   const rows = join(app, "src/components/Book.rx");
   const originalRows = readFileSync(rows, "utf8");
   let text = original.replace('  source filter:', `  source counter: number := 0
-  source answer: string = await loadAnswer("first")
+  source answer: string = str(await loadAnswer("first"))
   doubled = counter * 2
   source filter:`).replace("import pure { load }", "import pure { load, loadAnswer }")
     .replace("    <h1>Shelf</h1>", `    <h1>Shelf</h1>
@@ -499,8 +499,9 @@ async function realHmr() {
     await post(page, { type: "resume" });
     await state("counter", "4");
     console.log(`ok   HMR travel across #${changed.flush.seq} reports the old expression; travel to the HMR step shows counter 3 instead of 4`);
-    await edit("standing question re-asks and shows its old answer until landing", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
+    await edit("standing question with a hoisted await re-asks and keeps its previous answer", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
       { answer: "expr-changed" }, async ({ done }) => {
+        assert.ok(!done.uncarried?.includes(key("answer")));
         await shown("answer", "first"); await shown("answer", "second");
         assert.equal((await values())[key("answer")], '"second"');
         const records = await page.evaluate(() => globalThis.__T.msgs);
@@ -578,6 +579,7 @@ async function roundThree() {
   await toggle(1);
   await toggle(2);
   await toggle(3);
+  await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 3);
   const entries = () => page.evaluate(() => [...document.querySelectorAll(".undo-entry")].map(b => b.textContent));
   const before = await entries();
   await page.locator(".undo-entry").nth(1).click();

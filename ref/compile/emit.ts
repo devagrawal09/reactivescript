@@ -358,7 +358,11 @@ class Gen {
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.pre(${b.js});` : "";
     const k = (call: string) => this.under(this.keys.get(d), call);
     if (d.k === "source") {
-      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })})${this.u.optimistic.has(d.name) ? ", true" : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      if (!d.question) {
+        const init = `() => ${this.expr(d.init, env, { imp: false })}`;
+        const keyed = this.keys.has(d);
+        return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.${keyed ? "sourceDev" : "source"}(${J(d.name)}, ${keyed ? init : `__rt.untrack(${init})`}${this.u.optimistic.has(d.name) ? ", true" : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      }
       const lv = this.loadingValue(d.init, env);
       const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)}, record: ${d.init.k === "rec"}, plain: ${this.u.plain.has(d.name)} }`;
       return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;

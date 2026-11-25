@@ -241,10 +241,15 @@ pub fn compile_dev(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: O
 
 /// For a sibling-file build written elsewhere, keep relative JS imports relative to their RX importer.
 pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: Option<&str>, out_dir: Option<&str>) -> R<Compiled> {
+    compile_with_hot(set, extra, by_source, dev, out_dir, false)
+}
+
+pub(crate) fn compile_with_hot(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: Option<&str>, out_dir: Option<&str>, hot: bool) -> R<Compiled> {
     let programs: Vec<&Program> = set.order.iter().map(|p| &set.programs[p]).collect();
     let mut g = Gen::new(usage(&programs, extra), set);
     g.by_source = by_source;
     g.out_dir = out_dir;
+    g.hot = hot;
     if dev.is_some() {
         g.boundaries = crate::check::boundary_regions(set);
     }
@@ -273,14 +278,15 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
             let root = g.new_env(None);
             let inner = g.block(&p.decls, &p.view, root, None, true)?;
             body.append(&mut g.top);
-            body.push(S::ExportDefault(Func {
+            let main = Func {
                 name: Some("main".into()),
                 params: vec![P::Id("__rt".into())],
                 directives: vec![],
                 body: vec![konst("__B", dot(id("__rt"), "B")), S::Return(Some(arrow_block(vec![], inner, false)))],
                 is_async: false,
                 generator: false,
-            }));
+            };
+            body.push(if hot { S::Func(main) } else { S::ExportDefault(main) });
         } else {
             let exported: Vec<&str> = p.decls.iter().filter(|d| d.exported() && !matches!(d, Decl::TypeDecl { .. })).filter_map(|d| d.name()).collect();
             let is_comp = |n: &str| p.decls.iter().any(|d| matches!(d, Decl::Component { name, .. } if name == n));
@@ -300,6 +306,7 @@ pub fn compile_into(set: &ModuleSet, extra: &[Vec<Stmt>], by_source: bool, dev: 
 }
 
 struct Gen<'p> {
+    hot: bool,
     u: Usage,
     set: &'p ModuleSet,
     file: String,
@@ -359,6 +366,7 @@ impl<'p> Gen<'p> {
             set,
             file: "main.rx".into(),
             by_source: false,
+            hot: false,
             out_dir: None,
             css: vec![],
             top: vec![],
@@ -685,8 +693,11 @@ impl<'p> Gen<'p> {
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
                 // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
-                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
-                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
+                let (method, key) = if self.hot {
+                    let joined = crate::modules::join_path(&self.dev_module, &relative(&self.file, r));
+                    ("moduleDev", str(joined))
+                } else { ("module", if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) }) };
+                out.push(konst(iv.clone(), rtc(method, vec![key, id(self.dep_var(r))])));
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
@@ -1122,11 +1133,12 @@ impl<'p> Gen<'p> {
         match d {
             Decl::Source { name, init, question: false, .. } => {
                 let x = self.expr(init, env, &reactive())?;
-                let mut args = vec![str(name.clone()), rtc("untrack", vec![thunk(x)])];
+                let init = thunk(x);
+                let mut args = vec![str(name.clone()), if rx_key.is_some() { init } else { rtc("untrack", vec![init]) }];
                 if self.u.optimistic.contains(name) {
                     args.push(E::Bool(true)); // AC-3: a guess over a writable — an optimistic layer derived from it
                 }
-                let mut out = vec![S::Const(pair(), k(rtc("source", args))), self.reg(name, b, true)];
+                let mut out = vec![S::Const(pair(), k(rtc(if rx_key.is_some() { "sourceDev" } else { "source" }, args))), self.reg(name, b, true)];
                 prev(&mut out);
                 Ok(out)
             }

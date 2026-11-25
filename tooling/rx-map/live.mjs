@@ -7,7 +7,6 @@
 // The recorder belongs to the app session, not to a particular map iframe.
 import { pageHTML } from "./page.mjs";
 import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "./live-protocol.mjs";
-import { planHmr, keyParts } from "./hmr.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
@@ -17,9 +16,6 @@ const message = msg => ({ source: SOURCE, v: 1, ...msg });
 const graphs = [];
 const mounts = new Set();
 const bridges = new Map();
-const entries = new Map();
-let replacements = Promise.resolve();
-let localEdit = 0;
 const hmrFlights = new WeakMap();
 let recording;
 // Resolve before the entry calls register: its first render can start flights
@@ -62,47 +58,11 @@ function observeNode(name, node) {
 }
 const engineNodes = id => [...(runtimeNodes.get(id) ?? [])].map(r => r.deref()).filter(Boolean);
 
-// The compiled RX default export is an app factory, not a Solid component export.
-// Keep the JS importer and its root alive; replace the view inside that root.
-export function hotEntry(payload, factory, hot) {
-  const replacement = { ...payload, factory, hot };
-  const graph = payload.graph ?? payload.update.graph;
-  const entry = graph.modules.at(-1);
-  let state = entries.get(entry);
-  if (!state) {
-    const solid = engine[0];
-    const [code, replace] = solid.createSignal({ factory });
-    state = { revision: payload.revision, graph, replace,
-      main: rt => () => solid.createMemo(() => {
-        const { factory } = code();
-        return solid.untrack(() => factory(rt)());
-      }, { transparent: true, _plumbing: true }) };
-    entries.set(entry, state);
-    register(graph, { hot });
-  }
-  function accept(next) {
-    replacements = replacements.then(async () => {
-      const recorder = getRecorder();
-      if (!next) {
-        if (state.announced) recorder.hmr({ phase: "failed", id: state.announced.id, error: "replacement module did not load", fallback: "none" });
-        state.announced = null;
-        return;
-      }
-      const graph = next.graph ?? next.update.graph;
-      const { from, to, ...base } = next.update ?? {};
-      const plan = from === state.revision ? base.plan : planHmr(state.graph, graph);
-      const edit = { phase: "plan", id: base.id ?? `client-${++localEdit}`, modules: base.modules ?? [entry], graph, plan };
-      if (state.announced?.id !== edit.id || from !== state.revision) recorder.hmr(edit);
-      state.announced = null;
-      await recorder.replaceModule(edit, () => state.replace({ factory: next.factory }), () => {
-        state.revision = next.revision;
-        state.graph = graph;
-        register(graph, { hot: next.hot, replacement: true });
-      });
-    }).catch(e => console.error("[rx-map] replacement failed:", e));
-  }
-  return { main: state.main, replacement, accept };
-}
+export const liveHmr = {
+  register,
+  hmr: edit => getRecorder().hmr(edit),
+  replace: (...args) => getRecorder().replaceModule(...args),
+};
 
 /** Adds a program's graph (from `@reactivescript/map/graph`'s `buildGraph`). Re-registering its entry replaces it. */
 export function register(graph, { hot, replacement = false } = {}) {
@@ -203,25 +163,12 @@ function connect(hot) {
   const ready = () => hot.send(LIVE_READY);
   bridges.set(hot, request);
   hot.on(LIVE_REQUEST, request);
-  const onPlan = ({ from, to, type, ...edit }) => {
-    const state = entries.get(edit.graph.modules.at(-1));
-    if (state?.revision !== from || state.announced?.id === edit.id) return; // a behind tab replans when it receives the code
-    state.announced = edit;
-    recorder.hmr(edit);
-  };
-  const onError = ({ entry, id, error }) => {
-    if (entries.has(entry)) recorder.hmr({ phase: "failed", id, error, fallback: "none" });
-  };
-  hot.on("rx:hmr:plan", onPlan);
-  hot.on("rx:hmr:error", onError);
   const trace = record => hot.send(LIVE_TRACE, record);
   recorder.traces.add(trace);
   hot.on("vite:ws:connect", ready);
   const stop = () => {
     if (!bridges.delete(hot)) return;
     hot.off?.(LIVE_REQUEST, request);
-    hot.off?.("rx:hmr:plan", onPlan);
-    hot.off?.("rx:hmr:error", onError);
     recorder.traces.delete(trace);
     hot.off?.("vite:ws:connect", ready);
   };
@@ -338,10 +285,11 @@ function getRecorder() {
   // Travel: the open view, the seq it shows, and a resume whose landing waits on async work.
   let view = null, viewing = null, landing = null;
   let replacing = null;
+  const hmrAnswers = new Map();
   const reincarnations = new WeakMap();
   const sourceAt = key => {
     const entries = globalThis.__RX_NODES__?.get(key);
-    return entries?.size === 1 ? entries.values().next().value : undefined;
+    return [...(entries ?? [])].at(-1);
   };
   function valueFrame(keys) {
     const out = new Map();
@@ -358,45 +306,35 @@ function getRecorder() {
     return out;
   }
   const hmr = edit => send({ ...edit, type: "hmr", at: performance.now() });
-  const sites = (graph, name) => graph.regions.filter(r => r.kind === "children" && r.name === name).map(r => r.key).sort().join("\n");
   async function replaceModule(edit, swap, installed) {
     const { id, graph, plan } = edit;
     const previous = graphs.find(g => g.modules.at(-1) === graph.modules.at(-1));
     const keys = new Set([...previous.nodes, ...graph.nodes].filter(n => n.key).map(n => n.key));
     // Don't seed from a historical view or a proposal currently hidden by a hold.
     if (view || queued !== null) resume();
-    while (landing) await new Promise(resolve => setTimeout(resolve, 16));
+    const deadline = performance.now() + 3000;
+    while (landing && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 16));
+    if (landing) {
+      hmr({ phase: "failed", id, error: "Timed out waiting for the time-travel landing", fallback: "none" });
+      return;
+    }
     const solid = engine[0];
     solid.flush();
     const before = valueFrame(keys);
     const moved = new Map(plan.moved.map(({ from, to }) => [to, from]));
-    const carry = new Map(), fallback = new Set();
     const nodeByKey = new Map(graph.nodes.map(n => [n.key, n]));
-    const kept = new Set(plan.kept);
-    for (const key of [...plan.kept, ...plan.rerun]) {
-      const n = nodeByKey.get(key), from = moved.get(key) ?? key;
-      if (n?.kind !== "source" || (!kept.has(key) && !n.question)) continue;
-      const prior = before.get(from);
-      if (!prior) continue;
-      const scope = keyParts(key).scope;
-      if (!prior.value || !Object.hasOwn(prior.value, "value") || prior.value.held
-        || sites(previous, scope) !== sites(graph, scope)) fallback.add(key);
-      else carry.set(key, {
-        value: prior.value.value, question: n.question,
-        keepAnswer: n.question && kept.has(key) && !graph.edges.some(e => e.to === n.id && e.type === "read" && e.mode === "tracked"),
-      });
-    }
     replacing = { id };
     hmr({ phase: "apply", id });
-    globalThis.__RX_HMR__ = { carry };
     let transaction;
+    let fallback;
     try {
       // Same Solid seam as travel. There are no historical pins here: branch
       // closes the replacement hold and commits its new owners to live.
       transaction = engine[1]?.openView?.({ effects: true });
-      swap();
-      transaction?.branch();
-      solid.flush();
+      fallback = swap(() => {
+        transaction?.branch();
+        solid.flush();
+      });
       installed();
     } catch (e) {
       try { transaction?.resume(); } catch { /* the reload recovers the root */ }
@@ -404,12 +342,11 @@ function getRecorder() {
       hmr({ phase: "failed", id, error: errorPreview(e), fallback: "reload" });
       globalThis.location.reload();
       return;
-    } finally {
-      delete globalThis.__RX_HMR__;
     }
-    for (const [key, seed] of carry) if (!seed.used || !sourceAt(key)) fallback.add(key);
     // New flights will be recorded separately; give their landings the HMR origin.
     const after = valueFrame(keys);
+    for (const key of [...plan.rerun, ...plan.reset, ...plan.added])
+      if (inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
     const changes = [], raw = [], inexact = new Set();
     for (const key of keys) {
       const old = before.get(key), next = after.get(key);
@@ -610,11 +547,14 @@ function getRecorder() {
       const changes = all.filter(c => c.key && (!errors.has(identity(c)) || errors.get(identity(c)) === c)).map(({ before, ...c }) => {
         const prev = last.get(identity(c))?.change.preview ?? before;
         const js = importOrigin(c.key);
-        return { ...c, ...(js ? { origin: c.origin ? `${js} ← ${c.origin}` : js } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
+        const origin = hmrAnswers.get(c.key) ?? (js ? c.origin ? `${js} ← ${c.origin}` : js : c.origin);
+        return { ...c, ...(origin ? { origin } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
       });
       // Keyless engine nodes are still part of the app frame, even when
       // hidden from the map. Keep their raw bodies for openView.
-      if (changes.length || internal.length || raw.length) addStep(msg.at, changes, raw, internal, false, msg.origin);
+      for (const key of hmrAnswers.keys()) if (!inspect(key)?.pending) hmrAnswers.delete(key);
+      if (changes.length || internal.length || raw.length) addStep(msg.at, changes, raw, internal, false,
+        msg.origin ?? changes.find(c => c.origin?.startsWith("hmr "))?.origin);
     } else if (msg.type === "flight") {
       const at = performance.now();
       const before = [...flights.values()].some(r => r.key === msg.key);
