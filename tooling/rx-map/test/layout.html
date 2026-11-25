@@ -22,7 +22,8 @@ try {
   const w = f.contentWindow, doc = f.contentDocument;
   const errors = []; w.addEventListener("error", e => errors.push(String(e.message)));
   // plates mode first
-  w.setOverview(false); await sleep(100);
+  // (zoomed in enough that the camera doesn't switch to the overview)
+  w.setOverview(false); w.flyTo(w.__RX_MAP__.BW / 2, w.__RX_MAP__.BH / 3, .7, 0); await sleep(150);
   const M = w.__RX_MAP__, L = M.layout, P = k => L.plates.get(k);
   const name = mi => String(graph.modules[mi]).split("/").pop();
   // dependencies point up: a module's plate sits in a lower row than every module it needs
@@ -43,13 +44,14 @@ try {
   check("the dense module is clustered by who uses it, with labels", cl.length >= 3 && cl.some(c => /used by/.test(c.querySelector(".clabel").textContent)), cl.map(c => c.querySelector(".clabel").textContent));
   // routes between plates stay out of plates (but for where they leave and enter)
   doc.getElementById("all").click(); await sleep(150); w.draw();
+  const rectsNow = [...M.layout.plates.values()];
   const inside = [];
   const paths = [...doc.querySelectorAll("#edges path")].filter(p => /Q/.test(p.getAttribute("d")));
   for (const p of paths) {
     const len = p.getTotalLength();
     for (let t = 8; t < len - 8; t += 12) {
       const pt = p.getPointAtLength(t);
-      const hit = rects.find(r => pt.x > r.l + 3 && pt.x < r.r - 3 && pt.y > r.t + 3 && pt.y < r.b - 3);
+      const hit = rectsNow.find(r => pt.x > r.l + 3 && pt.x < r.r - 3 && pt.y > r.t + 3 && pt.y < r.b - 3);
       if (hit) { inside.push([Math.round(pt.x), Math.round(pt.y)]); break; }
     }
   }
@@ -63,6 +65,7 @@ try {
   data.querySelector(".pbtn").click(); await sleep(600);
   // auto-fold on a huge map (threshold lowered): a selection folds the modules it doesn't touch
   w.__RX_HUGE__ = 10;
+  w.flyTo(M.BW / 2, M.BH / 3, .7, 0); await sleep(100);
   const issues = graph.nodes.find(n => n.name === "issues" && !n.site);
   w.select(issues.id); await sleep(700);
   const folded = doc.querySelectorAll("#board > .frame.module.collapsed").length;
