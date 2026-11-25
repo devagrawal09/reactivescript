@@ -186,6 +186,10 @@ function generate(ts, program, T, { inPackage, isLib }) {
   const checker = program.getTypeChecker();
   const sf = program.getSourceFile(T);
   const errors = [], seenErrors = new Set();
+  // the exports whose line is the default because an error was found in their declaration: an importer binds them as
+  // unknown (MO-11d), so the error at the `.ts` is the one diagnostic, not fallout at every use
+  const failed = new Set();
+  let current = null;   // the export whose line is being read
   const files = new Set([T]);
   const lines = []; // [position in T, position at the original (export *), order, text]
   const S = ts.SymbolFlags;
@@ -194,6 +198,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
     from: T, text: [header, ...lines.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).map(l => l[3])].join("\n") + "\n",
     errors: errors.sort((a, b) => (a.file === b.file ? 0 : a.file === T ? -1 : b.file === T ? 1 : a.file < b.file ? -1 : 1) || a.line - b.line || a.column - b.column),
     files: [...files],
+    ...(failed.size ? { failed: [...failed].sort() } : {}),
   });
   if (!sf) return done();
 
@@ -204,6 +209,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
   };
   const report = (node, message, code = "DECLARATION_HELPER") => {
     const at = where(node);
+    if (current !== null) failed.add(current);
     const key = `${at.file}:${at.line}:${at.column}:${message}`;
     if (seenErrors.has(key)) return;
     seenErrors.add(key);
@@ -553,7 +559,8 @@ function generate(ts, program, T, { inPackage, isLib }) {
         const text = ts.isIdentifier(c) ? c.text : ts.isPropertyAccessExpression(c) ? c.name.text : null;
         if (text && names.has(text) && helperOf(n)) {
           const place = placeOf(n);
-          if (!place.ok) report(place.top, place.why);
+          // a misplaced call is its own error; the export it marks (if any) fails where its line is read
+          if (!place.ok) { const saved = current; current = null; report(place.top, place.why); current = saved; }
         }
       }
       ts.forEachChild(n, visit);
@@ -651,6 +658,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
   function readHelpers(name, outer, placed) {
     const kinds = new Map(), rejects = [];
     let errored = !placed, spec = null, specNode = null, cur = outer;
+    if (!placed && current !== null) failed.add(current);   // reported where the call is (scanHelpers)
     const fail = (node, message) => { report(node, message); errored = true; };
     for (;;) {
       const kind = helperOf(cur);
@@ -673,11 +681,17 @@ function generate(ts, program, T, { inPackage, isLib }) {
       fail(later, `\`server(…)\` and \`client(…)\` both wrap ${name}: a fn runs on the server or on the client, not both (12 SF-5); keep one`);
     }
     const implicit = kinds.has("ref") ? "ref" : kinds.has("instantiates") ? "instantiates" : null;
+    // the chain as written, without `drop`: the exact fix for a redundant wrapper
+    const without = drop => {
+      const ks = [...kinds.keys()].filter(k => k !== drop);
+      const arg = k => k === "rejects" ? "[…], " : k === "ref" ? "{ … }, " : "";
+      return `export const ${name} = ${ks.map(k => `${k}(${arg(k)}`).join("")}fn${")".repeat(ks.length)}`;
+    };
     if (implicit && kinds.has("pure")) {
-      fail(kinds.get("pure"), `\`${implicit}(…)\` already makes ${name} pure: remove the \`pure(…)\` wrapper`);
+      fail(kinds.get("pure"), `\`${implicit}(…)\` already makes ${name} pure: remove the \`pure(…)\` wrapper, \`${without("pure")}\``);
     }
     if (kinds.has("ref") && kinds.has("instantiates")) {
-      fail(kinds.get("instantiates"), `\`ref(…)\` already makes ${name} instantiating: remove the \`instantiates(…)\` wrapper`);
+      fail(kinds.get("instantiates"), `\`ref(…)\` already makes ${name} instantiating: remove the \`instantiates(…)\` wrapper, \`${without("instantiates")}\``);
     }
     const impl = cur;
     const shape = impl && implShape(impl);
@@ -866,7 +880,8 @@ function generate(ts, program, T, { inPackage, isLib }) {
       }
     }
     const original = own.length ? 0 : Math.min(...(s?.declarations ?? []).map(d => d.getStart()), Infinity);
-    lines.push([pos, original, order, lineFor(name, s, typeOnly, exprDecl)]);
+    current = name;
+    try { lines.push([pos, original, order, lineFor(name, s, typeOnly, exprDecl)]); } finally { current = null; }
   });
   return done();
 }

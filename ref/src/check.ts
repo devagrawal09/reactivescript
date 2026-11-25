@@ -539,7 +539,7 @@ class Checker {
       if (d.k === "import") {
         if (d.resolved) this.importRx(d, env);                                                                    // MO-1/MO-3: an .rx module's signature
         else if (d.declared) this.importDeclared(d, env);                                                         // MO-8: a JS module's declaration file
-        else for (const { alias } of d.names) this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side });   // R-io-4, R-f-8, SF-5
+        else for (const { name, alias } of d.names) this.bind(env, alias, d.lenient?.includes(name) ? this.unknownImport(alias, d, env) : { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side });   // R-io-4, R-f-8, SF-5
         for (const { alias } of d.names) { const s = env.vars.get(alias); if (s) this.importSyms.add(s); }
         continue;
       }
@@ -649,6 +649,7 @@ class Checker {
     if (d.fails && !ts) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     const decl = (x: JsDecl): SymDecl => { const helpers = x.origin === "generated" ? helpersOf(x) : []; return { line: declLine(x), from: moduleKey(x.origin === "generated" ? x.generatedFrom! : d.declared!, this.opts.root), origin: x.origin !== "generated" ? "written" : helpers.length ? "helper" : "default", helpers }; };   // MO-11f
     for (const { name, alias } of d.names) {
+      if (d.lenient?.includes(name)) { this.bind(env, alias, this.unknownImport(alias, d, env)); continue; }
       const x = decls.find(y => y.kind !== "import" && y.name === name && (y.kind !== "type" || y.exported));
       if (!x) {
         if (ts) this.err("NOT_EXPORTED", "MO-11b", `${tsFile} exports no ${name === "default" ? "default" : name} (${d.from} is the TS module ${tsFile}; its declaration is generated from it)`);
@@ -667,6 +668,12 @@ class Checker {
       const pure = x.pure || (gen && d.pure);
       this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, rejects: new Set(x.rejects ?? (gen ? d.fails : undefined) ?? ["Error"]), side: x.side ?? (gen ? d.side : undefined), decl: decl(x) });
     }
+  }
+  /** MO-11d: a TS export whose generated declaration failed, or every name of a TS module with none. The error is the TS
+   *  module's (or the import's), and the build fails on it; the name is unknown here — callable anywhere, with no rows and
+   *  no failures, not instantiating — so its uses report nothing that is only fallout. */
+  private unknownImport(alias: string, d: Extract<Decl, { k: "import" }>, env: Env): Sym {
+    return { kind: "import", name: alias, region: env.region, line: d.line, io: false, rejects: new Set() };
   }
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
    *  reader (it may hold, MO-10d), a function part is io (R-io-3), anything else is a value. */

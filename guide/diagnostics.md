@@ -1298,6 +1298,11 @@ Write `export const load = pure(rejects([NotFound], fetchItem))`, with `class No
 `args` name accessor parameters by index; its `result` is `true` (the result is an accessor), tuple indices, or
 property names.
 
+`ref` and `instantiates` already make a function pure, so `pure(ref(…))` is this error too; the message gives the
+chain without the extra wrapper (`export const createCount = ref({ … }, fn)`). This error is the only one you get for
+the export: until it is fixed, its `.rx` uses are not checked against it, so they report no `IO_IN_REACTIVE` or
+failure errors of their own.
+
 ### IMPORT_ROW_ON_TS
 
 `import pure`, `fails(…)`, `server` or `client` on a local TS import states at the import what the

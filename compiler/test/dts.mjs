@@ -588,6 +588,25 @@ export const b = instantiates(server(pure(() => 2)));
     assert.equal(error.code, "DECLARATION_HELPER");
     assert.match(error.message, /remove the `pure\(…\)` wrapper/);
   }
+  // the exact fix: the chain as written, without the redundant wrapper
+  assert.match(r.errors[0].message, /remove the `pure\(…\)` wrapper, `export const a = ref\(\{ … \}, fn\)`$/);
+  assert.match(r.errors[1].message, /remove the `pure\(…\)` wrapper, `export const b = instantiates\(server\(fn\)\)`$/);
+  // MO-11d: both lines fell back to the default on the error, so an importer binds them as unknown
+  assert.deepEqual(r.failed, ["a", "b"]);
+});
+
+test("helpers: `failed` names exactly the exports whose line fell back on an error", { skip }, () => {
+  const { r } = genH(`
+export const ok = pure(() => 1);
+export const bad = pure(rejects([String as any], async () => 1));
+let loose = pure(() => 1);
+export { loose };
+const stray = [pure(() => 1)];
+export const fine = () => stray;
+`);
+  assert.equal(r.errors.length, 3);
+  assert.deepEqual(r.failed, ["bad", "loose"]);   // the stray call's error is its own: it marks no export
+  assert.equal(genH("export const ok = pure(() => 1);\n").r.failed, undefined);
 });
 
 test("helpers: misuse is DECLARATION_HELPER at the call, and the line falls back to the default", { skip }, () => {

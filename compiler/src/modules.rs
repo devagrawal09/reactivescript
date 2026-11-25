@@ -69,6 +69,9 @@ struct Loader<'r> {
     state: HashMap<String, State>,
     recover: bool,
     parse_errors: Vec<ParseError>,
+    /// MO-11d: by `.d.rx` path, the exports whose declaration failed (reported at the TS module): an importer binds them as
+    /// unknown, so that error is the one diagnostic. `None`: the module has no declaration (DECLARATION_UNAVAILABLE).
+    failed_of: HashMap<String, Option<HashSet<String>>>,
 }
 
 /// MO-10c: the file a package import resolves to, as a bundler finds it — `node_modules` up from the importer, the
@@ -153,6 +156,8 @@ pub struct DtsRecord {
     pub text: String,
     pub errors: Vec<DtsError>,
     pub files: Vec<String>,
+    /// the exports whose line fell back to the default on an error (bound as unknown, MO-11d)
+    pub failed: Vec<String>,
 }
 #[derive(Debug, Clone)]
 pub struct DtsError {
@@ -183,7 +188,8 @@ pub fn read_record(read: &dyn Fn(&str) -> Option<String>, stem: &str) -> Option<
         })
         .unwrap_or_default();
     let files = j.get("files").and_then(|v| v.as_array()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-    Some(DtsRecord { from: from.to_string(), text: text.to_string(), errors, files })
+    let failed = j.get("failed").and_then(|v| v.as_array()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    Some(DtsRecord { from: from.to_string(), text: text.to_string(), errors, files, failed })
 }
 fn base(p: &str) -> &str {
     p.rsplit('/').next().unwrap_or(p)
@@ -221,7 +227,7 @@ impl Loader<'_> {
         };
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
-            let Decl::Import { from, line, names, pure, fails, side, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
+            let Decl::Import { from, line, names, pure, fails, side, resolved, declared, declared_errors, declared_pure, declared_side, lenient, .. } = d else { continue };
             if !is_rx(from) && from.starts_with('.') {
                 let stem = join_path(path, from);
                 let exts = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".cjs", ".cts", ".json"];
@@ -252,6 +258,13 @@ impl Loader<'_> {
                             file: Some(path.to_string()),
                             msg: format!("{} is the TS module {}, whose declaration is generated (MO-11d), and no generator answered: {}", from, base(&ts), UNAVAILABLE_FIX),
                         });
+                        self.failed_of.insert(dts.clone(), None);
+                    }
+                    // MO-11d: bound as unknown; the error is the TS module's (or the import's)
+                    match self.failed_of.get(&dts) {
+                        Some(None) => *lenient = names.iter().map(|n| n.name.clone()).collect(),
+                        Some(Some(f)) => *lenient = names.iter().map(|n| n.name.clone()).filter(|n| f.contains(n)).collect(),
+                        None => {}
                     }
                 }
                 if !is_pkg && (*pure || fails.is_some() || side.is_some()) {
@@ -345,6 +358,7 @@ impl Loader<'_> {
             self.diags.push(Diagnostic { code: e.code.clone(), rule: rule_of(&e.code).into(), line: e.line, file: Some(e.file.clone()), msg: e.message.clone() });
         }
         if written.is_none() && rec.errors.iter().any(|e| e.code == "DECLARATION_UNAVAILABLE") {
+            self.failed_of.insert(dts, None);
             return Ok(true); // reported at the TS module
         }
         let mut gen = crate::parse::parse_declarations_in(&rec.text, true).map_err(|e| ParseError(format!("{} (generated from {}): {}", dts, rec.from, e.0), e.1, Some(dts.clone()), e.3))?;
@@ -353,6 +367,9 @@ impl Loader<'_> {
             x.set_generated(&rec.from);
         }
         let Some(written) = written else {
+            if !rec.failed.is_empty() {
+                self.failed_of.insert(dts.clone(), Some(rec.failed.iter().cloned().collect()));
+            }
             self.declarations.insert(dts, gen);
             return Ok(true);
         };
@@ -373,6 +390,11 @@ impl Loader<'_> {
         }
         let mut merged = ws;
         merged.extend(gen.into_iter().filter(|x| !mine.contains(x.name())));
+        // a written line is the declaration
+        let failed: HashSet<String> = rec.failed.iter().filter(|n| !mine.contains(*n)).cloned().collect();
+        if !failed.is_empty() {
+            self.failed_of.insert(dts.clone(), Some(failed));
+        }
         self.declarations.insert(dts.clone(), merged);
         self.resolve_decl_imports(&dts)?;
         Ok(true)
@@ -510,7 +532,7 @@ pub fn load_modules_recovering(entry: &str, read: &dyn Fn(&str) -> Option<String
     load(entry, read, true)
 }
 fn load(entry: &str, read: &dyn Fn(&str) -> Option<String>, recover: bool) -> Result<ModuleSet, ParseError> {
-    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), js_files: HashSet::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![] };
+    let mut l = Loader { read, programs: HashMap::new(), order: vec![], diags: vec![], declarations: IndexMap::new(), js_files: HashSet::new(), signatures: IndexMap::new(), sources: HashMap::new(), state: HashMap::new(), recover, parse_errors: vec![], failed_of: HashMap::new() };
     l.visit(entry, &[])?;
     Ok(ModuleSet { entry: entry.to_string(), programs: l.programs, order: l.order, diags: l.diags, declarations: l.declarations, js_files: l.js_files, signatures: l.signatures, sources: l.sources, parse_errors: l.parse_errors })
 }
