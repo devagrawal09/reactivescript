@@ -18,6 +18,7 @@ import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failur
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
+import { pureGlobal, pureGlobalValue } from "../src/pure-globals.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
 import type { Shape } from "../src/parse.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
@@ -451,7 +452,7 @@ export class Oracle {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = scope.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
+        if (!b) { if (pureGlobal(e.name)) return pureGlobalValue(e.name); if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
         switch (b.k) {
           case "const": return b.value;
           case "sig": case "memo": case "store": {

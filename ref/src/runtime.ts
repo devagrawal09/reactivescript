@@ -11,6 +11,7 @@ export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
+import { pureGlobal, pureGlobalValue } from "./pure-globals.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
@@ -789,7 +790,7 @@ export class Runtime {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = region.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
+        if (!b) { if (pureGlobal(e.name)) return pureGlobalValue(e.name); if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
         if ("fn" in b) {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);

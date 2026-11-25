@@ -5,6 +5,10 @@ don't need them to follow it.
 
 ## Rule zero: don't track requests yourself
 
+Pure calculations can use the [fixed JS prelude](../spec/pure-globals.json)
+directly, for example `Math.round(n)` and `Object.keys(record)`. Clocks,
+randomness, browser APIs and timers still belong in imported JS.
+
 Don't write sequence numbers, request ids, "latest token" checks, `if (stillCurrent)` guards, cancellation flags,
 or lists of pending requests. In .rx those are bugs waiting to happen, and they are never needed. The language
 already knows which question is current and which change a write belongs to. If you're reaching for a counter, you

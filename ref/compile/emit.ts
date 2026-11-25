@@ -12,6 +12,7 @@ import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
 import { declKeys, moduleKey } from "../src/model.ts";
 import { checkModules } from "../src/check.ts";
+import { pureGlobal } from "../src/pure-globals.ts";
 import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
@@ -543,6 +544,7 @@ class Gen {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
     const b = env.lookup(name);
     if (!b) {
+      if (pureGlobal(name)) return name;
       if (BUILTINS.has(name)) return `__B.${name}`;
       if (ctx.dyn) return name === "log" ? "__B.log" : ctx.imp ? `__rt.dget(${J(name)})` : `__rt.dget(${J(name)}, true)`;
       if (name === "log" && ctx.imp) return "__B.log";
