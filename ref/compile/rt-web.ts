@@ -46,7 +46,7 @@ let rxKey: string | null = null;
 type Carry = { value: unknown; keepAnswer?: boolean; instance?: string };
 let consumedCarry: { replaces?: string; carryStatus: string } | undefined;
 type CarryGroup = { entries: Carry[]; used: number };
-type DeferredCarries = Map<string, { path: string; value: Carry }>;
+type DeferredCarries = Map<string, { path: string; value: Carry; used?: () => void }>;
 let instanceId = 0;
 let rxInstance: string | undefined;
 type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
@@ -245,12 +245,10 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const reads = RX_INSTRUMENT ? new Set<Inspect>() : undefined;
   let carries: Map<string, CarryGroup> | undefined;
   let deferred: DeferredCarries | undefined;
-  let deferredUntil: ReturnType<typeof setTimeout> | undefined;
   const inputEvents = ["pointerdown", "keydown", "input", "click"];
   const clearDeferred = () => {
     if (!deferred) return;
     deferred = undefined;
-    clearTimeout(deferredUntil);
     for (const type of inputEvents) opts.root?.removeEventListener?.(type, clearDeferred, true);
   };
   const takeCarry = () => {
@@ -261,6 +259,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     if (!seed || pathOfKey(rxKey)?.join("/") !== seed.path) return;
     // There may be a second candidate mount as the pending ancestor lands.
     // Keep the seed for the bounded replacement window, not for user remounts.
+    seed.used?.();
     return seed.value;
   };
   // Only a Vite hot boundary enables persistent module owners. Do not change
@@ -592,13 +591,17 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           m.dispose();
         }
       },
-      defer(seeds: DeferredCarries) {
+      async defer(seeds: DeferredCarries) {
         // Without a pending read the branch is absent, not waiting to mount.
-        if (!seeds.size || ![...reads!].some(read => read(() => undefined).pending)) return;
+        const pending = () => [...reads!].some(read => read(() => undefined).pending);
+        if (!seeds.size || !pending()) return;
         deferred = seeds;
         // Never restore a stale draft on a later user-driven remount.
         for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
-        deferredUntil = setTimeout(clearDeferred, 10000);
+        const deadline = performance.now() + 10000;
+        while (deferred === seeds && pending() && performance.now() < deadline)
+          await new Promise(resolve => setTimeout(resolve, 16));
+        if (deferred === seeds) clearDeferred();
       },
       end() { carries = undefined; },
     },

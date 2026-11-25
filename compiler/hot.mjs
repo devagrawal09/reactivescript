@@ -66,15 +66,25 @@ export function hotEntry(payload, factory, hot, observer) {
           for (const { runtime, carry } of frames) runtime.begin(carry, changedModules);
           state.replace({ factory: next.factory });
           commit();
-          return new Map(frames.flatMap(frame => {
-            const { runtime } = frame;
-            runtime.defer(deferredCarry(frame, runtime.sources, true));
-            finishCarry(frame, runtime.sources);
-            return [...frame.reasons];
-          }));
         } finally {
           for (const { runtime } of frames) runtime.end();
         }
+        const settling = Promise.all(frames.map(frame => {
+          const { runtime } = frame;
+          // A re-asked question may legitimately land a different answer.
+          // Verify its seed before that answer lands, not at the end of the wait.
+          finishCarry(frame, runtime.sources, group => group.question);
+          const seeds = deferredCarry(frame, runtime.sources, true);
+          for (const [key, seed] of seeds) seed.used = () => {
+            const group = frame.carry.get(key);
+            if (!group.used) group.used = 1;
+          };
+          return runtime.defer(seeds);
+        }));
+        return settling.then(() => new Map(frames.flatMap(frame => {
+          finishCarry(frame, frame.runtime.sources, group => !group.question);
+          return [...frame.reasons];
+        })));
       };
       const installed = () => {
         state.current = next;
@@ -82,7 +92,7 @@ export function hotEntry(payload, factory, hot, observer) {
       };
       if (observer) await observer.replace(edit, apply, installed);
       else {
-        try { flush(); apply(); installed(); }
+        try { flush(); await apply(); installed(); }
         catch (e) { console.error("[rx] replacement failed:", e); location.reload(); }
       }
     }).catch(e => console.error("[rx] replacement failed:", e));

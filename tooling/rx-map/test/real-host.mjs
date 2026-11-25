@@ -124,6 +124,10 @@ async function openApp(query = "") {
   // Solid's timing diagnostics (HOT_SCOPE_TIME…) depend on machine load, not on correctness: not page errors here.
   const timing = /^\[(HOT_SCOPE_TIME|SLOW_[A-Z_]+)\]/;
   page.on("console", m => { if ((m.type() === "error" || m.type() === "warning") && !timing.test(m.text())) errors.push(m.text()); });
+  const reloads = [];
+  page.on("websocket", socket => socket.on("framereceived", ({ payload }) => {
+    if (typeof payload === "string" && payload.includes('"type":"full-reload"')) reloads.push(payload);
+  }));
   await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded" });
   try { await page.waitForFunction(() => globalThis.__RX__?.attach && document.querySelector(".counts"), null, { timeout: 15000 }); }
   catch (e) { throw new Error(`${e.message}\n${await page.evaluate(() => JSON.stringify({ rx: !!globalThis.__RX__, text: document.body.innerText.slice(0, 1000) }))}\n${errors.join("\n")}\n${viteLog}`); }
@@ -138,6 +142,7 @@ async function openApp(query = "") {
     });
   });
   page.errors = errors;
+  page.reloads = reloads;
   return page;
 }
 async function waitIdle(page, ms = 4000) {
@@ -154,7 +159,10 @@ async function waitIdle(page, ms = 4000) {
     await sleep(50);
   }
 }
-const drain = page => page.evaluate(() => globalThis.__T.msgs.splice(0));
+const drain = async page => {
+  try { return await page.evaluate(() => globalThis.__T.msgs.splice(0)); }
+  catch (e) { throw new Error(`${e.message}\nVite reloads: ${JSON.stringify(page.reloads)}\n${viteLog}`); }
+};
 const post = (page, msg) => page.evaluate(m => globalThis.__T.view.post(m), msg);
 
 // Things a reader does, in turn: toggle a book, switch filters, add a book, search.
@@ -549,9 +557,12 @@ async function realHmr() {
     await state("counter", "4");
     console.log(`ok   HMR travel across #${changed.flush.seq} reports the old expression; travel to the HMR step shows counter 3 instead of 4`);
     await edit("standing question with a hoisted await re-asks and keeps its previous answer", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
-      { answer: "expr-changed" }, async ({ done }) => {
+      { answer: "expr-changed" }, async ({ done, flush }) => {
         assert.ok(!done.uncarried?.includes(key("answer")));
-        await shown("answer", "first"); await shown("answer", "second");
+        // Done can follow the async landing; the replacement flush is where
+        // the previous answer must still be visible.
+        assert.match(await page.evaluate(seq => globalThis.__T.dom[seq], flush.seq), /data-testid="hmr-answer"[^>]*>(?:<!--.*?-->)*first/);
+        await shown("answer", "second");
         assert.equal((await values())[key("answer")], '"second"');
         const records = await page.evaluate(() => globalThis.__T.msgs);
         assert.ok(records.some(m => m.type === "flight" && m.key === key("answer") && m.state === "start"));
@@ -594,6 +605,7 @@ async function realHmr() {
     const edited = await saveRx(page, previewFile, originalPreview.replace("Preview:", "Updated:"));
     const draftKey = "src/components/DraftDialog.rx|DraftDialog|text";
     assert.equal(edited.plan.reasons[draftKey], "unchanged");
+    assert.ok(!edited.done.uncarried?.includes(draftKey));
     await page.getByTestId("draft-preview").getByText(`Updated: ${typed}`, { exact: true }).waitFor({ timeout: 5000 });
     assert.equal(await draft.inputValue(), typed);
     assert.equal((await values())[draftKey], JSON.stringify(typed));
