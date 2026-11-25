@@ -1,6 +1,6 @@
 // The map's layout, as a pure function of the graph: where every module plate, region frame, token, cluster, view-text
-// strip and reserved area goes, in board pixels. Computed once per graph and never changed by zoom: the three detail
-// levels (overview, structure, detail) draw different things inside the same boxes, so moving between them shifts
+// strip and reserved area goes, in board pixels. Computed once per graph and never changed by zoom: the two detail
+// levels (overview, detail) draw different things inside the same boxes, so moving between them shifts
 // nothing. No DOM: sizes come from a fixed monospace metric, so the layout doesn't depend on fonts loading, and the same
 // module serves the page (map.html, embedded by build.mjs), Node tools and tests.
 //
@@ -23,13 +23,13 @@
  * @property {{ top: number, bottom: number, keys: (number|"world")[] }[]} rows plate rows, top to bottom
  * @property {Map<string, Box & { id: string, kind: string, depth: number, parent: string|null, label: Box }>} frames
  *   region frames (module roots included, kind "program"), with their header box
- * @property {Map<string, Box & { id: string, level: 2|3, role: "named"|"site"|"label"|"world", region: string|null }>} tokens
+ * @property {Map<string, Box & { id: string, level: 1|2, role: "named"|"site"|"label"|"world", region: string|null }>} tokens
  *   every token (node id; a control region's tag under its region id, role "label"); `level` is the first detail level
  *   that shows it
  * @property {(Box & { mod: number, unit: string, label: string, what: string })[]} clusters groups of a dense module's names
  * @property {Map<string, Box>} strips a region's view-text strip (detail level)
- * @property {(Box & { region: string, kind: "sites"|"strip" })[]} reserved areas the detail level fills (structure
- *   level shows them empty)
+ * @property {(Box & { region: string, kind: "sites"|"strip" })[]} reserved areas view sites and view text fill
+ *   (kept apart so nothing in them overlaps the names)
  * @property {(Box & { file: string, label: Box })[]} worldGroups JS imports grouped by file, in the world strip
  * @property {{ x: number, y: number }} gaps between plates in a row, between rows
  */
@@ -248,9 +248,9 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
 export const METRICS = {
   // a monospace glyph is .6em; .64 leaves slack for hinting at small sizes
   mono: .64, sans: .56, nameFont: 13.5, siteFont: 12.5, badgeFont: 10, tagFont: 12.5, stripFont: 12, labelFont: 12,
-  // each level's things are drawn at that level's scale (the page zooms them by it), so each level's text reads at
-  // its own zoom: the structure level's names and headers big, the detail level's view sites and view text smaller
-  zoom: { named: 2.4, site: 1.2 },
+  // the detail level is drawn at this scale (the page zooms its things by it): big enough that its smallest text reads
+  // at 11px on screen from about half zoom, where the overview hands over to it
+  zoom: 1.85,
   // base sizes, before the zoom
   namedH: 34, siteH: 28, labelH: 30, stripH: 30,
   gapX: 16, siteGapX: 14, rowGap: 56, lineGap: 30,
@@ -261,7 +261,7 @@ export const METRICS = {
 const monoW = (text, font, M) => String(text).length * font * M.mono;
 /** A token's box size, at its level's zoom (`zoom: false` for the unzoomed size). */
 export function tokenSize(n, A, M = METRICS, zoom = true) {
-  const s = baseTokenSize(n, A, M), k = zoom ? (n.site ? M.zoom.site : M.zoom.named) : 1;
+  const s = baseTokenSize(n, A, M), k = zoom ? M.zoom : 1;
   return { w: Math.ceil(s.w * k), h: s.h * k };
 }
 /** A token's unzoomed size: its icon, name, marks and badges, in the page's chip paddings. */
@@ -298,11 +298,11 @@ function flowTokens(groups, x, y, w, gapX0, ctx, extra) {
   const M = ctx.M;
   let cy = y;
   groups.forEach((g, gi) => {
-    const k = g[0]?.site ? M.zoom.site : M.zoom.named, gapX = gapX0 * k;
+    const k = M.zoom, gapX = gapX0 * k;
     if (gi) cy += g[0]?.site ? (M.rowGap - 12) * k : M.rowGap * Math.sqrt(k);   // between steps of dependency: room for the arrows
     const lines = [[]]; let lw = 0;
     for (const n of g) {
-      const s = ctx.size(n);
+      const s0 = ctx.size(n), s = s0.w > w ? { ...s0, w } : s0;   // never wider than its frame (the page cuts the name)
       if (lines.at(-1).length && lw + gapX + s.w > w) { lines.push([]); lw = 0; }
       lw += (lines.at(-1).length ? gapX : 0) + s.w; lines.at(-1).push([n, s]);
     }
@@ -318,7 +318,7 @@ function flowTokens(groups, x, y, w, gapX0, ctx, extra) {
   return cy - y;
 }
 // the natural width of token rows: the widest row, unwrapped
-const rowsWidth = (groups, gapX, ctx) => Math.max(0, ...groups.map(g => g.reduce((a, n) => a + ctx.size(n).w, 0) + gapX * (g[0]?.site ? ctx.M.zoom.site : ctx.M.zoom.named) * (g.length - 1)));
+const rowsWidth = (groups, gapX, ctx) => Math.max(0, ...groups.map(g => g.reduce((a, n) => a + ctx.size(n).w, 0) + gapX * ctx.M.zoom * (g.length - 1)));
 
 // estimate of a region's view-text strip width (one line), at the detail level's zoom
 function stripWidth(r, A, M) {
@@ -330,7 +330,7 @@ function stripWidth(r, A, M) {
     else if ("site" in p) { const n = A.nodes.get(p.site); if (n && !A.ctlSites.has(p.site)) chars += Math.min(22, A.chipLabel(n).length) + 3; }
     else if ("region" in p) { const k = A.regions.get(p.region); if (k && !A.empty(k)) chars += (CTL[k.kind] ? A.controlInfo(k).text.length : (k.name ?? k.kind).length + 4) + 3; }
   }
-  return (60 + chars * M.stripFont * M.mono) * M.zoom.site;
+  return (60 + chars * M.stripFont * M.mono) * M.zoom;
 }
 const hasStrip = (r, A) => !!A.stripParts(r);
 
@@ -341,8 +341,8 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
   const pad = isRoot ? M.plate : M.frame;
   const inner = w - 2 * pad.x;
   const top = y;
-  // the header (a plate's module label too) is the structure level's text: at its zoom
-  const KN = M.zoom.named, LH = M.labelH * KN;
+  // the header (a plate's module label too) is detail text: at its zoom
+  const KN = M.zoom, LH = M.labelH * KN;
   ctx.frames.set(r.id, { id: r.id, kind: r.kind, x, y, w, h: 0, depth, parent, label: { x: x + pad.x, y: y + (isRoot ? 12 : pad.t), w: inner, h: isRoot ? 18 * KN : LH } });
   let cy = y + pad.t + (isRoot ? 12 + 18 * KN : LH + 12);
   // the header's own tokens: a component's name, a control construct's tag (and what it reads)
@@ -358,14 +358,14 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
       let tw = Math.min(inner, (70 + monoW(info.text, M.tagFont, M) + 24) * KN);
       if (info.site) tw = Math.min(tw, Math.max(80 * KN, inner - sw0 - 8 * KN));
       ctx.tokens.set(r.id, { id: r.id, x: lx, y: ly, w: tw, h: LH, role: "label", region: r.id, level: 2 });
-      if (info.site) ctx.token(info.site, lx + tw + 8 * KN, ly + 2 * KN, { w: Math.max(24 * KN, Math.min(sw0, inner - tw - 8 * KN)), h: LH - 4 * KN }, { role: "label", region: r.id, level: 3 });
+      if (info.site) ctx.token(info.site, lx + tw + 8 * KN, ly + 2 * KN, { w: Math.max(24 * KN, Math.min(sw0, inner - tw - 8 * KN)), h: LH - 4 * KN }, { role: "label", region: r.id, level: 2 });
     }
   }
   const named = r.nodes.filter(n => !n.site), sites = r.nodes.filter(n => n.site && !A.ctlSites.has(n.id));
   const groups = isRoot && named.length > 10 ? A.clusterNames(named, r.mod) : null;
   if (groups) {
     // clusters, in the order of the plates that use them (ctx.clusterOrder), flowed in lines
-    const C = { ...M.cluster, t: M.cluster.t + 16 * KN };   // the label, at the structure level's zoom
+    const C = { ...M.cluster, t: M.cluster.t + 16 * KN };   // the label, at the detail zoom
     const order = ctx.clusterOrder?.(r.mod) ?? (u => (u === "core" ? -1 : 0));
     groups.sort((a, b) => order(a.unit) - order(b.unit) || (a.unit < b.unit ? -1 : 1));
     const boxes = groups.map(g => { const rr = rankRows(g.nodes, A); return { g, rr, w: Math.min(inner, Math.max(160, rowsWidth(rr, M.gapX, ctx) + 2 * C.x, (30 + monoW(`${g.label} ${g.what}`, 10, M)) * KN)) }; });
@@ -394,7 +394,7 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
   if (hasStrip(r, A)) {
     cy += M.stripGap;
     const sw = Math.min(inner, stripWidth(r, A, M));
-    const box = { x: x + pad.x + (inner - sw) / 2, y: cy, w: sw, h: M.stripH * M.zoom.site };
+    const box = { x: x + pad.x + (inner - sw) / 2, y: cy, w: sw, h: M.stripH * M.zoom };
     ctx.strips.set(r.id, box);
     ctx.reserved.push({ region: r.id, kind: "strip", ...box });
     cy += box.h;
@@ -483,7 +483,7 @@ export function layoutWorld(A, { aspect = 1.6, metrics = {}, size } = {}) {
   // a plate laid out alone at a width, at the origin: its height
   const measure = (mi, w, clusterOrder) => {
     const ctx = { A, M, size: sizeOf, frames: new Map(), tokens: new Map(), clusters: [], strips: new Map(), reserved: [], clusterOrder,
-      token(n, x, y, s, extra) { this.tokens.set(n.id, { id: n.id, x, y, w: s.w, h: s.h, role: extra?.role ?? (n.site ? "site" : "named"), region: extra?.region ?? n.region ?? null, level: extra?.level ?? (n.site ? 3 : 2) }); } };
+      token(n, x, y, s, extra) { this.tokens.set(n.id, { id: n.id, x, y, w: s.w, h: s.h, role: extra?.role ?? (n.site ? "site" : "named"), region: extra?.region ?? n.region ?? null, level: extra?.level ?? 2 }); } };
     const h = layRegion(A.regions.get(`${mi}:r0`), 0, 0, w, ctx, 0, null);
     return { h, ctx };
   };
@@ -518,8 +518,8 @@ export function layoutWorld(A, { aspect = 1.6, metrics = {}, size } = {}) {
     if (world.length) {
       const byFile = new Map();
       for (const n of [...world].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line))) (byFile.get(n.file) ?? byFile.set(n.file, []).get(n.file)).push(n);
-      // at the structure level's zoom: the title, each file's label, its tokens
-      const KN = M.zoom.named, NH = M.namedH * KN, GX = M.gapX * KN, FL = 16 * KN;
+      // at the detail zoom: the title, each file's label, its tokens
+      const KN = M.zoom, NH = M.namedH * KN, GX = M.gapX * KN, FL = 16 * KN;
       const x0 = P.pad + 18, inner = contentW - 36;
       let cx = x0, cy = y + 16 + 22 * KN, lh = 0;
       for (const [file, ns] of byFile) {
@@ -626,25 +626,20 @@ export function planTrunks(pairs, L) {
 }
 
 /**
- * The zoom thresholds between detail levels. Each level's text is drawn at that level's scale (`METRICS.zoom`), and a
- * level comes in only once its smallest reading text is `minText` px on screen or more: the structure level (2) when its
- * names and header tags (`nameFont`, `tagFont` at `zoom.named`) do, the detail level (3) when its view sites and view
- * text (`siteFont`, `stripFont` at `zoom.site`) do. Going back down waits `hysteresis` lower, so a zoom resting near a
+ * The zoom threshold between the two levels: the overview (1, module cards) and the detail (2, everything, drawn at
+ * `METRICS.zoom`). The detail comes in only once its smallest reading text (names, tags, view sites, view text) is
+ * `minText` px on screen or more; going back to the overview waits `hysteresis` lower, so a zoom resting near the
  * threshold doesn't flicker.
  */
 export function levelThresholds({ minText = 11, hysteresis = .05, metrics = METRICS } = {}) {
   const at = px => Math.ceil((minText / px) * 100) / 100;
-  const up = { 1: at(Math.min(metrics.nameFont, metrics.tagFont) * metrics.zoom.named), 2: at(Math.min(metrics.siteFont, metrics.stripFont) * metrics.zoom.site) };
-  return { up, down: { 2: +(up[1] - hysteresis).toFixed(2), 3: +(up[2] - hysteresis).toFixed(2) }, minText };
+  const up = { 1: at(Math.min(metrics.nameFont, metrics.tagFont, metrics.siteFont, metrics.stripFont) * metrics.zoom) };
+  return { up, down: { 2: +(up[1] - hysteresis).toFixed(2) }, minText };
 }
-/** The thresholds the page uses: up 1→2 at .37, 2→3 at .77; down 3→2 below .72, 2→1 below .32. */
+/** The thresholds the page uses: overview → detail at .50; back below .45. */
 export const LEVELS = levelThresholds();
 /** The detail level for a zoom, with hysteresis: `prev` is the current level. */
-export function levelFor(s, prev = 3, LV = LEVELS) {
-  let l = prev;
-  if (l === 1 && s >= LV.up[1]) l = 2;
-  if (l === 2 && s >= LV.up[2]) l = 3;
-  if (l === 3 && s < LV.down[3]) l = 2;
-  if (l === 2 && s < LV.down[2]) l = 1;
-  return l;
+export function levelFor(s, prev = 2, LV = LEVELS) {
+  if (prev === 1) return s >= LV.up[1] ? 2 : 1;
+  return s < LV.down[2] ? 1 : 2;
 }

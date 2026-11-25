@@ -67,30 +67,29 @@ try {
   }
   check(`routes between plates (${paths.length}) run in the gutters, never through a plate`, paths.length > 5 && !inside.length, inside.slice(0, 5));
   doc.getElementById("all").click(); await sleep(50);
-  // the three levels draw into the same boxes
+  // the two levels draw into the same boxes
   const boxes = () => [...doc.querySelectorAll("#board .frame, #board .chip.placed")].map(e => { const b = w.boxOf(e); return b ? [b.l, b.t, b.r, b.b].map(Math.round).join(",") : "-"; }).join(";");
   const ref = boxes(), extent = [M.BW, M.BH].join("x");
   const shown = {};
-  for (const l of [1, 2, 3]) {
+  for (const l of [1, 2, 1, 2]) {
     M.setLevel(l); await sleep(260);
     check(`level ${l}: every frame and token keeps its box; the board keeps its size`, boxes() === ref && [M.BW, M.BH].join("x") === extent);
     const vis = sel => [...doc.querySelectorAll(sel)].filter(e => +w.getComputedStyle(e).opacity > .5 && +w.getComputedStyle(e.closest(".frame.module > *") ?? e).opacity > .5).length;
-    shown[l] = { cards: vis("#board .psum"), sites: vis("#board .chip.site.placed"), named: vis("#board .chip.placed:not(.site)"), strips: vis("#board .ostrip"), resv: vis("#board .resv") };
+    shown[l] = { cards: vis("#board .psum"), sites: vis("#board .chip.site.placed"), named: vis("#board .chip.placed:not(.site)"), strips: vis("#board .ostrip") };
   }
-  check("level 1 shows the cards, nothing inside the plates", shown[1].cards >= 8 && !shown[1].named && !shown[1].sites, shown[1]);
-  check("level 2 shows names and reserved areas, no view sites or view text", !shown[2].cards && shown[2].named > 30 && !shown[2].sites && !shown[2].strips && shown[2].resv > 10, shown[2]);
-  check("level 3 shows everything, no reserved hints", !shown[3].cards && shown[3].named > 30 && shown[3].sites > 50 && shown[3].strips === doc.querySelectorAll("#board .ostrip").length && !shown[3].resv, shown[3]);
+  check("the overview shows the cards, nothing inside the plates", shown[1].cards >= 8 && !shown[1].named && !shown[1].sites, shown[1]);
+  check("the detail level shows everything: names, view sites, view text", !shown[2].cards && shown[2].named > 30 && shown[2].sites > 50 && shown[2].strips === doc.querySelectorAll("#board .ostrip").length, shown[2]);
   // the zoom picks the level, with hysteresis
   const fr = w.freeRect(), at = async s => { w.zoomAt(fr.cx, fr.cy, s / M.cam.s); await sleep(60); return M.level; };
   const seq = [];
-  const { up, down } = w.eval("RXL").LEVELS, b2 = (down[2] + up[1]) / 2, b3 = (down[3] + up[2]) / 2;
-  for (const s of [.2, b2, up[1] + .01, b3, up[2] + .01, b3, down[3] - .01, b2, down[2] - .01]) seq.push(await at(s));
-  check("zoom picks the level, with hysteresis", JSON.stringify(seq) === "[1,1,2,2,3,3,2,2,1]", seq);
-  // on screen: the font size, times the level's zoom the page draws it at, times the camera's zoom
-  const px = sel => { const e = doc.querySelector(sel); if (!e) return Infinity; return parseFloat(w.getComputedStyle(e).fontSize) * w.eval("zoomUnder")(e); };
-  const pxs = { name: px("#board .chip.placed:not(.site) .n") * up[1], tag: px("#board .frame:not(.module) > .flabel .ctag") * up[1], module: px("#board .frame.module > .flabel b") * up[1], site: px("#board .chip.site.placed .n") * up[2], strip: px("#board .ostrip .otext") * up[2] };
-  check("each level's text reads at 11px or more when that level comes in (names, tags, module labels at 2; sites, view text at 3)", Object.values(pxs).every(v => v >= 11) && Number.isFinite(pxs.name + pxs.tag + pxs.module + pxs.site), pxs);
-  check("the three levels each get a real stretch of zoom", up[1] <= .4 && up[2] >= .7, [up, down]);
+  const { up, down } = w.eval("RXL").LEVELS, b = (down[2] + up[1]) / 2;
+  for (const s of [.2, b, up[1] + .01, b, down[2] - .01, b]) seq.push(await at(s));
+  check("zoom picks the level, with hysteresis", JSON.stringify(seq) === "[1,1,2,2,1,1]", seq);
+  // on screen at the switch: the font size, times the scale the page draws the detail at
+  const px = sel => { const e = doc.querySelector(sel); if (!e) return Infinity; return parseFloat(w.getComputedStyle(e).fontSize) * w.eval("zoomUnder")(e) * up[1]; };
+  const pxs = { name: px("#board .chip.placed:not(.site) .n"), tag: px("#board .frame:not(.module) > .flabel .ctag"), module: px("#board .frame.module > .flabel b"), site: px("#board .chip.site.placed .n"), strip: px("#board .ostrip .otext") };
+  check("the detail's text reads at 11px or more right where it comes in (names, tags, module labels, sites, view text)", Object.values(pxs).every(v => v >= 11) && Number.isFinite(pxs.name + pxs.tag + pxs.module + pxs.site), pxs);
+  check("the switch sits near the middle of the zoom range", up[1] >= .45 && up[1] <= .55, [up, down]);
   // the overview's cards fill their plates and never spill
   await at(.2); await sleep(260);
   const spill = [];
