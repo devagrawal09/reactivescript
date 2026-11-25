@@ -1,0 +1,16 @@
+export fn comet(fromId: string, toId: string, delay: number, dur: number, color: string | undefined): void
+export fn sparkle(edges: any[], far: boolean): void
+export fn ring(id: string, delay: number | undefined): void
+export fn fire(id: string): void
+export fn orb(id: string, state: string): void
+export fn clearOrbs(): void
+export fn clearPulses(): void
+export fn revert(id: string): void
+export fn rewind(direction: string): void
+export fn shake(id: string): void
+export fn beat(id: string): void
+export fn hmrApply(planned: any): void
+export fn snapshotPositions(ids: any[]): any
+export fn flip(was: any, now: any[], movedFrom: any, added: string[]): void
+export fn settlePlates(plates: number[]): void
+export fn toast(html: string, ms: number | undefined): void

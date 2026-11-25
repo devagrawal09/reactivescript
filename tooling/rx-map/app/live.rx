@@ -1,0 +1,334 @@
+// Live mode: the host link, live values, flights, held writes, boundaries, the timeline and travel, module
+// replacement, the pop-out and the fake host's HUD.
+//
+// All of it is one source, `live` (a store; its shape is livestate.js freshLive). Every message goes through
+// `dispatch`: livestate.js `prepare` (what follows from the message and the model), then one functional write,
+// `live := s => reduce(s, m, model)`, so a burst of messages handled in one turn composes in arrival order. The reducer
+// queues the transient effects (rings, comets, orbs, sounds, toasts, the hmr apply, `snapshot?`) on `live.fx`; an
+// effect plays them after the commit. The views draw everything that stays from the store; the JS that reads the state
+// (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
+import { isLive, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
+import { icon, keyName } from "./js/vocab.js"
+import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present } from "./js/livestate.js"
+import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
+import { renderScrub, startScrub, startTrack, travelKind, seqBy, sendTravel } from "./js/scrub.js"
+import { beforeSwap, afterSwap } from "./js/swap.js"
+import { fakeAct, fakeEvery, fakeEdit, fakeTick, selectValue } from "./js/fakehost.js"
+import { exposeGlobals } from "./js/transport.js"
+import { sfx } from "./js/sound.js"
+import { listDetail } from "./js/values.js"
+import { graphAt } from "./js/graphs.js"
+import { graphOf, nodeOf, regionOf, inEdges, keyOf, label } from "./js/model.js"
+import { model, selected, select, swapGraph } from "./state.rx"
+import { openTab, pick } from "./ui.rx"
+
+// ---- the state --------------------------------------------------------------------------------------------------
+export source live: any := freshLive()
+
+/** Every message in (the host's, and the page's own "~" ones): one functional write each. */
+export action dispatch(raw: any) {
+  let m = prepare(raw, model)
+  if (m != null) {
+    live := s => reduce(s, m, model)
+    if (m.type == "hmr" && m.phase == "plan" && selected == null) { openTab("plan") }
+  }
+}
+
+// ---- time travel ------------------------------------------------------------------------------------------------
+/** Back to live. */
+export action resume() {
+  dispatch({ type: "~target", seq: null })
+  post({ type: "resume" })
+}
+/** Travel to a seq (dragging: the host hears at most every 70 ms; the last always). */
+export action travel(seq: number) {
+  let k = travelKind(live.tl, seq)
+  if (k == "resume") { resume() }
+  else if (k == "go") {
+    dispatch({ type: "~target", seq: seq })
+    sendTravel(seq)
+  }
+}
+/** `n` steps back (negative) or forward from the step shown; past the last, resume. */
+export action travelBy(n: number) {
+  let s = seqBy(live.tl, n)
+  if (s == -1) { resume() } else if (s >= 0) { travel(s) }
+}
+
+// ---- module replacement: after `apply`, the new graph goes in -------------------------------------------------
+action swapIn() {
+  let no = live.hmr.plan == null ? -1 : live.hmr.plan.graphNo
+  if (no >= 0) {
+    beforeSwap(model, selected, live.hmr)
+    select(null)
+    swapGraph(graphAt(no))
+  }
+  dispatch({ type: "~swapped" })
+}
+
+// ---- the bridge: the host link, and what follows the state out to the page -----------------------------------
+export component LiveBridge() {
+  effect () {
+    return startLive({
+      receive: (m) => { dispatch(m) },
+      state: () => live,
+      graph: (g) => { swapGraph(g) },
+      connected: (ok) => { dispatch({ type: "~connected", ok: ok }) },
+      swap: () => { swapIn() },
+    })
+  }
+  // tests and tools call these on the page's window
+  effect () { return exposeGlobals((id, scroll) => { pick(id, scroll == true) }, () => { popOut() }) }
+  // a new graph (a module replacement, a pop-out's catch-up): what the map holds goes on the new tokens
+  effect (model) {
+    setCurrentGraph(graphOf($0))
+    let r = afterSwap($0, live, (changes) => { dispatch({ type: "~done", changes: changes }) })
+    if (r != null) {
+      if (r.id != "") { select(r.id) } else if (r.hadSel) { openTab("plan") }
+    }
+  }
+  effect (live.tl.viewing != null) { bodyClass("viewing", $0) }
+  // the transient effects the reducer queued, played once each, in order, after the commit
+  effect (live.fxSeq) { playFx(live, model) }
+  // the host may show what is selected
+  effect (selected) {
+    if ($0 != null && isLive()) {
+      let k = keyOf(model, $0)
+      if (k != null && k != "") { post({ type: "select", key: k }) }
+    }
+  }
+}
+
+// ---- the header ---------------------------------------------------------------------------------------------------
+flushes = `${live.flushes} flush${live.flushes == 1 ? "" : "es"}`
+badgeText = !live.connected ? `disconnected · ${flushes}`
+  : live.tl.viewing != null ? `viewing #${live.tl.viewing} of ${live.tl.head}`
+  : `live · ${flushes}`
+
+export component LiveBadge() {
+  {if isLive() {
+    <span id="liveBadge" title="attached to the running app: the flushes that changed something">{badgeText}</span>
+  }}
+}
+
+export component PopButton() {
+  {if isLive() && !isPopout() {
+    <button id="popBtn" class="hbtn ic" title="pop out: this live map in its own window" aria-label="pop out"
+      innerHTML={icon("popout")} onClick={() => { popOut() }}></button>
+  }}
+}
+
+/** While looking back: the app is read-only until you resume. */
+export component ViewNote() {
+  {if live.tl.viewing != null {
+    <div id="viewNote" class="hud" role="status">
+      <span style={{ display: "contents" }} innerHTML={icon("lock")}></span>
+      <span><b>looking back</b> <span class="vn-seq mono">#{live.tl.viewing} of {live.tl.head}</span><span class="vn-long"> · the app is read-only until you resume</span><span class="vn-short"> · read-only</span></span>
+      <button class="hbtn" id="vnResume" onClick={() => { sfx("toggle"); resume() }}>resume</button>
+    </div>
+  }}
+}
+
+// ---- the timeline -------------------------------------------------------------------------------------------------
+shownSeq = live.tl.target != null ? live.tl.target : live.tl.viewing != null ? live.tl.viewing : live.tl.head
+viewingNow = live.tl.viewing != null || live.tl.target != null
+firstSeq = live.tl.steps.length > 0 ? live.tl.steps[0].seq : 0
+
+export component Scrub() {
+  // the canvas (flights, ticks, module replacements) and the playhead are drawn by scrub.js from the committed live.tl
+  effect () { return startScrub(() => { renderScrub(model, live.tl) }) }
+  effect (live.tl.rev, model) { renderScrub($1, live.tl) }
+  effect () { return startTrack({ tl: () => live.tl, travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) }
+
+  <div id="scrub" hidden={!isLive()}>
+    <button class={["hbtn", isLive() && !viewingNow && live.tl.steps.length > 0 && "on"]} id="liveBtn" title="back to live"
+      onClick={() => { sfx("toggle"); if (viewingNow) { resume() } }}>LIVE</button>
+    <div id="track" role="slider" tabIndex={0} aria-label="timeline: drag or use the arrow keys to travel"
+      aria-valuemin={`${firstSeq}`} aria-valuemax={`${live.tl.head}`} aria-valuenow={`${shownSeq}`}>
+      <canvas id="trackc"></canvas><div id="playhead"></div>
+    </div>
+    <span id="seqLabel">
+      {if !isLive() {
+        {""}
+      } else if live.tl.steps.length == 0 {
+        <small>timeline</small>{"no flushes"}
+      } else if viewingNow {
+        <small>viewing</small>{`#${shownSeq} / ${live.tl.head}`}
+      } else {
+        <small>live</small>{`#${live.tl.head}`}
+      }}
+    </span>
+  </div>
+}
+
+// ---- the fake host's HUD ------------------------------------------------------------------------------------------
+AUTO = [{ t: "off", n: 0 }, { t: "slow", n: 12 }, { t: "normal", n: 5 }, { t: "fast", n: 2 }]
+OPS = ["next", "rename", "expr", "type", "add", "remove"]
+G = graphOf(model)
+hudActions = G.nodes.filter(n => n.kind == "action" && n.key)
+hudModules = G.modules
+
+export component DevHud() {
+  source hudOpen := !compactNow()
+  source every := 0
+  {if fakeSeed() != null {
+    <div id="devhud" class={["hud", !hudOpen && "collapsed"]}>
+      <button class="dh-toggle" aria-expanded={hudOpen ? "true" : "false"} onClick={() => { hudOpen := !hudOpen; sfx("toggle") }}>
+        <span class="dh-dot"></span><span class="micro">fake host</span><span class="mono dh-seed">{`seed ${fakeSeed()}`}</span><span style={{ display: "contents" }} innerHTML={icon("chev")}></span>
+      </button>
+      <div class="dh-body">
+        <div class="dh-row">
+          <span class="micro">act</span>
+          <select id="dhAction">
+            <option value="">a random action</option>
+            {for n in hudActions { <option value={n.key}>{`${n.name} · ${n.file.split("/").at(-1)}`}</option> }}
+          </select>
+          <button class="hbtn" id="dhAct" onClick={() => { fakeAct(selectValue("dhAction")) }}>act</button>
+        </div>
+        <div class="dh-row">
+          <span class="micro">auto</span>
+          <span class="seg" id="dhAuto">
+            {for a in AUTO {
+              <button class={["hbtn", every == a.n && "on"]} data-every={`${a.n}`} onClick={() => { every := a.n; fakeEvery(a.n); sfx("toggle") }}>{a.t}</button>
+            }}
+          </span>
+        </div>
+        <div class="dh-row">
+          <span class="micro">edit</span>
+          <select id="dhMod">{for m in hudModules { <option value={m}>{m.split("/").slice(-2).join("/")}</option> }}</select>
+          <select id="dhOp">{for o in OPS { <option>{o}</option> }}</select>
+          <button class="hbtn" id="dhEdit" onClick={() => { fakeEdit(selectValue("dhMod"), selectValue("dhOp")) }}>edit</button>
+        </div>
+        <div class="dh-row">
+          <button class="hbtn" id="dhTick" onClick={() => { fakeTick(10) }}>tick ×10</button>
+          <span class="hint" id="dhInfo">drag the timeline to travel</span>
+        </div>
+      </div>
+    </div>
+  }}
+}
+
+// ---- pieces other views show ------------------------------------------------------------------------------------
+/** The selected name's "Live value" section in the node panel (inside the panel's `#liveval`). */
+export component LiveValue(props: { id: string }) {
+  n = nodeOf(model, props.id)
+  k = !present(n) || !present(n.key) ? "" : n.key
+  v = live.values[k]
+  h = live.held[k]
+  fly = present(live.flying[k])
+  failed = present(v) && present(v.error)
+  has = present(v) && present(v.preview)
+  l = has ? listDetail(v.preview) : null
+  {if failed {
+    <div class="failbox"><span style={{ display: "contents" }} innerHTML={icon("warn")}></span><div><b>failed</b><div class="mono ferr">{v.error}</div></div></div>
+  }}
+  {if present(h) {
+    <div class="heldbox"><span style={{ display: "contents" }} innerHTML={icon("lock")}></span><div><b>held</b> · its last write waits on <span class="mono hby">{heldText(h, "an action")}</span>; the value shown is the one before it</div></div>
+  }}
+  {if has {
+    {if v.current && v.count == 0 { <div class="hint">value at open</div> }}
+    <pre class="code">{v.preview}</pre>
+    {if present(l) && l.items.length > 0 {
+      <div class="hint">{`${l.count}${l.exact ? "" : "+"} item${l.count == 1 ? "" : "s"}`}</div>
+      <ol class="lvlist">
+        {for i in l.items { <li>{i}</li> }}
+        {if l.count > l.items.length { <li class="hint">{`… ${l.count - l.items.length} more`}</li> }}
+      </ol>
+    }}
+  } else if !failed {
+    <p class="hint">{present(v) ? "changed; its value was not sent" : "No value yet: nothing has set it since the map opened."}</p>
+  }}
+  {if present(v) && v.count > 0 {
+    <div class="hint">{`changed ${v.count}× · last in flush ${v.seq}`}<span class="origin">{present(v.origin) ? ` · by ${v.origin}` : ""}</span>{live.tl.viewing != null ? ` · viewing #${live.tl.viewing}` : ""}</div>
+  }}
+  {if present(v) && v.pending {
+    <div class="hint" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> pending: a new value is on its way</div>
+  }}
+  {if fly {
+    <div class="hint" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> a request is in the air</div>
+  }}
+}
+
+/** A loading / errored boundary's "Now" in the region panel: content or fallback, its error, who is failing or waiting. */
+export component BoundaryNow(props: { id: string }) {
+  r = regionOf(model, props.id)
+  b = !present(r) ? null : boundaryOf(live, r.key, r.id)
+  tripped = present(b) && (b.state == "fallback" || b.state == "error")
+  bad = present(r) && (r.kind == "errored" || (present(b) && b.state == "error"))
+  hot = inEdges(model, props.id)
+    .filter(e => e.type == "notifies")
+    .map(e => ({ id: e.from, v: live.values[keyOf(model, e.from) ?? ""], fly: present(live.flying[keyOf(model, e.from) ?? ""]) }))
+    .filter(x => (present(x.v) && (present(x.v.error) || x.v.pending)) || x.fly)
+  <h3>Now</h3>
+  <div class="row" style={{ "margin-top": "0" }}>
+    {if !present(b) { <span class="nowtag">no report yet</span> }
+    else if tripped { <span class={["nowtag", bad ? "bad" : "wait"]}>showing fallback</span> }
+    else { <span class="nowtag ok">showing its content</span> }}
+  </div>
+  {if present(b) && present(b.error) { <pre class="code failpre">{b.error}</pre> }}
+  {if hot.length > 0 {
+    <ul>
+      {for x in hot {
+        <li><a href="#" data-go={x.id}>{label(model, x.id)}</a><span class="tag" style={{ color: present(x.v) && present(x.v.error) ? "var(--fail)" : "var(--pending)" }}>{present(x.v) && present(x.v.error) ? `failed: ${x.v.error.slice(0, 60)}` : "pending"}</span></li>
+      }}
+    </ul>
+  } else if tripped {
+    <p class="hint">None of the names below reports a failure or a wait right now; the trigger may be outside the program.</p>
+  }}
+}
+
+/** Whether there is a module replacement plan to show (the panel then has a Reload tab). */
+export hasPlan = live.hmr.plan != null
+pv = planView(live.hmr)
+
+/** The Reload tab: a module replacement's plan, phase by phase. */
+export component PlanPanel() {
+  {if hasPlan {
+    <h2>Module replacement <span class={["phase", pv.phase]}>{pv.phaseName}</span></h2>
+    <p class="hint mono">{pv.modules}</p>
+    <p class="hint">{pv.text}</p>
+    {for g in pv.groups {
+      <h3>{g.title}</h3>
+      <p class="hint" style={{ margin: "0 0 4px" }}>{g.what}</p>
+      <ul class="plan-list">
+        {for it in g.items {
+          <li><span class="ico-b" innerHTML={icon(g.icon)}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">{it.reason}</span></li>
+        }}
+      </ul>
+    }}
+    {if pv.moved.length > 0 {
+      <h3>{`Moved · ${pv.moved.length}`}</h3>
+      <ul class="plan-list">
+        {for m in pv.moved {
+          <li><span class="ico-b" innerHTML={icon("move")}></span><span class="mono">{m.from} <span class="gi ga" innerHTML={icon("arrow")}></span> {m.to}</span><span class="tag">{m.reason}</span></li>
+        }}
+      </ul>
+    }}
+    {if pv.uncarried.length > 0 {
+      <h3>{`Not carried · ${pv.uncarried.length}`}</h3>
+      <p class="hint" style={{ margin: "0 0 4px" }}>{`its state couldn't be carried over: the host fell back to ${pv.fallback == "" ? "a refresh" : `a ${pv.fallback}`}`}</p>
+      <ul class="plan-list">
+        {for it in pv.uncarried { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">uncarried</span></li> }}
+      </ul>
+    }}
+    {if pv.groups.length == 0 && pv.moved.length == 0 && pv.uncarried.length == 0 { <p class="hint">Nothing changes state.</p> }}
+  }}
+}
+
+/** A name's line in the reload plan: in the node panel (`tip` false: an h3 and a hint) or in the tooltip. */
+export component PlanReason(props: { nodeKey: string; tip: boolean }) {
+  reason = planReason(live.hmr, props.nodeKey)
+  {if reason != "" {
+    {if props.tip { <div class="tip-m">{`reload: ${reason}`}</div> } else { <h3>Reload plan</h3><div class="hint">{reason}</div> }}
+  }}
+}
+
+/** A name's live lines in the tooltip: its value, its failure, held, in the air. */
+export component TipLive(props: { nodeKey: string }) {
+  v = live.values[props.nodeKey]
+  h = live.held[props.nodeKey]
+  {if present(v) && present(v.error) { <div class="tip-v" style={{ color: "var(--fail)" }}>{`failed: ${v.error}`}</div> }}
+  {if present(v) && present(v.preview) { <div class="tip-v">{`= ${v.preview}`}</div> }}
+  {if present(h) { <div class="tip-m" style={{ color: "var(--pending)" }}>{`held · waiting on ${heldText(h, "an action")}`}</div> }}
+  {if present(live.flying[props.nodeKey]) { <div class="tip-m" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> in the air</div> }}
+}

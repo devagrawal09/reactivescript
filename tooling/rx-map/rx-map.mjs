@@ -101,7 +101,8 @@ if (!diff) {
 
 if (json) {
   const text = JSON.stringify(graph, null, 2);
-  if (out) writeFileSync(out, text); else process.stdout.write(text + "\n");
+  // writeFileSync on fd 1, not process.stdout.write: exiting right after an async write to a pipe cuts it at 64 KB
+  writeFileSync(out ?? 1, out ? text : text + "\n");
   process.exit(0);
 }
 out ??= entries[0].replace(/\.rx$/, "") + (diff ? ".diff" : "") + ".map.html";

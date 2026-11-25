@@ -21,6 +21,7 @@ const repo = resolve(here, "../..");
 const args = process.argv.slice(2);
 const shots = args.includes("--shots") ? resolve(args[args.indexOf("--shots") + 1]) : null;
 
+
 const rxc = process.env.RXC ?? [resolve(repo, "compiler/target/release/rxc"), resolve(repo, "compiler/target/debug/rxc")].find(existsSync) ?? "rxc";
 const chrome = process.env.CHROME ?? (() => {
   const base = join(homedir(), ".cache/ms-playwright");
@@ -42,7 +43,8 @@ const server = createServer((req, res) => {
     const ts = readFileSync(join(repo, "ref", "compile", url.pathname.split("/").at(-1)), "utf8");
     return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(ts));
   }
-  const [root, path] = url.pathname.startsWith("/solid/") ? [solid, url.pathname.slice(7)] : [here, url.pathname.slice(1)];
+  const [root, path] = url.pathname.startsWith("/solid/") ? [solid, url.pathname.slice(7)]
+    : [here, url.pathname.slice(1)];
   const file = resolve(root, path);
   if (!file.startsWith(root) || !existsSync(file)) return res.writeHead(404).end();
   res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" }).end(readFileSync(file));

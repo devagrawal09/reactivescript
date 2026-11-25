@@ -1,0 +1,288 @@
+#!/usr/bin/env node
+// From tooling/rx-map: node test/shots.mjs <outdir>
+// Screenshots of the map page (page.mjs) for each scenario at 1440x900 and 1440x360. BEFORE=<a page.mjs> (e.g. one
+// saved with `git show <ref>:tooling/rx-map/page.mjs > /tmp/before.mjs`) shoots that one too, side by side.
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
+import { diffGraphs } from "../diff.mjs";
+import { buildGraph } from "../graph.mjs";
+import { pageHTML as now } from "../page.mjs";
+
+if (process.argv.length !== 3) {
+  console.error("usage: node test/shots.mjs <outdir>");
+  process.exit(2);
+}
+const outdir = resolve(process.argv[2]);
+const repo = fileURLToPath(new URL("../../..", import.meta.url));
+const { chromium } = createRequire("/home/lucifer/.npm/_npx/e41f203b7505f1fb/node_modules/")("playwright");
+const executablePath = process.env.CHROME ?? "/home/lucifer/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell";
+const rxc = process.env.RXC ?? [resolve(repo, "compiler/target/release/rxc"), resolve(repo, "compiler/target/debug/rxc")].find(existsSync) ?? "rxc";
+const graphOf = entry => {
+  const model = JSON.parse(execFileSync(rxc, ["model", entry], { cwd: repo, encoding: "utf8", maxBuffer: 1 << 28 }));
+  return { ...buildGraph(model, { root: repo }), title: entry.replace(/^examples\//, "") };
+};
+
+const users = graphOf("examples/users.rx");
+// The largest of the current examples when built individually (75 nodes).
+const big = graphOf("examples/ai2/settings/main.rx");
+const node = name => {
+  const n = users.nodes.find(n => n.key === `examples/users.rx||${name}`);
+  if (!n) throw new Error(`users.rx is missing ${name}`);
+  return n;
+};
+const key = name => node(name).key;
+const chip = name => `#board .chip[data-id="${node(name).id}"]`;
+const change = (name, preview, prev) => ({ key: key(name), name: `rx:${key(name)}`, preview, prev });
+
+// The fixtures are single snapshots, not a before/after pair.
+const edited = structuredClone(users);
+const renamed = edited.nodes.find(n => n.key === key("status"));
+renamed.name = "userCountLabel";
+renamed.key = "examples/users.rx||userCountLabel";
+renamed.decl = renamed.decl?.replace(/\bstatus\b/, renamed.name);
+for (const line of [renamed.line, ...edited.edges.filter(e => e.type === "read" && e.from === renamed.id).map(e => e.line)]) {
+  if (edited.lines[renamed.file]?.[line]) edited.lines[renamed.file][line] = edited.lines[renamed.file][line].replace(/\bstatus\b/, renamed.name);
+}
+const write = edited.edges.find(e => e.from === node("rename").id && e.to === node("users").id && e.op === "write");
+if (!write) throw new Error("users.rx is missing rename's write to users");
+write.op = "refresh";
+const diff = diffGraphs({ ...users, label: "original" }, { ...edited, label: "edited" });
+diff.title = "users.rx · original → edited";
+
+const steps = [
+  { cause: key("nextPage"), changes: [change("page", "2", "1")] },
+  { changes: [change("total", "4", "0")] },
+  { cause: key("search"), changes: [change("query", '"ada"', '""'), change("page", "1", "2")] },
+  { changes: [change("total", "1", "4")] },
+  { cause: key("search"), changes: [change("query", '"grace"', '"ada"')] },
+  { changes: [change("total", "2", "1")] },
+].map((s, i) => ({ ...s, seq: i + 1, at: (i + 1) * 120 }));
+const hmrGraph = structuredClone(users);
+hmrGraph.nodes = hmrGraph.nodes.filter(n => n.key !== key("status"));
+hmrGraph.edges = hmrGraph.edges.filter(e => e.from !== node("status").id && e.to !== node("status").id);
+hmrGraph.nodes.push({ ...node("status"), id: "shot:added", name: "resultsLabel", key: "examples/users.rx||resultsLabel" });
+const reasons = { [key("page")]: "unchanged", [key("users")]: "unchanged", [key("query")]: "type-changed",
+  [key("total")]: "expr-changed", "examples/users.rx||resultsLabel": "new", [key("status")]: "gone" };
+const boundary = users.regions.find(r => r.kind === "errored") ?? users.regions.find(r => r.kind === "loading");
+const failure = "ServerError: listUsers 503";
+const flush = { type: "flush", seq: 1, at: 120, cause: key("nextPage"), origin: 'click button "Next"',
+  changes: [change("page", "2", "1"), change("total", "4", "3"), change("status", '"loading…"', '"3 users"')] };
+const post = (page, ...messages) => page.evaluate(messages => {
+  for (const message of messages) window.postMessage({ source: "rx-map", v: 1, ...message }, "*");
+}, messages);
+const visible = (page, selector) => page.locator(selector).first().waitFor({ state: "visible" });
+
+const live = { live: true };
+// the levels sweep: the tracker app (8 modules), at the overview, just past the switch, and reading size
+const tracker = JSON.parse(readFileSync(new URL("fixtures/tracker.json", import.meta.url), "utf8"));
+// null: frame everything; else the first module's plate at that zoom
+const zoomTo = s => async page => {
+  await page.waitForFunction(() => window.__RX_MAP__?.layout?.plates, null, { timeout: 60000 });
+  await page.evaluate(s => {
+    const M = window.__RX_MAP__;
+    // (an older page's hook has no frameAll / flyTo: they were page globals)
+    if (s == null) return (M.frameAll ?? window.frameAll)(0);
+    const p = [...M.layout.plates].find(([k]) => k !== "world")?.[1];
+    (M.flyTo ?? window.flyTo)(p.x + p.w / 2, p.y + Math.min(p.h, 700) / 2, s, 0);
+  }, s);
+  await page.waitForTimeout(1200);
+  // under load a level's cross-fade can start late (frames come slowly; nothing is stuck): wait until what the level
+  // shows has faded in, so a shot never catches the overview's cards still at opacity 0
+  await page.waitForFunction(() => {
+    const sel = document.body.classList.contains("lv1") ? "#board .psum" : "#board .frame.module > .flabel";
+    return [...document.querySelectorAll(sel)].every(e => getComputedStyle(e).opacity === "1");
+  }, null, { timeout: 60000 });
+};
+// users.rx opens at the overview (two levels): the per-token marks a scenario is about are drawn at the detail level,
+// so fly to the token at reading size first (an older page's hook has no flyTo: it was a page global)
+const detailAt = async (page, name, s = .9) => {
+  await page.evaluate(([id, s]) => {
+    const M = window.__RX_MAP__, el = document.querySelector(`#board .chip[data-id="${CSS.escape(id)}"]`), b = el && (M.boxOf ?? window.boxOf)(el);
+    if (b) (M.flyTo ?? window.flyTo)(b.x, b.y + 120, s, 0);
+  }, [node(name).id, s]);
+  await page.waitForTimeout(900);
+};
+const scenarios = [
+  { name: "static", caption: "users.rx with no live host" },
+  { name: "diff", graph: diff, caption: "users.rx: status → userCountLabel; rename → users changes from a write to a refresh" },
+  { name: "live", opts: live, caption: "One flush, users request in flight, and page selected", async run(page) {
+    await post(page, flush, { type: "flight", key: key("users"), state: "start", at: 120 });
+    await visible(page, `${chip("users")}.flying`);
+    // select it as a click would (both pages expose select): at the overview level a chip isn't there to click
+    await page.evaluate(id => window.select(id, true), node("page").id);
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(300);
+  } },
+  { name: "fake", opts: { fake: 3 }, caption: "Fake host, seed 3: about two seconds of ticks, then two actions", async run(page) {
+    await page.waitForTimeout(2000);
+    const acted = await page.evaluate(() => {
+      const host = window.__RX_FAKE__;
+      if (typeof host?.act !== "function") return false;
+      host.act();
+      host.act();
+      return true;
+    });
+    if (!acted) throw new Error("Fake host did not expose __RX_FAKE__.act()");
+    await page.waitForTimeout(350);
+  } },
+  { name: "travel", opts: live, caption: "Six recorded steps; rewind from #6 to #2", async run(page) {
+    await post(page, { type: "timeline", head: 6, viewing: null, capacity: 2000, steps },
+      { type: "step", from: 6, to: 2, direction: "back",
+        changes: [change("total", "4", "2"), change("page", "2", "1"), change("query", '""', '"grace"')] });
+    await visible(page, "#liveBadge:text-is('viewing #2 of 6')");
+    await detailAt(page, "page");
+  } },
+  { name: "hmr", opts: live, caption: "Reload plan preview: kept, reset, re-run, added and removed nodes", async run(page) {
+    await post(page, { type: "hmr", phase: "plan", id: "h1", modules: users.modules, graph: hmrGraph, plan: {
+      kept: [key("page"), key("users")], reset: [key("query")], rerun: [key("total")],
+      added: ["examples/users.rx||resultsLabel"], removed: [key("status")], moved: [], reasons,
+    } });
+    await visible(page, "#panel :text('Module replacement')");
+    await detailAt(page, "users");
+  } },
+  { name: "failures", opts: live, caption: "A failed users value and the App error boundary showing its fallback", async run(page, _context, viewport) {
+    if (!boundary) throw new Error("users.rx has no error or loading boundary");
+    await post(page, { type: "snapshot", at: 120, values: [{ key: key("users"), error: failure }],
+      flights: [], runs: [], held: [], boundaries: [{ region: boundary.key ?? boundary.id, state: "error", error: failure }] });
+    await visible(page, `${chip("users")}.failed`);
+    await visible(page, ".frame.tripped .trip");
+    // the source is at the top of the board, the boundary below Row: the detail level, between them
+    await detailAt(page, "users", viewport.height < 500 ? .55 : .6);
+  } },
+  { name: "held", opts: live, caption: "query's write is held waiting on the search action", async run(page) {
+    await post(page, { type: "snapshot", at: 110, values: [{ key: key("query"), preview: '""' }], flights: [], runs: [], boundaries: [] },
+      { type: "held", key: key("query"), by: [key("search")], at: 120 });
+    await visible(page, `${chip("query")}.held .hm`);
+    await detailAt(page, "query");
+  } },
+  { name: "popout", opts: live, caption: "Live window opened with Pop out, carrying the opener's values", async run(page, context, viewport) {
+    await post(page, flush);
+    if (!(await page.locator("#popBtn").count())) throw new Error("No Pop out button");
+    const [popup] = await Promise.all([
+      context.waitForEvent("page", { timeout: 15000 }), page.locator("#popBtn").click({ timeout: 15000 }),
+    ]);
+    await popup.setViewportSize(viewport);
+    return popup;
+  }, async ready(popup) {
+    await visible(popup, "#liveBadge:text-is('live · 1 flush')");
+    await visible(popup, `${chip("page")} .lv[data-value="2"]`);
+  } },
+  { name: "levels-overview", graph: tracker, caption: "tracker.json framed whole: the overview cards", run: zoomTo(null) },
+  { name: "levels-switch", graph: tracker, caption: "tracker.json at 52% on its first module: just past the switch to detail", run: zoomTo(.52) },
+  { name: "levels-detail", graph: tracker, caption: "tracker.json at 100% on its first module: detail at reading size", run: zoomTo(1) },
+  { name: "big", graph: big, caption: `${big.title} (${big.nodes.length} nodes), the largest example graph` },
+];
+
+const variants = [];
+if (process.env.BEFORE) variants.push(["before", (await import(resolve(process.env.BEFORE))).pageHTML]);
+variants.push(["now", now]);
+
+mkdirSync(outdir, { recursive: true });
+let browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] });
+// a heavy page can leave the browser unable to capture: a fresh one per scenario
+const relaunch = async () => { await browser.close().catch(() => {}); browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] }); };
+const records = {};
+async function capture(scenario, viewport, variant, render, filename, skip) {
+  const path = join(outdir, filename);
+  rmSync(path, { force: true }); // a previous run's PNG must not stand in for a missing shot
+  const record = records[filename] = { captured: false, pageErrors: [] };
+  if (skip) { record.note = skip; return record; }
+  const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
+  context.setDefaultTimeout(2000);
+  context.on("page", page => {
+    page.on("pageerror", error => record.pageErrors.push({ type: "pageerror", message: error.message }));
+    page.on("console", msg => {
+      if (msg.type() === "error") record.pageErrors.push({ type: "console.error", message: msg.text() });
+    });
+  });
+  try {
+    const page = await context.newPage();
+    await page.setContent(render(scenario.graph ?? users, scenario.opts), { timeout: 30000 });
+    if (scenario.opts?.live) {
+      // The page ignores its own window's messages to avoid echoing host requests.
+      // The rig is iframe-less: relay only our self-posted host messages through the view's public receive hook.
+      await page.evaluate(() => addEventListener("message", ev => {
+        if (ev.source === window && ev.data?.source === "rx-map" && ev.data?.v === 1) window.__RX_VIEW__.receive(ev.data);
+      }));
+    }
+    let target = page;
+    try {
+      target = (await scenario.run?.(page, context, viewport)) ?? page;
+      await scenario.ready?.(target);
+    } catch (error) {
+      record.note = `${scenario.name === "popout" && target === page && variant === "before" ? "Skipped: " : ""}${stripVTControlCharacters(error.message)}`;
+      if (scenario.name === "popout" && target === page) return record;
+      // A partial render is still useful for comparison. Label it, rather than silently passing it off as the scenario.
+    }
+    // A big board can be caught half rasterised (headless, on a loaded machine: even the HUD half drawn), and
+    // Chromium can miss the first compositor frame: shoot until two captures in a row are the same picture.
+    const shoot = () => target.screenshot({ timeout: 60000 }).catch(error => {
+      if (!error.message.includes("Unable to capture screenshot")) throw error;
+      return target.screenshot({ timeout: 60000 });
+    });
+    let last = await shoot(), shot = null;
+    for (let i = 0; i < 8 && !shot; i++) {
+      await target.waitForTimeout(700);
+      const next = await shoot();
+      if (next.equals(last)) shot = next; else last = next;
+    }
+    if (!shot) record.note = `${record.note ? `${record.note}\n` : ""}the picture never settled (animated); the last capture is shown`;
+    writeFileSync(path, shot ?? last);
+    record.captured = true;
+  } catch (error) {
+    record.note = stripVTControlCharacters(error.message);
+  } finally {
+    await context.close();
+  }
+  return record;
+}
+
+const esc = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const sections = [];
+try {
+  for (const scenario of scenarios) { await relaunch(); for (const viewport of [{ width: 1440, height: 900 }, { width: 1440, height: 360 }]) {
+    const size = `${viewport.width}x${viewport.height}`;
+    const pair = [];
+    for (const [variant, render] of variants) {
+      const filename = `${scenario.name}-${size}-${variant}.png`;
+      const record = await capture(scenario, viewport, variant, render, filename);
+      pair.push({ variant, filename, record });
+      console.log(`${record.captured ? "wrote" : "no shot:"} ${filename}${record.note ? ` (${record.note.split("\n")[0]})` : ""}`);
+    }
+    sections.push(`<section><h2>${scenario.name} · ${size}</h2><p>${esc(scenario.caption)}</p><div class="pair">
+${pair.map(({ filename, variant, record }) => {
+  const caption = `${variant} · ${scenario.name} · ${size}`;
+  return `<figure>${record.captured
+    ? `<a href="${filename}"><img src="${filename}" width="${viewport.width}" height="${viewport.height}" alt="${caption}" loading="lazy"></a>`
+    : `<div class="missing">No screenshot</div>`}
+<figcaption>${caption}${record.pageErrors.length ? ` · ${record.pageErrors.length} browser error(s)` : ""}</figcaption>
+${record.note ? `<pre>${esc(record.note)}</pre>` : ""}</figure>`;
+}).join("\n")}
+</div></section>`);
+  } }
+} finally {
+  await browser.close();
+  writeFileSync(join(outdir, "errors.json"), JSON.stringify(records, null, 2) + "\n");
+  writeFileSync(join(outdir, "index.html"), `<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rx-map: shots</title>
+<style>
+body { font: 16px system-ui, sans-serif; background: #141922; color: #ebeff6; margin: 2vw }
+a { color: #94cbff }
+section { margin: 2em 0 }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1em }
+figure { margin: 0; min-width: 0 }
+img { display: block; width: 100%; height: auto }
+figcaption, pre, .missing { background: #232b39; padding: .65em; margin: 0 }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; color: #ffb6a4 }
+</style>
+<h1>rx-map: shots</h1>
+<p>Click a screenshot for the full-size PNG. See <a href="errors.json">errors.json</a> for browser and scenario errors.</p>
+${sections.join("\n")}
+</html>\n`);
+}
+console.log(`wrote ${join(outdir, "index.html")} and ${join(outdir, "errors.json")}`);

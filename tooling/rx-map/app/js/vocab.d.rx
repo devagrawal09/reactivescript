@@ -1,0 +1,12 @@
+// The map's vocabulary (vocab.js): roles, families, icons, edge styles.
+export type EdgeStyle = { c: string; d: string; w: number; label: string }
+export type KindMeta = { k: string; label: string; what: string }
+export pure fn icon(name: string): string
+export pure fn roleIcon(kk: string): string
+export pure fn ctagHTML(kind: string): string
+export pure fn edgeStyle(e: any): EdgeStyle
+export pure fn edgeKey(e: any): string
+export pure fn kindOf(n: any): string
+export pure fn famOf(n: any): string
+export pure fn famHex(n: any): string
+export pure fn keyName(key: string): string

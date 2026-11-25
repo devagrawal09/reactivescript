@@ -1,0 +1,24 @@
+// Live mode's state and its reducer (livestate.js), the transient effects it queues, and the reads the views make.
+export pure fn freshLive(): any
+/** The message as the reducer takes it, or null. Not pure: stores an hmr plan's graph (putGraph). */
+export fn prepare(raw: any, m: any): any
+/** A draft updater: mutates `s` (the store's draft, in a functional write) and queues effects on `s.fx`. */
+export fn reduce(s: any, msg: any, m: any): void
+/** Plays the queued effects not played yet (from an effect on `live.fxSeq`). */
+export fn playFx(s: any, m: any): void
+export pure fn planReason(hmr: any, key: string): string
+export pure fn heldText(h: any, none: string): string
+export pure fn isFlying(live: any, key: string): boolean
+export pure fn boundaryOf(live: any, key: string, id: string): any
+export type PlanItem = { key: string; name: string; reason: string }
+export type PlanGroup = { group: string; title: string; icon: string; what: string; items: PlanItem[] }
+export type PlanMove = { from: string; to: string; reason: string }
+export type PlanItem = { key: string; name: string }
+export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string; uncarried: PlanItem[]; fallback: string }
+export pure fn lverrHTML(err: string): string
+export pure fn heldHTML(h: any): string
+export pure fn tripHTML(kind: string, error: string | null): string
+export pure fn planIconHTML(group: string): string
+export pure fn incomingHTML(ns: any[]): string
+export pure fn planView(hmr: any): PlanView
+export pure fn present(x: any): boolean

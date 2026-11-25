@@ -1,0 +1,9 @@
+export pure fn boardView(m: any): any
+export pure fn overviewLevel(): number
+export pure fn detailLevel(): number
+export pure fn detailZoom(): number
+export pure fn levelFor(s: number, prev: number): number
+export pure fn holeText(p: any, values: any): string
+export pure fn cardCounts(m: any, mod: number, values: any, held: any, flying: any, recent: string[]): any[]
+export fn noteCardWaves(m: any, state: () => any, update: (keys: string[]) => void): void
+export fn fitCards(layout: any): void

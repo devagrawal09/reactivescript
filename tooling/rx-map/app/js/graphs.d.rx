@@ -1,0 +1,4 @@
+// The graph the map draws, as a host signal; plans' graphs by number (graphs.js).
+export fn graphSignal(): [ref any, (g: any) => void]
+export fn putGraph(g: any): number
+export fn graphAt(n: number): any

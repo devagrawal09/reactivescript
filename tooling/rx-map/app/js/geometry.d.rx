@@ -1,0 +1,6 @@
+export type Box = { l: number; t: number; r: number; b: number; x: number; y: number }
+export pure fn edgePath(a: Box, b: Box): string
+export pure fn flowPath(a: Box, b: Box): string
+export fn measureAnchors(): any
+export fn boxOfId(id: string): Box | null
+export fn boardSize(): { w: number; h: number }
