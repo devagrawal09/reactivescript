@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 
-const { app, model } = createRequire(import.meta.url)("../index.js");
+const require = createRequire(import.meta.url);
+const { app, model } = require("../index.js");
+// 09 MO-11d: a TS module's declaration is generated, here in process as the Vite front end does it. TypeScript is the
+// project's; this repository's is ref/'s.
+const { createDeclarations } = await import("../dts.mjs");
+let ts; try { ts = require("typescript"); } catch { ts = require("../../ref/node_modules/typescript"); }
+const generator = createDeclarations({ ts });
+const declare = stem => JSON.stringify(generator.record(stem));
 const examples = fileURLToPath(new URL("../../examples/", import.meta.url));
 let fail = 0;
 // the last: a client-only build (08 CN-3d), as the Vite front end asks for one
@@ -56,7 +63,7 @@ try {
   for (const ext of ["js", "ts"]) {
     const api = path.join(dir, `api.${ext}`);
     writeFileSync(api, 'export function load() { return "loaded"; }\n');
-    const compiled = JSON.parse(app(entry, "dom", null, true));
+    const compiled = JSON.parse(app(entry, "dom", null, true, undefined, undefined, undefined, declare));
     const code = compiled.modules?.[entry]?.code ?? "";
     const ok = /import \{ load as w\$load \} from "\.\/api"/.test(code)
       && /import \{ save as w\$save \} from "\.\/server"/.test(code)
