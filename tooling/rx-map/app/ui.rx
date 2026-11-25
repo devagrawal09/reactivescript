@@ -1,6 +1,6 @@
 // The HUD's own state: the side panel (open, which tab, the tab to give back when a selection is cleared) and search.
 // Selecting from anywhere goes through `pick` here, which opens the panel on the selected name.
-import { isDiff, loadJSON } from "./js/env.js"
+import { isDiff, loadJSON, saveJSON } from "./js/env.js"
 import { flyToId } from "./js/camera.js"
 import { sfx } from "./js/sound.js"
 import { toSet } from "./js/util.js"
@@ -10,11 +10,21 @@ import { model, hidden, selected, select } from "./state.rx"
 // ---- the side panel -------------------------------------------------------------------------------------------
 // tabs: "changes" (a diff), "help", "legend", "plan" (a module replacement's), "node" (the selected name)
 export panelKey = isDiff() ? "rx-map:panel:diff" : "rx-map:panel"
+// the panel's own tabs (the plan and the selected name's come and go)
+export tabs = isDiff() ? [{ id: "changes", label: "Changes" }, { id: "help", label: "Guide" }, { id: "legend", label: "Legend" }]
+  : [{ id: "help", label: "Guide" }, { id: "legend", label: "Legend" }]
+export firstTab = isDiff() ? "changes" : "help"
 saved = loadJSON(panelKey, null)
-export source tab: string := peek(saved) != null && peek(saved).tab != null ? peek(saved).tab : isDiff() ? "changes" : "help"
+export source tab: string := peek(saved) != null && peek(tabs).some(t => t.id == peek(saved).tab) ? peek(saved).tab : peek(firstTab)
 export source open: boolean := peek(saved) != null ? peek(saved).open == true : isDiff()
 // the tab and openness a selection took over, given back when it is cleared
 export source before: { tab: string; open: boolean } | null := null
+
+// remembered: a transient tab (a name, a plan) is remembered as the tab it took over
+effect (tab, open, before) {
+  let transient = $0 == "node" || $0 == "plan"
+  saveJSON(panelKey, { tab: transient ? ($2 != null ? $2.tab : firstTab) : $0, open: transient ? ($2 != null ? $2.open : false) : $1 })
+}
 
 // ---- select -----------------------------------------------------------------------------------------------------
 /** Select a name or region (or clear with null); `scroll` flies the camera to it. */
@@ -22,7 +32,7 @@ export action pick(id: string | null, scroll: boolean) {
   if (id == null) {
     if (selected != null) { sfx("deselect") }
     if (selected != null && tab == "node") {
-      tab := before != null ? before.tab : isDiff() ? "changes" : "help"
+      tab := before != null ? before.tab : firstTab
       open := before != null ? before.open : false
       before := null
     }
@@ -56,12 +66,32 @@ export action searchGo(i: number) {
 }
 
 // ---- the panel's tabs --------------------------------------------------------------------------------------------
-/** Open the panel on a tab (not "node": that is `pick`'s); a selection is cleared first, keeping the tab given. */
+/** Open the panel on a tab; a selection is cleared first, keeping the tab given (unless the tab is the name's own). */
 export action openTab(t: string) {
-  if (selected != null) {
+  if (selected != null && t != "node") {
     before := null
     select(null)
   }
   tab := t
   open := true
+}
+
+/** Close the panel; a selection is cleared with it, and the tab it took over comes back (closed). */
+export action closePanel() {
+  if (selected != null) {
+    sfx("deselect")
+    if (tab == "node") {
+      tab := before != null ? before.tab : firstTab
+      before := null
+    } else {
+      before := { tab: before != null ? before.tab : firstTab, open: false }
+    }
+    select(null)
+  }
+  open := false
+}
+/** The header button: close the panel, or open it on the last tab that isn't a name's or a plan's. */
+export action togglePanel() {
+  if (open) { closePanel() }
+  else { openTab(tab == "node" || tab == "plan" ? firstTab : tab) }
 }

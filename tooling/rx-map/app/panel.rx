@@ -1,7 +1,243 @@
-// The side panel and its header button (phase 2: filled in by the panel work).
+// The side panel and its header button. One panel, in tabs: what changed (a diff), how to read the map, the legend, a
+// module replacement's plan, and the selected name or region. Open from the header button; a selection opens it on its
+// own tab and gives the previous tab back when cleared (ui.rx).
+import { icon, roleIcon, ctagHTML, edgeStyle, kindOf } from "./js/vocab.js"
+import { hl, md, esc } from "./js/hl.js"
+import { isLive, isDiff, bodyClass } from "./js/env.js"
+import { sfx } from "./js/sound.js"
+import { sparkle } from "./js/fx.js"
+import { flyToId } from "./js/camera.js"
+import { drawMiniView } from "./js/minimap.js"
+import { graphOf, nodeOf, regionOf, isRegion, inEdges, outEdges, label, lineOf, moduleLine, controlInfo, coverCount, hasKey, idsOfKey, downstream, upstream, summaryTrace } from "./js/model.js"
+import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, guideCode, prevent, panelTop } from "./js/panel.js"
+import { model, selected, diffView, showTrace, mark } from "./state.rx"
+import { tab, open, tabs, firstTab, pick, openTab, closePanel, togglePanel } from "./ui.rx"
+import { LiveValue, BoundaryNow, PlanPanel, PlanReason, hasPlan } from "./live.rx"
+import { Legend, Sample, Gi, Gio, Ga } from "./legend.rx"
+
+G = graphOf(model)
+
+// ---- the header button ---------------------------------------------------------------------------------------------
 export component PanelButton() {
-  <button id="panelBtn" aria-controls="side">guide · legend</button>
+  <button id="panelBtn" class={[open && "on"]} aria-controls="side" aria-expanded={open ? "true" : "false"}
+    title={tabs.map(t => t.label.toLowerCase()).join(", ")}
+    onClick={() => { sfx("toggle"); togglePanel() }}>{isDiff() ? "changes · guide" : "guide · legend"}</button>
 }
+
+// ---- the panel -----------------------------------------------------------------------------------------------------
+list = [...tabs, ...(hasPlan ? [{ id: "plan", label: "Reload" }] : []), ...(selected != null ? [{ id: "node", label: label(model, selected) }] : [])]
+// the tab shown: the one asked for, or the first when it is gone (a plan applied, a name deselected)
+shown = list.some(t => t.id == tab) ? tab : firstTab
+
 export component Side() {
-  <aside id="side" class="hud closed"><div id="ptabs" role="tablist"></div><div id="panel" role="tabpanel"></div></aside>
+  effect (open) { bodyClass("panel-open", $0); drawMiniView() }
+  effect (shown, selected) { panelTop() }
+  // a diff summary item's mark goes with the next selection
+
+  <aside id="side" class={["hud", !open && "closed"]}>
+    <div id="ptabs" role="tablist">
+      {for t in list {
+        <button role="tab" data-tab={t.id} aria-selected={t.id == shown ? "true" : "false"}
+          onClick={() => { sfx("toggle"); openTab(t.id) }}>{t.label}</button>
+      }}
+      <button class="close" aria-label="close panel" title="close" onClick={() => { sfx("toggle"); closePanel() }}>×</button>
+    </div>
+    <div id="panel" role="tabpanel"
+      onClick={(ev) => {
+        let go = closestData(ev, "a[data-go]", "go")
+        let key = closestData(ev, "a[data-key]", "key")
+        let trace = closestData(ev, "button[data-trace]", "trace")
+        if (go != "") { prevent(ev); pick(go, true) }
+        else if (key != "") {
+          prevent(ev)
+          let ids = idsOfKey(model, key)
+          if (ids.length > 0) { pick(ids[0], true) }
+        } else if (trace == "clear") { sfx("toggle"); pick(null, false) }
+        else if (trace != "" && selected != null) {
+          sfx("toggle")
+          let t = trace == "down" ? downstream(model, selected, diffView) : upstream(model, selected, diffView)
+          showTrace(t)
+          sparkle(t.edges.map(i => G.edges[i]), true)
+        }
+      }}>
+      {if shown == "node" && selected != null {
+        {if isRegion(model, selected) { <RegionPanel id={selected} /> } else if nodeOf(model, selected) != null { <NodePanel id={selected} /> }}
+      } else if shown == "plan" {
+        <PlanPanel />
+      } else if shown == "legend" {
+        <Legend />
+      } else if shown == "changes" {
+        <Changes />
+      } else {
+        <Guide />
+      }}
+    </div>
+  </aside>
+}
+
+// ---- a name ----------------------------------------------------------------------------------------------------------
+component EdgeItem(props: { e: any; dir: string }) {
+  { e } = props
+  other = props.dir == "out" ? e.to : e.from
+  st = edgeStyle(e)
+  chg = edgeChange(e)
+  <li>
+    <svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke={st.c} stroke-width="2" stroke-dasharray={st.d != "" ? st.d : undefined} /></svg>
+    <a href="#" data-go={other}>{label(model, other)}</a>
+    <span class="tag">{edgeWhat(e)}</span>
+    {if chg != null { <span class="tag" style={{ color: chg.color }}>{chg.text}</span> }}
+  </li>
+}
+
+component NodePanel(props: { id: string }) {
+  n = nodeOf(model, props.id)
+  kk = kindOf(n)
+  meta = kindMeta(kk)
+  o = outEdges(model, props.id)
+  i = inEdges(model, props.id)
+  abs = G.absModules != null ? G.absModules[n.mod] : null
+  code = lineOf(model, n)
+  sections = [
+    { title: "Reads", list: i.filter(e => e.type == "read"), dir: "in" },
+    { title: "Read by", list: o.filter(e => e.type == "read"), dir: "out" },
+    { title: "Writes", list: o.filter(e => e.type == "write"), dir: "out" },
+    { title: "Written by", list: i.filter(e => e.type == "write"), dir: "in" },
+    { title: "Calls", list: o.filter(e => e.type == "call"), dir: "out" },
+    { title: "Called by", list: i.filter(e => e.type == "call"), dir: "in" },
+    { title: "Props in", list: i.filter(e => e.type == "passes" || e.type == "renders"), dir: "in" },
+    { title: "Passes to", list: o.filter(e => e.type == "passes"), dir: "out" },
+    { title: "Can make these show their fallback", list: o.filter(e => e.type == "notifies"), dir: "out" },
+  ].filter(s => s.list.length > 0)
+  liveKinds = ["comp", "action", "fn", "server", "import", "errclass", "context"]
+  <h2><Sample kk={kk} cls={[n.async ? "async" : "", n.world ? "trust" : ""].join(" ").trim()} name={n.name} d="" gp={false} gq={false} chg={false} /></h2>
+  <div class="role">
+    <span style={{ color: famColor(kk) }} innerHTML={roleIcon(kk)}></span>
+    <span class="micro" style={{ color: famColor(kk) }}>{meta.label}</span>
+    <span class="micro">· {famName(kk)}</span>
+  </div>
+  <div class="hint">{meta.what}</div>
+  <div class="hint mono" style={{ "margin-top": "6px" }}>
+    {n.file}:{n.line}{" "}
+    {if abs != null { <>· <a href={`vscode://file/${abs}:${n.line}`}>open in editor</a></> }}
+  </div>
+  {if code != "" { <pre class="code now" innerHTML={hl(code)}></pre> }}
+  {if n.before != null && (n.status == "changed" || n.edited == true) && n.status != "removed" {
+    <div class="hint">before (L{n.before.line}):</div>
+    <pre class="code before" innerHTML={hl(n.before.text)}></pre>
+  }}
+  {for f in diffFacts(G, n) { <div class={f.cls} style={{ "margin-top": "4px", color: f.color != "" ? f.color : undefined }} innerHTML={f.html}></div> }}
+  {if n.async { <div class="hint" style={{ "margin-top": "4px" }}>· <Gi /> can be pending: a reader under no <code>loading</code> holds its instant</div> }}
+  {if n.io { <div class="hint" style={{ "margin-top": "4px" }}>· <Gio /> <b>io</b>: touches the world (R-io)</div> }}
+  {if n.world { <div class="hint" style={{ "margin-top": "4px" }}>· trust point: the checker sees only its declared signature</div> }}
+  {if n.kind == "action" { <div class="hint" style={{ "margin-top": "4px" }}>· writes are held until the action returns; guesses show now</div> }}
+  <PlanReason nodeKey={n.key} tip={false} />
+  {if isLive() && hasKey(model, n.key) && !liveKinds.includes(n.kind) {
+    <h3>Live value</h3>
+    <div id="liveval"><LiveValue id={props.id} /></div>
+  }}
+  <div class="row">
+    <button data-trace="down">what it affects</button>
+    <button data-trace="up">what it depends on</button>
+    <button data-trace="clear">clear</button>
+  </div>
+  {for s in sections {
+    <h3>{s.title}</h3>
+    <ul>{for e in s.list { <EdgeItem e={e} dir={s.dir} /> }}</ul>
+  }}
+}
+
+// ---- a region --------------------------------------------------------------------------------------------------------
+component RegionPanel(props: { id: string }) {
+  r = regionOf(model, props.id)
+  info = controlInfo(model, r)
+  abs = G.absModules != null ? G.absModules[r.mod] : null
+  notifiers = inEdges(model, props.id).filter(e => e.type == "notifies")
+  sites = coverCount(model, props.id)
+  boundary = r.kind == "loading" || r.kind == "errored"
+  <h2>
+    <span class={["frame", r.kind]} style={{ border: "0", padding: "0", background: "none", "box-shadow": "none" }}>
+      <span class="ctag" style={{ "pointer-events": "none" }} innerHTML={`${ctagHTML(r.kind)}${esc(info.text)}`}></span>
+    </span>
+  </h2>
+  <div class="hint" innerHTML={ctlWhat(r.kind)}></div>
+  {if isLive() && boundary { <BoundaryNow id={props.id} /> }}
+  {if info.line != null {
+    <div class="hint mono" style={{ "margin-top": "6px" }}>
+      {G.modules[r.mod]}:{info.line}{" "}
+      {if abs != null { <>· <a href={`vscode://file/${abs}:${info.line}`}>open in editor</a></> }}
+    </div>
+    <pre class="code now" innerHTML={hl(moduleLine(model, r.mod, info.line))}></pre>
+  }}
+  <div class="row"><button data-trace="up">what can trigger it</button><button data-trace="clear">clear</button></div>
+  {if boundary {
+    <h3>{r.kind == "loading" ? "Pending from" : "Can fail from"}</h3>
+    {if notifiers.length > 0 {
+      <ul>
+        {for e in notifiers {
+          <li><a href="#" data-go={e.from}>{label(model, e.from)}</a><span class="tag">read by</span><a href="#" data-go={e.via}>{label(model, e.via)}</a></li>
+        }}
+      </ul>
+    } else {
+      <p class="hint">Nothing read below it can be {r.kind == "loading" ? "pending" : "rejected"}.</p>
+    }}
+    {if r.kind == "errored" {
+      <p class="hint">Every <code>await</code> can reject, so these are the async names read below it. The model does not say yet which error classes each one can fail with, so a typed fallback's class is not checked here.</p>
+    }}
+    <p class="hint">{sites} reader{sites == 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested {r.kind} boundary report to that one instead{r.kind == "errored" ? ", except a typed one: what it does not catch fails through to here" : ""}.</p>
+  }}
+}
+
+// ---- what changed (a diff) -------------------------------------------------------------------------------------------
+summary = isDiff() ? G.diff.summary.map((it, i) => ({ text: it.text, i: i })) : []
+
+component Changes() {
+  <h2>What changed</h2>
+  <p class="hint mono">{G.diff.before} <Ga /> {G.diff.after}</p>
+  <p class="hint"><span style={{ color: "var(--d-add)" }}>+ added</span> · <span style={{ color: "var(--d-del)" }}>− removed</span> · <span style={{ color: "var(--d-chg)" }}>Δ changed</span>. Behaviour first: what each action can now reach, then what it writes and calls, then what was added or removed.</p>
+  {if summary.length > 0 {
+    <ul id="summary">
+      {for it in summary {
+        <li data-i={it.i} role="button" tabIndex={0} innerHTML={md(it.text)}
+          onClick={() => { light(it.i) }}
+          onKeyDown={(ev) => { let k = eventKey(ev); if (k == "Enter" || k == " ") { prevent(ev); light(it.i) } }}></li>
+      }}
+    </ul>
+  } else {
+    <p class="hint">No change the checker can see: the program reads, writes and calls the same things.</p>
+  }}
+}
+
+// a summary item lights what it is about: its first name marked as if selected, flown to, and its trace lit
+action light(i: number) {
+  let t = summaryTrace(model, i)
+  mark(t.first)
+  flyToId(t.first, "select")
+  sfx("select")
+  showTrace({ ids: t.ids, edges: t.edges })
+}
+
+// ---- how to read the map -----------------------------------------------------------------------------------------------
+component Guide() {
+  <h2>How to read this</h2>
+  <p class="hint">Every name the checker resolved, on the plate of the module that owns it. <b>A token's shape, fill and icon are its role</b>; its colour is the family: <span style={{ color: "var(--state)" }}>state</span>, <span style={{ color: "var(--derived)" }}>derived</span>, <span style={{ color: "var(--imper)" }}>imperative</span>, <span style={{ color: "var(--outside)" }}>outside</span>, <span style={{ color: "var(--struct)" }}>structure</span>, <span style={{ color: "var(--fail)" }}>failure</span>. Hover a token for its role in words.</p>
+  <div class="row" style={{ gap: "12px 14px", margin: "12px 0 8px" }}>
+    <Sample kk="source" cls="" name="count" d="" gp={false} gq={false} chg={false} />
+    <Sample kk="eq" cls="" name="total" d="" gp={false} gq={false} chg={false} />
+    <Sample kk="aeq" cls="async" name="results" d="" gp={true} gq={false} chg={false} />
+    <Sample kk="action" cls="" name="save" d="" gp={false} gq={false} chg={false} />
+    <Sample kk="effect" cls="site" name="effect" d="" gp={false} gq={false} chg={false} />
+    <Sample kk="import" cls="" name="fetch" d="" gp={false} gq={false} chg={false} />
+    <Sample kk="comp" cls="" name="Card" d="" gp={false} gq={false} chg={false} />
+  </div>
+  <pre class="code" innerHTML={hl(guideCode())}></pre>
+  <p class="hint"><b>Marks are properties</b>, on any role: <Gi /> and stripes can be pending, <b>?</b> re-asks a standing question, <Gio /> touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
+  <p class="hint"><b>Everything points up.</b> A thing sits below what it depends on: modules below the modules they import, components below the components they render, equations below what they read, actions below what they write, handlers below the actions they call. Each row inside a frame is one step deeper.</p>
+  <p class="hint"><b>Move around.</b> Drag to pan, wheel or pinch to zoom toward the pointer, double-click a token to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>
+  <p class="hint">Hover a token to lift it and see its edges. Click to pin it and trace <b>what it affects</b> (writes and tracked reads, the way a change travels) or <b>what it depends on</b>.</p>
+  <p class="hint">Frames are regions: a <span style={{ color: "var(--comp)" }}>component</span>, <span style={{ color: "var(--aeq)" }}>loading</span> and <span style={{ color: "var(--err)" }}>errored</span> boundaries, <code>for</code> rows, <code>if</code> branches. Everything inside is created and disposed with it.</p>
+  <p class="hint">All of this is static: it is what the program <i>can</i> do, from <code>rxc model</code>, with nothing running.</p>
+  {if isLive() {
+    <p class="hint"><b>Live.</b> This map is attached to the running app (a dev build). When a flush changes a source or an equation, a pulse runs along the edges from its cause, its token rings white and its newest value rolls in beside its name, and under "Live value" when it is selected. An <span style={{ color: "var(--pending)" }}>amber orbit</span> means a request for it is in the air, until it lands or a newer one replaces it. The header counts the flushes that changed something.</p>
+    <p class="hint"><b>Time.</b> The timeline at the bottom has a tick per flush, in the colour of what caused it, with amber spans for requests in the air. Drag it or use the arrow keys to travel back: the app shows that moment and the values roll back. <b>LIVE</b> returns. When a module is saved, the <b>Reload</b> tab shows the plan (kept, reset, re-run, added, removed) before it is applied.</p>
+  }}
 }

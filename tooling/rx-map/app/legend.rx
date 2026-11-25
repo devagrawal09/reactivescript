@@ -1,0 +1,134 @@
+// The legend: what every role, mark, edge and frame looks like, with real tokens as samples. Every row with a count is
+// also a show / hide toggle for that kind on the map (state.rx `hidden`, remembered).
+import { icon, roleIcon, ctagHTML } from "./js/vocab.js"
+import { isDiff } from "./js/env.js"
+import { sfx } from "./js/sound.js"
+import { graphOf, kindCount, edgeCount } from "./js/model.js"
+import { shapeOf, kindMeta, sampleName, shapeWord, countOf, edgeStyles } from "./js/panel.js"
+import { model, hidden, toggleHidden, showKinds, hideKinds } from "./state.rx"
+
+THINGS = [{ k: "source", f: "state" }, { k: "asource", f: "state" }, { k: "eq", f: "derived" }, { k: "aeq", f: "derived" }, { k: "props", f: "derived" },
+  { k: "action", f: "imperative" }, { k: "import", f: "outside" }, { k: "server", f: "outside" }, { k: "fn", f: "outside" }, { k: "context", f: "structure" },
+  { k: "errclass", f: "failure" }]
+SITES = [{ k: "reader", f: "derived" }, { k: "handler", f: "imperative" }, { k: "effect", f: "imperative" }, { k: "prop", f: "structure" }, { k: "provide", f: "structure" }]
+EDGES = edgeStyles()
+kinds = kindCount(model)
+edges = edgeCount(model)
+changed = isDiff() ? graphOf(model).edges.filter(e => e.status != "same").length : 0
+
+// ---- samples (the panel uses them too) ------------------------------------------------------------------------------------------
+/** A token as a sample (no data-id: not on the board): role `kk`, extra classes, a name, and its marks. */
+export component Sample(props: { kk: string; cls: string; name: string; d: string; gp: boolean; gq: boolean; chg: boolean }) {
+  <span class={["chip", `k-${props.kk}`, `s-${shapeOf(props.kk)}`, "sample", props.cls]}>
+    {if props.d != "" { <span class="d">{props.d}</span> }}
+    <span class="sh"></span>
+    <span class="tok"></span>
+    <span class="ico" innerHTML={roleIcon(props.kk)}></span>
+    <span class="n">{props.name}</span>
+    {if props.gp { <span class={["g", "gp", props.chg && "chg"]} innerHTML={icon("hour")}></span> }}
+    {if props.gq { <span class="g gq">?</span> }}
+  </span>
+}
+/** The marks written in a sentence: can be pending, touches the world, becomes. */
+export component Gi() { <span class="gi" innerHTML={icon("hour")}></span> }
+export component Gio() { <span class="gi gio" innerHTML={icon("io")}></span> }
+export component Ga() { <span class="gi ga" innerHTML={icon("arrow")}></span> }
+
+// a family's name in its colour, leading a row's words
+component Fam(props: { f: string }) {
+  v = props.f == "imperative" ? "--imper" : props.f == "structure" ? "--struct" : props.f == "failure" ? "--fail" : `--${props.f}`
+  <b style={{ color: `var(${v})` }}>{props.f}</b>
+}
+
+// a section: its title, all / none for its toggles, an optional note, its rows
+component Section(props: { title: string; keys: string[]; note: string; children: View }) {
+  <h4>{props.title}<span class="lall">
+    {if props.keys.length > 1 {
+      <button data-all={props.keys.join(",")} onClick={() => { sfx("toggle"); showKinds(props.keys) }}>all</button>
+      <button data-none={props.keys.join(",")} onClick={() => { sfx("toggle"); hideKinds(props.keys) }}>none</button>
+    }}
+  </span></h4>
+  {if props.note != "" { <p class="hint" style={{ margin: "0 0 6px" }}>{props.note}</p> }}
+  <div class="rows">{props.children}</div>
+}
+
+// a toggle row: its sample and words (children), its count; none in this program: disabled
+component Row(props: { k: string; count: number; children: View }) {
+  off = hidden.includes(props.k)
+  <button class={["lrow", off && "off", props.count == 0 && "none"]} data-key={props.k} aria-pressed={off ? "false" : "true"} disabled={props.count == 0}
+    title={props.count > 0 ? "click to show or hide" : "none in this program"}
+    onClick={() => { sfx("toggle"); toggleHidden(props.k) }}>
+    {props.children}<span class="cnt">{props.count}</span>
+  </button>
+}
+
+// a frame's tag as a sample
+component FrameTag(props: { kind: string; text: string }) {
+  <span class={["frame", props.kind]} style={{ border: "0", padding: "0", background: "none", "box-shadow": "none" }}>
+    <span class="ctag" innerHTML={`${ctagHTML(props.kind)}${props.text}`}></span>
+  </span>
+}
+
+export component Legend() {
+  <div class="legend">
+    <h2>Legend</h2>
+    <p class="hint" style={{ "margin-top": "0" }}>A token's shape, fill and icon are its role; its colour is the family. Marks are properties, and combine on any role. Click a row to show or hide it on the map.</p>
+    <Section title="Things, by role" keys={THINGS.map(t => `k:${t.k}`)} note="">
+      {for t in THINGS {
+        <Row k={`k:${t.k}`} count={countOf(kinds, t.k)}>
+          <Sample kk={t.k} cls={t.k == "asource" || t.k == "aeq" ? "async" : t.k == "import" ? "trust" : ""} name={sampleName(t.k)} d=""
+            gp={t.k == "asource" || t.k == "aeq"} gq={t.k == "asource"} chg={false} />
+          <span class="hint"><Fam f={t.f} /> · <b>{kindMeta(t.k).label}</b> ({shapeWord(t.k)}): {kindMeta(t.k).what}</span>
+        </Row>
+      }}
+      <div class="lrow fixed">
+        <Sample kk="comp" cls="" name={sampleName("comp")} d="" gp={false} gq={false} chg={false} />
+        <span class="hint"><Fam f="structure" /> · <b>component</b>: {kindMeta("comp").what} (always shown)</span>
+        <span class="cnt">{countOf(kinds, "comp")}</span>
+      </div>
+    </Section>
+    <Section title="View sites, by role" keys={SITES.map(t => `k:${t.k}`)} note="">
+      {for t in SITES {
+        <Row k={`k:${t.k}`} count={countOf(kinds, t.k)}>
+          <Sample kk={t.k} cls="site" name={sampleName(t.k)} d="" gp={false} gq={false} chg={false} />
+          <span class="hint"><Fam f={t.f} /> · <b>{kindMeta(t.k).label}</b>: {kindMeta(t.k).what}</span>
+        </Row>
+      }}
+    </Section>
+    <h4>Marks</h4>
+    <div class="rows">
+      <div class="lrow fixed"><Sample kk="eq" cls="async" name="results" d="" gp={true} gq={false} chg={false} /><span class="hint"><Gi /> and stripes: can be pending (it awaits)</span><span></span></div>
+      <div class="lrow fixed"><Sample kk="source" cls="" name="user" d="" gp={false} gq={true} chg={false} /><span class="hint"><b>?</b> re-asks a standing question until written</span><span></span></div>
+      <div class="lrow fixed"><Sample kk="action" cls="io" name="save" d="" gp={false} gq={false} chg={false} /><span class="hint"><Gio /> touches the world (io)</span><span></span></div>
+      <div class="lrow fixed"><Sample kk="import" cls="trust" name="fetch" d="" gp={false} gq={false} chg={false} /><span class="hint">dashed border: a trust point, the checker sees only its signature</span><span></span></div>
+      <div class="lrow fixed"><Sample kk="asource" cls="async io" name="x" d="" gp={true} gq={true} chg={false} /><span class="hint">they combine: a source that awaits, re-asks and touches the world</span><span></span></div>
+    </div>
+    <Section title="Edges: colour is the relationship, dash is the mode" keys={EDGES.map(s => `e:${s.k}`)} note="">
+      {for s in EDGES {
+        <Row k={`e:${s.k}`} count={countOf(edges, s.k)}>
+          <svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke={s.c} stroke-width={s.w + 0.4} stroke-dasharray={s.d != "" ? s.d : undefined} /></svg>
+          <span class="hint">{s.label}</span>
+        </Row>
+      }}
+    </Section>
+    {if isDiff() {
+      <Section title="Diff: a ring and a badge, in colours used for nothing else" keys={["d:changes"]} note="">
+        <Row k="d:changes" count={changed}>
+          <svg width="44" height="14"><line x1="0" y1="7" x2="44" y2="7" stroke="#22c55e" stroke-width="7" opacity=".45" stroke-linecap="round" /><line x1="0" y1="7" x2="44" y2="7" stroke="#2dd4bf" stroke-width="2" /></svg>
+          <span class="hint">draw changed edges without hovering: the edge keeps its own colour, the glow says added, changed or removed</span>
+        </Row>
+        <div class="lrow fixed"><Sample kk="eq" cls="d-added" name="x" d="+" gp={false} gq={false} chg={false} /><span class="hint">added</span><span></span></div>
+        <div class="lrow fixed"><Sample kk="eq" cls="d-changed async" name="x" d="Δ" gp={true} gq={false} chg={true} /><span class="hint">changed: the mark that changed is underlined (here: became async)</span><span></span></div>
+        <div class="lrow fixed"><Sample kk="eq" cls="d-removed" name="x" d="−" gp={false} gq={false} chg={false} /><span class="hint">removed: keeps its role colour, ghosted (before / after is in the header)</span><span></span></div>
+      </Section>
+    }}
+    <h4>Frames</h4>
+    <div class="rows">
+      <div class="lrow fixed"><span class="hint" style={{ color: "var(--comp)" }}>component</span><span class="hint"><Fam f="structure" /> · owns everything declared in it</span><span></span></div>
+      <div class="lrow fixed"><FrameTag kind="then" text="if c" /><span class="hint">sky, solid: created when <code>c</code> holds, disposed when it stops; else is the same</span><span></span></div>
+      <div class="lrow fixed"><FrameTag kind="for" text="for x in xs" /><span class="hint">silver, stacked: one row per item, created and disposed with it</span><span></span></div>
+      <div class="lrow fixed"><FrameTag kind="loading" text="loading" /><span class="hint">pending accent, dashed: shows its fallback while a reader inside is pending; lists who can make it</span><span></span></div>
+      <div class="lrow fixed"><FrameTag kind="errored" text="errored" /><span class="hint">failure accent, dashed: shows its fallback when a reader inside fails; lists who can make it</span><span></span></div>
+    </div>
+  </div>
+}
