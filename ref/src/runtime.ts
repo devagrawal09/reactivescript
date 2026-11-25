@@ -1,6 +1,7 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { classMap } from "./style.ts";
+import { actionInput } from "./action-input.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
@@ -167,6 +168,11 @@ export class Runtime {
   private pendingFlush: (() => unknown)[] = [];                 // EF-8: onFlush callbacks; one run after the flush that registered them
   private pendingSettled: { f: () => unknown; change: number | null }[] = [];   // EF-7: onSettled callbacks, by the change their run belongs to (null: the next instant opened)
   private pendingGuesses: { node: Node; path: string[]; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
+  private inputStores = new WeakSet<object>();
+  private storeRead(value: unknown): unknown {
+    if (isObj(value) && (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)))) this.inputStores.add(value);
+    return value;
+  }
   program: Program;
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
@@ -799,12 +805,12 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
-        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); const input = actionInput(args, v => this.inputStores.has(v)); a.params.forEach((p, i) => en.set(p, input[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return b.kind === "source" || b.keyBy ? this.storeRead(v) : v; }   // R-f-7: a snapshot of an error throws it
       }
       case "as": return this.ev(e.e, region, env);                     // 07 §3: erased
-      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
-      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
+      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); const child = v[e.p]; return this.inputStores.has(v) ? this.storeRead(child) : child; }
+      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); const child = v[String(i)]; return this.inputStores.has(v) ? this.storeRead(child) : child; }
       case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }
       case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
         const b = region.lookup(e.name);

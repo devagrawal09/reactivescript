@@ -1,10 +1,10 @@
 /** AC-1: capture data before the action starts. Read through store proxies
  * so the copy sees exactly the values a snapshot read can see at the call. */
-export function actionInput(args: unknown[], store: symbol): unknown[] {
+export function actionInput(args: unknown[], store: symbol | ((value: object) => boolean)): unknown[] {
   const seen = new WeakMap<object, object>();
   function containsStore(value: unknown, visited: WeakSet<object>): boolean {
     if (value === null || typeof value !== "object" || visited.has(value)) return false;
-    if (Reflect.get(value, store) !== undefined) return true;
+    if (typeof store === "symbol" ? Reflect.get(value, store) !== undefined : store(value)) return true;
     const proto = Object.getPrototypeOf(value);
     if (!Array.isArray(value) && proto !== Object.prototype && proto !== null) return false;
     visited.add(value);
