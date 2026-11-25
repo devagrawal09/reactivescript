@@ -506,7 +506,8 @@ async function realHmr() {
         assert.equal((await values())[key("answer")], '"second"');
         const records = await page.evaluate(() => globalThis.__T.msgs);
         assert.ok(records.some(m => m.type === "flight" && m.key === key("answer") && m.state === "start"));
-        assert.ok(records.some(m => m.type === "flush" && m.origin === `hmr ${done.id}` && m.changes.some(c => c.key === key("answer") && c.preview === '"second"')));
+        assert.ok(records.some(m => m.type === "flush" && m.origin === `hmr ${done.id}` && m.changes.some(c => c.key === key("answer") && c.preview === '"second"')),
+          JSON.stringify(records.filter(m => m.type === "flush").slice(-8).map(m => [m.origin, m.changes.filter(c => c.key === key("answer"))])));
       });
     await edit("renamed: moved source keeps 4", s => s.replace(/\bcounter\b/g, (word, i) => s.slice(i - 4, i) === "hmr-" ? word : "tally"),
       { counter: "renamed", tally: "unchanged" }, async ({ plan }) => {

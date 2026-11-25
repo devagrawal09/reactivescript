@@ -346,7 +346,7 @@ function getRecorder() {
     // New flights will be recorded separately; give their landings the HMR origin.
     const after = valueFrame(keys);
     for (const key of [...plan.rerun, ...plan.reset, ...plan.added])
-      if (inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
+      if ([...flights.values()].some(f => f.key === key) || inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
     const changes = [], raw = [], inexact = new Set();
     for (const key of keys) {
       const old = before.get(key), next = after.get(key);
@@ -552,7 +552,7 @@ function getRecorder() {
       });
       // Keyless engine nodes are still part of the app frame, even when
       // hidden from the map. Keep their raw bodies for openView.
-      for (const key of hmrAnswers.keys()) if (!inspect(key)?.pending) hmrAnswers.delete(key);
+      for (const c of changes) if (!inspect(c.key)?.pending && ![...flights.values()].some(f => f.key === c.key)) hmrAnswers.delete(c.key);
       if (changes.length || internal.length || raw.length) addStep(msg.at, changes, raw, internal, false,
         msg.origin ?? changes.find(c => c.origin?.startsWith("hmr "))?.origin);
     } else if (msg.type === "flight") {
