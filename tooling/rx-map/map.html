@@ -2928,7 +2928,13 @@ function startFake(seed) {
 }
 
 // for tests and tools: the layout and the camera
-window.__RX_MAP__ = { get layout() { return L; }, get analysis() { return A; }, get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get level() { return level; }, setLevel: pinLevel };
+window.__RX_MAP__ = {
+  get layout() { return L; }, get analysis() { return A; }, get BW() { return BW; }, get BH() { return BH; },
+  get cam() { return cam; }, get level() { return level; }, setLevel: pinLevel,
+  flyTo, frameAll, zoomAt, freeRect, toScreen, boxOf, zoomUnder, LEVELS: RXL.LEVELS,
+  anchor: id => anchors.get(id), module: i => moduleEls.get(i), region: id => regionEls.get(id),
+  async draw() { draw(); },
+};
 // ---- go ------------------------------------------------------------------------------------------------------------
 readInsets();
 document.body.classList.add("lv2");

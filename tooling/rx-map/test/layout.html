@@ -28,7 +28,7 @@ try {
   const still = doc.createElement("style"); still.textContent = "*, *::before, *::after { transition: none !important }"; doc.head.append(still);
   const M = w.__RX_MAP__, L = M.layout, P = k => L.plates.get(k);
   const name = mi => String(graph.modules[mi]).split("/").pop();
-  w.flyTo(M.BW / 2, M.BH / 3, .8, 0); await sleep(150);
+  M.flyTo(M.BW / 2, M.BH / 3, .8, 0); await sleep(150);
   // dependencies point up: a module's plate sits in a lower row than every module it needs
   const bad = [];
   for (const e of graph.edges) {
@@ -49,13 +49,13 @@ try {
   const off = [];
   for (const [id, t] of L.tokens) {
     if (t.role !== "named" && t.role !== "site") continue;
-    const b = w.boxOf(w.eval("anchors").get(id));
+    const b = M.boxOf(M.anchor(id));
     // (offsets are whole px in the element's zoomed units: up to a zoom's worth of rounding)
     if (!b || Math.abs(b.l - t.x) > 3 || Math.abs(b.t - t.y) > 3 || Math.abs(b.r - b.l - t.w) > 3) off.push(id);
   }
   check("every token is drawn at its layout box", !off.length, off.slice(0, 6));
   // routes between plates stay out of plates (but for where they leave and enter)
-  doc.getElementById("all").click(); await sleep(150); w.draw();
+  doc.getElementById("all").click(); await sleep(150); await M.draw();
   const inside = [];
   const paths = [...doc.querySelectorAll("#edges path.trunk")];
   for (const p of paths) {
@@ -68,7 +68,7 @@ try {
   check(`routes between plates (${paths.length}) run in the gutters, never through a plate`, paths.length > 5 && !inside.length, inside.slice(0, 5));
   doc.getElementById("all").click(); await sleep(50);
   // the two levels draw into the same boxes
-  const boxes = () => [...doc.querySelectorAll("#board .frame, #board .chip.placed")].map(e => { const b = w.boxOf(e); return b ? [b.l, b.t, b.r, b.b].map(Math.round).join(",") : "-"; }).join(";");
+  const boxes = () => [...doc.querySelectorAll("#board .frame, #board .chip.placed")].map(e => { const b = M.boxOf(e); return b ? [b.l, b.t, b.r, b.b].map(Math.round).join(",") : "-"; }).join(";");
   const ref = boxes(), extent = [M.BW, M.BH].join("x");
   const shown = {};
   for (const l of [1, 2, 1, 2]) {
@@ -80,41 +80,42 @@ try {
   check("the overview shows the cards, nothing inside the plates", shown[1].cards >= 8 && !shown[1].named && !shown[1].sites, shown[1]);
   check("the detail level shows everything: names, view sites, view text", !shown[2].cards && shown[2].named > 30 && shown[2].sites > 50 && shown[2].strips === doc.querySelectorAll("#board .ostrip").length, shown[2]);
   // the zoom picks the level, with hysteresis
-  const fr = w.freeRect(), at = async s => { w.zoomAt(fr.cx, fr.cy, s / M.cam.s); await sleep(60); return M.level; };
+  const fr = M.freeRect(), at = async s => { M.zoomAt(fr.cx, fr.cy, s / M.cam.s); await sleep(60); return M.level; };
   const seq = [];
-  const { up, down } = w.eval("RXL").LEVELS, b = (down[2] + up[1]) / 2;
+  const { up, down } = M.LEVELS, b = (down[2] + up[1]) / 2;
   for (const s of [.2, b, up[1] + .01, b, down[2] - .01, b]) seq.push(await at(s));
   check("zoom picks the level, with hysteresis", JSON.stringify(seq) === "[1,1,2,2,1,1]", seq);
   // on screen at the switch: the font size, times the scale the page draws the detail at
-  const px = sel => { const e = doc.querySelector(sel); if (!e) return Infinity; return parseFloat(w.getComputedStyle(e).fontSize) * w.eval("zoomUnder")(e) * up[1]; };
+  const px = sel => { const e = doc.querySelector(sel); if (!e) return Infinity; return parseFloat(w.getComputedStyle(e).fontSize) * M.zoomUnder(e) * up[1]; };
   const pxs = { name: px("#board .chip.placed:not(.site) .n"), tag: px("#board .frame:not(.module) > .flabel .ctag"), module: px("#board .frame.module > .flabel b"), site: px("#board .chip.site.placed .n"), strip: px("#board .ostrip .otext") };
   check("the detail's text reads at 11px or more right where it comes in (names, tags, module labels, sites, view text)", Object.values(pxs).every(v => v >= 11) && Number.isFinite(pxs.name + pxs.tag + pxs.module + pxs.site), pxs);
   check("the switch sits near the middle of the zoom range", up[1] >= .45 && up[1] <= .55, [up, down]);
   // the overview's cards fill their plates and never spill
   await at(.2); await sleep(260);
   const spill = [];
-  for (const [mi, el] of w.eval("moduleEls")) {
+  const modules = [...L.plates.keys()].filter(k => k !== "world").map(mi => [mi, M.module(mi)]);
+  for (const [mi, el] of modules) {
     const p = el.getBoundingClientRect(), c = el.querySelector(".psum .ps-in").getBoundingClientRect();
     if (c.left < p.left - 1 || c.right > p.right + 1 || c.top < p.top - 1 || c.bottom > p.bottom + 1) spill.push(name(mi));
   }
   check("overview: every card sits inside its plate", !spill.length, spill);
-  check("overview: every card has the same parts (name, path, role bar, counts)", [...w.eval("moduleEls").values()].every(c => c.querySelector(".ps-name") && c.querySelector(".ps-path") && c.querySelector(".ps-bars i") && c.querySelector(".ps-counts span")));
+  check("overview: every card has the same parts (name, path, role bar, counts)", modules.every(([, c]) => c.querySelector(".ps-name") && c.querySelector(".ps-path") && c.querySelector(".ps-bars i") && c.querySelector(".ps-counts span")));
   // a dead typed boundary is marked
-  const dead = w.eval("regionEls").get("5:r6");
+  const dead = M.region("5:r6");
   check("a typed boundary an inner catch-all shadows is marked dead", dead?.classList.contains("dead") && /dead/.test(dead.querySelector(":scope > .flabel .deadmark")?.textContent ?? ""));
   // live: a failure caught by a boundary gets an arrow from the failing name to it; the overview's card counts it
   const detail = graph.nodes.find(n => n.name === "detail" && n.mod === 0 && !n.site), rv = w.__RX_VIEW__;
   rv.receive({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [{ key: detail.key, name: "detail", error: "NotFound" }] });
   rv.receive({ source: "rx-map", v: 1, type: "boundary", region: graph.regions.find(r => r.id === "5:r5").key, state: "fallback", error: "NotFound" });
   rv.receive({ source: "rx-map", v: 1, type: "flight", key: graph.nodes.find(n => n.name === "stats" && n.mod === 0 && !n.site).key, state: "start", at: 2 });
-  M.setLevel(3); await sleep(120); w.draw();
+  M.setLevel(2); await sleep(120); await M.draw();
   check("a caught failure: an arrow from the failing name to the boundary showing its fallback", doc.querySelectorAll("#edges path.caught").length >= 1, doc.querySelectorAll("#edges path.caught").length);
   M.setLevel(1); await sleep(120);
-  const card = w.eval("moduleEls").get(0).querySelector(".psum");
+  const card = M.module(0).querySelector(".psum");
   check("overview: the module's card counts its failed and in-flight names, and shows it's busy", /1 failed/.test(card.textContent) && /1 in the air/.test(card.textContent) && card.classList.contains("busy") && card.classList.contains("failing"), card.querySelector(".ps-live").textContent);
-  w.frameAll(0); await sleep(150);
-  const fr2 = w.freeRect();
-  const out = [[0, 0], [M.BW, 0], [0, M.BH], [M.BW, M.BH]].map(([x, y]) => w.toScreen(x, y)).filter(([x, y]) => x < fr2.l || x > fr2.r || y < fr2.t || y > fr2.b);
+  M.frameAll(0); await sleep(150);
+  const fr2 = M.freeRect();
+  const out = [[0, 0], [M.BW, 0], [0, M.BH], [M.BW, M.BH]].map(([x, y]) => M.toScreen(x, y)).filter(([x, y]) => x < fr2.l || x > fr2.r || y < fr2.t || y > fr2.b);
   check("frame shows everything, with a margin", !out.length, out);
   check("no page errors", !errors.length, errors);
 } catch (e) { check(`threw: ${e?.stack ?? e}`, false); }
