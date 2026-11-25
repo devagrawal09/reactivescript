@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { emit, generate } from './fuzz/gen.ts';
-import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW, type Outcome } from './fuzz/run.ts';
+import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, showProbeKeepsFrames, UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW, type Outcome } from './fuzz/run.ts';
 import { emitAsync, generateAsync } from './fuzz/gen-async.ts';
 import { loadTsxModules } from '../tsx/modules.ts';
 import { resolvePlanV2 } from './resolve-v2.ts';
@@ -81,6 +81,10 @@ test('plan fuzz: the tracker gives native Solid\'s host log once its number hole
 test('plan fuzz: an RX-only difference is upstream only when a probe of that one lowering removes it', async () => {
   assert.equal(pathsInSetter('w$s.path(["a", f(i)], v + 1); x.path(a, b); w$t.path(k);'),
     'w$s.pathIn(() => (["a", f(i)]), () => (v + 1)); x.path(a, b); w$t.path(k);');
+  // Native with its Shows kept stands in for production native only while it shows the same frames.
+  const native = { result: { frames: ['<p>1</p>'] }, log: [['insert', 'p']] };
+  assert.equal(showProbeKeepsFrames(native, { result: native.result, log: [['insert', 'show'], ['insert', 'p']] }), true);
+  assert.equal(showProbeKeepsFrames(native, { result: { frames: ['<p></p>'] }, log: native.log }), false);
   // Since Solid main lowers Show (#4730), 117 and 138 also need the Show probe; seed 2 needs it alone.
   for (const [seed, cls] of [[117, [UPSTREAM_RX, UPSTREAM_RX_SHOW]], [138, [UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW]], [2, [UPSTREAM_RX_SHOW]]] as const) {
     const o = await runCase(generate(seed), { rust });

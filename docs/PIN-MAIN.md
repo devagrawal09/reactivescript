@@ -199,8 +199,9 @@ same, child without the callback        : ternary (lowered)
 
 **The probe** (`plan/fuzz/run.ts`, `UPSTREAM_RX_SHOW`): when compiled RX alone differs, native's TSX is compiled again
 with `lowerShow: false`, the only change, and replayed on the same scenario. The program is classed upstream only if
-compiled RX equals that trace exactly (alone, or with the two older probes). Anything else is `divergent` and fails the
-gate. The baseline lists the 55 (and 11) seeds; `report.ts` fails on an unlisted one, on a missing one, and on any
+compiled RX equals that trace exactly (alone, or with the two older probes), and that trace shows production native's
+frames; a native whose frames change with the lowering is a Solid bug (`NATIVE_SHOW_FRAMES`). Anything else is
+`divergent` and fails the gate. The baseline lists the 55 (and 11) seeds; `report.ts` fails on an unlisted one, on a missing one, and on any
 other class. The check on RX is as strict as before; what it is compared with on these programs is native without the
 optimisation.
 

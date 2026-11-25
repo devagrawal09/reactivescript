@@ -31,6 +31,11 @@ export const UPSTREAM_RX_PATH = 'upstream: RX evaluates a path write\'s keys and
  *  with native's TSX compiled with `lowerShow: false` (the component), the only change on the native side. */
 export const UPSTREAM_RX_SHOW = 'upstream: RX emits a <Show> Solid\'s compiler does not lower to a ternary (Solid #4730)';
 const UPSTREAM = [UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW];
+/** Native with its Shows kept shows other frames than production native: Solid's Show lowering changed what the user
+ *  sees. A Solid bug, never upstream RX, so the program is divergent. */
+export const NATIVE_SHOW_FRAMES = 'native: Solid\'s <Show> lowering changes the frames';
+/** The Show probe may stand in for production native only where keeping the Shows changes the host log, not the frames. */
+export const showProbeKeepsFrames = (native: Trace, unlowered: Trace) => JSON.stringify(unlowered.result) === JSON.stringify(native.result);
 /** Plan v2.1 on a v2-only Rust consumer: `plan-trace` refuses the plan's `version` (an integer field: serde's
  *  "invalid type: floating point `2.1`, expected u32", or the scenario binary's "unsupported plan version"). */
 export const RUST_UNSUPPORTED_CLASS = 'rust-unsupported: plan-trace refuses plan version 2.1';
@@ -338,13 +343,14 @@ export async function runProgram(p: Program, opts: { rust?: string; timeoutMs?: 
         if (await probe({ pathInSetter: true })) { out.classes.push(UPSTREAM_RX_PATH); continue; }
         if (await probe({ directOptimistic: true, pathInSetter: true })) { out.classes.push(UPSTREAM_RX, UPSTREAM_RX_PATH); continue; }
         // UPSTREAM_RX_SHOW: native with its Shows kept as components, replayed on the same scenario. Only a native that
-        // differs from the lowered one can explain the difference; RX must then equal it exactly (alone, or with the
-        // other probes' lowerings).
+        // differs from the lowered one, with the same frames, can explain the difference; RX must then equal it exactly
+        // (alone, or with the other probes' lowerings).
         writeFileSync(dir + '/native-show.mts', compileNative(false));
         const shown = await leg({ ...common, leg: 'native', steps: scenario.steps, entry: dir + '/native-show.mts' }, timeoutMs);
         if (!('invalid' in shown) && JSON.stringify(strip(shown)) !== JSON.stringify(traces.native)) {
           const unlowered = strip(shown);
           out.nativeShow = unlowered;
+          if (!showProbeKeepsFrames(traces.native!, unlowered)) { out.classes.push(NATIVE_SHOW_FRAMES); continue; }
           if (await probe({}, unlowered)) { out.classes.push(UPSTREAM_RX_SHOW); continue; }
           if (await probe({ directOptimistic: true }, unlowered)) { out.classes.push(UPSTREAM_RX, UPSTREAM_RX_SHOW); continue; }
           if (await probe({ pathInSetter: true }, unlowered)) { out.classes.push(UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW); continue; }

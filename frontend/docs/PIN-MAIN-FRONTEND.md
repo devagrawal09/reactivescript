@@ -35,7 +35,7 @@ pinned checkouts were never touched and stay clean.
   difference, handled as the existing upstream classes are: a new root-cause probe `UPSTREAM_RX_SHOW`
   (`plan/fuzz/run.ts`) replays native compiled with `lowerShow: false` (the only change on the native side) and
   classifies the program upstream only if compiled RX equals that trace exactly (alone, or with the AC-3 / path
-  probes). The outcome keeps that trace (`nativeShow`), and the tests assert RX equals it. Never agreement.
+  probes) and that trace shows production native's frames. The outcome keeps that trace (`nativeShow`), and the tests assert RX equals it. Never agreement.
   `docs/UPSTREAM-ISSUES.md` has the entry.
 
 ### Delegated events add a capture listener (b9475d749, #5017)
