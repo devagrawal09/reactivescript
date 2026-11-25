@@ -485,7 +485,15 @@ function parseExprNoCatch(c: Cursor): Expr {
         // A handler is a statement body. If that reading fails and the record reading does too, report the statement
         // error — the record reading fails at the first `let` and the hint then blames a local that is in a handler.
         try { return { k: "fn", params, body: parseExpr(c) }; }
-        catch (e) { if (stmtErr) throw stmtErr; throw e; }
+        catch (e) {
+          if (!(e instanceof ParseError)) throw e;
+          // The statement error wins when it names the habit. Otherwise the expression error does (`n++`), except
+          // JS_LOCAL, which the record reading blames on a `let` that is already in the handler.
+          if (stmtErr && stmtErr.code !== "PARSE") throw stmtErr;
+          if (e.code !== "PARSE" && e.code !== "JS_LOCAL") throw e;
+          if (stmtErr) throw stmtErr;
+          throw e;
+        }
       }
       return { k: "fn", params, body: parseExpr(c) };
     }
