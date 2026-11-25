@@ -655,7 +655,7 @@ class Checker {
           case "id": { const s = env.lookup(x.name); if (s?.rows) for (const r of s.rows()) rows.add(r); return; }
         }
         for (const v of Object.values(x as object)) {
-          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
+          if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) walk((y as { computed: Expr }).computed); if ("k" in y) walk(y as Expr); else if ("v" in y) walk((y as { v: Expr }).v); else if ("spread" in y) walk((y as { spread: Expr }).spread); } });
           else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr);
         }
       };
@@ -1043,7 +1043,7 @@ class Checker {
         return;
       }
       for (const v of Object.values(x as object)) {
-        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
+        if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) walk((y as { computed: Expr }).computed, res); if ("k" in y) walk(y as Expr, res); else if ("v" in y) walk((y as { v: Expr }).v, res); else if ("spread" in y) walk((y as { spread: Expr }).spread, res); } });
         else if (v && typeof v === "object" && "k" in (v as object)) walk(v as Expr, res);
       }
     };
@@ -1291,7 +1291,7 @@ class Checker {
       case "draft": { go(e.seed); for (const st of e.body) { if (st.k === "let" || st.k === "expr" || st.k === "write") go(st.e); } return out; }
       default: {
         for (const v of Object.values(e as object)) {
-          if (Array.isArray(v)) v.forEach(y => { if (typeof y === "string") return; if (y && typeof y === "object") { if ("k" in y) go(y as Expr); else if ("v" in y) go((y as { v: Expr }).v); else if ("spread" in y) go((y as { spread: Expr }).spread); } });
+          if (Array.isArray(v)) v.forEach(y => { if (typeof y === "string") return; if (y && typeof y === "object") { if ("computed" in y) go((y as { computed: Expr }).computed); if ("k" in y) go(y as Expr); else if ("v" in y) go((y as { v: Expr }).v); else if ("spread" in y) go((y as { spread: Expr }).spread); } });
           else if (v && typeof v === "object" && "k" in (v as object)) go(v as Expr);
         }
         return out;
