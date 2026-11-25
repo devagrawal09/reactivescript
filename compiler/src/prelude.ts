@@ -12,6 +12,9 @@ export declare function pending(v: unknown): boolean;
 /** RG-4b: an object rest, `{ a, ...rest } = e` (Solid's `omit`). */
 export declare function omit<T, K extends string>(v: T, ...keys: K[]): Omit<T, K>;
 export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
+export declare function caughtArms<T, F extends readonly ((e: never) => unknown)[]>(v: T, ...arms: F): T | ReturnType<F[number]>;
+export declare function matchesArm(): boolean;
+export declare function armError<E>(): E;
 export declare function raise(e: unknown): never;
 /** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. */
 export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;

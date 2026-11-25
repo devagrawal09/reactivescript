@@ -49,6 +49,18 @@ fs.writeFileSync(path.join(ws, "profile.rx"), [
   "}",
   "",
 ].join("\n"));
+fs.writeFileSync(path.join(ws, "arms.rx"), [
+  "error Conflict(version: number) => `conflict ${version}`",
+  "error Offline(retryAfter: number) => `retry ${retryAfter}`",
+  "export default component Arms() {",
+  "  value = true ? throw Conflict(1) : throw Offline(2)",
+  "  errored fallback(e) {",
+  "    Conflict => { <p>{e.version}</p> }",
+  "    _ => { <p>{e.retryAfter}</p> }",
+  "  } { <p>{value}</p> }",
+  "}",
+  "",
+].join("\n"));
 fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
   include: ["*.rx", "*.ts"],
@@ -142,6 +154,23 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   check("in markup, after `props.product.`: Product's fields", l3.includes("name") && l3.includes("price"), l3.slice(0, 20));
   const h6 = await server.sendHoverRequest(ui.uri, at(uit, "onClick", 2));
   check("an attribute hovers as Solid's JSX type", /onClick/.test(hoverText(h6)), h6);
+
+  console.log("ordered error arms");
+  const arms = await server.openTextDocument(path.join(ws, "arms.rx"), "reactivescript");
+  const atxt = arms.getText();
+  const classDef = await server.sendDefinitionRequest(arms.uri, at(atxt, "Conflict =>", 2));
+  const classTarget = classDef?.[0]?.targetSelectionRange ?? classDef?.[0]?.range;
+  check("an arm class goes to its declaration", String(classDef?.[0]?.targetUri ?? classDef?.[0]?.uri).endsWith("arms.rx") && classTarget?.start.line === 0, classDef);
+  const armHover = await server.sendHoverRequest(arms.uri, at(atxt, "e.version"));
+  check("`e` hovers with the arm class", /e: Conflict/.test(hoverText(armHover)), armHover);
+  const residualHover = await server.sendHoverRequest(arms.uri, at(atxt, "e.retryAfter"));
+  check("`_` binds only the remaining class", /e: Offline/.test(hoverText(residualHover)), residualHover);
+  const armClean = await server.sendDocumentDiagnosticRequest(arms.uri);
+  check("both arms type-check", (armClean.items ?? []).length === 0, armClean.items);
+  const wrongField = at(atxt, "e.version", 2);
+  await server.updateTextDocument(arms.uri, [{ range: { start: wrongField, end: at(atxt, "e.version", 9) }, newText: "retryAfter" }]);
+  const armDiag = await server.sendDocumentDiagnosticRequest(arms.uri);
+  check("a foreign field is underlined inside its arm", (armDiag.items ?? []).some(d => Number(d.code) === 2339 && d.range.start.line === wrongField.line && d.range.start.character === wrongField.character), armDiag.items);
 
   console.log("a .ts with no .d.rx (09 MO-11)");
   const profile = await server.openTextDocument(path.join(ws, "profile.rx"), "reactivescript");
