@@ -18,7 +18,7 @@
 <div id="host"></div>
 <pre id="result" hidden></pre>
 <script type="module">
-import { createSignal, createMemo, createEffect, createRoot, flush, OBSERVE } from "solid-js";
+import { createSignal, createMemo, createEffect, createRoot, createStore, untrack, flush, OBSERVE } from "solid-js";
 import { register } from "../live.mjs";
 import { createApp } from "/runtime/rt-web.ts";
 
@@ -259,6 +259,24 @@ try {
   closeMap();
   hotDispose();
   check("HMR disposal detaches the socket but keeps the session recorder", OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));
+
+  // The bridge previews app values where the app is (an action's args, in its click handler): inside a strict-read
+  // scope that must raise no STRICT_READ_UNTRACKED, which would be the bridge's read blamed on the app.
+  {
+    const strict = [];
+    const off = OBSERVE.diagnostics?.subscribe(e => { if (e.code === "STRICT_READ_UNTRACKED") strict.push(e); });
+    const [rows] = createStore([{ id: 1, title: "Ada" }], { name: "rx:examples/users.rx||strictRows" });
+    untrack(() => void rows[0].title, "StrictProbe");
+    const control = strict.length;
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9001, state: "start", args: [rows] });
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9001, state: "end" });
+    untrack(() => globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9002, state: "start", args: [rows] }), "StrictProbe");
+    globalThis.__RX_TRACE__({ type: "run", key: K("nextPage"), id: 9002, state: "end" });
+    off?.();
+    check("an arg preview in a strict-read scope raises no STRICT_READ_UNTRACKED", strict.length === control,
+      { control, after: strict.length, codes: strict.map(e => e.message ?? e.code) });
+    check("…(the probe: a direct read there does raise it)", control > 0, control);
+  }
   done();
 } catch (e) {
   check(`threw: ${e?.stack ?? e}`, false);

@@ -36,3 +36,15 @@ export function newId(): string {
   n += 1;
   return `c${n}`;
 }
+
+export async function revert(_opId: string): Promise<void> {
+  await delay(150);
+}
+
+export type Shelf = { name: string; count: number };
+// `nope` is not a shelf: its panel shows the error.
+export async function loadShelf(id: string): Promise<Shelf> {
+  await delay(120);
+  if (id === 'nope') throw new Error('NotFound "nope"');
+  return { name: `Shelf ${id}`, count: id.length };
+}

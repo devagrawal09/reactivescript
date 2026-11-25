@@ -1,6 +1,10 @@
 import pure { load } from "./server"
-import { save, newId } from "./server"
+import { save, newId, revert } from "./server"
 import { BookRow, Book } from "./components/Book.rx"
+import { ShelfInfo } from "./components/ShelfInfo.rx"
+
+// Undo entries are an array of objects, prepended and filtered (round-3 feedback: travel must restore them intact).
+type UndoEntry = { opId: string; label: string }
 
 type Filter = "all" | "unread" | "read"
 
@@ -15,6 +19,10 @@ export default component App() {
   source title := ""
   source author := ""
   source saveError := ""
+  source undo: UndoEntry[] := []
+  // The shelf panel is remounted per shelf id: one ShelfInfo instance at a time (round-3: values per live instance).
+  source shelfId := "main"
+  shelves = ["main", "nope", "other"]
   filters: Filter[] = ["all", "unread", "read"]
 
   q = query.trim().toLowerCase()
@@ -38,9 +46,21 @@ export default component App() {
     try {
       guess books[i].read := read
       await save({ id: b.id, title: b.title, author: b.author, read: read })
+      undo := u => [{ opId: newId(), label: `${read ? "read" : "unread"} ${b.title}` }, ...u].slice(0, 5)
       refresh books
     } catch (e) {
       saveError := `Could not update: ${e.message}`
+    }
+  }
+
+  action undoOp(opId: string) {
+    onFlush(() => { saveError := "" })
+    try {
+      guess undo := u => u.filter(x => x.opId != opId)
+      await revert(opId)
+      undo := u => u.filter(x => x.opId != opId)
+    } catch (e) {
+      saveError := `Could not undo: ${e.message}`
     }
   }
 
@@ -104,6 +124,19 @@ export default component App() {
           }}
         </ul>
         {if shown.length == 0 { <p>No books match.</p> }}
+        <div class="undo">
+          {for u in undo {
+            <button type="button" class="undo-entry" onClick={() => { undoOp(u.opId) }}>↶ {u.label}</button>
+          }}
+        </div>
+        <div class="shelves">
+          {for s in shelves {
+            <button type="button" class={shelfId == s ? "shelf-on" : ""} onClick={() => { shelfId := s }}>shelf {s}</button>
+          }}
+        </div>
+        {for id in [shelfId] {
+          <ShelfInfo id={id} />
+        }}
       }}
     }}
   </main>
