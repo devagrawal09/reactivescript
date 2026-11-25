@@ -25,16 +25,16 @@ const projectMode = process.argv.includes("--project");
 const devMode = process.argv.includes("--dev");
 const filter = process.argv.slice(2).find(a => !a.startsWith("--"));
 const verbose = !!process.env.VERBOSE;
-type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[] };
+type Req = { id: string; entry: string; files: Record<string, string>; extra?: string[]; product?: boolean };
 const reqs: Req[] = [];
 
 /** A program: its entry and every file the loader reads for it (MO-8 `.d.rx`, MO-9 signatures, imported modules). */
-function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[]) {
+function add(id: string, entry: string, read: (p: string) => string | undefined, extra?: string[], product?: boolean) {
   if (filter && !id.includes(filter)) return;
   const files: Record<string, string> = {};
   const rec = (p: string) => { const s = read(p); if (s !== undefined) files[p] = s; return s; };
   try { loadModules(entry, rec); } catch { /* the files read up to the error are what both sides see */ }
-  reqs.push({ id, entry, files, ...(extra ? { extra } : {}) });
+  reqs.push({ id, entry, files, ...(extra ? { extra } : {}), ...(product ? { product } : {}) });
 }
 const disk = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined;
 
@@ -83,6 +83,13 @@ export default component App() {
     ["src/types.d.rx", `export type Title = string\n`],
   ]);
   add("MO-8 real API and type imports", "src/main.rx", path => files.get(path), []);
+  const product = new Map([
+    ["src/main.rx", `import { caption } from "./caption.rx"
+export default component App() { <p>{caption}</p> }`],
+    ["src/caption.rx", `import pure { label } from "./virtual.js"
+export caption = label()`],
+  ]);
+  add("MO-8 product bundler resolves a relative import", "src/main.rx", path => product.get(path), [], true);
 }
 
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
@@ -145,7 +152,7 @@ async function lower(): Promise<number> {
       if (checkModules(set).diags.length) want = { refused: true };
       else {
         const extra = (r.extra ?? []).map(s => { try { return parseStmts(s); } catch { return []; } });
-        let c; try { c = compileModules(set, { extraStmts: extra, dev: devMode }); } catch (e) { if (!(e instanceof CompileError)) throw e; c = null; want = { compileError: (e as Error).message }; }
+        let c; try { c = compileModules(set, { extraStmts: extra, dev: devMode, bySource: r.product }); } catch (e) { if (!(e instanceof CompileError)) throw e; c = null; want = { compileError: (e as Error).message }; }
         if (c) {
           const files: Record<string, Record<string, string>> = {};
           for (const [k, target] of [["universal", "universal"], ["dom", "dom"], ["ssr", "ssr"]] as const) {
