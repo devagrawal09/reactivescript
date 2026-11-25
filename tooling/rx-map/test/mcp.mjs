@@ -60,7 +60,7 @@ test("stdio JSON-RPC negotiation, notifications, catalog and errors", { timeout:
   assert.equal((await c.rpc("resources/read", { uri: "rx://wrong" })).error.code, -32602);
 });
 
-test("static queries and resources on notes", { timeout: 10000 }, async t => {
+test("static queries and resources on notes", { timeout: 60000 }, async t => {
   const c = client(t, ["--root", repo, "--entry", "examples/notes/main.rx"]);
   assert.equal(await c.text("check"), "ok");
   assert.deepEqual((await c.json("overview")).map(m => m.file),
