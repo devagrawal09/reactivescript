@@ -1213,10 +1213,40 @@ class Checker {
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
           const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
+          if (m.classes?.length) this.deadTyped(m, body.id);
           break;
         }
       }
     }
+  }
+
+  /** R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead. */
+  private deadTyped(m: Extract<Markup, { k: "errored" }>, id: number) {
+    const inner = this.coveringCatchAll(m.body);
+    if (!inner) return;
+    const line = m.line ?? this.line;
+    const cls = m.classes!.join(" | ");
+    this.line = line;
+    this.err("DEAD_TYPED_BOUNDARY", "R-f-4", `errored fallback(e: ${cls}) at line ${line} is dead: the inner catch-all at line ${inner.line ?? line} catches ${cls} first — put the typed boundary inside the catch-all`);
+    const by = this.boundaries.get(inner);
+  }
+  /** The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure. */
+  private coveringCatchAll(ms: Markup[]): Extract<Markup, { k: "errored" }> | null {
+    let inner: Extract<Markup, { k: "errored" }> | null = null;
+    let saw = false;
+    for (const m of ms) {
+      if (m.k === "text" || m.k === "style") continue;
+      saw = true;
+      if (m.k === "errored" && !m.classes) { inner = inner ?? m; continue; }
+      if (m.k === "el" && !/^[A-Z]/.test(m.tag) && m.attrs.every(a => a.e.k === "lit")) {
+        const c = this.coveringCatchAll(m.children);
+        if (!c) return null;
+        inner = inner ?? c;
+        continue;
+      }
+      return null;
+    }
+    return saw ? inner : null;
   }
 
   // ---- SV-7d: the content model across templates ----

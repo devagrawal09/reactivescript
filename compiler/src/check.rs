@@ -2921,6 +2921,42 @@ impl<'a> Checker<'a> {
         0
     }
 
+    /// R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead.
+    fn dead_typed(&mut self, m: &Markup, classes: &[String], id: usize) {
+        let Some(inner) = self.covering_catch_all(match &m.kind {
+            MarkupKind::Errored { body, .. } => body,
+            _ => return,
+        }) else { return };
+        let line = m.line.unwrap_or(self.line as usize);
+        let cls = classes.join(" | ");
+        let inner_line = inner.line.unwrap_or(line);
+        self.line = line as i64;
+        self.err("DEAD_TYPED_BOUNDARY", "R-f-4", format!("errored fallback(e: {cls}) at line {line} is dead: the inner catch-all at line {inner_line} catches {cls} first — put the typed boundary inside the catch-all"));
+        if let Some(&by) = self.boundaries.get(&(inner as *const Markup)) {
+        }
+    }
+    /// The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure.
+    fn covering_catch_all<'b>(&self, ms: &'b [Markup]) -> Option<&'b Markup> {
+        let mut inner: Option<&Markup> = None;
+        let mut saw = false;
+        for m in ms {
+            match &m.kind {
+                MarkupKind::Text(_) | MarkupKind::Style(_) => continue,
+                MarkupKind::Errored { classes: None, .. } => {
+                    saw = true;
+                    inner = inner.or(Some(m));
+                }
+                MarkupKind::El { tag, attrs, children } if !is_upper_tag(tag) && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) => {
+                    saw = true;
+                    let Some(c) = self.covering_catch_all(children) else { return None };
+                    inner = inner.or(Some(c));
+                }
+                _ => return None,
+            }
+        }
+        if saw { inner } else { None }
+    }
+
     // ---- views ----
     fn markup(&mut self, ms: &'a [Markup], env: EId, view_root: bool) {
         let mut styles = 0;
@@ -3044,6 +3080,10 @@ impl<'a> Checker<'a> {
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
+                    if let Some(cs) = classes.clone().filter(|cs| !cs.is_empty()) {
+                        let rid = self.regions[b].id;
+                        self.dead_typed(m, &cs, rid);
+                    }
                 }
             }
         }
