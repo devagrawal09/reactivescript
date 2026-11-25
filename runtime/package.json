@@ -14,29 +14,43 @@
     ".": {
       "worker": {
         "types": "./dist/server.d.ts",
+        "production": "./dist/server.js",
+        "development": "./dist/server.dev.js",
         "default": "./dist/server.js"
       },
       "browser": {
         "types": "./dist/web.d.ts",
+        "production": "./dist/web.js",
+        "development": "./dist/web.dev.js",
         "default": "./dist/web.js"
       },
       "deno": {
         "types": "./dist/server.d.ts",
+        "production": "./dist/server.js",
+        "development": "./dist/server.dev.js",
         "default": "./dist/server.js"
       },
       "node": {
         "types": "./dist/server.d.ts",
+        "production": "./dist/server.js",
+        "development": "./dist/server.dev.js",
         "default": "./dist/server.js"
       },
       "types": "./dist/web.d.ts",
+      "production": "./dist/web.js",
+      "development": "./dist/web.dev.js",
       "default": "./dist/web.js"
     },
     "./web": {
       "types": "./dist/web.d.ts",
+      "production": "./dist/web.js",
+      "development": "./dist/web.dev.js",
       "default": "./dist/web.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
+      "production": "./dist/server.js",
+      "development": "./dist/server.dev.js",
       "default": "./dist/server.js"
     }
   },

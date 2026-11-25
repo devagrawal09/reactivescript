@@ -5,6 +5,7 @@
 //   node build.mjs           # write page.mjs
 //   node build.mjs --check   # fail if page.mjs is not what map.html gives
 import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const here = new URL(".", import.meta.url);
 let html = readFileSync(new URL("map.html", here), "utf8");
@@ -14,7 +15,7 @@ for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "
 // The fake host (fake.mjs and the planner it uses, hmr.mjs) goes into the page as one closure, so a page can run it
 // itself (`?fake=<seed>`, or `pageHTML(graph, { fake })`): imports and exports dropped, the Node-only CLI cut off.
 const strip = src => src.replace(/^import\b[^;]*;[ \t]*$/gm, "").replace(/^export (?=(?:async )?function|const|let|class)/gm, "");
-const hmrSrc = readFileSync(new URL("hmr.mjs", here), "utf8");
+const hmrSrc = readFileSync(createRequire(import.meta.url).resolve("@reactivescript/compiler/hmr"), "utf8");
 let fakeSrc = readFileSync(new URL("fake.mjs", here), "utf8");
 const cli = fakeSrc.indexOf("\nfunction isCli()");
 if (cli < 0) throw new Error("fake.mjs: cannot find where its CLI starts (function isCli)");

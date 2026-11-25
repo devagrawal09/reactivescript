@@ -63,10 +63,6 @@ fn is_handler(attr: &str) -> bool {
     let b = attr.as_bytes();
     b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
 }
-/// E-9: a `ref` parameter, or a body that declares a source, effect, or region. An equation is not a node.
-pub(crate) fn instantiating_fn(params: &[crate::ast::Param], decls: &[Decl]) -> bool {
-    params.iter().any(|p| p.r#ref) || decls.iter().any(|d| matches!(d, Decl::Source { .. } | Decl::Effect { .. } | Decl::Component { .. }))
-}
 fn is_upper_tag(tag: &str) -> bool {
     tag.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase())
 }
@@ -1332,7 +1328,7 @@ impl<'a> Checker<'a> {
                 }
                 Decl::Fn { params, decls: fdecls, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
-                    sym.instantiating = instantiating_fn(params, fdecls);
+                    sym.instantiating = params.iter().any(|p| p.r#ref) || !fdecls.is_empty();
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
                 }
@@ -1975,7 +1971,7 @@ impl<'a> Checker<'a> {
             }
             Decl::Fn { name, params, decls, tail, line, .. } => {
                 let region = self.reg(env);
-                let r = if instantiating_fn(params, decls) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                let r = if !decls.is_empty() { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
                 let inner = self.env(Some(env), r);
                 for p in params {
                     if p.r#ref {
@@ -2081,6 +2077,9 @@ impl<'a> Checker<'a> {
         let ExprKind::Call { args, .. } = &call.k else { return };
         let params = self.syms[f].params.clone().unwrap_or_default();
         let fname = self.syms[f].name.clone();
+        let hint = if matches!(self.syms[f].fn_decl, Some(Decl::Fn { decls, .. }) if !decls.is_empty()) && !params.iter().any(|p| p.r#ref) {
+            " If you only need a value calculation, inline the equation in an arrow fn: `fn size(xs) { n = xs.length; n }` → `fn size(xs) => xs.length`."
+        } else { "" };
         for (i, p) in params.iter().enumerate() {
             let Some(a) = args.get(i) else { continue };
             if p.r#ref {
@@ -2093,7 +2092,7 @@ impl<'a> Checker<'a> {
                 self.err(
                     "SNAPSHOT_ARGUMENT",
                     "E-10",
-                    format!("{}(…): the argument for value parameter {} reads {} and would be snapshotted — declare the parameter `ref`, or pass peek(…)", fname, p.name, h),
+                    format!("{}(…): the argument for value parameter {} reads {} and would be snapshotted — declare the parameter `ref`, or pass peek(…).{hint}", fname, p.name, h),
                 );
             }
         }
@@ -2994,7 +2993,7 @@ impl<'a> Checker<'a> {
         for m in ms {
             match &m.kind {
                 MarkupKind::Text(_) | MarkupKind::Style(_) => continue,
-                MarkupKind::Errored { classes: None, .. } => {
+                MarkupKind::Errored { classes: None, fallback, .. } if Self::static_fallback(fallback) => {
                     saw = true;
                     inner = inner.or(Some(m));
                 }
@@ -3007,6 +3006,18 @@ impl<'a> Checker<'a> {
             }
         }
         if saw { inner } else { None }
+    }
+
+    /// A fallback runs outside its own catch. Prove it inert without guessing about readers or foreign code.
+    fn static_fallback(ms: &[Markup]) -> bool {
+        ms.iter().all(|m| match &m.kind {
+            MarkupKind::Text(_) | MarkupKind::Style(_) => true,
+            MarkupKind::Read(e) => matches!(e.k, ExprKind::Lit(_)),
+            MarkupKind::El { tag, attrs, children } => tag.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
+                && tag.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+                && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) && Self::static_fallback(children),
+            _ => false,
+        })
     }
 
     // ---- views ----

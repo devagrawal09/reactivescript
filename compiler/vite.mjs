@@ -23,6 +23,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildGraph } from "./graph.mjs";
+import { planHmr } from "./hmr.mjs";
 
 const { app, model } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
@@ -74,7 +76,7 @@ function mapTools(root) {
   try { req = createRequire(path.join(root, "package.json")); req.resolve("@reactivescript/map/live"); } catch { return; }
   return req;
 }
-const graphOf = (req, entry, root) => req("@reactivescript/map/graph").buildGraph(JSON.parse(model([entry], root)), { root });
+const graphOf = (entry, root) => buildGraph(JSON.parse(model([entry], root)), { root });
 const revision = graph => createHash("sha256").update(JSON.stringify(graph)).digest("hex");
 
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
@@ -84,28 +86,28 @@ export default function rx() {
   const builds = new Map();   // entry\0target\0moduleName\0spa\0dev → { entry, target, moduleName, spa, dev, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   /** `dev`: the project root, for a dev build (keys relative to it); null otherwise. */
-  function build(entry, target, moduleName, spa, dev = null, force = false) {
-    const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}`;
+  function build(entry, target, moduleName, spa, dev = null, force = false, hot = false) {
+    const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}\0${hot}`;
     const prior = builds.get(key);
     if (!force && prior?.out.modules && fresh(prior)) return prior;
-    const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa) : app(entry, target, moduleName, spa, true, dev));
+    const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa) : app(entry, target, moduleName, spa, true, dev, hot));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
     const files = out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry];
-    const b = { entry, target, moduleName, spa, dev, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
+    const b = { entry, target, moduleName, spa, dev, hot, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     if (!force) builds.set(key, b);
     return b;
   }
-  const built = (file, target, moduleName, spa, dev) =>
-    [...builds.values()].filter(b => b.entry !== file && b.target === target && b.moduleName === moduleName && b.spa === spa && b.dev === dev && b.out.modules?.[file]);
+  const built = (file, target, moduleName, spa, dev, hot) =>
+    [...builds.values()].filter(b => b.entry !== file && b.target === target && b.moduleName === moduleName && b.spa === spa && b.dev === dev && b.hot === hot && b.out.modules?.[file]);
   /** A dependency: from a build of a program that has it, rebuilt if that program changed. */
-  function containing(file, target, moduleName, spa, root, dev) {
-    const has = built(file, target, moduleName, spa, dev);
+  function containing(file, target, moduleName, spa, root, dev, hot) {
+    const has = built(file, target, moduleName, spa, dev, hot);
     const b = has.find(fresh) ?? has[0];
-    if (b) return build(b.entry, target, moduleName, spa, dev);
+    if (b) return build(b.entry, target, moduleName, spa, dev, false, hot);
     // the entry's compile was skipped (Vitest's `fsModuleCache` served it), so find the program from the files
     let failed;
     for (const entry of entriesOf(file, root)) {
-      const found = build(entry, target, moduleName, spa, dev);
+      const found = build(entry, target, moduleName, spa, dev, false, hot);
       if (found.out.modules?.[file]) return found;
       if (!failed && found.out.diagnostics) failed = found;   // the program holds it but does not compile: report why
     }
@@ -114,8 +116,6 @@ export default function rx() {
   }
   return {
     async hotUpdate({ file, modules, read, root }) {
-      const req = mapTools(root);
-      if (!req) return;
       const hub = globalThis[Symbol.for("reactivescript.vite.hmr")]?.get(root);
       const selected = new Set(modules);
       const source = await read(); // Vite waits for the editor's write to complete
@@ -129,15 +129,25 @@ export default function rx() {
         if (!old.graph.absModules.includes(file)) continue;
         const { target, moduleName, spa, dev } = old.build;
         for (const [key, cached] of builds) if (cached.entry === entry) builds.delete(key);
-        const next = build(entry, target, moduleName, spa, dev);
+        const next = build(entry, target, moduleName, spa, dev, false, true);
         if (!next.out.modules) {
           hub?.send("rx:hmr:error", { entry: old.graph.modules.at(-1), id: randomUUID(), error: next.out.error ?? report(next.out.diagnostics ?? []) });
           continue; // let Vite show its diagnostics; the last good graph is still live
         }
-        const graph = graphOf(req, entry, root);
+        const graph = graphOf(entry, root);
+        const changed = new Set([entry, file, ...old.graph.absModules.filter(f => !next.out.modules[f])]);
+        for (const [f, m] of Object.entries(next.out.modules))
+          if (m.code !== old.build.out.modules[f]?.code) changed.add(f);
+        // Cached factories close over their imports: refresh transitive importers
+        // too, but keep siblings with no dependency on the edit.
+        for (let count = -1; count !== changed.size;) {
+          count = changed.size;
+          for (const [f, m] of Object.entries(next.out.modules))
+            if ([...m.code.matchAll(RX_IMPORT)].some(([, , spec]) => changed.has(path.resolve(path.dirname(f), spec)))) changed.add(f);
+        }
         const update = {
           type: "hmr", phase: "plan", id: randomUUID(), modules: [path.relative(root, file).split(path.sep).join("/")],
-          graph, plan: req("@reactivescript/map/hmr").planHmr(old.graph, graph),
+          graph, plan: planHmr(old.graph, graph), changedModules: [...changed].map(f => path.relative(root, f).split(path.sep).join("/")),
           from: old.revision, to: revision(graph),
         };
         programs.set(entry, { graph, revision: update.to, update, build: next });
@@ -159,9 +169,10 @@ export default function rx() {
       const dep = isDep(moduleId);
       const base = path.resolve(root ?? process.cwd());
       const dev = solid.dev === true && target === "dom" ? base : null;
+      const hmr = !!(dev && hot);
       const register = dev && !dep && globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base);
       const check = () => build(file, target, moduleName, spa, dev, true).out;
-      const builtProgram = dep ? containing(file, target, moduleName, spa, base, dev) : build(file, target, moduleName, spa, dev);
+      const builtProgram = dep ? containing(file, target, moduleName, spa, base, dev, hmr) : build(file, target, moduleName, spa, dev, false, hmr);
       const { out, stamps } = builtProgram;
       if (register) register(file, spa, { check, model: () => JSON.parse(model([file], base)),
         transformed: out.modules ? () => [...stamps].filter(([f, stamp]) => mtime(f) !== stamp).map(([f]) => f) : undefined });
@@ -172,23 +183,18 @@ export default function rx() {
       // dev: a program's entry registers its map, when the project has @reactivescript/map; the lines go first, and the
       // module's map is shifted by them
       const req = dev !== null && !dep ? mapTools(base) : null;
-      let live = "", code = tagDeps(m.code);
-      if (req) {
+      let live = "";
+      const code = tagDeps(m.code);
+      if (!dep && (hmr || req)) {
         const cached = programs.get(file);
-        const graph = cached?.build === builtProgram ? cached.graph : graphOf(req, file, base);
-        live = `import { register as __rxMap } from "@reactivescript/map/live";\n__rxMap(${JSON.stringify(graph)}, { hot: import.meta.hot });\n`;
-        // RX entries export a factory, not a top-level Solid component. Keep its
-        // mounted call sites behind a stable boundary rather than refreshing JS importers.
-        if (hot && /^export default function main\(/m.test(code)) {
+        const graph = cached?.build === builtProgram ? cached.graph : graphOf(file, base);
+        if (hmr) {
           const ver = cached?.graph === graph ? cached.revision : revision(graph);
           const update = cached?.graph === graph ? cached.update : null;
           programs.set(file, { graph, revision: ver, update, build: builtProgram });
-          live = `import { hotEntry as __rxHot } from "@reactivescript/map/live";\n`;
-          code = code.replace(/^export default function main\(/m, "function main(")
-            + `\nconst __rxEntry = __rxHot(${JSON.stringify(update ? { revision: ver, update } : { revision: ver, graph })}, main, import.meta.hot);\n`
-            + `export default __rxEntry.main;\nexport const __rxReplacement = __rxEntry.replacement;\n`
-            + `if (import.meta.hot) import.meta.hot.accept(next => __rxEntry.accept(next?.__rxReplacement));\n`;
-        }
+          live = (req ? `import { liveHmr as __rxObserver } from "@reactivescript/map/live";\n` : `const __rxObserver = undefined;\n`)
+            + `const __rxPayload = ${JSON.stringify(update ? { revision: ver, update } : { revision: ver, graph })};\n`;
+        } else live = `import { register as __rxMap } from "@reactivescript/map/live";\n__rxMap(${JSON.stringify(graph)}, { hot: import.meta.hot });\n`;
       }
       const map = live && m.map ? shiftMap(m.map, live.split("\n").length - 1) : m.map;
       // CSS-4: each module links its own stylesheet, so a module several programs share links it once

@@ -2,7 +2,7 @@
 //! compiler for `target`, each importing its dependencies by `.rx` path, with the program's stylesheet. What `rxc app`
 //! prints and the Node-API build (`src/node.rs`) returns to `@reactivescript/compiler/vite`.
 use crate::check::{check_modules, check_modules_in};
-use crate::emit::{compile_dev, lower_view, Target};
+use crate::emit::{lower_view, Target};
 use crate::model::module_key;
 use crate::modules::load_modules;
 use serde_json::{json, Map, Value};
@@ -33,6 +33,11 @@ pub fn app(entry: &str, target: Target, module_name: &str, spa: bool) -> Value {
 /// `app`, for a dev build when `dev` is set: each source's and equation's creating calls run under its key
 /// (`emit::compile_dev`); `dev` is the project root the keys' modules are relative to.
 pub fn app_dev(entry: &str, target: Target, module_name: &str, spa: bool, dev: Option<&str>) -> Value {
+    app_hot(entry, target, module_name, spa, dev, false)
+}
+
+pub(crate) fn app_hot(entry: &str, target: Target, module_name: &str, spa: bool, dev: Option<&str>, hot: bool) -> Value {
+    let hot = hot && dev.is_some();
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     (|| {
@@ -50,12 +55,20 @@ pub fn app_dev(entry: &str, target: Target, module_name: &str, spa: bool, dev: O
         if !checked.diags.is_empty() {
             return Err(json!({ "diagnostics": checked.diags.iter().map(|d| { let mut j = d.to_json(); if j["file"].is_null() { j["file"] = json!(set.entry); } j }).collect::<Vec<_>>() }));
         }
-        let out = compile_dev(&set, &[], true, dev).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
+        let out = crate::emit::compile_with_hot(&set, &[], true, dev, None, hot).map_err(|e| json!({ "error": format!("{entry}: not compiled: {}", e.0) }))?;
         let mut modules = Map::new();
         for (name, module) in &out.files {
             let path = &out.paths[name];
             let text = read_disk(path).unwrap_or_default();
-            let l = lower_view(module, path, target, module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
+            let mut l = lower_view(module, path, target, module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
+            if hot && path == &set.entry {
+                // The frontend supplies the serialized plan and optional observer, not the entry's implementation.
+                l.code.push_str("\nimport { hotEntry as __rxHot } from \"@reactivescript/compiler/hot\";\n\
+                    const __rxEntry = __rxHot(__rxPayload, main, import.meta.hot, __rxObserver);\n\
+                    export default __rxEntry.main;\n\
+                    export const __rxReplacement = __rxEntry.replacement;\n\
+                    if (import.meta.hot) import.meta.hot.accept(next => __rxEntry.accept(next?.__rxReplacement));\n");
+            }
             modules.insert(path.clone(), json!({ "code": l.code, "map": l.map, "css": out.module_css[name] }));
         }
         let mut result = json!({ "entry": set.entry, "css": out.css, "modules": modules });
