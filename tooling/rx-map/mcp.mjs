@@ -93,7 +93,7 @@ async function liveCall(dev, method, params) {
 }
 
 /** Serve newline-delimited JSON-RPC over stdio (or supplied Node streams). */
-export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (method, p) => liveCall(dev, method, p), act = false, ...options } = {}) {
+export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (method, p) => liveCall(dev, method, p), act = false, stale, ...options } = {}) {
   const catalog = act ? [...tools, ...acting] : tools;
   const local = getProject ? null : project(options);
   const projectFor = getProject ?? (() => local);
@@ -115,12 +115,12 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         answer = { data, text: ACT_METHODS.includes(method) ? JSON.stringify(data, null, 2) : liveText(method, data) };
       } else if (name === "check") {
         const app = projectFor();
-        const data = app.check(true);
-        const stale = app.staleTransforms();
-        warning = stale.map(s => `stale entry transform: ${s.file} (changed: ${s.files.join(", ")}). ${s.fix}`).join("\n");
-        // errors, else "ok"; then the warnings apart (09 MO-11e: they never fail the program)
+        // the dev server's pipeline (served imports included) and the production compile, under the Vite front end
+        const { diagnostics: data, ran } = app.checkAll ? await app.checkAll(true) : { diagnostics: app.check(true), ran: [] };
+        const old = app.staleTransforms();
+        warning = old.map(s => `stale entry transform: ${s.file} (changed: ${s.files.join(", ")}). ${s.fix}`).join("\n");
         const line = d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`;
-        answer = { data, text: data.map(line).join("\n") || "ok" };
+        answer = { data, text: [data.map(line).join("\n") || "ok", ...(ran.length ? [`checked: ${ran.join(", ")}`] : [])].join("\n") };
       } else if (name === "diff") {
         try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; freshness = graph.freshness; answer = queryDiff(graph); }
         catch (e) { throw new Error(`${errorMessage(e)}\nUse an existing Git ref and check that both versions compile.`); }
@@ -154,12 +154,19 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
           answer.text += `\n${liveText("boundary_history", answer.data.live)}`;
         }
       }
+      // a rebuilt compiler, runtime or map under a running dev server: first, before anything it answers
+      const banner = stale?.() || "";
+      if (banner) warning = [banner, warning].filter(Boolean).join("\n");
       const entries = freshness?.map(e => `${e.entry}: ${e.status}${e.at ? ` at ${e.at}` : ""} (${e.modules.join(", ") || "no modules"})`).join("\n");
       return { content: format === "json"
         ? [textContent(JSON.stringify(answer.data, null, 2)), ...(warning ? [textContent(warning)] : []),
           ...(freshness ? [textContent(JSON.stringify({ freshness }))] : [])]
         : [textContent([warning, entries, answer.text].filter(Boolean).join("\n"))] };
-    } catch (e) { return { isError: true, content: [textContent(errorMessage(e))] }; }
+    } catch (e) {
+      let banner = "";
+      try { banner = stale?.() || ""; } catch {}
+      return { isError: true, content: [textContent([banner, errorMessage(e)].filter(Boolean).join("\n"))] };
+    }
   };
   async function dispatch(method, params) {
     const app = { load: () => projectFor().load() };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -309,13 +309,108 @@ test("warm MCP check runs the Vite RX frontend without RXC and flags old transfo
   t.after(() => http.close());
   const check = async () => (await (await fetch(`http://127.0.0.1:${http.address().port}`, { method: "POST",
     headers: { "content-type": "application/json" }, body: request(1, "tools/call", { name: "check" }) })).json()).result.content[0].text;
-  assert.equal(await check(), "ok");
+  // no dev server behind this stub: check says the imports went unresolved, and that the production compile ran
+  const ran = "checked: dev (compiled; imports not resolved: no dev server), production (dom)";
+  assert.equal(await check(), `ok\n${ran}`);
+  // round 5: a nested edit that leaves the entry's served code as it is does not make the entry stale
   writeFileSync(declaration, "export pure fn trouble(): ref boolean\n// edited\n");
-  assert.match(await check(), /stale entry transform: main\.rx \(changed: adapter\.d\.rx\).*Touch main\.rx.*\nok$/);
+  assert.equal(await check(), `ok\n${ran}`);
+  writeFileSync(declaration, "export pure fn trouble(): boolean\n");
+  assert.match(await check(), /stale entry transform: main\.rx \(changed: adapter\.d\.rx\).*Touch main\.rx.*\nok\nchecked: /);
   frontend.compile("", ctx);
-  assert.equal(await check(), "ok");
+  assert.equal(await check(), `ok\n${ran}`);
   writeFileSync(declaration, "export pure fn trouble(\n");
   assert.match(await check(), /adapter\.d\.rx:\d+:\d+ [A-Z]+/);
+});
+
+/** rxMap() on a stub dev server at `root`; `resolveId` (if given) stands in for Vite's resolver. Returns `call(tool)`. */
+async function stubServer(t, root, resolveId) {
+  const endpoints = new Map(), server = new EventEmitter();
+  rxMap().configureServer({ config: { root }, ws: new EventEmitter(), watcher: new EventEmitter(), httpServer: server,
+    environments: resolveId ? { client: { pluginContainer: { resolveId } } } : undefined,
+    middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} });
+  t.after(() => server.emit("close"));
+  const http = createServer((req, res) => { req.url = ""; void endpoints.get("/__rx/mcp")(req, res); });
+  await new Promise(r => http.listen(0, "127.0.0.1", r));
+  t.after(() => http.close());
+  return async (name, args = {}) => (await (await fetch(`http://127.0.0.1:${http.address().port}`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: request(1, "tools/call", { name, arguments: args }) })).json()).result;
+}
+/** Vite's resolution, as far as these tests need it: a file (with or without its extension), or a package. */
+const fsResolve = asked => async (spec, importer) => {
+  asked?.push(spec);
+  if (!/^[./]/.test(spec)) return { id: spec, external: true };
+  const base = spec.startsWith("/") ? spec.split("?")[0] : join(importer, "..", spec.split("?")[0]);
+  const found = ["", ".ts", ".js"].map(x => base + x).find(f => existsSync(f) && statSync(f).isFile());
+  return found ? { id: found } : null;
+};
+
+test("check runs the dev server's import analysis: an import the page cannot load fails check", { timeout: 20000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-served-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let frontend;
+  try { frontend = (await import("../../../compiler/vite.mjs")).default(); }
+  catch (e) { if (/native binding/.test(e.message)) return t.skip("Node-API compiler is not built"); throw e; }
+  const file = join(root, "main.rx");
+  // types from model.ts, which server.ts imports too: no .d.rx anywhere (09 MO-11, generated)
+  mkdirSync(join(root, "node_modules/@reactivescript"), { recursive: true });
+  symlinkSync(join(repo, "js"), join(root, "node_modules/@reactivescript/js"), "dir");
+  symlinkSync(realpathSync(join(repo, "ref/node_modules/typescript")), join(root, "node_modules/typescript"), "dir");
+  writeFileSync(join(root, "model.ts"), "import { pure } from \"@reactivescript/js\";\nexport type Item = { id: number };\nexport const label = pure((item: Item) => `#${item.id}`);\n");
+  writeFileSync(join(root, "server.ts"), "import { pure } from \"@reactivescript/js\";\nimport type { Item } from \"./model\";\nexport const first = pure((): Item => ({ id: 1 }));\n");
+  writeFileSync(file, `import { label, Item } from "./model"\nimport { first } from "./server"\nexport default component App() {\n  item: Item = first()\n  <p>{label(item)}</p>\n}\n`);
+  const asked = [];
+  const call = await stubServer(t, root, fsResolve(asked));
+  const ctx = { id: file, moduleId: file, root, solid: { generate: "dom", dev: true, hydratable: false }, addWatchFile() {} };
+  frontend.compile("", ctx);
+  assert.equal((await call("check")).content[0].text, "ok\nchecked: dev (served), production (dom)");
+  assert.deepEqual(asked.filter(s => s.includes(".d.rx")), [], "a generated declaration is no import");
+  assert.ok(asked.some(s => s.endsWith("model.ts")) && asked.some(s => s.endsWith("server.ts")), JSON.stringify(asked));
+  // dev only: a hand-written declaration over a JS module that is not there compiles, and the page cannot load it
+  writeFileSync(join(root, "gone.d.rx"), "export pure fn gone(): number\n");
+  writeFileSync(file, `import pure { gone } from "./gone"\nexport default component App() {\n  <p>{gone()}</p>\n}\n`);
+  frontend.compile("", ctx);
+  const failed = (await call("check")).content[0].text;
+  assert.match(failed, /^main\.rx:1:1 UNRESOLVED_IMPORT dev: the served module imports "\.\/gone(\.js)?", which Vite's import analysis cannot resolve/m);
+  assert.match(failed, /\nchecked: dev \(served\), production \(dom\)$/);
+});
+
+test("check runs the production compile: a production-only failure fails check and names production", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-production-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "main.rx");
+  writeFileSync(file, "source count := 1\n");
+  const call = await stubServer(t, root, fsResolve());
+  // the dev compile passes; the production compile (each target the app builds) does not
+  globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(file, false, {
+    check: () => ({ modules: {} }), served: () => [{ file, imports: ["@solidjs/web"], watched: [] }],
+    production: () => [{ target: "dom", out: { modules: {} } },
+      { target: "ssr", out: { diagnostics: [{ file, line: 1, code: "DECLARATION_HELPER", msg: "`pure(ref(…))`: a ref is pure already" }] } }],
+  });
+  const result = await call("check");
+  assert.equal(result.content[0].text, "main.rx:1:1 DECLARATION_HELPER production (ssr): `pure(ref(…))`: a ref is pure already\n"
+    + "checked: dev (served), production (dom, ssr)");
+});
+
+test("a compiler, runtime or map rebuilt under the dev server: check and overview say STALE first", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-revision-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const pkg = join(root, "node_modules/@reactivescript/compiler");
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@reactivescript/compiler", version: "0.3.1" }));
+  writeFileSync(join(pkg, "compiler.linux-x64-gnu.node"), "");
+  const old = new Date("2026-01-01T00:00:00Z");
+  for (const f of ["package.json", "compiler.linux-x64-gnu.node"]) utimesSync(join(pkg, f), old, old);
+  const file = join(root, "main.rx");
+  writeFileSync(file, "source count := 1\n");
+  const call = await stubServer(t, root);
+  globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(file, true, { check: () => ({ modules: {} }), model: () => [] });
+  assert.doesNotMatch((await call("check")).content[0].text, /STALE/);
+  const rebuilt = new Date("2026-02-01T00:00:00Z");
+  utimesSync(join(pkg, "compiler.linux-x64-gnu.node"), rebuilt, rebuilt);
+  const banner = /^STALE: the dev server loaded @reactivescript\/compiler built 2026-01-01 00:00:00Z; the package on disk was rebuilt 2026-02-01 00:00:00Z — restart the dev server\n/;
+  assert.match((await call("check")).content[0].text, banner);
+  assert.match((await call("overview")).content[0].text, banner);
 });
 
 test("reach follows the argument into its prop, not its sibling", { timeout: 10000 }, async t => {
