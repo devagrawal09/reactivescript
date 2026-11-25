@@ -161,7 +161,46 @@ function getRecorder() {
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
   let guessesNamed = false; // this Solid's records name the store properties a guess moved
   const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity), internals = new Array(capacity);
-  const carrierOnly = new Array(capacity);
+  const carrierOnly = new Array(capacity), rewrites = new Array(capacity), carrierKeys = new Array(capacity);
+  // Does this Solid's view read a list's unnoded keys (mapArray rows) through the pinned container (solid-view
+  // 980f5b4c5)? Probed once, at the first travel; until then, and on an older Solid, wholesale rewrites are inexact.
+  let listsThroughPin = null, probing = false;
+  // A private list, prepended once and read through mapArray, then shown under a view at its first frame: with the
+  // fix the view shows "a", without it the present "b". Synchronous, outside any flush (travel is called from a
+  // message handler); its flushes are not history.
+  function probeListPins(openView) {
+    const s = engine[0], records = s?.OBSERVE?.records;
+    if (!s?.createStore || !s.mapArray || !s.createRoot || !s.createRenderEffect || !records?.subscribe) return false;
+    probing = true;
+    let dispose, shown, off;
+    const pins = new Map();
+    try {
+      off = records.subscribe("flush", (_e, live) => {
+        for (const c of live?.changes ?? []) if (c.node && !pins.has(c.node)) pins.set(c.node, c.prev);
+      }, { bodies: true });
+      const [list, setList] = s.createStore([{ l: "a" }]);
+      s.createRoot(d => {
+        dispose = d;
+        const rows = s.mapArray(() => list, r => () => (typeof r === "function" ? r() : r).l);
+        s.createRenderEffect(() => rows().map(f => f()).join(","), v => { shown = v; });
+      });
+      s.flush();
+      pins.clear();
+      setList(l => [{ l: "b" }, ...l]);
+      s.flush();
+      if (shown !== "b,a") return false;
+      const v = openView();
+      try {
+        v.show(pins);
+        return shown === "a";
+      } finally { v.resume(); }
+    } catch { return false; }
+    finally {
+      off?.();
+      try { dispose?.(); s.flush(); } catch {}
+      probing = false;
+    }
+  }
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const activeErrors = new Map(), held = new Map(), writes = new Set(), dirty = new Set();
@@ -271,7 +310,9 @@ function getRecorder() {
     // lists only its container and length, and under a view a list's items still come from the store's backing
     // (openView known gap), so its rows can't be taken back past this step.
     const rowless = changes.filter(c => c.key && c.path === "length" && !changes.some(d => d.key === c.key && /^\d+(\.|$)/.test(d.path ?? ""))).map(c => c.key);
-    guesses[i] = guessesNamed ? rowless : [...carriers, ...rowless];
+    guesses[i] = guessesNamed ? [] : [...carriers];
+    rewrites[i] = rowless;
+    carrierKeys[i] = carriers;
     if (!wasNamed && guessesNamed) for (let s = oldest(); s < flushes; s++) {
       // (the first named guess tells this Solid apart: earlier carrier-only entries were not gaps)
       const j = (s - 1) % capacity;
@@ -290,7 +331,7 @@ function getRecorder() {
   const send = (msg, flightId, since, origin) => {
     if (msg.type === "flush") {
       // Under a view nothing the program does shows, and the view's own pins are not history.
-      if (view) return;
+      if (view || probing) return;
       if (landing) return void landing.records.push(msg);
       const raw = recordRaw(msg.raw);
       const all = reconcileErrors(msg.changes);
@@ -468,7 +509,21 @@ function getRecorder() {
   // after n (and what reads it). Once a guess's record has named its properties, this Solid has none.
   function inexactAt(n) {
     const roots = new Set();
-    for (let s = n + 1; s <= flushes; s++) for (const k of guesses[(s - 1) % capacity] ?? []) roots.add(k);
+    const guessedAfter = new Set();
+    for (let s = n + 1; s <= flushes; s++) for (const k of carrierKeys[(s - 1) % capacity] ?? []) guessedAfter.add(k);
+    for (let s = n + 1; s <= flushes; s++) {
+      const i = (s - 1) % capacity;
+      for (const k of guesses[i] ?? []) roots.add(k);
+      if (!listsThroughPin) for (const k of rewrites[i] ?? []) roots.add(k);
+    }
+    // A Solid whose view reads a list's rows through the pinned container rewinds a list rewritten wholesale, except
+    // one an optimistic layer guessed over after n (a guess held across an await, then landed): its rows still read
+    // wrong or `undefined` under the view (solid-view 980f5b4c5; reported).
+    if (listsThroughPin && guessedAfter.size) {
+      const rewritten = new Set();
+      for (let s = oldest(); s <= flushes; s++) for (const k of rewrites[(s - 1) % capacity] ?? []) rewritten.add(k);
+      for (const k of guessedAfter) if (rewritten.has(k)) roots.add(k);
+    }
     if (!roots.size) return [];
     const out = new Set(roots);
     for (const g of graphs) {
@@ -549,6 +604,11 @@ function getRecorder() {
     if (typeof openView !== "function") return deny(to, "unsupported");
     try {
       if (!view) {
+        if (listsThroughPin === null) {
+          listsThroughPin = probeListPins(openView);
+          // dev-only, for tests and tools: not part of the trace protocol
+          (globalThis.__RX__ ??= {}).travel = { listsThroughPin };
+        }
         const v = openView();
         view = v; // set after openView: its own flush of what was staged is live history
       }
