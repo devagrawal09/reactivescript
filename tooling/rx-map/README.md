@@ -201,14 +201,28 @@ Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a
 is running or a resume is still landing, `unsupported` when Solid has no `openView`. The page stays clickable while
 viewing; a click writes beneath the view and shows at resume. Store guesses do not rewind yet (see Limits).
 
-**Pop-out:** the window button in the header opens the same live map in a window of its own. It starts from what this
-map holds and gets every host message through it; its travel, resume and select go to this map's host. Closing either
-side is safe.
+**Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
+page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
+**disconnected** when the feed stops, and says hello again (and takes the new graph) after the app reloads. Without a
+bridge (fake mode) it is fed through the map that opened it. The button opens a new one after you close one.
 
 **Fake mode:** `pageHTML(graph, { fake: seed })`, or any map page with `?fake=<seed>`, runs the fake host
 (`./fake`, with `./hmr`, put into the page by `build.mjs`) in the page itself. A small HUD drives it: act (a random
 or a chosen action), auto-play, edit a module (rename, expr, type, add, remove), tick; travel and resume are the
 timeline's. `window.__RX_FAKE_LIB__` is the embedded library (`createFakeHost`, `planHmr`).
+
+- v0.4: a value can be an **error** (`error` on a snapshot value or a flush change): the token turns rose and its badge,
+  tooltip and panel say what failed. A **held** write (`held` / `released`, `snapshot.held`) gets an amber
+  "held · waiting on …" mark under its token. A tripped boundary is clickable (its tag or its "showing fallback"
+  badge): the panel says what it shows now, the error, and which names that can notify it are failing or pending. A
+  value the map got in the snapshot reads "value at open".
+- v0.5 travel: while viewing, the badge says `viewing #n of m`, the world greys, and a note says the app is read-only
+  until you resume. Before a key's first recorded change its value is that change's `prev`. A step's `inexact` keys
+  are marked "can't rewind".
+
+**Moving around:** the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel and a trackpad pinch zoom. `F` frames
+the whole map, or fits its width when the whole would be too small to read. `/` searches: ↑ / ↓ go through the
+matches, Enter selects one and opens it in the panel.
 
 What it shows:
 

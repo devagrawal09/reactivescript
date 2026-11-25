@@ -154,6 +154,9 @@
   .chip:focus-visible { outline: 2px solid #fff; outline-offset: 3px }
   .chip.io::after { content: ""; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 11 11 5M6.5 5H11v4.5' fill='none' stroke='%230f1115' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-size: 12px 12px !important; background-position: center !important; background-repeat: no-repeat !important; position: absolute; top: -8px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: #e5e7eb; color: #0f1115; font: 700 11px/16px system-ui; text-align: center; box-shadow: 0 0 0 2px #0f1115, 0 2px 4px rgba(0, 0, 0, .5) }
   .chip.io.chg-io::after { box-shadow: 0 0 0 2px #0f1115, 0 0 0 4px var(--d-chg) }
+  #qwrap { position: relative; display: inline-flex; align-items: center }
+  #qcount { position: absolute; right: 26px; font-size: 10.5px; color: var(--micro); pointer-events: none }
+  .chip.hit.cur { box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(255, 255, 255, .35), 0 0 22px 4px rgba(255, 255, 255, .45) }
   .chip.hit { box-shadow: 0 0 0 2px #fff, 0 0 16px 2px rgba(255, 255, 255, .35) }
   .chip.sel { box-shadow: 0 0 0 2px #fff, 0 0 22px 4px color-mix(in srgb, var(--c) 70%, transparent) }
   .chip.compref { --r: 5px }
@@ -321,13 +324,14 @@
      stay reserved -------------------------------------------------------------------------------------------------- */
   #liveBadge { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text); border: 1px solid rgba(150, 180, 255, .25); border-radius: 999px; padding: 2px 10px 2px 8px; background: rgba(255, 255, 255, .04); font-variant-numeric: tabular-nums }
   #liveBadge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: .45 }
+  body.disconnected #liveBadge { color: var(--fail); border-color: rgba(251, 113, 133, .6) }
+  body.disconnected #liveBadge::before { background: var(--fail); opacity: 1 }
+  body.disconnected #canvas { filter: saturate(.55) }
   #liveBadge.beat::before { animation: rx-beat .6s ease-out }
   @keyframes rx-beat { from { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 255, 255, .8) } to { opacity: .45; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0) } }
   .chip.pulse::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r) + 4px); border: 2px solid #fff; pointer-events: none; box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 8px rgba(255, 255, 255, .35); animation: rx-pulse 1s ease-out var(--pd, 0ms) both }
   .chip.pulse.p2::before { animation-name: rx-pulse2 }
   .chip.reverting .tok { animation: rx-revert .8s ease-out }
-  .chip.live-error .tok { outline: 2px solid #fb7185; outline-offset: 2px }
-  .chip.live-held .tok { outline: 2px dashed var(--pending); outline-offset: 2px }
   @keyframes rx-revert { 20% { filter: brightness(1.5) drop-shadow(0 0 6px #fb7185) drop-shadow(0 0 4px #fb7185) } }
   @keyframes rx-pulse { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
   @keyframes rx-pulse2 { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
@@ -364,6 +368,28 @@
   .chip .lv.list .lm { color: rgba(255, 255, 255, .65) }
   .lvlist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font: 11.5px ui-monospace, Menlo, monospace }
   .lvlist li { padding: 2px 6px; border-left: 2px solid rgba(150, 180, 255, .35); background: rgba(255, 255, 255, .03) }
+  /* a failed value: rose, with what failed */
+  .chip.failed .tok { box-shadow: 0 0 0 2px var(--fail), 0 0 16px rgba(251, 113, 133, .55), 0 3px 0 #3b0d17 !important }
+  .chip.failed.s-well .tok, .chip.failed.s-flow .tok { --face: linear-gradient(180deg, rgba(251, 113, 133, .45), rgba(120, 20, 40, .55)); border-color: var(--fail) }
+  .chip.failed > .lv { display: none }
+  .chip .lverr { display: inline-flex; align-items: center; gap: 4px; max-width: 26ch; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #fff; background: #be123c; border: 1px solid #fb7185; border-radius: 4px; padding: 0 5px 0 4px; box-shadow: 0 0 10px rgba(251, 113, 133, .45) }
+  .chip .lverr span { overflow: hidden; text-overflow: ellipsis }
+  .chip .lverr svg.i { width: 11px; height: 11px }
+  /* a held write: amber, dashed, with what it waits on (the in-flight orbit is a different thing: a request) */
+  .chip.held::after { content: ""; position: absolute; inset: -5px; border-radius: calc(var(--r) + 5px); border: 1.5px dashed var(--pending); pointer-events: none }
+  .chip.held.io::after { content: "" }
+  .chip .hm { position: absolute; left: 50%; top: calc(100% + 5px); transform: translateX(-50%); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; font: 10.5px/1.4 ui-monospace, Menlo, monospace; color: #1a1205; background: var(--pending); border-radius: 4px; padding: 0 6px 0 4px; box-shadow: 0 0 10px rgba(251, 191, 36, .45); z-index: 3 }
+  .chip .hm b { font: 800 9px/1 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase }
+  .chip .hm svg.i { width: 10px; height: 10px }
+  .failbox, .heldbox { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 6px; margin: 4px 0 6px }
+  .failbox { background: rgba(225, 29, 72, .16); border: 1px solid rgba(251, 113, 133, .55); color: #fecdd3 }
+  .failbox b, .heldbox b { text-transform: uppercase; font-size: 10px; letter-spacing: .12em }
+  .heldbox { background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .5); color: #fde68a }
+  .failbox svg.i, .heldbox svg.i { flex-shrink: 0; margin-top: 1px }
+  .nowtag { font: 700 10px/1 ui-sans-serif, system-ui; letter-spacing: .12em; text-transform: uppercase; padding: 5px 8px; border-radius: 4px; border: 1px solid rgba(150, 180, 255, .3); color: var(--dim) }
+  .nowtag.ok { color: #cbd5e1 } .nowtag.wait { color: #1a1205; background: var(--pending); border-color: var(--pending) } .nowtag.bad { color: #fff; background: #e11d48; border-color: var(--fail) }
+  pre.code.failpre { --cb: var(--fail); color: #fecdd3 }
+  .trip { cursor: pointer }
   /* a boundary showing its fallback: tripped, unmistakably */
   .frame.tripped { border-style: solid !important; border-left-width: 4px }
   .frame.trip-loading { border-color: var(--pending) !important; background: repeating-linear-gradient(135deg, rgba(251, 191, 36, .17) 0 10px, rgba(251, 191, 36, .05) 10px 20px) !important; box-shadow: 0 0 0 1px rgba(251, 191, 36, .5), 0 0 30px rgba(251, 191, 36, .22), 0 4px 0 -1px rgba(4, 6, 10, .5) }
@@ -383,6 +409,20 @@
   @keyframes rx-rewind { 0% { opacity: 0 } 18%, 55% { opacity: 1 } 100% { opacity: 0 } }
   @keyframes rx-sweep { from { transform: translateX(-100%) } to { transform: translateX(300%) } }
   @keyframes rx-sweep-back { from { transform: translateX(300%) } to { transform: translateX(-100%) } }
+  body.viewing #canvas { filter: saturate(.3) sepia(.12) brightness(.92); transition: filter .4s }
+  #canvas { transition: filter .4s }
+  #viewNote { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 12px; font-size: 12px; z-index: 13; white-space: nowrap; border-color: rgba(226, 232, 240, .45) }
+  #viewNote b { text-transform: uppercase; letter-spacing: .12em; font-size: 10px }
+  #viewNote svg.i { color: #e2e8f0 }
+  #viewNote .vn-short { display: none }
+  @media (max-height: 520px), (max-width: 900px) {
+    #viewNote { position: static; transform: none; padding: 1px 3px 1px 7px; font-size: 10.5px; gap: 6px; box-shadow: none; backdrop-filter: none; background: rgba(226, 232, 240, .1) }
+    #viewNote::before, #viewNote::after { display: none }
+    #viewNote .vn-long { display: none } #viewNote .vn-short { display: inline }
+    #viewNote .hbtn { padding: 1px 7px }
+  }
+  .chip.inexact .tok { filter: grayscale(.6) }
+  .chip .inx { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); font: 700 9px/1.4 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; color: #e2e8f0; background: rgba(15, 17, 21, .9); border: 1px dashed rgba(226, 232, 240, .6); border-radius: 4px; padding: 0 5px; white-space: nowrap }
   body.viewing #canvas::after { content: ""; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(226, 232, 240, .28), inset 0 0 140px rgba(200, 210, 230, .12) }
   #scrub { flex: 0 1 640px; min-width: 0; margin: 0 auto; display: flex; gap: 10px; align-items: center }
   #scrub[hidden] { display: none }
@@ -482,7 +522,7 @@
 <div id="rewind"></div>
 <header class="hud">
   <h1><span class="logo"></span>RX·MAP <small class="mono"><!--__TITLE__--></small></h1>
-  <input type="search" id="q" placeholder="find a name…  (/)">
+  <span id="qwrap"><input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount"><span id="qcount" class="mono" aria-live="polite"></span></span>
   <label><input type="checkbox" id="all"> all edges</label>
   <button id="hiddenBtn" hidden title="open the legend to show them again"></button>
   <span id="diffbar"><select id="view"><option value="both">before + after</option><option value="before">before</option><option value="after">after</option></select></span>
@@ -773,9 +813,17 @@ function controlInfo(r) {
     errored: [/\berrored\b(?:\s+fallback\s*\(([^)]*)\))?/, m => (m[1] ? `errored (${m[1].trim()})` : "errored")],
   }[r.kind];
   let info = { text: CTL[r.kind] ?? r.kind, line: null, site: null };
-  if (pat && L < 1e9) for (let i = L; i >= Math.max(1, L - 40); i--) {
-    const m = ls[i] && pat[0].exec(ls[i]);
-    if (m) { info = { text: pat[1](m), line: i, site: null }; break; }
+  if (r.head) info = { text: r.head.text, line: r.head.line, site: null };   // the graph read it (graph.mjs controlHeads)
+  else {
+    // an older graph: read it here, above the headers of the constructs nested in it (so an outer `errored (e)` is not
+    // labelled with an inner `errored (e: NotFound)`)
+    let bound = L;
+    const below = rr => { for (const k of rr.kids ?? []) { const h = CTL[k.kind] && controlInfo(k); if (h?.line) bound = Math.min(bound, h.line - 1); else below(k); } };
+    below(r);
+    if (pat && bound < 1e9) for (let i = bound; i >= Math.max(1, bound - 40); i--) {
+      const m = ls[i] && pat[0].exec(ls[i]);
+      if (m) { info = { text: pat[1](m), line: i, site: null }; break; }
+    }
   }
   // the read that decides it (`if c`, `for x in xs`, `loading on(k)`) sits in the parent region: it is drawn in the header
   const kw = { then: "if", for: "for", loading: "loading on" }[r.kind];
@@ -987,6 +1035,7 @@ function render() {
   document.body.classList.toggle("flat", G.nodes.length > 900);
   applyHidden();
   paintBoundaries();
+  if (typeof live !== "undefined") for (const k of new Set([...live.values.keys(), ...live.held.keys()])) paintState(k);
   layoutChanged();
 }
 
@@ -1201,7 +1250,7 @@ function showPanel(id) {
     ${diffFacts(n)}
     ${facts.map(f => `<div class="hint" style="margin-top:4px">· ${f}</div>`).join("")}
     ${reason ? `<h3>Reload plan</h3><div class="hint">${esc(reason)}</div>` : ""}
-    ${LIVE && keyIds.has(n.key) ? `<h3>Live value</h3><div id="liveval"></div>` : ""}
+    ${LIVE && keyIds.has(n.key) && !["comp", "action", "fn", "server", "import", "errclass", "context"].includes(n.kind) ? `<h3>Live value</h3><div id="liveval"></div>` : ""}
     <div class="row">
       <button data-trace="down">what it affects</button>
       <button data-trace="up">what it depends on</button>
@@ -1235,6 +1284,7 @@ function regionPanel(r) {
   panel.innerHTML = `
     <h2><span class="frame ${r.kind}" style="border:0;padding:0;background:none;box-shadow:none"><span class="ctag" style="pointer-events:none"></span></span></h2>
     <div class="hint">${CTL_WHAT[r.kind] ?? ""}</div>
+    ${LIVE && (r.kind === "loading" || r.kind === "errored") ? boundaryNow(r, i) : ""}
     ${info.line ? `<div class="hint mono" style="margin-top:6px">${esc(G.modules[r.mod])}:${info.line} ${abs ? `· <a href="vscode://file/${esc(abs)}:${info.line}">open in editor</a>` : ""}</div><pre class="code now"></pre>` : ""}
     <div class="row"><button data-trace="up">what can trigger it</button><button data-trace="clear">clear</button></div>
     ${r.kind === "loading" || r.kind === "errored" ? `
@@ -1244,6 +1294,17 @@ function regionPanel(r) {
       <p class="hint">${sites?.size ?? 0} reader${sites?.size === 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested ${r.kind} boundary report to that one instead${r.kind === "errored" ? ", except a typed one: what it does not catch fails through to here" : ""}.</p>` : ""}`;
   panel.querySelector(".ctag").innerHTML = ctagHTML(r.kind); panel.querySelector(".ctag").append(info.text);
   if (panel.querySelector("pre.now")) panel.querySelector("pre.now").innerHTML = hl((G.lines[G.modules[r.mod]]?.[info.line] ?? "").trim());
+}
+// a boundary's state now (live): showing its content or its fallback, the error it caught, and which of the names that
+// can notify it are failing or pending right now
+function boundaryNow(r, notifiers) {
+  const b = live.boundaries.get(r.key) ?? live.boundaries.get(r.id);
+  const tripped = b && (b.state === "fallback" || b.state === "error");
+  const state = !b ? `<span class="nowtag">no report yet</span>` : tripped ? `<span class="nowtag ${r.kind === "errored" || b.state === "error" ? "bad" : "wait"}">showing fallback</span>` : `<span class="nowtag ok">showing its content</span>`;
+  const hot = notifiers.map(e => ({ id: e.from, v: live.values.get(nodes.get(e.from)?.key) })).filter(x => x.v?.error || x.v?.pending || live.flying.has(nodes.get(x.id)?.key));
+  return `<h3>Now</h3><div class="row" style="margin-top:0">${state}</div>
+    ${b?.error ? `<pre class="code failpre"></pre>`.replace("></pre>", `>${esc(b.error)}</pre>`) : ""}
+    ${hot.length ? `<ul>${hot.map(x => `<li><a href="#" data-go="${esc(x.id)}"></a><span class="tag" style="color:${x.v?.error ? "var(--fail)" : "var(--pending)"}">${x.v?.error ? `failed: ${esc(String(x.v.error).slice(0, 60))}` : "pending"}</span></li>`).join("")}</ul>` : tripped ? `<p class="hint">None of the names below reports a failure or a wait right now; the trigger may be outside the program.</p>` : ""}`;
 }
 function bindPanel() {
   bindLegend();
@@ -1357,10 +1418,10 @@ function applyCam() {
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
   drawMiniView();
-  clearTimeout(crispT); crispT = setTimeout(crisp, 200);
+  clearTimeout(crispT); crispT = setTimeout(crisp, 70);
 }
 function crisp() {
-  if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 120); return; }
+  if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 60); return; }
   const L = Math.round(clamp(cam.s, .3, 3) * 20) / 20;
   if (L === LZ) return;
   LZ = L;
@@ -1403,7 +1464,16 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
 }
 function flyToEl(el, s) { const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
 function fitScale() { const fr = freeRect(), m = compact() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
-function frameAll(dur = 600) { flyTo(BW / 2, BH / 2, fitScale(), dur); }
+// Frame: the whole board when it can be read that way; a tall one is fitted to the width instead, staying where you are
+// (a whole 8-module app at 10% is a strip nobody can read)
+function frameAll(dur = 600) {
+  const whole = fitScale(), fr = freeRect();
+  if (whole >= .5) return flyTo(BW / 2, BH / 2, whole, dur);
+  const s = clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1);
+  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
+  flyTo(BW / 2, y, s, dur);
+}
+const framed = () => { const fr = freeRect(); const [bx] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - fitScale()) < .01 || Math.abs(cam.s - clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1)) < .01); };
 function home() {
   // a small map is framed whole; a big one starts at the top, as wide as the screen
   const fr = freeRect(), fit = fitScale();
@@ -1422,7 +1492,7 @@ function zoomAt(sx, sy, f) {
   const [bx, by] = toBoard(sx, sy);
   fly = null;
   setCamAt(bx, by, clamp(cam.s * f, .08, 2.6), sx, sy);
-  camChanged();
+  camDirty = false; applyCam();   // now, not next frame: the wheel feels direct
 }
 function ensureVisible(el) {
   const b = boxOf(el); if (!b) return;
@@ -1499,10 +1569,13 @@ canvas.addEventListener("click", ev => { if (suppressClick) { ev.stopPropagation
 canvas.addEventListener("wheel", ev => {
   ev.preventDefault();
   const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
-  if (ev.shiftKey) { cam.x -= ev.deltaY * unit; camChanged(); return; }
-  // a trackpad's two-finger scroll comes with deltaX: pan; a wheel or a pinch (ctrl) zooms toward the pointer
-  if (!ev.ctrlKey && ev.deltaX !== 0) { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; fly = null; camChanged(); return; }
-  zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey ? .01 : .0016)));
+  // the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel, and a trackpad pinch (which comes as ctrl), zoom
+  // toward the pointer
+  if (ev.ctrlKey || ev.metaKey) { zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0022))); return; }
+  fly = null; inertia = null;
+  if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
+  else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
+  camDirty = false; applyCam();
 }, { passive: false });
 addEventListener("resize", () => { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(); sizeScrub(); renderScrub(); });
 document.getElementById("zoomIn").innerHTML = ICON.plus;
@@ -1589,7 +1662,7 @@ function tipHTML(id) {
   return `<div class="tip-h"><span style="color:${FAM_HEX[f]}">${ICON[ICON_OF[kk]] ?? ""}</span><span class="micro" style="color:${FAM_HEX[f]}">${esc(KIND[kk]?.label ?? n.kind)}</span><span class="micro">· ${f}${n.async ? " · can be pending" : ""}${n.io ? " · io" : ""}${n.world ? " · trust point" : ""}</span></div>
     <div class="tip-n mono">${esc(n.name)}</div>${lineOf(n) ? `<pre class="code">${hl(lineOf(n))}</pre>` : ""}
     <div class="tip-m mono">${esc(n.file)}:${n.line}${n.status && n.status !== "same" ? ` · ${n.status}` : ""}</div>
-    ${v?.preview !== undefined ? `<div class="tip-v">= ${esc(v.preview)}</div>` : ""}${live.flying.has(n.key) ? `<div class="tip-m" style="color:var(--pending)">${GI} in the air</div>` : ""}${reason ? `<div class="tip-m">reload: ${esc(reason)}</div>` : ""}`;
+    ${v?.error ? `<div class="tip-v" style="color:var(--fail)">failed: ${esc(v.error)}</div>` : ""}${v?.preview !== undefined ? `<div class="tip-v">= ${esc(v.preview)}</div>` : ""}${LIVE && live.held.has(n.key) ? `<div class="tip-m" style="color:var(--pending)">held · waiting on ${esc((live.held.get(n.key).by ?? []).map(keyName).join(", ") || "an action")}</div>` : ""}${live.flying.has(n.key) ? `<div class="tip-m" style="color:var(--pending)">${GI} in the air</div>` : ""}${reason ? `<div class="tip-m">reload: ${esc(reason)}</div>` : ""}`;
 }
 function showTip(id, x, y) {
   tip.innerHTML = tipHTML(id);
@@ -1655,13 +1728,40 @@ board.addEventListener("dblclick", ev => {
   if (selected !== c.dataset.id) select(c.dataset.id);
   flyToEl(c, clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2));
 });
-document.getElementById("q").addEventListener("input", ev => {
+// search: every match lights; ↑ / ↓ go from one to the next, Enter selects it and opens it in the panel
+const qEl = document.getElementById("q"), qCount = document.getElementById("qcount");
+const search = { hits: [], i: -1 };
+function searchGo(i) {
+  if (!search.hits.length) return;
+  search.i = (i + search.hits.length) % search.hits.length;
+  document.querySelectorAll(".chip.hit.cur").forEach(c => c.classList.remove("cur"));
+  const el = anchors.get(search.hits[search.i]);
+  el?.classList.add("cur");
+  if (el) flyToEl(el, Math.max(cam.s, .8));
+  qCount.textContent = `${search.i + 1}/${search.hits.length}`;
+}
+qEl.addEventListener("input", ev => {
   const q = ev.target.value.trim().toLowerCase();
-  document.querySelectorAll(".chip.hit").forEach(c => c.classList.remove("hit"));
+  document.querySelectorAll(".chip.hit").forEach(c => c.classList.remove("hit", "cur"));
+  search.hits = []; search.i = -1; qCount.textContent = "";
   if (!q) return;
-  let first = null;
-  for (const [id, el] of anchors) if (nodes.get(id)?.name?.toLowerCase().includes(q)) { el.classList.add("hit"); first ??= el; }
-  if (first) flyToEl(first, Math.max(cam.s, .8));
+  // names first (exact, then prefix, then anywhere), in reading order
+  const score = n => (n.name.toLowerCase() === q ? 0 : n.name.toLowerCase().startsWith(q) ? 1 : 2) + (n.site ? 3 : 0);
+  const found = [...anchors].filter(([id, el]) => el.classList.contains("chip") && el.offsetParent && nodes.get(id)?.name?.toLowerCase().includes(q)).map(([id]) => id);
+  found.sort((a, b) => score(nodes.get(a)) - score(nodes.get(b)) || nodes.get(a).mod - nodes.get(b).mod || nodes.get(a).line - nodes.get(b).line);
+  search.hits = [...new Set(found)];
+  for (const id of search.hits) anchors.get(id)?.classList.add("hit");
+  if (search.hits.length) searchGo(0); else qCount.textContent = "0";
+});
+qEl.addEventListener("keydown", ev => {
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); searchGo(search.i + (ev.key === "ArrowDown" ? 1 : -1)); }
+  else if (ev.key === "Enter") {
+    ev.preventDefault();
+    if (!search.hits.length) return;
+    if (ev.shiftKey) return searchGo(search.i - 1);
+    const id = search.hits[Math.max(0, search.i)];
+    select(id, true);
+  }
 });
 board.addEventListener("keydown", ev => {
   const c = ev.target.closest?.("[data-id]");
@@ -1680,7 +1780,7 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "Escape") {
     if (typing()) { document.activeElement.blur(); return; }
     if (selected) select(null);
-    else if (Math.abs(cam.s - fitScale()) > .01) frameAll();
+    else if (!framed()) frameAll();
     else if (open) closePanel();
     return;
   }
@@ -1908,12 +2008,38 @@ function toast(html, ms = 2400) { toastEl.innerHTML = html; toastEl.classList.ad
 // Messages carry the key a dev build names its Solid nodes with (`rx:<key>`), the same key as a node here. A key this map
 // does not have (a node from outside the program, an older build) is ignored, and so is a message type it does not know.
 const live = { values: new Map(), flying: new Map(), flushes: 0, boundaries: new Map(), held: new Map() };
+// a value that is an error: the token turns rose and its badge says what failed; a write that is held: an amber
+// "held · waiting on …" mark under the token until it is released
+function paintState(key) {
+  const v = live.values.get(key), h = live.held.get(key);
+  for (const el of chipsOf(key)) {
+    el.classList.toggle("failed", !!v?.error);
+    el.querySelector(":scope > .lverr")?.remove();
+    if (v?.error) {
+      const b = document.createElement("span"); b.className = "lverr";
+      b.innerHTML = `${ICON.warn}<span></span>`; b.lastElementChild.textContent = String(v.error).slice(0, 60);
+      el.append(b);
+    }
+    el.classList.toggle("pending-now", !!v?.pending);
+    el.classList.toggle("held", !!h);
+    el.querySelector(":scope > .hm")?.remove();
+    if (h) {
+      const m = document.createElement("span"); m.className = "hm";
+      m.innerHTML = `${ICON.lock}<b>held</b><span></span>`;
+      m.lastElementChild.textContent = h.by?.length ? `waiting on ${h.by.map(keyName).join(", ")}` : "waiting";
+      el.append(m);
+    }
+  }
+}
+function onHeld(d) { if (!keyIds.has(d.key)) return; live.held.set(d.key, { by: d.by ?? [], since: d.at }); paintState(d.key); if (selected && nodes.get(selected)?.key === d.key) liveValue(); }
+function onReleased(d) { if (!live.held.delete(d.key)) return; paintState(d.key); if (selected && nodes.get(selected)?.key === d.key) liveValue(); }
 const tl = { steps: [], head: 0, viewing: null, capacity: 2000, flights: [], hmrs: [], target: null };
 // where messages to the host go: an in-page fake (`window.__RX_FAKE__`, with post/subscribe) or the parent window
 // Where messages to the host go. A pop-out hands them to the map that opened it; an in-page fake host
 // (`window.__RX_FAKE__`, with post/subscribe) takes them itself; otherwise the parent window is the host.
 const popups = new Set();   // pop-out windows this map relays to: { win, receive }
 let opener = null;          // in a pop-out: the link to the map that opened it
+let connected = true;       // in a pop-out: whether the feed it gets is still running
 const host = {
   post(m) {
     const msg = { source: "rx-map", v: 1, ...m };
@@ -1969,17 +2095,58 @@ if (LIVE) {
   if (!POPOUT) addEventListener("message", ev => { if (ev.source !== window) receive(ev.data); });
 }
 // ---- pop-out: the same live map in a window of its own --------------------------------------------------------------
+let popWin = null;   // the pop-out this map opened, while it is open
 function popOut() {
-  const existing = [...popups].find(p => !p.win.closed);
-  if (existing) { existing.win.focus(); return; }
+  if (popWin && !popWin.closed) { popWin.focus(); return; }
   const w = window.open("", "rx-map-popout", "width=1280,height=820");
   if (!w) { toast(`<span class="micro">pop-out</span> the browser blocked the window`); return; }
-  w.document.open(); w.document.write(PRISTINE); w.document.close();
+  popWin = w;
+  try { w.document.open(); w.document.write(PRISTINE); w.document.close(); }
+  catch (e) { popWin = null; toast(`<span class="micro">pop-out</span> could not write the window: ${esc(e.message ?? e)}`); return; }
   SFX.toggle();
 }
-function joinOpener() {
+// A pop-out talks to the app page itself when it can (`__RX__.connect` from @reactivescript/map/live, in the page that
+// holds the dock), so it keeps streaming when the dock's iframe goes away and reconnects after the app reloads. Without
+// it (fake mode, an older bridge) it is fed through the map that opened it.
+let appWin = null, rxRef = null, bridgeLink = null;
+const rxOf = w => { try { return w && !w.closed ? w.__RX__ ?? null : null; } catch { return null; } };
+function setConnected(ok) {
+  if (connected === ok) return;
+  connected = ok;
+  document.body.classList.toggle("disconnected", !ok);
+  liveBadge();
+  toast(ok ? `<span class="micro">pop-out</span> connected to the app again` : `<span class="micro">pop-out</span> disconnected: the app stopped sending (closed, reloading or navigated away)`, ok ? 2400 : 5000);
+}
+function attachDirect() {
+  try { bridgeLink?.close(); } catch {}
+  const rx = rxOf(appWin);
+  rxRef = rx;
+  const l = rx.connect(m => receive(m));
+  bridgeLink = l;
+  opener = { post: m => l.send(m) };
+  // after a reload the app may run new code: take its graph if it is not the one drawn
   try {
-    const o = window.opener;
+    const g = l.graph(), sig = x => JSON.stringify([x.modules, x.nodes.map(n => n.key)]);
+    if (g?.nodes && sig(g) !== sig(G)) { loadGraph(JSON.parse(JSON.stringify(g))); render(); renderPanel(); }
+  } catch {}
+  onReset();
+  host.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
+}
+function joinOpener() {
+  const o = window.opener;
+  try { const p = o.parent; appWin = p && p !== o ? p : null; } catch { appWin = null; }
+  if (appWin && rxOf(appWin)?.connect) {
+    attachDirect();
+    addEventListener("pagehide", () => { try { bridgeLink?.close(); } catch {} });
+    setInterval(() => {
+      const rx = rxOf(appWin);
+      if (!rx?.connect) return setConnected(false);
+      if (rx !== rxRef) attachDirect();   // the app reloaded: a new bridge, a new hello
+      setConnected(true);
+    }, 1000);
+    return;
+  }
+  try {
     opener = o.__RX_VIEW__.attach(window, receive);
     const st = opener.state();
     if (st.graph) { loadGraph(JSON.parse(JSON.stringify(st.graph))); render(); }
@@ -1988,22 +2155,14 @@ function joinOpener() {
     onSnapshot(st.snapshot);
     addEventListener("pagehide", () => { try { opener?.detach(); } catch {} });
     // the map that opened this one can go away (its dock closed): say so, and stop
-    const watch = setInterval(() => { let gone = true; try { gone = o.closed || !o.__RX_VIEW__; } catch {} if (gone) { clearInterval(watch); opener = null; document.body.classList.add("orphan"); toast(`<span class="micro">pop-out</span> the map that opened this window is gone: no more live updates`, 6000); } }, 1000);
+    const watch = setInterval(() => { let gone = true; try { gone = o.closed || !o.__RX_VIEW__; } catch {} if (gone) { clearInterval(watch); opener = null; document.body.classList.add("orphan"); setConnected(false); } }, 1000);
   } catch (e) { console.error(e); }
 }
 function liveBadge() {
   const b = document.getElementById("liveBadge");
-  if (b) b.textContent = `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
+  if (b) b.textContent = !connected ? `disconnected · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}` : tl.viewing != null ? `viewing #${tl.viewing} of ${tl.head}` : `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
 }
 const chipsOf = key => (keyIds.get(key) ?? []).map(id => anchors.get(id)).filter(el => el?.classList.contains("chip"));
-function paintState(key) {
-  const v = live.values.get(key);
-  for (const el of chipsOf(key)) {
-    el.classList.toggle("live-error", !!v?.error);
-    el.classList.toggle("live-held", live.held.has(key));
-    if (v?.error && v.preview === undefined) el.querySelector(".lv")?.remove();
-  }
-}
 const liveRuns = new Map();
 const lit = key => live.flying.has(key) || [...liveRuns.values()].some(r => r.key === key);
 const paintRun = key => { for (const el of chipsOf(key)) el.classList.toggle("flying", lit(key)); };
@@ -2028,21 +2187,24 @@ function onLive(d) {
     case "travel-denied": return onDenied(d);
     case "hmr": return onHmr(d);
     case "snapshot": return onSnapshot(d);
-    case "boundary": live.boundaries.set(d.region, d); return paintBoundaries();
-    case "held": live.held.set(d.key, d); paintState(d.key); return liveValue();
-    case "released": live.held.delete(d.key); paintState(d.key); return liveValue();
+    case "boundary": live.boundaries.set(d.region, d); paintBoundaries(); if (selected && regions.has(selected)) renderPanel(); return;
+    case "held": return onHeld(d);
+    case "released": return onReleased(d);
     case "run": return onRun(d);
     case "revert": return onRevert(d);
   }
 }
 function onReset() {
-  for (const el of board.querySelectorAll(".live-error,.live-held")) el.classList.remove("live-error", "live-held");
-  live.values.clear(); live.flying.clear(); live.held.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
+  const stale = new Set([...live.values.keys(), ...live.held.keys()]);
+  live.held.clear();
+  live.values.clear(); live.flying.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
   Object.assign(tl, { steps: [], head: 0, viewing: null, flights: [], hmrs: [], target: null });
   document.body.classList.remove("viewing");
+  markInexact(null); document.getElementById("viewNote")?.remove();
   document.querySelectorAll("#board .chip.pulse, #board .chip.flying").forEach(c => c.classList.remove("pulse", "p2", "flying"));
   document.querySelectorAll("#board .chip .lv, #board .orb").forEach(s => s.remove());
   clearPlan(); hmr.plan = null;
+  for (const k of stale) paintState(k);
   liveBadge(); liveValue(); renderScrub();
   if (tab === "plan") renderPanel();
 }
@@ -2088,10 +2250,10 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
     if (flush) { v.count++; v.seq = seq; }
     else v.seq = tl.viewing ?? tl.head;
     v.origin = c.origin ?? v.origin ?? null;
-    if (c.error) { v.error = c.error; delete v.preview; }
-    if (typeof c.preview === "string") { v.preview = c.full ?? c.preview; delete v.error; }
+    if (typeof c.error === "string") { v.error = c.error; delete v.preview; v.pending = false; }
+    else if (typeof c.preview === "string") { v.preview = c.full ?? c.preview; delete v.error; }
+    if ("pending" in c) v.pending = !!c.pending;
     live.values.set(c.key, v);
-    paintState(c.key);
     for (const id of keyIds.get(c.key)) byId.set(id, c);
   }
   // causal waves: a changed node one step after the changed nodes it reads (or after its cause)
@@ -2122,27 +2284,29 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
     if (flush) for (const e of via.get(id) ?? []) if (comets++ < 30) comet(e.from, id, Math.max(0, at - T), T, "#fff");
     ring(el, at);
     const v = live.values.get(c.key);
-    if (v?.preview !== undefined) setValue(el, v.preview, { dir, delay: at, prev: c.prev });
+    if (v?.preview !== undefined && typeof c.error !== "string") setValue(el, v.preview, { dir, delay: at, prev: c.prev });
     if (flush) SFX.note(PITCH[famOf(nodes.get(id))] ?? 440, at / 1000);
   }
+  for (const k of new Set(changes.map(c => c?.key).filter(k => keyIds.has(k)))) paintState(k);
   if (selected && changes.some(c => c?.key === nodes.get(selected)?.key)) liveValue();
 }
 // What the app shows right now, sent when the map opens (and to a pop-out): values, requests in the air, and which
 // boundaries show their fallback. Applied quietly: nothing changed, the map just catches up.
 function onSnapshot(d) {
-  if (Array.isArray(d.held)) {
-    const keys = new Set(live.held.keys());
-    live.held.clear();
-    for (const h of d.held) { live.held.set(h.key, h); keys.add(h.key); }
-    for (const key of keys) paintState(key);
-  }
   for (const { key, preview, full, error, pending } of d.values ?? []) {
-    if (!keyIds.has(key)) continue;
+    if (!keyIds.has(key) || (typeof preview !== "string" && typeof error !== "string" && !pending)) continue;
     const v = live.values.get(key) ?? { count: 0 };
-    Object.assign(v, { error, pending });
-    v.preview = full ?? preview; v.current = true; v.seq ??= tl.head; live.values.set(key, v);
-    if (typeof v.preview === "string") for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
+    v.preview = full ?? preview;
+    if (typeof error === "string") v.error = error; else delete v.error;
+    v.pending = !!pending; v.current = true; v.seq ??= tl.head; live.values.set(key, v);
+    if (v.preview !== undefined) for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
     paintState(key);
+  }
+  if (Array.isArray(d.held)) {
+    const was = [...live.held.keys()];
+    live.held.clear();
+    for (const h of d.held) if (h?.key && keyIds.has(h.key)) live.held.set(h.key, { by: h.by ?? [], since: h.since });
+    for (const k of new Set([...was, ...live.held.keys()])) paintState(k);
   }
   if (Array.isArray(d.flights)) {
     for (const k of live.flying.keys()) for (const el of chipsOf(k)) { el.classList.remove("flying"); el.querySelector(".orb")?.remove(); }
@@ -2178,7 +2342,7 @@ function paintBoundaries() {
     const kind = b.state === "error" || r.kind === "errored" ? "errored" : "loading";
     el.classList.add("tripped", `trip-${kind}`);
     const t = document.createElement("span");
-    t.className = "trip";
+    t.className = "trip"; t.dataset.id = r.id; t.setAttribute("role", "button"); t.tabIndex = 0; t.title = "open this boundary";
     t.innerHTML = kind === "loading" ? `${ICON.hour}<b>showing fallback</b><span>pending</span>` : `${ICON.warn}<b>showing fallback</b><span></span>`;
     if (kind === "errored") t.lastElementChild.textContent = b.error ? String(b.error).slice(0, 120) : "failed";
     el.querySelector(":scope > .flabel")?.append(t);
@@ -2189,16 +2353,22 @@ function liveValue() {
   const box = document.getElementById("liveval");
   const n = selected && nodes.get(selected);
   if (!box || !n) return;
-  const v = live.values.get(n.key), fly = live.flying.has(n.key) || v?.pending, h = live.held.get(n.key);
-  box.innerHTML = (v?.preview !== undefined ? `<pre class="code"></pre>` : `<p class="hint">${v ? "changed; its value was not sent" : "No change seen since the map opened."}</p>`)
-    + (v ? `<div class="hint">changed ${v.count}× · last in flush ${v.seq}<span class="origin"></span>${tl.viewing != null ? ` · viewing #${tl.viewing}` : ""}</div>` : "")
-    + (fly ? `<div class="hint" style="color:var(--pending)">${GI} a request is in the air</div>` : "")
-    + (v?.error ? `<div class="hint" style="color:#fb7185">${esc(v.error)}</div>` : "")
-    + (h ? `<div class="hint" style="color:var(--pending)">held${h.by?.length ? `: waiting on ${esc(h.by.join(", "))}` : ""}</div>` : "");
+  const v = live.values.get(n.key), fly = live.flying.has(n.key);
+  const h = live.held.get(n.key);
+  // a value the map was handed when it opened is "the value at open", not "no change"
+  const atOpen = v?.current && !v.count;
+  box.innerHTML = (v?.error ? `<div class="failbox">${ICON.warn}<div><b>failed</b><div class="mono ferr"></div></div></div>` : "")
+    + (h ? `<div class="heldbox">${ICON.lock}<div><b>held</b> · its last write waits on <span class="mono hby"></span>; the value shown is the one before it</div></div>` : "")
+    + (v?.preview !== undefined ? `${atOpen ? `<div class="hint">value at open</div>` : ""}<pre class="code"></pre>` : v?.error ? "" : `<p class="hint">${v ? "changed; its value was not sent" : "No value yet: nothing has set it since the map opened."}</p>`)
+    + (v && v.count ? `<div class="hint">changed ${v.count}× · last in flush ${v.seq}<span class="origin"></span>${tl.viewing != null ? ` · viewing #${tl.viewing}` : ""}</div>` : "")
+    + (v?.pending ? `<div class="hint" style="color:var(--pending)">${GI} pending: a new value is on its way</div>` : "")
+    + (fly ? `<div class="hint" style="color:var(--pending)">${GI} a request is in the air</div>` : "");
+  if (v?.error) box.querySelector(".ferr").textContent = v.error;
+  if (h) box.querySelector(".hby").textContent = h.by?.length ? h.by.map(keyName).join(", ") : "an action";
   if (box.querySelector("pre")) box.querySelector("pre").textContent = v.preview;
   const l = v?.preview !== undefined && listOf(v.preview);
   if (l && l.items.length) box.querySelector("pre").insertAdjacentHTML("afterend", `<div class="hint">${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}</div><ol class="lvlist">${l.items.map(i => `<li>${esc(i)}</li>`).join("")}${l.count > l.items.length ? `<li class="hint">… ${l.count - l.items.length} more</li>` : ""}</ol>`);
-  if (v?.origin) box.querySelector(".origin").textContent = ` · by ${v.origin}`;
+  if (v?.origin && box.querySelector(".origin")) box.querySelector(".origin").textContent = ` · by ${v.origin}`;
 }
 
 // ---- time: the timeline, travel and resume -------------------------------------------------------------------------
@@ -2210,6 +2380,7 @@ function onTimeline(d) {
   tl.head = d.head ?? tl.steps.at(-1)?.seq ?? 0;
   tl.viewing = d.viewing ?? null;
   document.body.classList.toggle("viewing", tl.viewing != null);
+  viewingUI();
   // the values the timeline implies, without fanfare
   const counted = new Set();
   for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key) && typeof c.preview === "string" && (tl.viewing == null || s.seq <= tl.viewing)) {
@@ -2233,6 +2404,9 @@ function onStep(d) {
   document.body.classList.add("viewing");
   rewindFx(d.direction);
   applyChanges(d.changes ?? [], { dir: d.direction === "back" ? "down" : "up" });
+  reconcile(d.to, d.direction === "back" ? "down" : "up");
+  markInexact(d.inexact);
+  viewingUI();
   renderScrub();
 }
 function onResume(d) {
@@ -2241,7 +2415,62 @@ function onResume(d) {
   document.body.classList.remove("viewing");
   rewindFx("forward");
   applyChanges(d.changes ?? [], { dir: "up" });
+  reconcile(tl.head, "up");
+  markInexact(null);
+  viewingUI();
   renderScrub();
+}
+// What every key showed at `seq`, from the timeline: its last change at or before it, else (before its first recorded
+// change) that change's `prev` (TRACE §4b). A key whose first value came in the snapshot, not a flush, would otherwise
+// keep showing its later value while viewing earlier seqs.
+function valueAt(key, seq) {
+  let before, after;
+  for (const s of tl.steps) for (const c of s.changes ?? []) {
+    if (c?.key !== key) continue;
+    if (s.seq <= seq) { if (typeof c.preview === "string" || typeof c.error === "string") before = c; }
+    else if (!after) after = c;
+  }
+  if (before) return typeof before.preview === "string" ? { preview: before.full ?? before.preview } : { error: before.error };
+  if (after && typeof after.prev === "string") return { preview: after.prev };
+  return null;
+}
+function reconcile(seq, dir) {
+  const keys = new Set();
+  for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key)) keys.add(c.key);
+  for (const k of keys) {
+    const want = valueAt(k, seq); if (!want) continue;
+    const v = live.values.get(k) ?? { count: 0 };
+    if (want.error) { if (v.error !== want.error) { v.error = want.error; live.values.set(k, v); paintState(k); } continue; }
+    if (v.preview === want.preview && !v.error) continue;
+    const prev = v.preview;
+    v.preview = want.preview; delete v.error; live.values.set(k, v);
+    for (const el of chipsOf(k)) setValue(el, want.preview, { dir, prev });
+    paintState(k);
+  }
+  liveValue();
+}
+// keys the app can't show exactly at the viewed seq (e.g. a store's guess): marked, so the value is not trusted
+function markInexact(keys) {
+  for (const el of board.querySelectorAll(".chip.inexact")) { el.classList.remove("inexact"); el.querySelector(":scope > .inx")?.remove(); }
+  for (const k of keys ?? []) for (const el of chipsOf(k)) {
+    el.classList.add("inexact");
+    const m = document.createElement("span"); m.className = "inx"; m.textContent = "can't rewind"; m.title = "the app can't show this value exactly at this point in time";
+    el.append(m);
+  }
+}
+// while viewing, the badge says where you are, and a note says the app is read-only until you resume
+function viewingUI() {
+  liveBadge();
+  let note = document.getElementById("viewNote");
+  if (tl.viewing == null) { note?.remove(); return; }
+  if (!note) {
+    note = document.createElement("div"); note.id = "viewNote"; note.className = "hud"; note.setAttribute("role", "status");
+    note.innerHTML = `${ICON.lock}<span><b>looking back</b> <span class="vn-seq mono"></span><span class="vn-long"> · the app is read-only until you resume</span><span class="vn-short"> · read-only</span></span><button class="hbtn" id="vnResume">resume</button>`;
+    // in the header: below it as a banner, or (compact) a pill in it, so it never covers the plates
+    document.querySelector("header").append(note);
+    note.querySelector("#vnResume").onclick = () => { SFX.toggle(); resume(); };
+  }
+  note.querySelector(".vn-seq").textContent = `#${tl.viewing} of ${tl.head}`;
 }
 function onDenied(d) {
   tl.target = null;
@@ -2312,7 +2541,9 @@ function renderScrub() {
   }
   c.globalAlpha = 1;
   // a tick per flush, in the colour of its cause; the past beyond the one shown dims
-  const iCur = tl.steps.findIndex(s => s.seq === cur);
+  // the step shown, or the nearest one before it (a seq outside the recorded steps must not leave the head behind)
+  let iCur = tl.steps.findLastIndex(s => s.seq <= cur);
+  if (iCur < 0) iCur = 0;
   const step = Math.max(1, Math.floor(n / Math.max(1, tW - 2 * padX)));
   for (let i = 0; i < n; i += step) {
     const s = tl.steps[i], x = seqX(i), big = s.changes?.length > 3;
@@ -2327,7 +2558,7 @@ function renderScrub() {
     const i = tl.steps.findIndex(s => s.seq >= h.seq); const x = i < 0 ? seqX(n - 1) : seqX(i);
     c.beginPath(); c.moveTo(x, 1); c.lineTo(x + 3.5, 4.5); c.lineTo(x, 8); c.lineTo(x - 3.5, 4.5); c.closePath(); c.fill();
   }
-  playhead.style.left = `${iCur >= 0 ? seqX(iCur) : seqX(n - 1)}px`;
+  playhead.style.left = `${seqX(iCur)}px`;
   const viewing = tl.viewing != null || tl.target != null;
   seqLabel.innerHTML = viewing ? `<small>viewing</small>#${esc(cur)} / ${esc(tl.head)}` : `<small>live</small>#${esc(tl.head)}`;
   document.getElementById("liveBtn").classList.toggle("on", !viewing);
@@ -2467,7 +2698,7 @@ const FAKE_LIB = /*__FAKELIB__*/null;
 window.__RX_FAKE_LIB__ = FAKE_LIB;
 const fake = { host: null, timer: 0, n: 0, every: 0, paused: false };
 function startFake(seed) {
-  const h = (fake.host = FAKE_LIB.createFakeHost(JSON.parse(JSON.stringify(G0)), { seed }));
+  const h = (fake.host = FAKE_LIB.createFakeHost(JSON.parse(JSON.stringify(G0)), { seed, failRate: .12 }));
   window.__RX_FAKE__ = h;
   document.body.classList.add("fake");
   // time moves in ticks: requests land, and auto-play acts every few
