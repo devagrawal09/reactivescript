@@ -22,7 +22,7 @@ it. What changed upstream, what was re-recorded and why: `docs/PIN-MAIN-FRONTEND
 | Eval fuzz, seeds 1–100 (JS legs) | 85 agree, 15 refused; v2.1: 84 agree, 16 refused |
 | SSR fuzz, seeds 1–100 | Solid's HTML hydrates and replays on every accepted program; v2.1: Solid's streams likewise; all differences are Rust's HTML/streams |
 | Placement fuzz, seeds 1–100 (T, N, J) | 50 agree, 42 client-only, 7 refused, seed 19 divergent (listed): the baseline exactly |
-| Upstream runners (pins.json) | test 135/0, oracle and compiled 135/0/0, types 181/0, ssr 127 pass, 1 fail, 7 skip |
+| Upstream runners (pins.json) | test 135/0, oracle and compiled 135/0/0, types 181/0, ssr 128 pass, 0 fail, 7 skip |
 
 ## Slice 6: inferred server components over Solid 2's Frames
 

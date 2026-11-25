@@ -21,6 +21,6 @@
     "oracle": "135 pass, 0 fail, 0 skip",
     "compiled": "135 pass, 0 fail, 0 skip",
     "types": "181 pass, 0 fail",
-    "ssr": "127 pass, 1 fail, 7 skip"
+    "ssr": "128 pass, 0 fail, 7 skip"
   }
 }

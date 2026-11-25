@@ -275,8 +275,10 @@ if (
             " fail"
           : log.match(/\d+ pass, \d+ fail(?:, \d+ skip)?/g)?.at(-1);
       runners.push(name + ": " + summary);
-      if (!summary || (!canary && summary !== pins.upstreamBaseline[name]))
+      if (!summary || (!canary && summary !== pins.upstreamBaseline[name])) {
         problems.push("upstream " + name + " summary differs from pin");
+        for (const line of log.match(/^(?:FAIL |  ✗ ).*/gm) ?? []) problems.push("upstream " + name + ": " + line.trim());
+      }
     }
   const fuzz = json(out + "/fuzz.json");
   const text = [

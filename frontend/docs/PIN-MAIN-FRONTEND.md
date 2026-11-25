@@ -97,9 +97,9 @@ pinned checkouts were never touched and stay clean.
 ### Upstream runners (`pins.json` `upstreamBaseline`, measured)
 
 `test` 111/1 → 135 pass, 0 fail (S-store-8 passes since `c746908`); `oracle` and `compiled` 112 → 135 pass, 0 fail,
-0 skip; `types` 152 → 181 pass; `ssr` 105/0/7 → 127 pass, 1 fail, 7 skip. The ssr failure is upstream's
-"Frames [hydrated late] hydrating after instant 0: … 404 (Not Found)" on this machine (Chrome, `NODE_PATH` the
-frontend's `node_modules`, as `verify-pinned.sh` runs it); not investigated further, recorded as measured. The checkout
+0 skip; `types` 152 → 181 pass; `ssr` 105/0/7 → 128 pass, 0 fail, 7 skip, measured on a clean `scripts/setup.sh` layout. One machine measured 127/1/7
+("Frames [hydrated late] hydrating after instant 0: … 404 (Not Found)"); that failure is the machine's, not the pin's,
+and a run that hits it fails the gate with the failing test named. The checkout
 stayed clean.
 
 ## Refused: upstream surface the frontend paths do not port
