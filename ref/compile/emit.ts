@@ -592,7 +592,7 @@ class Gen {
       case "style": return "";                                                                 // CSS-4: removed; the stylesheet is the module's
       case "read": return `{__rt.show(${this.expr(m.e, env, re)})}`;
       case "el": {
-        if (m.tag === "") return this.markup(m.children, env, ind);
+        if (m.tag === "") return m.children.length ? this.markup(m.children, env, ind) : "{null}";
         if (/^[A-Z]/.test(m.tag)) {
           const b = env.lookup(m.tag); if (b?.kind !== "comp") throw new CompileError(`unknown component ${m.tag}`);
           const attrs = m.attrs.map(a => " " + this.attr(a.name, a.e, env)).join("");

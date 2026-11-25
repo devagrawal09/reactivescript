@@ -1772,7 +1772,7 @@ impl<'p> Gen<'p> {
             MarkupKind::Read(e) => Child::Expr(rtc("show", vec![self.expr(e, env, &re)?])),
             MarkupKind::El { tag, children, .. } if tag.is_empty() => {
                 if children.is_empty() {
-                    Child::Text("null".into())
+                    Child::Expr(E::Null)
                 } else {
                     Child::Jsx(Jsx::Frag(self.kids(children, env)?, line))
                 }
