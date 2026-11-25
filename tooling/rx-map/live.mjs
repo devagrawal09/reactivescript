@@ -446,9 +446,19 @@ function getRecorder() {
     queueReconcile();
   };
   globalThis.__RX_TRACE__ = trace;
+  // Compare the observed cause, not the error text: another instance can fail
+  // with an identical message. This describes the current instrumented view,
+  // not whether the error ever reached a boundary.
+  function tripsBoundary(error) {
+    for (const instances of globalThis.__RX_BOUNDARIES__?.values() ?? []) {
+      for (const b of instances) if (b.state === "error" && b.error === error) return true;
+    }
+    return false;
+  }
   function current(key, flight) {
     const now = inspect(key);
-    if (now) return { key, ...now.value, ...(now.error ? { error: errorPreview(now.error) } : {}),
+    if (now) return { key, ...now.value, ...(now.error ? { error: errorPreview(now.error),
+      ...(globalThis.__RX_BOUNDARIES__ && !tripsBoundary(now.error) ? { failedUntripped: true } : {}) } : {}),
       pending: !!(!now.error && (flight || now.pending)), ...(!now.error && flight ? { since: flight.since } : {}), ...locate(key) };
     const old = latest.get(key);
     // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.

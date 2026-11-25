@@ -256,7 +256,7 @@ export function liveText(method, data) {
   const val = r => `${r.key ?? r.name}=${String(r.preview ?? "(no value)").replace(/\r?\n/g, "\\n")}${r.path ? ` [${r.path}]` : ""}${location(r)}`;
   const waiting = r => `${r.key}  held${r.by.length ? `: waiting on ${r.by.join(", ")}` : ""}${since(r)}`;
   const value = r => `${r.error || r.observation || (r.pending && r.preview === undefined)
-    ? `${r.key ?? ""}  ${r.observation ?? (r.error ? `error: ${r.error}` : "pending (no value yet)")}${location(r)}`
+    ? `${r.key ?? ""}  ${r.observation ?? (r.error ? `${r.failedUntripped ? "failed, untripped" : "error"}: ${r.error}` : "pending (no value yet)")}${location(r)}`
     : `${val(r)}${r.pending ? `  pending${since(r)}` : ""}`}${r.held ? `\n${waiting(r.held)}` : ""}`;
   const boundary = r => `${r.region}  ${r.state}${r.error ? `: ${r.error}` : ""}`;
   const running = r => `${r.key}  running #${r.id}${since(r)}`;

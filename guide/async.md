@@ -79,6 +79,26 @@ client's own state: a plain source the action's `catch` writes, shown beside the
   `found(await fetchUser(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
 - Retry is `refresh x`. It is quiet (AC-4): the failure stays on screen until the new answer replaces it (H-12).
 
+An `errored` region does not watch equations just because they are in scope.
+Equations are lazy (E-3, E-8): if `shown` is false, `if shown { … }` skips
+the body, and no `details` read there can trip the boundary. If the region
+should report missing details even when their view is hidden, read them
+first, inside the region:
+
+```rx
+errored fallback(e) { <p>{e.message}</p> } {
+  loading fallback { <p>Loading…</p> } {
+    if details && shown { <p>{details.title}</p> }
+  }
+}
+```
+
+This also demands the question while `shown` is false. If hiding the pane
+should avoid the request, keep `shown` first. The MCP live model's
+`failedUntripped` means the inspector saw an error but no instrumented
+boundary currently reports that same error. It doesn't prove why no
+boundary tripped, and inspecting a lazy equation can evaluate it.
+
 ## 3. Writing to the server: an action
 
 ```rx
