@@ -10,12 +10,52 @@ name: compiler
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", ".github/workflows/compiler.yml"]
+    paths: ["compiler/**", "ref/**", "spec/**", "scenarios/**", "examples/**", "tooling/rx-map/test/fixtures/**", ".github/workflows/compiler.yml"]
   pull_request:
-    paths: ["compiler/**", ".github/workflows/compiler.yml"]
+    paths: ["compiler/**", "ref/**", "spec/**", "scenarios/**", "examples/**", "tooling/rx-map/test/fixtures/**", ".github/workflows/compiler.yml"]
   workflow_dispatch:
 
 jobs:
+  parity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: checker, flags: "" }
+          - { name: lowering, flags: "--lower" }
+          - { name: dev lowering, flags: "--lower --dev" }
+    name: parity (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+      - run: sh ref/scripts/solid-next.sh
+      - run: npm ci --prefix ref
+      - if: matrix.flags == ''
+        run: npm --prefix ref run crate
+      - if: matrix.flags != ''
+        # Keep local lowering strict. In CI, tolerate only the named, existing
+        # mismatches until they are fixed; a crash or a different set fails.
+        run: |
+          log=$(mktemp)
+          status=0
+          npm --prefix ref run crate -- ${{ matrix.flags }} >"$log" 2>&1 || status=$?
+          cat "$log"
+          test "$status" -le 1
+          grep -Eq '^[0-9]+/[0-9]+ programs lowered alike' "$log"
+          diff -u ref/lowering-baseline.txt <(grep '^FAIL ' "$log" || true)
+
   build:
     strategy:
       fail-fast: false

@@ -338,8 +338,9 @@ export default component App() {
 
 ### SNAPSHOT_ARGUMENT
 
-A `fn` that declares state (an effect, a source) reads its value parameters once. Declare the parameter `ref` to pass
-the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10).
+A block `fn` with declarations (including equations) reads its value parameters once. Declare the parameter `ref`
+to pass the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10). For a value-only calculation,
+inline the equation: `fn size(xs) { n = xs.length; n }` becomes `fn size(xs) => xs.length`.
 
 ```rx before
 export default component App() {
@@ -827,15 +828,15 @@ Import `Card`, not `fetch`.
 
 ### DEAD_TYPED_BOUNDARY
 
-A typed `errored fallback(e: X)` wraps a catch-all `errored fallback(e)`, so the catch-all takes `X` first and the
-typed fallback never shows (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
+A typed `errored fallback(e: X)` wraps a catch-all with a static fallback. The catch-all takes `X` first and its static
+fallback cannot fail into the typed region (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
 `deadTyped: true` and `shadowed` by the inner one, which is what the map draws.
 
 ```rx before
 error NotFound
 export default component App() {
   errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    errored fallback(e) { <p>{e.message}</p> } { <p>x</p> }
+    errored fallback { <p>failed</p> } { <p>x</p> }
   }
 }
 ```

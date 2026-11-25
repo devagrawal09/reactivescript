@@ -581,9 +581,12 @@ async function roundThree() {
   await toggle(3);
   await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 3);
   const entries = () => page.evaluate(() => [...document.querySelectorAll(".undo-entry")].map(b => b.textContent));
+  // The action can finish before Solid releases the held undo list.
+  await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 3);
   const before = await entries();
   await page.locator(".undo-entry").nth(1).click();
   await settle();
+  await page.waitForFunction(() => document.querySelectorAll(".undo-entry").length === 2);
   check(`the undo list: ${JSON.stringify(before)}, then ${JSON.stringify(await entries())}`, before.length === 3 && (await entries()).length === 2);
   // (b) switch the shelf panel to a shelf that fails, then back: a new ShelfInfo instance each time
   await page.getByRole("button", { name: "shelf nope", exact: true }).click();

@@ -11,7 +11,7 @@ import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
 import { declKeys, moduleKey } from "../src/model.ts";
-import { checkModules, instantiatingFn } from "../src/check.ts";
+import { checkModules } from "../src/check.ts";
 import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
@@ -70,14 +70,21 @@ function deps(e: unknown, self: string, out = new Set<string>()): Set<string> {
 // ---------------------------------------------------------------- the module
 export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): string { return compileModules(singleModule(p), opts).files.get("main.mjs")!; }
 
+function relative(from: string, to: string): string {
+  const dir = from.split("/").slice(0, -1), parts = to.split("/");
+  let common = 0;
+  while (common < dir.length && dir[common] === parts[common]) common++;
+  return ("../".repeat(dir.length - common) || "./") + parts.slice(common).join("/");
+}
+
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
 /** `dev`: each source's and equation's creating calls run under its key (`__rt.key(k, () => …)`, model.ts declKeys), so
  *  the runtime names their Solid nodes; `root` is the project root the key's module is relative to. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
-  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, jsSpecifier: opts.jsSpecifier });
+  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, bySource: opts.bySource, jsSpecifier: opts.jsSpecifier });
   if (opts.dev) g.boundaries = checkModules(set, opts).boundaries;
   const files = new Map<string, string>();
   for (const path of set.order) {
@@ -85,7 +92,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; de
     g.keys = opts.dev ? declKeys(p, moduleKey(path, opts.root)) : new Map();
     g.devModule = opts.dev ? moduleKey(path, opts.root) : "";
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
-    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from ${J(opts.bySource ? relative(path, d) : `./${out(d)}`)};`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
@@ -115,7 +122,7 @@ class Gen {
   private under(key: string | undefined, call: string): string { return key ? `__rt.key(${J(key)}, () => ${call})` : call; }
   private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
   private realImport(from: string, name: string) {
-    return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
+    return this.localJS(from) || ((!from.startsWith(".") || (this.mods?.bySource && from !== "./api")) && !BUILTINS.has(name) && name !== "log");
   }
   private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
     return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.kind !== "import" && x.name === name) : undefined;
@@ -162,7 +169,7 @@ class Gen {
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
       if (x.k === "server" || (x.k === "eq" && unwrapServer(x.e))) env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
-      if (x.k === "fn" && !instantiatingFn(x)) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
+      if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
     for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
@@ -172,7 +179,7 @@ class Gen {
     return f;
   }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
-  private mods?: { set: ModuleSet; out: (path: string) => string; jsSpecifier?: (file: string, from: string) => string };
+  private mods?: { set: ModuleSet; out: (path: string) => string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string };
   constructor(u: Usage, mods?: Gen["mods"]) { this.u = u; this.mods = mods; }
   private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
@@ -190,7 +197,7 @@ class Gen {
     const js = mg(alias);
     if (!d) return { kind: "val", js };
     switch (d.k) {
-      case "fn": return { kind: instantiatingFn(d) ? "ifn" : "fn", js, fn: d };
+      case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
       case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
       case "source": case "eq": return { kind: "acc", js };
@@ -248,7 +255,8 @@ class Gen {
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      const dep = this.depVar(d.resolved);
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${this.mods!.bySource ? dep : J(this.mods!.out(d.resolved))}, ${dep});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
         const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
@@ -258,7 +266,7 @@ class Gen {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
       if (d.k === "import") for (const { name, alias } of d.names) { const x = this.jsDecl(d, name); if (x?.kind !== "type") env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
-      if (d.k === "fn") env.vars.set(d.name, { kind: instantiatingFn(d) ? "ifn" : "fn", js: mg(d.name), fn: d });
+      if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
@@ -420,17 +428,7 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
-    if (!instantiatingFn(d)) {
-      if (!d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
-      const eqs = d.decls.filter(x => x.k === "eq");
-      const names = new Set(eqs.map(x => x.name));
-      const done = new Set<string>(); const order: typeof eqs = [];
-      const visit = (x: typeof eqs[number]) => { if (done.has(x.name)) return; done.add(x.name); for (const n of deps(x.e, x.name)) if (names.has(n)) { const t = eqs.find(y => y.name === n); if (t) visit(t); } order.push(x); };
-      eqs.forEach(visit);
-      const lines = order.map(x => { inner.vars.set(x.name, { kind: "val", js: mg(x.name) }); return `${pad}  const ${mg(x.name)} = ${this.expr(x.e, inner, { imp: false })};`; });
-      const fns = d.decls.filter(x => x.k === "fn").map(x => this.fn(x, inner, ind + 1));
-      return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${[...fns, ...lines].join("\n")}\n${pad}  return ${this.expr(d.tail, inner, { imp: false })};\n${pad}}`;
-    }
+    if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;
