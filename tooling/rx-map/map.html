@@ -2062,7 +2062,7 @@ function onFlight(d) {
   if (tl.flights.length > 400) tl.flights.splice(0, tl.flights.length - 400);
   ({ start: SFX.flightStart, land: SFX.land, abandon: SFX.abandon })[d.state]?.();
   // The engine doesn't include a question's first answer in its flush changes.
-  if (d.state !== "start" && (live.values.get(d.key)?.pending || !live.values.get(d.key)?.current)) host.post({ type: "snapshot?" });
+  if (d.state === "land" && (live.values.get(d.key)?.pending || !live.values.get(d.key)?.current)) host.post({ type: "snapshot?" });
   if (selected && nodes.get(selected)?.key === d.key) liveValue();
   renderScrub();
 }
