@@ -2,7 +2,24 @@
 
 ## Unreleased
 
+**Added**
+
+- MO-11: a `.ts` module needs no `.d.rx`. Its declaration is generated (`npx rx-dts src/api.ts` prints it). RX facts
+  are stated with zero-cost helpers from the new package `@reactivescript/js`: `pure(fn)`, `rejects([E], fn)`,
+  `ref({ args, result }, fn)`, `instantiates(fn)`, `server(fn)`, `client(fn)`. A `.d.rx` beside a `.ts` now overrides
+  single exports instead of hiding the rest. Type-only exports erase from the runtime import. `export const` is a
+  `.d.rx` form.
+
+**Deprecated**
+
+- `import pure` / `fails(…)` / `server` / `client` on an import of a `.ts` module: a warning
+  (`IMPORT_ROW_DEPRECATED`) naming the helper to write in the `.ts`. **It becomes an error in the next minor.**
+  Package imports with no `.ts` beside them are unaffected.
+
 **Breaking**
+
+- An import of a name a `.ts` module does not export is `NOT_EXPORTED`. A `.ts` module that no generator can read,
+  such as native `rxc` without `@reactivescript/compiler`'s `rx-dts` and TypeScript, is `DECLARATION_UNAVAILABLE`.
 
 - MO-8c: a real `./api` implementation beside the importing module wins over the injected test API, even if
   `createApp({ api })` is set. A test API call with no injected implementation now throws `MISSING_TEST_API`.
