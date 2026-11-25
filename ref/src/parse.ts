@@ -610,9 +610,7 @@ function parseBin(c: Cursor, lvl: number): Expr {
       c.ws(); l = { k: "as", e: l, ty: assertionType(c) };
       continue;
     }
-    if (lvl === 4 && c.keyword("instanceof")) {
-      c.ws(); l = { k: "bin", op: "instanceof", l, r: parseBin(c, lvl + 1) }; continue;
-    }
+    if (lvl === 4 && /^instanceof\b/.test(c.src.slice(c.i))) c.fail("use a typed catch or errored fallback to distinguish error classes; RX has no `instanceof`");
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();

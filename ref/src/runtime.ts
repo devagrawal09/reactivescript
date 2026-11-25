@@ -889,8 +889,7 @@ export class Runtime {
         if (e.op === "&&") { if (isAbsent(l)) return l; return l ? this.ev(e.r, region, env) : l; }
         if (e.op === "||") { if (isAbsent(l)) return l; return l ? l : this.ev(e.r, region, env); }
         if (e.op === "??") { if (isAbsent(l)) return l; return l != null ? l : this.ev(e.r, region, env); }
-        const r = e.op === "instanceof" && e.r.k === "id" && e.r.name === "Error" && !env?.has("Error") && !region.lookup("Error") ? Error : this.ev(e.r, region, env);
-        if (e.op === "instanceof" && !isAbsent(l) && !isAbsent(r)) return isA(l, [r]);
+        const r = this.ev(e.r, region, env);
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
       }

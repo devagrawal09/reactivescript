@@ -1844,10 +1844,10 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
             l = ex(start, ExprKind::As { e: Box::new(l), ty }, c);
             continue;
         }
+        let at = c.i;
         if lvl == 4 && c.keyword("instanceof") {
-            c.ws(true);
-            l = ex(start, ExprKind::Bin { op: "instanceof".into(), l: Box::new(l), r: Box::new(parse_bin(c, lvl + 1)?) }, c);
-            continue;
+            c.i = at;
+            return c.fail("use a typed catch or errored fallback to distinguish error classes; RX has no `instanceof`");
         }
         let op = LEVELS[lvl].iter().find(|o| c.starts_with(o) && !(**o == "-" && c.peek_at(1) == '>'));
         let Some(op) = op else { return Ok(l) };

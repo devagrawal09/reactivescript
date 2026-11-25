@@ -125,7 +125,6 @@ Added:
 | `` `a ${e} b` `` | template literal | — |
 | `o?.k`, `xs.map(f)` | optional chaining, method calls | — |
 | `f(...xs)` | expand an iterable into positional arguments, as in JS. Instantiations and calls of local actions require explicit arguments (`CALL_SPREAD`). | E-10, AC-1f |
-| `e instanceof C` | test a declared or imported error class, or `Error`, with the same class matching as a typed catch. Use a typed catch to discharge a failure row. | R-f-1, R-f-4 |
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
