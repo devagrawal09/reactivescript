@@ -16,10 +16,16 @@
   "exports": {
     "./graph": "./graph.mjs",
     "./page": "./page.mjs",
-    "./live": "./live.mjs",
+    "./live": {
+      "types": "./live.d.ts",
+      "default": "./live.mjs"
+    },
     "./diff": "./diff.mjs",
     "./mcp": "./mcp.mjs",
-    "./vite": "./vite.mjs",
+    "./vite": {
+      "types": "./vite.d.ts",
+      "default": "./vite.mjs"
+    },
     "./fake": "./fake.mjs",
     "./hmr": "./hmr.mjs",
     "./conformance": "./conformance.mjs",
@@ -39,7 +45,9 @@
     "hmr.mjs",
     "conformance.mjs",
     "rx-map.mjs",
-    "README.md"
+    "README.md",
+    "vite.d.ts",
+    "live.d.ts"
   ],
   "peerDependencies": {
     "solid-js": "^2.0.0-rc.23"
