@@ -245,10 +245,14 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const reads = RX_INSTRUMENT ? new Set<Inspect>() : undefined;
   let carries: Map<string, CarryGroup> | undefined;
   let deferred: DeferredCarries | undefined;
+  type EffectFrame = { path: string; signature: string; last: unknown[] | null };
+  const effects = RX_INSTRUMENT ? new Map<string, Set<EffectFrame>>() : undefined;
+  let previousEffects: Map<string, EffectFrame> | undefined;
   const inputEvents = ["pointerdown", "keydown", "input", "click"];
   const clearDeferred = () => {
     if (!deferred) return;
     deferred = undefined;
+    previousEffects = undefined;
     for (const type of inputEvents) opts.root?.removeEventListener?.(type, clearDeferred, true);
   };
   const takeCarry = () => {
@@ -416,10 +420,21 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
     /** `effect (…) { … }`: compute, then apply; fires on a differing value (EF-2); an input that failed doesn't fire it (EF-2a: the failure shows where it's read), and the next answer does; a store enters whole, as a snapshot. */
-    effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown) {
+    effect(n: number, inputs: () => unknown[], apply: (p: unknown[]) => unknown, key?: string) {
       const run = (vals: unknown[]) => { const r = apply(vals); return typeof r === "function" ? (r as () => void) : undefined; };
-      let last: unknown[] | null = null;
-      createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; } } as any);
+      const path = RX_INSTRUMENT && key ? pathOfKey(key)?.join("/") : undefined;
+      const signature = path ? `${inputs}\n${apply}` : "";
+      const old = path && key ? previousEffects?.get(key) : undefined;
+      let seed = old && old.path === path && old.signature === signature ? old.last : null;
+      const frame: EffectFrame = { path: path ?? "", signature, last: null };
+      if (key && path) remember(effects!, key, frame);
+      createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => {
+        const last = frame.last ?? seed;
+        seed = null;
+        frame.last = vals;
+        if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last[i]))) return;
+        return run(vals);
+      }, error: () => { seed = frame.last = null; } } as any);
     },
     ...(RX_INSTRUMENT ? {
       actionCaught(key: string, site: number, error: unknown, names: string[], classes: unknown[]) {
@@ -599,6 +614,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       sources,
       begin(carry: Map<string, CarryGroup>, modules: Set<string>) {
         clearDeferred();
+        previousEffects = new Map([...effects!].flatMap(([key, frames]) => frames.size === 1 ? [[key, { ...[...frames][0] }]] : []));
         carries = carry;
         for (const [path, m] of [...persistent].reverse()) if (modules.has(path)) {
           persistent.delete(path);
@@ -608,7 +624,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       async defer(seeds: DeferredCarries) {
         // Without a pending read the branch is absent, not waiting to mount.
         const pending = () => [...reads!].some(read => read(() => undefined).pending);
-        if (!seeds.size || !pending()) return;
+        if ((!seeds.size && !previousEffects?.size) || !pending()) { previousEffects = undefined; return; }
         deferred = seeds;
         // Never restore a stale draft on a later user-driven remount.
         for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
@@ -616,6 +632,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         while (deferred === seeds && pending() && performance.now() < deadline)
           await new Promise(resolve => setTimeout(resolve, 16));
         if (deferred === seeds) clearDeferred();
+        previousEffects = undefined;
       },
       end() { carries = undefined; },
     },

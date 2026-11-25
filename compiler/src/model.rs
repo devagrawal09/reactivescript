@@ -58,6 +58,7 @@ pub fn decl_keys(p: &Program, module: &str) -> HashMap<*const Decl, String> {
         for d in ds {
             match d {
                 Decl::Source { name, line, .. } | Decl::Eq { name, line, .. } | Decl::Action { name, line, .. } => out.push(Found { d: d as *const Decl, at: format!("{scope}|{name}"), line: *line }),
+                Decl::Effect { line, .. } => out.push(Found { d: d as *const Decl, at: format!("{scope}|@effect"), line: *line }),
                 Decl::Fn { decls: fd, .. } => decls(fd, scope, out),
                 Decl::Component { name, decls: cd, view, .. } => {
                     decls(cd, name, out);
