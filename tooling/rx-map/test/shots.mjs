@@ -172,7 +172,7 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
   try {
     const page = await context.newPage();
     await page.setContent(render(scenario.graph ?? users, scenario.opts), { timeout: 5000 });
-    if (variant === "vanilla" && scenario.opts?.live) {
+    if (scenario.opts?.live) {
       // The vanilla listener ignores its own window's messages to avoid echoing host requests.
       // The rig is iframe-less: relay only our self-posted host messages through the view's public receive hook.
       await page.evaluate(() => addEventListener("message", ev => {

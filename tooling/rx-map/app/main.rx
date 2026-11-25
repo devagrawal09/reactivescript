@@ -1,17 +1,17 @@
 // rx-map: a .rx program drawn from the checker's resolved model, as a world of plates and tokens under a HUD.
 // The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
 import { icon } from "./js/vocab.js"
-import { pageTitle, bodyClass, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
+import { pageTitle, bodyClass, isLive, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
 import { measureAnchors, boardSize } from "./js/geometry.js"
 import { startCamera, layoutChanged, onLayout, zoomBy, frameAll, isFramed, flyToId } from "./js/camera.js"
-import { startSound, setSound, sfx } from "./js/sound.js"
+import { startSound, soundOn, setSound, sfx } from "./js/sound.js"
 import { sparkle } from "./js/fx.js"
 import { neighbourhood, downstream, upstream, edgesAt, findByName } from "./js/model.js"
 import { startMinimap } from "./js/minimap.js"
-import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive, nextFrame } from "./js/dom.js"
+import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive, nextFrame, focusIsBodyOr } from "./js/dom.js"
 import { Board } from "./board.rx"
 import { PanelButton, Side } from "./panel.rx"
-import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud } from "./live.rx"
+import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, travelBy } from "./live.rx"
 import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
 import { Tip } from "./tip.rx"
 import { board, model, selected, focus, hidden, diff, diffView, allEdges, select, setLayout, setDiffView, setAllEdges, showTrace } from "./state.rx"
@@ -53,6 +53,7 @@ export default component App() {
         if (ev.key == "f" || ev.key == "F") { frameAll() }
         else if (ev.key == "+" || ev.key == "=") { zoomBy(1.3) }
         else if (ev.key == "-" || ev.key == "_") { zoomBy(1 / 1.3) }
+        else if (isLive() && (ev.key == "ArrowLeft" || ev.key == "ArrowRight") && focusIsBodyOr("track")) { ev.preventDefault(); travelBy(ev.key == "ArrowLeft" ? -1 : 1) }
       }
     })
   }
@@ -120,7 +121,7 @@ export default component App() {
       <button class="hbtn ic" id="zoomIn" title="zoom in (+)" aria-label="zoom in" innerHTML={icon("plus")} onClick={() => { sfx("toggle"); zoomBy(1.3) }}></button>
       <button class="hbtn ic" id="frameBtn" title="frame all (F)" aria-label="frame all" innerHTML={icon("frame")} onClick={() => { sfx("toggle"); frameAll() }}></button>
       <button class="hbtn ic" id="soundBtn" title={sound ? "sound on (click to mute)" : "sound muted"} aria-label="sound" aria-pressed={sound ? "true" : "false"}
-        innerHTML={icon(sound ? "soundOn" : "soundOff")} onClick={() => { let on = !sound; setSound(on); sound := on }}></button>
+        innerHTML={icon(sound ? "soundOn" : "soundOff")} onClick={() => { let on = !soundOn(); setSound(on); sound := on }}></button>
     </div>
   </div>
   <Tip />

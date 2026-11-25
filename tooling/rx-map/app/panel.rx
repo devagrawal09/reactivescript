@@ -56,6 +56,7 @@ export component Side() {
         else if (trace != "" && selected != null) {
           sfx("toggle")
           let t = trace == "down" ? downstream(model, selected, diffView) : upstream(model, selected, diffView)
+          // TODO(layout): map.html folds the plates off the trace here, autoFold(t.ids), on huge graphs
           showTrace(t)
           sparkle(t.edges.map(i => G.edges[i]), true)
         }

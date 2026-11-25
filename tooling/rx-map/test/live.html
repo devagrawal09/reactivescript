@@ -185,11 +185,12 @@ try {
   check("a boundary message clears the trip", !doc.querySelector(".frame.errored.tripped"));
   // search: Enter selects the match and opens it; arrows go through the matches
   const q = doc.getElementById("q");
-  q.value = "s"; q.dispatchEvent(new win.Event("input", { bubbles: true }));
+  // a tick between events, as between a person's keystrokes: a page may render on a microtask
+  q.value = "s"; q.dispatchEvent(new win.Event("input", { bubbles: true })); await sleep(0);
   const n0 = doc.getElementById("qcount").textContent;
-  q.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  q.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); await sleep(0);
   const n1 = doc.getElementById("qcount").textContent;
-  q.value = "total"; q.dispatchEvent(new win.Event("input", { bubbles: true }));
+  q.value = "total"; q.dispatchEvent(new win.Event("input", { bubbles: true })); await sleep(0);
   q.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await sleep(30);
   check("search: arrows cycle, Enter selects the match into the panel", /^1\//.test(n0) && /^2\//.test(n1) && chip("total").classList.contains("sel") && doc.querySelector('#ptabs [data-tab="node"]')?.textContent === "total", [n0, n1, doc.querySelector('#ptabs [data-tab="node"]')?.textContent]);
