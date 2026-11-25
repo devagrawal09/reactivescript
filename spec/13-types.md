@@ -41,7 +41,7 @@ does for `.tsrx`. Nothing here is a second type system.
 | `error C(a: T) => …` | a class `C` (a subclass of `Error` with the field `a: T`), constructed by `C(a)` |
 | `fn`, `action`, `server fn` | functions of their parameters; an action and a server fn return a promise |
 | `e as T` | `e` asserted as `T` (07 §3); erased where the program runs |
-| `if x { … }` | the branch narrows `x` (RG-1c); a handler is a closure that runs later, and TypeScript's rules for closures apply to it |
+| `if x { … }` | the branch narrows `x` for a read in the branch (RG-1c). A handler is a closure that runs later: its read of a source, equation or import is a snapshot taken then, so the branch condition may no longer hold and does not narrow it. Snapshot into a local and narrow that: `let d = detail; if (d == null) return` |
 | `for x in xs { … }` | `x` is an element of `xs` |
 
 ## TY-3 — Views

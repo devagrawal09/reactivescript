@@ -1253,6 +1253,26 @@ export default component App() {
 
 These come from the TypeScript layer, which checks the program's projection (13).
 
+### A handler read is a snapshot
+
+`{if detail != null { … }}` narrows `detail` for a read in that branch. A handler
+inside the branch runs later, and its read is a snapshot taken then — the
+branch may no longer hold — so `detail` is still `Item | null` there
+(`Object is possibly 'null'`). Snapshot it and narrow the local:
+
+```rx
+{if detail != null {
+  <button onClick={() => {
+    let d = detail
+    if (d == null) return
+    save(d.id)
+  }}>{detail.id}</button>
+}}
+```
+
+`{detail.id}` is narrowed: that read is re-checked while the branch is live.
+`d` is a local, so the `if` inside the handler sticks.
+
 ### MISSING_AWAIT
 
 An equation's value is a promise or a stream, which Solid would consume as a value (R-1a, TY-5b). Write `await e`, or
