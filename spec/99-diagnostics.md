@@ -91,6 +91,7 @@ named.
 | `PRE_OF_NON_REACTIVE`             | S   | C-2   | S-check-1 |
 | `UNBOUND`                         | S   | lexical scope (a component sees its declaration site, RG-7a; `props` of a component that declares none, RG-4b) | S-check-1 |
 | `ARGUMENT_COUNT` (new)            | S   | AC-1f: a call of a declared action with another number of arguments than its parameters | S-check-1 |
+| `ACTION_PARAMETER_DEFAULT`       | S   | AC-1f: an action parameter has a default; pass the value at the call instead | S-check-1 |
 | `UNKNOWN_COMPONENT`, `COMPONENT_AS_VALUE` | S | RG-4a | S-check-1, S-region-5 |
 | `INSTANTIATION_NOT_BOUND`         | S   | E-9 / RG-6 | S-region-6 |
 | `SNAPSHOT_ARGUMENT`               | S   | E-10  | S-region-6 |

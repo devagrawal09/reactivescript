@@ -277,6 +277,9 @@ re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 /// What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: its code and the
 /// text appended to the message. `ref/src/parse.ts` `hint` is the same function.
 pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
+    if msg == "action parameter default" {
+        return Some(("ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call".into()));
+    }
     let i = i.min(src.len());
     let rest = &src[i..];
     let at = if !rest.is_empty() && !rest.split('\n').next().unwrap_or("").trim().is_empty() { i as i64 } else { src[..i].trim_end().len() as i64 - 1 };
@@ -1181,6 +1184,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.expect("(")?;
         c.ws(true);
         let (params, ptypes) = params_typed(c)?;
+        if c.starts_with("=") { return c.fail("action parameter default"); }
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;

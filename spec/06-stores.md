@@ -239,7 +239,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   are the action's whole input: a missing one is `undefined` in the body
   and an extra one is dropped, silently either way. An action imported from
   an `.rx` module or passed as a prop is not checked (its signature carries
-  no parameters yet, MO-3). Found by the eval board (r15prep,
+  no parameters yet, MO-3). Parameters have no defaults
+  (`ACTION_PARAMETER_DEFAULT`); pass the intended value at the call.
+  Found by the eval board (r15prep,
   `check-accepts-arity-and-missing-props.rx`; S-check-1).
 - **AC-1g (An answer takes only what is the server's).** [taken by default
   2026-11-17] In a declared action, a write after an `await` into a source
