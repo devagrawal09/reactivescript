@@ -1,0 +1,32 @@
+// The tooltip: a token's role in words, its line, where it is, and (live) its value; a region's construct.
+import { roleIcon } from "./js/vocab.js"
+import { tipInfo } from "./js/model.js"
+import { hl } from "./js/hl.js"
+import { placeTipNow } from "./js/tip.js"
+import { model, hoverId } from "./state.rx"
+import { TipLive, PlanReason } from "./live.rx"
+
+export component Tip() {
+  t = hoverId == null ? null : tipInfo(model, hoverId)
+  effect (hoverId) { placeTipNow() }
+  <div id="tip" class={["hud", t != null && "on"]} role="tooltip">
+    {if t != null {
+      {if t.region {
+        <div class="tip-h"><span class="micro">{t.micro}</span></div>
+        <div class="tip-n mono">{t.name}</div>
+        {if t.code != "" { <pre class="code" innerHTML={hl(t.code)}></pre> }}
+      } else {
+        <div class="tip-h">
+          <span style={{ color: t.hex }} innerHTML={roleIcon(t.kk)}></span>
+          <span class="micro" style={{ color: t.hex }}>{t.label}</span>
+          <span class="micro">{t.flags}</span>
+        </div>
+        <div class="tip-n mono">{t.name}</div>
+        {if t.code != "" { <pre class="code" innerHTML={hl(t.code)}></pre> }}
+        <div class="tip-m mono">{t.where}</div>
+        <TipLive nodeKey={t.key} />
+        <PlanReason nodeKey={t.key} tip={true} />
+      }}
+    }}
+  </div>
+}

@@ -5,3 +5,9 @@ export pure fn within(ev: any, sel: string): boolean
 export pure fn leftId(ev: any): string
 export pure fn targetValue(ev: any): string
 export pure fn targetChecked(ev: any): boolean
+export fn onKey(f: (ev: any) => void): () => void
+export fn typing(): boolean
+export fn focusIsBodyOr(id: string): boolean
+export fn focusEl(id: string): void
+export fn blurActive(): void
+export fn nextFrame(f: () => void): () => void

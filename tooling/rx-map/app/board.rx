@@ -7,8 +7,10 @@ import { unique } from "./js/util.js"
 import { Chip, Frame } from "./js/model.js"
 import { board, model, selected, hoverId, lit, focus, allEdges, diff, diffView, hidden, layout, hover } from "./state.rx"
 import { pick, hits, hitSet, hitAt } from "./ui.rx"
-import { closestId, closestGo, leftId } from "./js/dom.js"
-import { flyToId } from "./js/camera.js"
+import { closestId, closestGo, leftId, within } from "./js/dom.js"
+import { flyToId, ensureVisibleId } from "./js/camera.js"
+import { sfx } from "./js/sound.js"
+import { pointerAt, placeTipAt } from "./js/tip.js"
 
 // one token: its cast shadow, its body (the shape), its icon, then its name and marks
 export component Token(props: { c: Chip; extra: string }) {
@@ -104,8 +106,12 @@ export component Edges() {
 // the world column, then the module plates in dependency order, a row per level
 export component Board() {
   <div id="board"
-    onMouseOver={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { hover(id) } }}
+    onMouseOver={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { if (within(ev, ".chip")) { sfx("hover") } hover(id) } }}
+    onMouseMove={(ev) => { pointerAt(ev) }}
     onMouseOut={(ev) => { if (leftId(ev) != "") { hover(null) } }}
+    onFocusIn={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "") { ensureVisibleId(id); hover(id); placeTipAt(id) } }}
+    onFocusOut={() => { hover(null) }}
+    onKeyDown={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "" && (ev.key == "Enter" || ev.key == " ")) { ev.preventDefault(); pick(id == selected ? null : id, false) } }}
     onClick={(ev) => {
       let go = closestGo(ev)
       let id = closestId(ev, "[data-id]")

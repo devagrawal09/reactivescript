@@ -1,7 +1,7 @@
 // The map's model of a graph: indexes, ranks, control-flow heads, boundary notifiers, and the board tree the RX views
 // draw. Pure: `buildModel(graph)` returns a fresh model (the graph handed in is not changed); every other export reads
 // one. Ported from map.html (loadGraph … pendingRoots, render's layout decisions, the traces).
-import { CTL, FRAME, KIND, ORDER, SHAPE, STATUS, kindOf, famOf, edgeKey as edgeKeyOf } from "./vocab.js";
+import { CTL, FAM, FAM_HEX, FRAME, KIND, ORDER, SHAPE, STATUS, kindOf, famOf, edgeKey as edgeKeyOf } from "./vocab.js";
 
 /** The model of a graph: what every view and trace reads. Opaque to RX; read through the functions below. */
 export function buildModel(g) {
@@ -362,4 +362,31 @@ function onBoard(M, n) {
   if (n.world && !n.from) return true;
   if (n.kind === "comp") return M.compRegion.has(n.id) || !!M.regions.get(n.region) || !!M.regions.get(`${n.mod}:r0`);
   return !!(M.regions.get(n.region) ?? M.regions.get(`${n.mod}:r0`));
+}
+
+/** The edges at these indexes (a trace's), as objects (fx's sparkle takes them). */
+export const edgesAt = (M, idxs) => (idxs ?? []).map(i => M.G.edges[i]).filter(Boolean);
+
+/** What the tooltip says about a name or a region. */
+export function tipInfo(M, id) {
+  const r = M.regions.get(id);
+  if (r) {
+    const info = controlInfo(M, r);
+    return { region: true, micro: r.kind === "then" ? "branch" : r.kind, name: info.text, code: info.line ? moduleLine(M, r.mod, info.line) : "", kk: "", fam: "", hex: "", label: "", flags: "", where: "", key: "" };
+  }
+  const n = M.nodes.get(id);
+  if (!n) return null;
+  const kk = kindOf(n), f = FAM[kk] ?? "outside";
+  return {
+    region: false, micro: "", name: n.name, code: lineOf(M, n), kk, fam: f, hex: FAM_HEX[f], label: KIND[kk]?.label ?? n.kind,
+    flags: `· ${f}${n.async ? " · can be pending" : ""}${n.io ? " · io" : ""}${n.world ? " · trust point" : ""}`,
+    where: `${n.file}:${n.line}${n.status && n.status !== "same" ? ` · ${n.status}` : ""}`, key: n.key ?? "",
+  };
+}
+
+/** The node a `#name` hash names: a name first, else a site with that name; "" if none. */
+export function findByName(M, name) {
+  if (!name) return "";
+  const n = M.G.nodes.find(n => n.name === name && !n.site) ?? M.G.nodes.find(n => n.name === name);
+  return n?.id ?? "";
 }

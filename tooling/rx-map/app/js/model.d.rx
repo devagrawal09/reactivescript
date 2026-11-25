@@ -32,3 +32,7 @@ export pure fn downstream(m: Model, id: string, view: string): Trace
 export pure fn upstream(m: Model, id: string, view: string): Trace
 export pure fn summaryTrace(m: Model, i: number): any
 export pure fn searchHits(m: Model, q: string, hidden: string[]): string[]
+export pure fn edgesAt(m: Model, idxs: number[]): any[]
+export type TipInfo = { region: boolean; micro: string; name: string; code: string; kk: string; fam: string; hex: string; label: string; flags: string; where: string; key: string }
+export pure fn tipInfo(m: Model, id: string): TipInfo | null
+export pure fn findByName(m: Model, name: string): string

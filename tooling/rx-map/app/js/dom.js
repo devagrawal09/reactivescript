@@ -13,3 +13,13 @@ export function leftId(ev) {
 /** The value / checked state of an event's target. */
 export const targetValue = ev => ev?.target?.value ?? "";
 export const targetChecked = ev => !!ev?.target?.checked;
+/** Listens for keys on the document; returns the unsubscribe. */
+export function onKey(f) { document.addEventListener("keydown", f); return () => document.removeEventListener("keydown", f); }
+/** Whether a text field has the keyboard. */
+export const typing = () => /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "");
+/** Whether the keyboard is on the page itself or on the element with this id. */
+export const focusIsBodyOr = id => document.activeElement === document.body || document.activeElement?.id === id;
+export function focusEl(id) { document.getElementById(id)?.focus(); }
+export function blurActive() { document.activeElement?.blur?.(); }
+/** Runs `f` on the next frame (after the first layout). */
+export function nextFrame(f) { const r = requestAnimationFrame(() => f()); return () => cancelAnimationFrame(r); }
