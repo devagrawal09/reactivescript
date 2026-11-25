@@ -54,7 +54,7 @@ export function packageDeclaration(fromFile: string, spec: string, read: (path: 
 export const TS_CANDIDATES = [".ts", ".tsx", ".mts", ".cts", ".d.ts", ".d.mts", "/index.ts", "/index.tsx", "/index.d.ts"];
 /** MO-11d: what a generator answers at `rx-dts:<stem>` — the generated text, its diagnostics (in the TS module), and every file it
  *  read (for staleness). */
-export type DtsRecord = { from: string; text: string; errors: { file: string; line: number; column: number; code: string; message: string }[]; files: string[] };
+export type DtsRecord = { from: string; text: string; errors: { file: string; line: number; column: number; code: string; message: string }[]; files: string[]; failed?: string[] };   // failed: exports whose line fell back to the default on an error (bound as unknown)
 /** The key a host answers with a stem's record, as JSON (`null`: none). */
 export const dtsKey = (stem: string) => "rx-dts:" + stem;
 export function readRecord(read: (path: string) => string | undefined, stem: string): DtsRecord | undefined {
@@ -62,7 +62,7 @@ export function readRecord(read: (path: string) => string | undefined, stem: str
   let j: unknown; try { j = JSON.parse(s); } catch { return undefined; }
   if (!j || typeof j !== "object" || typeof (j as DtsRecord).text !== "string" || typeof (j as DtsRecord).from !== "string") return undefined;
   const r = j as DtsRecord;
-  return { from: r.from, text: r.text, errors: Array.isArray(r.errors) ? r.errors : [], files: Array.isArray(r.files) ? r.files : [] };
+  return { from: r.from, text: r.text, errors: Array.isArray(r.errors) ? r.errors : [], files: Array.isArray(r.files) ? r.files : [], failed: Array.isArray(r.failed) ? r.failed.filter(x => typeof x === "string") : [] };
 }
 const base = (p: string) => p.split("/").pop() ?? p;
 const ruleOf = (code: string) => code === "DECLARATION_HELPER" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11";
@@ -72,6 +72,9 @@ export const UNAVAILABLE_FIX = "install the generator, `npm i -D @reactivescript
 export function loadModules(entry: string, read: (path: string) => string | undefined): ModuleSet {
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
   const jsFiles = new Set<string>();
+  /** MO-11d: by `.d.rx` path, the exports whose declaration failed (reported at the TS module): an importer binds them as
+   *  unknown, so that error is the one diagnostic. "all": the module has no declaration (DECLARATION_UNAVAILABLE). */
+  const failedOf = new Map<string, Set<string> | "all">();
   const state = new Map<string, "busy" | "done">();
   const declDiag = (code: string, line: number, file: string, msg: string) => { diags.push({ code, rule: "MO-8", line, file, msg }); };
   const tsModule = (stem: string) => TS_CANDIDATES.map(x => stem + x).find(p => read(p) !== undefined);
@@ -97,11 +100,11 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     const written = read(dts);
     if (!rec) { if (written !== undefined) { loadDeclaration(dts); return true; } return !ts; }      // MO-8, unchanged
     for (const e of rec.errors) diags.push({ code: e.code, rule: ruleOf(e.code), line: e.line, file: e.file, msg: e.message });
-    if (written === undefined && rec.errors.some(e => e.code === "DECLARATION_UNAVAILABLE")) return true;   // reported at the TS module
+    if (written === undefined && rec.errors.some(e => e.code === "DECLARATION_UNAVAILABLE")) { failedOf.set(dts, "all"); return true; }   // reported at the TS module
     let gen: JsDecl[];
     try { gen = parseDeclarations(rec.text, true); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts} (generated from ${rec.from}): ${e.message}`), { code: e.code }); throw e; }
     gen = gen.filter(x => x.kind !== "import").map(x => ({ ...x, origin: "generated" as const, generatedFrom: rec.from }));
-    if (written === undefined) { declarations.set(dts, gen); return true; }
+    if (written === undefined) { declarations.set(dts, gen); if (rec.failed?.length) failedOf.set(dts, new Set(rec.failed)); return true; }
     let ws: JsDecl[];
     try { ws = parseDeclarations(written); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; }
     ws = ws.map(x => x.kind === "import" ? x : { ...x, origin: "written" as const });
@@ -110,6 +113,8 @@ export function loadModules(entry: string, read: (path: string) => string | unde
     for (const x of ws) if (x.kind !== "import" && x.kind !== "type" && !theirs.has(x.name))   // a written type is the declaration's own: it binds no value
       diags.push({ code: "NOT_EXPORTED", rule: "MO-11e", line: x.line, file: dts, msg: `${base(dts)}: ${base(rec.from)} exports no ${x.name} — a written line overrides an export of the TS module; remove the line, or export ${x.name} from ${base(rec.from)}` });
     declarations.set(dts, [...ws, ...gen.filter(x => !mine.has((x as { name: string }).name))]);
+    const failed = (rec.failed ?? []).filter(n => !mine.has(n));   // a written line is the declaration
+    if (failed.length) failedOf.set(dts, new Set(failed));
     resolveDeclImports(dts);
     return true;
   };
@@ -182,7 +187,11 @@ export function loadModules(entry: string, read: (path: string) => string | unde
         else if (!loadJsDeclaration(stem)) {                                        // MO-11d: a TS module, and no generator
           const ts = tsModule(stem)!;
           diags.push({ code: "DECLARATION_UNAVAILABLE", rule: "MO-11d", line: d.line, file: path, msg: `${d.from} is the TS module ${base(ts)}, whose declaration is generated (MO-11d), and no generator answered: ${UNAVAILABLE_FIX}` });
+          failedOf.set(dts, "all");
         }
+        const failed = pkgDts ? undefined : failedOf.get(dts);   // MO-11d: bound as unknown; the error is the TS module's (or the import's)
+        const lenient = failed === "all" ? d.names.map(n => n.name) : failed ? d.names.map(n => n.name).filter(n => failed.has(n)) : [];
+        if (lenient.length) d.lenient = lenient;
         const ds = declarations.get(dts);
         const ts = !pkgDts && (d.pure || d.fails || d.side) ? tsModule(stem) : undefined;
         if (ts) for (const { name } of d.names) {

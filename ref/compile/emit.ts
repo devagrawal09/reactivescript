@@ -316,7 +316,8 @@ class Gen {
     for (const d of decls) if (d.k === "effect") {
       const inner = new Env(env);
       out.push(...this.hoistAll(d.inputs, env, pad));
-      out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
+      const key = d.inputs.length && d.body.length && d.body.every(s => s.k === "write") ? this.keys.get(d) : undefined;
+      out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}})${key ? `, ${J(key)}` : ""});   // SC-2: the apply reads σ, untracked`);
     }
     if (!exportsTail) out.push(...this.hoistAll(viewReaders(view), env, pad));
     out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
@@ -539,7 +540,6 @@ class Gen {
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
-        if (e.op === "instanceof") return `__rt.isA(${go(e.l)}, [${e.r.k === "id" && e.r.name === "Error" && !env.lookup("Error") ? "Error" : go(e.r)}])`;
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;

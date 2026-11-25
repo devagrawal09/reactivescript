@@ -1263,11 +1263,7 @@ impl Proj<'_> {
                     "!=" => "!==",
                     o => o,
                 };
-                let rhs = go!(r);
-                let rhs = if o == "instanceof" && rhs.s != "Error" {
-                    Code::of("(").c(rhs.clone()).t(" as unknown as new () => ReturnType<typeof ").t(&rhs.s).t(">)")
-                } else { rhs };
-                Code::of("(").c(go!(l)).t(&format!(" {o} ")).c(rhs).t(")")
+                Code::of("(").c(go!(l)).t(&format!(" {o} ")).c(go!(r)).t(")")
             }
             ExprKind::Un { op, e: x } => Code::of("(").t(op).c(go!(x)).t(")"),
         }

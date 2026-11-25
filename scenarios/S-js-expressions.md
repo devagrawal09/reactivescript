@@ -1,19 +1,17 @@
-# S-js-expressions — error class tests and arguments
+# S-js-expressions — ordinary calls and expression boundaries
 
 Rules: R-f-1, R-f-4, SV-7a, AC-1f.
 
 ## Program
 
 ```rx
-error Missing(id: number) => `missing ${id}`
 fn total(a: number, b: number) => a + b
 export default component App() {
   source result := ""
   action check() {
-    let e = Missing(2)
     let ns = Array.from("12", x => Number(x))
     let n = Math.max(...ns)
-    result := e instanceof Missing && e instanceof Error ? `${n}:${total(...[3, 4])}` : "wrong"
+    result := `${n}:${total(...[3, 4])}`
   }
   <p>{result}</p>
 }
@@ -26,11 +24,26 @@ export default component App() {
 | 0 | mount | |
 | 1 | handler `check()` | `2:7` |
 
+## Variant: null-only equality and a presence check
+
+```rx
+fn label(m: string | null | undefined): string =>
+  m != null && m != undefined ? m.toUpperCase() : "missing"
+export default component App() {
+  <p>{label(undefined)}:{label("ok")}</p>
+}
+```
+
+| instant | action | frame |
+| --- | --- | --- |
+| 0 | mount | `missing:OK` |
+
 ## Rejected
 
 ```rx
--- reject: NOT_AN_ERROR_CLASS
-export default component App() { <p>{1 instanceof Number}</p> }
+-- reject: PARSE
+error Missing
+export default component App() { <p>{Missing() instanceof Missing}</p> }
 ```
 
 ```rx
@@ -46,4 +59,14 @@ export default component App() {
 export default component App() {
   <input onInput={e => { e.currentTarget.value = "" }} />
 }
+```
+
+```rx
+-- reject: JS_NEW
+export default component App() { <p>{new Date()}</p> }
+```
+
+```rx
+-- reject: MARKUP_STRING
+export default component App() { <p>{if true { "text" }}</p> }
 ```

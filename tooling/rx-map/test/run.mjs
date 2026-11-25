@@ -36,17 +36,26 @@ graph.title = "users.rx";
 const graphJSON = JSON.stringify(graph);
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json" };
+// What a harness page asked for and didn't get: reported with a page that "reported nothing" (a module that failed
+// to load stops the page's script before it can write its result).
+const misses = [];
+const runtimeDir = join(repo, "ref", "compile");
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://x");
+  const miss = (status, why) => { misses.push(`${status} ${url.pathname}${why ? `: ${why}` : ""}`); return res.writeHead(status).end(); };
   if (url.pathname === "/graph.json") return res.writeHead(200, { "content-type": TYPES[".json"] }).end(graphJSON);
-  if (["/runtime/rt-web.ts", "/runtime/prims-solid.ts", "/runtime/action-input.ts"].includes(url.pathname)) {
-    const ts = readFileSync(join(repo, "ref", "compile", url.pathname.split("/").at(-1)), "utf8");
-    return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(ts));
+  // The browser runtime and every module it imports from ref/compile (rt-web.ts imports siblings: prims-solid.ts,
+  // action-input.ts, …). A fixed list here 404'd a new import and the engine page reported nothing.
+  if (url.pathname.startsWith("/runtime/")) {
+    const file = resolve(runtimeDir, url.pathname.slice("/runtime/".length));
+    if (!file.startsWith(runtimeDir + "/") || !file.endsWith(".ts") || !existsSync(file)) return miss(404);
+    try { return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(readFileSync(file, "utf8"))); }
+    catch (e) { return miss(500, e.message.split("\n")[0]); }
   }
   const [root, path] = url.pathname.startsWith("/solid/") ? [solid, url.pathname.slice(7)]
     : [here, url.pathname.slice(1)];
   const file = resolve(root, path);
-  if (!file.startsWith(root) || !existsSync(file)) return res.writeHead(404).end();
+  if (!file.startsWith(root) || !existsSync(file)) return miss(404);
   res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" }).end(readFileSync(file));
 });
 await new Promise(r => server.listen(0, "127.0.0.1", r));
@@ -56,10 +65,15 @@ const run = (url, extra, budget = 8000) => new Promise((ok, fail) => execFile(ch
   ["--no-sandbox", "--headless", "--disable-gpu", "--window-size=1400,900", `--virtual-time-budget=${budget}`, ...extra, url],
   { maxBuffer: 1 << 26 }, (e, out) => (e ? fail(e) : ok(out))));
 const result = async (page, budget) => {
+  misses.length = 0;
   const dom = await run(`${origin}/test/${page}`, ["--dump-dom"], budget);
   const m = /<pre id="result"[^>]*>([\s\S]*?)<\/pre>/.exec(dom);
   const text = m?.[1].replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
-  if (!text) return { ok: false, checks: [{ what: `${page} reported nothing`, ok: false }] };
+  // the page's own report of why it stopped (engine.html: a script or module error, or its time running out)
+  const early = /<pre id="early"[^>]*>([\s\S]*?)<\/pre>/.exec(dom)?.[1];
+  if (!text) return { ok: false, checks: [{ what: `${page} reported nothing`, ok: false,
+    got: { ...(misses.length ? { requests: [...misses] } : {}), ...(early ? { page: early } : {}),
+      ...(!misses.length && !early ? { hint: `no failed request and no page error: the ${budget ?? 8000} ms virtual-time budget ran out` } : {}) } }] };
   return JSON.parse(text);
 };
 

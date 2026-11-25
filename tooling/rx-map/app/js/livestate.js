@@ -41,6 +41,7 @@ export function freshLive() {
     held: {},          // key → { by: Key[], since }
     boundaries: {},    // region ref (key or id) → { state, error? }
     inexact: {},       // key → true: can't be shown exactly at the viewed seq
+    recordedErrors: {}, // error copied from history, not replayed by the app
     flushes: 0,
     connected: true,
     tl: { steps: [], head: 0, viewing: null, target: null, capacity: 2000, flights: [], hmrs: [], rev: 0 },
@@ -222,7 +223,7 @@ export function callFns(M, key) {
 const clip = (t, n = 60) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
 const show = v => clip(typeof v === "string" ? v : (() => { try { return JSON.stringify(v) ?? String(v); } catch { return String(v); } })(), 40);
 const causeName = c => (c?.key ? keyName(c.key) : String(c?.name ?? "?").replace(/^rx:/, "").split("|").pop());
-const causeText = c => `${causeName(c)}${c?.prev !== undefined || c?.value !== undefined ? ` ${c.prev !== undefined ? show(c.prev) : "?"}→${c.value !== undefined ? show(c.value) : "?"}` : ""}`;
+const causeText = c => `${c?.kind === "refresh" ? "refresh " : ""}${causeName(c)}${c?.prev !== undefined || c?.value !== undefined ? ` ${c.prev !== undefined ? show(c.prev) : "?"}→${c.value !== undefined ? show(c.value) : "?"}` : ""}`;
 // the action running now (the newest open run), as "action save #3"
 function runningNow(s) {
   for (let i = s.calls.length - 1; i >= 0; i--) { const c = s.calls[i]; if (c.kind === "run" && c.outcome === "pending") return `action ${keyName(c.key)} #${c.n}`; }
@@ -238,32 +239,40 @@ function closeCall(s, c, outcome, at, error) {
   c.outcome = outcome; c.end = at; c.error = error ?? "";
   c.seqEnd = s.tl.head;
   const last = s.tl.steps.at(-1);
-  const inLast = c.kind === "ask" && last && last.seq > (c.seqStart ?? 0) && (last.changes ?? []).some(x => x.key === c.key);
+  const inLast = c.kind === "ask" && last && last.seq > (c.seqStart ?? 0) && (last.changes ?? []).some(x => askLanded(c, x));
+  if (c.kind === "ask" && outcome === "rejected" && !inLast) c.seqEnd = null;
   // an action's writes (and an errored one's catch) commit as it ends; an ask's answer (or its error) in a flush that
   // changes its key. A superseded ask lands nowhere.
   c.settle = c.kind === "run" || (outcome !== "stale" && !inLast);
 }
+const askLanded = (call, change) => change.key === call.key
+  && (call.instance == null || change.instance == null || call.instance === change.instance)
+  && (call.outcome === "rejected" ? change.error === call.error : typeof change.error !== "string");
 function callFlight(s, m, M) {
   const at = m.at ?? lastAt(s);
   if (m.state === "start") {
+    for (const c of s.calls) if (c.kind === "ask" && c.key === m.key && c.instance === m.instance && c.outcome === "rejected")
+      c.settle = false; // do not associate the previous rejection with the next ask's answer
     const parts = [], inferred = [];
     if (typeof m.origin === "string" && m.origin) parts.push(m.origin);
     const cause = Array.isArray(m.cause) ? m.cause : [];
     if (cause.length) parts.push(`re-asked: ${cause.map(causeText).join(", ")}`);
-    else if (!s.calls.some(c => c.kind === "ask" && c.key === m.key)) parts.push("first ask");
+    else if (m.retryAfterRejection) parts.push("retried after rejection (no input change reported)");
+    else if (!s.calls.some(c => c.kind === "ask" && c.key === m.key && c.instance === m.instance)) parts.push("first ask");
     else parts.push("re-asked (no cause sent)");
     // a refresh inside an action: the action running at that moment, if any (inferred: nothing links them)
     const run = runningNow(s);
-    if (run && !cause.length) { parts.push(`during ${run}`); inferred.push("during"); }
+    if (run && !cause.length && !m.retryAfterRejection) { parts.push(`during ${run}`); inferred.push("during"); }
     // what makes two asks "the same" in the list (repeats collapse): the interaction, the names that re-asked it (not
     // their values), the action it ran during
     const ck = [m.origin ?? "", cause.length ? cause.map(causeName).join(",") : parts.at(-1), run.replace(/ #\d+$/, "")].join("|");
     addCall(s, { kind: "ask", key: m.key, fns: callFns(M, m.key), at, args: cause.map(causeText).join(", "),
-      cause: parts.join(" · "), inferred: inferred.length > 0, seqStart: s.tl.head, flightId: m.id ?? null, ck });
+      cause: parts.join(" · "), inferred: inferred.length > 0, seqStart: s.tl.head, instance: m.instance, flightId: m.id ?? null, ck });
     return;
   }
   // land: the newest ask of this key in the air; abandon (superseded, stale, rejected): the oldest. An id, when sent, decides.
-  const open = s.calls.filter(c => c.kind === "ask" && c.key === m.key && c.outcome === "pending");
+  const open = s.calls.filter(c => c.kind === "ask" && c.key === m.key && c.outcome === "pending" &&
+    (c.instance == null || m.instance == null || c.instance === m.instance));
   if (!open.length) return;
   const c = (m.id != null && open.find(c => c.flightId === m.id)) || (m.state === "land" ? open.at(-1) : open[0]);
   closeCall(s, c, m.state === "land" ? "ok" : typeof m.error === "string" ? "rejected" : "stale", at, m.error);
@@ -310,9 +319,10 @@ function settleCalls(s, m) {
   if (typeof m.seq !== "number") return;
   for (const c of s.calls) {
     if (!c.settle) continue;
-    c.settle = false;
     const near = typeof m.at !== "number" || typeof c.end !== "number" || Math.abs(m.at - c.end) <= 50;
-    if (c.kind === "ask" ? (m.changes ?? []).some(x => x.key === c.key) : near) c.seqEnd = m.seq;
+    const landed = c.kind === "ask" ? (m.changes ?? []).some(x => askLanded(c, x)) : near;
+    if (landed || c.kind !== "ask" || c.outcome !== "rejected") c.settle = false;
+    if (landed) c.seqEnd = m.seq;
   }
 }
 
@@ -440,6 +450,7 @@ function onStep(s, d, M) {
   applyChanges(s, d.changes, d.waves, { dir });
   reconcile(s, M, d.to, dir);
   s.inexact = {};
+  s.recordedErrors = Object.fromEntries((d.recordedErrors ?? []).filter(k => has(M, k)).map(k => [k, true]));
   for (const k of d.inexact ?? []) if (has(M, k)) s.inexact[k] = true;
   s.tl.rev++;
 }
@@ -451,6 +462,7 @@ function onResume(s, d, M) {
   applyChanges(s, d.changes, d.waves, { dir: "up" });
   reconcile(s, M, s.tl.head, "up");
   s.inexact = {};
+  s.recordedErrors = {};
   s.tl.rev++;
 }
 
@@ -691,14 +703,15 @@ export function callsView(live, fnKey) {
     const c = calls[i];
     if (fnKey && !c.fns.some(f => f.key === fnKey)) continue;
     const pending = c.outcome === "pending";
-    const seq = pending ? c.seqStart : c.seqEnd ?? c.seqStart;
+    const unpublished = c.kind === "ask" && c.outcome === "rejected" && c.seqEnd == null;
+    const seq = unpublished ? null : pending ? c.seqStart : c.seqEnd ?? c.seqStart;
     rows.push({
       id: c.id, kind: c.kind, key: c.key, name: keyName(c.key), fns: c.fns.map(f => ({ key: f.key, name: f.name })),
       when: ago(c.at), args: c.args ?? "", cause: c.cause ?? "", inferred: !!c.inferred,
       dur: pending ? "in the air" : typeof c.end === "number" && typeof c.at === "number" ? `${Math.max(0, Math.round(c.end - c.at))} ms` : "",
       outcome: c.outcome, badge: ({ ok: "ok", rejected: "rejected", stale: "stale", pending: c.kind === "run" ? "running" : "pending", unseen: "ended" })[c.outcome] ?? c.outcome,
       error: c.error ?? "", seq: typeof seq === "number" ? seq : -1,
-      seqText: typeof seq !== "number" ? "" : pending ? `from #${seq}` : `#${seq}`,
+      seqText: unpublished ? "no error frame recorded" : typeof seq !== "number" ? "" : pending ? `from #${seq}` : `#${seq}`,
       swallowed: !!c.swallowedBy, n: 1, span: "", group: "", members: [], same: `${c.kind}|${c.key}|${c.ck ?? c.cause}|${c.fns.map(f => f.key).join(",")}`,
     });
   }

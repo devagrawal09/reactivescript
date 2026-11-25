@@ -4,6 +4,8 @@ export type EdgeRow = { k: string; c: string; d: string; w: number; label: strin
 export type Change = { text: string; color: string }
 export type Fact = { cls: string; color: string; html: string }
 export pure fn kindMeta(kk: string): KindWords
+export type Decl = { line: string; from: string; origin: string; helpers: string[] }
+export pure fn declWhat(d: Decl): string
 export pure fn famName(kk: string): string
 export pure fn famColor(kk: string): string
 export pure fn shapeOf(kk: string): string

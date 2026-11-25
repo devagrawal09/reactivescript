@@ -225,3 +225,22 @@ fn forbidden_import_rows_name_the_fix() {
     let main = "import pure { f } from \"./util\"\nimport pure { f as g } from \"pkg\"\nexport default component App() { <p>{f()}{g()}</p> }\n";
     assert!(diags(&[("main.rx", main), ("util.js", "export const f = () => 1;\n")]).is_empty());
 }
+
+#[test]
+fn a_failed_declaration_is_the_one_error() {
+    // MO-11d: `saveUser`'s line fell back to the default on an error in api.ts; it binds as unknown, so its uses in
+    // reactive scope and its unhandled failures report nothing: the error at api.ts is the one diagnostic
+    let rec = json!({ "from": "api.ts", "text": GEN, "errors": [{ "file": "api.ts", "line": 4, "column": 0, "code": "DECLARATION_HELPER", "message": "`ref(…)` already makes saveUser pure" }], "files": ["api.ts"], "failed": ["saveUser"] }).to_string();
+    let main = "import { saveUser, logVisit } from \"./api\"\nexport default component App() {\n  a = await saveUser(1)\n  b = saveUser(2)\n  action go() { await saveUser(3) }\n\n  <p>{a}{b}</p>\n}\n";
+    assert_eq!(diags(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &rec)]), [("DECLARATION_HELPER".to_string(), "MO-11c".to_string(), "api.ts".to_string(), 4)]);
+    // a name that did not fail keeps its rows
+    let other = "import { saveUser, logVisit } from \"./api\"\nexport default component App() {\n  b = logVisit(\"x\")\n\n  <p>{b}</p>\n}\n";
+    assert_eq!(codes(&[("main.rx", other), ("api.ts", API_TS), ("rx-dts:api", &rec)]), ["DECLARATION_HELPER", "IO_IN_REACTIVE"]);
+    // a written line is the declaration: the failed generated line is not used
+    let w = codes(&[("main.rx", main), ("api.ts", API_TS), ("api.d.rx", "export fn saveUser(n: number): Promise<void>\n"), ("rx-dts:api", &rec)]);
+    assert!(w.contains(&"IO_IN_REACTIVE".to_string()), "{w:?}");
+    // DECLARATION_UNAVAILABLE: every name of the import is unknown
+    let none = json!({ "from": "api.ts", "text": "", "errors": [{ "file": "api.ts", "line": 1, "column": 0, "code": "DECLARATION_UNAVAILABLE", "message": "`export =`" }], "files": ["api.ts"] }).to_string();
+    assert_eq!(codes(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &none)]), ["DECLARATION_UNAVAILABLE"]);
+    assert_eq!(codes(&[("main.rx", main), ("api.ts", API_TS)]), ["DECLARATION_UNAVAILABLE"]);
+}

@@ -36,6 +36,16 @@ export function edgeChange(e) {
 }
 
 /** What changed about a name in a diff, as hint lines: { cls, color, html }. */
+/** 09 MO-11f: where a JS import's declaration comes from, in words. Only a function has helpers to state its facts with; a
+ *  generated error class or value is TypeScript's own fact, so "no helper" would read as something missing. */
+export function declWhat(d) {
+  if (d.origin === "written") return "in a written .d.rx";
+  if (d.origin === "helper") return `by helpers (${d.helpers.join(", ")})`;
+  if (/^export\s+error\b/.test(d.line)) return "by TypeScript (a class that extends Error)";
+  if (/^export\s+const\b/.test(d.line)) return "by TypeScript (a value, not a function: no helper applies)";
+  return "by default (no helper: io, rejects Error)";
+}
+
 export function diffFacts(G, n) {
   const GA = `<span class="gi ga">${ICON.arrow}</span>`;
   if (!G.diff || !n.status || n.status === "same") return n.edited ? [{ cls: "hint was", color: "", html: "line edited, same meaning to the checker" }] : [];
