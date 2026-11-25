@@ -1347,6 +1347,11 @@ impl<'p> Gen<'p> {
                 thunk(r)
             }
         }
+        // Observe a foreign accessor through a named dev memo; the foreign
+        // primitive itself stays owned by the JS adapter and is called once.
+        let observed = |r: E, p: Part| if rx_key.is_some() && p == Part::Ref {
+            rtc("memo", vec![E::Null, thunk(call(r, vec![]))])
+        } else { part(r, p) };
         let ix = |r: &str, k: E| E::Index(Box::new(id(r)), Box::new(k), false);
         match &e.k {
             ExprKind::Call { f, args } => {
@@ -1369,7 +1374,7 @@ impl<'p> Gen<'p> {
                 }
                 let r = b.inst.clone().unwrap();
                 let whole = match fb.shape.as_ref().unwrap() {
-                    FShape::Part(p) => part(id(r.clone()), *p),
+                    FShape::Part(p) => observed(id(r.clone()), *p),
                     FShape::Items(items) => rtc(
                         "memo",
                         vec![E::Null, thunk(E::Arr(items.iter().enumerate().map(|(i, p)| { let x = ix(&r, E::Num(i as f64)); if *p == Part::Ref { call(x, vec![]) } else { x } }).collect()))],
@@ -1399,7 +1404,7 @@ impl<'p> Gen<'p> {
                     },
                     _ => return Ok(None),
                 };
-                Ok(Some(vec![konst(b.js.clone(), Self::under(rx_key, part(ix(&inst, key), p)))]))
+                Ok(Some(vec![konst(b.js.clone(), Self::under(rx_key, observed(ix(&inst, key), p)))]))
             }
             _ => Ok(None),
         }

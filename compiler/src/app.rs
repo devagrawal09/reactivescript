@@ -58,7 +58,11 @@ pub fn app_dev(entry: &str, target: Target, module_name: &str, spa: bool, dev: O
             let l = lower_view(module, path, target, module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
             modules.insert(path.clone(), json!({ "code": l.code, "map": l.map, "css": out.module_css[name] }));
         }
-        Ok(json!({ "entry": set.entry, "css": out.css, "modules": modules }))
+        let mut result = json!({ "entry": set.entry, "css": out.css, "modules": modules });
+        if dev.is_some() {
+            result["declarations"] = json!(set.declarations.keys().collect::<Vec<_>>());
+        }
+        Ok(result)
     })()
     .unwrap_or_else(|e| e)
 }

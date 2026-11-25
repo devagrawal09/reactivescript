@@ -27,7 +27,7 @@ export function rxMap() {
     config: () => ({ resolve: { dedupe: ["solid-js", "@solidjs/signals"] } }),
     configureServer(server) {
       const pages = new Map(), pending = new Map();
-      const entries = new Map();
+      const entries = new Map(), frontends = new Map();
       const root = server.config.root;
       const hooks = globalThis[Symbol.for("reactivescript.vite.entries")] ??= new Map();
       let app;
@@ -39,24 +39,32 @@ export function rxMap() {
         warm = setTimeout(() => { if (entries.size) try { getProject().load(); } catch { /* check reports diagnostics */ } }, 40);
         warm.unref();
       };
-      const register = (file, spa) => { if (entries.get(file) !== spa) { entries.set(file, spa); invalidate(); } };
+      const register = (file, spa, frontend) => {
+        if (frontend) {
+          const old = frontends.get(file);
+          frontends.set(file, { ...frontend, transformed: frontend.transformed ?? old?.transformed });
+        }
+        if (entries.get(file) !== spa || frontend) { entries.set(file, spa); invalidate(); }
+      };
       hooks.set(root, register);
       server.httpServer?.once("close", () => { clearTimeout(warm); if (hooks.get(root) === register) hooks.delete(root); });
       server.watcher?.on("all", (event, file) => {
         if (file.endsWith(".rx") || file.endsWith(".ts") || file.endsWith("tsconfig.json")) invalidate();
       });
-      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood });
+      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood, frontends });
       const capacity = 5000, ring = new Array(capacity);
       let seq = 0, mark, lastPage;
-      const records = (since, limit, filter, page) => {
+      const records = (since, limit, filter, page, { key, instance, kinds } = {}) => {
+        const matches = r => (key === undefined || r.key === key) && (instance === undefined || r.instance === instance);
         const out = [];
         for (let i = seq; i > since && i > seq - capacity && out.length < limit; i--) {
           const { data, socket } = ring[(i - 1) % capacity];
           if (page && socket !== page) continue;
-          if (filter !== "all" && data.type === "flush") {
-            const changes = data.changes.filter(c => c?.key);
+          if (kinds && !kinds.includes(data.type)) continue;
+          if (data.type === "flush") {
+            const changes = data.changes.filter(c => c && (filter === "all" || c.key) && matches(c));
             if (changes.length) out.push({ ...data, changes });
-          } else out.push(data);
+          } else if (matches(data)) out.push(data);
         }
         return out.reverse();
       };
@@ -86,7 +94,7 @@ export function rxMap() {
           const { since = 0, limit = 20, filter } = params;
           if (!Number.isSafeInteger(since) || since < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > capacity)
             throw new Error("tail takes a nonnegative since and a limit from 1 to 5000");
-          return records(since, limit, filter, client?.socket ?? lastPage);
+          return records(since, limit, filter, client?.socket ?? lastPage, params);
         }
         if (method === "record") {
           if (params.action === "start") {
@@ -96,7 +104,7 @@ export function rxMap() {
           } else if (params.action === "stop") {
             if (!mark) throw new Error("no active recording");
             const current = mark; mark = undefined;
-            const result = records(current.since, capacity, params.filter ?? current.filter, current.page);
+            const result = records(current.since, capacity, params.filter ?? current.filter, current.page, params);
             const start = result[0]?.at ?? 0;
             return { recording: false, truncated: seq - current.since > capacity,
               records: result.map(r => ({ ...r, at: Math.max(0, r.at - start) })) };

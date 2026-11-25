@@ -81,15 +81,15 @@ export default function rx() {
   const builds = new Map();   // entry\0target\0moduleName\0spa\0dev → { entry, target, moduleName, spa, dev, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   /** `dev`: the project root, for a dev build (keys relative to it); null otherwise. */
-  function build(entry, target, moduleName, spa, dev = null) {
+  function build(entry, target, moduleName, spa, dev = null, force = false) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}`;
     const prior = builds.get(key);
-    if (prior && fresh(prior)) return prior;
+    if (!force && prior?.out.modules && fresh(prior)) return prior;
     const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa) : app(entry, target, moduleName, spa, true, dev));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-    const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
+    const files = out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry];
     const b = { entry, target, moduleName, spa, dev, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
-    builds.set(key, b);
+    if (!force) builds.set(key, b);
     return b;
   }
   const built = (file, target, moduleName, spa, dev) =>
@@ -119,12 +119,15 @@ export default function rx() {
       const dep = isDep(moduleId);
       const base = path.resolve(root ?? process.cwd());
       const dev = solid.dev === true && target === "dom" ? base : null;
-      if (dev && !dep) globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base)?.(file, spa);
-      const { out } = dep ? containing(file, target, moduleName, spa, base, dev) : build(file, target, moduleName, spa, dev);
+      const register = dev && !dep && globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base);
+      const check = () => build(file, target, moduleName, spa, dev, true).out;
+      const { out, stamps } = dep ? containing(file, target, moduleName, spa, base, dev) : build(file, target, moduleName, spa, dev);
+      if (register) register(file, spa, { check, model: () => JSON.parse(model([file], base)),
+        transformed: out.modules ? () => [...stamps].filter(([f, stamp]) => mtime(f) !== stamp).map(([f]) => f) : undefined });
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
-      for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
+      for (const p of stamps.keys()) if (p !== file) addWatchFile(p);
       // dev: a program's entry registers its map, when the project has @reactivescript/map; the lines go first, and the
       // module's map is shifted by them
       const live = dev !== null && !dep ? liveMap(file, base) : "";
