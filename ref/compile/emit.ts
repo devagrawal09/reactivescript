@@ -70,6 +70,13 @@ function deps(e: unknown, self: string, out = new Set<string>()): Set<string> {
 // ---------------------------------------------------------------- the module
 export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): string { return compileModules(singleModule(p), opts).files.get("main.mjs")!; }
 
+function relative(from: string, to: string): string {
+  const dir = from.split("/").slice(0, -1), parts = to.split("/");
+  let common = 0;
+  while (common < dir.length && dir[common] === parts[common]) common++;
+  return ("../".repeat(dir.length - common) || "./") + parts.slice(common).join("/");
+}
+
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
 /** `dev`: each source's and equation's creating calls run under its key (`__rt.key(k, () => …)`, model.ts declKeys), so
@@ -85,7 +92,7 @@ export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; de
     g.keys = opts.dev ? declKeys(p, moduleKey(path, opts.root)) : new Map();
     g.devModule = opts.dev ? moduleKey(path, opts.root) : "";
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
-    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from ${J(opts.bySource ? relative(path, d) : `./${out(d)}`)};`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
@@ -248,7 +255,8 @@ class Gen {
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      const dep = this.depVar(d.resolved);
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${this.mods!.bySource ? dep : J(this.mods!.out(d.resolved))}, ${dep});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
         const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);

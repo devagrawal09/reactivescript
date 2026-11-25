@@ -83,10 +83,13 @@ export default component App() {
     ["src/types.d.rx", `export type Title = string\n`],
   ]);
   add("MO-8 real API and type imports", "src/main.rx", path => files.get(path), []);
-  add("MO-8 product bundler resolves a relative import", "main.rx", path => path === "main.rx" ? `
-import pure { label } from "./virtual.js"
-export default component App() { <p>{label()}</p> }
-` : undefined, [], true);
+  const product = new Map([
+    ["src/main.rx", `import { caption } from "./caption.rx"
+export default component App() { <p>{caption}</p> }`],
+    ["src/caption.rx", `import pure { label } from "./virtual.js"
+export caption = label()`],
+  ]);
+  add("MO-8 product bundler resolves a relative import", "src/main.rx", path => product.get(path), [], true);
 }
 
 const plain = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => v instanceof Map ? Object.fromEntries(v) : v instanceof Set ? [...v] : v));
