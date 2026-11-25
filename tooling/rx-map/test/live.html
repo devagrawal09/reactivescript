@@ -213,6 +213,25 @@ try {
   await sleep(450); wheel({ deltaY: -1000 }); await sleep(40); const sc = win.__RX_MAP__.cam.s;
   check("a wheel notch zooms ×1.13, however big its delta", Math.abs(sb1 / sa - 1.13) < .01 && Math.abs(sc / sb1 - 1.13) < .01, [sa, sb1, sc]);
   win.__RX_MAP__.zoomAt(600, 400, s0 / win.__RX_MAP__.cam.s); await sleep(40);
+  // the overview: a double-click on a card (or just beside it, on the gap) flies into that module at reading size
+  // (this harness runs no animation frames: the flight's target is what is checked; it lands as zoomAt / flyTo do)
+  {
+    const M = win.__RX_MAP__, read = M.LEVELS.up[1] + .1;
+    const plate = doc.querySelector("#board .frame.module"), pr = () => plate.getBoundingClientRect();
+    const dbl = async (el, at) => {
+      M.zoomAt(600, 400, .2 / M.cam.s); await sleep(60);
+      const [x, y] = at(pr());
+      el.dispatchEvent(new win.MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+      await sleep(30);
+      const f = M.flight;
+      return f && { s: +f.s.toFixed(3), inPlate: f.x > M.layout.plates.get(0).x && f.x < M.layout.plates.get(0).x + M.layout.plates.get(0).w, level: M.level };
+    };
+    const onCard = await dbl(plate, r => [r.x + r.width / 2, r.y + r.height / 2]);
+    const besideIt = await dbl(doc.getElementById("board"), r => [r.x - 4, r.y + r.height / 2]);
+    const farAway = await dbl(doc.getElementById("board"), r => [r.x - 200, r.y + r.height / 2]);
+    check("overview: a double-click on a module card, or on the gap beside it, flies into it at reading size; far from any plate, not", onCard?.level === 1 && onCard.s >= read - .001 && onCard.inPlate && besideIt?.s >= read - .001 && besideIt.inPlate && farAway === null, [onCard, besideIt, farAway, read]);
+    M.zoomAt(600, 400, s0 / M.cam.s); await sleep(60);
+  }
   post({ v: 1, type: "snapshot", values: [], flights: [], boundaries: [], held: [] });
   post({ v: 1, type: "flush", seq: 4, at: 32, changes: [{ key: K("total").key, name: "y", preview: "2" }] });
   await sleep(30);
@@ -236,6 +255,14 @@ try {
   pd.getElementById("track").dispatchEvent(new pw.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
   await sleep(120);
   check("pop-out: its travel goes to the host", sent.some(m => m.type === "travel"), sent);
+  // a reload runs the page again (a Blob URL of it, not a written about:blank) and it attaches again
+  check("pop-out: opened on a page of its own (not about:blank)", pw.location.protocol === "blob:", pw.location.href);
+  pw.location.reload();
+  await sleep(600);
+  const pwr = win.open("", "rx-map-popout"), pdr = pwr?.document;
+  post({ v: 1, type: "flush", seq: 4, at: 41, changes: [ch("page", "8")] });
+  await sleep(80);
+  check("pop-out: reloaded, it is the live map again, fed by its opener", !!pdr?.getElementById("liveBadge") && pdr.querySelector(`#board .chip[data-id="${K("page").id}"] .lv`)?.dataset.value === "8", [pwr?.location.href, pdr?.body?.className, pdr?.querySelector(`#board .chip[data-id="${K("page").id}"] .lv`)?.dataset.value]);
   pw.close();
   await sleep(50);
   win.popOut();
@@ -280,6 +307,7 @@ try {
   const sd = st.contentDocument;
   check("static page: no live badge, no values, no pulse", !sd.getElementById("liveBadge") && !sd.querySelector(".lv, .pulse") && !sd.body.classList.contains("live"));
   check("static page: no Live guide note", !/Live\./.test(sd.getElementById("panel").textContent));
+  check("static page: no Coverage button (no probe)", !sd.getElementById("coverageBtn"));
   check("static page: sound stays muted (persisted)", sd.getElementById("soundBtn").getAttribute("aria-pressed") === "false");
   sb.click();
   check("unmute persists", win.localStorage.getItem("rx-map:sound") === "on");
@@ -374,6 +402,170 @@ try {
     check("plan: after the app reloads, a panel the plan opened closes again (no Guide popping up)", doc.getElementById("side").classList.contains("closed"), doc.getElementById("side").className);
     check("calls: a reset clears them", (doc.querySelector('#ptabs [data-tab="calls"]')?.click(), await sleep(30), rows().length === 0));
     check("the header title follows the graph drawn", /^users\.rx v2$/.test(doc.querySelector("header h1 small")?.textContent ?? "") && doc.title === `rx-map · ${doc.querySelector("header h1 small").textContent}`, [doc.title, doc.querySelector("header h1 small")?.textContent]);
+    doc.querySelector("#ptabs .close").click();
+    await sleep(20);
+
+    // ---- a failed re-ask while the app still shows the last value ---------------------------------------------
+    const RL = "RateLimited: slow down";
+    const lvOf = name => chip(name)?.querySelector(".lv");
+    post({ v: 1, type: "flush", seq: 1, at: 1000, changes: [ch("users", "[{id: 1, name: \"Ada\"}, {id: 2, name: \"Grace\"}]")] });
+    post({ v: 1, type: "flush", seq: 2, at: 1100, changes: [{ key: U, name: `rx:${U}`, error: RL }] });
+    await sleep(60);
+    check("re-ask failed: the token keeps its last value, dimmed, marked; not plain rose",
+      chip("users").classList.contains("reask-failed") && lvOf("users")?.classList.contains("stale") && /Ada/.test(lvOf("users")?.dataset.value ?? "")
+      && /re-ask failed/.test(lvOf("users")?.querySelector(".lvx")?.textContent ?? "") && !chip("users").querySelector(".lverr") && getComputedStyle(lvOf("users")).display !== "none",
+      [chip("users").className, chip("users").querySelector(".lv, .lverr")?.outerHTML]);
+    chip("users").dispatchEvent(new win.MouseEvent("mouseover", { bubbles: true }));
+    await sleep(40);
+    const tipText = () => doc.getElementById("tip").textContent;
+    check("re-ask failed: the tooltip says it, with the last value and the error", /failed re-ask · showing last value: \[\{id: 1/.test(tipText()) && tipText().includes(RL), tipText());
+    win.select(K("users").id); await sleep(40);
+    const lvText = () => doc.getElementById("liveval")?.textContent.replace(/\s+/g, " ") ?? "";
+    check("re-ask failed: the Live value section says it, with the error", /failed re-ask · showing last value: \[\{id: 1/i.test(lvText()) && lvText().includes(RL) && /no errored boundary caught it/.test(lvText()), lvText());
+    check("a name that is no JS import has no declaration line (strict `!=` let `undefined` through)", !/· declared/.test(doc.getElementById("panel").textContent), doc.getElementById("panel").textContent.match(/· declared[^·]*/)?.[0]);
+    win.select(K("fetchUsers").id); await sleep(30);
+    check("a JS import's panel says where its declaration comes from", !!K("fetchUsers").decl === /· declared (in a written \.d\.rx|by helpers|by default|from its TS declaration)/.test(doc.getElementById("panel").textContent), [K("fetchUsers").decl, doc.getElementById("panel").textContent.match(/· declared[^:]*/)?.[0]]);
+    win.select(K("users").id); await sleep(30);
+    // the tooltip: never over the open side panel; gone when the pointer goes onto the HUD
+    const sideL = doc.getElementById("side").getBoundingClientRect().left;
+    chip("users").dispatchEvent(new win.MouseEvent("mouseover", { bubbles: true }));
+    chip("users").dispatchEvent(new win.MouseEvent("mousemove", { bubbles: true, clientX: sideL - 6, clientY: 300 }));
+    await sleep(60);
+    const tipR = doc.getElementById("tip").getBoundingClientRect();
+    check("tooltip: placed left of the open side panel, not over it", doc.getElementById("tip").classList.contains("on") && tipR.right <= sideL, [tipR.left, tipR.right, sideL]);
+    doc.getElementById("panel").dispatchEvent(new win.MouseEvent("mouseover", { bubbles: true }));
+    await sleep(30);
+    check("tooltip: gone when the pointer goes onto the side panel", !doc.getElementById("tip").classList.contains("on"), doc.getElementById("tip").className);
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "error", error: RL, at: 1110 });
+    await sleep(40);
+    check("re-ask failed, then a boundary shows its fallback for it: plain failed", chip("users").classList.contains("failed") && !chip("users").classList.contains("reask-failed") && /RateLimited/.test(chip("users").querySelector(".lverr")?.textContent ?? "") && /^failed/i.test(doc.querySelector("#liveval .failbox")?.textContent.trim() ?? ""), [chip("users").className, doc.querySelector("#liveval .failbox")?.textContent]);
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "ok", at: 1120 });
+    await sleep(40);
+    check("…and when the boundary shows its content again, the last value is back", chip("users").classList.contains("reask-failed") && /Ada/.test(lvOf("users")?.dataset.value ?? ""), chip("users").className);
+    // `shown` on the change: the bridge says what the app still shows; it decides, even with the boundary tripped
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "error", error: "TypeError: x", at: 1130 });
+    post({ v: 1, type: "flush", seq: 3, at: 1140, changes: [ch("total", "2"), ch("page", "3")] });
+    post({ v: 1, type: "flush", seq: 4, at: 1150, changes: [{ key: K("total").key, name: "t", error: "TypeError: x", shown: "41" }] });
+    await sleep(50);
+    check("re-ask failed with `shown`: the preview the app shows, even under a tripped boundary", chip("total").classList.contains("reask-failed") && lvOf("total")?.dataset.value === "41" && lvOf("total").classList.contains("stale"), [chip("total").className, lvOf("total")?.outerHTML]);
+    win.select(K("total").id); await sleep(40);
+    check("re-ask failed with `shown`: the panel says the app reports it", /failed re-ask · showing last value: 41/.test(lvText()) && /the app reports it still shows this value/.test(lvText()), lvText());
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "ok", at: 1160 });
+    // a first ask that fails has no last value: plain failed
+    post({ v: 1, type: "flush", seq: 5, at: 1170, changes: [{ key: K("status").key, name: "s", error: "ServerError: 500" }] });
+    await sleep(40);
+    check("a first ask that fails: plain failed, no value", chip("status").classList.contains("failed") && !chip("status").classList.contains("reask-failed") && !chip("status").querySelector(".lv") && !!chip("status").querySelector(".lverr"), chip("status").className);
+    // time travel: back before the failure shows the value; forward to it, the failed re-ask with its last value again
+    post({ v: 1, type: "step", from: 5, to: 1, direction: "back", changes: [ch("users", "[{id: 1, name: \"Ada\"}, {id: 2, name: \"Grace\"}]"), ch("total", "0", "2")] });
+    await sleep(50);
+    check("travel back before the failed re-ask: the value, not failed", !chip("users").classList.contains("failed") && !lvOf("users")?.classList.contains("stale") && /Ada/.test(lvOf("users")?.dataset.value ?? ""), chip("users").className);
+    post({ v: 1, type: "step", from: 1, to: 2, direction: "forward", changes: [{ key: U, name: `rx:${U}`, error: RL }] });
+    await sleep(50);
+    check("travel to the failed re-ask: its last value, marked, again", chip("users").classList.contains("reask-failed") && /Ada/.test(lvOf("users")?.dataset.value ?? ""), chip("users").className);
+    post({ v: 1, type: "step", from: 2, to: 4, direction: "forward", changes: [] });
+    await sleep(50);
+    check("travel (reconcile only): a `shown` failure keeps the shown preview", chip("total").classList.contains("reask-failed") && lvOf("total")?.dataset.value === "41", [chip("total").className, lvOf("total")?.dataset.value]);
+    post({ v: 1, type: "resume", head: 5, changes: [] });
+    await sleep(40);
+    check("resume: still the failed re-ask with its last value", chip("users").classList.contains("reask-failed") && /Ada/.test(lvOf("users")?.dataset.value ?? ""), chip("users").className);
+    post({ v: 1, type: "flush", seq: 6, at: 1200, changes: [ch("users", "[]")] });
+    await sleep(40);
+    check("a later answer clears it", !chip("users").classList.contains("failed") && !chip("users").classList.contains("reask-failed") && lvOf("users")?.dataset.value === "[]", chip("users").className);
+    doc.querySelector("#ptabs .close").click();
+    await sleep(20);
+
+    // ---- swallowed rejections ----------------------------------------------------------------------------------
+    post({ type: "reset" });
+    await sleep(40);
+    // rejected, an errored boundary showed it, then a re-ask landed: not swallowed
+    post({ v: 1, type: "flight", key: U, state: "start", at: 2000 });
+    post({ v: 1, type: "flight", key: U, state: "abandon", at: 2010, error: RL });
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "error", error: RL, at: 2011 });
+    post({ v: 1, type: "boundary", region: erroredR.key, state: "ok", at: 2020 });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 2030 });
+    post({ v: 1, type: "flight", key: U, state: "land", at: 2040 });
+    await sleep(60);
+    check("a rejection a boundary showed is not swallowed: no toast", !doc.getElementById("swallowToast"), doc.getElementById("swallowToast")?.textContent);
+    // rejected, then a re-ask landed with no boundary tripped: swallowed
+    post({ v: 1, type: "flight", key: U, state: "start", at: 2100 });
+    post({ v: 1, type: "flight", key: U, state: "abandon", at: 2110, error: RL });
+    post({ v: 1, type: "flight", key: U, state: "start", at: 2120 });
+    post({ v: 1, type: "flight", key: U, state: "land", at: 2150 });
+    await sleep(60);
+    const st0 = doc.getElementById("swallowToast");
+    check("a rejection swallowed by a re-ask: a toast, once", /fetchUsers rejected \(RateLimited\) — swallowed by a re-ask; see Calls/.test(st0?.textContent.replace(/\s+/g, " ") ?? ""), st0?.textContent);
+    st0?.click();
+    await sleep(80);
+    const rejectedRows = () => rows().filter(r => r.classList.contains("o-rejected"));
+    check("the toast opens the Calls tab, filtered to the function, at the call", doc.querySelector('#ptabs [data-tab="calls"]')?.getAttribute("aria-selected") === "true" && doc.getElementById("callFn")?.value === K("fetchUsers").key && rows().find(r => r.classList.contains("marked"))?.classList.contains("swallowed") && !doc.getElementById("swallowToast"),
+      [doc.getElementById("callFn")?.value, [...doc.getElementById("callFn").options].map(o => `${o.value}:${o.selected}`), rows().map(r => r.className)]);
+    check("only the swallowed rejection has the badge", rejectedRows().length === 2 && rejectedRows().filter(r => /swallowed by re-ask/.test(r.querySelector(".c-swallow")?.textContent ?? "")).length === 1 && rejectedRows()[0].classList.contains("swallowed"), rejectedRows().map(rowText));
+
+    // ---- repeats collapse: a poll's identical calls are one row, ×N, expandable; travel still works -------------
+    const q0 = K("query").key;
+    for (let i = 0; i < 4; i++) {
+      post({ v: 1, type: "flight", key: U, state: "start", at: 3000 + i * 100, cause: [{ key: q0, name: `rx:${q0}`, prev: `"${i}"`, value: `"${i + 1}"` }] });
+      post({ v: 1, type: "flight", key: U, state: "land", at: 3000 + i * 100 + 20 });
+      post({ v: 1, type: "flush", seq: 10 + i, at: 3000 + i * 100 + 21, changes: [ch("users", `[${i}]`)] });
+    }
+    await sleep(80);
+    const rep0 = rows()[0];
+    check("repeats: four identical calls are one row, ×4, with their time range", rows().filter(r => r.classList.contains("repeats")).length === 1 && rep0?.querySelector(".c-rep")?.textContent === "×4" && / – /.test(rep0.querySelector(".c-span")?.textContent ?? ""), rows().slice(0, 3).map(rowText));
+    rep0.querySelector(".c-rep").click();
+    await sleep(40);
+    const members = [...doc.querySelectorAll("#panel li.c-group li.call")];
+    check("repeats: the ×4 expands to the four calls", members.length === 4 && rep0.querySelector(".c-rep").getAttribute("aria-expanded") === "true", members.map(rowText));
+    sent.length = 0;
+    members[3]?.querySelector(".c-cause")?.click();
+    await sleep(120);
+    check("repeats: a call in the group travels to its step", sent.some(m => m.type === "travel" && m.to === 10), sent);
+    post({ v: 1, type: "resume", head: 13, changes: [] });
+    await sleep(30);
+    doc.querySelector("#ptabs .close").click();
+
+    // ---- coverage from the dev server (vite.mjs: GET /__rx/coverage[?probe=1]) ---------------------------------
+    // this harness's server has no run (404): no button
+    check("coverage: no run on the server, no Coverage button", !doc.getElementById("coverageBtn") && !doc.getElementById("coverageChip"));
+    const mod = graph.modules[0], ld = graph.regions.find(r => r.kind === "loading"), act = K("rename"), pg = K("page");
+    const cpaths = [
+      { id: `node:${pg.key}`, kind: "node", target: pg.key, label: "page changes", line: pg.line },
+      { id: `action:${act.key}:ok`, kind: "action", target: act.key, label: "rename succeeds", line: act.line },
+      { id: `loading:${ld.key}`, kind: "loading", target: ld.key, label: "loading shows its fallback", line: 1 },
+      { id: `node:${U}`, kind: "node", target: U, label: "users changes", line: 1 },
+    ];
+    const covFile = { rxCoverage: 1, modules: [mod], paths: Object.fromEntries(cpaths.map(p => [p.id, { ...p, module: mod }])), hits: { [cpaths[0].id]: { n: 3, by: ["next page"] } }, runs: [] };
+    let mtime = Date.UTC(2026, 10, 25, 9, 30, 0);
+    const fetched = [];
+    const realFetch = win.fetch;
+    win.fetch = async (url, o) => {
+      const u = String(url);
+      if (!u.includes("/__rx/coverage")) return realFetch.call(win, url, o);
+      fetched.push(u.replace(/^.*\/__rx/, "/__rx"));
+      const body = u.endsWith("?probe=1") ? { file: "run-2026.json", mtime } : covFile;
+      return new win.Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    post({ type: "reset" });   // the app reloaded: the map asks again
+    await sleep(80);
+    const cb = () => doc.getElementById("coverageBtn");
+    check("coverage: after a reload the map probes; a run there: a Coverage button that names it", fetched.includes("/__rx/coverage?probe=1") && cb()?.textContent === "Coverage" && /run-2026\.json/.test(cb()?.title ?? "") && cb().getAttribute("aria-pressed") === "false" && !doc.querySelector(".cov-uncovered"), [fetched, cb()?.outerHTML]);
+    cb().click();
+    await sleep(80);
+    check("coverage: the button loads the newest run and shows the layer", fetched.includes("/__rx/coverage") && cb()?.getAttribute("aria-pressed") === "true" && cb().textContent === "Coverage 25%" && doc.querySelectorAll("#board .cov-uncovered").length >= 3 && /showing run-2026\.json · [\d-]+ [\d:]+ · 1\/4 paths/.test(cb().title), [cb()?.outerHTML, doc.querySelectorAll("#board .cov-uncovered").length]);
+    win.select(K("rename").id); await sleep(40);
+    check("coverage: a name's panel lists its paths", /✗rename succeeds/.test(doc.querySelector(".coverage-paths")?.textContent ?? ""), doc.querySelector(".coverage-paths")?.textContent);
+    win.select(null); await sleep(20);
+    cb().click();
+    await sleep(40);
+    check("coverage: clicking again turns the layer off", cb()?.getAttribute("aria-pressed") === "false" && cb().textContent === "Coverage" && !doc.querySelector("#board .cov-uncovered"), cb()?.outerHTML);
+    cb().click();
+    await sleep(40);
+    const loads = () => fetched.filter(u => u === "/__rx/coverage").length;
+    check("coverage: and on again, without fetching it again", cb()?.getAttribute("aria-pressed") === "true" && loads() === 1, [loads(), cb()?.outerHTML]);
+    mtime += 60000;
+    post({ type: "reset" });
+    await sleep(100);
+    check("coverage: a newer run after a reload, with the layer on: loaded", loads() === 2 && /09:31|:31:/.test(cb()?.title ?? "") && cb().getAttribute("aria-pressed") === "true", [loads(), cb()?.title]);
+    win.fetch = realFetch;
     doc.querySelector("#ptabs .close").click();
     // pop-out, direct: it attaches to the app page's bridge (__RX__.connect), so it outlives the dock's iframe, says
     // "disconnected" when the feed stops, and says hello again after the app reloads

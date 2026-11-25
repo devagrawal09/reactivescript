@@ -23,3 +23,9 @@ export function focusEl(id) { document.getElementById(id)?.focus(); }
 export function blurActive() { document.activeElement?.blur?.(); }
 /** Runs `f` on the next frame (after the first layout). */
 export function nextFrame(f) { const r = requestAnimationFrame(() => f()); return () => cancelAnimationFrame(r); }
+/** Runs `f` once after `ms`; returns the cancel. */
+export function after(ms, f) { const t = setTimeout(() => f(), ms); return () => clearTimeout(t); }
+/** Scrolls the element with `data-<name>="<value>"` into view (after the render that adds it). */
+export function scrollToData(name, value) {
+  requestAnimationFrame(() => document.querySelector(`[data-${name}="${CSS.escape(value)}"]`)?.scrollIntoView?.({ block: "nearest" }));
+}

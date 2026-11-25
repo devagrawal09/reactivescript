@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { LIVE_METHODS, LIVE_PATH, LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, MCP_PATH, matchesKey } from "./live-protocol.mjs";
 import { isEntry } from "./project.mjs";
 import { createMcp } from "./mcp.mjs";
@@ -23,6 +23,22 @@ async function bodyOf(req) {
   }
   try { return JSON.parse(body); }
   catch { throw new Error("invalid JSON; send {method, params}"); }
+}
+
+const COVERAGE_PATH = "/__rx/coverage";
+/** The newest coverage run in the project (`.rx-coverage/`, or `RX_COVERAGE_DIR`): a `run-*.json` or a merged
+ *  `coverage.json`, whichever was written last; null if there is none. */
+export function newestCoverage(root) {
+  const dir = resolve(root, process.env.RX_COVERAGE_DIR || ".rx-coverage");
+  let best = null;
+  try {
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".json")) continue;
+      const file = join(dir, name), mtime = statSync(file).mtimeMs;
+      if (!best || mtime > best.mtime) best = { file, name, mtime };
+    }
+  } catch { return null; }
+  return best;
 }
 
 /** Expose the dev page's read-only recorder at GET/POST /__rx/live. */
@@ -228,6 +244,7 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         const url = server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0];
         server.config.logger.info(`  ➜ RX live: ${url ? new URL(LIVE_PATH, url).href : LIVE_PATH}`);
         server.config.logger.info(`  ➜ RX MCP: ${url ? new URL(MCP_PATH, url).href : MCP_PATH}`);
+        if (newestCoverage(root)) server.config.logger.info(`  ➜ RX coverage: ${url ? new URL(COVERAGE_PATH, url).href : COVERAGE_PATH} (the map's Coverage button)`);
       };
       server.middlewares.use(MCP_PATH, async (req, res) => {
         if (req.url && req.url !== "/") return send(res, 404, { error: `use ${MCP_PATH}` });
@@ -245,6 +262,18 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         const result = await mcp(msg);
         if (result) return send(res, 200, result);
         res.writeHead(202).end();
+      });
+      // the map (devtools dock or pop-out) offers the newest coverage run: GET ?probe=1 says whether there is one
+      server.middlewares.use(COVERAGE_PATH, (req, res) => {
+        if (req.method !== "GET") { res.setHeader("allow", "GET"); return send(res, 405, { error: "use GET" }); }
+        const run = newestCoverage(root);
+        if (!run) return send(res, 404, { error: "no coverage run in .rx-coverage/ (see the README's Coverage section)" });
+        if (new URL(req.url ?? "/", "http://x").searchParams.has("probe")) return send(res, 200, { file: run.name, mtime: run.mtime });
+        try {
+          const json = JSON.parse(readFileSync(run.file, "utf8"));
+          if (json?.rxCoverage !== 1) return send(res, 422, { error: `${run.name} is not a coverage file` });
+          return send(res, 200, json);
+        } catch (e) { return send(res, 500, { error: `${run.name}: ${e.message}` }); }
       });
       server.middlewares.use(LIVE_PATH, async (req, res) => {
         if (req.url && req.url !== "/") return send(res, 404, { error: `use ${LIVE_PATH}` });

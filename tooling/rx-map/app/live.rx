@@ -9,7 +9,7 @@
 // (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
 import { isLive, isRecording, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
 import { icon, keyName } from "./js/vocab.js"
-import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present, callsView } from "./js/livestate.js"
+import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present, callsView, failView } from "./js/livestate.js"
 import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
 import { renderScrub, startScrub, startTrack, travelKind, seqBy, sendTravel } from "./js/scrub.js"
 import { beforeSwap, afterSwap } from "./js/swap.js"
@@ -20,13 +20,15 @@ import { listDetail } from "./js/values.js"
 import { graphAt } from "./js/graphs.js"
 import { graphOf, nodeOf, regionOf, inEdges, keyOf, label } from "./js/model.js"
 import { model, selected, select, swapGraph } from "./state.rx"
-import { pick, openFor, closeFor, callFilter, showCalls } from "./ui.rx"
+import { pick, openFor, closeFor, callFilter, callMark, showCalls, showCall } from "./ui.rx"
 import { closestData, prevent } from "./js/panel.js"
-import { targetValue } from "./js/dom.js"
-import { observeCoverage, setCoverageGraph } from "./coverage.rx"
+import { targetValue, after, scrollToData } from "./js/dom.js"
+import { observeCoverage, setCoverageGraph, probeRun } from "./coverage.rx"
 
 // ---- the state --------------------------------------------------------------------------------------------------
 export source live: any := freshLive()
+/** How each failing key shows: a failed re-ask still showing its last value, or a plain failure (livestate.js failView). */
+export fails = failView(model, live.values, live.boundaries)
 
 /** Every message in (the host's, and the page's own "~" ones): one functional write each. */
 export action dispatch(raw: any) {
@@ -34,8 +36,9 @@ export action dispatch(raw: any) {
   if (m != null) {
     live := s => reduce(s, m, model)
     if (m.type == "hmr" && m.phase == "plan" && selected == null) { openFor("plan") }
-    // the app reloaded (or the pop-out re-attached): the plan is gone; a panel it opened goes back to what it was
-    if (m.type == "reset") { closeFor("plan") }
+    // the app reloaded (or the pop-out re-attached): the plan is gone; a panel it opened goes back to what it was;
+    // a newer coverage run may be there
+    if (m.type == "reset") { closeFor("plan"); probeRun() }
   }
 }
 
@@ -103,7 +106,7 @@ export component LiveBridge() {
   effect (selected) {
     if ($0 != null && isLive()) {
       let k = keyOf(model, $0)
-      if (k != null && k != "") { post({ type: "select", key: k }) }
+      if (present(k) && k != "") { post({ type: "select", key: k }) }
     }
   }
 }
@@ -231,9 +234,14 @@ export component LiveValue(props: { id: string }) {
   h = live.held[k]
   fly = present(live.flying[k])
   failed = present(v) && present(v.error)
+  fv = fails[k]
+  stale = present(fv) && fv.stale
   has = present(v) && present(v.preview)
   l = has ? listDetail(v.preview) : null
-  {if failed {
+  {if stale {
+    <div class="failbox stale"><span style={{ display: "contents" }} innerHTML={icon("warn")}></span><div><b>failed re-ask</b> · showing last value: <span class="mono flast">{fv.last}</span><div class="mono ferr">{fv.error}</div>
+      <div class="hint">{fv.told ? "the app reports it still shows this value" : "no errored boundary caught it: the app keeps showing its last value"}</div></div></div>
+  } else if failed {
     <div class="failbox"><span style={{ display: "contents" }} innerHTML={icon("warn")}></span><div><b>failed</b><div class="mono ferr">{v.error}</div></div></div>
   }}
   {if present(h) {
@@ -349,7 +357,11 @@ export component PlanReason(props: { nodeKey: string; tip: boolean }) {
 export component TipLive(props: { nodeKey: string }) {
   v = live.values[props.nodeKey]
   h = live.held[props.nodeKey]
-  {if present(v) && present(v.error) { <div class="tip-v" style={{ color: "var(--fail)" }}>{`failed: ${v.error}`}</div> }}
+  fv = fails[props.nodeKey]
+  {if present(fv) && fv.stale {
+    <div class="tip-v" style={{ color: "var(--fail)" }}>{`failed re-ask · showing last value: ${fv.last}`}</div>
+    <div class="tip-m mono" style={{ color: "var(--fail)" }}>{fv.error}</div>
+  } else if present(v) && present(v.error) { <div class="tip-v" style={{ color: "var(--fail)" }}>{`failed: ${v.error}`}</div> }}
   {if present(v) && present(v.preview) { <div class="tip-v">{`= ${v.preview}`}</div> }}
   {if present(h) { <div class="tip-m" style={{ color: "var(--pending)" }}>{`held · waiting on ${heldText(h, "an action")}`}</div> }}
   {if present(live.flying[props.nodeKey]) { <div class="tip-m" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> in the air</div> }}
@@ -362,11 +374,14 @@ export component TipLive(props: { nodeKey: string }) {
 cv = callsView(live, callFilter)
 
 /** One call: when, which functions, who asked, how it ended, why. A click (not on a link) travels to its step. */
+source openGroups: string[] := []
+action toggleGroup(g: string) { openGroups := openGroups.includes(g) ? openGroups.filter(x => x != g) : [...openGroups, g] }
+
 component CallRow(props: { r: any }) {
   { r } = props
-  <li class={["call", `o-${r.outcome}`, isRecording() && "recorded"]} data-call={`${r.id}`} data-seq={`${r.seq}`} tabIndex={isRecording() ? -1 : 0}
+  <li class={["call", `o-${r.outcome}`, isRecording() && "recorded", r.swallowed && "swallowed", callMark == r.id && "marked", r.n > 1 && "repeats"]} data-call={`${r.id}`} data-seq={`${r.seq}`} tabIndex={isRecording() ? -1 : 0}
     title={!isRecording() && r.seq >= 0 ? `travel to ${r.seqText}` : ""}
-    onClick={(ev) => { if (closestData(ev, "a", "key") == "" && closestData(ev, "a", "go") == "" && r.seq >= 0) { travel(r.seq) } }}
+    onClick={(ev) => { if (closestData(ev, "a", "key") == "" && closestData(ev, "a", "go") == "" && closestData(ev, "button", "group") == "" && r.seq >= 0) { travel(r.seq) } }}
     onKeyDown={(ev) => { if (!isRecording() && (ev.key == "Enter" || ev.key == " ") && r.seq >= 0) { prevent(ev); travel(r.seq) } }}>
     <div class="c-top">
       <span class="c-when mono">{r.when}</span>
@@ -374,6 +389,11 @@ component CallRow(props: { r: any }) {
         {for f in r.fns { <a href="#" data-key={f.key} class="mono c-fn">{f.name}</a> }}
         {if r.fns.length == 0 { <span class="hint">no JS import in the graph</span> }}
       </span>
+      {if r.n > 1 {
+        <button class="c-rep mono" data-group={r.group} aria-expanded={openGroups.includes(r.group) ? "true" : "false"} title={`${r.n} calls like this one in a row, ${r.span}: click to ${openGroups.includes(r.group) ? "collapse" : "list them"}`}
+          onClick={() => { sfx("toggle"); toggleGroup(r.group) }}>{`×${r.n}`}</button>
+      }}
+      {if r.swallowed { <span class="c-swallow" title="it rejected, then a re-ask of the same question landed, and no errored boundary showed the failure in between: the app never showed it">swallowed by re-ask</span> }}
       <span class={["c-badge", `o-${r.outcome}`]}>{r.badge}</span>
       <span class="c-dur mono">{r.dur}</span>
     </div>
@@ -383,6 +403,7 @@ component CallRow(props: { r: any }) {
       {if r.kind == "run" && r.args != "" { <span class="mono c-args">{`(${r.args})`}</span> }}
     </div>
     {if r.error != "" { <div class="c-err mono">{r.error}</div> }}
+    {if r.n > 1 { <div class="c-span hint mono">{r.span}</div> }}
     <div class="c-cause">
       <span class="c-why">{r.cause}</span>
       {if r.inferred { <span class="c-inf" title="the bridge didn't say; the map inferred it">inferred</span> }}
@@ -393,19 +414,40 @@ component CallRow(props: { r: any }) {
 
 /** The Calls tab (live): every call, newest first, filtered by function. */
 export component CallsPanel() {
+  // a call shown from elsewhere (the swallowed-rejection toast): scrolled to
+  effect (callMark) { if ($0 >= 0) { scrollToData("call", `${$0}`) } }
   <h2>Calls</h2>
   <p class="hint">Calls across the trust boundary, newest first: a question asking (its JS import runs), an action running. {isRecording() ? "A recording cannot travel." : "Click a row to travel to the step it landed in."}</p>
   <div class="row calls-filter">
     <span class="micro">function</span>
     <select id="callFn" value={callFilter} onChange={(ev) => { showCalls(targetValue(ev)) }}>
-      <option value="">{`all · ${cv.total}`}</option>
-      {for f in cv.fns { <option value={f.key}>{`${f.name} · ${f.n}`}</option> }}
+      // each option says whether it is the one (the select's own value is set before its options are there)
+      <option value="" selected={callFilter == ""}>{`all · ${cv.total}`}</option>
+      {for f in cv.fns { <option value={f.key} selected={f.key == callFilter}>{`${f.name} · ${f.n}`}</option> }}
     </select>
   </div>
   {if cv.rows.length == 0 {
     <p class="hint">{cv.total == 0 ? "No calls yet: nothing has asked or run since the map opened." : "No calls of this function yet."}</p>
   } else {
-    <ol class="calls">{for r in cv.rows { <CallRow r={r} /> }}</ol>
+    <ol class="calls">
+      {for r in cv.rows {
+        <CallRow r={r} />
+        {if r.n > 1 && openGroups.includes(r.group) { <li class="c-group"><ol class="calls">{for x in r.members { <CallRow r={x} /> }}</ol></li> }}
+      }}
+    </ol>
+  }}
+}
+
+// ---- a rejection the app never showed: swallowed by a re-ask (livestate.js swallowed) -------------------------------
+source toastSeen: number := 0
+export component SwallowToast() {
+  effect (live.swallowN) { let n = $0; if (n > 0) { return after(8000, () => { toastSeen := n }) } }
+  {if live.swallow != null && live.swallow.n != toastSeen {
+    <button id="swallowToast" class="hud" title="open the Calls tab at it"
+      onClick={() => { sfx("toggle"); toastSeen := live.swallow.n; showCall(live.swallow.fnKey, live.swallow.id) }}>
+      <span class="micro" style={{ color: "var(--fail)" }}>swallowed</span>
+      <span><b class="mono">{live.swallow.name}</b>{` rejected (${live.swallow.why}) — swallowed by a re-ask; `}<u>see Calls</u></span>
+    </button>
   }}
 }
 
@@ -418,5 +460,5 @@ export component ImportCalls(props: { nodeKey: string }) {
   } else {
     <ol class="calls mini">{for r in ic.rows.slice(0, 4) { <CallRow r={r} /> }}</ol>
   }}
-  <div class="row"><button class="c-all" onClick={() => { sfx("toggle"); showCalls(props.nodeKey) }}>{`show all · ${ic.rows.length}`}</button></div>
+  <div class="row"><button class="c-all" onClick={() => { sfx("toggle"); showCalls(props.nodeKey) }}>{`show all · ${ic.rows.reduce((a, r) => a + r.n, 0)}`}</button></div>
 }

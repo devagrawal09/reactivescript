@@ -1,3 +1,8 @@
 export pure fn coverageView(file: any): any
 export fn coverageGraph(graph: any): any
 export fn feedCoverage(message: any, publish: (file: any) => void): void
+export type CoverageRun = { file: string; mtime: number }
+/** Asks the dev server for its newest coverage run (`found(null)`: none, or no server). Returns the cancel. */
+export fn probeCoverage(found: (run: CoverageRun | null) => void): () => void
+export fn loadCoverageRun(done: (file: any) => void, failed: (reason: string) => void): void
+export pure fn runTitle(run: CoverageRun | null): string

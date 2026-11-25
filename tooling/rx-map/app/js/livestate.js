@@ -24,6 +24,8 @@ import { comet, ring, fire, orb, clearOrbs, clearPulses, revert, rewind, shake, 
 import { sfx, note } from "./sound.js";
 import { anchorOf } from "./geometry.js";
 import { putGraph } from "./graphs.js";
+import { regionByRef } from "./model.js";
+import { caughtPairs } from "./edges.js";
 import { isRecording } from "./env.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -31,7 +33,8 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 /** A fresh, empty live state (a new object every call). */
 export function freshLive() {
   return {
-    // key → { preview?, error?, pending, count, seq, origin, current, shown, old, anim, delay, roll }
+    // key → { preview?, error?, last?, appShows, pending, count, seq, origin, current, shown, old, anim, delay, roll }
+    // (a failure keeps the value the app may still show as `last`; `appShows`: the bridge said so (a change's `shown`))
     values: {},
     flying: {},        // key → requests in the air
     runs: {},          // run id → key (actions running)
@@ -49,6 +52,9 @@ export function freshLive() {
     //   seqStart, seqEnd, settle, runId, n }
     calls: [],
     callSeq: 0,
+    trips: 0,          // errored boundaries tripped so far (a rejection followed by one was not swallowed)
+    swallow: null,     // the newest rejection swallowed by a re-ask: { n, id, text, fnKey } (the toast)
+    swallowN: 0,
     runN: {},          // action key → runs seen (an action's "#3")
     // the transient effects still to play (playFx), each numbered: { n, k, … }
     fx: [],
@@ -141,7 +147,7 @@ export function reduce(s, m, M) {
     case "hmr": return onHmr(s, m, M);
     case "snapshot": return onSnapshot(s, m, M);
     case "revert": emit(s, { k: "revert", key: m.key }); return;
-    case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null }; return;
+    case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null }; if (isTrip(M, m.region, m.state)) s.trips++; return;
     case "held": s.held[m.key] = { by: [...(m.by ?? [])], since: m.at ?? null }; return;
     case "released": del(s.held, m.key); return;   // a key not held: nothing to do
     case "run": callRun(s, m, M); if (m.state === "start") s.runs[m.id] = m.key; else del(s.runs, m.id); return;
@@ -160,7 +166,7 @@ export function reduce(s, m, M) {
 function onReset(s) {
   const f = freshLive();
   for (const k of Object.keys(f)) {
-    if (k === "connected" || k === "fx" || k === "fxSeq") continue;
+    if (k === "connected" || k === "fx" || k === "fxSeq" || k === "swallowN") continue;
     if (isRecording() && (k === "tl" || k === "flushes")) continue;
     s[k] = f[k];
   }
@@ -257,8 +263,11 @@ function callFlight(s, m, M) {
     // a refresh inside an action: the action running at that moment, if any (inferred: nothing links them)
     const run = runningNow(s);
     if (run && !cause.length && !m.retryAfterRejection) { parts.push(`during ${run}`); inferred.push("during"); }
+    // what makes two asks "the same" in the list (repeats collapse): the interaction, the names that re-asked it (not
+    // their values), the action it ran during
+    const ck = [m.origin ?? "", cause.length ? cause.map(causeName).join(",") : parts.at(-1), run.replace(/ #\d+$/, "")].join("|");
     addCall(s, { kind: "ask", key: m.key, fns: callFns(M, m.key), at, args: cause.map(causeText).join(", "),
-      cause: parts.join(" · "), inferred: inferred.length > 0, seqStart: s.tl.head, instance: m.instance, flightId: m.id ?? null });
+      cause: parts.join(" · "), inferred: inferred.length > 0, seqStart: s.tl.head, instance: m.instance, flightId: m.id ?? null, ck });
     return;
   }
   // land: the newest ask of this key in the air; abandon (superseded, stale, rejected): the oldest. An id, when sent, decides.
@@ -267,7 +276,26 @@ function callFlight(s, m, M) {
   if (!open.length) return;
   const c = (m.id != null && open.find(c => c.flightId === m.id)) || (m.state === "land" ? open.at(-1) : open[0]);
   closeCall(s, c, m.state === "land" ? "ok" : typeof m.error === "string" ? "rejected" : "stale", at, m.error);
+  if (c.outcome === "rejected") c.trips = s.trips;
+  if (c.outcome === "ok") swallowed(s, c);
 }
+// A rejected ask, then an ask of the same key that landed, with no errored boundary tripped in between: the app never
+// showed the rejection (the re-ask swallowed it). Marked on the rejected call; the newest case is toasted, once.
+function swallowed(s, ok) {
+  for (let i = s.calls.length - 1; i >= 0; i--) {
+    const c = s.calls[i];
+    if (c === ok || c.kind !== "ask" || c.key !== ok.key) continue;
+    if (c.outcome === "ok" && c.id < ok.id) break;   // an earlier landing: what came before it was settled then
+    if (c.outcome !== "rejected" || c.swallowedBy || c.trips !== s.trips || c.id > ok.id) continue;
+    c.swallowedBy = ok.id;
+    const fn = c.fns[0];
+    s.swallowN++;
+    s.swallow = { n: s.swallowN, id: c.id, fnKey: fn?.key ?? "", name: fn?.name ?? keyName(c.key),
+      why: String(c.error ?? "").split(":")[0].trim() || "an error" };
+  }
+}
+/** Whether a boundary report is an errored boundary showing its fallback (a failure the app showed). */
+const isTrip = (M, ref, state) => state === "error" || (state === "fallback" && regionByRef(M, ref)?.kind === "errored");
 function callRun(s, m, M) {
   const at = m.at ?? lastAt(s);
   if (m.state === "start") {
@@ -280,7 +308,7 @@ function callRun(s, m, M) {
       cause = by.length ? `called from ${by.slice(0, 2).join(" or ")}${by.length > 2 ? " …" : ""}` : "";
       inferred = by.length > 0;
     }
-    addCall(s, { kind: "run", key: m.key, fns: has(M, m.key) ? callFns(M, m.key) : [], at, args, cause: `action ${keyName(m.key)} #${n}${cause ? ` · ${cause}` : ""}`, inferred, seqStart: s.tl.head, runId: m.id, n });
+    addCall(s, { kind: "run", key: m.key, fns: has(M, m.key) ? callFns(M, m.key) : [], at, args, cause: `action ${keyName(m.key)} #${n}${cause ? ` · ${cause}` : ""}`, inferred, seqStart: s.tl.head, runId: m.id, n, ck: cause });
     return;
   }
   const c = s.calls.findLast(c => c.kind === "run" && c.runId === m.id && c.outcome === "pending");
@@ -324,6 +352,16 @@ function roll(v, text, { dir = "up", delay = 0, prev, still = false }) {
   v.delay = Math.round(delay);
   v.roll = (v.roll ?? 0) + 1;
 }
+// A failure. What the app may still show: the bridge's `shown` (authoritative: the app shows that preview), else the
+// value the map had (a failed re-ask: a question keeps its last answer unless a boundary shows its fallback); a first
+// ask that fails has none.
+function fail(v, error, shown, last = v.preview ?? v.last) {
+  v.error = error; v.pending = false;
+  v.appShows = typeof shown === "string";
+  const keep = v.appShows ? shown : last;
+  delete v.preview;
+  if (keep !== undefined) v.last = keep; else delete v.last;
+}
 const blank = () => ({ count: 0, pending: false, seq: null, origin: null, current: false, shown: null, old: "", anim: null, delay: 0, roll: 0 });
 
 // the changes of a flush, a step or a resume: values (and their badges' roll)
@@ -333,8 +371,8 @@ function applyChanges(s, changes, w, { flush = false, dir = "up", seq } = {}) {
     if (flush) { v.count++; v.seq = seq ?? null; }
     else v.seq = s.tl.viewing ?? s.tl.head;
     v.origin = c.origin ?? v.origin ?? null;
-    if (typeof c.error === "string") { v.error = c.error; delete v.preview; v.pending = false; }
-    else if (typeof c.preview === "string") { v.preview = c.full ?? c.preview; delete v.error; }
+    if (typeof c.error === "string") fail(v, c.error, c.shown);
+    else if (typeof c.preview === "string") { v.preview = c.full ?? c.preview; delete v.error; delete v.last; v.appShows = false; }
     if ("pending" in c) v.pending = !!c.pending;
     if (v.preview !== undefined && typeof c.error !== "string") roll(v, v.preview, { dir, delay: w?.delays?.[c.key] ?? 0, prev: c.prev });
     s.values[c.key] = v;
@@ -342,11 +380,11 @@ function applyChanges(s, changes, w, { flush = false, dir = "up", seq } = {}) {
 }
 
 function onSnapshot(s, d, M) {
-  for (const { key, preview, full, error, pending } of d.values ?? []) {
+  for (const { key, preview, full, error, pending, shown } of d.values ?? []) {
     if (!has(M, key) || (typeof preview !== "string" && typeof error !== "string" && !pending)) continue;
     const v = { ...blank(), ...(s.values[key] ?? {}) };
-    v.preview = full ?? preview;
-    if (typeof error === "string") v.error = error; else delete v.error;
+    if (typeof error === "string") fail(v, error, shown, typeof preview === "string" ? full ?? preview : v.preview ?? v.last);
+    else { v.preview = full ?? preview; delete v.error; delete v.last; v.appShows = false; }
     v.pending = !!pending; v.current = true; v.seq = v.seq ?? s.tl.head;
     if (v.preview !== undefined) roll(v, v.preview, { still: true });
     s.values[key] = v;
@@ -372,7 +410,7 @@ function onSnapshot(s, d, M) {
   }
   if (Array.isArray(d.boundaries)) {
     s.boundaries = {};
-    for (const b of d.boundaries) if (b?.region) s.boundaries[b.region] = { state: b.state, error: b.error ?? null };
+    for (const b of d.boundaries) if (b?.region) { s.boundaries[b.region] = { state: b.state, error: b.error ?? null }; if (isTrip(M, b.region, b.state)) s.trips++; }
   }
   if (Array.isArray(d.runs)) {
     s.runs = {};
@@ -390,10 +428,14 @@ function onTimeline(s, d, M) {
   s.tl.viewing = d.viewing ?? null;
   // the values the timeline implies, without fanfare
   const counted = new Set();
-  for (const st of s.tl.steps) for (const c of st.changes ?? []) if (c?.key && has(M, c.key) && typeof c.preview === "string" && (s.tl.viewing == null || st.seq <= s.tl.viewing)) {
+  for (const st of s.tl.steps) for (const c of st.changes ?? []) if (c?.key && has(M, c.key) && (typeof c.preview === "string" || typeof c.error === "string") && (s.tl.viewing == null || st.seq <= s.tl.viewing)) {
     const v = { ...blank(), ...(s.values[c.key] ?? {}) };
     if (!counted.has(c.key)) { counted.add(c.key); v.count = 0; }
-    v.count++; v.seq = st.seq; if (!v.current || s.tl.viewing != null) v.preview = c.full ?? c.preview;
+    v.count++; v.seq = st.seq;
+    if (!v.current || s.tl.viewing != null) {
+      if (typeof c.error === "string") fail(v, c.error, c.shown);
+      else { v.preview = c.full ?? c.preview; delete v.error; delete v.last; v.appShows = false; }
+    }
     s.values[c.key] = v;
   }
   for (const k of Object.keys(s.values)) { const v = s.values[k]; if (v.preview !== undefined) roll(v, v.preview, { still: true }); }
@@ -431,10 +473,17 @@ function reconcile(s, M, seq, dir) {
   for (const k of keys) {
     const want = valueAt(s.tl.steps, k, seq); if (!want) continue;
     const v = { ...blank(), ...(s.values[k] ?? {}) };
-    if (want.error) { if (v.error !== want.error) { v.error = want.error; s.values[k] = v; } continue; }
+    if (want.error) {
+      // the value the app still showed then: the timeline's, else (the same failure) what the map holds
+      const last = want.last ?? (v.error === want.error ? v.last : undefined);
+      if (v.error === want.error && v.preview === undefined && v.last === last && !!v.appShows === !!want.shown) continue;
+      fail(v, want.error, want.shown ? last : undefined, last);
+      s.values[k] = v;
+      continue;
+    }
     if (v.preview === want.preview && !v.error) continue;
     const prev = v.preview;
-    v.preview = want.preview; delete v.error;
+    v.preview = want.preview; delete v.error; delete v.last; v.appShows = false;
     roll(v, want.preview, { dir, prev });
     s.values[k] = v;
   }
@@ -576,6 +625,27 @@ export function planReason(hmr, key) {
 }
 /** "waiting on a, b" for a held write. */
 export const heldText = (h, none) => (h?.by?.length ? h.by.map(keyName).join(", ") : none);
+/**
+ * How each failing key shows: { stale, last, error, badge }. `stale`: a failed re-ask while the app still shows the
+ * last value: the bridge said so (`shown` on the change), or it had a value and no tripped errored boundary caught it
+ * (edges.js caughtPairs: the boundaries it notifies or whose sites read it, as the caught-by arrows). Otherwise (a
+ * first ask failed, a boundary shows its fallback for it) a plain failure.
+ */
+export function failView(M, values, boundaries) {
+  const out = {};
+  let caught = null;
+  for (const [k, v] of Object.entries(values)) {
+    if (typeof v.error !== "string") continue;
+    let stale = v.last !== undefined;
+    if (stale && !v.appShows) {
+      caught ??= new Set(caughtPairs(M, values, boundaries).map(p => M.nodes.get(p[0])?.key));
+      if (caught.has(k)) stale = false;
+    }
+    out[k] = { stale, last: stale ? v.last : "", error: v.error, told: !!v.appShows,
+      badge: stale ? { preview: v.last, old: "", anim: null, delay: 0 } : null };
+  }
+  return out;
+}
 /** Whether a key glows: a request in the air or an action running. */
 export const isFlying = (live, key) => (live.flying[key] ?? 0) > 0 || Object.values(live.runs).includes(key);
 /** A boundary's report, by its region's key or id. */
@@ -642,9 +712,23 @@ export function callsView(live, fnKey) {
       outcome: c.outcome, badge: ({ ok: "ok", rejected: "rejected", stale: "stale", pending: c.kind === "run" ? "running" : "pending", unseen: "ended" })[c.outcome] ?? c.outcome,
       error: c.error ?? "", seq: typeof seq === "number" ? seq : -1,
       seqText: unpublished ? "no error frame recorded" : typeof seq !== "number" ? "" : pending ? `from #${seq}` : `#${seq}`,
+      swallowed: !!c.swallowedBy, n: 1, span: "", group: "", members: [], same: `${c.kind}|${c.key}|${c.ck ?? c.cause}|${c.fns.map(f => f.key).join(",")}`,
     });
   }
-  return { rows, fns: [...fns.values()].sort((a, b) => a.name.localeCompare(b.name)), total: calls.length };
+  // repeats collapse: consecutive calls that landed ok, of the same question or action, for the same kind of cause
+  // (a poll, a ticker) are one row, "×N" over a time range; the group (by its oldest call) expands
+  const out = [];
+  for (const r of rows) {
+    const head = out.at(-1);
+    if (head && r.outcome === "ok" && head.outcome === "ok" && r.same === head.same) {
+      if (!head.members.length) head.members.push({ ...head, members: [] });
+      head.members.push(r);
+      head.n++;
+      head.group = `${r.id}`;
+      head.span = `${r.when} – ${head.members[0].when}`;
+    } else out.push(r);
+  }
+  return { rows: out, fns: [...fns.values()].sort((a, b) => a.name.localeCompare(b.name)), total: calls.length };
 }
 /** `x != null` as JS means it (RX's `!=` is strict: a missing key's `undefined` is not `null`). */
 export const present = x => x != null;

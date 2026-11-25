@@ -142,10 +142,26 @@ export function flyToId(id, mode) {
     : mode === "select" && level !== detailLevel() ? detailZoom() + .1 : undefined;
   flyToBox(boxOfId(id), s);
 }
+/**
+ * A double-click on a plate (at the overview: its card) flies into it at reading size. The plate is the one the event
+ * is in, else the one under the pointer on the board, or the nearest within a few pixels (a double-click on the gap
+ * between cards, on an edge bundle crossing a card, on the "Outside the program" card, which is not a module).
+ */
 export function flyToModule(ev) {
-  const el = ev.target.closest(".module"), p = el && readBoard().L.plates.get(+el.dataset.mod);
+  const L = readBoard().L, el = ev.target?.closest?.(".module");
+  let p = el ? L.plates.get(+el.dataset.mod) : null;
+  if (!p && typeof ev.clientX === "number") {
+    const [bx, by] = toBoard(ev.clientX, ev.clientY);
+    let best = null, bd = Infinity;
+    for (const q of L.plates.values()) {
+      const d = Math.hypot(Math.max(q.x - bx, 0, bx - q.x - q.w), Math.max(q.y - by, 0, by - q.y - q.h));
+      if (d < bd) { bd = d; best = q; }
+    }
+    if (best && bd * cam.s <= 24) p = best;
+  }
   if (!p) return;
-  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, detailZoom() + .02, 1.2);
+  // reading size: at least where a selection flies (names ~13 px), not just past the detail threshold (11 px)
+  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, detailZoom() + .1, 1.2);
   flyTo(p.x + p.w / 2, p.y + Math.min(p.h, fr.h / s) / 2, s);
 }
 function fitScale() {
@@ -337,6 +353,8 @@ export function startCamera(access) {
   window.__RX_MAP__ = {
     get layout() { return readBoard().L; }, get analysis() { return readModel().A; },
     get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get level() { return level; },
+    // where the camera is flying (its target board point and scale), or null: a test without animation frames reads it
+    get flight() { return fly && { x: fly.b1[0], y: fly.b1[1], s: fly.s1 }; },
     setLevel(l) { pinnedAt = cam.s; setLevel(l); },
     flyTo, frameAll, zoomAt, freeRect, toScreen, boxOf, anchor: anchorOf, module: moduleEl, region: regionEl, zoomUnder, LEVELS,
     // The edge view draws on the RX commit, not on an animation frame.
