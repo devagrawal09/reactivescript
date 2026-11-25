@@ -376,3 +376,38 @@ test("Vite allows the linked Vitest setup entry only when opted in", async t => 
   await rxCoverage().configResolved(config);
   assert.deepEqual(allow, [root, realSetup]);
 });
+
+test("the dev server offers the newest coverage run to the map at /__rx/coverage", { timeout: 10000 }, async t => {
+  const { createServer } = await import("node:http");
+  const { EventEmitter } = await import("node:events");
+  const { utimesSync } = await import("node:fs");
+  const root = mkdtempSync(join(tmpdir(), "rx-coverage-endpoint-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const endpoints = new Map();
+  const server = createServer((req, res) => {
+    const u = new URL(req.url, "http://x"), fn = endpoints.get(u.pathname);
+    req.url = u.search ? `/${u.search}` : "/";
+    if (!fn) return void res.writeHead(404).end();
+    void fn(req, res);
+  });
+  rxMap().configureServer({ config: { root }, ws: new EventEmitter(), watcher: new EventEmitter(), httpServer: server,
+    middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} });
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const get = async q => { const r = await fetch(`http://127.0.0.1:${server.address().port}/__rx/coverage${q}`); return [r.status, await r.json()]; };
+  assert.equal((await get("?probe=1"))[0], 404, "no .rx-coverage/: nothing to offer");
+  const dir = join(root, ".rx-coverage");
+  mkdirSync(dir);
+  const run = n => ({ rxCoverage: 1, modules: ["src/main.rx"], paths: {}, hits: {}, n });
+  writeFileSync(join(dir, "run-old.json"), JSON.stringify(run(1)));
+  writeFileSync(join(dir, "run-new.json"), JSON.stringify(run(2)));
+  utimesSync(join(dir, "run-old.json"), new Date(1000), new Date(1000));
+  const [ps, probe] = await get("?probe=1");
+  assert.equal(ps, 200);
+  assert.equal(probe.file, "run-new.json");
+  const [fs, file] = await get("");
+  assert.equal(fs, 200);
+  assert.equal(file.n, 2, "the newest run");
+  writeFileSync(join(dir, "zz-notes.json"), JSON.stringify({ hello: 1 }));
+  assert.equal((await get(""))[0], 422, "a JSON that isn't a coverage file is refused");
+});

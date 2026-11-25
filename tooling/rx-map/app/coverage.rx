@@ -1,6 +1,10 @@
-import { servedCoverage } from "./js/env.js"
-import { coverageView, coverageGraph, feedCoverage } from "./js/coverage.js"
+// The Coverage layer: which behaviour paths the tests observed. Its file comes with the page (`pageHTML(graph,
+// { coverage })`: the chip), from the live collector (`?coverage=live`), or, in a live map on a dev server, from the
+// project's newest run (`.rx-coverage/`, served by vite.mjs at /__rx/coverage: the Coverage button).
+import { servedCoverage, coverageLive, isLive, isRecording } from "./js/env.js"
+import { coverageView, coverageGraph, feedCoverage, probeCoverage, loadCoverageRun, runTitle } from "./js/coverage.js"
 import { sfx } from "./js/sound.js"
+import { present } from "./js/livestate.js"
 
 source file: any := servedCoverage()
 source show := true
@@ -17,17 +21,67 @@ export action observeCoverage(msg: any) {
   feedCoverage(msg, next => { file := next })
 }
 
+// ---- the dev server's newest run ------------------------------------------------------------------------------------
+// probed once at start and again when the app reloads (live.rx: `reset`); the button loads it and turns the layer on
+canProbe = isLive() && !isRecording() && servedCoverage() == null && !coverageLive()
+source run: { file: string; mtime: number } | null := null
+source loaded: { file: string; mtime: number } | null := null
+source busy := false
+source runError := ""
+fromRun = loaded != null
+sameRun = run != null && loaded != null && run.file == loaded.file && run.mtime == loaded.mtime
+
+effect () { if (canProbe) { return probeCoverage((r) => { foundRun(r) }) } }
+
+/** Ask the dev server again (the app reloaded: tests may have written a newer run). */
+export action probeRun() {
+  if (canProbe) { probeCoverage((r) => { foundRun(r) }) }
+}
+action foundRun(r: { file: string; mtime: number } | null) {
+  run := r
+  // the layer is on and the run changed: show the newer one
+  if (r != null && loaded != null && show && (r.file != loaded.file || r.mtime != loaded.mtime)) { loadRun(r) }
+}
+action loadRun(r: { file: string; mtime: number }) {
+  busy := true
+  loadCoverageRun((f) => { gotRun(f, r) }, (why) => { lostRun(why) })
+}
+action gotRun(f: any, r: { file: string; mtime: number }) {
+  file := f
+  loaded := r
+  show := true
+  busy := false
+  runError := ""
+}
+action lostRun(why: string) {
+  busy := false
+  runError := why
+}
+action toggleRun() {
+  if (run != null && !sameRun) { loadRun(run) } else if (fromRun) { show := !show }
+}
+
+shownRun = loaded != null ? loaded : run
+runText = runTitle(shownRun)
+btnTitle = runError != "" ? `could not load the coverage run: ${runError}`
+  : !fromRun ? `newest coverage run: ${runText} · click to load it and show the Coverage layer`
+  : `${show ? "showing" : "loaded"} ${runText} · ${coverage.covered}/${coverage.total} paths observed${!sameRun && run != null ? " · a newer run is there: click to load it" : show ? " · click to hide the layer" : " · click to show the layer"}`
+
 export component CoverageChip() {
-  {if hasCoverage {
+  {if hasCoverage && !fromRun {
     <button id="coverageChip" class={[showCoverage && "on"]} aria-pressed={showCoverage ? "true" : "false"}
       title={`${coverage.covered}/${coverage.total} paths observed · toggle the Coverage layer`}
       onClick={() => { show := !show; sfx("toggle") }}>{`coverage ${coverage.percent}%`}</button>
+  } else if canProbe && (run != null || fromRun) {
+    <button id="coverageBtn" class={[showCoverage && fromRun && "on", runError != "" && "err"]} aria-pressed={showCoverage && fromRun ? "true" : "false"}
+      title={btnTitle} data-run={shownRun != null ? shownRun.file : ""}
+      onClick={() => { sfx("toggle"); toggleRun() }}>{busy ? "Coverage…" : showCoverage && fromRun ? `Coverage ${coverage.percent}%` : "Coverage"}</button>
   }}
 }
 
 export component CoveragePaths(props: { target: string }) {
   entry = coverage.targets[props.target]
-  {if hasCoverage && entry != null {
+  {if hasCoverage && present(entry) {
     <section class="coverage-paths">
       <h3>Coverage</h3>
       <ul>

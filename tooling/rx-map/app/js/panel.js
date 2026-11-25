@@ -71,3 +71,5 @@ export function prevent(ev) { ev?.preventDefault?.(); }
 /** Scroll the panel back to the top (a new tab or a new name). */
 export function panelTop() { const p = document.getElementById("panel"); if (p) p.scrollTop = 0; }
 
+/** A generated declaration no helper could change (an error class, a constant, a type): "default" is all it can be. */
+export const declPlain = line => /^export (error|const|type) /.test(String(line ?? ""));

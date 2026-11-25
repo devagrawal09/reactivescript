@@ -10,6 +10,7 @@ import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, traceSummary } from "../live-protocol.mjs";
+import { liveText } from "../query.mjs";
 import { rxMap } from "../vite.mjs";
 import { createMcp } from "../mcp.mjs";
 
@@ -309,6 +310,16 @@ test("trace groups observed writes and holds by run and call, not timing alone",
   assert.deepEqual(run.writes.map(w => w.type), ["held", "write", "released"]);
   assert.equal(call.writes[0].blockers[0].key, "poll");
   assert.deepEqual(traceSummary(rows, { key: "timer" }), []);
+});
+
+test("why on a held write points at latest, pending? and guess-as-status; nothing held, no hint", () => {
+  const held = { key: "src/App.rx|Board|history", preview: "[]", held: { key: "src/App.rx|Board|history", blockers: [{ key: "loadActivity", type: "call", id: 2 }] } };
+  const text = liveText("why", { current: held, events: [], readers: [] });
+  assert.match(text, /hint: the hold is by design/);
+  assert.match(text, /`latest history` or `pending\? history`/);
+  assert.match(text, /`guess saving := true`/);
+  assert.match(text, /Showing progress while an action runs/);
+  assert.doesNotMatch(liveText("why", { current: { key: "count", preview: "1" }, events: [], readers: [] }), /hint:/);
 });
 
 test("warm HTTP MCP keeps a last-good graph after watcher invalidation", { timeout: 10000 }, async t => {

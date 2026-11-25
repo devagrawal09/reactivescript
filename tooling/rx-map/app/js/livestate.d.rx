@@ -8,6 +8,7 @@ export fn reduce(s: any, msg: any, m: any): void
 export fn playFx(s: any, m: any): void
 export pure fn planReason(hmr: any, key: string): string
 export pure fn heldText(h: any, none: string): string
+export pure fn heldHint(key: string): string
 export pure fn isFlying(live: any, key: string): boolean
 export pure fn boundaryOf(live: any, key: string, id: string): any
 export type PlanItem = { key: string; name: string; reason: string }
@@ -15,7 +16,7 @@ export type PlanGroup = { group: string; title: string; icon: string; what: stri
 export type PlanMove = { from: string; to: string; reason: string }
 export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string; uncarried: PlanItem[]; reseeded: PlanItem[]; fallback: string }
 export type CallFn = { key: string; name: string }
-export type CallRow = { id: number; kind: string; key: string; name: string; fns: CallFn[]; when: string; args: string; cause: string; inferred: boolean; dur: string; outcome: string; badge: string; error: string; seq: number; seqText: string }
+export type CallRow = { id: number; kind: string; key: string; name: string; fns: CallFn[]; when: string; args: string; cause: string; inferred: boolean; dur: string; outcome: string; badge: string; error: string; seq: number; seqText: string; swallowed: boolean; n: number; span: string; group: string; members: CallRow[]; same: string }
 export type CallFnCount = { key: string; name: string; n: number }
 export type CallsView = { rows: CallRow[]; fns: CallFnCount[]; total: number }
 /** The Calls tab's rows (newest first; `fnKey` "" for all) and the imports that have calls. */
@@ -27,3 +28,6 @@ export pure fn planIconHTML(group: string): string
 export pure fn incomingHTML(ns: any[]): string
 export pure fn planView(hmr: any): PlanView
 export pure fn present(x: any): boolean
+export type FailShow = { stale: boolean; last: string; error: string; told: boolean; badge: any }
+/** How each failing key shows: a failed re-ask still showing its last value (`stale`), or a plain failure. */
+export pure fn failView(m: any, values: any, boundaries: any): any

@@ -49,15 +49,20 @@ export function lvView(text) {
   return { list: true, text: "", count: `${l.count}${l.exact ? "" : "+"}`, items, more: l.count > 2 ? `+${l.count - items.length}` : "", empty: l.count === 0 };
 }
 
-// The last change at or before seq, or its first recorded change's prev (TRACE §4b).
+// The last change at or before seq, or its first recorded change's prev (TRACE §4b). A failure comes with the value the
+// app still showed then (`last`): the change's `shown` (`shown: true`: the bridge said so), else the newest value before
+// it (a failed re-ask keeps its last answer; the views decide, with the boundaries, whether it still shows).
 export function valueAt(steps, key, seq) {
-  let before, after;
+  let before, after, last;
   for (const s of steps) for (const c of s.changes ?? []) {
     if (c?.key !== key) continue;
-    if (s.seq <= seq) { if (typeof c.preview === "string" || typeof c.error === "string") before = c; }
-    else if (!after) after = c;
+    if (s.seq <= seq) {
+      if (typeof c.preview === "string") { before = c; last = c.full ?? c.preview; }
+      else if (typeof c.error === "string") before = c;
+    } else if (!after) after = c;
   }
-  if (before) return typeof before.preview === "string" ? { preview: before.full ?? before.preview } : { error: before.error };
+  if (before) return typeof before.preview === "string" ? { preview: before.full ?? before.preview }
+    : typeof before.shown === "string" ? { error: before.error, last: before.shown, shown: true } : { error: before.error, last, shown: false };
   if (after && typeof after.prev === "string") return { preview: after.prev };
   return null;
 }

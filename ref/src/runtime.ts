@@ -95,7 +95,7 @@ type Binding = Node | { constant: unknown } | CtxBinding | { fn: FnDecl; home: R
 /** An imperative run that may suspend at a statement-level `await` (AC-1). An action run holds its change until it returns. */
 /** A block being executed: a plain block, a `try` body (with its handlers), a catch handler, or a finally. */
 type Frame = { stmts: Stmt[]; i: number; kind: "block" | "try" | "catch" | "finally"; catchName?: string; catchClasses?: unknown[]; handler?: Stmt[]; arms?: ErrorArm<Stmt[]>[]; armClasses?: (unknown[] | undefined)[]; fin?: Stmt[] };
-type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string } };   // settle: a server function's body — its end settles the call (12 SF-7b)
+type Run = { frames: Frame[]; region: Region; env: Map<string, unknown>; change: number | null; flight: Flight | null; action: boolean; bind: string | null; caught?: Extract<Expr, { k: "catch" }> | null; result?: unknown; returned?: boolean; settle?: { flight: Flight; name: string }; done?: Flight };   // settle: a server function's body — its end settles the call (12 SF-7b)
 export class Region {
   nodes = new Set<Node>(); effects: EffectRec[] = []; children = new Set<Region>();
   scope = new Map<string, Binding>();
@@ -818,7 +818,7 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); const input = actionInput(args, v => this.inputStores.has(v)); a.params.forEach((p, i) => en.set(p, input[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); const input = actionInput(args, v => this.inputStores.has(v)); a.params.forEach((p, i) => en.set(p, input[i])); const done = new Flight(`action:${a.name}`); this.startRun(a.body, home, en, true, done); return done; }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return b.kind === "source" || b.keyBy ? this.storeRead(v) : v; }   // R-f-7: a snapshot of an error throws it
       }
       case "as": return this.ev(e.e, region, env);                     // 07 §3: erased
@@ -1059,8 +1059,8 @@ export class Runtime {
     return this.startRun(stmts, region, env, action);
   }
   /** Start an imperative run (a handler, an apply block, or an action body — AC-1); it may suspend at `await`. */
-  private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean): unknown {
-    const run: Run = { frames: [{ stmts, i: 0, kind: "block" }], region, env, change: null, flight: null, action, bind: null };
+  private startRun(stmts: Stmt[], region: Region, env: Map<string, unknown>, action: boolean, done?: Flight): unknown {
+    const run: Run = { frames: [{ stmts, i: 0, kind: "block" }], region, env, change: null, flight: null, action, bind: null, done };   // done: a declared action's call, settled when its body ends — what `await act()` waits for (AC-1)
     if (action) { this.openActions.add(run); this.started.push(run); }
     return this.resume(run);
   }
@@ -1161,10 +1161,12 @@ export class Runtime {
     }
     if (!run.action) return;
     this.openActions.delete(run);
-    if (run.change === null) return;                                        // ended before its first instant: nothing to revert or correct
-    // AC-1 (ruled 2026-10-22, DV-2): a rejection ends the body like a return — the held writes commit, the guesses
-    // revert to the truth at hand (the body-end correction, D-34). Only optimistic state is provisional.
-    this.pendingBodyEnds.push(this.find(run.change));
+    if (run.change !== null) {                                              // ended before its first instant: nothing to revert or correct
+      // AC-1 (ruled 2026-10-22, DV-2): a rejection ends the body like a return — the held writes commit, the guesses
+      // revert to the truth at hand (the body-end correction, D-34). Only optimistic state is provisional.
+      this.pendingBodyEnds.push(this.find(run.change));
+    }
+    if (run.done) this.answer(run.done, "resolved", undefined);             // AC-1: an action that awaits this one resumes now; it never rejects (R-f-6)
   }
   /** D-34: the body's end corrects a guess nothing authoritative is answering — by the truth at hand. */
   private bodyEndCorrections(): boolean {

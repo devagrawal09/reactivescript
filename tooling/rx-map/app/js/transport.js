@@ -52,7 +52,9 @@ function viewState() {
     graph: S.hmr.swapped ? currentGraph : null,
     timeline: { source: "rx-map", v: 1, type: "timeline", head: tl.head, viewing: tl.viewing, capacity: tl.capacity, steps: tl.steps, flushes: S.flushes },
     snapshot: { source: "rx-map", v: 1, type: "snapshot",
-      values: Object.entries(S.values).filter(([, v]) => v.preview !== undefined).map(([key, v]) => ({ key, preview: v.preview })),
+      // a failure goes with the value the app may still show (as its preview; `shown` when the bridge said so)
+      values: Object.entries(S.values).filter(([, v]) => v.preview !== undefined || typeof v.error === "string")
+        .map(([key, v]) => (typeof v.error === "string" ? { key, error: v.error, ...(v.last !== undefined ? { preview: v.last } : {}), ...(v.appShows ? { shown: v.last } : {}) } : { key, preview: v.preview })),
       flights: Object.keys(S.flying).map(key => ({ key, since: tl.flights.findLast(f => f.key === key && f.end == null)?.start ?? 0 })),
       boundaries: Object.entries(S.boundaries).map(([region, b]) => ({ region, state: b.state, ...(b.error ? { error: b.error } : {}), ...(b.arm != null ? { arm: b.arm } : {}) })) },
   };
@@ -112,15 +114,22 @@ export function startLive(on) {
 
 // ---- pop-out: the same live map in a window of its own ------------------------------------------------------
 let popWin = null;   // the pop-out this map opened, while it is open
-/** Opens (or focuses) the pop-out window, written from the page as it was served. */
+let popURL = null;   // the page it was opened on: a Blob URL of the page as served
+/**
+ * Opens (or focuses) the pop-out window on a Blob URL of the page as it was served (env.js pristine). A reload re-runs
+ * the page there and it attaches again: the window keeps its name ("rx-map-popout") and its opener (env.js isPopout).
+ * (Written with document.write, a reload left about:blank.) The URL lives as long as this map's page.
+ */
 export function popOut() {
   if (isRecording()) return;
   if (popWin && !popWin.closed) { popWin.focus(); return; }
-  const w = window.open("", "rx-map-popout", "width=1280,height=820");
+  try {
+    if (popURL) URL.revokeObjectURL(popURL);
+    popURL = URL.createObjectURL(new Blob([pristine()], { type: "text/html" }));
+  } catch (e) { toast(`<span class="micro">pop-out</span> could not make the page: ${String(e?.message ?? e).replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;"))}`); return; }
+  const w = window.open(popURL, "rx-map-popout", "width=1280,height=820");
   if (!w) { toast(`<span class="micro">pop-out</span> the browser blocked the window`); return; }
   popWin = w;
-  try { w.document.open(); w.document.write(pristine()); w.document.close(); }
-  catch (e) { popWin = null; toast(`<span class="micro">pop-out</span> could not write the window: ${String(e?.message ?? e).replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;"))}`); return; }
   sfx("toggle");
 }
 

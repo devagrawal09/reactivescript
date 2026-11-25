@@ -386,6 +386,14 @@ body.mini-off #mini { display: none }
 .seg { display: inline-flex; gap: 3px } .seg .hbtn { padding: 3px 8px; font-size: 11.5px }
 #toast { top: 66px; left: 50%; transform: translate(-50%, -8px); padding: 8px 14px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; z-index: 21; max-width: 70vw }
 #toast.on { opacity: 1; transform: translate(-50%, 0) }
+/* a rejection swallowed by a re-ask: a toast you can click (to the Calls tab, at it) */
+#swallowToast { top: 108px; left: 50%; transform: translateX(-50%); padding: 8px 14px; z-index: 21; max-width: 70vw; display: flex; gap: 8px; align-items: baseline; cursor: pointer; font: inherit; font-size: 12.5px; color: var(--text); border: 1px solid rgba(251, 113, 133, .6) }
+#swallowToast u { color: #fda4af }
+li.call .c-swallow { font: 700 9px/1 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; padding: 3px 5px; border-radius: 3px; color: #1a0508; background: #fda4af }
+li.call.marked { box-shadow: 0 0 0 2px rgba(251, 113, 133, .8) }
+li.call .c-rep { padding: 0 6px; font-size: 10.5px; border-radius: 9px }
+li.call .c-span { font-size: 10px; margin: 1px 0 0 }
+li.c-group { list-style: none; margin: -3px 0 6px 14px }
 
 /* ---- live: what a running dev build's flushes change. White for a change, amber for in flight; the diff colours
    stay reserved -------------------------------------------------------------------------------------------------- */
@@ -436,9 +444,16 @@ body.disconnected #canvas { filter: saturate(.55) }
 .lvlist { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font: 11.5px ui-monospace, Menlo, monospace }
 .lvlist li { padding: 2px 6px; border-left: 2px solid rgba(150, 180, 255, .35); background: rgba(255, 255, 255, .03) }
 /* a failed value: rose, with what failed */
-.chip.failed .tok { box-shadow: 0 0 0 2px var(--fail), 0 0 16px rgba(251, 113, 133, .55), 0 3px 0 #3b0d17 !important }
-.chip.failed.s-well .tok, .chip.failed.s-flow .tok { --face: linear-gradient(180deg, rgba(251, 113, 133, .45), rgba(120, 20, 40, .55)); border-color: var(--fail) }
-.chip.failed > .lv { display: none }
+.chip.failed:not(.reask-failed) .tok { box-shadow: 0 0 0 2px var(--fail), 0 0 16px rgba(251, 113, 133, .55), 0 3px 0 #3b0d17 !important }
+.chip.failed:not(.reask-failed).s-well .tok, .chip.failed:not(.reask-failed).s-flow .tok { --face: linear-gradient(180deg, rgba(251, 113, 133, .45), rgba(120, 20, 40, .55)); border-color: var(--fail) }
+.chip.failed > .lv:not(.stale) { display: none }
+/* a failed re-ask while the app still shows its last value: the token keeps its face, a dashed rose ring; the last
+   value stays, dimmed, with a small rose "re-ask failed" under it */
+.chip.reask-failed .tok { outline: 2px dashed var(--fail); outline-offset: 2px }
+.chip .lv.stale { border-color: rgba(251, 113, 133, .7); background: rgba(40, 6, 14, .55) }
+.chip .lv.stale .lvv { opacity: .5 }
+.chip .lv .lvx { display: flex; gap: 3px; align-items: center; justify-content: center; color: #fda4af; font: 800 8.5px/1.5 ui-sans-serif, system-ui; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap }
+.chip .lv .lvx svg.i { width: 9px; height: 9px }
 .chip .lverr { position: absolute; left: 50%; top: calc(100% + 4px); translate: -50% 0; z-index: 3; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; max-width: 26ch; font: 11px/1.35 ui-monospace, Menlo, monospace; color: #fff; background: #be123c; border: 1px solid #fb7185; border-radius: 4px; padding: 0 5px 0 4px; box-shadow: 0 0 10px rgba(251, 113, 133, .45) }
 .chip .lverr span { overflow: hidden; text-overflow: ellipsis }
 .chip .lverr svg.i { width: 11px; height: 11px }
@@ -450,6 +465,9 @@ body.disconnected #canvas { filter: saturate(.55) }
 .chip .hm svg.i { width: 10px; height: 10px }
 .failbox, .heldbox { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 6px; margin: 4px 0 6px }
 .failbox { background: rgba(225, 29, 72, .16); border: 1px solid rgba(251, 113, 133, .55); color: #fecdd3 }
+.failbox.stale { border-style: dashed; background: rgba(225, 29, 72, .08) }
+.failbox .flast { color: #fff }
+.failbox .hint { margin-top: 3px }
 .failbox b, .heldbox b { text-transform: uppercase; font-size: 10px; letter-spacing: .12em }
 .heldbox { background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .5); color: #fde68a }
 .failbox svg.i, .heldbox svg.i { flex-shrink: 0; margin-top: 1px }

@@ -34,43 +34,6 @@ onFlush(() => { text := "" })
 addTodo(t)
 ```
 
-### Which flight is holding this write?
-
-### Competing polls and progress
-
-Suppose a bulk edit updates `feed` and re-asks `summary`. The feed stays
-staged while a display waits on that summary (H-2). A poll that writes
-`feed` while that slot is held joins the edit, even if the poll was
-started by a different timer. A poll that only writes its own `presence`
-source can land independently. If that write triggers a badge that
-consumes both fresh presence and a derivation of the staged feed, the
-badge can join the two changes (H-3, H-3a). A pending request alone
-does not join them.
-
-For an upload, keep progress outside the held answer. For example, in
-the upload action schedule the status write, not the upload itself:
-
-```rx
-source uploadStatus := ""
-action send(file: File) {
-  onFlush(() => { uploadStatus := "Uploading…" })
-  try {
-    let attachment = await upload(file)
-    latestUpload := attachment
-    onFlush(() => { uploadStatus := "Uploaded" })
-  } catch (e) {
-    onFlush(() => { uploadStatus := e.message })
-  }
-}
-```
-
-Here `latestUpload` is the result source. Render `uploadStatus` in its
-own reader, not in one that consumes the held result. A host uploader's
-progress callbacks can likewise write that separate source in separate
-runs. `onFlush` starts a run; it doesn't exempt that run from the join
-rules. If progress must stage with the result, write it in the action
-instead.
-
 ### Following the reads
 
 Start with the run that wrote the value, not the component that displays
@@ -91,11 +54,12 @@ history and the fresh presence may join them; separate components alone
 are not a guarantee.
 
 When debugging, compare the action end, the pending readers and flights,
-and the write's `held`/`released` in the trace. Keep reads in the UI that
-needs them. Use a separate run for independent UI state and `deferred`
-when it's acceptable for an already loaded answer to lag (H-1). Don't
-split the card and undo entry into separate writes just to make the button
-appear faster.
+and the write's `held`/`released` in the trace. The hold is by design: to
+show the undo button as soon as its entry is written, the button reads
+`latest history` ("Showing progress while an action runs", below). Use
+`deferred` when it's acceptable for an already loaded answer to lag (H-1).
+Don't split the card and undo entry into separate writes just to make the
+button appear faster.
 
 ## 1. Reading from the server: an equation
 
@@ -213,6 +177,7 @@ by what the screen should do:
 | --- | --- |
 | Show a value now, and take it back if the action fails | `guess x := v` (x is a source or an equation) |
 | `pending? x` true while the action runs | `affects x` |
+| Show a result the action keeps as soon as it's written (a row's outcome, an undo entry) | a plain write, read with `latest x` (below) |
 | Land a UI write now and keep it (close a menu, clear a message) | `onFlush(() => { x := v })` (EF-8) |
 | Record the server's answer | `x := answer` after the `await` |
 | Handle a failure | `try { … } catch (e) { … }`: the catch's writes and the revert are one frame (AC-7) |
@@ -304,6 +269,133 @@ A guess belongs to its action, and the screen it guessed on waits for that actio
 - **Don't rebuild guesses by hand** (a plain list of pending ids with your own revert) to end them one by one: it
   loses the revert and the hold that keep the screen consistent.
 
+### Showing progress while an action runs
+
+An action's writes are held until it ends (AC-1), so the screen never shows half a batch. That is on purpose. To show
+the work while it runs, use what already reads ahead of a hold. Pick by what the value is:
+
+| The value is | Write it | Show it now with | When the action ends |
+| --- | --- | --- | --- |
+| a status that is true only while the work runs ("saving…", "sending hi…", a running count) | `guess x := v`, on any source (`source saving := false`) | a plain read: a guess shows ahead of its hold | it goes back by itself |
+| a result to keep (a row's outcome, a file's URL, an undo entry, a polled message) | a plain write, `x := …` | `latest x`, or `latest x[id]` for one key | it commits; plain readers show it |
+| "is anything still coming for `x`?" | nothing new: a held write, `affects x` | `pending? x` | `false` |
+
+The rest is how to use those three:
+
+- **`latest` on the reader that should be live, a plain read where only the finished state should show.** `latest x`
+  shows a held write as soon as it is made; a plain read of `x` shows the committed frame. A list of uploads reads
+  `latest files`; a "3 files sent" summary reads `files`.
+- **Probe the path you show.** `latest results[id]` reads one key. `(latest results)[id]` reads the whole store, for
+  every row, on every write.
+- **A slot showing a guess answers `latest` with the guess** (H-11). If writes from elsewhere (a poll) must show on
+  `x` while an action runs, don't guess on `x`: keep the action's status in a guess of its own (`guess sending :=
+  text`) and write `x` plainly.
+- **An action repeats an `await` by calling itself**: `await step(list, i + 1)`. There are no loops. An action that
+  awaits another waits for it, so the whole run is one change. Each action catches its own failures (R-f-6), so put a
+  `try` (or an `await … catch`) in the one that awaits.
+- **Two actions that write one source are one hold**, and they commit together. Readers that use `latest` don't care.
+- **A host callback** (an upload's `progress` event) runs outside the action, as a run of its own. Write the field
+  plainly from it; if the action has written that source, the callback's write joins the hold and `latest` shows it.
+- **Don't start the work from an `effect`** in a row component to keep rows apart. The action it launches holds the
+  list write that mounted the row, so the next row added waits for it.
+- `onFlush(() => { x := v })` is still the tool for a reset that lands now and stays: clear an input, clear an error.
+  It is not a progress channel.
+
+Four cases, each run in Chromium and as a scenario (`S-progress-1` … `S-progress-4`).
+
+**Upload progress, per file.** Plain writes for everything the row keeps; the list reads `latest`. A file that fails
+shows its failure at once while the others keep sending.
+
+```rx
+source files key id := []
+action sendChunk(id: string, i: number, n: number) {
+  try {
+    let url = await uploadChunk(id, i)
+    let pct = Math.round(100 * (i + 1) / n)
+    if (i + 1 < n) {
+      files := fs => fs.map(f => f.id == id ? { ...f, pct: pct } : f)
+      await sendChunk(id, i + 1, n)
+    } else { files := fs => fs.map(f => f.id == id ? { ...f, pct: 100, url: url } : f) }
+  } catch (e) { files := fs => fs.map(f => f.id == id ? { ...f, error: e.message } : f) }
+}
+action attach(id: string) {
+  files := fs => [...fs, { id: id, pct: 0, url: "", error: "" }]
+  await sendChunk(id, 0, 5)
+}
+<ul>{for f in latest files { <li>{f.id}: {f.error ? "failed: " + f.error : f.url ? "done" : f.pct + "%"}</li> }}</ul>
+```
+
+When the host reports progress instead of chunks, the callback writes the field:
+`let u = await uploadWithProgress(file, p => { upload := x => ({ ...x, pct: p }) })`, and the view reads
+`latest upload`.
+
+**Bulk "n of 100", with a result per row.** The batch is one change: its results commit together. Each row's result is
+a plain write, read per row with `latest`; the count and the running flag are guesses and go away when the batch ends.
+
+```rx
+source results := {}
+source done := 0
+source running := false
+action applyFrom(list: number[], i: number) {
+  if (i >= list.length) return
+  let id = list[i]
+  let r = await updateRow(id) catch (e) => "failed: " + e.message
+  results[id] := r
+  guess done := i + 1
+  await applyFrom(list, i + 1)
+}
+action bulk(list: number[]) {
+  guess running := true
+  await applyFrom(list, 0)
+}
+<p>{running ? "applying " + done + " of 100" : "idle"}</p>
+<ol>{for id in ids { <li>{id}: {latest results[id] ?? "-"}</li> }}</ol>
+```
+
+**Poll data arriving while an action holds the feed.** Once the post has written `feed` and goes on waiting (for the
+unread count), `feed` is held, and a poll that lands joins that hold. The list reads `latest feed`, so the polled
+messages show as they land. The message being sent is a guess on its own source, not on `feed`.
+
+```rx
+source feed: string[] := []
+source sending := ""
+source unread := 0
+action post(text: string) {
+  guess sending := text
+  try {
+    let r = await postMessage(text)
+    feed := f => [...f, r]
+    let u = await loadUnread()
+    unread := u
+  } catch (e) {}
+}
+action poll() {
+  try { let r = await pollEvents(); feed := f => [...f, r] } catch (e) {}
+}
+<ul>{for m in latest feed { <li>{m}</li> }}</ul>
+{if sending { <p>sending {sending}…</p> }}
+```
+
+**The undo button right after its write returns.** The move writes its undo entry when `moveCard` answers, then waits
+for the activity reload; the entry is held until then. The button reads `latest history`, so it appears when the entry
+is written, seconds before the reload lands.
+
+```rx
+action move(card: string) {
+  try {
+    let r = await moveCard(card)
+    history := h => [...h, r]
+    let a = await loadActivity()
+    activity := a
+  } catch (e) {}
+}
+undoable = latest history
+{if undoable.length > 0 { <button onClick={() => { undo(undoable[undoable.length - 1]) }}>Undo</button> }}
+```
+
+The MCP `why` answer for a held write and the map's held mark say the same: the hold is by design; read `latest x` or
+`pending? x`, or make status-only state a guess.
+
 ### Data belongs with its lifetime
 
 In .rx, state is not tied to components: a `source` can be declared in a module, a component or a region, and a
@@ -333,25 +425,9 @@ errors and guesses of the last visit then show on the next.
 
 ## 4. Things that look like bugs and aren't
 
-### Progress and independent row saves
-
-One action groups its writes across its awaits. If a batch should commit
-all at once, keep it in one action. If rows should settle separately, run
-one action per row. Launch the row actions in separate runs, not by
-calling them all synchronously from one handler (that can join their
-changes). For a bulk control, an imported JS dispatcher can schedule each
-row callback in a separate task.
-
-For progress on a single long operation, keep a separate progress source.
-Publish progress from independent callbacks, or use `onFlush` to schedule
-a separate write at a known milestone. Don't write progress into the
-answer the operation already holds. A reader that derives from both
-progress and the held answer can join the changes; render progress on its
-own if it must stay responsive. The final result still belongs in the
-action that awaited it.
-
-- **A plain write in an action doesn't show until the server answers.** That's the hold. Use `guess` or
-  `onFlush` (the table above). Don't move the code into a plain handler to escape it.
+- **A plain write in an action doesn't show until the server answers.** That's the hold. Read it with `latest x`
+  where it should show now, make status-only state a `guess`, or land a reset with `onFlush` ("Showing progress while
+  an action runs" above). Don't move the code into a plain handler to escape it.
 - **A declined row guess stays until another action's re-ask lands.** While an action's `refresh` of the list is
   in flight, the list's rows wait for that action (H-11), declined guesses included. That's by design; see "When
   a guess holds" above.

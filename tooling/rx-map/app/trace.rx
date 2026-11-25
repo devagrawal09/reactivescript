@@ -1,14 +1,15 @@
 import { servedGraph, servedTrace } from "./js/env.js"
 import { traceEvents } from "./js/replay.js"
+import { present } from "./js/livestate.js"
 
 recording = servedTrace()
 
 export component TraceBadge() {
   {if recording != null {
-    <div id="traceBadge" title={`${recording.test}${recording.error == null ? "" : ` — ${recording.error}`}`}>
+    <div id="traceBadge" title={`${recording.test}${!present(recording.error) ? "" : ` — ${recording.error}`}`}>
       <span class="micro">Recording</span>
       <strong>{recording.test}</strong>
-      {if recording.error != null { <span class="mono trace-error">{recording.error}</span> }}
+      {if present(recording.error) { <span class="mono trace-error">{recording.error}</span> }}
     </div>
   }}
 }
@@ -16,7 +17,7 @@ export component TraceBadge() {
 export component TracePanel() {
   events = traceEvents(servedGraph())
   <h2>{recording.test}</h2>
-  {if recording.error != null { <pre class="code failpre">{recording.error}</pre> }}
+  {if present(recording.error) { <pre class="code failpre">{recording.error}</pre> }}
   <p class="hint">a recording: travel needs the app</p>
   <h3>Runs, boundaries and reverts</h3>
   {if events.length == 0 { <p class="hint">No runs, boundary reports or reverts were recorded.</p> }}

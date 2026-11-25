@@ -255,6 +255,13 @@ export function queryDiff(g) {
       `${i.text.replaceAll("`", "")}  [${i.nodes.map(n => `${n.key}${location(n)}`).join("; ")}]`) : boundaries.length || textChanges.length ? [] : ["no notable behavior changes"]),
     ...boundaries.map(b => `${b.status} boundary ${describe(b)}`), ...textChanges.map(r => `text changed ${describe(r)}`)]);
 }
+/** Whether a `why` answer shows a held write: the key's own, one of its events, or a reader waiting on it. */
+const whyHeld = d => !!(d.current?.held || d.held || d.events?.some(e => e.type === "held") || d.readers?.length);
+/** The hint under a held write: holds are by design (AC-1, H-2); what shows the work while it runs. */
+export const heldHint = key => {
+  const name = String(key ?? "x").replace(/^rx:/, "").split("|").pop().replace(/~.*$/, "");
+  return `hint: the hold is by design (an action's writes commit together). To show it while the action runs, read \`latest ${name}\` or \`pending? ${name}\` where it is shown, or make status-only state a guess (\`guess saving := true\` shows now and goes back when the action ends). guide/async.md, "Showing progress while an action runs"`;
+};
 /** Text rendering of the live recorder's read-only queries. */
 export function liveText(method, data) {
   const at = t => `${Math.round(t)}ms`;
@@ -298,7 +305,8 @@ export function liveText(method, data) {
       return [...data.values.map(value), ...data.boundaries.map(boundary), ...(data.held ?? []).map(waiting), ...data.runs.map(running), ...data.reverts.map(event)].join("\n") || "no live state";
     case "why": return [value(data.current ?? data), ...(data.seq ? [`${data.seq}  ${at(data.at)}  ${change(data)}`,
       ...(data.chain ?? []).map(c => `${"  ".repeat(c.depth)}← ${change(c)}`)] : ["no change recorded"]),
-      ...data.events.map(event), ...(data.readers ?? []).map(r => `${waiting(r)}${location(r)}`)].join("\n");
+      ...data.events.map(event), ...(data.readers ?? []).map(r => `${waiting(r)}${location(r)}`),
+      ...(whyHeld(data) ? [heldHint(data.current?.key ?? data.key)] : [])].join("\n");
     case "pending": return data.map(r => `${r.key}${since(r)}${location(r)}`).join("\n") || "no pending requests";
   }
 }
