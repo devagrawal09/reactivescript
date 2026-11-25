@@ -160,6 +160,8 @@ pub struct ModelSymbol {
     pub from: Option<String>,
     /// a source's or an equation's identity (`decl_keys`)
     pub key: Option<String>,
+    /// MO-11f: a JS import's declaration — `{line, from, origin, brands}`
+    pub decl: Option<Value>,
 }
 #[derive(Debug, Clone)]
 pub struct Computation {
@@ -369,6 +371,9 @@ impl ModelBuilder {
                 }
                 if let Some(k) = s.key {
                     m.insert("key".into(), json!(k));
+                }
+                if let Some(d) = s.decl {
+                    m.insert("decl".into(), d);
                 }
                 Value::Object(m)
             })

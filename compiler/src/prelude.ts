@@ -50,3 +50,11 @@ export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+/** 13 TY-4d: a generated fn's `Ref` positions as its rows read them (MO-10) — a `Ref<T>` (an accessor) argument takes a `T`, a
+ *  `Ref<T>` result or part reads as `T`. `I`: the ref parameters' indices; `S`: the result's shape. `G`: a generic fn, whose
+ *  signature TypeScript cannot map — its ref positions are `any`. */
+type ReadRef<T, G> = G extends true ? any : T extends () => infer R ? R : T;
+export type ReadAt<P extends readonly unknown[], I, G = false> = { [K in keyof P]: K extends `${I & number}` ? ReadRef<P[K], G> : P[K] };
+export type ReadResult<R, S, G = false> = S extends "ref" ? ReadRef<R, G> : S extends object ? { [K in keyof R]: K extends keyof S ? (S[K] extends "ref" ? ReadRef<R[K], G> : R[K]) : R[K] } : R;
+/** A TS error class as `.rx` raises it: `NotFound(…)`, a call (R-f-1). */
+export type Raise<C> = C extends abstract new (...a: infer A) => infer I ? (...a: A) => I : C;

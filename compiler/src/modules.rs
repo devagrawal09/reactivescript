@@ -143,6 +143,60 @@ pub fn package_declaration(from_file: &str, spec: &str, read: &dyn Fn(&str) -> O
 }
 static PKG_EXT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.(m?js|cjs|jsx|ts|tsx)$").unwrap());
 
+/// MO-11a: the TS module for a stem, the first of these that exists.
+pub const TS_CANDIDATES: [&str; 9] = [".ts", ".tsx", ".mts", ".cts", ".d.ts", ".d.mts", "/index.ts", "/index.tsx", "/index.d.ts"];
+/// MO-11d: what a generator answers at `rx-dts:<stem>` — the generated text, its diagnostics (in the TS module), and every
+/// file it read (for staleness).
+#[derive(Debug, Clone)]
+pub struct DtsRecord {
+    pub from: String,
+    pub text: String,
+    pub errors: Vec<DtsError>,
+    pub files: Vec<String>,
+}
+#[derive(Debug, Clone)]
+pub struct DtsError {
+    pub file: String,
+    pub line: i64,
+    pub code: String,
+    pub message: String,
+}
+/// The key a host answers with a stem's record, as JSON (`null`: none).
+pub const DTS_KEY: &str = "rx-dts:";
+pub fn read_record(read: &dyn Fn(&str) -> Option<String>, stem: &str) -> Option<DtsRecord> {
+    use serde_json::Value;
+    let s = read(&format!("{DTS_KEY}{stem}"))?;
+    let j: Value = serde_json::from_str(&s).ok()?;
+    let (Some(from), Some(text)) = (j.get("from").and_then(|v| v.as_str()), j.get("text").and_then(|v| v.as_str())) else { return None };
+    let errors = j
+        .get("errors")
+        .and_then(|v| v.as_array())
+        .map(|xs| {
+            xs.iter()
+                .map(|e| DtsError {
+                    file: e.get("file").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    line: e.get("line").and_then(|v| v.as_i64()).unwrap_or(0),
+                    code: e.get("code").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    message: e.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let files = j.get("files").and_then(|v| v.as_array()).map(|xs| xs.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    Some(DtsRecord { from: from.to_string(), text: text.to_string(), errors, files })
+}
+fn base(p: &str) -> &str {
+    p.rsplit('/').next().unwrap_or(p)
+}
+fn rule_of(code: &str) -> &'static str {
+    match code {
+        "DECLARATION_BRAND" => "MO-11c",
+        "DECLARATION_UNAVAILABLE" => "MO-11d",
+        _ => "MO-11",
+    }
+}
+pub const UNAVAILABLE_FIX: &str = "install the generator, `npm i -D @reactivescript/compiler typescript`, or set RX_DTS to a command that prints it (`rx-dts --record <stem>`)";
+
 fn replace_js_ext(from: &str) -> String {
     for ext in [".mjs", ".js", ".ts"] {
         if let Some(s) = from.strip_suffix(ext) {
@@ -182,8 +236,24 @@ impl Loader<'_> {
             let pkg_dts = if !is_rx(from) && !from.starts_with('.') && !from.starts_with('/') { package_declaration(path, from, &*self.read) } else { None };
             if !is_rx(from) && (from.starts_with('.') || pkg_dts.is_some()) {
                 // MO-8: a JS module with a declaration file beside it
+                let is_pkg = pkg_dts.is_some();
                 let dts = pkg_dts.unwrap_or_else(|| join_path(path, &(replace_js_ext(from) + ".d.rx")));
-                self.load_declaration(&dts)?;
+                if is_pkg {
+                    self.load_declaration(&dts)?;
+                } else {
+                    let stem = dts.strip_suffix(".d.rx").unwrap_or(&dts).to_string();
+                    if !self.load_js_declaration(&stem)? {
+                        // MO-11d: a TS module, and no generator
+                        let ts = self.ts_module(&stem).unwrap_or_default();
+                        self.diags.push(Diagnostic {
+                            code: "DECLARATION_UNAVAILABLE".into(),
+                            rule: "MO-11d".into(),
+                            line: *line as i64,
+                            file: Some(path.to_string()),
+                            msg: format!("{} is the TS module {}, whose declaration is generated (MO-11d), and no generator answered: {}", from, base(&ts), UNAVAILABLE_FIX),
+                        });
+                    }
+                }
                 if let Some(ds) = self.declarations.get(&dts) {
                     *declared = Some(dts.clone());
                     *declared_errors = Some(ds.iter().filter_map(|x| if let JsDecl::Error { name, .. } = x { Some(name.clone()) } else { None }).collect());
@@ -238,6 +308,63 @@ impl Loader<'_> {
         self.order.push(path.to_string());
         Ok(())
     }
+    fn ts_module(&self, stem: &str) -> Option<String> {
+        TS_CANDIDATES.iter().map(|x| format!("{stem}{x}")).find(|p| (self.read)(p).is_some())
+    }
+    /// MO-11: a relative JS import's declaration, `<stem>.d.rx` — the written file (W), the one generated from the TS module
+    /// (G), or both merged per export (MO-11e: W's line where W declares the name). False: there is a TS module and no
+    /// generator answered.
+    fn load_js_declaration(&mut self, stem: &str) -> Result<bool, ParseError> {
+        let dts = format!("{stem}.d.rx");
+        if self.declarations.contains_key(&dts) {
+            return Ok(true);
+        }
+        let ts = self.ts_module(stem);
+        let rec = if ts.is_some() { read_record(self.read, stem) } else { None };
+        let written = (self.read)(&dts);
+        let Some(rec) = rec else {
+            // MO-8, unchanged
+            if written.is_some() {
+                self.load_declaration(&dts)?;
+                return Ok(true);
+            }
+            return Ok(ts.is_none());
+        };
+        for e in &rec.errors {
+            self.diags.push(Diagnostic { code: e.code.clone(), rule: rule_of(&e.code).into(), line: e.line, file: Some(e.file.clone()), msg: e.message.clone() });
+        }
+        if written.is_none() && rec.errors.iter().any(|e| e.code == "DECLARATION_UNAVAILABLE") {
+            return Ok(true); // reported at the TS module
+        }
+        let mut gen = crate::parse::parse_declarations_in(&rec.text, true).map_err(|e| ParseError(format!("{} (generated from {}): {}", dts, rec.from, e.0), e.1, Some(dts.clone()), e.3))?;
+        gen.retain(|x| !matches!(x, JsDecl::Import { .. }));
+        for x in gen.iter_mut() {
+            x.set_generated(&rec.from);
+        }
+        let Some(written) = written else {
+            self.declarations.insert(dts, gen);
+            return Ok(true);
+        };
+        let ws = parse_declarations(&written).map_err(|e| ParseError(format!("{}: {}", dts, e.0), e.1, Some(dts.clone()), e.3))?;
+        let exports_of = |ds: &[JsDecl]| -> HashSet<String> { ds.iter().filter(|x| x.exported()).map(|x| x.name().to_string()).collect() };
+        let (mine, theirs) = (exports_of(&ws), exports_of(&gen));
+        for x in &ws {
+            if x.exported() && !theirs.contains(x.name()) {
+                self.diags.push(Diagnostic {
+                    code: "NOT_EXPORTED".into(),
+                    rule: "MO-11e".into(),
+                    line: x.line() as i64,
+                    file: Some(dts.clone()),
+                    msg: format!("{}: {} exports no {} — a written line overrides an export of the TS module; remove the line, or export {} from {}", base(&dts), base(&rec.from), x.name(), x.name(), base(&rec.from)),
+                });
+            }
+        }
+        let mut merged = ws;
+        merged.extend(gen.into_iter().filter(|x| !mine.contains(x.name())));
+        self.declarations.insert(dts.clone(), merged);
+        self.resolve_decl_imports(&dts)?;
+        Ok(true)
+    }
     /// MO-8: parse a `.d.rx` once, then resolve its type imports (MO-8e).
     fn load_declaration(&mut self, dts: &str) -> Result<(), ParseError> {
         if self.declarations.contains_key(dts) {
@@ -248,8 +375,9 @@ impl Loader<'_> {
         self.declarations.insert(dts.to_string(), ds);
         self.resolve_decl_imports(dts)
     }
-    /// MO-8e: `./x` in a `.d.rx` is `x.d.rx`, else `x.rx`. A path ending in `.rx` is that module.
-    fn decl_target(&self, from_file: &str, spec: &str) -> Option<(String, bool)> {
+    /// MO-8e: `./x` in a `.d.rx` is `x.d.rx`, else the TS module's generated declaration (MO-11, the third: that module),
+    /// else `x.rx`. A path ending in `.rx` is that module.
+    fn decl_target(&self, from_file: &str, spec: &str) -> Option<(String, bool, Option<String>)> {
         if !spec.starts_with('.') && !spec.starts_with('/') {
             return None;
         }
@@ -257,20 +385,23 @@ impl Loader<'_> {
         if let Some(p) = s.strip_suffix(".d.rx") {
             let path = join_path(from_file, s);
             let _ = p;
-            return (self.read)(&path).map(|_| (path, false));
+            return (self.read)(&path).map(|_| (path, false, None));
         }
         if s.ends_with(".rx") {
             let path = join_path(from_file, s);
-            return (self.read)(&path).map(|_| (path, true));
+            return (self.read)(&path).map(|_| (path, true, None));
         }
         let stem = join_path(from_file, s);
         let dts = format!("{stem}.d.rx");
         if (self.read)(&dts).is_some() {
-            return Some((dts, false));
+            return Some((dts, false, None));
+        }
+        if let Some(ts) = self.ts_module(&stem) {
+            return Some((dts, false, Some(ts)));
         }
         let rx = format!("{stem}.rx");
         if (self.read)(&rx).is_some() {
-            return Some((rx, true));
+            return Some((rx, true, None));
         }
         None
     }
@@ -282,7 +413,7 @@ impl Loader<'_> {
             .unwrap_or_default();
         let who = file.rsplit('/').next().unwrap_or(file).to_string();
         for (line, from, names) in imports {
-            let Some((path, rx)) = self.decl_target(file, &from) else {
+            let Some((path, rx, ts)) = self.decl_target(file, &from) else {
                 self.diags.push(Diagnostic { code: "MODULE_NOT_FOUND".into(), rule: "MO-8".into(), line: line as i64, file: Some(file.to_string()), msg: format!("{who}: no module {from} (a `.d.rx` imports types from a `.d.rx` or an `.rx`)") });
                 continue;
             };
@@ -296,6 +427,18 @@ impl Loader<'_> {
                     }
                 }
             }
+            if let Some(ts) = &ts {
+                if !self.load_js_declaration(path.strip_suffix(".d.rx").unwrap_or(&path))? {
+                    self.diags.push(Diagnostic {
+                        code: "DECLARATION_UNAVAILABLE".into(),
+                        rule: "MO-11d".into(),
+                        line: line as i64,
+                        file: Some(file.to_string()),
+                        msg: format!("{who}: {from} is the TS module {}, whose declaration is generated (MO-11d), and no generator answered: {UNAVAILABLE_FIX}", base(ts)),
+                    });
+                    continue;
+                }
+            }
             if !rx {
                 self.load_declaration(&path)?;
                 let td = self.declarations.get(&path).cloned().unwrap_or_default();
@@ -304,7 +447,7 @@ impl Loader<'_> {
                     let x = td.iter().find(|y| y.name() == n.name && y.exported());
                     match x {
                         None => self.diags.push(Diagnostic { code: "NOT_EXPORTED".into(), rule: "MO-8".into(), line: line as i64, file: Some(file.to_string()), msg: format!("{who}: {where_} exports no type {}", n.name) }),
-                        Some(JsDecl::Fn { .. }) => self.diags.push(Diagnostic { code: "TYPE_IMPORT".into(), rule: "MO-8".into(), line: line as i64, file: Some(file.to_string()), msg: format!("{who}: `{}` is a value, not a type — a declaration file imports types only (`import {{ T }} from \"./x\"`)", n.name) }),
+                        Some(JsDecl::Fn { .. } | JsDecl::Const { .. }) => self.diags.push(Diagnostic { code: "TYPE_IMPORT".into(), rule: "MO-8".into(), line: line as i64, file: Some(file.to_string()), msg: format!("{who}: `{}` is a value, not a type — a declaration file imports types only (`import {{ T }} from \"./x\"`)", n.name) }),
                         _ => {}
                     }
                 }

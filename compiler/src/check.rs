@@ -254,6 +254,8 @@ struct Sym<'a> {
     no_props: Option<String>,
     /// CP-6: a source's or an equation's identity (model.rs `decl_keys`)
     key: Option<String>,
+    /// MO-11f: a JS import's declaration line, the file it is from, and where its facts came from
+    decl: Option<serde_json::Value>,
 }
 impl<'a> Sym<'a> {
     fn new(kind: SymKind, name: &str, region: RId, line: i64) -> Self {
@@ -292,6 +294,7 @@ impl<'a> Sym<'a> {
             arity: None,
             no_props: None,
             key: None,
+            decl: None,
         }
     }
 }
@@ -1098,6 +1101,7 @@ impl<'a> Checker<'a> {
                 io: s.io,
                 from: s.imported.clone(),
                 key: s.key.clone(),
+                decl: s.decl.clone(),
             }
         })
     }
@@ -1555,30 +1559,78 @@ impl<'a> Checker<'a> {
         let declared = declared.as_ref().unwrap();
         let decls: &[JsDecl] = self.opts.declarations.get(declared).map(|v| v.as_slice()).unwrap_or(&[]);
         let file = declared.split('/').last().unwrap_or("").to_string();
-        if fails.is_some() {
+        // MO-11: the declaration is (partly) generated from this TS module
+        let ts: Option<String> = decls.iter().find_map(|x| x.generated().map(String::from));
+        let ts_file = ts.as_deref().map(|t| t.rsplit('/').next().unwrap_or(t).to_string()).unwrap_or_default();
+        let rule = if ts.is_some() { "MO-11e" } else { "MO-8" };
+        if fails.is_some() && ts.is_none() {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
+        let root = self.opts.root;
+        // MO-11f
+        let decl_of = |x: &JsDecl| -> serde_json::Value {
+            let brands: Vec<&str> = if x.generated().is_some() { x.brands() } else { vec![] };
+            let origin = if x.generated().is_none() { "written" } else if brands.is_empty() { "default" } else { "brand" };
+            serde_json::json!({ "line": x.src(), "from": module_key(x.generated().unwrap_or(declared), root), "origin": origin, "brands": brands })
+        };
         for ImportName { name, alias } in names {
             let Some(x) = decls.iter().find(|y| y.name() == name && y.exported()) else {
-                self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
+                if ts.is_some() {
+                    self.err("NOT_EXPORTED", "MO-11b", format!("{} exports no {} ({} is the TS module {}; its declaration is generated from it)", ts_file, name, from, ts_file));
+                } else {
+                    self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
+                }
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
                 s.io = true;
                 self.bind(env, alias, s);
                 continue;
             };
+            let gen = x.generated().is_some();
             match x {
                 JsDecl::Type { .. } | JsDecl::Import { .. } => continue,
                 JsDecl::Error { .. } => {
-                    self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
+                    let mut s = Sym::new(SymKind::ErrClass, alias, region, line);
+                    s.decl = Some(decl_of(x));
+                    self.bind(env, alias, s);
+                    continue;
+                }
+                JsDecl::Const { .. } => {
+                    // MO-11b: a JS value — R-io-4 and R-f-8, narrowed at the import
+                    let mut s = Sym::new(SymKind::Import, alias, region, line);
+                    s.io = !*pure;
+                    s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
+                    s.side = *side;
+                    s.decl = Some(decl_of(x));
+                    self.bind(env, alias, s);
                     continue;
                 }
                 JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, .. } => {
+                    // MO-11e: per fact, a written line beats a brand beats the import beats the default; the import may narrow
+                    // only a defaulted fact
+                    if fails.is_some() && ts.is_some() && !gen {
+                        self.err("IMPORT_ROW_MISMATCH", rule, format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", name, file));
+                    }
+                    if let (true, true, Some(r)) = (fails.is_some(), gen, rejects) {
+                        self.err("IMPORT_ROW_MISMATCH", rule, format!("{} rejects with {} by its `Rejects<…>` brand in {}; `fails` on the import cannot restate it", name, r.join(" | "), ts_file));
+                    }
+                    if *pure && !xpure && !gen {
+                        self.err("IMPORT_ROW_MISMATCH", rule, format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
+                    }
+                    if let Some(sd) = side {
+                        if *xside != Some(*sd) && (!gen || xside.is_some()) {
+                            let msg = if gen {
+                                let xs = xside.unwrap();
+                                format!("{} is `{}` by its `{}<…>` brand in {}; `{}` on the import cannot restate it", name, xs.as_str(), if xs == Side::Server { "Server" } else { "Client" }, ts_file, sd.as_str())
+                            } else {
+                                format!("{} is declared {} in {}; `{}` on the import cannot restate it", name, xside.map(|x| format!("`{}`", x.as_str())).unwrap_or_else(|| "for both sides".into()), file, sd.as_str())
+                            };
+                            self.err("IMPORT_ROW_MISMATCH", if ts.is_some() { rule } else { "SF-5" }, msg);
+                        }
+                    }
                     if *instantiates {
                         // MO-10a: a primitive is an instantiation (RG-6)
-                        if *pure && !xpure {
-                            self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
-                        }
                         let mut s = Sym::new(SymKind::Fn, alias, region, line);
+                        s.decl = Some(decl_of(x));
                         s.params = Some(xparams.iter().enumerate().map(|(i, n)| SigParam { name: n.clone(), r#ref: refs.get(i).copied().unwrap_or(false), ty: None }).collect());
                         s.instantiating = true;
                         s.foreign = Some(shape.clone());
@@ -1588,22 +1640,12 @@ impl<'a> Checker<'a> {
                         self.bind(env, alias, s);
                         continue;
                     }
-                    if *pure && !xpure {
-                        self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
-                    }
-                    if let Some(sd) = side {
-                        if *xside != Some(*sd) {
-                            self.err(
-                                "IMPORT_ROW_MISMATCH",
-                                "SF-5",
-                                format!("{} is declared {} in {}; `{}` on the import cannot restate it", name, xside.map(|x| format!("`{}`", x.as_str())).unwrap_or_else(|| "for both sides".into()), file, sd.as_str()),
-                            );
-                        }
-                    }
                     let mut s = Sym::new(SymKind::Import, alias, region, line);
-                    s.io = !xpure;
-                    s.rejects = Some(rejects.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
-                    s.side = *xside;
+                    s.io = !(*xpure || (gen && *pure));
+                    let narrowed = if gen { fails.clone() } else { None };
+                    s.rejects = Some(rejects.clone().or(narrowed).unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
+                    s.side = xside.or(if gen { *side } else { None });
+                    s.decl = Some(decl_of(x));
                     self.bind(env, alias, s);
                 }
             }

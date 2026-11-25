@@ -8,7 +8,14 @@
 import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
-import type { JsDecl } from "../src/parse.ts";
+import type { JsDecl, Shape } from "../src/parse.ts";
+import { shapeHasRef } from "../src/parse.ts";
+/** TY-4d: a primitive's result shape as `__.ReadResult` takes it. */
+const shapeType = (s?: Shape): string => {
+  const part = (p: string) => JSON.stringify(p === "ref" ? "ref" : "value");
+  if (!s || typeof s === "string") return part(s ?? "value");
+  return "items" in s ? `[${s.items.map(part).join(", ")}]` : `{ ${s.fields.map(([k, p]) => `${JSON.stringify(k)}: ${part(p)}`).join("; ")} }`;
+};
 import type { ModSig } from "../src/check.ts";
 
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
@@ -73,6 +80,14 @@ export declare function sum(xs: readonly number[]): number;
 export declare function fail(msg: string): never;
 export declare function fetch(key: string): Promise<any>;
 export declare function log(...a: unknown[]): void;
+/** 13 TY-4d: a generated fn's \`Ref\` positions as its rows read them (MO-10) — a \`Ref<T>\` (an accessor) argument takes a \`T\`, a
+ *  \`Ref<T>\` result or part reads as \`T\`. \`I\`: the ref parameters' indices; \`S\`: the result's shape. \`G\`: a generic fn, whose
+ *  signature TypeScript cannot map — its ref positions are \`any\`. */
+type ReadRef<T, G> = G extends true ? any : T extends () => infer R ? R : T;
+export type ReadAt<P extends readonly unknown[], I, G = false> = { [K in keyof P]: K extends \`\${I & number}\` ? ReadRef<P[K], G> : P[K] };
+export type ReadResult<R, S, G = false> = S extends "ref" ? ReadRef<R, G> : S extends object ? { [K in keyof R]: K extends keyof S ? (S[K] extends "ref" ? ReadRef<R[K], G> : R[K]) : R[K] } : R;
+/** A TS error class as \`.rx\` raises it: \`NotFound(…)\`, a call (R-f-1). */
+export type Raise<C> = C extends abstract new (...a: infer A) => infer I ? (...a: A) => I : C;
 `;
 
 /** One projected file: its TSX, and for each of its lines the `.rx` line it came from. */
@@ -97,7 +112,7 @@ export function projectModules(set: ModuleSet): Projected[] {
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
-  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationModule(dts, decls, set), lines: [], rx: dts });
+  for (const [dts, decls] of set.declarations ?? []) if (!decls.some(isGen)) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationModule(dts, decls, set), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
@@ -126,13 +141,38 @@ function declarationFile(decls: JsDecl[]): string {
     if (d.kind === "import") return d.names.map(n => `type ${n.alias} = ${d.target ? bridgeName(d.target, n.name) : "any"};`).join("\n");
     if (d.kind === "type") return `${d.exported ? "export " : ""}${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
+    if (d.kind === "const") return `export declare const ${d.name}: ${d.type ?? "any"};`;
     const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
     return `export declare function ${d.name}${d.generics ?? ""}(${ps}): ${d.ret ?? "any"};`;
   }).join("\n") + "\n";
 }
-function nsBlock(dts: string, decls: JsDecl[]): string {
-  const body = declarationFile(decls).trimEnd().replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
-  return `declare namespace ${nsName(dts)} {\n${body}\n}`;
+/** `extra`: lines after the written ones (TY-4b: the bridges of the generated types). Generated lines are not in it: TypeScript types them. */
+function nsBlock(dts: string, decls: JsDecl[], extra: string[] = [], ind = ""): string {
+  const body = [declarationFile(decls.filter(d => !isGen(d))).trimEnd(), ...extra].filter(Boolean).join("\n").replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
+  return `${ind}declare namespace ${nsName(dts)} {\n${body}\n${ind}}`;
+}
+/** MO-11: a line generated from the TS module (its types are TypeScript's, TY-4b). */
+const isGen = (d: JsDecl) => d.kind !== "import" && d.origin === "generated";
+const stemOf = (dts: string) => dts.replace(/\.d\.rx$/, "");
+/** `<A, B extends X = Y>` → `<A, B>`: a type's parameters, passed through an alias. */
+const typeArgs = (generics: string) => `<${splitTop(generics.slice(1, -1), ",").map(p => /^[A-Za-z_$][\w$]*/.exec(p)?.[0] ?? "any").join(", ")}>`;
+function splitTop(s: string, sep: string): string[] {
+  const out: string[] = []; let depth = 0, from = 0;
+  for (let i = 0; i < s.length; i++) { const ch = s[i]; if ("([{<".includes(ch)) depth++; else if (")]}>".includes(ch) && !(ch === ">" && s[i - 1] === "=")) depth--; else if (depth === 0 && ch === sep) { out.push(s.slice(from, i)); from = i + 1; } }
+  out.push(s.slice(from)); return out.map(x => x.trim()).filter(Boolean);
+}
+/** TY-4b: each generated type and error class of a declaration, which its written lines may name, bridged to TypeScript's: a
+ *  module-level `import type` of it, and an alias in the namespace. */
+function genBridges(dts: string, decls: JsDecl[], fromFile: string, bridged: Set<string>): { pre: string; body: string[] } {
+  let pre = ""; const body: string[] = [];
+  for (const d of decls) {
+    if (!isGen(d) || (d.kind !== "type" && d.kind !== "error")) continue;
+    const b = bridgeName(nsName(dts), d.name);
+    if (!bridged.has(b)) { bridged.add(b); pre += `import type { ${d.name} as ${b} } from ${JSON.stringify(relModule(fromFile, stemOf(dts)))};\n`; }
+    const gs = d.kind === "type" ? d.generics : undefined;
+    body.push(`export type ${d.name}${gs ?? ""} = ${b}${gs ? typeArgs(gs) : ""};`);
+  }
+  return { pre, body };
 }
 /** Dependency namespaces and the bridges this file's type imports name. `seen` holds `.d.rx` paths already emitted. */
 function declPreamble(decls: JsDecl[], set: ModuleSet, fromFile: string, seen: Set<string>, bridged: Set<string>): string {
@@ -140,11 +180,15 @@ function declPreamble(decls: JsDecl[], set: ModuleSet, fromFile: string, seen: S
   for (const d of decls) {
     if (d.kind !== "import" || !d.target) continue;
     if (!d.rx) out += depText(d.target, set, fromFile, seen, bridged);
+    const td = d.rx ? undefined : set.declarations?.get(d.target);
     for (const n of d.names) {
       const b = bridgeName(d.target, n.name);
       if (bridged.has(b)) continue;
       bridged.add(b);
-      out += d.rx ? `import type { ${n.name} as ${b} } from ${JSON.stringify(relModule(fromFile, d.target))};\n` : `type ${b} = ${nsName(d.target)}.${n.name};\n`;
+      const gen = td?.some(y => isGen(y) && y.kind !== "import" && y.name === n.name);   // MO-8e: a TS module's type, TypeScript's
+      out += d.rx ? `import type { ${n.name} as ${b} } from ${JSON.stringify(relModule(fromFile, d.target))};\n`
+        : gen ? `import type { ${n.name} as ${b} } from ${JSON.stringify(relModule(fromFile, stemOf(d.target)))};\n`
+        : `type ${b} = ${nsName(d.target)}.${n.name};\n`;
     }
   }
   return out;
@@ -154,7 +198,12 @@ function depText(target: string, set: ModuleSet, fromFile: string, seen: Set<str
   seen.add(target);
   const decls = set.declarations?.get(target);
   if (!decls) return "";
-  return declPreamble(decls, set, fromFile, seen, bridged) + nsBlock(target, decls) + "\n";
+  if (!decls.some(isGen)) return declPreamble(decls, set, fromFile, seen, bridged) + nsBlock(target, decls) + "\n";
+  const written = decls.filter(d => !isGen(d));
+  const pre = declPreamble(written, set, fromFile, seen, bridged);
+  if (!written.some(d => d.kind !== "import")) return pre;                   // all generated: no namespace, TypeScript has it
+  const g = genBridges(target, decls, fromFile, bridged);
+  return pre + g.pre + nsBlock(target, decls, g.body) + "\n";
 }
 /** The standalone `.d.ts`: a file with no type import is `declarationFile`, unchanged. */
 function declarationModule(dts: string, decls: JsDecl[], set: ModuleSet): string {
@@ -295,11 +344,22 @@ class Proj {
     const ns = nsName(d.declared!);   // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
     const first = !this.ambients.has(d.declared!);
     if (first) this.ambients.add(d.declared!);
-    if (first) {
+    const gen = decls.some(isGen);                                   // MO-11: lines generated from a TS module, typed by TypeScript
+    if (first && !gen) {
       const pre = decls.some(x => x.kind === "import") ? declPreamble(decls, this.set, this.path, this.ambients, this.bridged) : "";
       const body = declarationFile(decls).trimEnd().replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
       const block = `${ind}declare namespace ${ns} {\n${body}\n${ind}}`;
       this.w.emit(pre ? pre.replace(/\n$/, "") + "\n" + block : block, d.line);
+    }
+    if (first && gen) {
+      const written = decls.filter(x => !isGen(x));
+      const pre = written.some(x => x.kind === "import") ? declPreamble(written, this.set, this.path, this.ambients, this.bridged) : "";
+      if (written.some(x => x.kind !== "import")) {                  // the written lines' namespace, which may name the generated types (TY-4b)
+        const g = genBridges(d.declared!, decls, this.path, this.bridged);
+        const all = pre + g.pre;
+        const block = nsBlock(d.declared!, decls, g.body, ind);
+        this.w.emit(all ? all.replace(/\n$/, "") + "\n" + block : block, d.line);
+      } else if (pre) this.w.emit(pre.replace(/\n$/, ""), d.line);
     }
     const of = (n: string) => decls.find(x => x.kind !== "import" && x.name === n);
     const values = rest.filter(n => of(n.name)?.kind !== "type");
@@ -308,8 +368,21 @@ class Proj {
       const def = values.find(n => n.name === "default");
       this.w.emit(`${ind}import ${def ? `__js_${def.alias}` + (parts.length ? ", " : "") : ""}${parts.length ? `{ ${parts.join(", ")} }` : ""} from ${J(d.from)};`, d.line);
     }
+    const genTypes = rest.filter(n => { const x = of(n.name); return !!x && x.kind === "type" && isGen(x); });
+    if (genTypes.length) this.w.emit(`${ind}import type { ${genTypes.map(n => n.name === n.alias ? n.name : `${n.name} as ${n.alias}`).join(", ")} } from ${J(d.from)};`, d.line);   // MO-8d: erased; TypeScript's type
     for (const n of rest) {
       const x = of(n.name);
+      if (x && isGen(x)) {                                           // TY-4b: TypeScript's declaration of the export
+        if (x.kind === "type") continue;
+        const js = `__js_${n.alias}`;
+        if (x.kind === "error") { this.w.emit(`${ind}const ${n.alias} = ${js} as unknown as __.Raise<typeof ${js}>;`, d.line); this.snapAlias(n.alias, ind, d.line); this.w.emit(`${ind}type ${n.alias} = ${js};`, d.line); continue; }
+        const refIdx = x.kind === "fn" ? (x.refs ?? []).flatMap((r, i) => r ? [i] : []) : [];
+        if (x.kind === "fn" && (refIdx.length || shapeHasRef(x.shape))) {   // TY-4d: seen through its rows
+          const g = x.generics ? ", true" : "";
+          this.w.emit(`${ind}const ${n.alias} = ${js} as unknown as (...a: __.ReadAt<Parameters<typeof ${js}>, ${refIdx.join(" | ") || "never"}${g}>) => __.ReadResult<ReturnType<typeof ${js}>, ${shapeType(x.shape)}${g}>;`, d.line);
+        } else this.w.emit(`${ind}const ${n.alias} = ${js};`, d.line);
+        this.snapAlias(n.alias, ind, d.line); continue;
+      }
       if (!x || x.kind === "type") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
       else { this.w.emit(`${ind}const ${n.alias} = __js_${n.alias} as typeof ${ns}.${n.name};`, d.line); this.snapAlias(n.alias, ind, d.line); }
       if (x?.kind === "error") this.w.emit(`${ind}type ${n.alias} = ${ns}.${n.name};`, d.line);
