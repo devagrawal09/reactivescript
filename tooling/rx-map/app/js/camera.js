@@ -53,7 +53,7 @@ export function freeRect() {
   if (!compactNow()) {
     const side = document.getElementById("side"), mini = document.getElementById("mini"), dev = document.getElementById("devhud");
     if (side && !side.classList.contains("closed")) r = vw - side.offsetWidth - 20;
-    if (!document.body.classList.contains("mini-off") && mini?.offsetWidth) l = Math.max(l, mini.offsetLeft + mini.offsetWidth + 8);
+    if (!document.body.classList.contains("mini-off") && mini?.offsetWidth) l = Math.max(l, mini.offsetLeft + Math.min(mini.offsetWidth, 200) + 8);   // (before the minimap is drawn its canvas has a default size)
     if (dev && !dev.classList.contains("collapsed")) l = Math.max(l, dev.offsetLeft + dev.offsetWidth + 8);
   }
   return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2 };
