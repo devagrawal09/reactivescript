@@ -47,7 +47,34 @@ export function register(graph, { hot } = {}) {
   const rx = (globalThis.__RX__ ??= {});
   rx.graphs = graphs;
   rx.mount = mount;
+  rx.attach = attach;
   for (const m of mounts) m.load();
+}
+
+// A view's message (TRACE-CONTRACT §3). Answers to `hello` and `snapshot?` go to the asker; `step`, `resume` and
+// `travel-denied` go to every view, since they all show the one app.
+function receiveFromView(data, reply) {
+  const recorder = getRecorder();
+  if (data.type === "hello") {
+    reply(recorder.snapshot());
+    reply(recorder.timeline());
+  } else if (data.type === "snapshot?") reply(recorder.snapshot());
+  else if (data.type === "travel") recorder.travel(data.to);
+  else if (data.type === "resume") recorder.resume();
+}
+
+/**
+ * A view without the map page: `listener` gets every host message (`{source: "rx-map", v: 1, ...}`) and `post` takes
+ * view messages, as the map's iframe would send them. For tests and other tools in the app's window.
+ */
+export function attach(listener) {
+  const recorder = getRecorder();
+  const deliver = msg => listener(msg);
+  recorder.listeners.add(deliver);
+  return {
+    post(msg) { if (msg && typeof msg === "object") receiveFromView(msg, deliver); },
+    detach() { recorder.listeners.delete(deliver); },
+  };
 }
 
 /** Draws the map into `el`, live. Returns the dispose. */
@@ -61,14 +88,8 @@ export function mount(el) {
   };
   const receive = ({ source, data }) => {
     if (source !== iframe.contentWindow || data?.source !== SOURCE || data.v !== 1) return;
-    const recorder = getRecorder();
-    if (data.type === "hello") {
-      ready = true;
-      post(recorder.snapshot());
-      post(recorder.timeline());
-    } else if (data.type === "snapshot?") post(recorder.snapshot());
-    else if (data.type === "travel" || data.type === "resume")
-      post(message({ type: "travel-denied", to: data.to ?? recorder.timeline().head, reason: "unsupported" }));
+    if (data.type === "hello") ready = true;
+    receiveFromView(data, post);
   };
   window.addEventListener("message", receive);
   const m = {
@@ -112,10 +133,18 @@ function connect(hot) {
 
 function getRecorder() {
   if (recording) return recording;
-  const size = 2000, ring = new Array(size), steps = new Array(size), listeners = new Set();
+  const size = 2000, ring = new Array(size), listeners = new Set();
+  // The timeline: one step per flush, `capacity` of them (TRACE-CONTRACT §4). Beside each step, the engine nodes it
+  // changed and what each showed before, which is what travel pins (Solid's openView).
+  const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
+  const steps = new Array(capacity), raws = new Array(capacity);
+  const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const start = performance.now();
   let seq = 0, flushes = 0;
+  // Travel: the open view, the seq it shows, and a resume whose landing waits on async work.
+  let view = null, viewing = null, landing = null;
+  const shownLast = new WeakMap(); // engine node → the value last recorded for it (a landing's records say "pin")
   const locate = key => {
     for (const graph of graphs) {
       const n = graph.nodes.find(n => n.key === key);
@@ -140,18 +169,32 @@ function getRecorder() {
     for (const r of flights.values()) if (!keys.has(r.key) || keys.get(r.key).since > r.since) keys.set(r.key, r);
     return keys;
   };
+  const addStep = (at, changes, raw, quiet) => {
+    const i = flushes % capacity;
+    // the step falling out of the ring folds into the base the others replay from
+    if (flushes >= capacity) applyPreviews(base, steps[i].changes);
+    const step = { seq: ++flushes, at, changes };
+    steps[i] = step;
+    raws[i] = raw;
+    const record = addRecord({ type: "flush", at, changes });
+    for (const c of changes) if (c.key) {
+      if (c.preview !== undefined) latest.set(c.key, c);
+      last.set(c.key, { change: c, record });
+    }
+    if (!quiet) publish({ type: "flush", ...step });
+    return step;
+  };
   const send = (msg, flightId, since, origin) => {
     if (msg.type === "flush") {
-      const changes = msg.changes.map(c => ({ ...c, ...locate(c.key), ...(c.key && latest.has(c.key) ? { prev: latest.get(c.key).preview } : {}) }));
-      const { at } = msg;
-      const step = { seq: ++flushes, at, changes };
-      steps[(flushes - 1) % size] = step;
-      const record = addRecord({ type: "flush", at, changes });
-      for (const c of changes) if (c.key) {
-        if (c.preview !== undefined) latest.set(c.key, c);
-        last.set(c.key, { change: c, record });
-      }
-      publish({ type: "flush", ...step });
+      // Under a view nothing the program does shows, and the view's own pins are not history.
+      if (view) return;
+      if (landing) return void landing.records.push(msg);
+      const raw = recordRaw(msg.raw);
+      const changes = msg.changes.map(({ before, ...c }) => {
+        const prev = c.key && latest.has(c.key) ? latest.get(c.key).preview : before;
+        return { ...c, ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
+      });
+      addStep(msg.at, changes, raw);
     } else if (msg.type === "flight") {
       const at = performance.now();
       const before = [...flights.values()].some(r => r.key === msg.key);
@@ -253,8 +296,140 @@ function getRecorder() {
   }
   function timeline() {
     const history = [];
-    for (let i = Math.max(0, flushes - size); i < flushes; i++) history.push(steps[i % size]);
-    return message({ type: "timeline", head: flushes, viewing: null, steps: history, capacity: size });
+    for (let i = Math.max(0, flushes - capacity); i < flushes; i++) history.push(steps[i % capacity]);
+    return message({ type: "timeline", head: flushes, viewing, steps: history, capacity });
+  }
+
+  // ---- time travel (TRACE-CONTRACT §2 "Time travel") ----------------------------------------------------------------
+  // A step's raw changes are the engine's own (`flush` records with bodies): the node and what it showed before.
+  // Showing seq n pins every node changed after n at what it showed before its first change after n; sync
+  // derivations, render effects and the DOM re-derive from the pins (Solid's openView, #5089).
+  function recordRaw(raw) {
+    const out = [];
+    for (const { node, prev, value } of raw ?? []) {
+      out.push({ node, prev });
+      shownLast.set(node, value);
+    }
+    return out;
+  }
+  const oldest = () => Math.max(1, flushes - capacity + 1);
+  function valuesAt(n) {
+    const m = new Map(base);
+    for (let s = oldest(); s <= n; s++) applyPreviews(m, steps[(s - 1) % capacity].changes);
+    return m;
+  }
+  function pinsFor(n) {
+    const pins = new Map();
+    for (let s = flushes; s > n; s--) for (const c of raws[(s - 1) % capacity]) pins.set(c.node, c.prev);
+    return pins;
+  }
+  const nameOf = key => {
+    for (const graph of graphs) { const n = graph.nodes.find(n => n.key === key); if (n) return n.name; }
+    return latest.get(key)?.name ?? key.split("|").at(-1);
+  };
+  function diffValues(from, to) {
+    const changes = [];
+    for (const key of [...new Set([...from.keys(), ...to.keys()])].sort()) {
+      if (from.has(key) === to.has(key) && from.get(key) === to.get(key)) continue;
+      const c = { key, name: nameOf(key), ...locate(key) };
+      if (from.has(key)) c.prev = from.get(key);
+      if (to.has(key)) c.preview = to.get(key);
+      changes.push(c);
+    }
+    return changes;
+  }
+  const deny = (to, reason) => publish({ type: "travel-denied", to, reason });
+  function travel(to) {
+    // A question in the air or an action still running is a hold that has not landed: its landing would come
+    // beneath the view and could not be told apart from what the view shows.
+    if (landing || flightKeys().size || runs.size) return deny(to, "pending");
+    if (!Number.isInteger(to) || to < oldest() || to > flushes) return deny(to, "evicted");
+    const openView = engine[1]?.openView;
+    if (typeof openView !== "function") return deny(to, "unsupported");
+    try {
+      if (!view) {
+        const v = openView();
+        view = v; // set after openView: its own flush of what was staged is live history
+      }
+      const from = viewing ?? flushes;
+      view.show(pinsFor(to));
+      viewing = to;
+      document.documentElement?.setAttribute("data-rx-viewing", String(to));
+      publish({ type: "step", from, to, direction: to < from ? "back" : "forward", changes: diffValues(valuesAt(from), valuesAt(to)) });
+    } catch (e) {
+      // openView throws inside a flush, an effect or an action body (and while another view is open)
+      if (view && viewing === null) { const v = view; view = null; try { v.resume(); } catch {} }
+      deny(to, "unsupported");
+      console.warn("[rx-map] travel failed:", e);
+    }
+  }
+  function resume() {
+    if (landing) return; // its resume is on the way
+    if (!view) return publish({ type: "resume", head: flushes, changes: [] });
+    const v = view, from = viewing;
+    view = null;
+    viewing = null;
+    landing = { view: v, from, records: [] };
+    let done = false;
+    try { done = v.resume(); } catch (e) { console.warn("[rx-map] resume failed:", e); done = true; }
+    if (done) land();
+    else waitForLanding();
+  }
+  function waitForLanding() {
+    const check = () => {
+      if (!landing) return;
+      let busy = false;
+      try { busy = landing.view.landing(); } catch {}
+      if (busy) setTimeout(check, 16);
+      else land();
+    };
+    setTimeout(check, 16);
+  }
+  // Everything the program did beneath the view lands as one transition: one step, measured against what the
+  // timeline last recorded (the engine's landing record measures against the pins, which were never history).
+  function land() {
+    const { from, records } = landing;
+    landing = null;
+    document.documentElement?.removeAttribute("data-rx-viewing");
+    const head = valuesAt(flushes);
+    const now = new Map(), nodes = new Map();
+    let at = performance.now();
+    for (const r of records) {
+      at = r.at ?? at;
+      for (const { before, ...c } of r.changes) if (c.key) now.set(c.key, c);
+      for (const { node, prev, value } of r.raw ?? []) {
+        if (!nodes.has(node)) nodes.set(node, { node, prev: shownLast.has(node) ? shownLast.get(node) : prev });
+        nodes.get(node).value = value;
+      }
+    }
+    const raw = [];
+    for (const { node, prev, value } of nodes.values()) {
+      shownLast.set(node, value);
+      if (!Object.is(prev, value)) raw.push({ node, prev });
+    }
+    // A node the view pinned whose truth beneath ended where the pin was shows no change in the landing record;
+    // its current value comes from the node itself.
+    for (const key of head.keys()) if (!now.has(key)) {
+      const cur = inspect(key);
+      if (cur?.value && cur.value.preview !== head.get(key)) now.set(key, { key, name: nameOf(key), ...cur.value });
+    }
+    const changes = [];
+    for (const [key, c] of now) {
+      if (head.has(key) && head.get(key) === c.preview) continue;
+      const out = { ...c, ...locate(key) };
+      delete out.prev;
+      if (head.has(key)) out.prev = head.get(key);
+      changes.push(out);
+    }
+    // The landing is one new step when something keyed moved; otherwise its records are only the pins coming off.
+    // The view hears the step after the resume, as the flush that brings it live again.
+    let step = null;
+    if (changes.length) {
+      for (const r of records) for (const { before, ...c } of r.changes) if (!c.key) changes.push(c);
+      step = addStep(at, changes, raw, true);
+    }
+    publish({ type: "resume", head: flushes, changes: diffValues(valuesAt(from), valuesAt(flushes)) });
+    if (step) publish({ type: "flush", ...step });
   }
   function query(method, { key, since = 0, limit = 20 } = {}) {
     const known = () => {
@@ -305,7 +480,14 @@ function getRecorder() {
       default: throw new Error("unknown live method; use status, tail, state, value, why, or pending");
     }
   }
-  return recording = { listeners, query, snapshot, timeline };
+  return recording = { listeners, query, snapshot, timeline, travel, resume };
+}
+
+function applyPreviews(map, changes) {
+  for (const c of changes ?? []) if (c.key) {
+    if (c.preview === undefined) map.delete(c.key);
+    else map.set(c.key, c.preview);
+  }
 }
 
 // ---- the engine's records ---------------------------------------------------------------------------------------
@@ -331,6 +513,8 @@ function listen(post) {
         if (c.key !== undefined && c.key !== "$guess") out.path = storePath(body?.node, c.key);
         if (root?.value) Object.assign(out, root.value);
         else if (!root && !out.path && body && "value" in body) Object.assign(out, untracked(() => previews(body.value)));
+        // the node's own value before (not a store property's): the prev of a key's first change
+        if (c.nodeName === RX + out.key && body?.prev !== undefined) out.before = untracked(() => preview(body.prev));
       } else if (body && "value" in body) out.preview = untracked(() => preview(body.value));
       const origin = c.origin ?? event.interaction;
       if (origin) {
@@ -338,7 +522,13 @@ function listen(post) {
       }
       return out;
     });
-    post({ source: SOURCE, type: "flush", at: event.at, changes });
+    // The engine's own nodes and what each showed before: what time travel pins.
+    const raw = [];
+    for (const body of live?.changes ?? []) {
+      if (!body?.node || solid.OBSERVE.isExcluded?.(body.node)) continue;
+      raw.push({ node: body.node, prev: body.prev, value: body.value });
+    }
+    post({ source: SOURCE, type: "flush", at: event.at, changes, raw });
   };
 
   // The engine's flight record comes when a flight ends: landed, or abandoned because the node started another. A
