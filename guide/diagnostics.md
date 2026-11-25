@@ -145,6 +145,18 @@ action or an instantiating function, pass each argument separately
 (`save(pair[0], pair[1])`). This makes the action's arity and an
 instantiation's `ref` arguments explicit (AC-1f, E-10).
 
+### JS_NEW
+
+Declare an RX error with `error Missing(id: string) => id` and throw it
+with `throw Missing(id)`. There is no `new` expression. Construct host
+objects such as `Date` in JS and import the function.
+
+### MARKUP_STRING
+
+A quoted string inside a markup branch needs a reader:
+`{if c { {"text"} }}`. Inside an element, write text without quotes:
+`{if c { <span>text</span> }}`.
+
 ### ASSIGNMENT
 
 A source is written with `:=` as a statement, in a handler or an action (W-1). There is no `=`, `+=` or `++` on state.
@@ -1287,6 +1299,11 @@ export const watch = ref({ args: [1] }, (src: Accessor<string>, ms: number) => �
 Write `export const load = pure(rejects([NotFound], fetchItem))`, with `class NotFound extends Error {}`. `ref`'s
 `args` name accessor parameters by index; its `result` is `true` (the result is an accessor), tuple indices, or
 property names.
+
+`ref` and `instantiates` already make a function pure, so `pure(ref(…))` is this error too; the message gives the
+chain without the extra wrapper (`export const createCount = ref({ … }, fn)`). This error is the only one you get for
+the export: until it is fixed, its `.rx` uses are not checked against it, so they report no `IO_IN_REACTIVE` or
+failure errors of their own.
 
 ### IMPORT_ROW_ON_TS
 

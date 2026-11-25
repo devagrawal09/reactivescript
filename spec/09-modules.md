@@ -439,6 +439,13 @@ export const fields: readonly ["name", "email"]
   module, `export =`), the import is `DECLARATION_UNAVAILABLE`. It does
   not fall back to R-io-4 silently, so that every tool reaches the same
   verdict.
+  An export whose declaration has an error (`DECLARATION_HELPER`) is
+  generated with the default line and listed as failed in the record
+  (`failed`). Wherever it is imported, a failed export, and every name of
+  an import that is `DECLARATION_UNAVAILABLE`, is bound as unknown:
+  callable anywhere, with no rows and no failures, not instantiating. The
+  error in the TS module fails the build, so it is the one diagnostic; the
+  uses report nothing that would only be fallout of the default.
 - **MO-11e (Overrides and precedence).** A written `api.d.rx` beside a TS
   module declares the exports it names, each whole (its rows and, in the
   type layer, its written types, TY-4b). Every other export keeps its

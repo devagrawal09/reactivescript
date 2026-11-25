@@ -1602,11 +1602,6 @@ impl<'p> Gen<'p> {
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
-                if op == "instanceof" {
-                    let l = self.expr(l, env, &sub)?;
-                    let r = if matches!(&r.k, ExprKind::Id(n) if n == "Error" && self.lookup(env, n).is_none()) { id("Error") } else { self.expr(r, env, &sub)? };
-                    return Ok(rtc("isA", vec![l, E::Arr(vec![r])]));
-                }
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {

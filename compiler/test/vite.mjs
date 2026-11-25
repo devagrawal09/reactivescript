@@ -209,6 +209,10 @@ if (!filter || "todo".includes(filter)) {   // the dev server: modules transform
 }
 if (!filter || "ts-graph".includes(filter)) {   // 09 MO-11: generated declarations are no module: never a runtime import
   const dir = project("ts-graph", "tsg/main.rx");
+  // round 5: an app with no .d.rx anywhere (the dev server once watched every candidate `x.d.rx` of a .ts import, and
+  // Vite answered the entry with a 500 when none existed); the copied examples bring theirs, so take them out
+  const dRx = d => readdirSync(d, { recursive: true }).filter(f => /\.d\.rx$/.test(f)).map(f => path.join(d, f));
+  for (const f of dRx(path.join(dir, "src"))) rmSync(f);
   const src = path.join(dir, "src/tsg"); mkdirSync(src);
   symlinkSync(path.join(repo, "js"), path.join(dir, "node_modules/@reactivescript/js"), "dir");
   writeFileSync(path.join(src, "model.ts"), `import { pure } from "@reactivescript/js";
@@ -243,6 +247,12 @@ export default component Main() {
   }] });
   await server.listen(0);
   try {
+    if (dRx(path.join(dir, "src")).length) problems.push(`the fixture has ${dRx(path.join(dir, "src")).join(", ")}`);
+    // the entry and the .rx module it imports, over HTTP, as the browser asks for them first: 200
+    for (const u of ["", "src/entry.js", "src/tsg/main.rx"]) {
+      const res = await fetch(new URL(u, server.resolvedUrls.local[0]));
+      if (res.status !== 200) problems.push(`GET /${u}: ${res.status} ${(await res.text()).split("\n")[0].slice(0, 200)}`);
+    }
     // what the browser does: transform the entry, then every URL import analysis put in its graph, transitively
     const env = server.environments.client;
     const walk = async url => {

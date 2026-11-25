@@ -90,6 +90,9 @@ test("a JS import's declaration origin (09 MO-11) reaches the graph, the query a
   assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", helpers: [], at: 1 });
   assert.equal(decl("log").origin, "default");
   assert.equal(decl("log").at, 4);   // the TS module's export line: where a reviewer declares its rejections
+  // an equation that calls an import has no declaration of its own: the panel and the query show none (round 5)
+  assert.equal(decl("loud"), undefined);
+  assert.doesNotMatch(queryGraph(g, "node", { key: g.nodes.find(n => n.name === "loud").key }).text, /imported:/);
   const tags = g.nodes.filter(n => n.decl).map(n => [n.name, declTag(n)]);
   assert.deepEqual(tags, [["createShout", "helper"], ["save", "d.rx"], ["log", "default"]]);
   // a Ref primitive is a fn on its plate (MO-10a), the rest JS imports in the outside column: each carries the tag,

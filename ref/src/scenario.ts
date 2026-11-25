@@ -4,7 +4,7 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string; handlers: string[]; runtime?: boolean; types?: boolean };
+type Rejected = { rule: string; program: string; handlers: string[]; runtime?: boolean; types?: boolean; only?: boolean };   // only: the expected diagnostic is the one diagnostic
 export type Divergence = { table: string; instant: number; frame: string; effects?: string[]; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // effects: the effect log Solid gives at that instant, when it differs too   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
   entry: string; modules: Map<string, string>;
@@ -83,8 +83,8 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
-        const r = /--\s*(reject|runtime|types):\s*([\w-]+)/.exec(first);
-        if (r) rejected.push({ rule: r[2], runtime: r[1] === "runtime", types: r[1] === "types", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
+        const r = /--\s*(reject|runtime|types):\s*([\w-]+)(\s+only)?/.exec(first);
+        if (r) rejected.push({ rule: r[2], runtime: r[1] === "runtime", types: r[1] === "types", only: !!r[3], program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
           handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
       }
     }
@@ -157,7 +157,8 @@ export function runScenario(sc: Scenario): Result {
     } catch (e) {
       if (e instanceof CheckError) {                                     // the checker: any diagnostic may carry the expected rule id or code
         const hit = e.diagnostics.find(d => d.rule === rj.rule || d.code === rj.rule);
-        if (hit) lines.push(`  ✓ rejected(${rj.rule}): ${hit.code} (${hit.rule}) line ${hit.line}: ${hit.msg}`);
+        if (hit && rj.only && e.diagnostics.length !== 1) { ok = false; lines.push(`  ✗ rejected(${rj.rule} only): got ${e.diagnostics.length} diagnostics: ${e.diagnostics.map(d => `${d.code} (${d.rule}) ${d.file ?? ""}:${d.line}`).join(", ")}`); }
+        else if (hit) lines.push(`  ✓ rejected(${rj.rule}): ${hit.code} (${hit.rule}) line ${hit.line}: ${hit.msg}`);
         else { ok = false; lines.push(`  ✗ rejected(${rj.rule}): got ${e.diagnostics.map(d => `${d.code} (${d.rule})`).join(", ")}: ${e.message}`); }
         continue;
       }

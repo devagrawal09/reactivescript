@@ -9,7 +9,7 @@ import { sparkle } from "./js/fx.js"
 import { flyToId } from "./js/camera.js"
 import { drawMiniView } from "./js/minimap.js"
 import { graphOf, nodeOf, regionOf, isRegion, inEdges, outEdges, label, lineOf, moduleLine, controlInfo, coverCount, hasKey, idsOfKey, downstream, upstream, summaryTrace } from "./js/model.js"
-import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop } from "./js/panel.js"
+import { kindMeta, declWhat, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop } from "./js/panel.js"
 import { model, selected, diffView, showTrace, mark } from "./state.rx"
 import { tab, open, tabs, firstTab, pick, openTab, closePanel, togglePanel } from "./ui.rx"
 import { present } from "./js/livestate.js"
@@ -137,8 +137,8 @@ component NodePanel(props: { id: string }) {
   {if n.async { <div class="hint" style={{ "margin-top": "4px" }}>· <Gi /> can be pending: a reader under no <code>loading</code> holds its instant</div> }}
   {if n.io { <div class="hint" style={{ "margin-top": "4px" }}>· <Gio /> <b>io</b>: touches the world (R-io)</div> }}
   {if n.world { <div class="hint" style={{ "margin-top": "4px" }}>· trust point: the checker sees only its declared signature</div> }}
-  {if n.decl != null {
-    <div class="hint" style={{ "margin-top": "4px" }}>· declared {n.decl.origin == "written" ? "in a written .d.rx" : n.decl.origin == "helper" ? `by helpers (${n.decl.helpers.join(", ")})` : "by default (no helper)"}: <code>{n.decl.from}</code></div>
+  {if present(n.decl) {
+    <div class="hint" style={{ "margin-top": "4px" }}>· declared {declWhat(n.decl)}: <code>{n.decl.from}</code></div>
     <pre class="code" innerHTML={hl(n.decl.line)}></pre>
   }}
   {if n.kind == "action" { <div class="hint" style={{ "margin-top": "4px" }}>· writes are held until the action returns; guesses show now</div> }}

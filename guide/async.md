@@ -110,6 +110,15 @@ client's own state: a plain source the action's `catch` writes, shown beside the
   `found(await fetchUser(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
 - Retry is `refresh x`. It is quiet (AC-4): the failure stays on screen until the new answer replaces it (H-12).
 
+“Quiet” means a re-ask does not blank the last answer **while pending**. A rejection that
+lands is an answer, not stale data: a reader under `errored` shows the fallback
+(04 R-6, 05 H-12). To keep rows and show a retry notice by design, catch the
+typed failure at the `await` and return an explicit result containing the
+error and the rows to show. A rejected call alone does not prove that the
+error reached the screen: it can be superseded or caught before publication.
+The map distinguishes a recorded error from a replayed one; the current
+time-travel engine can rewind values but not restore historical error boundaries.
+
 An `errored` region does not watch equations just because they are in scope.
 Equations are lazy (E-3, E-8): if `shown` is false, `if shown { … }` skips
 the body, and no `details` read there can trip the boundary. If the region

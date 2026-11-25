@@ -1033,9 +1033,13 @@ function getRecorder() {
       view.show(pinsFor(to));
       viewing = to;
       readOnly(to);
-      const inexact = inexactAt(to);
-      publish({ type: "step", from, to, direction: to < from ? "back" : "forward", changes: diffValues(valuesAt(from), valuesAt(to)),
-        ...(inexact.length ? { inexact } : {}) });
+      const recorded = valuesAt(to);
+      // openView pins values, not the status that threw or the fallback owner.
+      // Don't read a live accessor to verify it: Solid can retry on that read.
+      const recordedErrors = [...recorded].filter(([, value]) => value.startsWith(ERR)).map(([key]) => key);
+      const inexact = [...new Set([...inexactAt(to), ...recordedErrors])].sort();
+      publish({ type: "step", from, to, direction: to < from ? "back" : "forward", changes: diffValues(valuesAt(from), recorded),
+        ...(inexact.length ? { inexact } : {}), ...(recordedErrors.length ? { recordedErrors } : {}) });
     } catch (e) {
       // openView throws inside a flush, an effect or an action body (and while another view is open)
       if (view && viewing === null) { const v = view; view = null; readOnly(null); try { v.resume(); } catch {} }
@@ -1382,6 +1386,7 @@ function listen(post, dirty, replacingOrigin) {
   // start has no record, so it is read off the node a run just finished: a new promise in `_x._inFlight` (dev builds
   // keep the field's name).
   const announced = new WeakMap();
+  const rejected = new WeakSet();
   const onRun = (event, node) => {
     const key = keyOf(event.nodeName);
     if (!key || !node) return;
@@ -1398,9 +1403,14 @@ function listen(post, dirty, replacingOrigin) {
       // v0.9: what re-asked it, from the run's causes (the inputs that changed; none on a first ask)
       const cause = (event.causes ?? []).slice(0, 8).map(c => {
         const k = keyOf(c.name);
-        return { ...(k ? { key: k } : {}), name: c.name, ...(c.prev !== undefined ? { prev: c.prev } : {}), ...(c.value !== undefined ? { value: c.value } : {}) };
+        return { ...(k ? { key: k } : {}), name: c.name, ...(c.kind === "refresh" ? { kind: "refresh" } : {}),
+          ...(c.prev !== undefined ? { prev: c.prev } : {}), ...(c.value !== undefined ? { value: c.value } : {}) };
       });
-      post({ source: SOURCE, type: "flight", key, instance, ownerPath, node, state: "start", ...(cause.length ? { cause } : {}) }, event.nodeId, event.at,
+      // Solid can retry on a later read of an errored computed, without
+      // stamping a dependency change or an explicit refresh.
+      const afterRejection = rejected.delete(node);
+      post({ source: SOURCE, type: "flight", key, instance, ownerPath, node, state: "start",
+        ...(cause.length ? { cause } : afterRejection ? { retryAfterRejection: true } : {}) }, event.nodeId, event.at,
         event.interaction && formatOrigin(event.interaction));
       // Solid's flight record covers successful landings and supersession, not
       // rejection. Observe native promise rejection without replacing the promise.
@@ -1417,6 +1427,7 @@ function listen(post, dirty, replacingOrigin) {
       }, error => {
         if (announced.get(node) !== flight) return;
         announced.delete(node);
+        if (error?.constructor?.name !== "NotReadyError") rejected.add(node);
         // v0.9: rejected, not superseded: the abandon carries the error
         post({ type: "flight", key, instance, state: "abandon", error: errorPreview(error) }, event.nodeId);
       });

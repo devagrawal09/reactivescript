@@ -498,8 +498,7 @@ export class Oracle {
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
         if (e.op === "??") return l != null ? l : this.ev(e.r, scope, env);
-        const r = e.op === "instanceof" && e.r.k === "id" && e.r.name === "Error" && !env?.has("Error") && !scope.lookup("Error") ? Error : this.ev(e.r, scope, env); noFlight(r);
-        if (e.op === "instanceof") return isA(l, [r]);
+        const r = this.ev(e.r, scope, env); noFlight(r);
         return BIN[e.op](l, r);
       }
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
