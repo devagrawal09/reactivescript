@@ -123,6 +123,9 @@ test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout:
   const stale = await c.call("node", { key: "main.rx||result", format: "json" });
   assert.equal(JSON.parse(stale.content[0].text).declaration.trim(), "result = count + 1");
   assert.match(stale.content[1].text, /last good build/);
+  const { freshness } = JSON.parse(stale.content[2].text);
+  assert.equal(freshness.find(e => e.entry === "main.rx").status, "last good build");
+  assert.equal(freshness.find(e => e.entry === "other.rx").status, "current");
   // One broken dependency must not hide an independent checker error
   // in the same entry's graph.
   put("dep.rx", "export source count := 1\nsource broken :=\n");
@@ -236,6 +239,10 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   const filtered = await c.text("record", { action: "stop", key, instance: "2", kinds: ["revert"] });
   assert.match(filtered, /instance 2.*revert superseded \(replaced by the answer, not a failure\)/);
   assert.deepEqual((await c.json("tail", { key, instance: "2", kinds: ["flush"] })).at(-1).changes, [{ key, instance: "2" }]);
+  ws.emit(LIVE_TRACE, { type: "flush", at: 310, changes: [{ key, path: "total" }, { key, path: "count" }, { key: "test.rx||other" }] }, oldest);
+  assert.deepEqual((await c.json("tail", { key: `${key}.total`, limit: 1 }))[0].changes, [{ key, path: "total" }]);
+  assert.equal((await c.json("tail", { key: `${key}.total`, whole: true, limit: 1 }))[0].changes.length, 3);
+  assert.equal((await httpRpc("tools/call", { name: "travel", arguments: { seq: 1 } })).result.isError, true);
   assert.deepEqual(await c.json("live_status"), { pages: 1, flushes: 2, uptime: 15 });
   oldest.socket.emit("close");
   assert.equal((await fetch(url)).status, 503);
@@ -252,12 +259,26 @@ test("warm HTTP MCP keeps a last-good graph after watcher invalidation", { timeo
   rxMap().configureServer({ config: { root }, ws: new EventEmitter(), watcher, httpServer: server,
     middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} });
   globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(file, true);
+  const deleted = join(root, "deleted.rx"), declaration = join(root, "browser.d.rx");
+  writeFileSync(deleted, "source other := 2\n");
+  writeFileSync(declaration, "export pure fn trouble(): ref boolean\n");
+  globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(declaration, true, {
+    check() { throw new Error("declarations are not entries"); },
+  });
+  globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(deleted, true);
   await new Promise(r => server.listen(0, "127.0.0.1", r));
   t.after(() => server.close());
   const call = async name => (await (await fetch(`http://127.0.0.1:${server.address().port}/__rx/mcp`, {
     method: "POST", headers: { "content-type": "application/json" }, body: request(1, "tools/call", { name }),
   })).json()).result;
   assert.match((await call("overview")).content[0].text, /main\.rx\|\|count/);
+  assert.equal((await call("check")).content[0].text, "ok");
+  rmSync(deleted);
+  rmSync(declaration);
+  watcher.emit("all", "unlink", deleted);
+  watcher.emit("all", "unlink", declaration);
+  assert.equal((await call("check")).content[0].text, "ok");
+  assert.doesNotMatch((await call("overview")).content[0].text, /deleted\.rx|browser\.d\.rx/);
   writeFileSync(file, "source broken :=\n");
   watcher.emit("all", "change", file);
   const stale = (await call("overview")).content[0].text;

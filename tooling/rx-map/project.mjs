@@ -12,6 +12,7 @@ const run = (cwd, cmd, args, options = {}) => execFileSync(cmd, args, {
 });
 export const plain = s => stripVTControlCharacters(String(s));
 const where = (root, f) => relative(root, f).split("\\").join("/");
+export const isEntry = f => f.endsWith(".rx") && !f.endsWith(".d.rx") && !!statSync(f, { throwIfNoEntry: false })?.isFile();
 
 function scan(root, ignored = new Set(["node_modules", "dist", ".git"])) {
   const files = [];
@@ -100,11 +101,17 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
   const stampOf = (files, deps = []) => JSON.stringify([...new Set([...files, ...entries, ...deps])].sort()
     .map(f => [f, statSync(f, { throwIfNoEntry: false })?.mtimeMs]));
   function snapshot() {
-    if (managed) return cached ??= { entries, hasPrograms: entries.length > 0 };
+    if (managed) {
+      const selected = entries.filter(isEntry);
+      for (const f of entries) if (!selected.includes(f)) { lastGood.delete(f); frontends.delete(f); }
+      if (!cached || cached.entries.length !== selected.length) cached = { entries: selected, hasPrograms: false };
+      return cached;
+    }
     const files = scan(root);
     const stamp = stampOf(files, cached?.graph?.absModules);
     if (stamp !== cached?.stamp) {
-      const selected = entries.length ? entries : discover(files);
+      const selected = entries.length ? entries.filter(isEntry) : discover(files.filter(isEntry));
+      for (const f of lastGood.keys()) if (!isEntry(f)) lastGood.delete(f);
       cached = { stamp, files, entries: selected, hasPrograms: files.some(f => !f.endsWith(".d.rx")) };
     }
     return cached;
@@ -131,7 +138,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
     const s = snapshot();
     if (!s.graph) {
       if (!s.entries.length) requireEntries(s);
-      const modules = new Map(), stale = [], failures = [];
+      const modules = new Map(), stale = [], failures = [], freshness = [];
       const files = s.files ?? scan(root);
       const stamps = new Map(JSON.parse(stampOf(files, s.entries)));
       for (const entry of s.entries) {
@@ -152,12 +159,14 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         } catch (e) {
           failures.push(e);
           saved = lastGood.get(entry);
-          if (!saved) continue;
+          if (!saved) { freshness.push({ entry: where(root, entry), status: "no good build", modules: [] }); continue; }
           const now = entryStamps(stamps, saved.texts);
           const changed = [...new Set([...now.keys(), ...saved.stamps.keys()])]
             .filter(f => now.get(f) !== saved.stamps.get(f)).map(f => where(root, f));
           stale.push({ at: saved.at, changed });
         }
+        freshness.push({ entry: where(root, entry), status: fresh ? "current" : "last good build",
+          ...(!fresh ? { at: saved.at } : {}), modules: [...saved.texts.keys()].map(f => where(root, f)) });
         for (const m of saved.model) {
           const path = resolve(root, m.file);
           const prev = modules.get(path);
@@ -176,6 +185,8 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       }
       s.model = [...modules.values()].map(m => m.model);
       s.graph = buildGraph(structuredClone(s.model), { root, source: path => modules.get(path)?.text ?? "" });
+      s.graph.freshness = freshness;
+      s.graph.moduleFreshness = [...modules].map(([file, m]) => ({ file: where(root, file), current: m.fresh }));
       // Imported modules outside the scanned tree must also invalidate the snapshot.
       if (!managed) s.stamp = stampOf(s.files, s.graph.absModules);
     }
@@ -252,11 +263,12 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         const p = relative(top, f);
         if (p === ".." || p.startsWith("../") || isAbsolute(p)) throw new Error(`entry ${f} is outside the Git checkout`);
         return resolve(scratch, p);
-      }).filter(f => statSync(f, { throwIfNoEntry: false })?.isFile());
+      }).filter(isEntry);
       const before = buildGraph(modelOf(files, beforeRoot), { root: beforeRoot });
       before.label = `${ref} (${sha.slice(0, 7)})`;
       const graph = diffGraphs(before, { ...s.graph, label: s.warning ? "last good build" : "working tree" });
       if (s.warning) graph.warning = s.warning;
+      graph.freshness = s.graph.freshness;
       return graph;
     } finally {
       rmSync(scratch, { recursive: true, force: true });

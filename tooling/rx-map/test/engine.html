@@ -272,6 +272,23 @@ try {
   check("why selects the changed instance", columns?.length === 2 &&
     ask("why", { key: K("page"), instance: columns[1].instance }).result.current?.preview === "21");
   disposeColumns();
+  let callback, fire;
+  const callbackKey = K("callbackData");
+  const disposeCallback = rt.mount(() => {
+    const [get, writer] = rt.key(callbackKey, () => rt.source("callbackData", { total: 1 }));
+    fire = rt.action(function* () {
+      callback = rt.traceCallback(() => writer.path(["total"], 2));
+    }, action);
+    return () => String(get().total);
+  });
+  await fire();
+  callback();
+  await sleep(20);
+  const address = `${callbackKey}.total`;
+  const callbackWhy = ask("why", { key: address }).result;
+  check("live field why previews the field and attributes a deferred JS callback",
+    callbackWhy.current?.key === address && callbackWhy.current.preview === "2" && callbackWhy.origin?.includes(`RX callback from ${action} #`), callbackWhy);
+  disposeCallback();
   const foreign = "examples/users.rx||externalFlag", js = "examples/users.rx||adapter";
   register({ ...extra, nodes: [...extra.nodes,
     { ...nodeOf("page"), id: "externalFlag", key: foreign, name: "externalFlag" },

@@ -254,7 +254,7 @@ export function queryDiff(g) {
 export function liveText(method, data) {
   const at = t => `${Math.round(t)}ms`;
   const since = r => r.since === undefined ? "" : ` since ${at(r.since)}`;
-  const who = r => `${r.key ?? r.name}${r.instance === undefined ? "" : ` [instance ${r.instance}${r.ownerPath?.length ? ` · ${r.ownerPath.join(" › ")}` : ""}]`}`;
+  const who = r => `${r.key ?? r.name}${r.instance === undefined ? "" : ` [instance ${r.continuity ? `${r.continuity.from}→${r.instance} (${r.continuity.status})` : r.instance}${r.ownerPath?.length ? ` · ${r.ownerPath.join(" › ")}` : ""}]`}`;
   const val = r => `${who(r)}=${String(r.preview ?? "(no value)").replace(/\r?\n/g, "\\n")}${r.path ? ` [${r.path}]` : ""}${location(r)}`;
   const waiting = r => `${who(r)}  held${since(r)}${r.blockers?.length ? `: waiting on ${r.blockers.map(b => `${who(b)} ${b.type} #${b.id}${since(b)}${b.via?.length ? ` via ${b.via.join(" → ")}` : ""}`).join(", ")}` : " (no blocker observed)"}`;
   const value = r => `${r.error || r.observation || (r.pending && r.preview === undefined)

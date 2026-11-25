@@ -6,7 +6,7 @@
 //
 // The recorder belongs to the app session, not to a particular map iframe.
 import { pageHTML } from "./page.mjs";
-import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "./live-protocol.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, matchesKey } from "./live-protocol.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
@@ -173,7 +173,13 @@ function connect(hot) {
   if (bridges.has(hot)) return;
   const recorder = getRecorder();
   const request = ({ id, method, params } = {}) => {
-    try { hot.send(LIVE_RESPONSE, { id, result: recorder.query(method, params) }); }
+    try {
+      const result = recorder.query(method, params);
+      if (result instanceof Promise) result.then(
+        result => hot.send(LIVE_RESPONSE, { id, result }),
+        e => hot.send(LIVE_RESPONSE, { id, error: e.message }));
+      else hot.send(LIVE_RESPONSE, { id, result });
+    }
     catch (e) { hot.send(LIVE_RESPONSE, { id, error: e.message }); }
   };
   const ready = () => hot.send(LIVE_READY);
@@ -296,12 +302,15 @@ function getRecorder() {
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const held = new Map(), writes = new Map(), dirty = new Set();
+  const callbackWrites = new Map();
   const start = performance.now();
   let seq = 0, flushes = 0;
   // Travel: the open view, the seq it shows, and a resume whose landing waits on async work.
   let view = null, viewing = null, landing = null;
   let replacing = null;
   const hmrAnswers = new Map();
+  const continuity = new WeakMap();
+  const instanceFrame = keys => new Map([...keys].map(key => [key, [...(globalThis.__RX_NODES__?.get(key) ?? [])]]));
   const reincarnations = new WeakMap();
   const sourceAt = key => {
     const entries = globalThis.__RX_NODES__?.get(key);
@@ -337,6 +346,7 @@ function getRecorder() {
     const solid = engine[0];
     solid.flush();
     const before = valueFrame(keys);
+    const oldInstances = instanceFrame(keys);
     const moved = new Map(plan.moved.map(({ from, to }) => [to, from]));
     const nodeByKey = new Map(graph.nodes.map(n => [n.key, n]));
     replacing = { id };
@@ -361,6 +371,20 @@ function getRecorder() {
     }
     // New flights will be recorded separately; give their landings the HMR origin.
     const after = valueFrame(keys);
+    for (const [key, all] of instanceFrame(keys)) {
+      const old = oldInstances.get(moved.get(key) ?? key) ?? [];
+      const gone = old.filter(read => !all.includes(read));
+      const born = all.filter(read => !old.includes(read));
+      for (const read of born) {
+        // Carry provides the exact predecessor. For resets, only infer a
+        // replacement when there is one candidate in this owner path.
+        const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
+        const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
+        if (!from) continue;
+        const status = read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
+        continuity.set(read, { from, to: read.instance, status });
+      }
+    }
     for (const key of [...plan.rerun, ...plan.reset, ...plan.added])
       if ([...flights.values()].some(f => f.key === key) || inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
     const changes = [], raw = [], inexact = new Set();
@@ -564,9 +588,13 @@ function getRecorder() {
       const changes = all.filter(c => c.key && (!errors.has(identity(c)) || errors.get(identity(c)) === c)).map(({ before, ...c }) => {
         const prev = last.get(identity(c))?.change.preview ?? before;
         const js = importOrigin(c.key);
-        const origin = hmrAnswers.get(c.key) ?? (js ? c.origin ? `${js} ← ${c.origin}` : js : c.origin);
+        const id = identity(c);
+        const callback = callbackWrites.get(id);
+        const cause = callback ? `RX callback from ${callback}` : c.origin;
+        const origin = hmrAnswers.get(c.key) ?? (js ? cause ? `${js} ← ${cause}` : js : cause);
         return { ...c, ...(origin ? { origin } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
       });
+      for (const c of changes) callbackWrites.delete(identity(c));
       // Keyless engine nodes are still part of the app frame, even when
       // hidden from the map. Keep their raw bodies for openView.
       for (const c of changes) if (!inspect(c.key)?.pending && ![...flights.values()].some(f => f.key === c.key)) hmrAnswers.delete(c.key);
@@ -632,7 +660,11 @@ function getRecorder() {
   const trace = event => {
     if (event.type === "node") registered.add(event.key);
     if (event.type === "write" || event.type === "node") {
-      if (event.type === "write") writes.set(identity(event), event);
+      if (event.type === "write") {
+        writes.set(identity(event), event);
+        if (event.origin) callbackWrites.set(identity(event), event.origin);
+        else callbackWrites.delete(identity(event));
+      }
       dirty.add(event.key);
       queueReconcile();
       return;
@@ -644,6 +676,7 @@ function getRecorder() {
       last.delete(id);
       liveHead.delete(id);
       writes.delete(id);
+      callbackWrites.delete(id);
       if (held.delete(id)) send({ type: "released", key: event.key, instance: event.instance, at: performance.now() });
       for (const [id, f] of flights) if (f.key === event.key && f.instance === event.instance)
         send({ type: "flight", key: event.key, instance: event.instance, state: "abandon" }, id);
@@ -690,9 +723,12 @@ function getRecorder() {
     }
     return false;
   }
-  function current(key, flight, instance) {
-    const now = inspect(key, previews, instance);
-    if (now) return { key, instance: now.instance, ownerPath: now.ownerPath, ...now.value,
+  function current(key, flight, instance, field) {
+    const format = field ? value => previews(field.split(".").reduce((v, part) => v?.[part], value)) : previews;
+    const now = inspect(key, format, instance);
+    const read = [...(globalThis.__RX_NODES__?.get(key) ?? [])].find(r => r.instance === now?.instance);
+    if (now) return { key: field ? `${key}.${field}` : key, ...(field ? { root: key, field } : {}),
+      instance: now.instance, continuity: read && continuity.get(read), ownerPath: now.ownerPath, ...now.value,
       ...(now.error ? { error: errorPreview(now.error),
         ...(globalThis.__RX_BOUNDARIES__ && !tripsBoundary(now.error) ? { failedUntripped: true } : {}) } : {}),
       pending: !!(!now.error && (now.pending || (now.instance === undefined && flight))),
@@ -700,7 +736,7 @@ function getRecorder() {
     const old = latest.get(key);
     // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.
     const legacy = !globalThis.__RX_NODES__ && old;
-    return { key, instance, ...(!legacy && !flight ? { observation: "unobserved" } : {}), ...(legacy ? { preview: old.preview, full: old.full } : {}), pending: !!flight,
+    return { key: field ? `${key}.${field}` : key, instance, ...((!legacy || field) && !flight ? { observation: "unobserved" } : {}), ...(legacy && !field ? { preview: old.preview, full: old.full } : {}), pending: !!flight,
       ...(flight ? { since: flight.since } : {}), ...locate(key) };
   }
   const instanceList = key => [...(globalThis.__RX_NODES__?.get(key) ?? [])].map(inspect => inspect.instance).filter(i => i !== undefined);
@@ -1042,25 +1078,61 @@ function getRecorder() {
     if (step) publishStep(step, internal);
     queueReconcile();
   }
-  function query(method, { key, keys = [], instance, since = 0, limit = 20 } = {}) {
+  let acting;
+  function control(method, to) {
+    if (acting) throw new Error("another timeline request is in progress");
+    return new Promise((resolve, reject) => {
+      const finish = (result, error) => {
+        clearTimeout(timer);
+        listeners.delete(receive);
+        acting = undefined;
+        if (error) reject(error); else resolve(result);
+      };
+      const receive = msg => {
+        if (method === "resume" && msg?.type === "resume" ||
+            method === "travel" && msg?.to === to && ["step", "travel-denied"].includes(msg.type)) finish(msg);
+      };
+      const timer = setTimeout(() => {
+        if (method === "travel" && queued === to) queued = null;
+        finish(undefined, new Error(`${method} timed out waiting for the host`));
+      }, 4000);
+      acting = method;
+      listeners.add(receive);
+      try { if (method === "travel") travel(to); else resume(); }
+      catch (e) { finish(undefined, e); }
+    });
+  }
+  function query(method, { key, keys = [], instance, since = 0, limit = 20, seq: to } = {}) {
+    const requested = key;
+    const knownKeys = new Set([...graphs.flatMap(g => g.nodes.map(n => n.key)), ...(globalThis.__RX_NODES__?.keys() ?? []), ...last.keys()]);
+    let field;
+    if (key && !knownKeys.has(key)) {
+      const root = [...knownKeys].filter(k => key.startsWith(`${k}.`)).sort((a, b) => b.length - a.length)[0];
+      if (root) { field = key.slice(root.length + 1); key = root; }
+    }
     const known = () => {
       if (typeof key !== "string" || !key) throw new Error("provide a key from find");
-      const keys = [...(globalThis.__RX_NODES__?.keys() ?? []), ...last.keys(), ...graphs.flatMap(g => g.nodes.map(n => n.key))];
-      if (!keys.includes(key)) {
+      if (!knownKeys.has(key)) {
         const name = key.split("|").at(-1).toLowerCase();
-        const similar = [...new Set(keys)].filter(k => k.toLowerCase().includes(name)).slice(0, 3);
+        const similar = [...knownKeys].filter(k => k.toLowerCase().includes(name)).slice(0, 3);
         throw new Error(`unknown key ${key}; ${similar.length ? `did you mean: ${similar.join(", ")}? ` : ""}Use find for keys.`);
       }
     };
     if (key && ["state", "value", "why"].includes(method)) {
       const instances = instanceList(key);
       if (instance === undefined && instances.length > 1) {
-        return { key, instances: instances.map(i => query(method, { key, instance: i })) };
+        return { key: requested, instances: instances.map(i => query(method, { key: requested, instance: i })) };
       }
       if (instance !== undefined && !instances.includes(instance)) throw new Error(`no live instance ${instance} for ${key}`);
       instance ??= instances[0];
     }
     switch (method) {
+      case "travel": return control("travel", to);
+      case "resume": return control("resume");
+      case "timeline": {
+        const frame = timeline();
+        return { ...frame, steps: frame.steps.slice(-limit) };
+      }
       case "status": return { flushes, uptime: performance.now() - start };
       case "tail": {
         if (!Number.isSafeInteger(since) || since < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > size)
@@ -1069,7 +1141,7 @@ function getRecorder() {
       }
       case "value": {
         known();
-        return current(key, flightFor(key, instance), instance);
+        return current(key, flightFor(key, instance), instance, field);
       }
       case "boundary_history": {
         const ref = [...regionRefs()].find(([, region]) => region === key)?.[0];
@@ -1090,16 +1162,17 @@ function getRecorder() {
           const boundary = allBoundaries().find(b => b.region === key);
           if (boundary) return query("boundary_history", { key });
           known();
-          return { ...current(key, flightFor(key, instance), instance), held: held.get(identity({ key, instance })), runs: [...runs.values()].filter(r => r.key === key) };
+          return { ...current(key, flightFor(key, instance), instance, field), held: held.get(identity({ key, instance })), runs: [...runs.values()].filter(r => r.key === key) };
         }
         return { values: states(), flights: pending(), boundaries: allBoundaries().filter(b => b.state !== "ok"),
           held: [...held.values()], runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
       case "why": {
         known();
-        const hit = last.get(identity({ key, instance }));
+        const hit = field ? recent().findLast(r => r.changes?.some(c => c.key === key && c.instance === instance && matchesKey(c, requested)))
+          : last.get(identity({ key, instance }))?.record;
         const related = new Set([key]);
         const chain = [];
-        const changed = new Map(hit?.record.changes.map(c => [c.key, c]));
+        const changed = new Map(hit?.changes.map(c => [c.key, c]));
         const upstream = new Set([key]);
         for (const g of graphs) {
           const byId = new Map(g.nodes.map(n => [n.id, n.key]));
@@ -1122,11 +1195,11 @@ function getRecorder() {
           ((["run", "revert", "held", "released"].includes(r.type) && related.has(r.key)) ||
           (r.type === "flight" && upstream.has(r.key)))).slice(-16);
         const readers = [...held.values()].filter(h => h.by.some(k => upstream.has(k))).map(h => ({ ...h, ...locate(h.key) }));
-        const state = current(key, flightFor(key, instance), instance);
+        const state = current(key, flightFor(key, instance), instance, field);
         state.held = held.get(identity({ key, instance }));
         if (state.error) state.untripped = untripped(key);
         if (!hit) return { ...state, others: [], events, chain, readers };
-        const { change, record } = hit;
+        const record = hit, change = hit.changes.findLast(c => c.key === key && c.instance === instance && matchesKey(c, requested));
         const others = [...new Map(record.changes.filter(c => c.key && c.key !== key).map(c => [c.key, c])).values()];
         return { ...change, seq: record.seq, at: record.at, others, events, chain, readers, current: state };
       }
