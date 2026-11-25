@@ -123,7 +123,8 @@ named.
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
-| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a | S-module-1 |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-8e for a type import in a `.d.rx` | S-module-1, S-module-6 |
+| `TYPE_IMPORT`                     | S   | MO-8e: a `.d.rx` imported a value, not a type | S-module-6 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `SOURCE_CONTEXT`, `WRITE_TO_NON_SOURCE` (O-4) | S | O-4: a context is read beneath its provision; `context x: source T` withdrawn (RG-7c, 2026-10-31) | S-context-1 |
 | `ROW_NARROWER_THAN_INFERRED` (RG-7e) | S | a provision wider than its context's declared rows | S-context-1 |

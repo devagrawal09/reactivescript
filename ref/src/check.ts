@@ -624,7 +624,7 @@ class Checker {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     for (const { name, alias } of d.names) {
-      const x = decls.find(y => y.name === name && (y.kind !== "type" || y.exported));
+      const x = decls.find(y => y.kind !== "import" && y.name === name && (y.kind !== "type" || y.exported));
       if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type") continue;
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
