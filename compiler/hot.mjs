@@ -54,6 +54,9 @@ export function hotEntry(payload, factory, hot, observer) {
       if (!sameBase || state.announced !== edit.id) observer?.hmr(edit);
       state.announced = undefined;
       const apply = (commit = flush) => {
+        // A comment/formatting save can update source positions without replacing a
+        // single reactive owner (including an in-flight module's state).
+        if (sameBase && update.metadataOnly) { commit(); return new Map(); }
         const frames = [...state.mounts.keys()].map(rt => {
           const runtime = rt.hotRuntime;
           const frame = prepareCarry(previous, graph, edit.plan, runtime.sources, changedModules);
@@ -63,10 +66,11 @@ export function hotEntry(payload, factory, hot, observer) {
           for (const { runtime, carry } of frames) runtime.begin(carry, changedModules);
           state.replace({ factory: next.factory });
           commit();
-          return new Set(frames.flatMap(frame => {
+          return new Map(frames.flatMap(frame => {
             const { runtime } = frame;
-            runtime.defer(deferredCarry(frame, runtime.sources));
-            return finishCarry(frame, runtime.sources);
+            runtime.defer(deferredCarry(frame, runtime.sources, true));
+            finishCarry(frame, runtime.sources);
+            return [...frame.reasons];
           }));
         } finally {
           for (const { runtime } of frames) runtime.end();
@@ -84,7 +88,7 @@ export function hotEntry(payload, factory, hot, observer) {
     }).catch(e => console.error("[rx] replacement failed:", e));
   }
   // Vite replaces these listeners on the next evaluation of this module.
-  hot?.on("rx:hmr:plan", ({ from, to, type, changedModules, ...edit }) => {
+  hot?.on("rx:hmr:plan", ({ from, to, type, changedModules, metadataOnly, ...edit }) => {
     if (edit.graph.modules.at(-1) !== entry || state.current.revision !== from || state.announced === edit.id) return;
     state.announced = edit.id;
     observer?.hmr(edit);
