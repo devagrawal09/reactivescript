@@ -381,7 +381,7 @@ function getRecorder() {
         const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
         const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
         if (!from) continue;
-        const status = read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
+        const status = fallback.has(key) ? "reset" : read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
         continuity.set(read, { from, to: read.instance, status });
       }
     }
@@ -413,7 +413,7 @@ function getRecorder() {
     addStep(performance.now(), changes, raw, [], false, `hmr ${id}`, [...inexact]);
     const changed = new Set([...plan.reset, ...plan.rerun, ...plan.added]);
     hmr({ phase: "done", id, changes: changes.filter(c => changed.has(c.key)),
-      ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback].sort() } : {}) });
+      ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback.keys()].sort(), uncarriedReasons: Object.fromEntries(fallback) } : {}) });
     queueReconcile();
   }
   const shownLast = new WeakMap(); // engine node → the value last recorded for it (a landing's records say "pin")

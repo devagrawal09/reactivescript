@@ -342,6 +342,7 @@ function onHmr(s, d, M) {
     // v0.7: the keys whose state could not be carried (the host fell back to a refresh for them)
     h.fallback = d.fallback ?? null;
     h.uncarried = Array.isArray(d.uncarried) ? [...d.uncarried] : [];
+    h.uncarriedReasons = d.uncarriedReasons ?? {};
     if (h.swapped) { applyChanges(s, d.known ?? [], d.waves, {}); emit(s, { k: "wave", w: d.waves }); }
     else h.pendingDone = d.changes ?? [];
   } else if (d.phase === "failed") {
@@ -426,6 +427,7 @@ function wave(w, M, flush) {
 // ---- reads for the views (pure, over a state the store hands in) ----------------------------------------------
 /** The reload plan's line for a key: "kept (unchanged)", "moved to x (renamed)", or "". */
 export function planReason(hmr, key) {
+  if (hmr?.uncarried?.includes(key)) return `not carried (${hmr.uncarriedReasons?.[key] ?? "refresh"})`;
   const p = hmr?.plan?.plan; if (!p || !key) return "";
   for (const [g, name] of PLAN_GROUPS) if (p[g]?.includes(key)) return `${name.toLowerCase()} (${p.reasons?.[key] ?? "?"})`;
   const m = p.moved?.find(m => m.from === key);
@@ -458,13 +460,17 @@ export const incomingHTML = ns => `<span class="micro">incoming</span>` + ns.map
 export function planView(hmr) {
   const p = hmr?.plan?.plan ?? {};
   const item = k => ({ key: k, name: keyName(k), reason: p.reasons?.[k] ?? "" });
-  const groups = PLAN_GROUPS.filter(([g]) => p[g]?.length).map(([g, name, icon, what]) => ({ group: g, title: `${name} · ${p[g].length}`, icon, what, items: p[g].map(item) }));
+  const lost = new Set(hmr?.uncarried ?? []);
+  const groups = PLAN_GROUPS.flatMap(([g, name, icon, what]) => {
+    const keys = (p[g] ?? []).filter(k => !lost.has(k));
+    return keys.length ? [{ group: g, title: `${name} · ${keys.length}`, icon, what, items: keys.map(item) }] : [];
+  });
   const moved = (p.moved ?? []).map(m => ({ from: keyName(m.from), to: keyName(m.to), reason: p.reasons?.[m.from] ?? p.reasons?.[m.to] ?? "" }));
   const phase = hmr?.phase ?? "";
   return {
     groups, moved, phase,
     // v0.7: what the host could not carry over (a refresh fallback re-initialised it)
-    uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k) })), fallback: hmr?.fallback ?? "",
+    uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k), reason: hmr.uncarriedReasons?.[k] ?? "uncarried" })), fallback: hmr?.fallback ?? "",
     phaseName: ({ plan: "plan", apply: "applying", done: "done", failed: "failed" })[phase] ?? phase,
     modules: (hmr?.plan?.modules ?? []).join(", "),
     text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : (hmr?.uncarried?.length ? "Applied, with a refresh fallback: the map now shows the new graph; the names below lost their state." : "Applied: the map now shows the new graph."),

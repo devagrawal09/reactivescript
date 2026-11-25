@@ -20,7 +20,10 @@ test("repeated sources at one unchanged site pair by mount order", () => {
   assert.deepEqual(group.entries.map(seed => seed.value), [3, 7]);
   group.used = 2;
   assert.deepEqual(finishCarry(frame, readers(3, 7)), []);
+  assert.deepEqual(finishCarry(frame, readers(3, 0)), [key]);
+  assert.equal(frame.reasons.get(key), "value-mismatch");
   assert.deepEqual(finishCarry(frame, readers(3)), [key]);
+  assert.equal(frame.reasons.get(key), "instance-mismatch");
 });
 
 test("repeated sources at ambiguous or edited sites are not paired", () => {
