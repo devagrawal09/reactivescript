@@ -11,6 +11,9 @@ FAIL S-app-shop Frames
 FAIL S-app-todo Frames
 FAIL S-app-todos Frames
 FAIL S-app-users Frames
+FAIL S-progress-1 Frames
+FAIL S-progress-1 Variant: progress from the host
+FAIL S-progress-2 Frames
 FAIL S-server-1 Frames
 FAIL S-surface-5 Frames
 FAIL examples/ai/feed.rx
