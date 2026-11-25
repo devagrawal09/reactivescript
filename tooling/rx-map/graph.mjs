@@ -37,6 +37,7 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
     for (const r of m.regions) {
       regions.push({ id: `${mi}:r${r.id}`, mod: mi, kind: r.kind, name: r.name ?? null,
         parent: r.parent == null ? null : `${mi}:r${r.parent}`,
+        ...(r.shadowed != null ? { shadowed: `${mi}:r${r.shadowed}` } : {}),
         ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: `${mi}:c${p.site}` }
           : "region" in p ? { ...p, region: `${mi}:r${p.region}` } : { ...p }) } : {}) });
       for (const p of r.outline ?? []) if (p.line != null) keepLine(mi, p.line);

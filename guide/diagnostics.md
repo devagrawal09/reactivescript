@@ -768,6 +768,45 @@ export default component App() {
 }
 ```
 
+### TYPE_IMPORT
+
+A `.d.rx` imports types only (MO-8e): `import { T, U as V } from "./x"`, from another `.d.rx` or an `.rx` `export type`. A function is a value. Copying the type into the file was the workaround; import the type instead.
+
+```rx
+-- module: ./fns.d.rx
+export pure fn fetch(): string
+
+-- module: ./api.d.rx
+import { fetch } from "./fns"
+export pure fn g(x: number): number
+```
+
+Import `Card`, not `fetch`.
+
+### DEAD_TYPED_BOUNDARY
+
+A typed `errored fallback(e: X)` wraps a catch-all `errored fallback(e)`, so the catch-all takes `X` first and the
+typed fallback never shows (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
+`shadowed` by the inner one, which is what the map draws.
+
+```rx before
+error NotFound
+export default component App() {
+  errored fallback(e: NotFound) { <p>{e.message}</p> } {
+    errored fallback(e) { <p>{e.message}</p> } { <p>x</p> }
+  }
+}
+```
+
+```rx after
+error NotFound
+export default component App() {
+  errored fallback(e) { <p>{e.message}</p> } {
+    errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>x</p> }
+  }
+}
+```
+
 ### CATCH_NOT_ON_AWAIT
 
 A `catch` follows something other than an `await` (R-f-4). A value that failed is shown where it is read, by an
