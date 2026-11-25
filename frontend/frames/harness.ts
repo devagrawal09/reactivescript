@@ -164,7 +164,7 @@ window.setTimeout=function(fn,ms,...a){let id;id=st.call(window,(...b)=>{pending
 window.clearTimeout=function(id){pending.delete(id);return ct.call(window,id)};
 if(window.requestIdleCallback){const ri=window.requestIdleCallback,ci=window.cancelIdleCallback,idle=new Set();window.requestIdleCallback=function(fn,o){let id;id=ri.call(window,d=>{idle.delete(id);return fn(d)},o);idle.add(id);return id};window.cancelIdleCallback=function(id){idle.delete(id);return ci.call(window,id)};window.__framesIdle=()=>idle.size}
 window.__framesImports=0;window.__framesImport=(s,base)=>{window.__framesImports++;const spec=typeof s==='string'&&/^\\.\\.?\\//.test(s)?new URL(s,base).href:s;return import(spec).finally(()=>{window.__framesImports--})};
-window.__framesPending=()=>pending.size+(window.__framesIdle?window.__framesIdle():0)+window.__framesImports})();
+window.__framesPending=()=>pending.size+(window.__framesIdle?window.__framesIdle():0)})();
 (()=>{const mark=n=>{if(n&&n.nodeType===1){n.__fresh=1;for(const c of n.querySelectorAll('*'))c.__fresh=1}else if(n&&n.nodeType===11)for(const c of n.querySelectorAll('*'))c.__fresh=1;return n};
 const ce=Document.prototype.createElement;Document.prototype.createElement=function(...a){return mark(ce.apply(this,a))};
 const cn=Node.prototype.cloneNode;Node.prototype.cloneNode=function(...a){return mark(cn.apply(this,a))};
@@ -181,6 +181,8 @@ window.__framesClick=t=>{const root=document.getElementById('app');const f=windo
  *  import, resolved the same way (a relative specifier against the importing module), counted while pending, so a step
  *  is not over while a module Solid loads lazily is still loading (settle). Solid's server-function client loads
  *  `@solidjs/web/serialization/decode` on its first decode, the frames client its tiers. */
+/** Chromium's HTTP/1.1 connections per host (net/socket/client_socket_pool_manager.cc, max_sockets_per_group 6). */
+const CONNECTIONS = 6;
 const countedImports = new Map<string, string>();
 function countImports(path: string, code: string): string {
   const key = createHash('sha256').update(code).digest('hex');
@@ -408,9 +410,16 @@ export async function runLeg(leg: LegServer, b: Built, entry: string, opts: RunO
     let last = '', stable = 0;
     for (let i = 0; i < 500 && stable < 5; i++) {
       await page.evaluate(() => new Promise(r => (window as any).__framesSetTimeout(r, 20)));
-      const p = await page.evaluate(() => ({ net: (window as any).__framesNet(), pending: (window as any).__framesPending(), seen: (window as any).__framesSeen }));
+      const p = await page.evaluate(() => ({ net: (window as any).__framesNet(), pending: (window as any).__framesPending(), imports: (window as any).__framesImports, seen: (window as any).__framesSeen }));
       const got = new Set<number>(p.net.got);
-      const busy = transit !== 0 || p.net.issued !== received || p.pending !== 0 || held.some(h => h.released && !got.has(h.seq));
+      // Chromium sends at most CONNECTIONS HTTP/1.1 requests to a host at once, and each request in the proxy or held
+      // unreleased keeps its connection. With all of them taken (`starved`) nothing else can be in flight to the
+      // harness: a fetch the proxy has not received, and a dynamic import's module request (for example the first
+      // decode's `serialization/decode`), wait in the browser until a deliver step frees a connection, and cannot change
+      // the frame before; that step's settle waits for them. Otherwise both are waited for.
+      const starved = transit + held.filter(h => !h.released).length >= CONNECTIONS;
+      const unsent = p.net.issued - received;
+      const busy = transit !== 0 || unsent < 0 || (unsent > 0 && !starved) || p.pending !== 0 || (p.imports !== 0 && !starved) || held.some(h => h.released && !got.has(h.seq));
       const now = JSON.stringify([transit, arrived, p.seen]);
       stable = !busy && now === last ? stable + 1 : 0;
       last = now;

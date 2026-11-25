@@ -225,3 +225,25 @@ Fixing only (1) gave the new pins 0/20 alone and 0/10 combined at first. Later, 
 in 2 of 10 runs, all at step 15. The old pins under load 27–54 failed in 6 of 10. Both are cause (2), which the final
 fix covers. The old-pin rows ran the old frontend copy against its rc.21 build and old rust-solid binaries, with the
 same harness changes applied.
+
+**Regression in 0a483dd, and its fix.** The first version of the fix made placement fuzz seeds 11, 33 and 42 invalid
+("the page did not settle") on every run. My before/after fuzz comparison listed only divergent seeds, so it missed them.
+On each of those seeds a step ends with six held responses unreleased. Chromium opens at most 6 HTTP/1.1 connections
+per host, and a held request keeps its connection, so the page's next fetch (seeds 11, 42: 8 issued, 7 received) and the
+module request of a dynamic import (seed 33: two `import('@solidjs/web/serialization/decode')` pending, every request
+Playwright saw already served) wait inside the browser until a deliver step frees a connection. `settle` counted them
+as in flight and waited for them forever. In the old harness they were invisible; they are part of the real page's
+behavior and cannot change the frame before the next deliver.
+
+`settle` now knows the connection limit (`CONNECTIONS = 6`, Chromium's `max_sockets_per_group`). While every
+connection is taken by a request in the proxy or held unreleased (`starved`), nothing else can be in flight to the
+harness. An unsent fetch and a pending dynamic import are then not waited for. Once a deliver step frees a connection
+they are sent, and that step's settle waits for them as before. Otherwise both are waited for, as in 0a483dd.
+Everything else is unchanged: released responses received in full, short timers, idle callbacks, then the quiet turns.
+One case still rests on the quiet turns: while starved, an import whose modules have all arrived and are only being
+evaluated, which needs no network and completes in the page's own tasks.
+
+Verified at HEAD: placement fuzz 1–100 `--jobs 4 --rust` ×3 gives 50 agree, 42 client-only, 7 refused, divergent
+[19], 0 invalid, R = N 93, and `checkFramesFuzz` against the baseline reports nothing, each time (load 12–13).
+`slices/tracker-frames.test.ts` alone ×10: 10/10 each (load 10–20). The three-file combination ×5: 31/31 each (load
+18–34).
