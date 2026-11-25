@@ -15,6 +15,18 @@ plan/fuzz/run.ts): compiled RX must equal native TSX compiled with `lowerShow: f
 side, exactly (alone, or with the AC-3 / path probes). Seeds 1–100: 55 of the 85 accepted v2 programs and 11 of the
 84 accepted v2.1 programs are this class; the plan legs equal native on all of them. Never counted as agreement.
 
+## Solid's `<Show>` lowering changes the frames (plan fuzz v2.1 seed 419)
+
+Native Solid at 30e7805eb shows different frames for one program depending on whether its `<Show>` is lowered to a
+ternary (production, #4730) or kept as a component (`lowerShow: false`). Minimal program and scenario:
+`scripts/show-frames-repro.ts`. A `<Show>` holds a `<Loading>` that reads `latest(label)`, where `label` is a memo over
+an async memo `total`. Hide the Show, reject `total`, start an action that awaits a host call, show it again, end the
+action. The lowered build requests `total` again and shows Loading; the component build shows nothing, with no request
+and no error. Reading `total` directly instead of through `label` agrees, as does the same sequence with no action in
+flight. Compiled RX keeps the Show component (above), so it takes the component's side; the RX emit is not at fault
+and the fix belongs in Solid, not in ReactiveScript or rx/integ (whose emit still writes the component). The plan fuzz
+classes such a program `NATIVE_SHOW_FRAMES`, divergent. Seed 419 is outside the gate's 1–100.
+
 ## Fixed upstream since fdbcad92
 
 - S-store-8 (below) passes: upstream c746908 ("a guess is its own action's, per key (H-11); S-store-8 passes").

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { emit, generate } from './fuzz/gen.ts';
-import { pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, showProbeKeepsFrames, UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW, type Outcome } from './fuzz/run.ts';
+import { NATIVE_SHOW_FRAMES, pathsInSetter, runAsyncCase, runCase, runProgram, RUST_UNSUPPORTED_CLASS, showProbeKeepsFrames, UPSTREAM_RX, UPSTREAM_RX_PATH, UPSTREAM_RX_SHOW, type Outcome } from './fuzz/run.ts';
 import { emitAsync, generateAsync } from './fuzz/gen-async.ts';
 import { loadTsxModules } from '../tsx/modules.ts';
 import { resolvePlanV2 } from './resolve-v2.ts';
@@ -94,6 +94,11 @@ test('plan fuzz: an RX-only difference is upstream only when a probe of that one
     assert.notEqual(JSON.stringify(o.traces!.rx), JSON.stringify(o.traces!.native), 'RX itself differs');
     for (const l of legs.filter(l => l !== 'rx')) assert.equal(JSON.stringify(o.traces![l as 'native']), JSON.stringify(o.traces!.native), l);
   }
+  // v2.1 seed 419: Solid's own Show lowering changes the frames (docs/UPSTREAM-ISSUES.md), so no probe explains RX.
+  const o = await runAsyncCase(generateAsync(419), { rust });
+  assert.equal(o.status, 'divergent');
+  assert.deepEqual(o.classes, [NATIVE_SHOW_FRAMES]);
+  for (const l of legs.filter(l => l !== 'rx')) assert.equal(JSON.stringify(o.traces![l as 'native']), JSON.stringify(o.traces!.native), l);
 });
 
 // Plan v2.1 (PLAN-V2.md, "Plan fuzz v2.1"): async programs from plan/fuzz/gen-async.ts. The gate also runs seeds 1..100

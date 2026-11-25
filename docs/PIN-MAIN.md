@@ -121,7 +121,7 @@ the one now recorded (rerun on the merged branch, all seven `cmp`-identical):
 Long frontend runs with the Rust leg, seeds 1–1000: plan fuzz 306 agree, 563 upstream (RX only), 131 refused, 0 Rust
 differences; eval fuzz 869 agree, 131 refused; SSR fuzz `--dev` 869 agree, 0 HTML or hydration failures (summary
 byte-identical to rc.21's); SSR fuzz v2.1 878 agree, 0 stream/HTML/hydration differences; plan fuzz v2.1 736 agree, 141
-upstream, 122 refused, **1 divergent (seed 419, the RX leg; open, below)**, 0 Rust differences; eval fuzz v2.1 878
+upstream, 122 refused, **1 divergent (seed 419: Solid's own Show lowering changes the frames, below)**, 0 Rust differences; eval fuzz v2.1 878
 agree, 122 refused.
 
 ## Re-recorded, and why
@@ -264,9 +264,9 @@ it does not see them. Nothing to fix here; the fix upstream is to alias one impo
 
 - **A guess on a writable signal or store** (upstream d3cab00): refused by the plan builders and `createEval`, as are
   spreads, object rest, non-path destructuring and `.d.rx` libraries. Not in any verified claim.
-- **Plan fuzz v2.1 seed 419** (outside the gate's 1–100): compiled RX alone differs, class `rx:
-  request-createTextNode`, and no probe explains it. It agreed at rc.21. Not investigated; the plan and Rust legs
-  equal native on it.
+- **Plan fuzz v2.1 seed 419** (outside the gate's 1–100): a Solid bug, not RX. Native built with its Shows kept shows
+  other frames than production native, and compiled RX follows the component (class `NATIVE_SHOW_FRAMES`). The plan
+  and Rust legs equal native. Minimal repro and details: `frontend/docs/UPSTREAM-ISSUES.md`.
 - **Held-out fuzz ranges and the placement fuzz 1–1000 summary**: not re-measured (above).
 - **Engine paths not ported**, all fail closed (panic) and unreached by any gate range: parked frame flight adoption,
   chained stores / `deep()` / accessor keys / `ownKeys` traps, the dormant-node sweep, `swapHook`, ref-callback

@@ -154,7 +154,7 @@ Pins: RX `e650b85`, Solid `30e7805e`. Detail is in `PIN-MAIN.md`, `rust-solid/do
 3. **Eval checker vs LSP checker**: the page uses upstream's TS reference implementation (`ref/`) through the fork's
    frontend, and the IDE uses upstream's Rust crate. They agree on the snippets today; nothing enforces it.
 4. **Unverified at the new pins**: held-out fuzz ranges (1001–3000) for plan, eval, SSR, render and placement; the
-   placement 1–1000 summary; plan fuzz v2.1 seed 419 (only compiled RX differs, unexplained); engine paths not ported
+   placement 1–1000 summary; plan fuzz v2.1 seed 419 (a Solid Show-lowering bug, frontend/docs/UPSTREAM-ISSUES.md); engine paths not ported
    (they fail closed; see PIN-MAIN.md, "Open").
 5. **The RX subset as an app language** (FINDINGS):
    - no statement `if` in handlers or actions
