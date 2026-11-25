@@ -1,4 +1,4 @@
-// rx-dts: .d.rx rows generated from TypeScript (spec/09 MO-11; contract §1–3, §5, §7).
+// rx-dts: .d.rx rows generated from TypeScript (spec/09 MO-11; contract §0 helpers, and the v1 brands it still reads).
 // Usage: node test/dts.mjs. Needs TypeScript: the compiler's own, else ref/'s; without either it skips.
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -12,7 +12,7 @@ import { createDeclarations } from "../dts.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
-const typesIndex = fs.readFileSync(path.join(root, "types/index.d.ts"), "utf8");
+const jsIndex = fs.readFileSync(path.join(root, "js/index.d.ts"), "utf8");
 const bin = path.resolve(here, "../bin/rx-dts.mjs");
 
 let ts = null, tsDir = null;
@@ -26,10 +26,10 @@ for (const at of [import.meta.url, path.join(root, "ref/x.js")]) {
 }
 const skip = ts ? false : "TypeScript is not installed (compiler/ or ref/)";
 
-// ---- in-memory modules under /p/src, with the brands package mapped as the ref runner maps it
-const HEADER = "import type { Pure, Rejects, Ref, Instantiates, Server, Client } from \"@reactivescript/types\";\n";
+// ---- in-memory modules under /p/src, with the package mapped as the ref runner maps it
+const HEADER = "import type { Pure, Rejects, Ref, Instantiates, Server, Client } from \"@reactivescript/js\";\n";
 function project(files) {
-  const all = { "/p/node_modules/@reactivescript/types/index.d.ts": typesIndex };
+  const all = { "/p/node_modules/@reactivescript/js/index.d.ts": jsIndex };
   for (const [k, v] of Object.entries(files)) all[`/p/src/${k}`] = v;
   return all;
 }
@@ -102,8 +102,8 @@ export const f: (initial: boolean) => Client<Pure<[Ref<boolean>, (v: boolean) =>
 
 test("a brand is found through import renames and namespaces, never through a local alias", { skip }, () => {
   const r = gen(`
-import { Pure as P } from "@reactivescript/types";
-import * as RX from "@reactivescript/types";
+import { Pure as P } from "@reactivescript/js";
+import * as RX from "@reactivescript/js";
 import type { Pure as Fake } from "./brands";
 type Mine<T> = Pure<T>;
 export function a(): P<number> { return 1; }
@@ -124,7 +124,7 @@ test("a re-export of the brands is still the brands", { skip }, () => {
   const r = gen(`
 import type { Pure } from "./reexport";
 export function a(): Pure<number> { return 1; }
-`, { "reexport.ts": 'export type { Pure } from "@reactivescript/types";\n' });
+`, { "reexport.ts": 'export type { Pure } from "@reactivescript/js";\n' });
   assert.deepEqual(rows(r), ["export pure fn a(): number"]);
 });
 
@@ -218,7 +218,7 @@ export function o(x: any): any { return x; }
   assert.deepEqual(rows(r), ["export error E", "export pure fn o(x: string): Promise<string> rejects(E)"]);
 });
 
-test("overloads that disagree are DECLARATION_BRAND, and the line is the default", { skip }, () => {
+test("brands: overloads that disagree are DECLARATION_HELPER, and the line is the default", { skip }, () => {
   const r = gen(`
 export function o(x: string): Pure<string>;
 export function o(x: number): number;
@@ -227,7 +227,7 @@ export function p(x: Ref<string>): void;
 export function p(x: string): void;
 export function p(x: any) {}
 `);
-  assert.deepEqual(at(r), ["3:30 DECLARATION_BRAND", "6:21 DECLARATION_BRAND"]);
+  assert.deepEqual(at(r), ["3:30 DECLARATION_HELPER", "6:21 DECLARATION_HELPER"]);
   assert.match(r.errors[0].message, /overloads of o carry different brands/);
   assert.deepEqual(rows(r), ["export fn o(x: string): string", "export fn p(x: () => string): void"]);
 });
@@ -279,7 +279,7 @@ export function f(): Rejects<Promise<void>, Gone> { return null!; }
   assert.ok(r.files.includes("/p/src/errors.ts"));
 });
 
-test("misplaced wrappers are DECLARATION_BRAND at the brand, and the line falls back to the default", { skip }, () => {
+test("misplaced wrappers are DECLARATION_HELPER at the brand, and the line falls back to the default", { skip }, () => {
   const r = gen(`export function inParam(p: Pure<number>): void {}
 export function nested(): Promise<Pure<number>> { return null!; }
 export function twice(): Pure<Server<Pure<number>>> { return 1; }
@@ -289,13 +289,13 @@ export function generic<T extends Pure<number>>(): void {}
 export const callable: Ref<number> = () => 1;
 `);
   assert.deepEqual(at(r), [
-    "2:27 DECLARATION_BRAND",
-    "3:34 DECLARATION_BRAND",
-    "4:37 DECLARATION_BRAND",
-    "5:20 DECLARATION_BRAND",
-    "6:31 DECLARATION_BRAND",
-    "7:34 DECLARATION_BRAND",
-    "8:23 DECLARATION_BRAND",
+    "2:27 DECLARATION_HELPER",
+    "3:34 DECLARATION_HELPER",
+    "4:37 DECLARATION_HELPER",
+    "5:20 DECLARATION_HELPER",
+    "6:31 DECLARATION_HELPER",
+    "7:34 DECLARATION_HELPER",
+    "8:23 DECLARATION_HELPER",
   ]);
   assert.match(r.errors[0].message, /marks the return type, not a parameter: `function inParam\(…\): Pure<R>`/);
   assert.match(r.errors[1].message, /goes at the head of the return type: `function nested\(…\): Pure<R>`/);
@@ -323,7 +323,7 @@ export function b(): Rejects<Promise<void>, never> { return null!; }
 export function c(): Rejects<Promise<void>, Error | LooksLike> { return null!; }
 export function d(): Rejects<Promise<void>, RangeError> { return null!; }
 `);
-  assert.deepEqual(at(r), ["4:44 DECLARATION_BRAND", "5:44 DECLARATION_BRAND", "6:52 DECLARATION_BRAND"]);
+  assert.deepEqual(at(r), ["4:44 DECLARATION_HELPER", "5:44 DECLARATION_HELPER", "6:52 DECLARATION_HELPER"]);
   assert.match(r.errors[0].message, /NotErr is not an error class/);
   assert.match(r.errors[1].message, /never/);
   assert.deepEqual(rows(r), [
@@ -341,7 +341,7 @@ export function c(...p: Ref<number>) {}
 export function d(...p: Ref<number>[]) {}
 export function e({ x }: Ref<{ x: number }>) {}
 `);
-  assert.deepEqual(at(r), ["2:22 DECLARATION_BRAND", "3:21 DECLARATION_BRAND", "4:24 DECLARATION_BRAND", "5:24 DECLARATION_BRAND", "6:25 DECLARATION_BRAND"]);
+  assert.deepEqual(at(r), ["2:22 DECLARATION_HELPER", "3:21 DECLARATION_HELPER", "4:24 DECLARATION_HELPER", "5:24 DECLARATION_HELPER", "6:25 DECLARATION_HELPER"]);
   assert.match(r.errors[0].message, /optional parameter p/);
   assert.match(r.errors[1].message, /optional parameter p/);
   assert.match(r.errors[2].message, /rest parameter/);
@@ -364,7 +364,7 @@ export function d(): Ref<Ref<number>> { return null!; }
 export function e(): Ref<number> | null { return null; }
 export function f(): [Ref<number>?] { return null!; }
 `);
-  assert.deepEqual(at(r), ["2:29 DECLARATION_BRAND", "3:23 DECLARATION_BRAND", "4:31 DECLARATION_BRAND", "5:25 DECLARATION_BRAND", "6:21 DECLARATION_BRAND", "7:22 DECLARATION_BRAND"]);
+  assert.deepEqual(at(r), ["2:29 DECLARATION_HELPER", "3:23 DECLARATION_HELPER", "4:31 DECLARATION_HELPER", "5:25 DECLARATION_HELPER", "6:21 DECLARATION_HELPER", "7:22 DECLARATION_HELPER"]);
   assert.match(r.errors[0].message, /MO-10b/);
   assert.deepEqual(rows(r), [
     "export fn a(): Promise<(() => number)>",
@@ -442,18 +442,317 @@ test("a TypeScript that cannot be found is a clear error", { skip }, () => {
   }
 });
 
+// ---- helpers (contract §0)
+const HELPERS_HEADER = [
+  'import { pure, rejects, ref, instantiates, server, client } from "@reactivescript/js";',
+  "type Accessor<T> = () => T;",
+  "declare function createSignal<T>(value: T): [Accessor<T>, (v: T) => void];",
+  "",
+].join("\n");
+function genH(source, more = {}) {
+  const text = HELPERS_HEADER + source;
+  const files = project({ "m.ts": text, ...more });
+  return { r: createDeclarations({ ts, read: f => files[f] }).record("/p/src/m"), text };
+}
+// where a fragment starts in the module (1-based line, 0-based column, as errors are reported)
+function loc(text, needle, nth = 0) {
+  let i = -1;
+  for (let k = 0; k <= nth; k++) { i = text.indexOf(needle, i + 1); assert.ok(i >= 0, `${needle} #${nth} is in the module`); }
+  const before = text.slice(0, i).split("\n");
+  return `${before.length}:${before.at(-1).length}`;
+}
+const helperErrors = r => r.errors.map(e => `${e.line}:${e.column} ${e.code}`);
+
+test("helpers: every helper alone; display types are inferred", { skip }, () => {
+  const { r } = genH(`
+export class E1 extends Error {}
+export const a = pure((n: number) => n.toFixed(2));
+export const b = rejects([E1], async (id: number) => ({ id }));
+export const c = ref({ args: [0] }, (p: Accessor<string>) => p().length);
+export const d = ref({ result: true }, () => () => 1);
+export const e = ref({ result: [0] }, (initial: boolean) => createSignal(initial));
+export const f = ref({ result: ["value"] }, () => ({ value: () => "s", set(v: string) { void v; } }));
+export const g = instantiates((t: EventTarget, type: string) => { void t; void type; });
+export const h = server(async () => "secret");
+export const i = client((x = 1, ...rest: string[]) => x + rest.length);
+`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), [
+    "export error E1",
+    "export pure fn a(n: number): string",
+    "export fn b(id: number): Promise<{ id: number; }> rejects(E1)",
+    "export fn c(ref p: string): number",
+    "export fn d(): ref number",
+    "export fn e(initial: boolean): [ref boolean, (v: boolean) => void]",
+    "export fn f(): { value: ref string; set: (v: string) => void }",
+    "export fn g(t: EventTarget, type: string): void instantiates",
+    "export server fn h(): Promise<string>",
+    "export client fn i(x?: number, ...rest: string[]): number",
+  ]);
+});
+
+test("helpers nest in any order; a written annotation is shown as written", { skip }, () => {
+  const { r } = genH(`
+export class NotFound extends Error {}
+export class Offline extends Error {}
+export const a = pure(server(rejects([NotFound, Offline], async (id: number): Promise<number> => id)));
+export const b = rejects([NotFound], pure(async () => 1));
+export const c = instantiates(pure(ref({ args: [0], result: true }, (src: Accessor<number>) => src)));
+export const d = ((pure((instantiates(() => {})))));
+export const e = client(pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial))));
+export const f = pure(<T extends object>(value: T) => value);
+`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), [
+    "export error NotFound",
+    "export error Offline",
+    "export server pure fn a(id: number): Promise<number> rejects(NotFound | Offline)",
+    "export pure fn b(): Promise<number> rejects(NotFound)",
+    "export pure fn c(ref src: number): ref number",
+    "export pure fn d(): void instantiates",
+    "export client pure fn e(initial: boolean): [ref boolean, (v: boolean) => void]",
+    "export pure fn f<T extends object>(value: T): T",
+  ]);
+});
+
+test("helpers: an implementation given by name takes its parameters from its signature", { skip }, () => {
+  const { r } = genH(`
+declare function impl(a: number, b?: string): boolean;
+function source(s: Accessor<string>, ms: number) { void ms; return s; }
+export const a = pure(impl);
+export const b = pure(ref({ args: [0], result: true }, source));
+`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), [
+    "export pure fn a(a: number, b?: string): boolean",
+    "export pure fn b(ref s: string, ms: number): ref string",
+  ]);
+});
+
+test("helpers: through `pure as p`, `import * as rx`, export default, and a const exported later", { skip }, () => {
+  const { r } = genH(`
+import { pure as p, rejects as fails } from "@reactivescript/js";
+import * as rx from "@reactivescript/js";
+export const a = p((n: number) => n);
+export const b = rx.server(rx.rejects([TypeError], async () => 1));
+export const c = fails([RangeError], async () => 1);
+const later = pure((s: string) => s);
+export { later, later as renamed };
+export default rx.pure((s: string) => s.length);
+`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), [
+    "export pure fn a(n: number): number",
+    "export server fn b(): Promise<number> rejects(TypeError)",
+    "export fn c(): Promise<number> rejects(RangeError)",
+    "export pure fn later(s: string): string",
+    "export pure fn renamed(s: string): string",
+    "export pure fn default(s: string): number",
+  ]);
+});
+
+test("helpers: rejects' classes from another module are read there and are dependencies", { skip }, () => {
+  const { r } = genH(`
+import { Gone } from "./errors";
+import * as errs from "./errors";
+export const a = rejects([Gone, errs.Moved], async () => 1);
+`, { "errors.ts": "class Base extends Error {}\nexport class Gone extends Base {}\nexport class Moved extends Gone {}\n" });
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), ["export fn a(): Promise<number> rejects(Gone | errs.Moved)"]);
+  assert.ok(r.files.includes("/p/src/errors.ts"));
+});
+
+test("helpers: a re-exported helper const is read at its original", { skip }, () => {
+  const files = project({
+    "a.ts": HELPERS_HEADER + "export const f = pure(ref({ args: [0] }, (s: Accessor<number>) => s()));\n",
+    "m.ts": 'export { f as g } from "./a";\n',
+  });
+  const r = createDeclarations({ ts, read: f => files[f] }).record("/p/src/m");
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), ["export pure fn g(ref s: number): number"]);
+  assert.ok(r.files.includes("/p/src/a.ts"));
+});
+
+test("helpers: misuse is DECLARATION_HELPER at the call, and the line falls back to the default", { skip }, () => {
+  const { r, text } = genH(`export const dup = pure(rejects([Error], pure(() => 1)));
+export const both = server(pure(client(() => 1)));
+export const nested = [pure(() => 1)][0];
+export const wrapped = String(pure(() => 1));
+function inner() { return pure(() => 1); }
+let notConst = pure(() => 1);
+const hidden = pure(() => 1);
+export const notFn = pure(42 as any);
+export { notConst, inner };
+`);
+  assert.deepEqual(helperErrors(r), [
+    `${loc(text, "pure(() => 1)))")} DECLARATION_HELPER`,
+    `${loc(text, "client(() => 1)")} DECLARATION_HELPER`,
+    `${loc(text, "pure(() => 1)][0]")} DECLARATION_HELPER`,
+    `${loc(text, "pure(() => 1))", 1)} DECLARATION_HELPER`,
+    `${loc(text, "pure(() => 1); }")} DECLARATION_HELPER`,
+    `${loc(text, "pure(() => 1);\nconst hidden")} DECLARATION_HELPER`,
+    `${loc(text, "pure(() => 1);\nexport const notFn")} DECLARATION_HELPER`,
+    `${loc(text, "42 as any")} DECLARATION_HELPER`,
+  ]);
+  const m = r.errors.map(e => e.message);
+  assert.match(m[0], /`pure\(…\)` wraps dup twice: write it once/);
+  assert.match(m[1], /`server\(…\)` and `client\(…\)` both wrap both/);
+  assert.match(m[2], /read only as the whole initializer of an exported const \(`export const f = pure\(…\)`\)/);
+  assert.match(m[3], /read only as the whole initializer/);
+  assert.match(m[4], /read only as the whole initializer/);
+  assert.match(m[5], /write `export const notConst = pure\(…\)` \(a `let` can be reassigned/);
+  assert.match(m[6], /hidden is not exported: write `export const hidden = pure\(…\)`/);
+  assert.match(m[7], /the implementation, a function: `export const notFn = pure\(fn\)`/);
+  assert.deepEqual(rows(r), [
+    "export fn dup(): number",
+    "export fn both(): number",
+    "export fn nested(): number",
+    "export const wrapped: string",
+    "export const notFn: any",
+    "export fn notConst(): number",
+    "export fn inner(): () => number",
+  ]);
+});
+
+test("helpers: rejects and ref take literals that fit the implementation", { skip }, () => {
+  const { r, text } = genH(`class NotErr {}
+interface LooksLike extends Error {}
+declare const LooksLike: { new (): LooksLike };
+const list = [Error];
+const spec = { args: [0] };
+export const a = rejects(list, async () => 1);
+export const b = rejects([NotErr, Error], async () => 1);
+export const c = rejects([], async () => 1);
+export const d = ref(spec, (s: Accessor<number>) => s);
+export const e = ref({ args: [1] }, (s: Accessor<number>, n: number) => s);
+export const f = ref({ args: [2] }, (s: Accessor<number>) => s);
+export const g = ref({ result: true }, (n: number) => n);
+export const h = ref({ result: [1] }, (b: boolean) => createSignal(b));
+export const i = ref({ result: ["set"] }, () => ({ value: () => 1, set(v: number) { void v; } }));
+export const j = ref({ args: [0] }, (s?: Accessor<number>) => s);
+export const k = ref({ args: [0] }, (...s: Accessor<number>[]) => s);
+export const l = ref({ argz: [0] }, (s: Accessor<number>) => s);
+export const m = ref({ args: [n0] }, (s: Accessor<number>) => s);
+export const o = ref({ result: [0] }, () => ({ value: () => 1 }));
+export const p = ref({}, () => 1);
+export const q = rejects([LooksLike], async () => 1);
+declare const n0: number;
+`);
+  assert.deepEqual(helperErrors(r), [
+    `${loc(text, "list, async")} DECLARATION_HELPER`,
+    `${loc(text, "NotErr, Error")} DECLARATION_HELPER`,
+    `${loc(text, "[], async")} DECLARATION_HELPER`,
+    `${loc(text, "spec, (s")} DECLARATION_HELPER`,
+    `${loc(text, "1] }, (s: Accessor<number>, n")} DECLARATION_HELPER`,
+    `${loc(text, "2] }")} DECLARATION_HELPER`,
+    `${loc(text, "true }, (n")} DECLARATION_HELPER`,
+    `${loc(text, "1] }, (b")} DECLARATION_HELPER`,
+    `${loc(text, '"set"')} DECLARATION_HELPER`,
+    `${loc(text, "0] }, (s?")} DECLARATION_HELPER`,
+    `${loc(text, "0] }, (...s")} DECLARATION_HELPER`,
+    `${loc(text, "argz")} DECLARATION_HELPER`,
+    `${loc(text, "[n0]")} DECLARATION_HELPER`,
+    `${loc(text, "0] }, () => ({ value: () => 1 })")} DECLARATION_HELPER`,
+    `${loc(text, "{}, () => 1")} DECLARATION_HELPER`,
+    `${loc(text, "LooksLike], async")} DECLARATION_HELPER`,
+  ]);
+  const m = r.errors.map(e => e.message);
+  assert.match(m[0], /array literal of error classes/);
+  assert.match(m[1], /NotErr is not an error class/);
+  assert.match(m[2], /names no rejection/);
+  assert.match(m[3], /object literal/);
+  assert.match(m[4], /n is not an accessor \(`\(\) => T`\); its type is number/);
+  assert.match(m[5], /f has no parameter 2 \(it takes 1\)/);
+  assert.match(m[6], /g's result is not an accessor \(`\(\) => T`\); it is number/);
+  assert.match(m[7], /element 1 of h's result is not an accessor/);
+  assert.match(m[8], /set in i's result is not an accessor/);
+  assert.match(m[9], /s is optional/);
+  assert.match(m[10], /rest parameter/);
+  assert.match(m[11], /has `args` .* and `result`/);
+  assert.match(m[12], /`args` lists parameter indices as a literal/);
+  assert.match(m[13], /o does not return a tuple; name its accessor properties by key/);
+  assert.match(m[14], /marks nothing/);
+  assert.match(m[15], /LooksLike is not an error class/);
+  for (const row of rows(r)) assert.doesNotMatch(row, /\b(pure|rejects|ref)\b/, row);
+});
+
+test("helpers: brand types inside a helper's implementation are refused", { skip }, () => {
+  const { r, text } = genH(`import type { Pure } from "@reactivescript/js";
+export const a = pure((): Pure<number> => 1);
+`);
+  assert.deepEqual(helperErrors(r), [`${loc(text, "Pure<number>")} DECLARATION_HELPER`]);
+  assert.match(r.errors[0].message, /state its facts with the helpers only/);
+  assert.deepEqual(rows(r), ["export fn a(): number"]);
+});
+
+test("helpers: a function of the same name from elsewhere is not a helper", { skip }, () => {
+  const files = project({
+    "m.ts": 'import { pure } from "./mine";\nexport const a = pure((n: number) => n);\nexport const b = [pure(() => 1)];\n',
+    "mine.ts": "export function pure<F>(fn: F): F { return fn; }\n",
+  });
+  const r = createDeclarations({ ts, read: f => files[f] }).record("/p/src/m");
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(rows(r), ["export fn a(n: number): number", "export const b: (() => 1)[]"]);
+});
+
+test("helpers' types: misuse is a TypeScript error and good uses infer", { skip }, () => {
+  const dir = path.join(here, "dts/types");
+  const file = path.join(dir, "check.ts");
+  const program = ts.createProgram([file], {
+    strict: true, noEmit: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler, types: [], skipLibCheck: false,
+    paths: { "@reactivescript/js": [path.join(root, "js/index.d.ts")] },
+  });
+  const diags = ts.getPreEmitDiagnostics(program);
+  const got = new Map();
+  for (const d of diags) {
+    assert.ok(d.file, ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+    assert.ok([file, path.join(root, "js/index.d.ts")].includes(path.resolve(d.file.fileName)) && d.file.fileName.endsWith("check.ts"),
+      `${d.file.fileName}: ${ts.flattenDiagnosticMessageText(d.messageText, "\n")}`);
+    const line = d.file.getLineAndCharacterOfPosition(d.start).line + 1;
+    got.set(line, (got.get(line) ?? "") + ts.flattenDiagnosticMessageText(d.messageText, "\n"));
+  }
+  const want = new Map();
+  fs.readFileSync(file, "utf8").split("\n").forEach((l, i) => { const m = l.match(/\/\/ error: (.*)$/); if (m) want.set(i + 1, m[1]); });
+  assert.ok(want.size >= 6);
+  assert.deepEqual([...got.keys()].sort((a, b) => a - b), [...want.keys()].sort((a, b) => a - b), [...got].map(([l, m]) => `${l}: ${m}`).join("\n"));
+  for (const [line, fragment] of want) assert.ok(got.get(line).includes(fragment), `line ${line}: ${got.get(line)}`);
+});
+
+test("the package's runtime: identity, through one hook", async () => {
+  const js = await import(path.join(root, "js/index.js"));
+  class E extends Error {}
+  const fn = x => x;
+  for (const k of ["pure", "instantiates", "server", "client"]) assert.equal(js[k](fn), fn);
+  assert.equal(js.rejects([E], fn), fn);
+  assert.equal(js.ref({ args: [0] }, fn), fn);
+  const seen = [];
+  const wrapped = () => 0;
+  assert.equal(js.__setHook((kind, f, meta) => { seen.push([kind, f, meta]); return wrapped; }), null);
+  assert.equal(js.pure(js.rejects([E], fn)), wrapped);
+  const spec = { result: true };
+  js.ref(spec, fn);
+  assert.deepEqual(seen, [["rejects", fn, [E]], ["pure", wrapped, undefined], ["ref", fn, spec]]);
+  js.__setHook(null);
+  assert.equal(js.server(fn), fn);
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "js/package.json"), "utf8"));
+  assert.equal(pkg.name, "@reactivescript/js");
+  assert.equal(pkg.sideEffects, false);
+  assert.match(fs.readFileSync(path.join(root, "js/index.js"), "utf8"), /\/\*#__NO_SIDE_EFFECTS__\*\/\nexport function pure\(/);
+});
+
 // ---- on disk: the fixture app, a tsconfig, node_modules links, and the CLI
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rx-dts-"));
   fs.cpSync(path.join(here, "dts/app"), path.join(dir, "src"), { recursive: true });
   fs.mkdirSync(path.join(dir, "node_modules/@reactivescript"), { recursive: true });
-  fs.symlinkSync(path.join(root, "types"), path.join(dir, "node_modules/@reactivescript/types"), "dir");
+  fs.symlinkSync(path.join(root, "js"), path.join(dir, "node_modules/@reactivescript/js"), "dir");
   fs.symlinkSync(tsDir, path.join(dir, "node_modules/typescript"), "dir");
   return dir;
 }
 const run = (args, env = {}) => spawnSync(process.execPath, [bin, ...args], { encoding: "utf8", env: { ...process.env, ...env } });
 
-test("on disk: the app's modules, through its tsconfig and the brands package's package.json", { skip }, () => {
+test("on disk: the app's modules, through its tsconfig and the package's package.json", { skip }, () => {
   const dir = fixture();
   try {
     const d = createDeclarations();
@@ -501,8 +800,8 @@ test("the CLI: text, --json, --record with its cache, and null", { skip }, () =>
 
     const broken = run([path.join(dir, "src/broken.ts")]);
     assert.equal(broken.status, 1);
-    assert.match(broken.stderr, /broken\.ts:3:32: error DECLARATION_BRAND `Pure<…>` goes at the head of the return type/);
-    assert.match(broken.stdout, /export fn late\(\): Promise<number>/);
+    assert.match(broken.stderr, /broken\.ts:3:21: error DECLARATION_HELPER `pure\(…\)` is read only as the whole initializer of an exported const/);
+    assert.match(broken.stdout, /export fn late\(\): number/);
 
     const json = JSON.parse(run(["--json", path.join(dir, "src/api")]).stdout);
     assert.equal(json.from, path.join(dir, "src/api.ts"));
@@ -522,7 +821,7 @@ test("the CLI: text, --json, --record with its cache, and null", { skip }, () =>
 
     // an edit to a re-exported file makes the cache stale
     const media = path.join(dir, "src/media.ts");
-    fs.writeFileSync(media, fs.readFileSync(media, "utf8").replace("export function createToggle(initial: boolean): Pure<", "export function createToggle(initial: boolean, label?: string): Pure<"));
+    fs.writeFileSync(media, fs.readFileSync(media, "utf8").replace("(initial: boolean) => createSignal(initial)", "(initial: boolean, label?: string) => createSignal(initial)"));
     fs.utimesSync(media, new Date(), new Date(Date.now() + 5000));
     const stale = run(["--record", stem], { RX_DTS_TRACE: "1" });
     assert.match(stale.stderr, /loaded typescript/);

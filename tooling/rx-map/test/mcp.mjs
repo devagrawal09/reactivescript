@@ -341,19 +341,19 @@ export default component App() {
   assert.ok(!up.includes("main.rx||left"));
 });
 
-// 09 MO-11: a JS import's declaration generated from the sibling .ts (brands), a written .d.rx line, the default.
+// 09 MO-11: a JS import's declaration generated from the sibling .ts (helpers), a written .d.rx line, the default.
 function tsModuleApp(t) {
   const root = mkdtempSync(join(tmpdir(), "rx-map-dts-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const put = (f, s) => writeFileSync(join(root, f), s);
   mkdirSync(join(root, "node_modules/@reactivescript"), { recursive: true });
-  symlinkSync(join(repo, "types"), join(root, "node_modules/@reactivescript/types"), "dir");
+  symlinkSync(join(repo, "js"), join(root, "node_modules/@reactivescript/js"), "dir");
   symlinkSync(join(repo, "compiler"), join(root, "node_modules/@reactivescript/compiler"), "dir");
   symlinkSync(realpathSync(join(repo, "ref/node_modules/typescript")), join(root, "node_modules/typescript"), "dir");
   const users = [
-    'import type { Pure, Rejects } from "@reactivescript/types";',
+    'import { pure } from "@reactivescript/js";',
     "export class NotFound extends Error {}",
-    "export function initials(name: string): Pure<string> { return name.slice(0, 1); }",
+    "export const initials = pure((name: string) => name.slice(0, 1));",
     "export async function save(name: string): Promise<void> { void name; }",
     "export async function logVisit(page: string): Promise<void> { void page; }",
     "",
@@ -375,21 +375,28 @@ function tsModuleApp(t) {
 }
 async function declarations(c) {
   const imported = async name => (await c.json("node", { key: `main.rx||${name}` })).imported;
-  assert.deepEqual(await imported("initials"), { line: "export pure fn initials(name: string): string", from: "users.ts", origin: "brand", brands: ["Pure"] });
+  assert.deepEqual(await imported("initials"), { line: "export pure fn initials(name: string): string", from: "users.ts", origin: "helper", helpers: ["pure"] });
   assert.deepEqual(await imported("save"), { line: "export fn save(name: string): Promise<void> rejects(NotFound)", from: "users.d.rx", origin: "written" });
   assert.deepEqual(await imported("logVisit"), { line: "export fn logVisit(page: string): Promise<void>", from: "users.ts", origin: "default" });
-  assert.match(await c.text("node", { key: "main.rx||initials" }), /^  imported: export pure fn initials\(name: string\): string  from users\.ts  \(brand: Pure\)$/m);
+  assert.match(await c.text("node", { key: "main.rx||initials" }), /^  imported: export pure fn initials\(name: string\): string  from users\.ts  \(helper: pure\)$/m);
   assert.match(await c.text("node", { key: "main.rx||save" }), /^  imported: .* from users\.d\.rx  \(written\)$/m);
 }
 
-test("MO-11 through $RXC: rxc runs $RX_DTS; node shows each import's declaration; check reports a misplaced brand in the .ts", { timeout: 30000 }, async t => {
+test("MO-11 through $RXC: rxc runs $RX_DTS; node shows each import's declaration; check reports a misplaced helper in the .ts, and a deprecated narrowing apart as a warning", { timeout: 30000 }, async t => {
   const { root, put, users } = tsModuleApp(t);
   const c = client(t, ["--root", root], { ...process.env, RXC, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` });
   assert.equal(await c.text("check"), "ok");
   await declarations(c);
-  put("users.ts", users + "export function score(n: Pure<number>): number { return n; }\n");
+  put("users.ts", users + "export const score = [pure((n: number) => n)][0];\n");
   utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 2000));
-  assert.match(await c.text("check"), /^users\.ts:6:\d+\s+DECLARATION_BRAND/m);
+  assert.match(await c.text("check"), /^users\.ts:6:\d+\s+DECLARATION_HELPER/m);
+  // 09 MO-11e: `import pure` on logVisit's defaulted io still narrows it: "ok", then the warning apart
+  put("users.ts", users);
+  put("main.rx", 'import pure { logVisit } from "./users"\nexport default component App() {\n  action go() { try { await logVisit("x") } catch (e) {} }\n  <p>x</p>\n}\n');
+  utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 3000));
+  const warned = await c.text("check");
+  assert.match(warned, /^ok\nwarnings:\nmain\.rx:1:\d+ IMPORT_ROW_DEPRECATED `pure` on the import narrows logVisit's defaulted rows, .*`export const logVisit = pure\(…\)`/);
+  assert.deepEqual((await c.json("check")).map(d => [d.severity, d.code]), [["warning", "IMPORT_ROW_DEPRECATED"]]);
   put("main.rx", 'import { remove } from "./users"\nexport default component App() { <p>x</p> }\n');
   assert.match(await c.text("check"), /^main\.rx:1:\d+\s+NOT_EXPORTED/m);
 });
@@ -402,10 +409,10 @@ test("MO-11 through Node-API: the declare callback answers rx-dts in process", {
   const c = client(t, ["--root", root], env);
   await declarations(c);
   // the generator's files invalidate the snapshot: an edit to the .ts alone reaches the graph
-  put("users.ts", users.replace("logVisit(page: string): Promise<void>", "logVisit(page: string): Pure<Promise<void>>"));
+  put("users.ts", users.replace("export async function logVisit(page: string): Promise<void> { void page; }", "export const logVisit = pure(async (page: string): Promise<void> => { void page; });"));
   utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 2000));
-  assert.deepEqual((await c.json("node", { key: "main.rx||logVisit" })).imported, { line: "export pure fn logVisit(page: string): Promise<void>", from: "users.ts", origin: "brand", brands: ["Pure"] });
-  put("users.ts", users + "export function score(n: Pure<number>): number { return n; }\n");
+  assert.deepEqual((await c.json("node", { key: "main.rx||logVisit" })).imported, { line: "export pure fn logVisit(page: string): Promise<void>", from: "users.ts", origin: "helper", helpers: ["pure"] });
+  put("users.ts", users + "export const score = [pure((n: number) => n)][0];\n");
   utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 4000));
   assert.match(await c.text("overview"), /^program has 1 error/m);
 });

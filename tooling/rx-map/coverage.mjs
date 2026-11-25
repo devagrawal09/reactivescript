@@ -26,7 +26,7 @@ function indexBy(items, key) {
 // A callee's declared rejections (contract §1). `classes`: the error classes it declares; `untyped`: it can reject, but
 // only with the conservative default `Error` (R-f-8), because nothing declares what it rejects with.
 // - written `.d.rx`: its line's `rejects(…)`, else defaulted;
-// - generated from TS: a `Rejects<…>` brand (the line then has `rejects(…)`), else the import's own `fails A | B`
+// - generated from TS: a `rejects([…], fn)` helper (the line then has `rejects(…)`), else the import's own `fails A | B`
 //   (MO-11e narrows a defaulted fact), else defaulted;
 // - no declaration at all (a JS module with no `.d.rx` and no TS source): the import's `fails A | B`, else defaulted.
 // A defaulted callee is untyped only when it can reject at all: a JS import (not an instantiating fn) whose declared
@@ -38,7 +38,7 @@ function rejections(callee, lines, callerLines) {
   if (callee.kind !== "import" && !d) return { classes: [], untyped: false };
   const written = /\brejects\s*\(([^)]*)\)/.exec(d?.line ?? "")?.[1];
   const explicit = d?.origin === "written" ? written !== undefined
-    : d?.origin === "brand" && (d.brands ?? []).includes("Rejects") && written !== undefined;
+    : d?.origin === "helper" && (d.helpers ?? []).includes("rejects") && written !== undefined;
   if (explicit) return { classes: classes(written), untyped: false };
   if (d?.origin !== "written") {
     const narrowed = /\bfails\s+([\w$]+(?:\s*\|\s*[\w$]+)*)/.exec(lines?.[callee.line] ?? "")?.[1];

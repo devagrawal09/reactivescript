@@ -118,7 +118,10 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         const data = app.check(true);
         const stale = app.staleTransforms();
         warning = stale.map(s => `stale entry transform: ${s.file} (changed: ${s.files.join(", ")}). ${s.fix}`).join("\n");
-        answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`).join("\n") || "ok" };
+        // errors, else "ok"; then the warnings apart (09 MO-11e: they never fail the program)
+        const line = d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`;
+        const warnings = data.filter(d => d.severity === "warning");
+        answer = { data, text: [data.filter(d => d.severity !== "warning").map(line).join("\n") || "ok", ...(warnings.length ? [`warnings:\n${warnings.map(line).join("\n")}`] : [])].join("\n") };
       } else if (name === "diff") {
         try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; freshness = graph.freshness; answer = queryDiff(graph); }
         catch (e) { throw new Error(`${errorMessage(e)}\nUse an existing Git ref and check that both versions compile.`); }

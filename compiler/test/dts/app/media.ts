@@ -1,17 +1,19 @@
-import type { Pure, Ref, Instantiates } from "@reactivescript/types";
+import { pure, ref, instantiates } from "@reactivescript/js";
 
-export function createToggle(initial: boolean): Pure<[Ref<boolean>, (v: boolean) => void]> {
-  let on = initial;
-  return [() => on, (v) => { on = v; }];
+type Accessor<T> = () => T;
+function createSignal<T>(value: T): [Accessor<T>, (v: T) => void] {
+  return [() => value, (v) => { value = v; }];
 }
 
-export const createDebounced = (source: Ref<string>, ms: number): Pure<Ref<string>> => {
+export const createToggle = pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial)));
+
+export const createDebounced = pure(ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => {
   void ms;
   return source;
-};
+}));
 
-export function createEventListener(target: EventTarget, type: string, handler: (e: Event) => void): Pure<Instantiates<void>> {
+export const createEventListener = pure(instantiates((target: EventTarget, type: string, handler: (e: Event) => void) => {
   target.addEventListener(type, handler);
-}
+}));
 
 export const fields = ["name", "title"] as const;

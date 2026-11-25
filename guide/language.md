@@ -14,10 +14,10 @@ export default component App() { … }       // the entry module's default compo
 ```
 
 A `.ts` module declares itself. An unmarked function is io, callable only in imperative code (handlers, actions,
-effects). A loader you can call anywhere is marked in the `.ts`: `function fetchUser(id: number): Pure<Promise<User>>`,
-with `Pure` from `@reactivescript/types`. A type (`User`) is imported like a value and erases. Plain JS with no
+effects). A loader you can call anywhere is wrapped in the `.ts`: `export const fetchUser = pure(async (id: number) =>
+…)`, with `pure` from `@reactivescript/js`. A type (`User`) is imported like a value and erases. Plain JS with no
 types says it at the import, `import pure { fetchUser } from "./api.js"`. A Solid library (solid-primitives and the
-like), with its brands or a `.d.rx`, is then used like .rx: `libraries.md`.
+like), wrapped in a local `.ts` or declared in a `.d.rx`, is then used like .rx: `libraries.md`.
 
 A file's top level is imports, exports and declarations. A `source` at the top level is app state; inside a
 component it is that instance's state. Only the block that declares a source writes it: importers, props, function

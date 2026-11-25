@@ -1,0 +1,25 @@
+{
+  "name": "@reactivescript/js",
+  "description": "Zero-cost helpers a .ts module wraps its exports in so rx-dts generates their ReactiveScript facts (spec/09 MO-11): pure, rejects, ref, instantiates, server, client",
+  "version": "0.3.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/solidjs/reactivescript.git",
+    "directory": "js"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "types": "index.d.ts",
+  "sideEffects": false,
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "README.md"
+  ]
+}

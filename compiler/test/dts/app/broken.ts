@@ -1,5 +1,3 @@
-import type { Pure } from "@reactivescript/types";
+import { pure } from "@reactivescript/js";
 
-export function late(): Promise<Pure<number>> {
-  return Promise.resolve(1);
-}
+export const late = [pure(() => 1)][0];

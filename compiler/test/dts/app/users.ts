@@ -1,4 +1,4 @@
-import type { Pure, Rejects } from "@reactivescript/types";
+import { pure, rejects } from "@reactivescript/js";
 
 export type User = { name: string; title: string };
 
@@ -10,12 +10,13 @@ export class NotFound extends Error {
 
 export class Offline extends Error {}
 
-// Stands in for a real API call.
-export async function fetchUser(id: number): Pure<Rejects<Promise<User>, NotFound | Offline>> {
+// Stands in for a real API call. No annotation: the generated line's types are inferred.
+export const fetchUser = pure(rejects([NotFound, Offline], async (id: number) => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   if (id !== 1) throw new NotFound(id);
-  return { name: "Ada", title: "Engineer" };
-}
+  const user: User = { name: "Ada", title: "Engineer" };
+  return user;
+}));
 
 export async function saveUser(id: number, name: string): Promise<void> {
   void id; void name;

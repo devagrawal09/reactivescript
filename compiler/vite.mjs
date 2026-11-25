@@ -46,7 +46,7 @@ const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/di
 const at = d => d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : `${d.line}`;
 /** The diagnostics as `rxc check` prints them, then, once per code, where its fix is explained. */
 const report = ds => [
-  ...ds.map(d => `${d.file}:${at(d)}: error ${d.code} [${d.rule}] ${d.msg}`),
+  ...ds.map(d => `${d.file}:${at(d)}: ${d.severity ?? "error"} ${d.code} [${d.rule}] ${d.msg}`),
   "",
   ...[...new Set(ds.map(d => d.code))].map(c => `${c}: why, and the fix — ${GUIDE}#${c.toLowerCase()}`),
 ].join("\n");
@@ -95,6 +95,7 @@ const revision = graph => createHash("sha256").update(JSON.stringify(graph)).dig
 export default function rx() {
   const programs = new Map(); // hot client entries, not CSS probes or server transforms
   const saves = new Map();
+  const warned = new Map();   // entry → the warnings last printed for it
   const builds = new Map();   // entry\0target\0moduleName\0spa\0dev → { entry, target, moduleName, spa, dev, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
   /** `dev`: the project root, for a dev build (keys relative to it); null otherwise. */
@@ -109,6 +110,9 @@ export default function rx() {
     const files = [...new Set([...(out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry]), ...read])];
     const b = { entry, target, moduleName, spa, dev, hot, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     if (!force) builds.set(key, b);
+    // warnings never fail the build (09 MO-11e): printed once per program until they change, not per target
+    const said = out.warnings?.length ? report(out.warnings) : "";
+    if (!force && said !== (warned.get(entry) ?? "")) { if (said) console.warn(said); warned.set(entry, said); }
     return b;
   }
   const built = (file, target, moduleName, spa, dev, hot) =>

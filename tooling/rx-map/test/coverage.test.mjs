@@ -186,16 +186,16 @@ test("untyped failures are not paths; a declared rejection, `Error` included, is
   assert.deepEqual(ids(open).filter(id => id.startsWith(`action:${reload}`)), [`action:${reload}:ok`, `action:${reload}:rejected:Error`]);
   // a TS module's defaulted declaration: untyped, fixed with @reactivescript/js
   const load = open.nodes.find(n => n.name === "load");
-  load.decl = { line: "export fn load(page: number): Promise<string>", from: "src/api.ts", origin: "default", brands: [], at: 12 };
+  load.decl = { line: "export fn load(page: number): Promise<string>", from: "src/api.ts", origin: "default", helpers: [], at: 12 };
   const file = rebase(merge(), open);
   assert.match(report(file), /`load` \(src\/api.ts:12\) can fail with an untyped error — declare `rejects\(\[\.\.\.\], fn\)` with @reactivescript\/js/);
   assert.equal(summary(file).untyped, 1);
-  // a `Rejects<…>` brand types it
-  load.decl = { ...load.decl, origin: "brand", brands: ["Rejects"], line: "export fn load(page: number): Promise<string> rejects(NotFound)" };
+  // a `rejects([…], fn)` helper types it
+  load.decl = { ...load.decl, origin: "helper", helpers: ["rejects"], line: "export fn load(page: number): Promise<string> rejects(NotFound)" };
   assert.deepEqual(untypedFailures(open), []);
   assert.ok(ids(open).includes(`action:${reload}:rejected:NotFound`));
   // so does the import's own `fails` (MO-11e narrows a defaulted fact)
-  load.decl = { ...load.decl, origin: "default", brands: [], line: "export fn load(page: number): Promise<string>" };
+  load.decl = { ...load.decl, origin: "default", helpers: [], line: "export fn load(page: number): Promise<string>" };
   open.lines[module][load.line] += " fails Conflict";
   assert.deepEqual(untypedFailures(open), []);
   assert.ok(ids(open).includes(`action:${reload}:rejected:Conflict`));

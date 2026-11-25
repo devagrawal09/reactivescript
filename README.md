@@ -62,7 +62,8 @@ Async is an `await` in an equation. The compiler tracks that the value can be
 pending and can fail, so it asks you to say what to show in both cases:
 
 ```rx
-import pure { fetchUser } from "./api"   // `pure`: safe to call from an equation (R-io-4)
+import { fetchUser } from "./api"        // api.ts: `export const fetchUser = pure(async (id: number) => …)`
+                                         // `pure` (from @reactivescript/js): safe to call from an equation
 
 export default component Profile() {
   source id := 1

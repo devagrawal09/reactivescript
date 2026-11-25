@@ -1,6 +1,7 @@
 // rx-dts: the declaration of a module TypeScript can read, generated from it (spec/09 MO-11). It reads the
-// syntax and symbols of the `.ts` (not its type errors) and prints ordinary `.d.rx` rows: brands from
-// `@reactivescript/types` where they are written, the sound default everywhere else (contract §1–3, §7).
+// syntax and symbols of the `.ts` (not its type errors) and prints ordinary `.d.rx` rows: the facts the helpers
+// of `@reactivescript/js` state (`export const f = pure(…)`, contract §0), the v1 brand types of the same
+// package where they are written (still read, no longer documented), the sound default everywhere else.
 // The types of a generated line are TypeScript's (13 TY-4b): the text shows them for a person only.
 import { createRequire } from "node:module";
 import { readFileSync, statSync } from "node:fs";
@@ -11,7 +12,11 @@ export const CANDIDATES = [".ts", ".tsx", ".mts", ".cts", ".d.ts", ".d.mts", "/i
 export const TS_EXTENSIONS = [".d.ts", ".d.mts", ".d.cts", ".ts", ".tsx", ".mts", ".cts"];
 const WRAPPERS = ["Pure", "Rejects", "Instantiates", "Server", "Client"];
 const BRANDS = new Set([...WRAPPERS, "Ref"]);
-const TYPES_PACKAGE = "@reactivescript/types";
+const PACKAGE = "@reactivescript/js";
+const HELPERS = new Set(["pure", "rejects", "ref", "instantiates", "server", "client"]);
+// the row a helper sets, in the brand vocabulary `fnLine` prints
+const FACT = { pure: "Pure", rejects: "Rejects", instantiates: "Instantiates", server: "Server", client: "Client" };
+const FORM = { pure: "pure(fn)", rejects: "rejects([NotFound], fn)", ref: "ref({ args: [0], result: true }, fn)", instantiates: "instantiates(fn)", server: "server(fn)", client: "client(fn)" };
 const HEAD = { Pure: "Pure<R>", Rejects: "Rejects<Promise<T>, E>", Instantiates: "Instantiates<R>", Server: "Server<R>", Client: "Client<R>" };
 
 const posix = p => p.replace(/\\/g, "/");
@@ -129,7 +134,7 @@ export function createDeclarations({ ts: given, read, fileExists, cwd } = {}) {
     return { roots, ls: ts.createLanguageService(host, ts.createDocumentRegistry()) };
   }
 
-  // ---- is a declaration in @reactivescript/types (nearest package.json, cached per directory)
+  // ---- is a declaration in @reactivescript/js (nearest package.json, cached per directory)
   const pkgByDir = new Map();
   function packageName(dir) {
     if (pkgByDir.has(dir)) return pkgByDir.get(dir);
@@ -141,7 +146,7 @@ export function createDeclarations({ ts: given, read, fileExists, cwd } = {}) {
     pkgByDir.set(dir, name);
     return name;
   }
-  const inTypesPackage = f => posix(f).includes(`/node_modules/${TYPES_PACKAGE}/`) || packageName(path.posix.dirname(posix(f))) === TYPES_PACKAGE;
+  const inPackage = f => posix(f).includes(`/node_modules/${PACKAGE}/`) || packageName(path.posix.dirname(posix(f))) === PACKAGE;
 
   // ---- records, memoized by the stamps of the files they depend on
   const memo = new Map();
@@ -152,7 +157,7 @@ export function createDeclarations({ ts: given, read, fileExists, cwd } = {}) {
     const svc = serviceFor(ts, T);
     svc.roots.add(T);
     const program = svc.ls.getProgram();
-    const record = generate(ts, program, T, { inTypesPackage, isLib });
+    const record = generate(ts, program, T, { inPackage, isLib });
     memo.set(T, { record, stamps: record.files.map(f => [f, stamp(f)]) });
     return record;
   }
@@ -177,7 +182,7 @@ export function createDeclarations({ ts: given, read, fileExists, cwd } = {}) {
 // ------------------------------------------------------------------------------------------------------------
 // One module's record
 
-function generate(ts, program, T, { inTypesPackage, isLib }) {
+function generate(ts, program, T, { inPackage, isLib }) {
   const checker = program.getTypeChecker();
   const sf = program.getSourceFile(T);
   const errors = [], seenErrors = new Set();
@@ -197,7 +202,7 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
     const { line, character } = s.getLineAndCharacterOfPosition(node.getStart(s));
     return { file: posix(s.fileName), line: line + 1, column: character };
   };
-  const report = (node, message, code = "DECLARATION_BRAND") => {
+  const report = (node, message, code = "DECLARATION_HELPER") => {
     const at = where(node);
     const key = `${at.file}:${at.line}:${at.column}:${message}`;
     if (seenErrors.has(key)) return;
@@ -216,8 +221,9 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
   }
 
   const strip = n => { while (n && ts.isParenthesizedTypeNode(n)) n = n.type; return n; };
+  let enclosing = null; // the file a helper's implementation is in, so its types print as that file names them
   const printType = type => {
-    const s = checker.typeToString(type, sf, ts.TypeFormatFlags.NoTruncation);
+    const s = checker.typeToString(type, enclosing ?? sf, ts.TypeFormatFlags.NoTruncation);
     return /import\(|\n/.test(s) ? "any" : collapse(s);
   };
 
@@ -230,7 +236,7 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
     if (!(sym.flags & S.TypeAlias)) return null;
     const decl = sym.declarations?.find(ts.isTypeAliasDeclaration);
     if (!decl || !BRANDS.has(decl.name.text)) return null;
-    return inTypesPackage(decl.getSourceFile().fileName) ? decl.name.text : null;
+    return inPackage(decl.getSourceFile().fileName) ? decl.name.text : null;
   }
 
   const isLibError = sym => sym?.name === "Error" && (sym.declarations ?? []).some(d => isLib(posix(d.getSourceFile().fileName)) || program.isSourceFileDefaultLibrary(d.getSourceFile()));
@@ -462,9 +468,295 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
   };
 
   const typeOfSymbol = (sym, at) => (checker.getTypeOfSymbol ? checker.getTypeOfSymbol(sym) : checker.getTypeOfSymbolAtLocation(sym, at ?? sf));
+
+  // ---- helpers (contract §0): `export const f = pure(rejects([E], fn))`, read from the call chain as written
+  /** The helper a call calls (`pure`, `rx.pure`, `p` imported as `pure as p`), or null. */
+  function helperOf(call) {
+    if (!call || !ts.isCallExpression(call)) return null;
+    let callee = call.expression;
+    while (ts.isParenthesizedExpression(callee)) callee = callee.expression;
+    const id = ts.isPropertyAccessExpression(callee) ? callee.name : ts.isIdentifier(callee) ? callee : null;
+    if (!id) return null;
+    let sym = checker.getSymbolAtLocation(id);
+    if (!sym) return null;
+    if (sym.flags & S.Alias) { try { sym = checker.getAliasedSymbol(sym); } catch { return null; } }
+    if (!(sym.flags & S.Function)) return null;
+    const decl = sym.declarations?.find(d => ts.isFunctionDeclaration(d) && d.name && HELPERS.has(d.name.text));
+    return decl && inPackage(decl.getSourceFile().fileName) ? decl.name.text : null;
+  }
+  const helperArity = kind => (kind === "rejects" || kind === "ref" ? 2 : 1);
+  const unwrapLiteral = e => {
+    e = unwrapExpr(e);
+    while (e && ts.isAsExpression(e) && ts.isTypeReferenceNode(e.type) && e.type.typeName.getText() === "const") e = unwrapExpr(e.expression);
+    return e;
+  };
+
+  // the climb from a helper call to the node it is the whole of: through parentheses, `satisfies`, and outer
+  // helpers whose function argument it is
+  function chainTop(call) {
+    const up = n => { let p = n.parent; while (p && (ts.isParenthesizedExpression(p) || ts.isSatisfiesExpression?.(p))) { n = p; p = n.parent; } return [n, p]; };
+    let top = call, [n, p] = up(call);
+    while (p && ts.isCallExpression(p) && p.arguments.at(-1) === n && helperOf(p) && p.arguments.length === helperArity(helperOf(p))) {
+      top = p;
+      [n, p] = up(p);
+    }
+    return { top, holder: p, whole: n };
+  }
+  // the module-level const a chain initializes, or why it is not one
+  function placeOf(call) {
+    const { top, holder, whole } = chainTop(call);
+    const kind = helperOf(top);
+    if (holder && ts.isExportAssignment(holder) && !holder.isExportEquals && holder.expression === whole) return { top, ok: true };
+    if (holder && ts.isVariableDeclaration(holder) && holder.initializer === whole && ts.isIdentifier(holder.name)) {
+      const list = holder.parent, stmt = list.parent, name = holder.name.text;
+      if (!ts.isVariableStatement(stmt) || stmt.parent !== stmt.getSourceFile())
+        return { top, why: `\`${kind}(…)\` marks an export: ${name} is not at module level; write \`export const ${name} = ${kind}(…)\` there` };
+      if (!(list.flags & ts.NodeFlags.Const))
+        return { top, why: `\`${kind}(…)\` marks a \`const\`: write \`export const ${name} = ${kind}(…)\` (a \`${list.flags & ts.NodeFlags.Let ? "let" : "var"}\` can be reassigned, so its facts cannot be read)` };
+      if (!exportedLocals(stmt.getSourceFile()).has(checker.getSymbolAtLocation(holder.name)) && !stmt.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword))
+        return { top, why: `\`${kind}(…)\` marks an export, and ${name} is not exported: write \`export const ${name} = ${kind}(…)\`, or drop \`${kind}\`` };
+      return { top, ok: true };
+    }
+    return { top, why: `\`${kind}(…)\` is read only as the whole initializer of an exported const (\`export const f = ${kind}(…)\`) or as \`export default ${kind}(…)\`; here it states nothing: move it there` };
+  }
+  const exportedByFile = new Map();
+  function exportedLocals(file) {
+    let set = exportedByFile.get(file);
+    if (set) return set;
+    exportedByFile.set(file, set = new Set());
+    const m = checker.getSymbolAtLocation(file);
+    for (const e of m ? checker.getExportsOfModule(m) : []) {
+      set.add(e);
+      if (e.flags & S.Alias) { try { set.add(checker.getAliasedSymbol(e)); } catch {} }
+    }
+    return set;
+  }
+
+  // every helper call in a file must be placed: report the ones that are not, once per chain
+  const scanned = new Set();
+  function scanHelpers(file) {
+    const fileName = posix(file.fileName);
+    if (scanned.has(fileName) || isLib(fileName) || inPackage(fileName) || fileName.includes("/node_modules/")) return;
+    scanned.add(fileName);
+    // names a helper can be called by here: its own, and the local names of imports from the package
+    const names = new Set(HELPERS);
+    for (const st of file.statements) {
+      if (!ts.isImportDeclaration(st) || !st.importClause?.namedBindings || !ts.isNamedImports(st.importClause.namedBindings)) continue;
+      for (const el of st.importClause.namedBindings.elements) if (el.propertyName && HELPERS.has(el.propertyName.text)) names.add(el.name.text);
+    }
+    if (![...names].some(n => file.text.includes(n))) return;
+    const visit = n => {
+      if (ts.isCallExpression(n)) {
+        let c = n.expression;
+        while (ts.isParenthesizedExpression(c)) c = c.expression;
+        const text = ts.isIdentifier(c) ? c.text : ts.isPropertyAccessExpression(c) ? c.name.text : null;
+        if (text && names.has(text) && helperOf(n)) {
+          const place = placeOf(n);
+          if (!place.ok) report(place.top, place.why);
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(file);
+  }
+
+  // an accessor: a type callable with no argument (Solid's `Accessor<T>`); its call signature, or null
+  function accessorSig(type) {
+    if (!type) return null;
+    const t = type.flags & ts.TypeFlags.TypeParameter ? checker.getApparentType(type) : type;
+    return t.getCallSignatures().find(s => s.parameters.every(p => {
+      const d = p.valueDeclaration;
+      return d && ts.isParameter(d) && (d.questionToken || d.initializer || d.dotDotDotToken);
+    })) ?? null;
+  }
+  const accessorOf = type => { const sig = accessorSig(type); return sig ? printType(checker.getReturnTypeOfSignature(sig)) : null; };
+
+  // the implementation's parameters and result, from its syntax when it is a function expression, else its type
+  function implShape(impl) {
+    if (isFnExpr(impl)) {
+      const sig = checker.getSignatureFromDeclaration(impl);
+      const params = impl.parameters.filter(p => !(ts.isIdentifier(p.name) && p.name.text === "this")).map((p, i) => ({
+        name: ts.isIdentifier(p.name) ? p.name.text : `_${i}`, node: p, named: ts.isIdentifier(p.name),
+        rest: !!p.dotDotDotToken, opt: !p.dotDotDotToken && !!(p.questionToken || p.initializer),
+        type: checker.getTypeAtLocation(p), text: p.type ? show(p.type, new Set()) : null,
+      }));
+      const ret = sig ? checker.getReturnTypeOfSignature(sig) : null;
+      const typeParams = impl.typeParameters?.length ? `<${impl.typeParameters.map(tp => show(tp, new Set())).join(", ")}>` : "";
+      return { params, ret, retText: impl.type ? show(impl.type, new Set()) : null, typeParams };
+    }
+    const sig = checker.getTypeAtLocation(impl).getCallSignatures()[0];
+    if (!sig) return null;
+    const params = sig.parameters.map((p, i) => {
+      const d = p.valueDeclaration, isParam = d && ts.isParameter(d);
+      const rest = !!(isParam && d.dotDotDotToken), opt = !rest && !!(isParam && (d.questionToken || d.initializer));
+      const named = !(isParam && !ts.isIdentifier(d.name)) && !p.name.startsWith("__");
+      return { name: named ? p.name : `_${i}`, node: d, named, rest, opt, type: checker.getTypeOfSymbolAtLocation(p, impl), text: null };
+    });
+    const typeParams = sig.typeParameters?.length ? `<${sig.typeParameters.map(t => t.symbol.name).join(", ")}>` : "";
+    return { params, ret: checker.getReturnTypeOfSignature(sig), retText: null, typeParams };
+  }
+
+  function readRejects(arg, fail, out) {
+    const list = unwrapLiteral(arg);
+    if (!list || !ts.isArrayLiteralExpression(list)) return fail(arg, "`rejects` takes an array literal of error classes, as written: `rejects([NotFound, Offline], fn)`");
+    if (!list.elements.length) return fail(list, "`rejects([], …)` names no rejection: drop `rejects` (a generated fn rejects `Error`) or name the error classes");
+    for (const el of list.elements) {
+      const text = collapse(el.getText());
+      const id = ts.isIdentifier(el) ? el : ts.isPropertyAccessExpression(el) ? el.name : null;
+      let sym = id && checker.getSymbolAtLocation(id);
+      if (sym && sym.flags & S.Alias) { try { sym = checker.getAliasedSymbol(sym); } catch { sym = null; } }
+      const chain = sym ? errorClass(sym) : null;
+      if (!chain) { fail(el, `\`rejects([…])\`: ${text} is not an error class; list the classes themselves, each a class whose base chain reaches \`Error\` (R-f-1)`); continue; }
+      for (const d of sym.declarations ?? []) addFile(d);
+      for (const d of chain) addFile(d);
+      if (!out.includes(text)) out.push(text);
+    }
+  }
+
+  function readRefSpec(arg, fail) {
+    const spec = unwrapLiteral(arg);
+    const form = "`ref({ args: [0], result: true }, fn)`";
+    if (!spec || !ts.isObjectLiteralExpression(spec)) { fail(arg, `\`ref\` takes its spec as an object literal, as written: ${form}`); return null; }
+    const out = { args: null, result: null };
+    for (const prop of spec.properties) {
+      const key = ts.isPropertyAssignment(prop) && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) ? prop.name.text : null;
+      if (key !== "args" && key !== "result") { fail(prop, `\`ref\`'s spec has \`args\` (parameter indices) and \`result\` (\`true\`, tuple indices or object keys), written as literals: ${form}`); continue; }
+      if (out[key]) { fail(prop, `\`${key}\` is written twice in \`ref\`'s spec: write it once`); continue; }
+      const v = unwrapLiteral(prop.initializer);
+      if (key === "result" && v.kind === ts.SyntaxKind.TrueKeyword) { out.result = { whole: v }; continue; }
+      const els = ts.isArrayLiteralExpression(v) ? v.elements : null;
+      const nums = els && els.length && els.every(ts.isNumericLiteral);
+      const strs = key === "result" && els && els.length && els.every(e => ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e));
+      if (!nums && !strs) {
+        fail(prop.initializer, key === "args"
+          ? "`args` lists parameter indices as a literal: `args: [0]`"
+          : "`result` is `true`, or a literal list of tuple indices (`result: [0]`) or of object keys (`result: [\"value\"]`)");
+        continue;
+      }
+      out[key] = { parts: els.map(e => ({ node: e, key: nums ? Number(e.text) : e.text })) };
+    }
+    if (!out.args && !out.result && !spec.properties.length) { fail(spec, "`ref({}, …)` marks nothing: name `args` or `result`, or drop `ref`"); return null; }
+    return out;
+  }
+
+  /**
+   * The line for an export whose value is a helper chain; null when the innermost argument is not a function
+   * (the caller then prints the default). `placed`: the chain is where it is read (else its facts are not).
+   */
+  function helperLine(name, outer, placed) {
+    const saved = enclosing;
+    enclosing = outer.getSourceFile();
+    try { return readHelpers(name, outer, placed); } finally { enclosing = saved; }
+  }
+  function readHelpers(name, outer, placed) {
+    const kinds = new Map(), rejects = [];
+    let errored = !placed, spec = null, specNode = null, cur = outer;
+    const fail = (node, message) => { report(node, message); errored = true; };
+    for (;;) {
+      const kind = helperOf(cur);
+      if (!kind) break;
+      const n = helperArity(kind);
+      if (cur.arguments.length !== n || cur.arguments.some(ts.isSpreadElement)) {
+        fail(cur, `\`${kind}\` takes ${n === 2 ? "its literal and then the function" : "the function"} as written: \`export const ${name} = ${FORM[kind]}\``);
+        return null;
+      }
+      if (kinds.has(kind)) fail(cur, `\`${kind}(…)\` wraps ${name} twice: write it once`);
+      else {
+        kinds.set(kind, cur);
+        if (kind === "rejects") readRejects(cur.arguments[0], fail, rejects);
+        if (kind === "ref") { specNode = cur.arguments[0]; spec = readRefSpec(specNode, fail); }
+      }
+      cur = unwrapExpr(cur.arguments[n - 1]);
+    }
+    if (kinds.has("server") && kinds.has("client")) {
+      const later = [kinds.get("server"), kinds.get("client")].sort((x, y) => y.pos - x.pos)[0];
+      fail(later, `\`server(…)\` and \`client(…)\` both wrap ${name}: a fn runs on the server or on the client, not both (12 SF-5); keep one`);
+    }
+    const impl = cur;
+    const shape = impl && implShape(impl);
+    if (!shape) {
+      report(impl ?? outer, `the innermost argument of \`${helperOf(outer)}(…)\` is the implementation, a function: \`export const ${name} = ${FORM[helperOf(outer)]}\``);
+      return null;
+    }
+    if (isFnExpr(impl)) {
+      const branded = readSignature(impl, name);
+      if (branded.firstBrand) fail(branded.firstBrand, `${name} is wrapped in helpers: state its facts with the helpers only (\`pure(…)\`, \`rejects([…], …)\`, \`ref({…}, …)\`), not with brand types`);
+    }
+
+    // `ref` positions, checked against the implementation
+    const refParams = [], refParts = [];
+    if (spec?.args) for (const { node, key: i } of spec.args.parts) {
+      const p = Number.isInteger(i) ? shape.params[i] : undefined;
+      if (!p) { fail(node, `\`ref({ args: [${node.getText()}] })\`: ${name} has no parameter ${node.getText()} (it takes ${shape.params.length})`); continue; }
+      if (p.rest) { fail(node, `\`ref({ args: [${i}] })\`: ...${p.name} is a rest parameter; a ref argument is one accessor, its own parameter`); continue; }
+      if (p.opt) { fail(node, `\`ref({ args: [${i}] })\`: ${p.name} is optional; a ref argument is always passed: make it required`); continue; }
+      if (!p.named) { fail(node, `\`ref({ args: [${i}] })\`: parameter ${i} is destructured; name it and destructure inside`); continue; }
+      if (!accessorSig(p.type)) { fail(node, `\`ref({ args: [${i}] })\`: ${p.name} is not an accessor (\`() => T\`); its type is ${printType(p.type)}`); continue; }
+      if (!refParams.includes(i)) refParams.push(i);
+    }
+    let retShown = null;
+    const ret = shape.ret;
+    if (spec?.result && ret) {
+      if (spec.result.whole) {
+        const x = accessorOf(ret);
+        if (x === null) fail(spec.result.whole, `\`ref({ result: true })\`: ${name}'s result is not an accessor (\`() => T\`); it is ${printType(ret)}`);
+        else { refParts.push("result"); retShown = `ref ${/[|&]|=>/.test(x) ? `(${x})` : x}`; }
+      } else if (checker.isTupleType(ret)) {
+        const target = ret.target, elems = checker.getTypeArguments(ret);
+        const marked = new Set();
+        for (const { node, key } of spec.result.parts) {
+          if (typeof key !== "number") { fail(node, `\`ref({ result: [${node.getText()}] })\`: ${name} returns a tuple; name its accessor elements by index`); continue; }
+          const ok = Number.isInteger(key) && key < target.fixedLength && target.elementFlags[key] & ts.ElementFlags.Required;
+          if (!ok) { fail(node, `\`ref({ result: [${key}] })\`: ${name}'s result has no required element ${key}`); continue; }
+          if (accessorOf(elems[key]) === null) { fail(node, `\`ref({ result: [${key}] })\`: element ${key} of ${name}'s result is not an accessor (\`() => T\`); it is ${printType(elems[key])}`); continue; }
+          marked.add(key);
+        }
+        refParts.push(...[...marked].sort((a, b) => a - b));
+        if (marked.size) retShown = `${target.readonly ? "readonly " : ""}[${elems.map((t, i) => {
+          const f = target.elementFlags[i];
+          if (marked.has(i)) return `ref ${accessorOf(t)}`;
+          if (f & ts.ElementFlags.Variable) return `...${printType(t)}[]`;
+          return `${printType(t)}${f & ts.ElementFlags.Optional ? "?" : ""}`;
+        }).join(", ")}]`;
+      } else {
+        const marked = new Set();
+        for (const { node, key } of spec.result.parts) {
+          if (typeof key !== "string") { fail(node, `\`ref({ result: [${key}] })\`: ${name} does not return a tuple; name its accessor properties by key (\`["value"]\`)`); continue; }
+          const prop = ret.getCallSignatures().length ? null : checker.getPropertyOfType(ret, key);
+          if (!prop) { fail(node, `\`ref({ result: ["${key}"] })\`: ${name}'s result has no property ${key}`); continue; }
+          if (prop.flags & S.Optional) { fail(node, `\`ref({ result: ["${key}"] })\`: ${key} is optional in ${name}'s result; a ref part is always there`); continue; }
+          if (accessorOf(checker.getTypeOfSymbolAtLocation(prop, impl)) === null) { fail(node, `\`ref({ result: ["${key}"] })\`: ${key} in ${name}'s result is not an accessor (\`() => T\`)`); continue; }
+          marked.add(key);
+        }
+        refParts.push(...[...marked]);
+        if (marked.size) retShown = `{ ${checker.getPropertiesOfType(ret).map(p => {
+          const t = checker.getTypeOfSymbolAtLocation(p, impl);
+          const opt = p.flags & S.Optional ? "?" : "";
+          return `${p.name}${opt}: ${marked.has(p.name) ? `ref ${accessorOf(t)}` : printType(opt ? checker.getNonNullableType(t) : t)}`;
+        }).join("; ")} }`;
+      }
+    }
+
+    const rows = errored ? DEFAULT : {
+      brands: [...kinds.keys()].filter(k => FACT[k]).map(k => FACT[k]).sort(), rejects: [...rejects].sort(), refParams, refParts,
+    };
+    const refShown = new Set(errored ? [] : refParams);
+    const params = shape.params.map((p, i) => {
+      const rest = p.rest ? "..." : "", opt = p.opt ? "?" : "";
+      if (refShown.has(i)) return `ref ${p.name}: ${accessorOf(p.type)}`;
+      let type = p.text ?? printType(p.type);
+      if (opt && !p.text) type = type.replace(/ \| undefined$/, "");
+      return `${rest}${p.name}${opt}: ${type}`;
+    });
+    const retText = (!errored && retShown) || shape.retText || (ret ? printType(ret) : "");
+    return fnLine(name, { typeParams: shape.typeParams, params, ret: retText }, rows);
+  }
+
   function lineFor(name, target, typeOnly, exprDecl) {
     if (exprDecl) {
+      scanHelpers(exprDecl.getSourceFile());
       const e = unwrapExpr(exprDecl.expression);
+      if (helperOf(e)) { const l = helperLine(name, e, true); if (l) return l; }
       if (isFnExpr(e)) return fromSignatures(name, [e]);
       const type = typeOfSymbol(target, exprDecl);
       const call = type.getCallSignatures();
@@ -490,6 +782,12 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
     if (target.flags & S.Variable) {
       const d = decls.find(ts.isVariableDeclaration) ?? target.valueDeclaration;
       if (d && ts.isVariableDeclaration(d)) {
+        const init = unwrapExpr(d.initializer);
+        if (helperOf(init)) {
+          scanHelpers(d.getSourceFile());
+          const l = helperLine(name, init, placeOf(init).ok === true);
+          if (l) return l;
+        }
         const sigs = d.type ? callSigsOf(d.type) : isFnExpr(unwrapExpr(d.initializer)) ? [unwrapExpr(d.initializer)] : null;
         if (sigs) return fromSignatures(name, sigs);
         noBrands(d.type, name);
@@ -540,6 +838,7 @@ function generate(ts, program, T, { inTypesPackage, isLib }) {
     return sf.end;
   };
 
+  scanHelpers(sf);
   const moduleSymbol = checker.getSymbolAtLocation(sf);
   const exports = moduleSymbol ? checker.getExportsOfModule(moduleSymbol) : [];
   exports.forEach((exp, order) => {

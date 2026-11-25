@@ -85,6 +85,23 @@ export default component App() {
   add("MO-11 generated, merged, and a type import from a TS module", "src/main.rx", withDeclarations(p => files.get(p), files), lowerMode ? [] : undefined);
   add("MO-11d no generator", "src/main.rx", p => files.get(p), lowerMode ? [] : undefined);
 }
+// MO-11c/e: a TS module that states its facts with @reactivescript/js helpers; the import narrows the defaulted ones
+// (IMPORT_ROW_DEPRECATED, a warning: the program compiles) and not the stated one.
+if (!lowerMode && !projectMode) {
+  const files = new Map([
+    ["src/main.rx", `import { fetchUser, NotFound } from "./api"
+import server pure { saveUser, ping } from "./api" fails NotFound
+export default component App() {
+  user = await fetchUser(1) catch (e: NotFound) => null
+  <p>{user == null ? "" : user.name}</p>
+}
+`],
+    ["src/api.ts", `import { pure, rejects } from "@reactivescript/js";\nexport class NotFound extends Error {}\nexport const fetchUser = pure(rejects([NotFound], async (id: number) => ({ name: "A" + id })));\nexport async function saveUser(n: string) { return n; }\nexport default async function ping() {}\nexport { ping };\n`],
+    ["node_modules/@reactivescript/js/package.json", readFileSync(join(root, "js/package.json"), "utf8")],
+    ["node_modules/@reactivescript/js/index.d.ts", readFileSync(join(root, "js/index.d.ts"), "utf8")],
+  ]);
+  add("MO-11e deprecated narrowing of a helper module's defaulted facts", "src/main.rx", withDeclarations(p => files.get(p), files));
+}
 // MO-8c/d: a real, importer-relative API in a mixed value/type import. Exercise
 // this in the lowering comparison rather than the flight-based scenario runners.
 if (lowerMode) {
@@ -121,6 +138,7 @@ function refOf(r: Req) {
     order: set.order,
     asts: Object.fromEntries(set.order.map(p => [p, set.programs.get(p)])),
     diags: checked.diags,
+    warnings: checked.warnings,
     sigs: Object.fromEntries(set.order.map(p => [p, printSignature(checked.sigs.get(p)!)])),
     models: Object.fromEntries(checked.models),
   });

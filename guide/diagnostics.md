@@ -1256,23 +1256,37 @@ The module, or its declaration, does not export that name (MO-6, MO-8, MO-11). F
 generated from the `.ts`, so the name is not among its exports: check the spelling, or export it from the `.ts`. A line
 in a `.d.rx` beside a `.ts` that names an export the `.ts` lacks is reported at that line: remove it, or fix the name.
 
-### DECLARATION_BRAND
+### DECLARATION_HELPER
 
-A brand from `@reactivescript/types` in a `.ts` is somewhere the compiler can't read it as a fact (MO-11c). Brands go
-on the return type of the exported function, wrapped in any order. `Ref` also goes on a parameter. The error is
-reported at the brand, in the `.ts`:
+A helper from `@reactivescript/js` in a `.ts` is somewhere the compiler can't read it as a fact (MO-11c). A helper call
+is the whole value of an exported `const`, nested in any order, each helper once. Its arguments are written out. The
+error is reported at the call, in the `.ts`:
 
 ```ts
-export const limit: Pure<number> = 10                       // a brand on a value: it describes a call
-export function load(id: Pure<number>): Promise<Item>       // Pure on a parameter
-export function load(id: number): Promise<Pure<Item>>       // Pure inside the result
-export function watch(src?: Ref<string>): Ref<string>       // Ref on an optional parameter
-export function load(id: number): Rejects<Promise<Item>, "missing">   // a Rejects member that isn't an Error class
+export const load = wrap(pure(fetchItem))                  // a helper inside another call
+const kinds = [NotFound]; export const get = rejects(kinds, fetchItem)   // the list isn't written out
+export const get = rejects(["NotFound"], fetchItem)        // a name, not the class
+export const both = server(client(fn))                     // one side only
+export const watch = ref({ args: [1] }, (src: Accessor<string>, ms: number) => …)  // parameter 1 isn't an accessor
 ```
 
-Write `export function load(id: number): Pure<Rejects<Promise<Item>, NotFound>>`, with
-`class NotFound extends Error {}`. Overloads of one function carry the same brands, or none. `Ref` marks a parameter,
-the result, or a top-level element or property of the result, and nothing deeper (`Promise<Ref<T>>` is refused).
+Write `export const load = pure(rejects([NotFound], fetchItem))`, with `class NotFound extends Error {}`. `ref`'s
+`args` name accessor parameters by index; its `result` is `true` (the result is an accessor), tuple indices, or
+property names.
+
+### IMPORT_ROW_DEPRECATED
+
+A warning: `import pure`, `fails(…)`, `server` or `client` on an import of a `.ts` module states at the import what the
+`.ts` should state (MO-11e). It still compiles; in the next minor it is an error. Move it into the `.ts` with the
+helper the warning names, then import plainly:
+
+```ts
+// api.ts
+import { pure, rejects } from "@reactivescript/js"
+export const fetchUser = pure(rejects([NotFound], async (id: number) => …))
+```
+
+`import { fetchUser } from "./api"`. A package with no `.ts` beside it keeps `import pure` (no warning).
 
 ### DECLARATION_UNAVAILABLE
 
@@ -1295,9 +1309,8 @@ Two modules import each other, directly or through others (MO-5). Move what both
 
 An import restates what its source already declares (MO-4, MO-8, MO-11e, SF-5): `pure` on a function that is io,
 `fails(…)` on an `.rx` module (its rows are its signature's), or `server` / `client` on a name its `.d.rx` declares
-otherwise. For a `.ts` module, an import may still narrow a fact the `.ts` left to the default (`import pure` of an
-unbranded function), but not one a brand or a `.d.rx` line states. Drop the annotation on the import and let the
-declaration say it, or brand the `.ts` (`Pure<…>`, `Rejects<…>`).
+otherwise. For a `.ts` module, a fact a helper or a `.d.rx` line states can't be restated at the import. Drop the
+annotation on the import and let the declaration say it.
 
 ## Server functions
 

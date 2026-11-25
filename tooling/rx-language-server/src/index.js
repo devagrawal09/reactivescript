@@ -83,13 +83,13 @@ const tsStems = () => { const s = new Set(); for (const { result } of cache.valu
 const TS_FILE = /(\.d)?\.(ts|tsx|mts|cts)$/;
 const stemOfTs = f => f.replace(/\/index\.(d\.ts|ts|tsx)$/, "").replace(TS_FILE, "");
 
-/** The generator's diagnostics (`DECLARATION_BRAND`, MO-11c) in a TS module an `.rx` imports, as `{file, line (1-based),
+/** The generator's diagnostics (`DECLARATION_HELPER`, MO-11c) in a TS module an `.rx` imports, as `{file, line (1-based),
  *  column, code, message}`, from its declaration as it is on disk now. */
 function declarationErrors(file) {
   if (!tsStems().has(stemOfTs(file))) return [];
   return (record(stemOfTs(file))?.errors ?? []).filter(e => e.file === file);
 }
-const ruleOf = code => (code === "DECLARATION_BRAND" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11");
+const ruleOf = code => (code === "DECLARATION_HELPER" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11");
 
 /** The crate's diagnostics on a `.rx` document: the editor's parse's errors, else the checker's (CP-8d). Volar hands
  *  the service the root virtual code's document, whose URI encodes the `.rx` file's. */
@@ -123,7 +123,7 @@ function rxDiagnostics() {
               start: { line: d.range.start.line - 1, character: d.range.start.column },
               end: { line: d.range.end.line - 1, character: d.range.end.column },
             },
-            severity: 1,
+            severity: d.severity === "warning" ? 2 : 1,   // a warning (MO-11e's IMPORT_ROW_DEPRECATED) is shown as one
             source: "rx",
             code: d.code,
             codeDescription: { href: guideUrl(d.code) },

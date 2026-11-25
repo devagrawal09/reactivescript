@@ -264,7 +264,7 @@ export function tokenSize(n, A, M = METRICS, zoom = true) {
   const s = baseTokenSize(n, A, M), k = zoom ? M.zoom : 1;
   return { w: Math.ceil(s.w * k), h: s.h * k };
 }
-/** A JS import's declaration origin (09 MO-11) as its token's tag: `d.rx` (a written line), `brand`, `default`; else null. */
+/** A JS import's declaration origin (09 MO-11) as its token's tag: `d.rx` (a written line), `helper`, `default`; else null. */
 export const declTag = n => (n.decl ? (n.decl.origin === "written" ? "d.rx" : n.decl.origin) : null);
 /** A token's unzoomed size: its icon, name, marks and badges, in the page's chip paddings. */
 export function baseTokenSize(n, A, M = METRICS) {

@@ -1,22 +1,28 @@
-# S-module-8 — a TS module declares itself: generated rows, brands, one written override
+# S-module-8 — a TS module declares itself: generated rows, stated facts, one written override
 
 Rules: MO-11a, MO-11b, MO-11c, MO-11d, MO-11e, MO-8c, MO-8d, MO-10a, MO-10b, R-io-4, R-f-8, TY-4b,
 TY-4d. S-module-2's program, with its `.d.rx` replaced by the TS module it described. Here
 `./api` is `api.d.ts`, a TS module with no implementation, so the runners still supply its
 flights (MO-8c, as S-module-2's `api.d.rx` did) and the type layer reads it as TypeScript does. Its
-declaration is generated from it (MO-11): the brands give `fetchUser` its rows, `logVisit` has
-none (the default: io, `rejects(Error)`), and `api.d.rx` overrides `saveUser` alone. `./prims` is
-`prims.d.ts`, the scenarios' Solid primitives (S-module-4), declared by a `Ref` brand.
+declaration is generated from it (MO-11): its stated facts give `fetchUser` its rows, `logVisit`
+has none (the default: io, `rejects(Error)`), and `api.d.rx` overrides `saveUser` alone. `./prims` is
+`prims.d.ts`, the scenarios' Solid primitives (S-module-4), with a `ref` parameter and result.
+
+A `.ts` states a fact with a helper call from `@reactivescript/js` (`export const fetchUser =
+pure(rejects([NotFound, Offline], …))`, MO-11c). A `.d.ts` has no initializers to wrap, so these
+modules state their facts with the package's v1 brand types (`Pure<…>`, `Rejects<…>`, `Ref<…>`),
+which the generator still reads; the facts it generates are the same. The package here is its
+types alone (the runners supply the flights).
 
 ## Modules
 
 ```json
--- module: ./node_modules/@reactivescript/types/package.json
-{ "name": "@reactivescript/types", "types": "./index.d.ts", "sideEffects": false }
+-- module: ./node_modules/@reactivescript/js/package.json
+{ "name": "@reactivescript/js", "types": "./index.d.ts", "sideEffects": false }
 ```
 
 ```ts
--- module: ./node_modules/@reactivescript/types/index.d.ts
+-- module: ./node_modules/@reactivescript/js/index.d.ts
 export type Pure<R> = R;
 export type Rejects<P extends PromiseLike<unknown>, E extends Error> = P;
 export type Ref<T> = () => T;
@@ -27,7 +33,7 @@ export type Client<R> = R;
 
 ```ts
 -- module: ./api.d.ts
-import type { Pure, Rejects } from "@reactivescript/types";
+import type { Pure, Rejects } from "@reactivescript/js";
 export declare class NotFound extends Error {}
 export declare class Offline extends Error {}
 export type User = { id: number; name: string };
@@ -47,13 +53,13 @@ export type Rename = { id: number; name: string }
 
 ```ts
 -- module: ./prims.d.ts
-import type { Pure, Ref } from "@reactivescript/types";
+import type { Pure, Ref } from "@reactivescript/js";
 export declare function createShout(s: Ref<string>): Pure<Ref<string>>;
 ```
 
 ```ts
 -- module: ./bad.d.ts
-import type { Pure } from "@reactivescript/types";
+import type { Pure } from "@reactivescript/js";
 export declare function score(n: Pure<number>): number;
 ```
 
@@ -99,12 +105,15 @@ export default component App() {
 }
 ```
 
-`fetchUser` is pure by its `Pure` brand, so it is awaited in reactive scope, and it rejects with
-the two classes its `Rejects` brand names. `User` is a type: it binds nothing and is not in the
-emitted import (MO-8d). `logVisit` has no brand, so its rows are the default, and the import may
-narrow them as R-io-4 and R-f-8 allow for an undeclared JS import: `fails Offline`. `saveUser`'s
+`fetchUser` is pure (`Pure`, a `.ts`'s `pure(…)`), so it is awaited in reactive scope, and it
+rejects with the two classes `Rejects` names (a `.ts`'s `rejects([NotFound, Offline], …)`). `User` is a type: it binds nothing and is not in the
+emitted import (MO-8d). `logVisit` states nothing, so its rows are the default, and the import may
+still narrow them as R-io-4 and R-f-8 allow for an undeclared JS import: `fails Offline`. That
+compiles with the warning `IMPORT_ROW_DEPRECATED` (MO-11e), which names the fact's statement in
+the module (`rejects([Offline], …)`); in the next minor it is an error. `saveUser`'s
 rows are its written line's. `createShout` takes `greeting` as an accessor (`Ref` on the
-parameter) and hands one back (`Ref` on the result): it instantiates (MO-10a).
+parameter; a `.ts`'s `ref({ args: [0], result: true }, …)`) and hands one back: it instantiates
+(MO-10a).
 
 ## Frames
 
@@ -148,7 +157,7 @@ export default component App() {
 }
 ```
 
-MO-11e: `fetchUser`'s rejections are branded (`Rejects<…, NotFound | Offline>`); the import cannot
+MO-11e: `fetchUser`'s rejections are stated (`Rejects<…, NotFound | Offline>`); the import cannot
 restate them. `logVisit`'s, defaulted, it may narrow (the program above).
 
 ```rx
@@ -172,7 +181,7 @@ export default component App() {
 }
 ```
 
-R-io-4: with no `Pure` brand, a function is io.
+R-io-4: with no `pure` stated, a function is io.
 
 ```rx
 -- reject: IO_IN_REACTIVE
@@ -187,7 +196,7 @@ export default component App() {
 MO-11b: a value that is not a function is `export const`, read as an undeclared JS import is: io if called.
 
 ```rx
--- reject: DECLARATION_BRAND
+-- reject: DECLARATION_HELPER
 import { score } from "./bad"
 export default component App() {
   <p>x</p>
@@ -195,6 +204,20 @@ export default component App() {
 ```
 
 MO-11c: `Pure` marks a function's return type; on a parameter it is not a fact the generator can read.
+
+```rx
+-- warn: IMPORT_ROW_DEPRECATED
+import pure { logVisit } from "./api"
+export default component App() {
+  seen = await logVisit("home")
+
+  errored fallback(e) { <p>{e.message}</p> } { <p>{seen}</p> }
+}
+```
+
+MO-11e: `logVisit`'s io is defaulted, so `import pure` still narrows it, and the program compiles,
+with a warning that gives the fix: in `api.d.ts`'s place, a `.ts` with `export const logVisit =
+pure(…)`, imported without `pure`.
 
 ```rx
 -- types: TS2345

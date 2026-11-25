@@ -543,25 +543,26 @@ impl JsDecl {
             JsDecl::Import { .. } => {}
         }
     }
-    /// MO-11c: the brands a generated line's rows say were written in the `.ts` (a fact without one is defaulted).
-    pub fn brands(&self) -> Vec<&'static str> {
+    /// MO-11c: the helpers a generated line's rows say the `.ts` states (`pure`, `rejects`, `ref`, `instantiates`, `server`,
+    /// `client`); a fact without one is defaulted.
+    pub fn helpers(&self) -> Vec<&'static str> {
         let JsDecl::Fn { pure, rejects, refs, shape, inst_written, side, .. } = self else { return vec![] };
         let mut out = vec![];
         if *pure {
-            out.push("Pure");
+            out.push("pure");
         }
         if rejects.is_some() {
-            out.push("Rejects");
+            out.push("rejects");
         }
         if refs.iter().any(|x| *x) || shape.has_ref() {
-            out.push("Ref");
+            out.push("ref");
         }
         if *inst_written {
-            out.push("Instantiates");
+            out.push("instantiates");
         }
         match side {
-            Some(Side::Server) => out.push("Server"),
-            Some(Side::Client) => out.push("Client"),
+            Some(Side::Server) => out.push("server"),
+            Some(Side::Client) => out.push("client"),
             None => {}
         }
         out
