@@ -504,6 +504,7 @@ export class Oracle {
       case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else if ("computed" in f) Object.defineProperty(o, this.ev(f.computed, scope, env) as PropertyKey, { value: this.ev(f.v, scope, env), enumerable: true, configurable: true, writable: true }); else o[f.key] = this.ev(f.v, scope, env); } return o; }
       case "fn": if (e.stmts && inferredAction(e.stmts)) return this.lowerAction(e.params, e.stmts, scope, env);   // AC-1b
         return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return e.stmts ? this.runStmts(e.stmts, scope, en) : this.ev(e.body, scope, en); };
+      case "as": return this.ev(e.e, scope, env);                 // 07 §3: a type assertion, erased
       case "stylemap": return classMap(e.css);                      // 07 CSS-5
       case "call": {
         let f: any, self: any;
