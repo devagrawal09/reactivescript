@@ -141,7 +141,7 @@ export component Scrub() {
   effect () { return startTrack({ tl: () => live.tl, travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) }
 
   <div id="scrub" hidden={!isLive()}>
-    <button class={["hbtn", isLive() && !viewingNow && "on"]} id="liveBtn" title="back to live"
+    <button class={["hbtn", isLive() && !viewingNow && live.tl.steps.length > 0 && "on"]} id="liveBtn" title="back to live"
       onClick={() => { sfx("toggle"); if (viewingNow) { resume() } }}>LIVE</button>
     <div id="track" role="slider" tabIndex={0} aria-label="timeline: drag or use the arrow keys to travel"
       aria-valuemin={`${firstSeq}`} aria-valuemax={`${live.tl.head}`} aria-valuenow={`${shownSeq}`}>
