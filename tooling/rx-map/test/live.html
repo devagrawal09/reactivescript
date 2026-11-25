@@ -151,6 +151,54 @@ try {
   await sleep(30);
   check("snapshot: boundaries back to ok, flights cleared", !doc.querySelector(".frame.tripped") && !chip("query").classList.contains("flying"));
 
+  // v0.4: failures, held writes, and what a tripped boundary says when opened
+  post({ v: 1, type: "snapshot", values: [{ key: K("users").key, error: "ServerError: listUsers 503" }, { key: K("status").key, preview: '"3 users"' }], flights: [],
+    boundaries: [{ region: erroredR.key, state: "error", error: "ServerError: listUsers 503" }], held: [{ key: K("page").key, by: [K("users").key], since: 3 }] });
+  await sleep(40);
+  check("a failed value: rose token, the error in its badge", chip("users").classList.contains("failed") && /listUsers 503/.test(chip("users").querySelector(".lverr")?.textContent ?? ""), chip("users").className);
+  check("a held write: an amber mark that says what it waits on", chip("page").classList.contains("held") && /held.*waiting on users/i.test(chip("page").querySelector(".hm")?.textContent ?? ""), chip("page").querySelector(".hm")?.textContent);
+  win.select(K("users").id); await sleep(30);
+  check("the panel says it failed, and with what", /failed/i.test(doc.querySelector("#liveval .failbox")?.textContent ?? "") && /listUsers 503/.test(doc.getElementById("liveval").textContent), doc.getElementById("liveval")?.textContent);
+  win.select(K("status").id); await sleep(30);
+  check("a value from the snapshot is the value at open, not 'no change'", /value at open/.test(doc.getElementById("liveval")?.textContent ?? "") && !/No change seen/.test(doc.getElementById("panel").textContent), doc.getElementById("liveval")?.textContent);
+  post({ v: 1, type: "released", key: K("page").key, at: 9 });
+  post({ v: 1, type: "flush", seq: 3, at: 31, changes: [{ key: K("users").key, name: "x", preview: '[{id: 1, name: "Ada"}, {id: 2, name: "Grace"}, …3]' }, { key: K("total").key, name: "y", error: "TypeError: len of undefined" }] });
+  await sleep(40);
+  check("released clears the held mark", !chip("page").classList.contains("held") && !chip("page").querySelector(".hm"));
+  check("a flush can fail a value and clear another's failure", chip("total").classList.contains("failed") && !chip("users").classList.contains("failed"), [chip("total").className, chip("users").className]);
+  post({ v: 1, type: "held", key: K("query").key, by: [K("search").key], at: 10 });
+  await sleep(20);
+  check("a held message marks the token", /waiting on search/.test(chip("query").querySelector(".hm")?.textContent ?? ""));
+  post({ v: 1, type: "released", key: K("query").key, at: 11 });
+  const trip = doc.querySelector(".frame.errored.tripped > .flabel > .trip");
+  trip?.click(); await sleep(30);
+  check("a tripped boundary opens: state, error, and who can notify it", /showing fallback/i.test(doc.getElementById("panel").textContent) && /listUsers 503/.test(doc.getElementById("panel").textContent) && /Can fail from/.test(doc.getElementById("panel").textContent), doc.getElementById("panel").textContent.slice(0, 300));
+  post({ v: 1, type: "boundary", region: erroredR.key, state: "ok", at: 12 });
+  await sleep(30);
+  check("a boundary message clears the trip", !doc.querySelector(".frame.errored.tripped"));
+  // search: Enter selects the match and opens it; arrows go through the matches
+  const q = doc.getElementById("q");
+  q.value = "s"; q.dispatchEvent(new win.Event("input", { bubbles: true }));
+  const n0 = doc.getElementById("qcount").textContent;
+  q.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  const n1 = doc.getElementById("qcount").textContent;
+  q.value = "total"; q.dispatchEvent(new win.Event("input", { bubbles: true }));
+  q.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await sleep(30);
+  check("search: arrows cycle, Enter selects the match into the panel", /^1\//.test(n0) && /^2\//.test(n1) && chip("total").classList.contains("sel") && doc.querySelector('#ptabs [data-tab="node"]')?.textContent === "total", [n0, n1, doc.querySelector('#ptabs [data-tab="node"]')?.textContent]);
+  q.value = ""; q.dispatchEvent(new win.Event("input", { bubbles: true }));
+  // the wheel scrolls; ctrl + wheel zooms
+  const cv = doc.getElementById("canvas"), z0 = doc.getElementById("zoomPct").textContent, t0 = doc.getElementById("world").style.transform;
+  cv.dispatchEvent(new win.WheelEvent("wheel", { deltaY: 120, clientX: 600, clientY: 400, bubbles: true, cancelable: true }));
+  await sleep(40);
+  const z1 = doc.getElementById("zoomPct").textContent, t1 = doc.getElementById("world").style.transform;
+  cv.dispatchEvent(new win.WheelEvent("wheel", { deltaY: -120, ctrlKey: true, clientX: 600, clientY: 400, bubbles: true, cancelable: true }));
+  await sleep(40);
+  check("the wheel scrolls the map; ctrl + wheel zooms", z1 === z0 && t1 !== t0 && doc.getElementById("zoomPct").textContent !== z0, [z0, z1, doc.getElementById("zoomPct").textContent]);
+  post({ v: 1, type: "snapshot", values: [], flights: [], boundaries: [], held: [] });
+  post({ v: 1, type: "flush", seq: 4, at: 32, changes: [{ key: K("total").key, name: "y", preview: "2" }] });
+  await sleep(30);
+
   // pop-out: the same live map in its own window, fed through this one (no bridge to attach to: the relay)
   const realConnect = globalThis.__RX__.connect;
   delete globalThis.__RX__.connect;

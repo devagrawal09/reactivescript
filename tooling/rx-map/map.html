@@ -1478,7 +1478,7 @@ function zoomAt(sx, sy, f) {
   const [bx, by] = toBoard(sx, sy);
   fly = null;
   setCamAt(bx, by, clamp(cam.s * f, .08, 2.6), sx, sy);
-  camChanged();
+  camDirty = false; applyCam();   // now, not next frame: the wheel feels direct
 }
 function ensureVisible(el) {
   const b = boxOf(el); if (!b) return;
@@ -1561,7 +1561,7 @@ canvas.addEventListener("wheel", ev => {
   fly = null; inertia = null;
   if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
   else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
-  camChanged();
+  camDirty = false; applyCam();
 }, { passive: false });
 addEventListener("resize", () => { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(); sizeScrub(); renderScrub(); });
 document.getElementById("zoomIn").innerHTML = ICON.plus;
@@ -2622,7 +2622,7 @@ const FAKE_LIB = /*__FAKELIB__*/null;
 window.__RX_FAKE_LIB__ = FAKE_LIB;
 const fake = { host: null, timer: 0, n: 0, every: 0, paused: false };
 function startFake(seed) {
-  const h = (fake.host = FAKE_LIB.createFakeHost(JSON.parse(JSON.stringify(G0)), { seed }));
+  const h = (fake.host = FAKE_LIB.createFakeHost(JSON.parse(JSON.stringify(G0)), { seed, failRate: .12 }));
   window.__RX_FAKE__ = h;
   document.body.classList.add("fake");
   // time moves in ticks: requests land, and auto-play acts every few
