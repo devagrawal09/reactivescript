@@ -34,7 +34,7 @@ for (const f of Object.values(PIN)) if (!existsSync(path.join(solidPkgs, f))) th
 const entry = path.join(src, "main.rx");
 const out = JSON.parse(app(entry, "dom", null, true, false));
 if (out.diagnostics) {
-  for (const d of out.diagnostics) console.error(`${d.file}:${d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : d.line}: error ${d.code} [${d.rule}] ${d.msg}`);
+  for (const d of out.diagnostics) console.error(`${d.file}:${d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : d.line}: ${d.severity ?? "error"} ${d.code} [${d.rule}] ${d.msg}`);
   process.exit(1);
 }
 if (out.error) { console.error(out.error); process.exit(1); }

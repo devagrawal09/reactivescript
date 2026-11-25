@@ -394,10 +394,12 @@ A JS import from a TS module with no `.d.rx` (spec/09 MO-11) is declared by what
 Node-API path the server generates it in process (`@reactivescript/compiler/dts`: the project's, else its own, with the
 project's `typescript`); with `RXC`, `rxc` runs `rx-dts` itself: `$RX_DTS` (a command line, e.g.
 `node /path/to/compiler/bin/rx-dts.mjs`), else the nearest `node_modules/.bin/rx-dts`, else `DECLARATION_UNAVAILABLE`.
-An edit to the `.ts` refreshes the model. `check` reports the generator's diagnostics (`DECLARATION_BRAND` in the `.ts`,
-`NOT_EXPORTED`); `node` on an imported name shows its declaration line, the file it is from (the `.d.rx` or the `.ts`)
-and its origin (`written`, `brand` with the brands, `default`), as `imported` in JSON. The map tags each such token
-`d.rx` / `brand` / `default`, with the line on hover.
+An edit to the `.ts` refreshes the model. `check` reports the generator's diagnostics (`DECLARATION_HELPER` in the `.ts`,
+`NOT_EXPORTED`), and `IMPORT_ROW_DEPRECATED` (MO-11e: `import pure` / `fails` / `server` / `client` narrowing a fact
+the `.ts` does not state) as a warning, with the `@reactivescript/js` helper that states it; `node` on an imported name
+shows its declaration line, the file it is from (the `.d.rx` or the `.ts`) and its origin (`written`, `helper` with the
+helpers, `default`), as `imported` in JSON. The map tags each such token `d.rx` / `helper` / `default`, with the line on
+hover.
 
 OpenCode (`opencode.jsonc`):
 
@@ -450,7 +452,8 @@ Vite with `RX_MCP_ACT=1`. The Vite `/__rx/mcp` endpoint then exposes `timeline(l
 connected page and use the same host and limits as the map. `record` only changes the recorder's bookmark.
 
 If a build breaks after a successful one, static queries reuse the last good model in this MCP session and say when it
-was built and which files changed. `check` reports current errors. Use keys like `src/state.rx||ui.hidden` with
+was built and which files changed. `check` reports current errors (`ok` when there are none), then any warnings
+apart under `warnings:`; in JSON each entry has its `severity`. Use keys like `src/state.rx||ui.hidden` with
 `node`, `find`, or `reach` to inspect a field. `node` on the whole store lists observed fields; whole-store accesses
 also count for field queries. `reach` defaults to downstream. `overview` and `find` hide JS imports unless you pass
 `imports: true`.

@@ -72,11 +72,11 @@ test("a JS import's declaration origin (09 MO-11) reaches the graph, the query a
   const root = mkdtempSync(join(tmpdir(), "rx-map-decl-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "node_modules/@reactivescript"), { recursive: true });
-  symlinkSync(join(repo, "types"), join(root, "node_modules/@reactivescript/types"), "dir");
+  symlinkSync(join(repo, "js"), join(root, "node_modules/@reactivescript/js"), "dir");
   symlinkSync(realpathSync(join(repo, "ref/node_modules/typescript")), join(root, "node_modules/typescript"), "dir");
   writeFileSync(join(root, "api.ts"), [
-    'import type { Pure, Ref } from "@reactivescript/types";',
-    "export function createShout(s: Ref<string>): Pure<Ref<string>> { return () => s() + '!'; }",
+    'import { pure, ref } from "@reactivescript/js";',
+    "export const createShout = pure(ref({ args: [0], result: true }, (s: () => string) => () => s() + '!'));",
     "export async function save(n: string): Promise<void> { void n; }",
     "export async function log(n: string): Promise<void> { void n; }",
     "",
@@ -86,11 +86,11 @@ test("a JS import's declaration origin (09 MO-11) reaches the graph, the query a
   const env = { ...process.env, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` };
   const g = buildGraph(JSON.parse(execFileSync(rxc, ["model", "main.rx"], { cwd: root, encoding: "utf8", env })), { root });
   const decl = name => g.nodes.find(n => n.name === name)?.decl;
-  assert.deepEqual(decl("createShout"), { line: "export pure fn createShout(ref s: string): ref string", from: "api.ts", origin: "brand", brands: ["Pure", "Ref"] });
-  assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", brands: [] });
+  assert.deepEqual(decl("createShout"), { line: "export pure fn createShout(ref s: string): ref string", from: "api.ts", origin: "helper", helpers: ["pure", "ref"] });
+  assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", helpers: [] });
   assert.equal(decl("log").origin, "default");
   const tags = g.nodes.filter(n => n.decl).map(n => [n.name, declTag(n)]);
-  assert.deepEqual(tags, [["createShout", "brand"], ["save", "d.rx"], ["log", "default"]]);
+  assert.deepEqual(tags, [["createShout", "helper"], ["save", "d.rx"], ["log", "default"]]);
   // a Ref primitive is a fn on its plate (MO-10a), the rest JS imports in the outside column: each carries the tag,
   // a badge the token's box makes room for
   const A = { chipLabel: n => n.name };

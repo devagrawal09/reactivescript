@@ -154,8 +154,9 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       const native = frontend ? undefined : nativeCompiler();
       const out = frontend ? frontend.check() : JSON.parse(native?.app ? native.app(entry, "dom", null, spa, null, null, null, declare)
         : compiler(root, ["app", entry, ...(spa ? ["--spa"] : [])]));
+      // errors, then warnings (`severity: "warning"`, 09 MO-11e), which a program that compiles carries beside its modules
       builds.set(entry, out.diagnostics?.length ? out.diagnostics : out.error
-        ? [{ file: entry, code: "BUILD", message: out.error }] : []);
+        ? [{ file: entry, code: "BUILD", message: out.error }] : out.warnings ?? []);
     }
     return builds.get(entry);
   }
@@ -170,7 +171,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         let saved;
         let fresh = false;
         try {
-          const diagnostics = buildDiagnostics(s, entry);
+          const diagnostics = buildDiagnostics(s, entry).filter(d => d.severity !== "warning");   // a warning never fails a build
           if (diagnostics.length) throw Object.assign(new Error(diagnostics.map(d => d.msg ?? d.message).join("\n")), { diagnostics });
           const model = frontends.get(entry)?.model() ?? modelOf([entry], root, true);
           const texts = new Map(model.map(m => {

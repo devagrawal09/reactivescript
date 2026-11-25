@@ -179,7 +179,7 @@ export function queryGraph(g, method, p) {
       reads: linked("read", "in"), writes: linked("write", "out"), calls: linked("call", "out"),
       readBy: linked("read", "out"), writtenBy: linked("write", "in") };
     // a JS import's effective declaration (09 MO-11): a written `.d.rx` line, else the one generated from the TS module
-    if (n.decl) data.imported = { line: n.decl.line, from: n.decl.from, origin: n.decl.origin, ...(n.decl.brands?.length ? { brands: n.decl.brands } : {}) };
+    if (n.decl) data.imported = { line: n.decl.line, from: n.decl.from, origin: n.decl.origin, ...(n.decl.helpers?.length ? { helpers: n.decl.helpers } : {}) };
     if (!field && ["source", "eq"].includes(n.kind)) data.fields = fields(n).map(field => ({
       key: `${root}.${field}`, field,
       readBy: data.readBy.filter(r => overlaps(field, r.field)), writtenBy: data.writtenBy.filter(w => overlaps(field, w.field)),
@@ -197,7 +197,7 @@ export function queryGraph(g, method, p) {
     const marks = Object.keys(data.marks).filter(k => data.marks[k]);
     return result(data, [
       `${describe(data)}  role=${data.role}  marks=${marks.join(",") || "none"}`, `  declaration: ${data.declaration.trim()}`,
-      ...(data.imported ? [`  imported: ${data.imported.line}  from ${data.imported.from}  (${data.imported.origin}${data.imported.brands ? `: ${data.imported.brands.join(", ")}` : ""})`] : []),
+      ...(data.imported ? [`  imported: ${data.imported.line}  from ${data.imported.from}  (${data.imported.origin}${data.imported.helpers ? `: ${data.imported.helpers.join(", ")}` : ""})`] : []),
       ...(outline ? [`  view: ${outline}`] : []),
       ...(data.component ? [`  component ${describe(data.component)}`] : []),
       ...data.boundaries.map(b => `  boundary ${describe(b)}`),
