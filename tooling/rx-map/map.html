@@ -1236,7 +1236,7 @@ function showPanel(id) {
     ${diffFacts(n)}
     ${facts.map(f => `<div class="hint" style="margin-top:4px">· ${f}</div>`).join("")}
     ${reason ? `<h3>Reload plan</h3><div class="hint">${esc(reason)}</div>` : ""}
-    ${LIVE && keyIds.has(n.key) ? `<h3>Live value</h3><div id="liveval"></div>` : ""}
+    ${LIVE && keyIds.has(n.key) && !["comp", "action", "fn", "server", "import", "errclass", "context"].includes(n.kind) ? `<h3>Live value</h3><div id="liveval"></div>` : ""}
     <div class="row">
       <button data-trace="down">what it affects</button>
       <button data-trace="up">what it depends on</button>
