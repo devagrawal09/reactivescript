@@ -42,6 +42,11 @@ impl Diagnostic {
 }
 
 const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
+pub(crate) fn pure_global(name: &str, member: Option<&str>) -> bool {
+    static GLOBALS: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> = std::sync::OnceLock::new();
+    GLOBALS.get_or_init(|| serde_json::from_str(include_str!("../../spec/pure-globals.json")).expect("pure globals"))
+        .get(name).is_some_and(|ms| member.is_none_or(|m| ms.iter().any(|x| x == m)))
+}
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
     fn in_stmts(ss: &[Stmt]) -> bool {
@@ -2144,11 +2149,11 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
-        if matches!(name, "Number" | "Math") {
-            self.err("UNBOUND", "SV-7a", format!("{name} is not a global in .rx: in js-globals.js write `export const {name} = globalThis.{name}`, then here write `import {{ {name} }} from \"./js-globals.js\"`"));
-            return None;
+        if pure_global(name, None) {
+            self.err("UNBOUND", "SV-7a", format!("{name} is a prelude namespace: use an allowed member directly, for example `Math.round(x)`"));
+        } else {
+            self.err("UNBOUND", "SCOPE", format!("{name} is not declared here (a component sees its declaration site, not its caller — RG-7a); for a host global, wrap it in a JS function and import that function"));
         }
-        self.err("UNBOUND", "SCOPE", format!("{} is not declared here (a component sees its declaration site, not its caller — RG-7a)", name));
         None
     }
     /// 12 SF-3/SF-5: what a name may be on this side.
@@ -2352,6 +2357,14 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, p, .. } => {
+                if let ExprKind::Id(n) = &o.k {
+                    if self.lookup(env, n).is_none() && pure_global(n, None) {
+                        if !pure_global(n, Some(p)) {
+                            self.err("UNBOUND", "SV-7a", format!("{n}.{p} is not in the pure prelude; wrap it in a JS function and import that function"));
+                        }
+                        return;
+                    }
+                }
                 let path = field.map(|f| format!("{p}.{f}"));
                 self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(p)));
             }
@@ -2376,6 +2389,10 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Call { f, args } => {
+                if matches!(&f.k, ExprKind::Id(n) if self.lookup(env, n).is_none() && pure_global(n, Some("()"))) {
+                    for a in args { self.expr(a, env, ctx, None); }
+                    return;
+                }
                 let mut callee = &**f;
                 while let ExprKind::As { e, .. } = &callee.k { callee = e; }
                 if let ExprKind::Id(fname) = &callee.k {

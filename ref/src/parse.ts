@@ -9,6 +9,7 @@ const JS_APIS = /\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|cre
  *  `src/parse.rs` `hint` is the same function. */
 export function hint(src: string, i: number, msg: string): [string, string] | null {
   const rest = src.slice(i);
+  if (msg === "action parameter default") return ["ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call"];
   const at = rest.length && !/^\s*$/.test(rest.split("\n")[0]) ? i : src.slice(0, i).trimEnd().length - 1;
   const p = Math.max(0, at);
   const lineStart = (k: number) => src.slice(0, k).lastIndexOf("\n") + 1;
@@ -366,7 +367,7 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("action")) {
     c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (c.startsWith("=")) c.fail("action parameter default"); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, ptypes, body: parseBlock(c), line };
   }

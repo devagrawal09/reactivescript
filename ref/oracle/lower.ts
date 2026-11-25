@@ -3,6 +3,7 @@
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
 import { classMap } from "../src/style.ts";
+import { actionInput } from "../compile/action-input.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
@@ -18,6 +19,7 @@ import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "../src/failur
 import { singleModule, type ModuleSet } from "../src/modules.ts";
 import { nonTailAwaits, viewReaders } from "../src/awaits.ts";
 import { unwrapServer } from "../src/check.ts";
+import { pureGlobal, pureGlobalValue } from "../src/pure-globals.ts";
 import { primsSolid, isPrims } from "../src/prims.ts";
 import type { Shape } from "../src/parse.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
@@ -451,7 +453,7 @@ export class Oracle {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = scope.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
+        if (!b) { if (pureGlobal(e.name)) return pureGlobalValue(e.name); if (e.name in BUILTINS) return BUILTINS[e.name]; throw new Error(`unbound ${e.name}`); }
         switch (b.k) {
           case "const": return b.value;
           case "sig": case "memo": case "store": {
@@ -582,7 +584,7 @@ export class Oracle {
       env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
       const r = yield* self.block(body, scope, env); return r ? r.value : undefined;
     });
-    return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
+    return (...args: unknown[]) => { const p = run(...untrack(() => actionInput(args, $TARGET))); p.catch(e => { self.asyncError = e; }); return p; };
   }
   /** 12 SF-7b: a server function as the client sees it — a call is a flight. The body runs in place (its generator driven by
    *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and

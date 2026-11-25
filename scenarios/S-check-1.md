@@ -368,3 +368,11 @@ export default component App() {
 
 The second `<Badge />` is rendered on a path with no provision (RG-7b): one
 path without it is enough.
+## Rejected: action defaults
+
+```rx
+-- reject: ACTION_PARAMETER_DEFAULT
+type Intent = "edit" | "add"
+export action save(operation: Intent = "edit") {}
+export default component App() { <button onClick={() => { save("edit") }}>Save</button> }
+```

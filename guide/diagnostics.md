@@ -1397,3 +1397,8 @@ An equation's value is a promise or a stream, which Solid would consume as a val
 
 A server function's result or parameter is not data: a function or a class instance does not cross the wire (SF). Return
 plain data.
+### ACTION_PARAMETER_DEFAULT
+
+An action takes one argument per parameter (AC-1f). Change
+`action save(operation: Intent = "edit") { … }` to
+`action save(operation: Intent) { … }` and call `save("edit")`.

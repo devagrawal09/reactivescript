@@ -240,9 +240,14 @@ The ideal SV-3c points at: nothing the program can say computes one thing
 on the server and another in the browser. What is left is assertions an
 author writes, and Solid's runtime parity (CP-1b), which `ref/ssr/` tests.
 
-- **SV-7a (Inside `.rx`).** Already so: there are no globals (`Math`,
-  `Date` and `window` are `UNBOUND` until imported), reactive scope has no
-  io (R-io-3), and every answer the mount used is the server's (SV-3b). So
+- **SV-7a (Inside `.rx`).** The fixed [pure prelude](pure-globals.json)
+  lists the JS globals and members allowed without import. Use listed
+  members directly (`Math.round(x)`); `()` means direct conversion calls
+  are also permitted. The namespace itself is not a value. The type
+  projection uses their standard TypeScript types. Anything outside the
+  list is `UNBOUND`; wrap a host operation in JS and import the wrapper.
+  Reactive scope has no io (R-io-3), and every answer the mount used is
+  the server's (SV-3b). So
   an equation is a function of its inputs, and its inputs — initializers,
   props, provisions, answers — are the same on both sides. The only way out
   of the language is an import.
