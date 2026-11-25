@@ -279,7 +279,78 @@ a value; an effect is for sending a value somewhere else (a parent's `on…` han
   a page belongs in a component that stays (pass it down, report changes up with an `on…` handler).
 - **Order**: two effects that fire in the same change run in no promised order (EF-6).
 
-## 7. Forms
+## 7. Polling, a log, and a sound per message
+
+A timer is a JS primitive (MO-10), declared once:
+
+```rx
+export pure fn createTicker(ms: number): ref number
+```
+
+`tick = createTicker(2000)` is an instantiation. It is a number that moves. Nothing else about time is in the language.
+
+**Poll every n seconds.** An effect on the tick calls an action. The action does the fetch. The effect does not.
+
+```rx
+tick = createTicker(2000)
+action poll() {
+  try { status := await loadStatus() }
+  catch (e) { status := e.message }
+}
+effect (tick) { poll() }
+```
+
+**Re-ask a question without a dummy argument.** A question re-asks when its inputs change (ST-5). Passing the tick into `whoIsHere(id, tick)` so the call changes is a dummy. `refresh` re-runs an `await` equation for the same inputs, quietly (AC-4): the last answer stays up.
+
+```rx
+tick = createTicker(5000)
+here = await whoIsHere(boardId)
+effect (tick) { refresh here }
+```
+
+**An append-only log with a cursor.** The log is a keyed source. This example
+assumes the server returns all rows newer than the cursor, with a stable `seq`
+and `id` on each row. Merge by id and sort by server sequence so overlapping
+responses don't duplicate or reorder messages. Advance the cursor only forward.
+
+```rx
+source log: Message[] key id := []
+source cursor := 0
+action poll() {
+  try {
+    let r = await messagesSince(boardId, cursor)
+    log := old => [...old.filter(m => !r.messages.some(n => n.id == m.id)), ...r.messages]
+      .sort((a, b) => a.seq - b.seq)
+    cursor := prev => prev > r.cursor ? prev : r.cursor
+  } catch (e) { err := e.message }
+}
+effect (tick) { poll() }
+```
+
+**A sound, or any other effect, for each message in a burst.** Several messages handled in one turn are one change (W-3): the functional writes compose, and an effect runs once, after that change has settled (EF-2). `onFlush` and `onSettled` also run once for the change, not once per updater. Leave a record in the state as you reduce, and play the new records from an effect on the counter. The effect runs after the commit, against the store that is on screen.
+
+In the `.rx` module:
+
+```rx
+import { fresh, reduce, play } from "./live"
+source live := fresh()
+action dispatch(m) {
+  live := s => reduce(s, m)
+}
+effect (live.fxSeq) { play(live) }
+```
+
+In the JS module, `fresh` returns `{ fxSeq: 0, fx: [] }`. `reduce` applies the
+message and appends `{ seq: ++s.fxSeq, message: m }` to `s.fx` in the same write.
+`play` walks the committed records in sequence order and plays only those
+after its last-played sequence. Keep that cursor per consumer, not in a JS
+singleton shared by multiple instances. For a long-lived queue, drop records
+only after they have been consumed.
+
+In `live.d.rx`, declare the reducer as `export fn reduce(s: LiveState, m: Message): void`.
+`reduce` mutates the draft it is given and nothing else. Declare it `fn`, not `pure fn`: a pure function must not mutate, and this one does. `fn` is io, so call it from the action, which is imperative. A `pure fn` here would be a lie so the call would type-check from reactive scope. It does not need to.
+
+## 8. Forms
 
 A draft seeded once from loaded data is a source in the form's component, seeded with `peek`:
 `source name := peek(props.initial.name)`. It belongs to the user from then on; a save never resets it.

@@ -38,6 +38,9 @@ const chrome = process.env.CHROME ?? (() => {
   return dir ? join(base, dir, "chrome-headless-shell-linux64/chrome-headless-shell") : undefined;
 })();
 const UNDO_KEYS = ["src/App.rx|App|undo"];
+// The host's probe (at the first travel): does this Solid's view read a list's rows through its pinned container?
+const listsThroughPin = page => page.evaluate(() => globalThis.__RX__.travel?.listsThroughPin === true);
+
 const TICK = Number(process.env.TICK_MS ?? 80);
 
 // test/shelf-app in a temp dir, linked to this repository and to SOLID_VIEW's packages; reinstalled when the links change.
@@ -248,9 +251,18 @@ try {
     exact.length >= (named ? 8 : 4) && bad.length === 0 && (!named || guessed.length >= 2), { bad: bad.map(b => b.n), first: bad.slice(0, 2), guessed });
   if (named) {
     const other = [];
-    for (const n of seen) { const { reply } = await shownAt(n); if (reply?.inexact && !reply.inexact.includes(UNDO_KEYS[0])) other.push({ n, inexact: reply.inexact }); }
-    check("…and nothing but the undo list (rewritten wholesale, Solid's list-items gap) and its readers is marked inexact", other.length === 0, other);
-    console.log(`info the undo list, marked inexact, differs at ${[...undoOff].join(",") || "none"}`);
+    const through = await listsThroughPin(page);
+    for (const n of seen) {
+      const { reply } = await shownAt(n);
+      if (reply?.inexact && (through || !reply.inexact.includes(UNDO_KEYS[0]))) other.push({ n, inexact: reply.inexact });
+    }
+    if (through) {
+      check("…and, this Solid's view reading a list's rows through its pinned container, nothing is marked inexact", other.length === 0, other);
+      check(`…and the undo list (rewritten wholesale) shows exactly at every seq (differs at ${[...undoOff].join(",") || "none"})`, undoOff.size === 0, [...undoOff]);
+    } else {
+      check("…and nothing but the undo list (rewritten wholesale, an older Solid's list-items gap) and its readers is marked inexact", other.length === 0, other);
+      console.log(`info the undo list, marked inexact on this older Solid, differs at ${[...undoOff].join(",") || "none"}`);
+    }
   } else {
     const gapBad = [];
     for (const n of gap) {
@@ -428,7 +440,17 @@ async function roundThree() {
   // (a) the undo list can't be rewound (Solid: a list rewritten wholesale records only its length, and its items come
   // from the backing under a view): every seq whose undo list differs must say so
   const unflagged = undoOff.filter(n => !inexactAt.get(n).includes(UNDO_KEYS[0]));
-  check(`(a) every seq whose undo list can't be shown is marked inexact (differs at ${undoOff.join(",") || "none"})`, unflagged.length === 0, unflagged);
+  if (await listsThroughPin(page)) {
+    // Solid with 980f5b4c5 rewinds a list rewritten wholesale; this one was also guessed over by undoOp (a guess held
+    // across an await), which that fix doesn't cover: only seqs before the guess may be marked, and those that
+    // differ must be
+    const guessAt = Math.max(0, ...tl.steps.filter(st => st.changes.some(c => c.key === UNDO_KEYS[0] && c.name?.endsWith(".$guess"))).map(st => st.seq));
+    const markedLate = [...inexactAt].filter(([n, ks]) => ks.length && n >= guessAt).map(([n]) => n);
+    check(`(a) the undo list is marked inexact only before its guess at #${guessAt}, and wherever it differs (at ${undoOff.join(",") || "none"})`,
+      guessAt > 0 && markedLate.length === 0 && unflagged.length === 0, { markedLate, unflagged });
+  } else {
+    check(`(a) every seq whose undo list can't be shown is marked inexact (older Solid; differs at ${undoOff.join(",") || "none"})`, unflagged.length === 0, unflagged);
+  }
   check("(a) …and the newest seq is exact, not marked", (inexactAt.get(seen.at(-1)) ?? []).length === 0, inexactAt.get(seen.at(-1)));
   console.log(`info the remounted shelf panel (openView: a remounted branch starts over) differs at ${panelOff.join(",") || "none"}`);
 

@@ -11,7 +11,7 @@ import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
 import { declKeys, moduleKey } from "../src/model.ts";
-import { checkModules } from "../src/check.ts";
+import { checkModules, instantiatingFn } from "../src/check.ts";
 import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
@@ -118,7 +118,7 @@ class Gen {
     return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
   }
   private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
-    return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.name === name) : undefined;
+    return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.kind !== "import" && x.name === name) : undefined;
   }
   /** Begin a module: what a hoisted server function may name at module level (SF-3: imports, error classes, server fns). */
   beginModule(path: string, decls: Decl[]) {
@@ -162,7 +162,7 @@ class Gen {
       }
       if (x.k === "error") { env.vars.set(x.name, { kind: "val", js: mg(x.name) }); pre.push(`const ${mg(x.name)} = g$${x.name}(__rt);`); }
       if (x.k === "server" || (x.k === "eq" && unwrapServer(x.e))) env.vars.set(x.name, { kind: "val", js: this.serverNames.get(x.name)! });
-      if (x.k === "fn" && !x.params.some(p => p.ref) && !x.decls.length) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
+      if (x.k === "fn" && !instantiatingFn(x)) env.vars.set(x.name, { kind: "fn", js: mg(x.name), fn: x });   // a value fn (SF-3: it reads nothing reactive)
     }
     for (const x of this.modDecls) if (x.k === "fn" && env.vars.get(x.name)?.fn === x) pre.push(this.fn(x, env, 0));   // declared again inside: the body is extracted with it (found by S-app-notes)
     const body = this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, 2);
@@ -190,7 +190,7 @@ class Gen {
     const js = mg(alias);
     if (!d) return { kind: "val", js };
     switch (d.k) {
-      case "fn": return { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js, fn: d };
+      case "fn": return { kind: instantiatingFn(d) ? "ifn" : "fn", js, fn: d };
       case "component": return { kind: "comp", js: cm(alias) };
       case "action": return { kind: "act", js };
       case "source": case "eq": return { kind: "acc", js };
@@ -258,7 +258,7 @@ class Gen {
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
       if (d.k === "import") for (const { name, alias } of d.names) { const x = this.jsDecl(d, name); if (x?.kind !== "type") env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
-      if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
+      if (d.k === "fn") env.vars.set(d.name, { kind: instantiatingFn(d) ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
       if (d.k === "server") env.vars.set(d.name, { kind: "val", js: mg(d.name) });
@@ -416,7 +416,17 @@ class Gen {
     const pad = " ".repeat(ind * 2);
     const inner = new Env(env);
     for (const p of d.params) inner.vars.set(p.name, { kind: p.ref ? "acc" : "val", js: mg(p.name) });
-    if (!d.params.some(p => p.ref) && !d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
+    if (!instantiatingFn(d)) {
+      if (!d.decls.length) return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) { return ${this.expr(d.tail, inner, { imp: false })}; }`;
+      const eqs = d.decls.filter(x => x.k === "eq");
+      const names = new Set(eqs.map(x => x.name));
+      const done = new Set<string>(); const order: typeof eqs = [];
+      const visit = (x: typeof eqs[number]) => { if (done.has(x.name)) return; done.add(x.name); for (const n of deps(x.e, x.name)) if (names.has(n)) { const t = eqs.find(y => y.name === n); if (t) visit(t); } order.push(x); };
+      eqs.forEach(visit);
+      const lines = order.map(x => { inner.vars.set(x.name, { kind: "val", js: mg(x.name) }); return `${pad}  const ${mg(x.name)} = ${this.expr(x.e, inner, { imp: false })};`; });
+      const fns = d.decls.filter(x => x.k === "fn").map(x => this.fn(x, inner, ind + 1));
+      return `${pad}function ${mg(d.name)}(${d.params.map(p => mg(p.name)).join(", ")}) {\n${[...fns, ...lines].join("\n")}\n${pad}  return ${this.expr(d.tail, inner, { imp: false })};\n${pad}}`;
+    }
     // an instantiating fn (RG-6): called once, returns the accessor of its tail
     const body = this.block(d.decls, [], inner, ind + 1).split("\n").filter(l => !/^\s*return null;$/.test(l)).join("\n");
     const tb = d.tail.k === "id" ? inner.lookup(d.tail.name) : undefined;

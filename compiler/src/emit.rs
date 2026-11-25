@@ -6,7 +6,7 @@
 
 use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
-use crate::check::{children, unwrap_server, Node};
+use crate::check::{children, instantiating_fn, unwrap_server, Node};
 use crate::js::*;
 use crate::model::{decl_keys, module_key};
 use crate::modules::ModuleSet;
@@ -147,6 +147,35 @@ fn usage(programs: &[&Program], extra: &[Vec<Stmt>]) -> Usage {
         walk(&Value::Array(ss.iter().map(|s| s.to_json()).collect()), None, &mut u);
     }
     u
+}
+/// Equation decls of a lifted fn, dependencies first (E-9).
+fn eq_order(decls: &[Decl]) -> Vec<&Decl> {
+    let eqs: Vec<&Decl> = decls.iter().filter(|d| matches!(d, Decl::Eq { .. })).collect();
+    let mut done = HashSet::new();
+    let mut out = vec![];
+    fn visit<'a>(d: &'a Decl, eqs: &[&'a Decl], done: &mut HashSet<String>, out: &mut Vec<&'a Decl>) {
+        let Some(name) = d.name() else { return };
+        if !done.insert(name.to_string()) {
+            return;
+        }
+        if let Decl::Eq { e, .. } = d {
+            let mut ids = IndexSet::new();
+            deps(&e.to_json(), name, &mut ids);
+            for n in &ids {
+                if n == name {
+                    continue;
+                }
+                if let Some(t) = eqs.iter().find(|x| x.name() == Some(n.as_str())) {
+                    visit(t, eqs, done, out);
+                }
+            }
+        }
+        out.push(d);
+    }
+    for d in &eqs {
+        visit(d, &eqs, &mut done, &mut out);
+    }
+    out
 }
 /// Free names of an expression, for ordering declarations (JS consts have a temporal dead zone; memos compute eagerly).
 fn deps(e: &Value, self_name: &str, out: &mut IndexSet<String>) {
@@ -697,7 +726,7 @@ impl<'p> Gen<'p> {
                     }
                 }
                 Decl::Fn { name, params, decls: ds, .. } => {
-                    let mut b = bind(if params.iter().any(|p| p.r#ref) || !ds.is_empty() { Kind::Ifn } else { Kind::Fn }, mg(name));
+                    let mut b = bind(if instantiating_fn(params, ds) { Kind::Ifn } else { Kind::Fn }, mg(name));
                     b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                     self.set(env, name, b);
                 }
@@ -946,7 +975,7 @@ impl<'p> Gen<'p> {
         let Some(d) = self.set.programs.get(path).and_then(|p| p.decls.iter().find(|x| x.name() == Some(name))) else { return val(js) };
         match d {
             Decl::Fn { params, decls, .. } => {
-                let mut b = bind(if params.iter().any(|p| p.r#ref) || !decls.is_empty() { Kind::Ifn } else { Kind::Fn }, js);
+                let mut b = bind(if instantiating_fn(params, decls) { Kind::Ifn } else { Kind::Fn }, js);
                 b.f = Some(FnRef { params: params.iter().map(|p| (p.name.clone(), p.r#ref)).collect(), decl: Some(d as *const Decl) });
                 b
             }
@@ -1282,9 +1311,19 @@ impl<'p> Gen<'p> {
             self.set(inner, &p.name, bind(if p.r#ref { Kind::Acc } else { Kind::Val }, mg(&p.name)));
         }
         let ps: Vec<P> = params.iter().map(|p| P::Id(mg(&p.name))).collect();
-        if !params.iter().any(|p| p.r#ref) && decls.is_empty() {
-            let x = self.expr(tail, inner, &reactive())?;
-            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
+        if !instantiating_fn(params, decls) {
+            if decls.is_empty() {
+                let x = self.expr(tail, inner, &reactive())?;
+                return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body: vec![S::Return(Some(x))], is_async: false, generator: false }));
+            }
+            let mut body = vec![];
+            for d in eq_order(decls) {
+                let Decl::Eq { name: n, e, .. } = d else { continue };
+                self.set(inner, n, bind(Kind::Val, mg(n)));
+                body.push(S::At(d.line(), Box::new(konst(mg(n), self.expr(e, inner, &reactive())?))));
+            }
+            body.push(S::Return(Some(self.expr(tail, inner, &reactive())?)));
+            return Ok(S::Func(Func { name: Some(mg(name)), params: ps, directives: vec![], body, is_async: false, generator: false }));
         }
         // an instantiating fn (RG-6): called once, returns the accessor of its tail
         let mut body = self.block(decls, &[], inner, None, false)?;

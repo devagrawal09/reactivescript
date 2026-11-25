@@ -54,6 +54,60 @@ export function loadModules(entry: string, read: (path: string) => string | unde
   const programs = new Map<string, Program>(); const order: string[] = []; const diags: Diagnostic[] = []; const declarations = new Map<string, JsDecl[]>(); const signatures = new Map<string, ModSig>();
   const jsFiles = new Set<string>();
   const state = new Map<string, "busy" | "done">();
+  const declDiag = (code: string, line: number, file: string, msg: string) => { diags.push({ code, rule: "MO-8", line, file, msg }); };
+  /** MO-8e: `./x` in a `.d.rx` is `x.d.rx`, else `x.rx`. A path ending in `.rx` is that module. */
+  const declTarget = (fromFile: string, spec: string): { path: string; rx: boolean } | undefined => {
+    if (!spec.startsWith(".") && !spec.startsWith("/")) return undefined;
+    const s = spec.replace(/\.(mjs|js|ts)$/, "");
+    if (s.endsWith(".d.rx")) { const p = joinPath(fromFile, s); return read(p) !== undefined ? { path: p, rx: false } : undefined; }
+    if (s.endsWith(".rx")) { const p = joinPath(fromFile, s); return read(p) !== undefined ? { path: p, rx: true } : undefined; }
+    const stem = joinPath(fromFile, s);
+    if (read(stem + ".d.rx") !== undefined) return { path: stem + ".d.rx", rx: false };
+    if (read(stem + ".rx") !== undefined) return { path: stem + ".rx", rx: true };
+    return undefined;
+  };
+  const rxKind = (path: string, name: string): "type" | "value" | "missing" => {
+    const decls = programs.get(path)?.decls ?? (() => { const src = read(path); if (src === undefined) return undefined; try { return parseProgram(src).decls; } catch { return undefined; } })();
+    if (!decls) return "missing";
+    const d = decls.find(x => "name" in x && x.name === name && !!(x as { exported?: boolean }).exported);
+    if (!d) return "missing";
+    return d.k === "typedecl" ? "type" : "value";
+  };
+  const loadDeclaration = (dts: string) => {
+    if (declarations.has(dts)) return;
+    const src = read(dts); if (src === undefined) return;
+    let ds: JsDecl[];
+    try { ds = parseDeclarations(src); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; }
+    declarations.set(dts, ds);
+    resolveDeclImports(dts);
+  };
+  const resolveDeclImports = (file: string) => {
+    const ds = declarations.get(file); if (!ds) return;
+    const who = file.split("/").pop() ?? file;
+    for (const d of ds) {
+      if (d.kind !== "import") continue;
+      const hit = declTarget(file, d.from);
+      if (!hit) { declDiag("MODULE_NOT_FOUND", d.line, file, `${who}: no module ${d.from} (a \`.d.rx\` imports types from a \`.d.rx\` or an \`.rx\`)`); continue; }
+      d.target = hit.path; d.rx = hit.rx;
+      if (!hit.rx) {
+        loadDeclaration(hit.path);
+        const td = declarations.get(hit.path) ?? [];
+        const where = hit.path.split("/").pop();
+        for (const n of d.names) {
+          const x = td.find(y => y.kind !== "import" && y.name === n.name && (y.kind !== "type" || y.exported));
+          if (!x) declDiag("NOT_EXPORTED", d.line, file, `${who}: ${where} exports no type ${n.name}`);
+          else if (x.kind === "fn") declDiag("TYPE_IMPORT", d.line, file, `${who}: \`${n.name}\` is a value, not a type — a declaration file imports types only (\`import { T } from "./x"\`)`);
+        }
+        continue;
+      }
+      if (state.get(hit.path) !== "done" && state.get(hit.path) !== "busy") visit(hit.path, []);
+      for (const n of d.names) {
+        const k = rxKind(hit.path, n.name);
+        if (k === "missing") declDiag("NOT_EXPORTED", d.line, file, `${who}: ${hit.path.split("/").pop()} exports no type ${n.name}`);
+        else if (k === "value") declDiag("TYPE_IMPORT", d.line, file, `${who}: \`${n.name}\` is a value, not a type — a declaration file imports types only (\`import { T } from "./x"\`)`);
+      }
+    }
+  };
   const visit = (path: string, stack: string[]) => {
     if (state.get(path) === "done") return;
     const src = read(path);
@@ -72,7 +126,7 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? packageDeclaration(path, d.from, read) : undefined;   // MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
-        if (!declarations.has(dts)) { const src = read(dts); if (src !== undefined) { try { declarations.set(dts, parseDeclarations(src)); } catch (e) { if (e instanceof ParseError) throw Object.assign(new ParseError(`${dts}: ${e.message}`), { code: e.code }); throw e; } } }
+        loadDeclaration(dts);
         const ds = declarations.get(dts);
         if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
         continue;

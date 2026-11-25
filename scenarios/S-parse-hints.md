@@ -93,3 +93,19 @@ export default component App() {
   <button onClick={() => n := n + 1}>{n}</button>
 }
 ```
+
+```
+-- reject: JSX_TERNARY
+export default component App() {
+  source c := true
+  <p>{c ? <span/> : ""}</p>
+}
+```
+
+```
+-- reject: FOR_INDEX
+export default component App() {
+  source xs := [1]
+  {for x, i in xs { <p>{x}</p> }}
+}
+```

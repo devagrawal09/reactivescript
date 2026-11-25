@@ -11,6 +11,8 @@ import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Mo
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
+/** E-9: a `ref` parameter, or a body that declares a source, effect, or region. An equation is not a node — `fn f(x) { i = …; i }` lifts, like `fn f(x) => …`. */
+export function instantiatingFn(d: { params: { ref: boolean }[]; decls: Decl[] }) { return d.params.some(p => p.ref) || d.decls.some(x => x.k === "source" || x.k === "effect" || x.k === "component"); }
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
 
 // ---------------------------------------------------------------- regions and symbols
@@ -539,7 +541,7 @@ class Checker {
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") { sym.io = true; sym.arity = d.params.length; }                 // R-io-2: an action is io; AC-1f: its parameters
-      if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
+      if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiatingFn(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
@@ -624,7 +626,7 @@ class Checker {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
     if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
     for (const { name, alias } of d.names) {
-      const x = decls.find(y => y.name === name && (y.kind !== "type" || y.exported));
+      const x = decls.find(y => y.kind !== "import" && y.name === name && (y.kind !== "type" || y.exported));
       if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
       if (x.kind === "type") continue;
       if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
@@ -777,7 +779,7 @@ class Checker {
         return;
       }
       case "fn": {
-        const r = d.decls.length ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
+        const r = instantiatingFn(d) ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
         const inner = new Env(env, r);
         for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
         this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true }); });
@@ -1251,10 +1253,41 @@ class Checker {
           this.boundaries.set(m, body.id);
           put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
+          if (m.classes?.length) this.deadTyped(m, body.id);
           break;
         }
       }
     }
+  }
+
+  /** R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead. */
+  private deadTyped(m: Extract<Markup, { k: "errored" }>, id: number) {
+    const inner = this.coveringCatchAll(m.body);
+    if (!inner) return;
+    const line = m.line ?? this.line;
+    const cls = m.classes!.join(" | ");
+    this.line = line;
+    this.err("DEAD_TYPED_BOUNDARY", "R-f-4", `errored fallback(e: ${cls}) at line ${line} is dead: the inner catch-all at line ${inner.line ?? line} catches ${cls} first — put the typed boundary inside the catch-all`);
+    const by = this.boundaries.get(inner);
+    if (by !== undefined) this.model.shadow(id, by);
+  }
+  /** The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure. */
+  private coveringCatchAll(ms: Markup[]): Extract<Markup, { k: "errored" }> | null {
+    let inner: Extract<Markup, { k: "errored" }> | null = null;
+    let saw = false;
+    for (const m of ms) {
+      if (m.k === "text" || m.k === "style") continue;
+      saw = true;
+      if (m.k === "errored" && !m.classes) { inner = inner ?? m; continue; }
+      if (m.k === "el" && !/^[A-Z]/.test(m.tag) && m.attrs.every(a => a.e.k === "lit")) {
+        const c = this.coveringCatchAll(m.children);
+        if (!c) return null;
+        inner = inner ?? c;
+        continue;
+      }
+      return null;
+    }
+    return saw ? inner : null;
   }
 
   // ---- SV-7d: the content model across templates ----

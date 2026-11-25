@@ -97,7 +97,7 @@ export function projectModules(set: ModuleSet): Projected[] {
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
-  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationFile(decls), lines: [], rx: dts });
+  for (const [dts, decls] of set.declarations ?? []) out.push({ path: dts.replace(/\.d\.rx$/, ".d.ts"), code: declarationModule(dts, decls, set), lines: [], rx: dts });
   for (const [mod, names] of jsStubs) out.push({ path: mod, code: [...names].map(n => n === "default" ? "declare const __d: any; export default __d;" : `export declare const ${n}: any;`).join("\n"), lines: [], rx: mod });
   return out;
 }
@@ -107,14 +107,60 @@ export function projectModules(set: ModuleSet): Projected[] {
 function signatureStub(sig: ModSig): string {
   return [...sig.exports].map(([n, x]) => x.kind === "type" ? `export type ${n} = any;` : x.kind === "comp" ? `export declare function ${n}(props: any): any;` : `export declare const ${n}: any;`).join("\n");
 }
-/** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. */
+/** The namespace a `.d.rx` is declared as. Same spelling as `compiler/src/project.rs` `ns_name`. */
+const nsName = (path: string) => "__D_" + path.replace(/[^A-Za-z0-9_]/g, "_");
+/** A module-level alias of an imported type, so a declare namespace can name it without importing the sibling `.ts`. */
+const bridgeName = (path: string, name: string) => "__T_" + path.replace(/[^A-Za-z0-9_]/g, "_") + "_" + name;
+/** A path from `fromFile`'s directory to `toFile`, for an `import type` of an `.rx` projection. */
+function relModule(fromFile: string, toFile: string): string {
+  const from = fromFile.split("/").slice(0, -1);
+  const to = toFile.split("/");
+  let i = 0;
+  while (i < from.length && i + 1 < to.length && from[i] === to[i]) i++;
+  const rel = "../".repeat(from.length - i) + to.slice(i).join("/");
+  return rel.startsWith(".") ? rel : "./" + rel;
+}
+/** MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. An import is a local alias of its bridge (MO-8e). */
 function declarationFile(decls: JsDecl[]): string {
   return decls.map(d => {
+    if (d.kind === "import") return d.names.map(n => `type ${n.alias} = ${d.target ? bridgeName(d.target, n.name) : "any"};`).join("\n");
     if (d.kind === "type") return `${d.exported ? "export " : ""}${d.text ?? `type ${d.name} = any`}`;
     if (d.kind === "error") return `export declare class ${d.name}$ extends Error {}\nexport declare const ${d.name}: (message?: string) => ${d.name}$;\nexport type ${d.name} = ${d.name}$;`;
     const ps = d.params.map((n, i) => `${n}${d.ptypes?.[i] ? `: ${d.ptypes[i]}` : ""}`).join(", ");
     return `export declare function ${d.name}${d.generics ?? ""}(${ps}): ${d.ret ?? "any"};`;
   }).join("\n") + "\n";
+}
+function nsBlock(dts: string, decls: JsDecl[]): string {
+  const body = declarationFile(decls).trimEnd().replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
+  return `declare namespace ${nsName(dts)} {\n${body}\n}`;
+}
+/** Dependency namespaces and the bridges this file's type imports name. `seen` holds `.d.rx` paths already emitted. */
+function declPreamble(decls: JsDecl[], set: ModuleSet, fromFile: string, seen: Set<string>, bridged: Set<string>): string {
+  let out = "";
+  for (const d of decls) {
+    if (d.kind !== "import" || !d.target) continue;
+    if (!d.rx) out += depText(d.target, set, fromFile, seen, bridged);
+    for (const n of d.names) {
+      const b = bridgeName(d.target, n.name);
+      if (bridged.has(b)) continue;
+      bridged.add(b);
+      out += d.rx ? `import type { ${n.name} as ${b} } from ${JSON.stringify(relModule(fromFile, d.target))};\n` : `type ${b} = ${nsName(d.target)}.${n.name};\n`;
+    }
+  }
+  return out;
+}
+function depText(target: string, set: ModuleSet, fromFile: string, seen: Set<string>, bridged: Set<string>): string {
+  if (seen.has(target)) return "";
+  seen.add(target);
+  const decls = set.declarations?.get(target);
+  if (!decls) return "";
+  return declPreamble(decls, set, fromFile, seen, bridged) + nsBlock(target, decls) + "\n";
+}
+/** The standalone `.d.ts`: a file with no type import is `declarationFile`, unchanged. */
+function declarationModule(dts: string, decls: JsDecl[], set: ModuleSet): string {
+  if (!decls.some(d => d.kind === "import")) return declarationFile(decls);
+  const seen = new Set([dts]);
+  return declPreamble(decls, set, dts, seen, new Set()) + declarationFile(decls);
 }
 
 class Proj {
@@ -125,6 +171,7 @@ class Proj {
   private snap = new Set<string>();                         // a handler read is a fresh snapshot of this name's type (TY-2)
   private rename: Map<string, string> | null = null;       // inside a handler, a snap name reads as its snapshot binding
   private ambients = new Set<string>();                    // a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
+  private bridged = new Set<string>();                     // MO-8e: a type bridge already emitted in this projection
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -245,13 +292,16 @@ class Proj {
   }
   /** TY-4b: check the import against its `.d.rx`, not whatever TypeScript would resolve the JS module to. */
   private declaredImport(d: Extract<Decl, { k: "import" }>, rest: { name: string; alias: string }[], decls: JsDecl[], ind: string) {
-    const ns = "__D_" + d.declared!.replace(/[^A-Za-z0-9_]/g, "_");   // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
-    if (!this.ambients.has(d.declared!)) {
-      this.ambients.add(d.declared!);
+    const ns = nsName(d.declared!);   // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
+    const first = !this.ambients.has(d.declared!);
+    if (first) this.ambients.add(d.declared!);
+    if (first) {
+      const pre = decls.some(x => x.kind === "import") ? declPreamble(decls, this.set, this.path, this.ambients, this.bridged) : "";
       const body = declarationFile(decls).trimEnd().replace(/export declare /g, "export ").split("\n").map(l => `  ${l}`).join("\n");
-      this.w.emit(`${ind}declare namespace ${ns} {\n${body}\n${ind}}`, d.line);
+      const block = `${ind}declare namespace ${ns} {\n${body}\n${ind}}`;
+      this.w.emit(pre ? pre.replace(/\n$/, "") + "\n" + block : block, d.line);
     }
-    const of = (n: string) => decls.find(x => x.name === n);
+    const of = (n: string) => decls.find(x => x.kind !== "import" && x.name === n);
     const values = rest.filter(n => of(n.name)?.kind !== "type");
     if (values.length) {
       const parts = values.filter(n => n.name !== "default").map(n => `${n.name} as __js_${n.alias}`);
