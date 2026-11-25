@@ -411,10 +411,16 @@
   @keyframes rx-sweep-back { from { transform: translateX(300%) } to { transform: translateX(-100%) } }
   body.viewing #canvas { filter: saturate(.3) sepia(.12) brightness(.92); transition: filter .4s }
   #canvas { transition: filter .4s }
-  #viewNote { top: calc(var(--top-inset) + 8px); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 12px; font-size: 12px; z-index: 13; white-space: nowrap; border-color: rgba(226, 232, 240, .45) }
+  #viewNote { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 12px; font-size: 12px; z-index: 13; white-space: nowrap; border-color: rgba(226, 232, 240, .45) }
   #viewNote b { text-transform: uppercase; letter-spacing: .12em; font-size: 10px }
   #viewNote svg.i { color: #e2e8f0 }
-  @media (max-height: 520px), (max-width: 900px) { #viewNote { top: calc(var(--top-inset) + 4px); padding: 2px 4px 2px 8px; font-size: 11px } }
+  #viewNote .vn-short { display: none }
+  @media (max-height: 520px), (max-width: 900px) {
+    #viewNote { position: static; transform: none; padding: 1px 3px 1px 7px; font-size: 10.5px; gap: 6px; box-shadow: none; backdrop-filter: none; background: rgba(226, 232, 240, .1) }
+    #viewNote::before, #viewNote::after { display: none }
+    #viewNote .vn-long { display: none } #viewNote .vn-short { display: inline }
+    #viewNote .hbtn { padding: 1px 7px }
+  }
   .chip.inexact .tok { filter: grayscale(.6) }
   .chip .inx { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); font: 700 9px/1.4 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; color: #e2e8f0; background: rgba(15, 17, 21, .9); border: 1px dashed rgba(226, 232, 240, .6); border-radius: 4px; padding: 0 5px; white-space: nowrap }
   body.viewing #canvas::after { content: ""; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(226, 232, 240, .28), inset 0 0 140px rgba(200, 210, 230, .12) }
@@ -2459,8 +2465,9 @@ function viewingUI() {
   if (tl.viewing == null) { note?.remove(); return; }
   if (!note) {
     note = document.createElement("div"); note.id = "viewNote"; note.className = "hud"; note.setAttribute("role", "status");
-    note.innerHTML = `${ICON.lock}<span><b>looking back</b> <span class="vn-seq mono"></span> · the app is read-only until you resume</span><button class="hbtn" id="vnResume">resume</button>`;
-    document.body.append(note);
+    note.innerHTML = `${ICON.lock}<span><b>looking back</b> <span class="vn-seq mono"></span><span class="vn-long"> · the app is read-only until you resume</span><span class="vn-short"> · read-only</span></span><button class="hbtn" id="vnResume">resume</button>`;
+    // in the header: below it as a banner, or (compact) a pill in it, so it never covers the plates
+    document.querySelector("header").append(note);
     note.querySelector("#vnResume").onclick = () => { SFX.toggle(); resume(); };
   }
   note.querySelector(".vn-seq").textContent = `#${tl.viewing} of ${tl.head}`;
