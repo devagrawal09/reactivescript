@@ -42,7 +42,9 @@ try {
   await sleep(30);
   check("live: and follows it", hole.textContent === "43", hole.textContent);
   M.flyTo(M.BW / 2, M.BH / 2, .35, 0);
-  for (let i = 0; i < 20 && M.level === 2; i++) await sleep(50);   // the camera settles on its next frames
+  // the camera settles on its next frames, and the level follows them (one commit later on the RX page); a loaded
+  // machine can take a few hundred ms per frame
+  for (let i = 0; i < 60 && M.level === 2; i++) await sleep(50);
   { const still = f.contentDocument.createElement("style"); still.textContent = "* { transition: none !important }"; f.contentDocument.head.append(still); }
   check("zoomed out, the view text hides (the overview)", M.level === 1 && (w.getComputedStyle(app).opacity === "0" || w.getComputedStyle(app.closest(".frame.module > *") ?? app).opacity === "0" || !app.offsetParent), [M.level, w.getComputedStyle(app).opacity]);
 } catch (e) { check(`threw: ${e?.stack ?? e}`, false); }
