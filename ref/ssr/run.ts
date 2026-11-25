@@ -57,7 +57,14 @@ await new Promise<void>(r => http.listen(0, "127.0.0.1", () => r()));
 const port = (http.address() as { port: number }).port;
 const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: process.env.CHROMIUM } : {});   // CHROMIUM: a system browser (as eval/harness/driver.mjs)
 const page = await browser.newPage();
-const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message)); page.on("console", (m: any) => { if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text()); });
+const pageErrors: string[] = []; page.on("pageerror", (e: Error) => pageErrors.push(e.message));
+page.on("console", (m: any) => {
+  // Solid transports a thrown server function result with HTTP 500. The scenario
+  // checks the error seen by RX, not Chromium's network status diagnostic.
+  if (m.location().url.startsWith(`http://127.0.0.1:${port}/_server/`) &&
+      /^Failed to load resource: the server responded with a status of 500\b/.test(m.text())) return;
+  if (m.type() === "error" || (m.type() === "warning" && /hydrat/i.test(m.text()))) pageErrors.push(m.text());
+});
 const textOf = () => page.evaluate(() => {
   const root = document.getElementById("app"); if (!root) return "";
   let s = ""; const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: n => { for (let p = n.parentElement; p && p !== root; p = p.parentElement) if (p.tagName === "SCRIPT" || p.tagName === "TEMPLATE" || p.tagName === "STYLE") return NodeFilter.FILTER_REJECT; return NodeFilter.FILTER_ACCEPT; } });
@@ -147,9 +154,12 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
   try { const set = moduleSet(sc, src); if (checkModules(set).diags.length) return true; out = build(sc, src, chains.flat().filter(r => r.action.startsWith("handler")).map(r => r.action.slice(7))); }
   catch (e) { if (e instanceof CompileError) return true; lines.push(`  ✗ ${t.title} [${label}]: ${(e as Error).message}`); return false; }
   const dir = `${outDir}${sc.name}.${++seq}/`; mkdirSync(dir, { recursive: true });
-  for (const [name, js] of out.views("ssr")) writeFileSync(dir + name, directives(js, dir + name, "server"));
+  const serverViews = out.views("ssr");
+  const hasRpc = [...serverViews.values()].some(js => js.includes('"use server"'));
+  for (const [name, js] of serverViews) writeFileSync(dir + name, directives(js, dir + name, "server"));
   const main = (await import(pathToFileURL(dir + out.entry).href)).default;
   clientJs = bundle(dir, out.views("dom"), out.entry);
+  const rpcBefore = rpcApps.length;
   const app = createApp({ scenarioFlights: true }); let ended = false; let chunks = 0;
   const csr = at === 0;   // the baseline: the same bundle mounted on an empty page, no server
   const served$ = new Promise<void>(resolve => {
@@ -187,14 +197,21 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
       if (process.env.DEBUG) console.log("land on server:", r.action, await page.evaluate(() => JSON.stringify([...(window as any).__client.app.flights.keys()])));
     }
     const key = named ?? app.lastKey.get(m[2]);
-    const owner = key === undefined ? undefined : [app, ...[...rpcApps].reverse()].find(a => a.flights.has(key));   // the page's request, or a server function's
+    const ownerOf = () => key === undefined ? undefined : [app, ...rpcApps.slice(rpcBefore).reverse()].find(a => a.flights.has(key));
+    let owner = ownerOf();   // the page's request, or a server function's
+    if (!server && hasRpc && named !== null && !owner) {
+      // The previous browser row may have dispatched a request whose body
+      // hasn't reached the scenario flight yet.
+      const deadline = Date.now() + 2000;
+      while (!owner && Date.now() < deadline) { await wait(15); owner = ownerOf(); }
+    }
     const f = owner?.flights.get(key!);
     if (!f) return false;
     const value = new Function("__rt", "__B", `return ${js};`)(owner, owner!.B);
     if (m[1] === "reject") f.reject(value instanceof Error ? value : new Error(String(value))); else f.resolve(value);
     return true;
   };
-  let ok = true; const shown: string[] = []; const mark = lines.length; const rpcBefore = rpcApps.length;
+  let ok = true; const shown: string[] = []; const mark = lines.length;
   for (let i = 0; i <= chains.length; i++) {   // (i === chains.length: hydrating after the last row)
     const c = chains[i] ?? []; const r = c[0];
     if (i === at && chunks === 0 && at < served) at++;   // nothing has arrived to take over yet (a held shell, SV-1c): the client loads with the shell
@@ -246,8 +263,19 @@ async function hydrated(sc: Scenario, t: Scenario["tables"][number], src: string
     await wait(Number(process.env.WAIT ?? 60));
     await page.evaluate(() => { (window as any).__client.flush(); });
     if (process.env.DEBUG_NAMES) console.log("  after", r.instant, "ended=" + ended, await page.evaluate(() => { const sc = (window as any).__client.sharedConfig; return `done=${sc.done} hydrating=${sc.hydrating} HYdone=${(window as any)._$HY.done}`; }), await page.evaluate((names: string[]) => names.map(n => { try { return n + "=" + (window as any).__client.app.fmt((window as any).__client.app.dget(n)); } catch (e) { return n + "!" + (e as Error).message; } }).join(" "), process.env.DEBUG_NAMES.split(",")));
-    const got = norm(await textOf()); const last = c[c.length - 1];
-    const k = known(last); if (k && got === norm(k.frame)) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${last.instant}: ${got}  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; }
+    let got = norm(await textOf()); const last = c[c.length - 1];
+    const k = known(last);
+    if (hasRpc) {
+      // Flushing Solid doesn't wait for a fetch response or its continuation.
+      // Let that row reach its frame before driving the next row.
+      const deadline = Date.now() + 2000;
+      while (!matches(last, got) && !(k && got === norm(k.frame)) && Date.now() < deadline) {
+        await wait(15);
+        await page.evaluate(() => { (window as any).__client.flush(); });
+        got = norm(await textOf());
+      }
+    }
+    if (k && got === norm(k.frame)) { lines.push(`  ${k.ruled ? "✓" : "≠"} ${t.title} [${label}] instant ${last.instant}: ${got}  — ${k.ruled ? "SV-3b hydration window" : "recorded (hydrated)"}`); break; }
     if (!matches(last, got)) { ok = false; lines.push(`  ✗ ${t.title} [${label}] instant ${last.instant}: expected '${framesOf(last).join("' or '")}', got '${got}'${pageErrors.length ? `  (page: ${pageErrors.join(" | ")})` : ""}`); break; }
     shown.push(got);
   }
