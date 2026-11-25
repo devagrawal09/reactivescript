@@ -215,7 +215,7 @@ The exports:
 | `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
 | `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
 | `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
-| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose; `attach(listener)`, a view without the page (`{ post, detach }`) |
+| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose; `attach(listener)`, a view without the page (`{ post, detach, shown(keys) }`: `shown` is what the app displays now) |
 | `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
 | `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
 
@@ -266,8 +266,9 @@ disposed instance's last value or error is never shown for a later seq. An error
 
 Travel asked for while a question is in the air, an action is running, a write is held or a resume is still landing
 waits: the host answers `travel-pending` and travels to the newest target asked for once that has landed (a drag ends
-where it was let go); `resume` drops it. Denied: `evicted` for a seq never recorded or out of the ring,
-`unsupported` when Solid has no `openView`.
+where it was let go); `resume` drops it. It waits 3 s at most (an app that polls may always have a question in the
+air): then `travel-denied` with reason `pending` and the `keys` it still waits on. Denied: `evicted` for a seq never
+recorded or out of the ring, `unsupported` when Solid has no `openView`.
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
 page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
@@ -315,15 +316,40 @@ harness.
 
 `./conformance` has `runConformance(makeHost, graphs)` for a host whose calls return at once (the fake) and
 `runConformanceAsync` for one whose calls take time (a real app in a browser: `makeHost` and the host's calls may
-return promises). `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
+return promises). The suite's arbiter is what the app shows (TRACE-CONTRACT §5): `makeHost` may return
+`shown(keys)`, compared after every travel and resume with the replay of the host's messages; it also checks the
+v0.3–v0.7 messages (snapshot, boundary, run, held/released, revert, error states, travel-pending, HMR `uncarried`).
+`test/conformance.test.mjs` runs broken hosts (one shows the wrong state, one loses work done while viewing, one
+reports a snapshot it doesn't show, others send malformed messages) and checks each fails. `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
 Chromium and checks the DOM under travel, read-only viewing, `inexact` and first-change `prev`. `npm test` runs it
-when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise;
+when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise
+(with `CI` set it fails instead: `.github/workflows/rx-map.yml` builds the Solid pinned in `solid-view.json`);
 it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
 `test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
 a temp dir and installed linked to this repository and to `SOLID_VIEW`; Vite runs with `--force`, so a rebuilt Solid
 is what the page runs, not a stale pre-bundle. When that Solid's record names the properties a store guess moved, every
 recorded seq must show exactly; on an older one, seqs before a guess are reported, not asserted. `APP=<dir>` uses an
 installed copy instead; `--shots <dir>` saves screenshots.
+
+## Supported Solid builds
+
+The live map needs a Solid 2.0 **dev** build with the attribution engine (`solid-js/attribution`): without it the map
+is drawn and stays still. Beyond that, what works depends on the build:
+
+| Solid | Live values, flights, runs, boundaries, snapshot, MCP | Time travel | Exact travel of store guesses / wholesale list rewrites | HMR state carry-over |
+| --- | --- | --- | --- | --- |
+| stock 2.0 (no `openView`) | yes | no: `travel-denied "unsupported"` | – | no (reload fallback) |
+| with `openView` (solidjs/solid#5089, draft) | yes | yes | marked `step.inexact` | yes |
+| `openView` + `f9ee22ade` + `980f5b4c5` + `49b25a45c` (`solid-view`, branch `rx/view-on-30e7805`, pinned in `solid-view.json`) | yes | yes | yes | yes |
+
+The bridge also reads a few engine internals that the attribution records don't carry yet (a flight's start, a
+disposed node, a store leaf's path, …). Each is feature-detected: on a Solid where one is missing, the feature it
+serves is off, `globalThis.__RX__.solid` says which (`{ flightStart, disposed, storePath, openView }`: `false` =
+unsupported), and the console says it once. `rx-vision/solid-asks.md` lists each read with the record that should
+replace it upstream.
+
+`npm test` runs the real-host suite only with `SOLID_VIEW` (a built `solid-view`); in CI it is required (the
+`rx-map` workflow builds the pinned branch and fails if it is missing).
 
 ## MCP: let an agent inspect your app
 

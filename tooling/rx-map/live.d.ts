@@ -9,6 +9,8 @@ export function mount(el: HTMLElement): () => void;
 export function attach(listener: (msg: { source: "rx-map"; v: 1; type: string; [k: string]: unknown }) => void): {
   post(msg: { type: string; [k: string]: unknown }): void;
   detach(): void;
+  /** What the app displays now for each key (its newest live instance): TRACE-CONTRACT §5. */
+  shown(keys?: string[]): Record<string, { preview: string } | { error: string }>;
 };
 export function preview(value: unknown, max?: number, depth?: number): string;
 export function mergeGraphs(list: unknown[]): unknown;

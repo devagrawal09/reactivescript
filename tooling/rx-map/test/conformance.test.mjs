@@ -332,6 +332,62 @@ function makeBroken(graph, opts) {
   check("a host dropping them fails", !okOf(runConformance(scripted(true, { errors: true, errorState: false }), [users])).every(Boolean));
 }
 
+// The arbiter (§5): hosts that send self-consistent messages but whose app shows something else must fail.
+{
+  const wrap = (mutate) => (g, o) => {
+    const h = createFakeHost(g, o);
+    const subs = new Set();
+    const st = { viewing: null, frozen: null, head: 0, cut: null };
+    h.subscribe(m => {
+      if (m.type === "flush") st.head = Math.max(st.head, m.seq);
+      for (const out of mutate.message?.(m, st, h) ?? [m]) for (const f of subs) f(out);
+    });
+    return { ...h, subscribe: f => (subs.add(f), () => subs.delete(f)),
+      post: m => { mutate.post?.(m, st, h); return h.post(m); },
+      act: k => { const r = h.act(k); mutate.act?.(st, f => subs.forEach(x => x(f))); return r; },
+      editModule: (m, x) => h.editModule(m, x),
+      shown: keys => mutate.shown ? mutate.shown(keys, st, h) : h.shown(keys) };
+  };
+  const msg = m => ({ source: "rx-map", v: 1, ...m });
+  const cases = {
+    // the app doesn't rewind: it keeps showing what it showed when travel was asked for
+    "app shows the travelled state": wrap({
+      post: (m, st, h) => { if (m.type === "travel" && st.frozen === null) st.frozen = h.shown(); if (m.type === "resume") st.frozen = null; },
+      shown: (keys, st, h) => st.frozen ?? h.shown(keys),
+    }),
+    // work done while viewing runs in the app, but its step never reaches the timeline
+    "flushes during viewing kept": wrap({
+      message: (m, st) => {
+        if (m.type === "step" && st.cut === null) st.cut = st.head;
+        if (st.cut !== null && m.type === "resume") return [{ ...m, head: st.cut }];
+        if (st.cut !== null && m.type === "timeline") return [{ ...m, head: st.cut, steps: m.steps.filter(x => x.seq <= st.cut) }];
+        if (st.cut !== null && m.type === "flush" && m.seq > st.cut) return [];
+        return [m];
+      },
+    }),
+    // the snapshot reports values the app doesn't show
+    "snapshot shows what the app shows": wrap({
+      message: m => [m.type === "snapshot" ? { ...m, values: m.values.map(v => ({ ...v, preview: "\"stale\"" })) } : m],
+    }),
+    // malformed v0.3-v0.7 messages
+    "runs pair start with end or error": wrap({ act: (st, send) => send(msg({ type: "run", key: users.nodes.find(n => n.kind === "action").key, id: 9999, state: "end", at: 1e9 })) }),
+    "held before released": wrap({ act: (st, send) => send(msg({ type: "released", key: users.nodes.find(n => n.kind === "source").key, at: 1e9 })) }),
+    "an error change carries no preview": wrap({
+      message: m => [m.type === "flush" && m.changes[0] ? { ...m, changes: [{ ...m.changes[0], error: "boom" }, ...m.changes.slice(1)] } : m],
+    }),
+    "hmr uncarried keys reported with refresh": wrap({
+      message: m => [m.type === "hmr" && m.phase === "done" ? { ...m, uncarried: [users.nodes.find(n => n.key).key] } : m],
+    }),
+  };
+  for (const [name, make] of Object.entries(cases)) {
+    const r = runConformance(make, [users], { seed: 1 });
+    const hit = r.find(x => x.check === name && x.graph);
+    check(`a broken host fails "${name}": ${hit?.detail ?? ""}`.slice(0, 160), hit && !hit.ok, hit ? hit.detail ?? "passed" : "check not run");
+  }
+  const lying = runConformance(cases["snapshot shows what the app shows"], [users], { seed: 1 });
+  check("…and its snapshot also disagrees with the timeline head", lying.some(x => x.check === "values per live instance: snapshot agrees with the timeline head" && !x.ok));
+}
+
 // The async runner (a host whose calls take time, e.g. a real app in a browser) reports what the sync one does, and
 // a rejected call lands on the check that made it.
 {
