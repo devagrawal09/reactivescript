@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "../live-protocol.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, traceSummary } from "../live-protocol.mjs";
 import { rxMap } from "../vite.mjs";
 
 const repo = fileURLToPath(new URL("../../..", import.meta.url));
@@ -24,8 +24,10 @@ function client(t, args, env = { ...process.env, RXC }) {
   const send = line => child.stdin.write(line + "\n");
   const receive = async () => JSON.parse((await lines.next()).value);
   const rpc = async (method, params) => {
+    const start = performance.now();
     send(request(++id, method, params));
     const reply = await receive();
+    if (process.env.RX_MCP_TIMINGS) t.diagnostic(`${params?.name ?? method}: ${(performance.now() - start).toFixed(1)}ms`);
     assert.equal(reply.id, id);
     assert.equal(reply.jsonrpc, "2.0");
     return reply;
@@ -53,7 +55,7 @@ test("stdio JSON-RPC negotiation, notifications, catalog and errors", { timeout:
   assert.equal((await c.rpc("ping", [])).error.code, -32602);
   assert.equal((await c.rpc("bad")).error.code, -32601);
   const list = (await c.rpc("tools/list")).result.tools;
-  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "coverage", "uncovered", "live_status", "tail", "record", "value", "state", "why", "pending"]);
+  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "coverage", "uncovered", "live_status", "tail", "record", "value", "state", "why", "pending", "trace", "hmr"]);
   assert.ok(list.every(t => t.annotations.readOnlyHint === (t.name !== "record")));
   assert.equal((await c.call("node")).isError, true);
   assert.equal((await c.call("reach", { key: "x", direction: "sideways" })).isError, true);
@@ -61,8 +63,13 @@ test("stdio JSON-RPC negotiation, notifications, catalog and errors", { timeout:
   assert.equal((await c.rpc("resources/read", { uri: "rx://wrong" })).error.code, -32602);
 });
 
-test("static queries and resources on notes", { timeout: 60000 }, async t => {
-  const c = client(t, ["--root", repo, "--entry", "examples/notes/main.rx"]);
+test("static queries and resources on notes", { timeout: 10000 }, async t => {
+  // Keep actual CLI round trips and compiler/model caching, but don't walk the
+  // entire checkout (including unrelated build output) for each query.
+  const root = mkdtempSync(join(tmpdir(), "rx-map-notes-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  cpSync(join(repo, "examples/notes"), join(root, "examples/notes"), { recursive: true });
+  const c = client(t, ["--root", root, "--entry", "examples/notes/main.rx"]);
   assert.equal(await c.text("check"), "ok");
   assert.deepEqual((await c.json("overview")).map(m => m.file),
     ["examples/notes/data.rx", "examples/notes/ui.rx", "examples/notes/main.rx"]);
@@ -222,7 +229,7 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   });
   oldest = page(2);
   const newest = page(4);
-  ws.emit(LIVE_READY, undefined, oldest);
+  ws.emit(LIVE_READY, { tab: "old", document: "one" }, oldest);
   ws.emit(LIVE_READY, undefined, newest);
   ws.emit(LIVE_READY, undefined, oldest);
   assert.deepEqual((await (await fetch(url)).json()).result, { pages: 2, flushes: 4, uptime: 15 });
@@ -245,8 +252,40 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   assert.equal((await c.json("tail", { key: `${key}.total`, whole: true, limit: 1 }))[0].changes.length, 3);
   assert.equal((await httpRpc("tools/call", { name: "travel", arguments: { seq: 1 } })).result.isError, true);
   assert.deepEqual(await c.json("live_status"), { pages: 1, flushes: 2, uptime: 15 });
+  const { id } = await c.json("record", { action: "start" });
+  ws.emit(LIVE_TRACE, { type: "flush", at: 400, changes: [{ key, preview: "1" }] }, oldest);
   oldest.socket.emit("close");
   assert.equal((await fetch(url)).status, 503);
+  const other = page(5), reload = page(6);
+  ws.emit(LIVE_READY, { tab: "other", document: "one" }, other);
+  ws.emit(LIVE_TRACE, { type: "flush", at: 5, changes: [{ key, preview: "noise" }] }, other);
+  ws.emit(LIVE_READY, { tab: "old", document: "two" }, reload);
+  ws.emit(LIVE_TRACE, { type: "flush", at: 7, changes: [{ key, preview: "2" }] }, reload);
+  const recording = await c.json("record", { action: "stop", key, kinds: ["flush"] });
+  assert.equal(recording.id, id);
+  assert.deepEqual(recording.records.map(r => [r.type, r.at, r.changes?.[0].preview]), [
+    ["flush", 0, "1"], ["reload", 0, undefined], ["flush", 7, "2"],
+  ]);
+});
+
+test("trace groups observed writes and holds by run and call, not timing alone", () => {
+  const rows = [
+    { type: "run", key: "send", id: 1, state: "start", args: "[42]", at: 2 },
+    { type: "call", key: "post", id: 1, run: 1, state: "start", at: 3 },
+    { type: "held", key: "outbox", instance: "2", run: 1, call: 1, blockers: [{ key: "poll", id: 3 }], at: 4 },
+    { type: "call", key: "post", id: 1, state: "error", error: "Offline", at: 8 },
+    { type: "flush", changes: [{ key: "outbox", run: 1, preview: "[]" }, { key: "timer", preview: "3" }], at: 10 },
+    { type: "released", key: "outbox", run: 1, at: 10 },
+    { type: "run", key: "send", id: 1, state: "end", result: "false", at: 11 },
+  ];
+  const [run, call] = traceSummary(rows, { run: 1 });
+  assert.equal(run.duration, 9);
+  assert.equal(call.duration, 5);
+  assert.equal(call.error, "Offline");
+  assert.deepEqual(run.calls, [{ key: "post", id: 1 }]);
+  assert.deepEqual(run.writes.map(w => w.type), ["held", "write", "released"]);
+  assert.equal(call.writes[0].blockers[0].key, "poll");
+  assert.deepEqual(traceSummary(rows, { key: "timer" }), []);
 });
 
 test("warm HTTP MCP keeps a last-good graph after watcher invalidation", { timeout: 10000 }, async t => {

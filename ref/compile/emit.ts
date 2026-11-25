@@ -18,7 +18,7 @@ import type { Shape } from "../src/parse.ts";
 export class CompileError extends Error { name = "CompileError"; }
 type FnDecl = Extract<Decl, { k: "fn" }>;
 type Kind = "acc" | "src" | "val" | "fn" | "ifn" | "jfn" | "act" | "comp";
-type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
+type Bind = { kind: Kind; js: string; w?: string; fn?: FnDecl; prev?: string; client?: boolean; jsImport?: boolean; refs?: boolean[]; shape?: Shape; inst?: string };   // MO-10: jfn, a declared JS primitive (refs, shape); inst: an instance's raw result   // client: `client` JS (12 SF-5b)
 
 class Env {
   vars = new Map<string, Bind>(); parent: Env | null;
@@ -266,7 +266,7 @@ class Gen {
     // names first: hoisted functions and components; every other declaration is a const
     for (const d of decls) {
       if (d.k === "import" && d.resolved) continue;
-      if (d.k === "import") for (const { name, alias } of d.names) { const x = this.jsDecl(d, name); if (x?.kind !== "type") env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
+      if (d.k === "import") for (const { name, alias } of d.names) { const x = this.jsDecl(d, name); if (x?.kind !== "type") env.vars.set(alias, x?.kind === "fn" && x.instantiates ? { kind: "jfn", js: mg(alias), refs: x.refs ?? [], shape: x.shape ?? "value" } : { kind: "val", js: mg(alias), jsImport: !d.resolved, client: d.side === "client" || d.declaredSide?.[name] === "client" }); }   // MO-10a
       if (d.k === "fn") env.vars.set(d.name, { kind: d.params.some(p => p.ref) || d.decls.length ? "ifn" : "fn", js: mg(d.name), fn: d });
       if (d.k === "component") env.vars.set(d.name, { kind: "comp", js: cm(d.name) });
       if (d.k === "action") env.vars.set(d.name, { kind: "act", js: mg(d.name) });
@@ -457,7 +457,8 @@ class Gen {
       });
       const r = b.inst!; const sh = f.shape!;
       const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${keyed(whole)};`;
+      const invoke = this.devModule ? `__rt.traceCall(${J(`${this.devModule}||${e.f.name}`)}, ${f.js}, [${args.join(", ")}])` : `${f.js}(${args.join(", ")})`;
+      return `${pad}const ${r} = ${invoke};\n${pad}const ${b.js} = ${keyed(whole)};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
@@ -521,6 +522,9 @@ class Gen {
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
         const args = e.args.map(a => a.k === "spread" ? `...${go(a.e)}` : go(a)).join(", ");
         if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${args})`;
+        if (this.devModule && e.f.k === "id" && env.lookup(e.f.name)?.jsImport) {
+          return `__rt.traceCall(${J(`${this.devModule}||${e.f.name}`)}, ${go(e.f)}, [${args}])`;
+        }
         return `${go(e.f)}(${args})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
