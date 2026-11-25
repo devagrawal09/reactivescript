@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildGraph } from "../graph.mjs";
 import { createMcp } from "../mcp.mjs";
-import { collectBrowserCoverage, createCollector, merge, rebase, report, summary, uncovered, universe } from "../coverage.mjs";
+import { collectBrowserCoverage, createCollector, merge, rebase, report, rxCoverage, summary, uncovered, universe } from "../coverage.mjs";
+import { rxMap } from "../vite.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
@@ -209,4 +210,22 @@ test("CLI merge, threshold, and trace; Playwright result writer", async t => {
   const replay = run("trace", "test.rxtrace.json", "-o", "replay.html");
   assert.equal(replay.status, 0, replay.stderr);
   assert.match(readFileSync(join(root, "replay.html"), "utf8"), /<!doctype html>/i);
+});
+
+test("Vite allows the linked Vitest setup entry only when opted in", async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-linked-map-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const scope = join(root, "node_modules/@reactivescript");
+  mkdirSync(scope, { recursive: true });
+  symlinkSync(resolve(here, ".."), join(scope, "map"), "junction");
+  const setup = "@reactivescript/map/coverage/vitest";
+  const realSetup = realpathSync(join(scope, "map/coverage/vitest.mjs")).replace(/\\/g, "/");
+  const allow = [root];
+  const config = { root, test: { setupFiles: ["./test-setup.ts"] }, server: { fs: { allow } } };
+  await rxMap().configResolved(config);
+  assert.deepEqual(allow, [root]);
+  config.test.setupFiles.push(setup);
+  await rxMap().configResolved(config);
+  await rxCoverage().configResolved(config);
+  assert.deepEqual(allow, [root, realSetup]);
 });

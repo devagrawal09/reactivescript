@@ -380,14 +380,28 @@ export async function collectBrowserCoverage(page, file) {
   return result;
 }
 
+const VITEST_SETUP = "@reactivescript/map/coverage/vitest";
+
+// Vitest loads setupFiles as top-level modules. Unlike an ordinary import,
+// that does not let Vite's import analysis mark an out-of-workspace link safe.
+// Keep the workspace allowlist and add only the explicitly opted-in entry.
+export async function allowCoverageSetup(config) {
+  if (![config.test?.setupFiles ?? []].flat().includes(VITEST_SETUP)) return;
+  const { createRequire } = await import("node:module");
+  const { join } = await import("node:path");
+  const file = createRequire(join(config.root, "package.json")).resolve(VITEST_SETUP).replace(/\\/g, "/");
+  const { allow } = config.server.fs;
+  if (!allow.includes(file)) allow.push(file);
+}
+
 export function rxCoverage() {
   return {
     name: "rx-coverage",
     config(config) {
       if (!process.env.VITEST || process.env.RX_COVERAGE !== "1") return;
-      const setup = "@reactivescript/map/coverage/vitest";
-      if ([config.test?.setupFiles ?? []].flat().includes(setup)) return;
-      return { test: { setupFiles: [setup] } };
+      if ([config.test?.setupFiles ?? []].flat().includes(VITEST_SETUP)) return;
+      return { test: { setupFiles: [VITEST_SETUP] } };
     },
+    configResolved: allowCoverageSetup,
   };
 }

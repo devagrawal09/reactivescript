@@ -493,8 +493,8 @@ fallbacks, optimistic outcomes, and action outcomes. Add
 `rxCoverage()` from `@reactivescript/map/coverage` with `RX_COVERAGE=1`. Use a dev Solid build.
 Run files go in `.rx-coverage/` (override with `RX_COVERAGE_DIR`). The collector observes the
 whole app session, so run shared-page tests serially to attribute hits to individual tests.
-If a linked map package lives outside Vite's workspace, allow its real path with `server.fs.allow`
-and inline it with `test.server.deps.inline: ["@reactivescript/map"]`.
+For a linked map package outside Vite's workspace, include `rxMap()` or `rxCoverage()` in
+`plugins`; either allows the opted-in setup file without opening the whole linked directory.
 
 ```sh
 rx-map coverage report --entry src/main.rx --min 75
