@@ -101,7 +101,8 @@ const scenarios = [
   { name: "live", opts: live, caption: "One flush, users request in flight, and page selected", async run(page) {
     await post(page, flush, { type: "flight", key: key("users"), state: "start", at: 120 });
     await visible(page, `${chip("users")}.flying`);
-    await page.locator(chip("page")).click();
+    // select it as a click would (both pages expose select): at the overview level a chip isn't there to click
+    await page.evaluate(id => window.select(id, true), node("page").id);
     await page.mouse.move(0, 0);
     await page.waitForTimeout(300);
   } },
@@ -155,7 +156,7 @@ const scenarios = [
     await post(page, flush);
     if (!(await page.locator("#popBtn").count())) throw new Error("No Pop out button");
     const [popup] = await Promise.all([
-      context.waitForEvent("page", { timeout: 3000 }), page.locator("#popBtn").click(),
+      context.waitForEvent("page", { timeout: 15000 }), page.locator("#popBtn").click({ timeout: 15000 }),
     ]);
     await popup.setViewportSize(viewport);
     return popup;
