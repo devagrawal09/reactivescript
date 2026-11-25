@@ -89,7 +89,7 @@ export function startLive(on) {
   bodyClass("live", true);
   const stops = [];
   if (isPopout()) {
-    document.title = `rx-map · pop-out · ${document.title.replace(/^rx-map · /, "")}`;
+    // (its title, "rx-map · pop-out · …", is main.rx's: it follows the graph drawn)
     // after the program has mounted: what joinOpener hands in is written as messages
     let stop = () => {};
     queueMicrotask(() => { stop = joinOpener(on); });

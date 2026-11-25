@@ -301,7 +301,7 @@ function getRecorder() {
   }
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
-  const held = new Map(), writes = new Map(), dirty = new Set();
+  const held = new Map(), writes = new Map(), dirty = new Set(), wroteSinceFlush = new Set();
   const callbackWrites = new Map();
   const start = performance.now();
   let seq = 0, flushes = 0;
@@ -371,20 +371,6 @@ function getRecorder() {
     }
     // New flights will be recorded separately; give their landings the HMR origin.
     const after = valueFrame(keys);
-    for (const [key, all] of instanceFrame(keys)) {
-      const old = oldInstances.get(moved.get(key) ?? key) ?? [];
-      const gone = old.filter(read => !all.includes(read));
-      const born = all.filter(read => !old.includes(read));
-      for (const read of born) {
-        // Carry provides the exact predecessor. For resets, only infer a
-        // replacement when there is one candidate in this owner path.
-        const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
-        const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
-        if (!from) continue;
-        const status = fallback.has(key) ? "reset" : read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
-        continuity.set(read, { from, to: read.instance, status });
-      }
-    }
     for (const key of [...plan.rerun, ...plan.reset, ...plan.added])
       if ([...flights.values()].some(f => f.key === key) || inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
     const changes = [], raw = [], inexact = new Set();
@@ -411,6 +397,28 @@ function getRecorder() {
     replacing = null;
     // Start a timeline seam even if the edit only changed the view, not its values.
     addStep(performance.now(), changes, raw, [], false, `hmr ${id}`, [...inexact]);
+    // Async remounts record their own flushes while the carry result settles.
+    try {
+      fallback = await fallback;
+    } catch (e) {
+      hmr({ phase: "failed", id, error: errorPreview(e), fallback: "none" });
+      queueReconcile();
+      return;
+    }
+    for (const [key, all] of instanceFrame(keys)) {
+      const old = oldInstances.get(moved.get(key) ?? key) ?? [];
+      const gone = old.filter(read => !all.includes(read));
+      const born = all.filter(read => !old.includes(read));
+      for (const read of born) {
+        // Carry provides the exact predecessor. For resets, only infer a
+        // replacement when there is one candidate in this owner path.
+        const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
+        const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
+        if (!from) continue;
+        const status = fallback.has(key) ? "reset" : read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
+        continuity.set(read, { from, to: read.instance, status });
+      }
+    }
     const changed = new Set([...plan.reset, ...plan.rerun, ...plan.added]);
     hmr({ phase: "done", id, changes: changes.filter(c => changed.has(c.key)),
       ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback.keys()].sort(), uncarriedReasons: Object.fromEntries(fallback) } : {}) });
@@ -587,14 +595,16 @@ function getRecorder() {
       const internal = all.filter(c => !c.key);
       const changes = all.filter(c => c.key && (!errors.has(identity(c)) || errors.get(identity(c)) === c)).map(({ before, ...c }) => {
         const prev = last.get(identity(c))?.change.preview ?? before;
-        const js = importOrigin(c.key);
         const id = identity(c);
+        // a value written in this flush (an action's :=, a guess) came from that write, not from an answer: no "JS call"
+        const js = wroteSinceFlush.has(id) ? undefined : importOrigin(c.key);
         const callback = callbackWrites.get(id);
         const cause = callback ? `RX callback from ${callback}` : c.origin;
         const origin = hmrAnswers.get(c.key) ?? (js ? cause ? `${js} ← ${cause}` : js : cause);
         return { ...c, ...(origin ? { origin } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
       });
       for (const c of changes) callbackWrites.delete(identity(c));
+      wroteSinceFlush.clear();
       // Keyless engine nodes are still part of the app frame, even when
       // hidden from the map. Keep their raw bodies for openView.
       for (const c of changes) if (!inspect(c.key)?.pending && ![...flights.values()].some(f => f.key === c.key)) hmrAnswers.delete(c.key);
@@ -610,7 +620,7 @@ function getRecorder() {
       const after = [...flights.values()].some(r => r.key === msg.key);
       const { node: _node, ...event } = msg;
       if (msg.instance !== undefined || before !== after) addRecord({ ...event, id: flightId, at, origin, ...locate(msg.key) });
-      if (before !== after) publish({ ...event, at });
+      if (before !== after) publish({ ...event, at, ...(origin ? { origin } : {}) });
     } else {
       addRecord({ ...msg, ...locate(msg.key) });
       publish(msg);
@@ -662,6 +672,7 @@ function getRecorder() {
     if (event.type === "write" || event.type === "node") {
       if (event.type === "write") {
         writes.set(identity(event), event);
+        wroteSinceFlush.add(identity(event));
         if (event.origin) callbackWrites.set(identity(event), event.origin);
         else callbackWrites.delete(identity(event));
       }
@@ -1345,7 +1356,12 @@ function listen(post, dirty, replacingOrigin) {
       if (hmr) hmrFlights.set(node, hmr);
       announced.set(node, flight);
       const instance = instanceOf(event.nodeName), ownerPath = inspect(key, () => undefined, instance)?.ownerPath;
-      post({ source: SOURCE, type: "flight", key, instance, ownerPath, node, state: "start" }, event.nodeId, event.at,
+      // v0.9: what re-asked it, from the run's causes (the inputs that changed; none on a first ask)
+      const cause = (event.causes ?? []).slice(0, 8).map(c => {
+        const k = keyOf(c.name);
+        return { ...(k ? { key: k } : {}), name: c.name, ...(c.prev !== undefined ? { prev: c.prev } : {}), ...(c.value !== undefined ? { value: c.value } : {}) };
+      });
+      post({ source: SOURCE, type: "flight", key, instance, ownerPath, node, state: "start", ...(cause.length ? { cause } : {}) }, event.nodeId, event.at,
         event.interaction && formatOrigin(event.interaction));
       // Solid's flight record covers successful landings and supersession, not
       // rejection. Observe native promise rejection without replacing the promise.
@@ -1359,10 +1375,11 @@ function listen(post, dirty, replacingOrigin) {
           announced.delete(node);
           post({ type: "flight", key, instance, state: "abandon" }, event.nodeId);
         }, 0);
-      }, () => {
+      }, error => {
         if (announced.get(node) !== flight) return;
         announced.delete(node);
-        post({ type: "flight", key, instance, state: "abandon" }, event.nodeId);
+        // v0.9: rejected, not superseded: the abandon carries the error
+        post({ type: "flight", key, instance, state: "abandon", error: errorPreview(error) }, event.nodeId);
       });
     }
   };

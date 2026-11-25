@@ -39,7 +39,7 @@ const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/ja
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/graph.json") return res.writeHead(200, { "content-type": TYPES[".json"] }).end(graphJSON);
-  if (["/runtime/rt-web.ts", "/runtime/prims-solid.ts"].includes(url.pathname)) {
+  if (["/runtime/rt-web.ts", "/runtime/prims-solid.ts", "/runtime/action-input.ts"].includes(url.pathname)) {
     const ts = readFileSync(join(repo, "ref", "compile", url.pathname.split("/").at(-1)), "utf8");
     return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(ts));
   }

@@ -1,12 +1,12 @@
 // rx-map: a .rx program drawn from the checker's resolved model, as a world of plates and tokens under a HUD.
 // The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
 import { icon } from "./js/vocab.js"
-import { pageTitle, bodyClass, isLive, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
+import { setDocTitle, bodyClass, isLive, isPopout, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
 import { startCamera, layoutChanged, zoomBy, frameAll, isFramed, flyToId } from "./js/camera.js"
 import { fitCards } from "./js/layout.js"
 import { startSound, soundOn, setSound, sfx } from "./js/sound.js"
 import { sparkle } from "./js/fx.js"
-import { neighbourhood, downstream, upstream, edgesAt, findByName } from "./js/model.js"
+import { neighbourhood, downstream, upstream, edgesAt, findByName, titleOf } from "./js/model.js"
 import { startMinimap } from "./js/minimap.js"
 import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive, nextFrame, focusIsBodyOr } from "./js/dom.js"
 import { Board } from "./board.rx"
@@ -15,6 +15,8 @@ import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, travelBy } f
 import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
 import { Tip } from "./tip.rx"
 import { board, model, selected, focus, hidden, diff, diffView, allEdges, level, showLevel, hover, setDiffView, setAllEdges, showTrace } from "./state.rx"
+
+title = titleOf(model)
 
 export default component App() {
   source miniOn := !compactNow()
@@ -68,6 +70,8 @@ export default component App() {
   effect (diff) { bodyClass("diff", $0) }
   effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
   effect (miniOn) { bodyClass("mini-off", !$0) }
+  // the title follows the graph drawn: a module replacement or a pop-out's catch-up can swap in another
+  effect (title) { setDocTitle(`rx-map · ${isPopout() ? "pop-out · " : ""}${$0}`) }
 
   <div id="canvas" onClick={(ev) => { if (!within(ev, "#board [data-id], .nref") && selected != null) { pick(null, false) } }}>
     <div id="world">
@@ -77,7 +81,7 @@ export default component App() {
   </div>
   <div id="rewind"></div>
   <header class="hud">
-    <h1><span class="logo"></span>RX·MAP <small class="mono">{pageTitle()}</small></h1>
+    <h1><span class="logo"></span>RX·MAP <small class="mono">{title}</small></h1>
     <LiveBadge />
     <span id="qwrap">
       <input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount" value={query}

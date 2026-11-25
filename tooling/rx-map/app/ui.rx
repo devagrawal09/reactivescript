@@ -1,6 +1,6 @@
 // The HUD's own state: the side panel (open, which tab, the tab to give back when a selection is cleared) and search.
 // Selecting from anywhere goes through `pick` here, which opens the panel on the selected name.
-import { isDiff, loadJSON, saveJSON } from "./js/env.js"
+import { isDiff, isLive, loadJSON, saveJSON } from "./js/env.js"
 import { flyToId } from "./js/camera.js"
 import { sfx } from "./js/sound.js"
 import { toSet } from "./js/util.js"
@@ -11,8 +11,9 @@ import { model, hidden, selected, select } from "./state.rx"
 // tabs: "changes" (a diff), "help", "legend", "plan" (a module replacement's), "node" (the selected name)
 export panelKey = isDiff() ? "rx-map:panel:diff" : "rx-map:panel"
 // the panel's own tabs (the plan and the selected name's come and go)
-export tabs = isDiff() ? [{ id: "changes", label: "Changes" }, { id: "help", label: "Guide" }, { id: "legend", label: "Legend" }]
-  : [{ id: "help", label: "Guide" }, { id: "legend", label: "Legend" }]
+// live: the calls across the trust boundary (live.rx CallsPanel)
+export tabs = [...(isDiff() ? [{ id: "changes", label: "Changes" }] : []), { id: "help", label: "Guide" }, { id: "legend", label: "Legend" },
+  ...(isLive() ? [{ id: "calls", label: "Calls" }] : [])]
 export firstTab = isDiff() ? "changes" : "help"
 saved = loadJSON(panelKey, null)
 export source tab: string := peek(saved) != null && peek(tabs).some(t => t.id == peek(saved).tab) ? peek(saved).tab : peek(firstTab)
@@ -74,6 +75,27 @@ export action openTab(t: string) {
   }
   tab := t
   open := true
+}
+
+/** The Calls tab, filtered to one import's calls (its key; "" for all). */
+export source callFilter: string := ""
+export action showCalls(fnKey: string) {
+  callFilter := fnKey
+  openTab("calls")
+}
+
+/** A tab opened for the user, not by them (a module replacement's plan): remembers what it took over. */
+export action openFor(t: string) {
+  if (selected == null && tab != "node" && tab != "plan") { before := { tab: tab, open: open } }
+  openTab(t)
+}
+/** That tab went away (the app reloaded, the plan with it): give back what it took over, if it is still shown. */
+export action closeFor(t: string) {
+  if (tab == t) {
+    tab := before != null ? before.tab : firstTab
+    open := before != null ? before.open : false
+    before := null
+  }
 }
 
 /** Close the panel; a selection is cleared with it, and the tab it took over comes back (closed). */

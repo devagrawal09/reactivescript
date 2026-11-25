@@ -882,7 +882,9 @@ export function createFakeHost(graph, opts = {}) {
     const delay = 2 + Math.floor(rng() * 3);
     const abandon = rng() < 0.1;
     inFlight.set(node.key, { node, landTick: tickCount + delay, abandon, cause: ctx.cause ?? node.key, origin: ctx.origin });
-    emit({ type: "flight", key: node.key, state: "start", at: clock });
+    // v0.9: what re-asked it (the change this propagation started from), and the interaction
+    const by = ctx.cause && ctx.cause !== node.key ? [{ key: ctx.cause, name: `rx:${ctx.cause}` }] : [];
+    emit({ type: "flight", key: node.key, state: "start", at: clock, ...(by.length ? { cause: by } : {}), ...(ctx.origin ? { origin: ctx.origin } : {}) });
   }
 
   function probeUpdates(nodes) {

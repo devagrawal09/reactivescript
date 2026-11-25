@@ -289,6 +289,26 @@ function* checkOne(makeHost, graph, label, seed, push) {
   push(flightOrder, "flight start before end", label, flightOrderDetail || (msgs.some(m => m.type === "flight") ? undefined : "no flights"));
   push(flightDouble, "no double flight start", label, flightDoubleDetail || undefined);
 
+  // v0.9: a flight start's `cause` says what re-asked it (well formed, known keys), a rejected ask's `abandon` its error;
+  // and a question asked again names what changed at least once (the map's call history rests on it)
+  let causeOk = true, causeDetail = "";
+  const asked = new Map();
+  let reasks = 0, reasksWithCause = 0;
+  for (const m of msgs) {
+    if (m.type !== "flight") continue;
+    if (m.state === "abandon" && m.error !== undefined && typeof m.error !== "string") { causeOk = false; causeDetail = `abandon of ${m.key}: error is not a string`; }
+    if (m.state !== "start") continue;
+    if (m.cause !== undefined) {
+      const bad = !Array.isArray(m.cause) ? "not a list" : m.cause.find(c => typeof c?.name !== "string" || (c.key != null && !allKeys.has(c.key)));
+      if (bad) { causeOk = false; causeDetail = `cause of ${m.key}: ${typeof bad === "string" ? bad : JSON.stringify(bad)}`; }
+    }
+    if (asked.has(m.key)) { reasks++; if (m.cause?.length) reasksWithCause++; }
+    asked.set(m.key, true);
+  }
+  push(causeOk, "flight causes are well formed (v0.9)", label, causeDetail || undefined);
+  push(!reasks || reasksWithCause > 0, "a re-asked question says what re-asked it (v0.9)", label,
+    reasks ? (reasksWithCause ? undefined : `${reasks} re-asks, none with a cause`) : "no re-asks");
+
   // Two hosts that see the same calls. Travel must not depend on which path you took.
   const script = function* (h) {
     yield h.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });

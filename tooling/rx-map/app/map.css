@@ -583,3 +583,28 @@ body.viewing #liveBtn { color: var(--dim) }
   .comet { display: none }
   #scrub.shake { animation: none }
 }
+
+/* the Calls tab (live): a call across the trust boundary per row; a click travels to its step */
+.calls-filter { align-items: center; margin: 8px 0 10px }
+.calls-filter select { background: rgba(4, 6, 10, .6); color: var(--text); border: 1px solid rgba(150, 180, 255, .25); border-radius: 4px; padding: 3px 6px; font: 12px ui-monospace, Menlo, monospace; max-width: 100% }
+ol.calls { list-style: none; margin: 0; padding: 0 }
+aside li.call { display: block; padding: 7px 8px 6px; margin: 0 0 5px; border: 1px solid rgba(150, 180, 255, .12); border-left: 2px solid var(--cb, rgba(150, 180, 255, .4)); border-radius: 5px; background: rgba(4, 6, 10, .35); cursor: pointer }
+aside li.call:hover, aside li.call:focus-visible { background: rgba(60, 90, 160, .16); border-color: rgba(150, 180, 255, .3); outline: none }
+li.call.o-ok { --cb: #4ade80 } li.call.o-rejected { --cb: var(--fail) } li.call.o-stale, li.call.o-unseen { --cb: #64748b } li.call.o-pending { --cb: var(--pending) }
+.call .c-top, .call .c-by, .call .c-cause { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap }
+.call .c-when { color: var(--dim); font-size: 10.5px; min-width: 54px }
+.call .c-fns { display: flex; gap: 6px; flex-wrap: wrap; font-weight: 600 }
+.call .c-fn { color: #cbd5e1 }
+.call .c-badge { margin-left: auto; font: 700 9px/1 ui-sans-serif, system-ui; letter-spacing: .12em; text-transform: uppercase; padding: 3px 5px; border-radius: 3px; border: 1px solid currentColor }
+.c-badge.o-ok { color: #4ade80 } .c-badge.o-rejected { color: #fff; background: #e11d48; border-color: var(--fail) }
+.c-badge.o-stale, .c-badge.o-unseen { color: #94a3b8 } .c-badge.o-pending { color: #1a1205; background: var(--pending); border-color: var(--pending) }
+.call .c-dur { color: var(--dim); font-size: 10.5px; min-width: 52px; text-align: right }
+.call .c-by { margin-top: 3px; font-size: 12px }
+.call .c-args { color: var(--dim); word-break: break-all }
+.call .c-err { color: var(--fail); font-size: 11px; margin-top: 3px; word-break: break-word }
+.call .c-cause { margin-top: 3px; color: var(--dim); font-size: 11px }
+.call .c-why { flex: 1; min-width: 0 }
+.call .c-inf { font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--pending); border: 1px dashed rgba(251, 191, 36, .5); border-radius: 3px; padding: 0 4px }
+.call .c-seq { color: var(--micro); font-size: 10.5px }
+ol.calls.mini li.call { padding: 5px 7px 4px }
+h3.plan-lost { color: var(--fail) }
