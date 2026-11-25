@@ -86,9 +86,10 @@ test("a JS import's declaration origin (09 MO-11) reaches the graph, the query a
   const env = { ...process.env, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` };
   const g = buildGraph(JSON.parse(execFileSync(rxc, ["model", "main.rx"], { cwd: root, encoding: "utf8", env })), { root });
   const decl = name => g.nodes.find(n => n.name === name)?.decl;
-  assert.deepEqual(decl("createShout"), { line: "export pure fn createShout(ref s: string): ref string", from: "api.ts", origin: "helper", helpers: ["pure", "ref"] });
-  assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", helpers: [] });
+  assert.deepEqual(decl("createShout"), { line: "export pure fn createShout(ref s: string): ref string", from: "api.ts", origin: "helper", helpers: ["pure", "ref"], at: 2 });
+  assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", helpers: [], at: 1 });
   assert.equal(decl("log").origin, "default");
+  assert.equal(decl("log").at, 4);   // the TS module's export line: where a reviewer declares its rejections
   const tags = g.nodes.filter(n => n.decl).map(n => [n.name, declTag(n)]);
   assert.deepEqual(tags, [["createShout", "helper"], ["save", "d.rx"], ["log", "default"]]);
   // a Ref primitive is a fn on its plate (MO-10a), the rest JS imports in the outside column: each carries the tag,

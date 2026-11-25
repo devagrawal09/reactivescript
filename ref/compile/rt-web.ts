@@ -403,6 +403,10 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
     memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, nm(opts) as any) as Acc,
+    // A dev-only wrapper must not consume an ID absent from the server render.
+    ...(RX_INSTRUMENT || RX_HARNESS ? {
+      observeRef: (read: Acc): Acc => sharedConfig.hydrating ? read : createMemo(() => read(), nm(undefined)),
+    } : {}),
     deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, nm(opts) as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
     keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any, nm(undefined)); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, nm({ key }) as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key

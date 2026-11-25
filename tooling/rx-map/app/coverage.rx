@@ -33,8 +33,8 @@ export component CoveragePaths(props: { target: string }) {
       <ul>
         {for p in entry.rows {
           <li data-path={p.id}>
-            <span class="mono" aria-label={p.seen ? "covered" : "uncovered"}>{p.seen ? "✓" : "✗"}</span>
-            <span>{p.label}{if p.by != "" { <small class="hint">{`by ${p.by}`}</small> }}</span>
+            <span class="mono" aria-label={p.ignored != "" ? "ignored" : p.seen ? "covered" : "uncovered"}>{p.ignored != "" ? "–" : p.seen ? "✓" : "✗"}</span>
+            <span>{p.label}{if p.ignored != "" { <small class="hint">{`ignored (${p.ignored})`}</small> }}{if p.by != "" { <small class="hint">{`by ${p.by}`}</small> }}</span>
           </li>
         }}
       </ul>

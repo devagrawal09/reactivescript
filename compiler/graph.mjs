@@ -19,6 +19,24 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
   // every line of every module: the map labels control flow (`if …`, `for …`, `loading on(…)`) from the source
   src.forEach((ls, mi) => { const m = (lines[rel(files[mi])] = {}); ls.forEach((t, i) => { if (t.trim()) m[i + 1] = t; }); });
   const keepLine = () => {};
+  // A JS import's declaration line number in `decl.from` (`at`, 1-based), when the file is there to read: the `.d.rx`
+  // line itself, or the TS module's export of the name. The model has the line's text, not its number.
+  const declFiles = new Map();
+  const declAt = (d, name, importer) => {
+    if (!d?.from) return {};
+    const file = [resolve(root, d.from), resolve(dirname(importer), d.from)].find(f => {
+      if (!declFiles.has(f)) { try { declFiles.set(f, source(f).split("\n")); } catch { declFiles.set(f, null); } }
+      return declFiles.get(f);
+    });
+    const ls = file ? declFiles.get(file) : null;
+    if (!ls) return {};
+    const id = name.replace(/[$]/g, "\\$");
+    const pats = /\.d\.rx$/.test(d.from) ? [l => l.trim() === d.line.trim(), l => new RegExp(`^\\s*export\\b.*\\b(?:fn|error|const|let)\\s+${id}\\b`).test(l)]
+      : [l => new RegExp(`^\\s*export\\s+(?:default\\s+)?(?:declare\\s+)?(?:async\\s+)?(?:function\\*?|const|let|var|class)\\s+${id}\\b`).test(l),
+        l => new RegExp(`^\\s*export\\s*\\{[^}]*\\b${id}\\b`).test(l)];
+    for (const p of pats) { const i = ls.findIndex(p); if (i >= 0) return { at: i + 1 }; }
+    return {};
+  };
 
   // The model marks an imported source with `from`; other imported names (actions, equations, components, error
   // classes) carry no `from`, so read it off their import line.
@@ -53,7 +71,8 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
         ...(spec && !spec.endsWith(".rx") ? { jsFrom: spec } : {}),
         // a JS import's effective declaration (09 MO-11): its line, the file it is from (a written `.d.rx`, or the TS
         // module it was generated from), and its origin (`written`, `helper` with the helpers, `default`)
-        ...(s.decl ? { decl: { line: s.decl.line, from: s.decl.from, origin: s.decl.origin, helpers: s.decl.helpers ?? [] } } : {}),
+        ...(s.decl ? { decl: { line: s.decl.line, from: s.decl.from, origin: s.decl.origin, helpers: s.decl.helpers ?? [],
+          ...declAt(s.decl, s.name, files[mi]) } } : {}),
         ...(s.key ? { rxKey: s.key } : {}) });
       symNode.set(`${mi}:${s.id}`, id);
       byName.set(`${files[mi]}:${s.name}`, id);
@@ -112,6 +131,8 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
         const n = nodeById.get(owner);
         if (n && c.kind === "question") n.async = true;
         if (n && (c.kind === "keyed" || c.kind === "deferred")) { n.async = n.async || c.calls.length > 0; n.flavor = c.kind; }
+        // an action's own catches (the model's `catches`): the classes each handles, null for a catch-all
+        if (n && c.kind === "action" && c.catches?.length) n.catches = c.catches.map(x => ({ classes: x.classes ?? null }));
       }
       compOwner.set(c.id, owner);
       for (const r of c.reads) {

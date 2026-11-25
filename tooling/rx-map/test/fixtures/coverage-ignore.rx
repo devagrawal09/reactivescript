@@ -1,0 +1,16 @@
+import pure { fetchTitle, NotFound, Conflict } from "./coverage-api"
+
+source a: number := 1   // rx-coverage-ignore: set once at boot
+// rx-coverage-ignore errored: no boundary here
+source b: number := 2
+// rx-coverage-ignore node
+source c: number := 3
+// rx-coverage-ignore: nothing below
+
+source title = await fetchTitle(a + b + c) -> ""   // rx-coverage-ignore edge: its inputs are boot constants
+export component View() {
+  // rx-coverage-ignore errored: a 404 can't reach this page
+  errored fallback(e: NotFound | Conflict) { <p>{e.message}</p> } {
+    <p>{title}</p>
+  }
+}

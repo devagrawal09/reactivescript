@@ -16,7 +16,7 @@ import { decodeHTMLStrict } from "entities";
 //   pre       `pre x` (C-2): the previous instant's value
 // and `probe: "latest" | "pending"` under `latest` / `pending?` (R-9, R-12). A write is `x := e` (W-1), `guess`
 // (AC-3), `refresh` (AC-4) or `affects` (AC-5); `use p := e` writes the context's provided source (RG-7c). A call names a
-// fn, an action, a server fn or a JS import called by name.
+// fn, an action, a server fn or a JS import called by name. An action's computation lists its own catches (`catches`).
 
 import type { Decl, Markup, Program } from "./ast.ts";
 
@@ -31,7 +31,10 @@ export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?
  *  was generated from), and where its facts came from: `written`, `helper` (with the helpers) or `default`. */
 export type SymDecl = { line: string; from: string; origin: "written" | "helper" | "default"; helpers: string[] };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string; decl?: SymDecl };
-export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
+/** An action's own catch (R-f-6): a `try … catch` or an `await … catch` in its body, in source order. `classes`: the error
+ *  classes it handles, null for a catch-all. No line: a statement has none in the AST (the map finds it in the source). */
+export type ActionCatch = { classes: string[] | null };
+export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[]; catches?: ActionCatch[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
 
 const OUTLINE_LIMIT = 400;
@@ -152,6 +155,8 @@ export class ModelBuilder {
     if (!this.cur.writes.some(x => x.sym === id && x.op === op && !!x.path === path && x.field === field))
       this.cur.writes.push({ sym: id, op, ...(path ? { path: true as const } : {}), ...(field ? { field } : {}) });
   }
+  /** An action's own catch: recorded on the action's computation, only there (present when non-empty). */
+  catch(classes: string[] | undefined) { const c = this.cur; if (c?.kind === "action") (c.catches ??= []).push({ classes: classes ? [...classes] : null }); }
   call(s: SymLike | undefined) { const id = s && this.ids.get(s); if (!this.cur || id === undefined || !CALL_KINDS.has(s!.kind) || this.cur.calls.includes(id)) return; this.cur.calls.push(id); }
   build(file: string): Model {
     return { file, regions: this.regions.map(r => {

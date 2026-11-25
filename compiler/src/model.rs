@@ -175,6 +175,9 @@ pub struct Computation {
     pub reads: Vec<Read>,
     pub writes: Vec<Write>,
     pub calls: Vec<usize>,
+    /// an action's own catches (`try … catch`, `await … catch`) in source order: the classes each handles, `None` for a
+    /// catch-all. Only on an action's computation, emitted when non-empty (`ref/src/model.ts` `ActionCatch`).
+    pub catches: Vec<Option<Vec<String>>>,
 }
 
 /// Filled by the checker during its walk: symbols as they are bound (by the checker's own symbol index), computations as
@@ -260,7 +263,7 @@ impl ModelBuilder {
         self.order.push(index);
     }
     pub fn within(&mut self, kind: &'static str, region: usize, line: i64, name: Option<String>, at: Option<String>) -> (Option<usize>, usize, Option<&'static str>) {
-        let c = Computation { id: self.computations.len(), kind, region, line, name, at, r#in: self.cur, reads: vec![], writes: vec![], calls: vec![] };
+        let c = Computation { id: self.computations.len(), kind, region, line, name, at, r#in: self.cur, reads: vec![], writes: vec![], calls: vec![], catches: vec![] };
         let saved = (self.cur, self.snap, self.probe);
         self.cur = Some(c.id);
         self.computations.push(c);
@@ -296,6 +299,14 @@ impl ModelBuilder {
         let c = &mut self.computations[cur];
         if !c.writes.contains(&w) {
             c.writes.push(w);
+        }
+    }
+    /// An action's own catch: recorded on the action's computation, only there.
+    pub fn catch(&mut self, classes: Option<&Vec<String>>) {
+        let Some(cur) = self.cur else { return };
+        let c = &mut self.computations[cur];
+        if c.kind == "action" {
+            c.catches.push(classes.cloned());
         }
     }
     pub fn call(&mut self, index: Option<usize>, kind: &str) {
@@ -437,6 +448,9 @@ impl ModelBuilder {
                     ),
                 );
                 m.insert("calls".into(), json!(c.calls));
+                if !c.catches.is_empty() {
+                    m.insert("catches".into(), Value::Array(c.catches.iter().map(|k| json!({ "classes": k })).collect()));
+                }
                 Value::Object(m)
             })
             .collect();

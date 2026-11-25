@@ -2439,6 +2439,7 @@ impl<'a> Checker<'a> {
                         self.err_class(n, env);
                     }
                 }
+                self.model.catch(classes.as_ref());
                 let region = self.reg(env);
                 let ienv = self.env(Some(env), region);
                 if let Some(n) = name {
@@ -2810,6 +2811,9 @@ impl<'a> Checker<'a> {
                     self.stmts(f, env, ctx);
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                    if handler.is_some() {
+                        self.model.catch(catch_classes.as_ref());
+                    }
                     self.stmts(body, env, ctx);
                     if let Some(cs) = catch_classes {
                         for n in cs {

@@ -53,7 +53,7 @@ const res = await esbuild.build({
   bundle: true, write: false, format: "iife", platform: "browser", target: "es2022",
   minify: !process.argv.includes("--no-minify"), legalComments: "none", charset: "utf8",
   // coverage.mjs also exports an unused Node helper; its dynamic imports are tree-shaken with it.
-  external: ["node:fs/promises", "node:path"],
+  external: ["node:fs/promises", "node:path", "node:module"],
   alias: { "@reactivescript/runtime": path.join(repo, "runtime/dist/web.js") },
   logLevel: "error",
   plugins: [{
