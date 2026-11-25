@@ -189,7 +189,26 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   such names does not load the JS module. The runtime compiler does not
   read TypeScript types or infer which imports are types from their uses:
   declare type exports in `.d.rx` to erase them. No `import type` form
-  is needed.
+  is needed on an `.rx` import.
+- **MO-8e.** A declaration file may import types, so a signature names a
+  type declared elsewhere instead of copying it:
+
+  ```rx
+  import { Card, Route as R } from "./server"
+  export pure fn matches(c: Card, r: R): boolean
+  ```
+
+  Types only: `import { T, U as V } from "./x"` (`import type` is the same
+  words). No default, no `pure`, no `fails`, and it is not re-exported.
+  It binds no value and emits no JS. `./x` drops a `.js`, `.mjs` or `.ts`
+  extension, as an import of the JS module does (MO-8a). A path ending in
+  `.rx` is that module, and only an `export type` there; any other path is
+  `x.d.rx` when that file exists, otherwise `x.rx`. A missing file is
+  `MODULE_NOT_FOUND`. A name that file does not export as a type is
+  `NOT_EXPORTED`. A name that is a value (a `fn`) is `TYPE_IMPORT`. The
+  names are in scope for the rest of the file. An `.rx` import of those
+  names is still not `import type` (MO-8d): the declaration file imported
+  them so its signatures can say them.
 
 ## MO-9 — A signature read in place of its module
 
@@ -319,7 +338,8 @@ export component Search(props: { start: boolean, q: string }) {
 | `WRITE_TO_NON_SOURCE` (rule MO-2) | S | MO-2a |
 | `IMPORT_ROW_MISMATCH` | S | MO-4a |
 | `MODULE_CYCLE` | S | MO-5 |
-| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module; MO-8e for a type import in a `.d.rx` |
+| `TYPE_IMPORT` | S | MO-8e: a declaration file imported a value |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 
 ## Implementation

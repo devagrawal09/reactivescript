@@ -117,13 +117,15 @@ named.
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
 | `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
+| `DEAD_TYPED_BOUNDARY`             | S   | R-f-4: a typed `errored (e: X)` whose children an inner catch-all wraps, so `X` never reaches it | S-fail-5 |
 | `CATCH_NOT_ON_AWAIT` (new)        | S   | R-f-4: a `catch` after anything but an `await` (a failed value is shown by an `errored` region where it is read; 2026-11-19) | S-fail-1, S-catch-snapshot |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
 | `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |
-| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a | S-module-1 |
+| `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-8e for a type import in a `.d.rx` | S-module-1, S-module-6 |
+| `TYPE_IMPORT`                     | S   | MO-8e: a `.d.rx` imported a value, not a type | S-module-6 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `SOURCE_CONTEXT`, `WRITE_TO_NON_SOURCE` (O-4) | S | O-4: a context is read beneath its provision; `context x: source T` withdrawn (RG-7c, 2026-10-31) | S-context-1 |
 | `ROW_NARROWER_THAN_INFERRED` (RG-7e) | S | a provision wider than its context's declared rows | S-context-1 |

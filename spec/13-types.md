@@ -68,6 +68,10 @@ does for `.tsrx`. Nothing here is a second type system.
   `.d.rx`, the type layer still checks the import against the `.d.rx`:
   a `ref` parameter or result is that type, not the accessor the `.ts`
   implementation is written with. The compiled import is unchanged (MO-8c).
+  A type the `.d.rx` imports (MO-8e) is in that namespace as an alias of the
+  other file's namespace (`type Card = __D_….Card`), never an `import` of
+  the sibling `.ts`. An `.rx` `export type` is an alias of that module's
+  projection.
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such

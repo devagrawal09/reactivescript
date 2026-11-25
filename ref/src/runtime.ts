@@ -3,6 +3,22 @@
 import { classMap } from "./style.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+/** Equation decls of a lifted fn, dependencies first, so `i = …` is a local each call (E-9). */
+function eqOrder(decls: Decl[]): Extract<Decl, { k: "eq" }>[] {
+  const eqs = decls.filter((d): d is Extract<Decl, { k: "eq" }> => d.k === "eq");
+  const by = new Map(eqs.map(d => [d.name, d]));
+  const done = new Set<string>(); const out: typeof eqs = [];
+  const ids = (e: Expr, into: Set<string>) => {
+    if (!e?.k || e.k === "fn" || e.k === "draft") return;
+    if (e.k === "id") into.add(e.name);
+    for (const v of Object.values(e)) {
+      if (Array.isArray(v)) for (const x of v) if (x && typeof x === "object" && "k" in x) ids(x as Expr, into);
+      else if (v && typeof v === "object" && "k" in v) ids(v as Expr, into);
+    }
+  };
+  const visit = (d: Extract<Decl, { k: "eq" }>) => { if (done.has(d.name)) return; done.add(d.name); const ns = new Set<string>(); ids(d.e, ns); for (const n of ns) { const t = by.get(n); if (t && t !== d) visit(t); } out.push(d); };
+  eqs.forEach(visit); return out;
+}
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
 
 import { RuleError, CheckError } from "./errors.ts";
@@ -217,7 +233,7 @@ export class Runtime {
   }
   private fnBind(e: Expr, region: Region): { fn: FnDecl; home: Region } | null { if (e.k !== "call" || e.f.k !== "id") return null; const b = region.lookup(e.f.name); return b && "fn" in b ? b : null; }
   private fnOf(e: Expr, region: Region): FnDecl | null { return this.fnBind(e, region)?.fn ?? null; }
-  private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.length > 0; }
+  private isInstantiating(f: FnDecl) { return f.params.some(p => p.ref) || f.decls.some(d => d.k === "source" || d.k === "effect" || d.k === "component"); }
   private instantiates(e: Expr, region: Region) { const f = this.fnOf(e, region); return !!f && this.isInstantiating(f); }
   private instantiateFn(call: Extract<Expr, { k: "call" }>, region: Region): Node {   // E-9 / RG-6
     const fb = this.fnBind(call, region)!; const f = fb.fn;
@@ -795,7 +811,7 @@ export class Runtime {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
           const f = b.fn;
           const home = b.home;
-          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
+          return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); for (const d of eqOrder(f.decls)) en.set(d.name, this.evalExpr(d.e, home, en)); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals; equation decls are locals, re-read each call (E-9)
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
         if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)

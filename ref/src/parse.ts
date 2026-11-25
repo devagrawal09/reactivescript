@@ -29,6 +29,10 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   const api = JS_APIS.exec(line);
   if (api)
     return ["JS_API", `\`${api[1]}\` is not .rx: state is \`source x := …\`, a value computed from others is \`x = …\`, a side effect is \`effect (x) { … }\``];
+  if (msg === "expression" && rest.startsWith("<") && before.includes("?"))
+    return ["JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`"];
+  if (msg === "in" && /^\s*,/.test(rest) && /\bfor\s+[A-Za-z_$]/.test(line))
+    return ["FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`"];
   return null;
 }
 let viewAt = 0;
@@ -134,7 +138,8 @@ export function parseProgram(src: string): Program {
 export type JsDecl =
   | { kind: "fn"; name: string; pure: boolean; params: string[]; generics?: string; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
-  | { kind: "type"; name: string; line: number; text?: string; exported: boolean };
+  | { kind: "type"; name: string; line: number; text?: string; exported: boolean }
+  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; target?: string; rx?: boolean };   // MO-8e: types only; target/rx filled by the loader
 function typeParams(c: Cursor): string | undefined {
   const start = c.i;
   if (!c.eat("<")) return;
@@ -151,6 +156,31 @@ function typeParams(c: Cursor): string | undefined {
   }
   c.fail("expected '>' to end type parameters");
 }
+const DECL_IMPORT = "a declaration file imports types only: `import { T, U as V } from \"./x\"`";
+/** MO-8e: `import { T, U as V } from "./x"` in a `.d.rx` — types only, resolved by the loader. */
+function parseDeclImport(c: Cursor, line: number): JsDecl {
+  c.keyword("import"); c.ws();
+  if (c.keyword("type")) c.ws();
+  if (c.keyword("pure") || c.keyword("server") || c.keyword("client") || !c.startsWith("{")) c.fail(DECL_IMPORT);
+  c.expect("{"); c.ws();
+  const names: { name: string; alias: string }[] = [];
+  while (!c.startsWith("}")) {
+    const name = c.ident() ?? c.fail("import name"); c.ws();
+    let alias = name;
+    if (c.keyword("as")) { c.ws(); alias = c.ident() ?? c.fail("alias"); c.ws(); }
+    names.push({ name, alias });
+    if (!c.eat(",")) break; c.ws();
+  }
+  if (!names.length) c.fail("import name");
+  c.expect("}"); c.ws();
+  if (!c.keyword("from")) c.fail("from");
+  c.ws();
+  const from = parsePrimary(c); if (from.k !== "lit" || typeof from.v !== "string") c.fail("module path");
+  const save = c.i; c.ws(false);
+  if (c.keyword("fails")) c.fail(DECL_IMPORT);
+  c.i = save;
+  return { kind: "import", names, from: from.v, line };
+}
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
@@ -158,8 +188,10 @@ export function parseDeclarations(src: string): JsDecl[] {
     const line = c.line;
     const exported = c.keyword("export");
     c.ws();
+    if (!exported && c.peekIdent() === "import") { out.push(parseDeclImport(c, line)); continue; }
+    if (exported && c.peekIdent() === "import") c.fail("a declaration file imports types for its signatures; it does not re-export (`import { T } from \"./x\"`)");
     if (c.peekIdent() === "type" || c.peekIdent() === "interface") { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i), exported }); continue; }
-    if (!exported) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
+    if (!exported) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`, or `import { T } from \"./x\"`");
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();

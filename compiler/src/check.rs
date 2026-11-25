@@ -63,6 +63,10 @@ fn is_handler(attr: &str) -> bool {
     let b = attr.as_bytes();
     b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
 }
+/// E-9: a `ref` parameter, or a body that declares a source, effect, or region. An equation is not a node.
+pub(crate) fn instantiating_fn(params: &[crate::ast::Param], decls: &[Decl]) -> bool {
+    params.iter().any(|p| p.r#ref) || decls.iter().any(|d| matches!(d, Decl::Source { .. } | Decl::Effect { .. } | Decl::Component { .. }))
+}
 fn is_upper_tag(tag: &str) -> bool {
     tag.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase())
 }
@@ -1328,7 +1332,7 @@ impl<'a> Checker<'a> {
                 }
                 Decl::Fn { params, decls: fdecls, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
-                    sym.instantiating = params.iter().any(|p| p.r#ref) || !fdecls.is_empty();
+                    sym.instantiating = instantiating_fn(params, fdecls);
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
                 }
@@ -1562,7 +1566,7 @@ impl<'a> Checker<'a> {
                 continue;
             };
             match x {
-                JsDecl::Type { .. } => continue,
+                JsDecl::Type { .. } | JsDecl::Import { .. } => continue,
                 JsDecl::Error { .. } => {
                     self.bind(env, alias, Sym::new(SymKind::ErrClass, alias, region, line));
                     continue;
@@ -1971,7 +1975,7 @@ impl<'a> Checker<'a> {
             }
             Decl::Fn { name, params, decls, tail, line, .. } => {
                 let region = self.reg(env);
-                let r = if !decls.is_empty() { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                let r = if instantiating_fn(params, decls) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
                 let inner = self.env(Some(env), r);
                 for p in params {
                     if p.r#ref {
@@ -2968,6 +2972,43 @@ impl<'a> Checker<'a> {
         0
     }
 
+    /// R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead.
+    fn dead_typed(&mut self, m: &Markup, classes: &[String], id: usize) {
+        let Some(inner) = self.covering_catch_all(match &m.kind {
+            MarkupKind::Errored { body, .. } => body,
+            _ => return,
+        }) else { return };
+        let line = m.line.unwrap_or(self.line as usize);
+        let cls = classes.join(" | ");
+        let inner_line = inner.line.unwrap_or(line);
+        self.line = line as i64;
+        self.err("DEAD_TYPED_BOUNDARY", "R-f-4", format!("errored fallback(e: {cls}) at line {line} is dead: the inner catch-all at line {inner_line} catches {cls} first — put the typed boundary inside the catch-all"));
+        if let Some(&by) = self.boundaries.get(&(inner as *const Markup)) {
+            self.model.shadow(id, by);
+        }
+    }
+    /// The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure.
+    fn covering_catch_all<'b>(&self, ms: &'b [Markup]) -> Option<&'b Markup> {
+        let mut inner: Option<&Markup> = None;
+        let mut saw = false;
+        for m in ms {
+            match &m.kind {
+                MarkupKind::Text(_) | MarkupKind::Style(_) => continue,
+                MarkupKind::Errored { classes: None, .. } => {
+                    saw = true;
+                    inner = inner.or(Some(m));
+                }
+                MarkupKind::El { tag, attrs, children } if !is_upper_tag(tag) && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) => {
+                    saw = true;
+                    let Some(c) = self.covering_catch_all(children) else { return None };
+                    inner = inner.or(Some(c));
+                }
+                _ => return None,
+            }
+        }
+        if saw { inner } else { None }
+    }
+
     // ---- views ----
     fn markup(&mut self, ms: &'a [Markup], env: EId, view_root: bool) {
         use crate::model::{outline_block, outline_hidden, OutlinePart::*};
@@ -3114,6 +3155,10 @@ impl<'a> Checker<'a> {
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
+                    if let Some(cs) = classes.clone().filter(|cs| !cs.is_empty()) {
+                        let rid = self.regions[b].id;
+                        self.dead_typed(m, &cs, rid);
+                    }
                 }
             }
         }

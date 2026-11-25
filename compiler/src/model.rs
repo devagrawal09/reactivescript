@@ -146,6 +146,8 @@ pub struct ModelRegion {
     pub name: Option<String>,
     outline: Vec<(OutlinePart, Option<usize>)>,
     clipped: bool,
+    /// R-f-4: the inner catch-all that wraps this typed `errored` region's children
+    pub shadowed: Option<usize>,
 }
 #[derive(Debug, Clone)]
 pub struct ModelSymbol {
@@ -192,8 +194,14 @@ const READ_KINDS: &[&str] = &["source", "eq", "props", "context"];
 const CALL_KINDS: &[&str] = &["fn", "action", "server", "import"];
 
 impl ModelBuilder {
+    /// R-f-4: a typed `errored` region whose children an inner catch-all wraps. `by` is that catch-all's region.
+    pub fn shadow(&mut self, id: usize, by: usize) {
+        if let Some(r) = self.regions.iter_mut().find(|r| r.id == id) {
+            r.shadowed = Some(by);
+        }
+    }
     pub fn region(&mut self, id: usize, kind: &'static str, parent: Option<usize>, name: Option<String>) {
-        self.regions.push(ModelRegion { id, kind, parent, name, outline: vec![], clipped: false });
+        self.regions.push(ModelRegion { id, kind, parent, name, outline: vec![], clipped: false, shadowed: None });
     }
     pub fn outline(&mut self, region: usize, mut part: OutlinePart, line: Option<usize>) {
         use OutlinePart::*;
@@ -313,6 +321,10 @@ impl ModelBuilder {
                 }
                 if let Some(n) = &r.name {
                     m.insert("name".into(), json!(n));
+                }
+                if let Some(by) = r.shadowed {
+                    m.insert("deadTyped".into(), json!(true));
+                    m.insert("shadowed".into(), json!(by));
                 }
                 let mut outline = r.outline.as_slice();
                 while let Some((part, _)) = outline.last() {

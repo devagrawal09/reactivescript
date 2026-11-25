@@ -187,7 +187,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), snap: HashSet::new(), rename: HashMap::new(), ambients: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), snap: HashSet::new(), rename: HashMap::new(), ambients: HashSet::new(), bridged: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -197,7 +197,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     }
     for (dts, decls) in &set.declarations {
         let path = dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone());
-        out.push(Projected { path, code: declaration_file(decls), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
+        out.push(Projected { path, code: declaration_module(dts, decls, set), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
     }
     for (m, names) in js_stubs {
         let code = names.iter().map(|n| if n == "default" { "declare const __d: any; export default __d;".to_string() } else { format!("export declare const {n}: any;") }).collect::<Vec<_>>().join("\n");
@@ -232,11 +232,37 @@ fn signature_stub(sig: &ModSig) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-/// MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module.
+/// A module-level alias of an imported type, so a declare namespace can name it without importing the sibling `.ts`.
+fn bridge_name(path: &str, name: &str) -> String {
+    let mut s = String::from("__T_");
+    for c in path.chars() {
+        s.push(if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' });
+    }
+    s.push('_');
+    s.push_str(name);
+    s
+}
+/// A path from `from_file`'s directory to `to_file`, for an `import type` of an `.rx` projection.
+fn rel_module(from_file: &str, to_file: &str) -> String {
+    let from: Vec<&str> = from_file.split('/').collect();
+    let from = if from.is_empty() { &from[..] } else { &from[..from.len() - 1] };
+    let to: Vec<&str> = to_file.split('/').collect();
+    let mut i = 0;
+    while i < from.len() && i + 1 < to.len() && from[i] == to[i] {
+        i += 1;
+    }
+    let mut rel = "../".repeat(from.len() - i) + &to[i..].join("/");
+    if !rel.starts_with('.') {
+        rel = format!("./{rel}");
+    }
+    rel
+}
+/// MO-8: a `.d.rx` as TypeScript's `.d.ts` for the same JS module. An import is a local alias of its bridge (MO-8e).
 fn declaration_file(decls: &[JsDecl]) -> String {
     decls
         .iter()
         .map(|d| match d {
+            JsDecl::Import { names, target, .. } => names.iter().map(|n| format!("type {} = {};", n.alias, target.as_ref().map(|t| bridge_name(t, &n.name)).unwrap_or_else(|| "any".into()))).collect::<Vec<_>>().join("\n"),
             JsDecl::Type { text, exported, .. } => format!("{}{text}", if *exported { "export " } else { "" }),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
             JsDecl::Fn { name, params, generics, ptypes, ret, .. } => {
@@ -250,6 +276,49 @@ fn declaration_file(decls: &[JsDecl]) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+fn ns_block(dts: &str, decls: &[JsDecl]) -> String {
+    let body = declaration_file(decls).trim_end().replace("export declare ", "export ").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
+    format!("declare namespace {} {{\n{body}\n}}", ns_name(dts))
+}
+/// Dependency namespaces and the bridges this file's type imports name. `seen` holds `.d.rx` paths already emitted.
+fn decl_preamble(decls: &[JsDecl], set: &ModuleSet, from_file: &str, seen: &mut HashSet<String>, bridged: &mut HashSet<String>) -> String {
+    let mut out = String::new();
+    for d in decls {
+        let JsDecl::Import { names, target: Some(target), rx, .. } = d else { continue };
+        if !rx {
+            out.push_str(&dep_text(target, set, from_file, seen, bridged));
+        }
+        for n in names {
+            let b = bridge_name(target, &n.name);
+            if !bridged.insert(b.clone()) {
+                continue;
+            }
+            if *rx {
+                out.push_str(&format!("import type {{ {} as {b} }} from {};\n", n.name, js_str(&rel_module(from_file, target))));
+            } else {
+                out.push_str(&format!("type {b} = {}.{};\n", ns_name(target), n.name));
+            }
+        }
+    }
+    out
+}
+fn dep_text(target: &str, set: &ModuleSet, from_file: &str, seen: &mut HashSet<String>, bridged: &mut HashSet<String>) -> String {
+    if !seen.insert(target.to_string()) {
+        return String::new();
+    }
+    let Some(decls) = set.declarations.get(target) else { return String::new() };
+    format!("{}{}\n", decl_preamble(decls, set, from_file, seen, bridged), ns_block(target, decls))
+}
+/// The standalone `.d.ts`: a file with no type import is `declaration_file`, unchanged.
+fn declaration_module(dts: &str, decls: &[JsDecl], set: &ModuleSet) -> String {
+    if !decls.iter().any(|d| matches!(d, JsDecl::Import { .. })) {
+        return declaration_file(decls);
+    }
+    let mut seen = HashSet::new();
+    seen.insert(dts.to_string());
+    let mut bridged = HashSet::new();
+    format!("{}{}", decl_preamble(decls, set, dts, &mut seen, &mut bridged), declaration_file(decls))
 }
 
 /// `JSON.stringify(stmts).includes('"k":"await"')`: an `await` anywhere in them, closures included.
@@ -303,6 +372,8 @@ struct Proj<'a> {
     rename: HashMap<String, String>,
     /// a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
     ambients: HashSet<String>,
+    /// MO-8e: a type bridge already emitted in this projection
+    bridged: HashSet<String>,
     prelude: Option<&'a str>,
 }
 
@@ -689,9 +760,17 @@ impl Proj<'_> {
         let Decl::Import { from, line, declared, .. } = d else { return };
         // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
         let ns = ns_name(declared.as_deref().unwrap_or(from));
-        if declared.as_ref().is_some_and(|p| self.ambients.insert(p.clone())) {
+        let dts = declared.clone().unwrap_or_default();
+        if self.ambients.insert(dts.clone()) {
+            let pre = if decls.iter().any(|d| matches!(d, JsDecl::Import { .. })) {
+                decl_preamble(decls, self.set, self.path, &mut self.ambients, &mut self.bridged)
+            } else {
+                String::new()
+            };
             let body = declaration_file(decls).trim_end().replace("export declare ", "export ").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
-            self.w.emit(Code::of(&format!("{ind}declare namespace {ns} {{\n{body}\n{ind}}}")), *line);
+            let block = format!("{ind}declare namespace {ns} {{\n{body}\n{ind}}}");
+            let text = if pre.is_empty() { block } else { format!("{}\n{block}", pre.trim_end()) };
+            self.w.emit(Code::of(&text), *line);
         }
         let of = |n: &str| decls.iter().find(|x| x.name() == n);
         let values: Vec<&&ImportName> = rest.iter().filter(|n| !matches!(of(&n.name), Some(JsDecl::Type { .. }))).collect();

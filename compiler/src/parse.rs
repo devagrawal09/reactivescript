@@ -269,6 +269,7 @@ re!(JS_APIS, r"\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|creat
 re!(JS_FUNCTION, r"^(export\s+)?(default\s+)?(async\s+)?function\b");
 re!(JS_LOCAL, r"^(const|let|var)\b");
 re!(JS_RETURN, r"^return\b");
+re!(FOR_NAME, r"\bfor\s+[A-Za-z_$]");
 re!(NAME_BEFORE, r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*$");
 re!(ARROW_BEFORE, r"=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$");
 re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
@@ -302,6 +303,12 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     }
     if let Some(c) = JS_APIS.captures(line) {
         return Some(("JS_API", format!("`{}` is not .rx: state is `source x := …`, a value computed from others is `x = …`, a side effect is `effect (x) {{ … }}`", &c[1])));
+    }
+    if msg == "expression" && rest.starts_with('<') && before.contains('?') {
+        return Some(("JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`".into()));
+    }
+    if msg == "in" && rest.trim_start().starts_with(',') && FOR_NAME.is_match(line) {
+        return Some(("FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`".into()));
     }
     None
 }
@@ -487,16 +494,73 @@ pub enum JsDecl {
     Fn { name: String, pure: bool, params: Vec<String>, generics: Option<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
     Error { name: String, line: usize },
     Type { name: String, line: usize, text: String, exported: bool },
+    /// MO-8e: types only. `target` / `rx` are filled by the loader, not the parser.
+    Import { names: Vec<ImportName>, from: String, line: usize, target: Option<String>, rx: bool },
 }
 impl JsDecl {
     pub fn exported(&self) -> bool {
-        !matches!(self, Self::Type { exported: false, .. })
+        match self {
+            Self::Type { exported, .. } => *exported,
+            Self::Import { .. } => false,
+            _ => true,
+        }
     }
     pub fn name(&self) -> &str {
         match self {
             JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } => name,
+            JsDecl::Import { .. } => "",
         }
     }
+}
+const DECL_IMPORT: &str = "a declaration file imports types only: `import { T, U as V } from \"./x\"`";
+/// MO-8e: `import { T, U as V } from "./x"` in a `.d.rx` — types only, resolved by the loader.
+fn parse_decl_import(c: &mut Cursor, line: usize) -> R<JsDecl> {
+    c.keyword("import");
+    c.ws(true);
+    if c.keyword("type") {
+        c.ws(true);
+    }
+    if c.keyword("pure") || c.keyword("server") || c.keyword("client") || !c.starts_with("{") {
+        return c.fail(DECL_IMPORT);
+    }
+    c.expect("{")?;
+    c.ws(true);
+    let mut names = vec![];
+    while !c.starts_with("}") {
+        let name = c.ident_or("import name")?;
+        c.ws(true);
+        let mut alias = name.clone();
+        if c.keyword("as") {
+            c.ws(true);
+            alias = c.ident_or("alias")?;
+            c.ws(true);
+        }
+        names.push(ImportName { name, alias });
+        if !c.eat(",") {
+            break;
+        }
+        c.ws(true);
+    }
+    if names.is_empty() {
+        return c.fail("import name");
+    }
+    c.expect("}")?;
+    c.ws(true);
+    if !c.keyword("from") {
+        return c.fail("from");
+    }
+    c.ws(true);
+    let from = match parse_primary(c)?.k {
+        ExprKind::Lit(Lit::Str(s)) => s,
+        _ => return c.fail("module path"),
+    };
+    let save = c.i;
+    c.ws(false);
+    if c.keyword("fails") {
+        return c.fail(DECL_IMPORT);
+    }
+    c.i = save;
+    Ok(JsDecl::Import { names, from, line, target: None, rx: false })
 }
 fn type_params(c: &mut Cursor) -> R<Option<String>> {
     let start = c.i;
@@ -533,6 +597,13 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let line = c.line();
         let exported = c.keyword("export");
         c.ws(true);
+        if !exported && c.peek_ident().as_deref() == Some("import") {
+            out.push(parse_decl_import(&mut c, line)?);
+            continue;
+        }
+        if exported && c.peek_ident().as_deref() == Some("import") {
+            return c.fail("a declaration file imports types for its signatures; it does not re-export (`import { T } from \"./x\"`)");
+        }
         if matches!(c.peek_ident().as_deref(), Some("type" | "interface")) {
             let t0 = c.i;
             let _ = c.keyword("type") || c.keyword("interface");
@@ -563,7 +634,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             continue;
         }
         if !exported {
-            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
+            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`, or `import { T } from \"./x\"`");
         }
         if c.keyword("error") {
             c.ws(true);
