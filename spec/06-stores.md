@@ -361,8 +361,9 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   either way. An uncaught throw or rejection is the action's rejection
   (AC-1, DV-2) — and since R-f-6 (ruled 2026-10-23) a compile error for any
   failure the body can produce: an action catches what it can fail with,
-  and only a panic reaches DV-2. `catch (e: A | B)` takes those classes and
-  rethrows the rest; a snapshot of a failing value throws at the read
+  and only a panic reaches DV-2. `catch (e) { A => { … } _ => { … } }`
+  runs only the first matching arm (R-f-4). A throw in that arm leaves
+  the catch, through `finally` if present. A snapshot of a failing value throws at the read
   (R-f-7). In a plain handler the same statements work with no hold
   involved and no check. Solid: a generator action's `try` around `yield` —
   the rejection is thrown back at the yield point.

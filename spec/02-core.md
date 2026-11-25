@@ -41,7 +41,7 @@ Expr      ::= lit | x | op(Expr*) | f(Expr*)  -- pure
             | fn (x*) => Expr                 -- pure function value
             | { Decl* ; Expr }                -- reactive block: local declarations, then value
             | throw Expr                      -- R-f-3: the value is the error (E-12)
-            | await Expr catch (x [: C|…]) => Expr  -- R-f-4: a rejection of those classes becomes the answer
+            | await Expr catch (x) => Expr | await Expr catch (x) Arms<Expr>  -- R-f-4
 
 Markup    ::= Element | Control                  -- at block level, control forms are bare
 Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
@@ -49,7 +49,7 @@ Element   ::= <tag attr={Expr}*> (Element | text | {Expr} | {Control})* </tag>
 Control   ::= if Expr RBlock else RBlock         -- each branch is a reactive block (region)
             | for x in Expr RBlock               -- each row is a reactive block; keyed form: 06-stores
             | loading [on(Expr)] fallback { Markup* } RBlock    -- 05 H-5/H-6
-            | errored fallback [(x [: C|…])] { Markup* } RBlock   -- 05 H-12; typed: R-f-4
+            | errored fallback [(x)] { Markup* } RBlock | errored fallback (x) Arms<Markup*> RBlock  -- H-12
                                               -- inside an element, text is literal: control forms are braced,
                                               -- `{if c { … }}`, the way JSX braces `{cond && …}` (found by ref/: S-hold-1)
 
@@ -58,7 +58,8 @@ Stmt      ::= x := Expr                        -- write to a source
             | let y = Expr | y := Expr         -- imperative locals
             | Expr                             -- call for effect
             | if Expr Block else Block | while Expr Block
-            | try Block catch (x [: C|…]) Block finally Block | throw Expr   -- AC-7, R-f-6: imperative failure
+            | try Block catch (x) (Block | Arms<Stmt*>) finally Block | throw Expr   -- AC-7, R-f-6
+Arms<T>     = "{" ((ClassName | "_") "=>" "{" T "}" [";"])+ "}"
             | fn-decl, return, …               -- ordinary JS statements
 ```
 
@@ -156,7 +157,7 @@ Function application `f(e…)` covers both language functions and FFI imports;
   *error value* in the frame. An equation or reader reaching an errored input
   is errored. There is no `try` statement in reactive scope: an error becomes
   fallback content at an `errored` boundary (03 RG-5, 05), and a rejection
-  becomes an answer through `await e catch (x: C) => alt` (04 R-f-4); which classes may reach a reader is its
+  becomes an answer through `await e catch (x) { C => { alt } }` (04 R-f-4); which classes may reach a reader is its
   `fails` row, and every one must be discharged (04 R-f). (Solid F-12.) An
   error in an apply block is imperative and ordinary.
 - **E-10 (Snapshot arguments).** At an instantiation, a value parameter
