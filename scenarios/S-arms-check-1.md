@@ -162,3 +162,22 @@ export default component App() {
 ```
 
 R-f-1: an arm names an error class or `_`.
+
+```rx
+-- reject: PARSE
+error Conflict
+error Offline
+import { save } from "./api" fails Conflict | Offline
+export default component App() {
+  source note := ""
+  action submit() {
+    try { await save(1) } catch (e) {
+      Conflict | Offline => { note := "retry" }
+    }
+  }
+  <button onClick={() => { submit() }}>save</button>
+}
+```
+
+An arm names one class, not a union: write `Conflict => { … }` and
+`Offline => { … }` as two arms.

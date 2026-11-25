@@ -179,6 +179,7 @@ function typeParams(c: Cursor): string | undefined {
   }
   c.fail("expected '>' to end type parameters");
 }
+const UNION_ARM = "an error arm names one class, not a union: write one arm per class";
 const DECL_IMPORT = "a declaration file imports types only: `import { T, U as V } from \"./x\"`";
 /** MO-8e: `import { T, U as V } from "./x"` in a `.d.rx` — types only, resolved by the loader. */
 function parseDeclImport(c: Cursor, line: number): JsDecl {
@@ -479,7 +480,9 @@ function startsErrorArms(c: Cursor): boolean {
   try {
     if (!c.eat("{")) return false;
     c.ws(); if (!c.ident()) return false;
-    c.ws(); if (!c.eat("=>")) return false;
+    c.ws();
+    while (c.peek() === "|" && c.peek(1) !== "|") { c.i++; c.ws(); if (!c.ident()) return false; c.ws(); }   // `A | B =>`: errorArms says one class per arm
+    if (!c.eat("=>")) return false;
     c.ws(); return c.startsWith("{");
   }
   finally { c.i = at; }
@@ -491,7 +494,8 @@ function errorArms<T>(c: Cursor, body: () => T): ErrorArm<T>[] {
   do {
     const line = c.line;
     const cls = c.ident() ?? c.fail("an error arm names a class or `_`");
-    c.ws(); c.expect("=>"); c.ws();
+    c.ws(); if (c.peek() === "|" && c.peek(1) !== "|") c.fail(UNION_ARM);
+    c.expect("=>"); c.ws();
     arms.push({ cls, body: body(), line }); c.ws(); c.eat(";"); c.ws();
   } while (!c.eat("}"));
   return arms;

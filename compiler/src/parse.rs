@@ -591,6 +591,7 @@ impl JsDecl {
         }
     }
 }
+const UNION_ARM: &str = "an error arm names one class, not a union: write one arm per class";
 const DECL_IMPORT: &str = "a declaration file imports types only: `import { T, U as V } from \"./x\"`";
 /// MO-8e: `import { T, U as V } from "./x"` in a `.d.rx` — types only, resolved by the loader.
 fn parse_decl_import(c: &mut Cursor, line: usize) -> R<JsDecl> {
@@ -1465,6 +1466,13 @@ fn starts_error_arms(c: &mut Cursor) -> bool {
         c.ws(true);
         if c.ident().is_none() { return false; }
         c.ws(true);
+        // `A | B =>` is arms too, so that error_arms can say one class per arm
+        while c.peek() == '|' && c.peek_at(1) != '|' {
+            c.bump();
+            c.ws(true);
+            if c.ident().is_none() { return false; }
+            c.ws(true);
+        }
         if !c.eat("=>") { return false; }
         c.ws(true);
         c.starts_with("{")
@@ -1481,6 +1489,9 @@ fn error_arms<T>(c: &mut Cursor, body: impl Fn(&mut Cursor) -> R<T>) -> R<Vec<Er
         let line = c.line();
         let cls = c.ident_or("an error arm names a class or `_`")?;
         c.ws(true);
+        if c.peek() == '|' && c.peek_at(1) != '|' {
+            return c.fail(UNION_ARM);
+        }
         c.expect("=>")?;
         c.ws(true);
         arms.push(ErrorArm { cls, line, body: body(c)? });
@@ -1497,14 +1508,41 @@ pub fn parse_block(c: &mut Cursor) -> R<Vec<Stmt>> {
     c.ws(true);
     let mut out = vec![];
     while !c.starts_with("}") {
+        let (at, kept, noted) = (c.i, out.len(), c.errors.len());
         out.push(parse_stmt(c)?);
         out.append(&mut c.pending);
         c.ws(true);
         c.eat(";");
         c.ws(true);
+        if c.i == at {
+            // an editor's parse read an empty statement here without moving: note it once and go past it
+            out.truncate(kept);
+            if c.errors.len() == noted {
+                c.note("statement");
+            }
+            if c.eof() {
+                return Err(c.errors.pop().unwrap());
+            }
+            skip_statement(c);
+            c.ws(true);
+        }
     }
     c.expect("}")?;
     Ok(out)
+}
+
+/// To the end of the line, or to the `}` that closes the block, whichever comes first.
+fn skip_statement(c: &mut Cursor) {
+    let mut depth = 0usize;
+    while !c.eof() {
+        match c.peek() {
+            '\n' | '}' if depth == 0 => return,
+            '{' => depth += 1,
+            '}' => depth -= 1,
+            _ => {}
+        }
+        c.bump();
+    }
 }
 
 pub fn parse_stmts(src: &str) -> R<Vec<Stmt>> {
@@ -2712,6 +2750,17 @@ mod recovering {
         assert_eq!(names(&p), ["a", "b", "App"]);
         assert_eq!(errs.len(), 2);
         assert!(parse_program(src).is_err());
+    }
+
+    #[test]
+    fn a_statement_the_editor_parse_cannot_start_is_noted_once_and_skipped() {
+        let src = "source a := 1\nexport default component App() {\n  action f() {\n    a | b => {}\n    a := 2\n  }\n  <p>{a}</p>\n}\n";
+        let (p, errs) = parse_program_recovering(src);
+        assert_eq!(errs.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["line 4: expression near '| b => {}'"]);
+        let Decl::Component { decls, view, .. } = &p.decls[1] else { panic!() };
+        let Decl::Action { body, .. } = &decls[0] else { panic!() };
+        assert!(matches!(&body[..], [Stmt { k: StmtKind::Expr(_), .. }, Stmt { k: StmtKind::Write { .. }, .. }]));
+        assert_eq!(view.len(), 1);
     }
 
     #[test]
