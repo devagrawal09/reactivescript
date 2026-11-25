@@ -116,9 +116,10 @@ impl Spans<'_> {
                 self.stmts(t, at);
                 self.stmts(f, at);
             }
-            StmtKind::Try { body, handler, fin, .. } => {
+            StmtKind::Try { body, handler, fin, arms, .. } => {
                 self.stmts(body, at);
                 handler.iter().for_each(|h| self.stmts(h, at));
+                arms.iter().flatten().for_each(|a| self.stmts(&a.body, at));
                 fin.iter().for_each(|h| self.stmts(h, at));
             }
         }
@@ -181,9 +182,10 @@ impl Spans<'_> {
                 Field::Computed { key, v } => { sub(key); sub(v); }
                 Field::Spread(x) => sub(x),
             }),
-            ExprKind::Catch { e, alt, .. } => {
+            ExprKind::Catch { e, alt, arms, .. } => {
                 sub(e);
-                sub(alt);
+                if let Some(arms) = arms { arms.iter().for_each(|a| sub(&a.body)); }
+                else { sub(alt); }
             }
             ExprKind::Fn { body, stmts, .. } => {
                 sub(body);
@@ -255,8 +257,9 @@ impl Spans<'_> {
                 self.decls(decls, at);
                 self.markups(body, at);
             }
-            MarkupKind::Errored { fallback, decls, body, .. } => {
+            MarkupKind::Errored { fallback, decls, body, arms, .. } => {
                 self.markups(fallback, at);
+                arms.iter().flatten().for_each(|a| self.markups(&a.body, at));
                 self.decls(decls, at);
                 self.markups(body, at);
             }
@@ -347,7 +350,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
                 expr(c, f);
                 t.iter().chain(e).for_each(|s| stmt(s, f));
             }
-            StmtKind::Try { body, handler, fin, .. } => body.iter().chain(handler.iter().flatten()).chain(fin.iter().flatten()).for_each(|s| stmt(s, f)),
+            StmtKind::Try { body, handler, fin, arms, .. } => body.iter().chain(handler.iter().flatten()).chain(arms.iter().flatten().flat_map(|a| &a.body)).chain(fin.iter().flatten()).for_each(|s| stmt(s, f)),
         }
     }
     fn expr(e: &Expr, f: &mut dyn FnMut(Span)) {
@@ -371,7 +374,11 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
                     Field::Computed { key, v } => sub.extend([key, v]),
                 }
             },
-            ExprKind::Catch { e, alt, .. } => sub.extend([&**e, &**alt]),
+            ExprKind::Catch { e, alt, arms, .. } => {
+                sub.push(e);
+                if let Some(arms) = arms { sub.extend(arms.iter().map(|a| &a.body)); }
+                else { sub.push(alt); }
+            }
             ExprKind::Fn { body, stmts, .. } => {
                 sub.push(body);
                 stmts.iter().flatten().for_each(|s| stmt(s, f));
@@ -396,7 +403,7 @@ pub fn walk(p: &Program, f: &mut dyn FnMut(Span)) {
             MarkupKind::Mif { c, t, t_decls, f: fm, f_decls } => (t_decls.iter().chain(f_decls).collect(), t.iter().chain(fm).collect(), vec![c]),
             MarkupKind::Mfor { xs, decls, body, .. } => (decls.iter().collect(), body.iter().collect(), vec![xs]),
             MarkupKind::Loading { on, fallback, decls, body } => (decls.iter().collect(), fallback.iter().chain(body).collect(), on.iter().collect()),
-            MarkupKind::Errored { fallback, decls, body, .. } => (decls.iter().collect(), fallback.iter().chain(body).collect(), vec![]),
+            MarkupKind::Errored { fallback, decls, body, arms, .. } => (decls.iter().collect(), fallback.iter().chain(arms.iter().flatten().flat_map(|a| &a.body)).chain(body).collect(), vec![]),
             MarkupKind::Portal { to, decls, body } => (decls.iter().collect(), body.iter().collect(), to.iter().collect()),
         };
         es.into_iter().for_each(|e| expr(e, f));

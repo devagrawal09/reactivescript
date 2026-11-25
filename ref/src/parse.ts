@@ -1,5 +1,5 @@
 // Hand-rolled scanner/parser for the abstract syntax (spec/02-core.md §1).
-import type { Decl, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
+import type { Decl, ErrorArm, Expr, Markup, Param, Program, Stmt, Target } from "./ast.ts";
 
 /** A parse error; `code` names the habit it looks like when `hint` recognises one (guide/diagnostics.md), else `PARSE`. */
 export class ParseError extends Error { code = "PARSE"; }
@@ -474,6 +474,29 @@ export function parseStmts(src: string): Stmt[] {
   return out;
 }
 
+function startsErrorArms(c: Cursor): boolean {
+  const at = c.i;
+  try {
+    if (!c.eat("{")) return false;
+    c.ws(); if (!c.ident()) return false;
+    c.ws(); if (!c.eat("=>")) return false;
+    c.ws(); return c.startsWith("{");
+  }
+  finally { c.i = at; }
+}
+
+function errorArms<T>(c: Cursor, body: () => T): ErrorArm<T>[] {
+  const arms: ErrorArm<T>[] = [];
+  c.expect("{"); c.ws();
+  do {
+    const line = c.line;
+    const cls = c.ident() ?? c.fail("an error arm names a class or `_`");
+    c.ws(); c.expect("=>"); c.ws();
+    arms.push({ cls, body: body(), line }); c.ws(); c.eat(";"); c.ws();
+  } while (!c.eat("}"));
+  return arms;
+}
+
 function parseStmt(c: Cursor): Stmt {
   c.ws();
   if (c.keyword("guess")) {
@@ -499,10 +522,17 @@ function parseStmt(c: Cursor): Stmt {
     c.ws(); const body = parseBlock(c); c.ws();
     let catchName: string | undefined, handler: Stmt[] | undefined, fin: Stmt[] | undefined;
     let catchClasses: string[] | undefined;
-    if (c.keyword("catch")) { c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) catchClasses = parseClasses(c); c.ws(); c.expect(")"); } c.ws(); handler = parseBlock(c); c.ws(); }
+    let arms: ErrorArm<Stmt[]>[] | undefined;
+    if (c.keyword("catch")) {
+      c.ws(); if (c.eat("(")) { c.ws(); catchName = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) catchClasses = parseClasses(c); c.ws(); c.expect(")"); }
+      c.ws();
+      if (catchName && !catchClasses && startsErrorArms(c)) arms = errorArms(c, () => parseBlock(c));
+      else handler = parseBlock(c);
+      c.ws();
+    }
     if (c.keyword("finally")) { c.ws(); fin = parseBlock(c); }
-    if (!handler && !fin) c.fail("catch or finally");
-    return { k: "try", body, catchName, catchClasses, handler, fin };
+    if (!handler && !arms && !fin) c.fail("catch or finally");
+    return { k: "try", body, catchName, catchClasses, handler, fin, ...(arms && { arms }) };
   }
   if (c.keyword("throw")) { c.ws(); return { k: "throw", e: parseExpr(c) }; }
   if (c.keyword("return")) { c.ws(false); if (c.peek() === "}" || c.peek() === ";" || c.peek() === "\n" || c.eof()) return { k: "return" }; return { k: "return", e: parseExpr(c) }; }
@@ -533,7 +563,7 @@ function parseStmt(c: Cursor): Stmt {
 }
 
 // ---- expressions ----
-/** An expression, with any trailing `catch (x: A | B) => alt` (R-f-4): looser than every operator, so the conditional's arms stop before it. */
+/** An expression, with any trailing catch (R-f-4): looser than every operator. */
 export function parseExpr(c: Cursor): Expr {
   let e = parseExprNoCatch(c);
   for (;;) {
@@ -541,6 +571,11 @@ export function parseExpr(c: Cursor): Expr {
     if (!c.keyword("catch")) { c.i = save; return e; }
     c.ws(); let name: string | undefined, classes: string[] | undefined;
     if (c.eat("(")) { c.ws(); name = c.ident() ?? c.fail("catch name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); c.ws(); }
+    if (name && !classes && c.startsWith("{")) {
+      const arms = errorArms(c, () => { c.expect("{"); const value = parseExpr(c); c.ws(); c.expect("}"); return value; });
+      e = { k: "catch", e, name, alt: { k: "lit", v: undefined }, arms };
+      continue;
+    }
     c.expect("=>"); c.ws();
     e = { k: "catch", e, name, classes, alt: parseExprNoCatch(c) };
   }
@@ -864,10 +899,12 @@ function parseControl(c: Cursor): Markup | null {
       let errName: string | undefined;
       let classes: string[] | undefined;
       if (c.eat("(")) { c.ws(); errName = c.ident() ?? c.fail("error name"); c.ws(false); if (c.eat(":")) classes = parseClasses(c); c.ws(); c.expect(")"); }   // `fallback(e)` / `fallback(e: A | B)` (R-f-4)
-      c.ws(); c.expect("{");
-      const fallback = parseMarkup(c, "}"); c.ws(); c.expect("{");
+      c.ws();
+      const fallbackBody = () => { c.expect("{"); return parseMarkup(c, "}"); };
+      const arms = errName && !classes && startsErrorArms(c) ? errorArms(c, fallbackBody) : undefined;
+      const fallback = arms ? [] : fallbackBody(); c.ws(); c.expect("{");
       const { decls, body } = parseBlockBody(c);
-      return { k: "errored", fallback, decls, body, errName, classes };
+      return { k: "errored", fallback, decls, body, errName, classes, ...(arms && { arms }) };
   }
   if (c.keyword("for")) {
       c.ws(); const name = c.ident() ?? c.fail("for name"); c.ws();

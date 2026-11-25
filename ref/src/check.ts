@@ -958,6 +958,7 @@ class Checker {
       }
       case "throw": go(e.e); return;
       case "catch": {
+        if (e.arms) { this.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet"); return; }
         if (e.e.k !== "await") this.err("CATCH_NOT_ON_AWAIT", "R-f-4", `\`${show(e.e)} catch …\`: a catch follows an \`await\` — its rejection becomes an answer. A failure read from a value belongs to its own section: show it under \`errored fallback(e) { … } { … }\` where it is read`);
         go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
         this.model.catch(e.classes);
@@ -1101,6 +1102,7 @@ class Checker {
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
         case "try": {
+          if (s.arms) { this.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet"); break; }
           if (s.handler) this.model.catch(s.catchClasses);
           this.stmts(s.body, env, ctx);
           if (s.catchClasses) for (const n of s.catchClasses) this.errClass(n, env);
@@ -1293,6 +1295,7 @@ class Checker {
           break;
         }
         case "errored": {
+          if (m.arms) { this.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet"); break; }
           const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line });
           this.markup(m.fallback, f);
           if (m.classes) for (const n of m.classes) this.errClass(n, env);

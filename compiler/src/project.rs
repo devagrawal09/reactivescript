@@ -1067,7 +1067,7 @@ impl Proj<'_> {
                     self.stmts(f, &format!("{ind}  "));
                     self.w.emit(Code::of(&format!("{ind}}}")), 0);
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, .. } => {
                     self.w.emit(Code::of(&format!("{ind}try {{")), 0);
                     self.stmts(body, &format!("{ind}  "));
                     if let Some(h) = handler {
@@ -1158,7 +1158,7 @@ impl Proj<'_> {
             }
             ExprKind::If { c, t, f } => Code::of("(").c(go!(c)).t(" ? ").c(go!(t)).t(" : ").c(go!(f)).t(")"),
             ExprKind::Throw(x) => Code::of("__.raise(").c(go!(x)).t(")"),
-            ExprKind::Catch { e: x, name, classes, alt } => {
+            ExprKind::Catch { e: x, name, classes, alt, .. } => {
                 let v = go!(x);
                 let a = go!(alt);
                 Code::of("__.caught(").c(v).t(&format!(", ({}: {}) => ", name.as_deref().unwrap_or("__e"), classes.as_ref().map(|c| c.join(" | ")).unwrap_or("Error".into()))).c(a).t(")")
@@ -1380,7 +1380,7 @@ impl Proj<'_> {
                 self.region(decls, body, &i2, line);
                 self.w.emit(Code::of(&format!("{ind})}}")), line);
             }
-            MarkupKind::Errored { fallback, decls, body, err_name, classes } => {
+            MarkupKind::Errored { fallback, decls, body, err_name, classes, .. } => {
                 let head = format!("{ind}{{(({}: {}) => (", err_name.as_deref().unwrap_or("__err"), classes.as_ref().map(|c| c.join(" | ")).unwrap_or("Error".into()));
                 self.w.emit(Code::of(&head), line);
                 self.markup(fallback, &i2);

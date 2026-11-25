@@ -1458,6 +1458,39 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
     c.fail("declaration")
 }
 
+fn starts_error_arms(c: &mut Cursor) -> bool {
+    let at = c.i;
+    let yes = (|| {
+        if !c.eat("{") { return false; }
+        c.ws(true);
+        if c.ident().is_none() { return false; }
+        c.ws(true);
+        if !c.eat("=>") { return false; }
+        c.ws(true);
+        c.starts_with("{")
+    })();
+    c.i = at;
+    yes
+}
+
+fn error_arms<T>(c: &mut Cursor, body: impl Fn(&mut Cursor) -> R<T>) -> R<Vec<ErrorArm<T>>> {
+    c.expect("{")?;
+    c.ws(true);
+    let mut arms = vec![];
+    loop {
+        let line = c.line();
+        let cls = c.ident_or("an error arm names a class or `_`")?;
+        c.ws(true);
+        c.expect("=>")?;
+        c.ws(true);
+        arms.push(ErrorArm { cls, line, body: body(c)? });
+        c.ws(true);
+        c.eat(";");
+        c.ws(true);
+        if c.eat("}") { return Ok(arms); }
+    }
+}
+
 pub fn parse_block(c: &mut Cursor) -> R<Vec<Stmt>> {
     c.ws(true);
     c.expect("{")?;
@@ -1574,6 +1607,7 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
         let mut handler = None;
         let mut fin = None;
         let mut catch_classes = None;
+        let mut arms = None;
         if c.keyword("catch") {
             c.ws(true);
             if c.eat("(") {
@@ -1587,17 +1621,21 @@ fn parse_stmt(c: &mut Cursor) -> R<Stmt> {
                 c.expect(")")?;
             }
             c.ws(true);
-            handler = Some(parse_block(c)?);
+            if catch_name.is_some() && catch_classes.is_none() && starts_error_arms(c) {
+                arms = Some(error_arms(c, parse_block)?);
+            } else {
+                handler = Some(parse_block(c)?);
+            }
             c.ws(true);
         }
         if c.keyword("finally") {
             c.ws(true);
             fin = Some(parse_block(c)?);
         }
-        if handler.is_none() && fin.is_none() {
+        if handler.is_none() && arms.is_none() && fin.is_none() {
             return c.fail("catch or finally");
         }
-        return Ok(st(start, StmtKind::Try { body, catch_name, catch_classes, handler, fin }, c));
+        return Ok(st(start, StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms }, c));
     }
     if c.keyword("throw") {
         c.ws(true);
@@ -1677,10 +1715,21 @@ pub fn parse_expr(c: &mut Cursor) -> R<Expr> {
             c.expect(")")?;
             c.ws(true);
         }
-        c.expect("=>")?;
-        c.ws(true);
-        let alt = parse_expr_no_catch(c)?;
-        e = Expr::new(ExprKind::Catch { e: Box::new(e), name, classes, alt: Box::new(alt) }, Span::new(start, c.i));
+        let (alt, arms) = if name.is_some() && classes.is_none() && c.starts_with("{") {
+            let arms = error_arms(c, |c| {
+                c.expect("{")?;
+                let value = parse_expr(c)?;
+                c.ws(true);
+                c.expect("}")?;
+                Ok(value)
+            })?;
+            (Expr::new(ExprKind::Lit(Lit::Undefined), Span::NONE), Some(arms))
+        } else {
+            c.expect("=>")?;
+            c.ws(true);
+            (parse_expr_no_catch(c)?, None)
+        };
+        e = Expr::new(ExprKind::Catch { e: Box::new(e), name, classes, alt: Box::new(alt), arms }, Span::new(start, c.i));
     }
 }
 
@@ -2468,12 +2517,16 @@ fn parse_control(c: &mut Cursor) -> R<Option<Markup>> {
             c.expect(")")?;
         }
         c.ws(true);
-        c.expect("{")?;
-        let fallback = parse_markup(c, Close::Brace)?;
+        let fallback_body = |c: &mut Cursor| { c.expect("{")?; parse_markup(c, Close::Brace) };
+        let (fallback, arms) = if err_name.is_some() && classes.is_none() && starts_error_arms(c) {
+            (vec![], Some(error_arms(c, fallback_body)?))
+        } else {
+            (fallback_body(c)?, None)
+        };
         c.ws(true);
         c.expect("{")?;
         let (decls, body) = parse_block_body(c)?;
-        return Ok(mk(MarkupKind::Errored { fallback, decls, body, err_name, classes }));
+        return Ok(mk(MarkupKind::Errored { fallback, decls, body, err_name, classes, arms }));
     }
     if c.keyword("for") {
         c.ws(true);
@@ -2614,6 +2667,28 @@ fn parse_element(c: &mut Cursor) -> R<Markup> {
 #[cfg(test)]
 mod recovering {
     use super::*;
+
+    #[test]
+    fn ordered_error_arms_preserve_their_order_and_bodies() {
+        let ss = parse_stmts("try { save() } catch (e) {\n Conflict => { report(e.version) }\n _ => { throw e }\n} finally { done() }").unwrap();
+        let StmtKind::Try { arms: Some(arms), catch_name: Some(name), handler: None, fin: Some(_), .. } = &ss[0].k else { panic!() };
+        assert_eq!(name, "e");
+        assert_eq!(arms.iter().map(|a| (a.cls.as_str(), a.line)).collect::<Vec<_>>(), [("Conflict", 2), ("_", 3)]);
+        assert!(matches!(&arms[0].body[0].k, StmtKind::Expr(_)));
+        assert!(matches!(&arms[1].body[0].k, StmtKind::Throw(_)));
+
+        let p = parse_program("answer = await fetch() catch (e) { Conflict => { e.version } _ => { 0 } }\nexport default component App() { errored fallback(e) { Conflict => { <b>{e.version}</b> } _ => { <p>retry</p> } } { <p>{answer}</p> } }").unwrap();
+        let Decl::Eq { e, .. } = &p.decls[0] else { panic!() };
+        assert!(matches!(&e.k, ExprKind::Catch { arms: Some(arms), .. } if arms.len() == 2 && matches!(arms[0].body.k, ExprKind::Member { .. })));
+        let Decl::Component { view, .. } = &p.decls[1] else { panic!() };
+        assert!(matches!(&view[0].kind, MarkupKind::Errored { arms: Some(arms), .. } if arms.len() == 2 && matches!(arms[0].body[0].kind, MarkupKind::El { .. })));
+    }
+
+    #[test]
+    fn ordinary_catch_arrow_expression_still_parses() {
+        let ss = parse_stmts("try { save() } catch (e) { x => x }").unwrap();
+        assert!(matches!(&ss[0].k, StmtKind::Try { arms: None, handler: Some(h), .. } if h.len() == 1));
+    }
 
     fn names(p: &Program) -> Vec<String> {
         p.decls.iter().filter_map(|d| d.name().map(|n| n.to_string())).collect()

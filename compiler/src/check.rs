@@ -2395,7 +2395,11 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Throw(x) => self.expr(x, env, ctx, None),
-            ExprKind::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Catch { e: inner, name, classes, alt, arms } => {
+                if arms.is_some() {
+                    self.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet".into());
+                    return;
+                }
                 if !matches!(&inner.k, ExprKind::Await { .. }) {
                     self.err(
                         "CATCH_NOT_ON_AWAIT",
@@ -2782,7 +2786,11 @@ impl<'a> Checker<'a> {
                     self.stmts(t, env, ctx);
                     self.stmts(f, env, ctx);
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms } => {
+                    if arms.is_some() {
+                        self.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet".into());
+                        continue;
+                    }
                     if handler.is_some() {
                         self.model.catch(catch_classes.as_ref());
                     }
@@ -3248,7 +3256,11 @@ impl<'a> Checker<'a> {
                     self.block(decls, body, be, Ctx::reactive());
                     self.later.push(Later::Content { ms: body, env, anc: vec!["body".into()] });
                 }
-                MarkupKind::Errored { fallback, decls, body, err_name, classes } => {
+                MarkupKind::Errored { fallback, decls, body, err_name, classes, arms } => {
+                    if arms.is_some() {
+                        self.err("ERROR_ARMS_NOT_IMPLEMENTED", "R-f-4", "ordered error arms are not implemented yet".into());
+                        continue;
+                    }
                     let fe = self.env(Some(env), region);
                     if let Some(n) = err_name {
                         self.set_value(fe, n, self.line);
@@ -4028,7 +4040,7 @@ impl<'a> Checker<'a> {
                 out.cls.insert(self.class_of(x, env, bound));
                 out
             }
-            ExprKind::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Catch { e: inner, name, classes, alt, .. } => {
                 let inn = self.fails_of(inner, env, imp, bound);
                 let c = Catch::of(classes);
                 let got: IndexSet<String> = inn.cls.iter().filter(|x| c.caught(x)).cloned().collect();
@@ -4250,7 +4262,7 @@ impl<'a> Checker<'a> {
                     let x = self.stmts_fails(f, env, bound);
                     out.add(x);
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, .. } => {
                     let b = self.stmts_fails(body, env, bound);
                     if let Some(h) = handler {
                         let c = Catch::of(catch_classes);
