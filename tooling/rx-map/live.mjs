@@ -612,7 +612,7 @@ function getRecorder() {
       const after = [...flights.values()].some(r => r.key === msg.key);
       const { node: _node, ...event } = msg;
       if (msg.instance !== undefined || before !== after) addRecord({ ...event, id: flightId, at, origin, ...locate(msg.key) });
-      if (before !== after) publish({ ...event, at });
+      if (before !== after) publish({ ...event, at, ...(origin ? { origin } : {}) });
     } else {
       addRecord({ ...msg, ...locate(msg.key) });
       publish(msg);
