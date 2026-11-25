@@ -139,7 +139,7 @@ const read = (from, to) => ({ from, to, type: "read", mode: "tracked", probe: nu
   );
   const reNew = mini([{ id: "x2", kind: "eq", name: "x", key: "m.rx||x", line: 1 }], { 1: "x = 2" });
   const rePlan = planHmr(reOld, reNew);
-  check("plan reindex shifts #n", rePlan.moved.some(m => m.from === "m.rx||x#1" && m.to === "m.rx||x") && rePlan.reasons["m.rx||x#1"] === "reindexed" && rePlan.removed.includes("m.rx||x"), JSON.stringify(rePlan));
+  check("plan reindex shifts #n without reporting its reused destination twice", rePlan.moved.some(m => m.from === "m.rx||x#1" && m.to === "m.rx||x") && rePlan.reasons["m.rx||x#1"] === "reindexed" && rePlan.kept.includes("m.rx||x") && !rePlan.removed.includes("m.rx||x"), JSON.stringify(rePlan));
 
   const scoped = mini([{ id: "x", kind: "eq", name: "x", key: "m.rx|App|x", line: 4 }], { 4: "x = 1" });
   const scopePlan = planHmr(mini([{ id: "x", kind: "eq", name: "x", key: "m.rx||x", line: 1 }], { 1: "x = 1" }), scoped);
