@@ -107,20 +107,42 @@ export function boardView(M) {
 }
 
 // The card is the only box with a content-dependent paint scale. It never affects layout.
-export function fitCards(L) {
+// At `fitS` (the zoom that frames the whole world) the card's name must read at READ_PX on screen: its scale has that
+// floor. A plate too small for the whole card at that scale gets a narrower card (it wraps and clips inside its own
+// box, `tight` drops the exports), never a bigger box.
+const CARD_W = 360, NAME_PX = 26, READ_PX = 16;   // 16 so the far (higher) cards of the tilted plane still read at 14
+export function fitCards(L, fitS) {
+  const floor = fitS > 0 ? READ_PX / (NAME_PX * fitS) : 0;
   const ks = [];
   for (const inner of document.querySelectorAll(".module > .psum > .ps-in")) {
     const p = L.plates.get(+inner.closest(".module").dataset.mod);
-    if (p) ks.push([inner, Math.min(p.w * .88 / (inner.offsetWidth || 360), p.h * .86 / (inner.offsetHeight || 200)), p.h]);
+    if (!p) continue;
+    inner.style.width = ""; inner.classList.remove("tight", "shed1", "shed2", "shed3");
+    ks.push([inner, Math.min(p.w * .88 / CARD_W, p.h * .86 / (inner.offsetHeight || 200)), p]);
   }
   const sorted = ks.map(k => k[1]).sort((a, b) => a - b), median = sorted[Math.floor(sorted.length / 2)] ?? 1;
-  for (const [inner, k, h] of ks) {
-    inner.style.transform = `scale(${Math.min(k, median * 1.6).toFixed(3)})`;
-    inner.style.marginTop = `${(h * .06).toFixed(1)}px`;
+  for (const [inner, fit, p] of ks) {
+    // but no bigger than lets the name's longest word fit across the plate (a monospace char is ~.6em)
+    const word = Math.max(...nameParts(inner.querySelector(".ps-name")?.title ?? "").map(w => w.length), 1);
+    const k = Math.max(Math.min(fit, median * 1.6), Math.min(floor, p.w * .9 / (word * NAME_PX * .62 + 8)));
+    const tight = k > fit * 1.001, room = p.h * .86;
+    inner.style.marginTop = `${(p.h * .06).toFixed(1)}px`;
+    // the width that fits the plate at this scale; then, so the card never spills its plate, it sheds parts
+    // (exports, then path and counts, then the role bar) until it fits, and only past that gets smaller
+    inner.style.width = tight ? `${Math.max(40, Math.floor(p.w * .9 / k))}px` : "";
+    let shed = 0;
+    inner.classList.remove("shed1", "shed2", "shed3");
+    inner.classList.toggle("tight", tight);
+    if (tight) while (shed < 3 && inner.offsetHeight * k > room) inner.classList.add(`shed${++shed}`);
+    const kk = tight ? Math.min(k, room / Math.max(1, inner.offsetHeight)) : k;
+    inner.style.transform = `scale(${kk.toFixed(3)})`;
   }
   const ws = document.querySelector(".worldrow > .wsum > .ws-in"), wp = L.plates.get("world");
   if (ws && wp) ws.style.transform = `scale(${Math.min(wp.h * .6 / (ws.offsetHeight || 30), wp.w * .9 / (ws.offsetWidth || 300), median * 1.4).toFixed(3)})`;
 }
+
+/** A name in pieces where it may wrap: at its camel humps and separators (`CreateIssue` → `Create`, `Issue`). */
+export const nameParts = s => String(s).split(/(?<=[a-z0-9])(?=[A-Z])|(?<=[-_./])/);
 
 export function cardCounts(M, mod, values, held, flying, recent) {
   const counts = [], keys = new Set(M.G.nodes.filter(n => n.mod === mod && !n.site && n.key).map(n => n.key));

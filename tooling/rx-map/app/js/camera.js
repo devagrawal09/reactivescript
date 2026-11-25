@@ -14,7 +14,7 @@ function setLevel(l) {
   level = l;
   publishLevel(l);
   zoomPct.title = l === overviewLevel() ? "overview" : "detail";
-  if (l === overviewLevel()) fitCards(readBoard().L);
+  if (l === overviewLevel()) fitCards(readBoard().L, fitScale());
 }
 const syncLevel = () => {
   if (pinnedAt !== cam.s) {
@@ -304,7 +304,7 @@ export function layoutChanged() {
     const m = 700;
     Object.assign(floor.style, { left: `${-m}px`, top: `${-m}px`, width: `${BW + 2 * m}px`, height: `${BH + 2 * m}px` });
     buildMini(readBoard().L, readModel());
-    fitCards(readBoard().L);
+    fitCards(readBoard().L, fitScale());
     for (const f of layoutListeners) f();
   });
 }

@@ -10,7 +10,7 @@ import { pointerAt, placeTipAt } from "./js/tip.js"
 import { lvView, plainValue } from "./js/values.js"
 import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
 import { live } from "./live.rx"
-import { holeText, cardCounts, noteCardWaves } from "./js/layout.js"
+import { holeText, cardCounts, noteCardWaves, nameParts } from "./js/layout.js"
 
 source recent: string[] := []
 effect (live.fxSeq) { noteCardWaves(model, () => live, (keys) => { recent := keys }) }
@@ -20,7 +20,7 @@ component ModuleCard(props: { m: any }) {
   counts = cardCounts(model, props.m.index, live.values, live.held, live.flying, recent)
   <div class={["psum", counts.some(v => v.k == "fly") && "busy", counts.some(v => v.k == "fail") && "failing"]}>
     <div class="ps-in">
-      <div class="ps-name">{c.name}</div><div class="ps-path" title={c.path}>{c.shortPath}</div>
+      <div class="ps-name" title={c.name}>{for part in nameParts(c.name) { {part}<wbr /> }}</div><div class="ps-path" title={c.path}>{c.shortPath}</div>
       <div class="ps-bars">{for r in c.roles { <i style={{ width: r.width, background: r.color }}></i> }}</div>
       <div class="ps-counts">{for r in c.roles { <span><b style={{ color: r.color }}>{r.count}</b>{r.name}</span> }}</div>
       {if c.exports.length > 0 {
