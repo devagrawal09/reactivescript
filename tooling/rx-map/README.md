@@ -94,7 +94,8 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
 The map is a slightly tilted plane under a perspective camera. Modules are plates on it, tokens stand a little off
 their plate with a cast shadow, and edges run on the plate surface.
 
-- **Move:** drag to pan (it coasts), wheel or pinch to zoom toward the pointer, `+` / `-` too. Double-click a token to
+- **Move:** drag to pan (it coasts). A mouse wheel, a pinch or ctrl / ⌘ + wheel zoom toward the pointer; a trackpad's
+  two-finger scroll pans, shift + wheel pans sideways; `+` / `-` too. Double-click a token (or a module's card) to
   fly to it. `F` frames everything; `Esc` clears a selection, then frames, then closes the panel. The world tilts a
   few degrees with the pointer.
 - **HUD:** the header, the side panel, the minimap (bottom left: click or drag to go there), the zoom dock with the
@@ -123,18 +124,39 @@ their plate with a cast shadow, and edges run on the plate surface.
   the world has about the screen's shape. A row narrower than the world gives its spare width to its plates.
 - **Dense plates are clustered** by who uses their names ("used by IssueList", "used in `<Row />`", "inside"), each
   cluster with its own rows; clusters face the plates that use them.
-- **Collapse** a plate (its header button) to its summary: role bar, counts, the names other modules use. On a map of
-  more than 300 tokens, a selection folds the modules it doesn't touch and unfolds the ones it does.
 - **Edges between plates** leave the token straight up (or down) to just outside its plate, run in bundles through the
   gutters between bands and the gaps between plates (each bundle in its own lane), and enter the target from below.
-- **The overview** (semantic zoom): zoomed out past 30 %, the world is drawn as an architecture diagram — each module a
-  card sized to what it says (name, short path, role bar, counts, exports), cards alike in width within a band, bands
-  evenly spaced, the bundles between them. Zooming in past 130 %, or clicking a card, goes back to the tokens; the
-  module under the pointer stays in place. A big map opens on the overview, framed whole.
+- **One layout, three detail levels.** Every plate, frame, token, view-text strip and gutter is placed once per graph,
+  sized for the richest level, and never moves with zoom: changing level only changes what is drawn inside the same
+  boxes (a 200 ms cross-fade; instant under reduced motion). Fit and the minimap use the same extent at every level.
+  - **Overview** (below 82 %): each plate shows its card — name, path, role bar, counts, exports — scaled to fill the
+    same box, and the bundles between modules. Live: a flush touching the module pulses its card; the card counts its
+    names changing now, failed (rose), held and in the air (amber, with a breathing outline while a request is out).
+  - **Structure** (82 %–88 %): frames and their tags, the named tokens, the edges between named things. Where view
+    sites and view text go, a faint reserved area.
+  - **Detail** (from 88 %): everything — view sites, view text, value and line badges.
+
+  A level comes in only once its text reads at 11 px on screen (names at 13.5 px, view sites at 12.5 px); going back
+  down waits 5 % lower, so a zoom resting at a threshold doesn't flicker. Double-click a module's card to fly into it.
+- **`layout.mjs`** is the layout as a pure module (no DOM), shared with the page (build.mjs embeds it) and anything else
+  that draws the map:
+
+  ```js
+  import { analyze, layoutWorld, planTrunks, levelFor, LEVELS } from "rx-map/layout";
+  const A = analyze(graph);                      // regions tree, ranks, control-flow labels, boundary edges, labels…
+  const L = layoutWorld(A, { aspect: 16 / 9 });  // { width, height, plates, rows, frames, tokens, clusters, strips,
+                                                 //   reserved, worldGroups, gaps }, every box { x, y, w, h } in board px
+  const routes = planTrunks(["3>0"], L);         // bundles between plates, through the gutters, in lanes
+  levelFor(cam.s, level);                        // the detail level for a zoom, with hysteresis
+  ```
+
+  Sizes come from a fixed monospace metric (`METRICS`), so the layout doesn't wait on fonts; `size` overrides a token's.
+  Deterministic for a graph and aspect; `test/layout.test.mjs` checks finite boxes, no overlaps, tokens inside their
+  frames, arrows up, reserved space for the detail level, and the thresholds.
 - **View text** (`regions[].outline`): each region shows what its markup says, in document order, as a quiet one-line
   strip under its tokens: static text, holes where the view reads (linked to their site tokens; in live mode the value
   they read), child regions as small frame tags, and human text in attributes. Long strips have an expander; strips
-  hide when zoomed out.
+  show at the detail level.
 ## Diff: what changed between two versions
 
 ```sh
@@ -207,7 +229,10 @@ The live page speaks the trace protocol (`TRACE-CONTRACT` v0.3): every message h
 
 - `snapshot` (`{ values: [{key, preview}], flights: [{key, since}], boundaries: [{region, state, error?}] }`, the
   coming v0.3): what the app shows right now, applied quietly. `region` is a region key (or id). A boundary in
-  `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error.
+  `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error, and a
+  dashed rose arrow from each failing name it caught (an async root that notifies it, a name its sites read, or else a
+  failing name with the same error) to it. A typed `errored (e: X)` region the model marks `deadTyped` (an inner
+  catch-all catches first, so it never shows) is drawn dotted and faded, its tag struck through, with a "dead" mark.
 
 **Time travel (real host):** with a Solid that has `openView` (`solid-js/attribution`, solidjs/solid#5089), the
 timeline travels the running app, DOM included. The recorder keeps a ring of 2000 steps (one per flush; set
@@ -246,7 +271,7 @@ timeline's. `window.__RX_FAKE_LIB__` is the embedded library (`createFakeHost`, 
   until you resume. Before a key's first recorded change its value is that change's `prev`. A step's `inexact` keys
   are marked "can't rewind".
 
-**Moving around:** the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel and a trackpad pinch zoom. `F` frames
+**Moving around:** a mouse wheel zooms toward the pointer; a trackpad's two-finger scroll pans (shift + wheel: sideways); a pinch and ctrl / ⌘ + wheel zoom. `F` frames
 the whole map, or fits its width when the whole would be too small to read. `/` searches: ↑ / ↓ go through the
 matches, Enter selects one and opens it in the panel.
 

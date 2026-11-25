@@ -94,6 +94,11 @@
 
   /* a plate's summary: a card with counts by role and what it exports. It replaces the tokens when the plate is
      collapsed, and lays over them at low zoom (same size, so nothing moves) */
+  /* a typed errored boundary that can never show (an inner catch-all catches first): struck through, faded */
+  #board .frame.dead { border-style: dotted; opacity: .7 }
+  .deadmark { display: inline-flex; gap: 5px; align-items: center; color: var(--fail); font-size: 11px; border: 1px dashed color-mix(in srgb, var(--fail) 60%, transparent); border-radius: 4px; padding: 0 6px }
+  .deadmark b { text-transform: uppercase; letter-spacing: .1em; font-size: 9.5px } .deadmark span { color: var(--dim) }
+  .frame.dead > .flabel .ctag { text-decoration: line-through; text-decoration-color: var(--fail) }
   /* ---- detail levels: what is drawn, never where (layout.mjs placed everything once) ---------------------------- */
   .lvx { transition: opacity .2s ease }
   /* level 1, the overview: a plate shows its card, filling the same box */
@@ -113,6 +118,14 @@
   .psum .ps-diff .d-added { color: var(--d-add) } .psum .ps-diff .d-changed { color: var(--d-chg) } .psum .ps-diff .d-removed { color: var(--d-del) }
   .psum .ps-live { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 12px; font-weight: 700 }
   .psum .ps-live:empty { display: none }
+  /* the overview's liveness: a flush that touches the module pulses its card; a request in the air orbits it */
+  .psum .ps-in { position: relative }
+  .psum.pulse .ps-in::before { content: ""; position: absolute; inset: -14px; border-radius: 14px; border: 2px solid rgba(255, 255, 255, .7); animation: rx-card-pulse .9s ease-out forwards; pointer-events: none }
+  @keyframes rx-card-pulse { from { opacity: 1; transform: scale(.97) } to { opacity: 0; transform: scale(1.06) } }
+  .psum.busy .ps-in::after { content: ""; position: absolute; inset: -10px; border-radius: 12px; border: 2px dashed var(--pending); animation: rx-card-orbit 1.4s ease-in-out infinite; pointer-events: none }
+  @keyframes rx-card-orbit { 50% { border-color: color-mix(in srgb, var(--pending) 35%, transparent) } }
+  .psum.failing .ps-name { color: var(--fail) }
+  @media (prefers-reduced-motion: reduce) { .psum.pulse .ps-in::before, .psum.busy .ps-in::after { animation: none } }
   .psum .ps-live .pl-chg { color: #fff } .psum .ps-live .pl-fail { color: var(--fail) } .psum .ps-live .pl-held, .psum .ps-live .pl-fly { color: var(--pending) }
   .wsum .ws-in { display: flex; gap: 14px; align-items: baseline; color: var(--dim); font-size: 14px; transform-origin: center } .wsum b { color: var(--text); font-size: 18px }
   body.lv1 .psum, body.lv1 .wsum { opacity: 1 }
@@ -472,16 +485,13 @@
   @keyframes rx-sweep-back { from { transform: translateX(300%) } to { transform: translateX(-100%) } }
   body.viewing #canvas { filter: saturate(.3) sepia(.12) brightness(.92); transition: filter .4s }
   #canvas { transition: filter .4s }
-  #viewNote { position: absolute; top: 54px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 12px; font-size: 12px; z-index: 13; white-space: nowrap; border-color: rgba(226, 232, 240, .45) }
+  /* a pill in the header, never over the board: the token rows under the header stay readable while looking back */
+  #viewNote { position: static; transform: none; display: flex; gap: 8px; align-items: center; padding: 2px 3px 2px 9px; font-size: 11.5px; white-space: nowrap; border-color: rgba(226, 232, 240, .45); box-shadow: none; backdrop-filter: none; background: rgba(226, 232, 240, .1) }
+  #viewNote::before, #viewNote::after { display: none }
   #viewNote b { text-transform: uppercase; letter-spacing: .12em; font-size: 10px }
   #viewNote svg.i { color: #e2e8f0 }
-  #viewNote .vn-short { display: none }
-  @media (max-height: 520px), (max-width: 900px) {
-    #viewNote { position: static; transform: none; padding: 1px 3px 1px 7px; font-size: 10.5px; gap: 6px; box-shadow: none; backdrop-filter: none; background: rgba(226, 232, 240, .1) }
-    #viewNote::before, #viewNote::after { display: none }
-    #viewNote .vn-long { display: none } #viewNote .vn-short { display: inline }
-    #viewNote .hbtn { padding: 1px 7px }
-  }
+  #viewNote .vn-long { display: none } #viewNote .vn-short { display: inline }
+  #viewNote .hbtn { padding: 1px 8px }
   .chip.inexact .tok { filter: grayscale(.6) }
   .chip .inx { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); font: 700 9px/1.4 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; color: #e2e8f0; background: rgba(15, 17, 21, .9); border: 1px dashed rgba(226, 232, 240, .6); border-radius: 4px; padding: 0 5px; white-space: nowrap }
   body.viewing #canvas::after { content: ""; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(226, 232, 240, .28), inset 0 0 140px rgba(200, 210, 230, .12) }
@@ -948,6 +958,12 @@ function frameHeader(r, el) {
       c.querySelectorAll(".b").forEach(b => b.remove());
       lab.append(c);
     }
+    if (r.deadTyped) {
+      el.classList.add("dead");
+      const d = document.createElement("span"); d.className = "deadmark"; d.title = "an errored boundary inside catches every error first, so this one never shows its fallback";
+      d.innerHTML = `${ICON.warn}<b>dead</b><span>an inner catch-all catches first</span>`;
+      lab.append(d);
+    }
     if (r.kind === "loading" || r.kind === "errored") {
       const roots = (inc.get(r.id) ?? []).filter(e => e.type === "notifies");
       const w = document.createElement("span");
@@ -1194,6 +1210,12 @@ function draw() {
     const k = r.key, t = trunks.get(k);
     if (t) { t.n++; t.glow ||= glow; t.tail ||= !!r.tail; } else trunks.set(k, { d: r.trunk, s, n: 1, glow, tail: !!r.tail });
   }
+  // caught by: from each failing name to the boundary showing its fallback for it
+  for (const [from, rid] of caughtPairs()) {
+    const r = routed(from, rid, null); if (!r) continue;
+    const s = { c: "#fb7185", d: "6 4", w: 2.2 };
+    for (const d of [r.d, r.head, r.trunk, r.tail].filter(Boolean)) line(d, s, { glow: "#fb7185", marker: d === (r.d ?? r.tail ?? r.trunk), opacity: 1, cls: "caught" });
+  }
   const bundle = far() ? { c: "#9fb4d8", d: "", w: 2 } : null;   // in the overview a bundle is every kind of edge between two modules
   for (const t of trunks.values()) line(t.d, bundle ?? t.s, { glow: t.glow, marker: !t.tail, width: (bundle ?? t.s).w + Math.min(far() ? 10 : 4, Math.log2(t.n) * (far() ? 2.2 : 1.4)), opacity: t.glow ? 1 : focus ? .9 : far() ? .45 : .5, cls: "trunk" });
   svg.innerHTML = `<defs>${[...markers].map(c => `<marker id="m${c.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="${far() ? 18 : 12}" markerHeight="${far() ? 18 : 12}" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${c}"/></marker>`).join("")}</defs>${glows.join("")}${paths.join("")}`;
@@ -1439,7 +1461,7 @@ function intro(changes) {
   <pre class="code">${hl(`source count := 0                    // a well: state\ntotal = count * 2                    // always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // one change`)}</pre>
   <p class="hint"><b>Marks are properties</b>, on any role: ${GI} and stripes can be pending, <b>?</b> re-asks a standing question, ${GIO} touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
   <p class="hint"><b>Everything points up.</b> A thing sits below what it depends on: modules below the modules they import, components below the components they render, equations below what they read, actions below what they write, handlers below the actions they call. Each row inside a frame is one step deeper.</p>
-  <p class="hint"><b>Move around.</b> Drag to pan, wheel or pinch to zoom toward the pointer, double-click a token to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>
+  <p class="hint"><b>Move around.</b> Drag to pan. A mouse wheel, a pinch or ctrl + wheel zoom toward the pointer; a trackpad's two-finger scroll pans, shift + wheel pans sideways. Double-click a token (or a module) to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>
   <p class="hint">Hover a token to lift it and see its edges. Click to pin it and trace <b>what it affects</b> (writes and tracked reads, the way a change travels) or <b>what it depends on</b>.</p>
   <p class="hint">Frames are regions: a <span style="color:var(--comp)">component</span>, <span style="color:var(--aeq)">loading</span> and <span style="color:var(--err)">errored</span> boundaries, <code>for</code> rows, <code>if</code> branches. Everything inside is created and disposed with it.</p>
   <p class="hint">All of this is static: it is what the program <i>can</i> do, from <code>rxc model</code>, with nothing running.</p>${LIVE ? `
@@ -1667,14 +1689,29 @@ canvas.addEventListener("pointerup", endPointer);
 canvas.addEventListener("pointercancel", endPointer);
 canvas.addEventListener("pointerleave", () => { cam.trx = 0; cam.try = 0; kick(); });
 canvas.addEventListener("click", ev => { if (suppressClick) { ev.stopPropagation(); ev.preventDefault(); suppressClick = false; } }, true);
+// A mouse wheel zooms toward the pointer; a trackpad's two-finger scroll pans; a pinch (which comes as ctrl + wheel)
+// and ctrl / ⌘ + wheel zoom; shift + wheel pans sideways. A mouse is told by its steps: lines or pages, or big whole
+// pixel steps with nothing sideways; a trackpad sends small or fractional ones (and once it has, the rest of that
+// gesture stays a pan).
+let padUntil = 0;
+function wheelKind(ev, now = performance.now()) {
+  if (ev.ctrlKey || ev.metaKey) return "zoom";
+  if (ev.shiftKey) return "sideways";
+  if (ev.deltaMode !== 0) return "zoom";
+  const steppy = ev.deltaX === 0 && Number.isInteger(ev.deltaY) && Math.abs(ev.deltaY) >= 50;
+  if (!steppy) padUntil = now + 400;
+  return steppy && now > padUntil ? "zoom" : "pan";
+}
 canvas.addEventListener("wheel", ev => {
   ev.preventDefault();
-  const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
-  // the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel, and a trackpad pinch (which comes as ctrl), zoom
-  // toward the pointer
-  if (ev.ctrlKey || ev.metaKey) { zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0022))); return; }
+  const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1, kind = wheelKind(ev);
+  if (kind === "zoom") {
+    const pinch = ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50;
+    zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (pinch ? .01 : .0018)));
+    return;
+  }
   fly = null; inertia = null;
-  if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
+  if (kind === "sideways") cam.x -= (ev.deltaX || ev.deltaY) * unit;
   else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
   camDirty = false; applyCam();
 }, { passive: false });
@@ -1825,10 +1862,19 @@ board.addEventListener("click", ev => {
   if (c) select(c.dataset.id === selected ? null : c.dataset.id); else if (selected) select(null);
 });
 canvas.addEventListener("click", ev => { if (!ev.target.closest("#board [data-id], .nref") && selected) select(null); });
+// double-click: a token, fly to it and select it; a module (its card, at the overview), fly into it at reading size
 board.addEventListener("dblclick", ev => {
-  const c = ev.target.closest("[data-id]"); if (!c) return;
-  if (selected !== c.dataset.id) select(c.dataset.id);
-  flyToEl(c, clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2));
+  ev.preventDefault();
+  const c = level > 1 && ev.target.closest("[data-id]");
+  if (c) {
+    if (selected !== c.dataset.id) select(c.dataset.id);
+    flyToEl(c, clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2));
+    return;
+  }
+  const m = ev.target.closest(".frame.module"), p = m && L.plates.get(+m.dataset.mod);
+  if (!p) return;
+  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, RXL.LEVELS.up[2] + .02, 1.2);
+  flyTo(p.x + p.w / 2, p.y + Math.min(p.h, fr.h / s) / 2, s);
 });
 // search: every match lights; ↑ / ↓ go from one to the next, Enter selects it and opens it in the panel
 const qEl = document.getElementById("q"), qCount = document.getElementById("qcount");
@@ -2064,16 +2110,24 @@ function listOf(p) {
   let more = 0, exact = closed;
   if (items.length && /^…\d+$/.test(items.at(-1))) more = +items.pop().slice(1);
   else if (!closed && items.length) { items.pop(); exact = false; }   // cut at 80 characters: the last item is partial
-  return { count: items.length + more, exact, items: items.map(itemLabel) };
+  return { count: items.length + more, exact, items: itemLabels(items) };
 }
-function itemLabel(t) {
-  if (t[0] === "{") {
-    const fields = [...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)];
-    const str = fields.find(f => f[2][0] === '"' && !/^(id|key)$/.test(f[1])) ?? fields[0];
-    t = str ? str[2].trim() : "{…}";
-  }
-  if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
-  return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+// a row of a list is named by its title (title, name, label, text…); failing that, by the first string field that tells
+// the rows apart (not `board: "web"` on every row); failing that, its first string field
+const TITLE_FIELDS = ["title", "name", "label", "text", "summary", "subject", "heading", "message", "body"];
+function itemLabels(items) {
+  const fieldsOf = t => (t[0] === "{" ? new Map([...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)].map(m => [m[1], m[2].trim()])) : null);
+  const parsed = items.map(fieldsOf);
+  const strFields = f => [...(f ?? [])].filter(([k, v]) => v[0] === '"' && !/^(id|key)$/.test(k)).map(([k]) => k);
+  const objs = parsed.filter(Boolean);
+  let pick = TITLE_FIELDS.find(k => objs.length && objs.every(f => f.get(k)?.[0] === '"'));
+  if (!pick && objs.length > 1) pick = strFields(objs[0]).find(k => new Set(objs.map(f => f.get(k))).size > 1);
+  return items.map((t, i) => {
+    const f = parsed[i];
+    if (f) { const k = (pick && f.has(pick) && pick) ?? strFields(f)[0] ?? [...f.keys()][0]; t = k ? f.get(k) : "{…}"; }
+    if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
+    return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+  });
 }
 const plainValue = v => { const l = listOf(v); return l ? `${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}` : String(v ?? ""); };
 function setValue(el, text, { dir = "up", delay = 0, prev, still = false } = {}) {
@@ -2114,10 +2168,12 @@ const live = { values: new Map(), flying: new Map(), flushes: 0, boundaries: new
 // "held · waiting on …" mark under the token until it is released
 // the overview's form of the same marks: each module card counts its names changing now, failed, held, in the air
 const recent = new Map();   // key → when it last changed in a flush
+const pulseMods = new Set(); // modules a flush just touched
 let cardsT = 0;
 function liveCards() {
   if (cardsT) return;
-  cardsT = requestAnimationFrame(() => {
+  cardsT = 1;
+  queueMicrotask(() => {   // once per batch of changes
     cardsT = 0;
     const now = performance.now(), per = new Map();
     const bump = (key, what) => { for (const id of keyIds.get(key) ?? []) { const n = nodes.get(id); if (!n || n.site) continue; const c = per.get(n.mod) ?? per.set(n.mod, { chg: new Set(), fail: new Set(), held: new Set(), fly: new Set() }).get(n.mod); c[what].add(key); } };
@@ -2127,14 +2183,19 @@ function liveCards() {
     for (const k of live.flying.keys()) bump(k, "fly");
     for (const [mi, el] of moduleEls) {
       const box = el.querySelector(":scope > .psum .ps-live"); if (!box) continue;
-      const c = per.get(mi);
+      const c = per.get(mi), card = box.closest(".psum");
+      card.classList.toggle("busy", !!c?.fly.size);
+      card.classList.toggle("failing", !!c?.fail.size);
+      if (pulseMods.has(mi)) { card.classList.remove("pulse"); void card.offsetWidth; if (!rm()) card.classList.add("pulse"); }
       box.innerHTML = c ? [["chg", "changing"], ["fail", "failed"], ["held", "held"], ["fly", "in the air"]].filter(([k]) => c[k].size).map(([k, w]) => `<span class="pl-${k}">${c[k].size} ${w}</span>`).join("") : "";
     }
+    pulseMods.clear();
     if (recent.size) setTimeout(liveCards, 500);
   });
 }
 function paintState(key) {
   liveCards();
+  if (live.boundaries.size) redraw();   // the caught-by arrows follow failures
   const v = live.values.get(key), h = live.held.get(key);
   for (const el of chipsOf(key)) {
     el.classList.toggle("failed", !!v?.error);
@@ -2372,7 +2433,7 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
   for (const c of changes) {
     if (!c || !keyIds.has(c.key)) continue;
     const v = live.values.get(c.key) ?? { count: 0 };
-    if (flush) { v.count++; v.seq = seq; recent.set(c.key, performance.now()); liveCards(); }
+    if (flush) { v.count++; v.seq = seq; recent.set(c.key, performance.now()); for (const id of keyIds.get(c.key) ?? []) { const n = nodes.get(id); if (n && !(n.world && !n.from)) pulseMods.add(n.mod); } liveCards(); }
     else v.seq = tl.viewing ?? tl.head;
     v.origin = c.origin ?? v.origin ?? null;
     if (typeof c.error === "string") { v.error = c.error; delete v.preview; v.pending = false; }
@@ -2443,7 +2504,7 @@ function onSnapshot(d) {
       live.flying.set(key, 1);
       for (const el of chipsOf(key)) { el.classList.add("flying"); orb(el, "start"); }
       if (!tl.flights.some(f => f.key === key && f.end == null)) tl.flights.push({ key, start: since ?? tl.steps.at(-1)?.at ?? 0, end: null });
-    }
+    }    liveCards();
   }
   if (Array.isArray(d.boundaries)) {
     live.boundaries.clear();
@@ -2460,7 +2521,26 @@ function onSnapshot(d) {
 }
 // a boundary showing its fallback looks tripped: loading in amber stripes, errored in rose with its error
 function regionOf(ref) { if (regions.has(ref)) return regions.get(ref); for (const r of regions.values()) if (r.key === ref) return r; return null; }
+// which failing names each tripped errored boundary caught: the async roots that notify it, the names its sites read,
+// or (when the host doesn't say more) a failing name with the same error
+function caughtPairs() {
+  const pairs = [];
+  if (typeof live === "undefined") return pairs;
+  const failing = new Set([...live.values].filter(([, v]) => v.error).flatMap(([k]) => (keyIds.get(k) ?? []).filter(id => !nodes.get(id)?.site)));
+  if (!failing.size) return pairs;
+  for (const [ref, b] of live.boundaries) {
+    if (b.state !== "fallback" && b.state !== "error") continue;
+    const r = regionOf(ref); if (!r || (r.kind !== "errored" && b.state !== "error")) continue;
+    const got = new Set();
+    for (const e of inc.get(r.id) ?? []) if (e.type === "notifies" && failing.has(e.from)) got.add(e.from);
+    for (const sid of boundaryCover.get(r.id) ?? []) for (const e of inc.get(sid) ?? []) if (e.type === "read" && failing.has(e.from)) got.add(e.from);
+    if (!got.size && b.error) for (const id of failing) if (String(live.values.get(nodes.get(id).key)?.error) === String(b.error)) got.add(id);
+    for (const id of got) pairs.push([id, r.id]);
+  }
+  return pairs;
+}
 function paintBoundaries() {
+  redraw();
   for (const el of board.querySelectorAll(".frame.tripped")) { el.classList.remove("tripped", "trip-loading", "trip-errored"); el.querySelector(":scope > .flabel > .trip")?.remove(); }
   for (const [ref, b] of live.boundaries) {
     if (b.state !== "fallback" && b.state !== "error") continue;
@@ -2593,7 +2673,7 @@ function viewingUI() {
   if (!note) {
     note = document.createElement("div"); note.id = "viewNote"; note.className = "hud"; note.setAttribute("role", "status");
     note.innerHTML = `${ICON.lock}<span><b>looking back</b> <span class="vn-seq mono"></span><span class="vn-long"> · the app is read-only until you resume</span><span class="vn-short"> · read-only</span></span><button class="hbtn" id="vnResume">resume</button>`;
-    // in the header: below it as a banner, or (compact) a pill in it, so it never covers the plates
+    // a pill in the header, so it never covers the plates
     document.querySelector("header").append(note);
     note.querySelector("#vnResume").onclick = () => { SFX.toggle(); resume(); };
   }
