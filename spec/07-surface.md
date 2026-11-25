@@ -127,6 +127,7 @@ Added:
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
+| `e as T` | a type assertion, TypeScript's, erased at run time; the projection keeps it so the type layer checks it (13 TY-2). Same line as `e` — a newline is the next statement | TY-2 |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
 | `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
@@ -325,7 +326,10 @@ component Card(props) {
   children the view passes to a component — carries the view's scope class.
   A component's body is its own view, with its own stylesheet or none.
   Children belong to the view that wrote them, wherever the component
-  places them.
+  places them. A class in one component's `<style>` that matches an
+  element of another component in the same file does not style it
+  (`STYLE_SCOPE`): that component is its own view. Give it its own
+  `<style>`, or pass a class map (CSS-5).
 - **CSS-3 (The stylesheet).** TSRX's engine, unchanged (`tsrx::style` in
   Solid's compiler; 11 CP-1d): selectors are scoped to the class
   (`tsrx-` and eight hex digits of the module, the style's position and its

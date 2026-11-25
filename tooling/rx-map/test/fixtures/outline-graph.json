@@ -1,0 +1,690 @@
+{
+  "modules": [
+    "test/fixtures/outline.rx"
+  ],
+  "absModules": [
+    "/home/lucifer/work/solidjs/rx-map-layout/tooling/rx-map/test/fixtures/outline.rx"
+  ],
+  "nodes": [
+    {
+      "id": "0:s0",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "comp",
+      "name": "Label",
+      "line": 1,
+      "region": "0:r0",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "base": "test/fixtures/outline.rx||Label",
+      "key": "test/fixtures/outline.rx||Label"
+    },
+    {
+      "id": "0:s1",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "comp",
+      "name": "App",
+      "line": 5,
+      "region": "0:r0",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "base": "test/fixtures/outline.rx||App",
+      "key": "test/fixtures/outline.rx||App"
+    },
+    {
+      "id": "0:s2",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "props",
+      "name": "props",
+      "line": 1,
+      "region": "0:r1",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "base": "test/fixtures/outline.rx|Label|props",
+      "key": "test/fixtures/outline.rx|Label|props"
+    },
+    {
+      "id": "0:s3",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "props",
+      "name": "props",
+      "line": 5,
+      "region": "0:r2",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "base": "test/fixtures/outline.rx|App|props",
+      "key": "test/fixtures/outline.rx|App|props"
+    },
+    {
+      "id": "0:s4",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "source",
+      "name": "count",
+      "line": 6,
+      "region": "0:r2",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "rxKey": "test/fixtures/outline.rx|App|count",
+      "base": "test/fixtures/outline.rx|App|count",
+      "key": "test/fixtures/outline.rx|App|count"
+    },
+    {
+      "id": "0:s5",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "eq",
+      "name": "rows",
+      "line": 7,
+      "region": "0:r2",
+      "io": false,
+      "question": false,
+      "async": false,
+      "world": false,
+      "rxKey": "test/fixtures/outline.rx|App|rows",
+      "base": "test/fixtures/outline.rx|App|rows",
+      "key": "test/fixtures/outline.rx|App|rows"
+    },
+    {
+      "id": "0:c0",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 2,
+      "region": "0:r1",
+      "base": "test/fixtures/outline.rx|/component:Label|reader:{…}",
+      "sig": "props",
+      "key": "test/fixtures/outline.rx|/component:Label|reader:{…}"
+    },
+    {
+      "id": "0:c3",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 10,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:{…}",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App|reader:{…}"
+    },
+    {
+      "id": "0:c4",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "input placeholder",
+      "line": 13,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:input placeholder",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:input placeholder"
+    },
+    {
+      "id": "0:c5",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "input value",
+      "line": 13,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:input value",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App|reader:input value"
+    },
+    {
+      "id": "0:c6",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "input title",
+      "line": 13,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:input title",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:input title"
+    },
+    {
+      "id": "0:c7",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "input aria-label",
+      "line": 13,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:input aria-label",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:input aria-label"
+    },
+    {
+      "id": "0:c8",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "img alt",
+      "line": 14,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:img alt",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:img alt"
+    },
+    {
+      "id": "0:c9",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "img src",
+      "line": 14,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:img src",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:img src"
+    },
+    {
+      "id": "0:c10",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "meter value",
+      "line": 15,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:meter value",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:meter value"
+    },
+    {
+      "id": "0:c11",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "if",
+      "line": 17,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:if",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App|reader:if"
+    },
+    {
+      "id": "0:c12",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 18,
+      "region": "0:r3",
+      "base": "test/fixtures/outline.rx|/component:App/then|reader:{…}",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App/then|reader:{…}"
+    },
+    {
+      "id": "0:c13",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "for",
+      "line": 19,
+      "region": "0:r3",
+      "base": "test/fixtures/outline.rx|/component:App/then|reader:for",
+      "sig": "rows",
+      "key": "test/fixtures/outline.rx|/component:App/then|reader:for"
+    },
+    {
+      "id": "0:c14",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 19,
+      "region": "0:r4",
+      "base": "test/fixtures/outline.rx|/component:App/then/for|reader:{…}",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App/then/for|reader:{…}"
+    },
+    {
+      "id": "0:c15",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 21,
+      "region": "0:r2",
+      "base": "test/fixtures/outline.rx|/component:App|reader:{…}",
+      "sig": "",
+      "key": "test/fixtures/outline.rx|/component:App|reader:{…}#1"
+    },
+    {
+      "id": "0:c16",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "loading on",
+      "line": 22,
+      "region": "0:r6",
+      "base": "test/fixtures/outline.rx|/component:App/errored|reader:loading on",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App/errored|reader:loading on"
+    },
+    {
+      "id": "0:c17",
+      "mod": 0,
+      "file": "test/fixtures/outline.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 22,
+      "region": "0:r7",
+      "base": "test/fixtures/outline.rx|/component:App/errored/loading|reader:{…}",
+      "sig": "count",
+      "key": "test/fixtures/outline.rx|/component:App/errored/loading|reader:{…}"
+    }
+  ],
+  "edges": [
+    {
+      "from": "0:s2",
+      "to": "0:c0",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": "children",
+      "line": 2
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c3",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 10
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c5",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 13
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c11",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 17
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c12",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 18
+    },
+    {
+      "from": "0:s5",
+      "to": "0:c13",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 19
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c16",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 22
+    },
+    {
+      "from": "0:s4",
+      "to": "0:c17",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": null,
+      "line": 22
+    },
+    {
+      "from": "0:r8",
+      "to": "0:s0",
+      "type": "renders"
+    },
+    {
+      "from": "0:r9",
+      "to": "0:s1",
+      "type": "renders"
+    }
+  ],
+  "regions": [
+    {
+      "id": "0:r0",
+      "mod": 0,
+      "kind": "program",
+      "name": null,
+      "parent": null,
+      "outline": [
+        {
+          "region": "0:r9",
+          "line": 5
+        }
+      ],
+      "key": "test/fixtures/outline.rx|"
+    },
+    {
+      "id": "0:r1",
+      "mod": 0,
+      "kind": "component",
+      "name": "Label",
+      "parent": "0:r0",
+      "outline": [
+        {
+          "site": "0:c0",
+          "line": 2
+        }
+      ],
+      "key": "test/fixtures/outline.rx|/component:Label"
+    },
+    {
+      "id": "0:r2",
+      "mod": 0,
+      "kind": "component",
+      "name": "App",
+      "parent": "0:r0",
+      "outline": [
+        {
+          "text": "Clicks: "
+        },
+        {
+          "site": "0:c3",
+          "line": 10
+        },
+        {
+          "text": " & 2!"
+        },
+        {
+          "br": true
+        },
+        {
+          "text": "More text © &notit; on two lines."
+        },
+        {
+          "br": true
+        },
+        {
+          "attr": "placeholder",
+          "text": "Enter \"name\"",
+          "line": 13
+        },
+        {
+          "site": "0:c5",
+          "line": 13
+        },
+        {
+          "attr": "title",
+          "text": "A title",
+          "line": 13
+        },
+        {
+          "attr": "aria-label",
+          "text": "The count",
+          "line": 13
+        },
+        {
+          "attr": "alt",
+          "text": "Picture ©",
+          "line": 14
+        },
+        {
+          "attr": "value",
+          "text": "42",
+          "line": 15
+        },
+        {
+          "site": "0:c11",
+          "line": 17
+        },
+        {
+          "region": "0:r3",
+          "line": 17
+        },
+        {
+          "region": "0:r5",
+          "line": 17
+        },
+        {
+          "br": true,
+          "line": 21
+        },
+        {
+          "text": "Error: "
+        },
+        {
+          "site": "0:c15",
+          "line": 21
+        },
+        {
+          "br": true
+        },
+        {
+          "region": "0:r6",
+          "line": 21
+        },
+        {
+          "region": "0:r8",
+          "line": 24
+        }
+      ],
+      "key": "test/fixtures/outline.rx|/component:App"
+    },
+    {
+      "id": "0:r3",
+      "mod": 0,
+      "kind": "then",
+      "name": null,
+      "parent": "0:r2",
+      "outline": [
+        {
+          "text": "Milestone reached: "
+        },
+        {
+          "site": "0:c12",
+          "line": 18
+        },
+        {
+          "text": " clicks!"
+        },
+        {
+          "br": true
+        },
+        {
+          "site": "0:c13",
+          "line": 19
+        },
+        {
+          "region": "0:r4",
+          "line": 19
+        }
+      ],
+      "head": {
+        "line": 17,
+        "text": "if count > 10"
+      },
+      "key": "test/fixtures/outline.rx|/component:App/then"
+    },
+    {
+      "id": "0:r4",
+      "mod": 0,
+      "kind": "for",
+      "name": null,
+      "parent": "0:r3",
+      "outline": [
+        {
+          "text": "Hello "
+        },
+        {
+          "site": "0:c14",
+          "line": 19
+        }
+      ],
+      "head": {
+        "line": 19,
+        "text": "for name in rows"
+      },
+      "key": "test/fixtures/outline.rx|/component:App/then/for"
+    },
+    {
+      "id": "0:r5",
+      "mod": 0,
+      "kind": "else",
+      "name": null,
+      "parent": "0:r2",
+      "outline": [
+        {
+          "text": "Keep going!"
+        }
+      ],
+      "key": "test/fixtures/outline.rx|/component:App/else"
+    },
+    {
+      "id": "0:r6",
+      "mod": 0,
+      "kind": "errored",
+      "name": null,
+      "parent": "0:r2",
+      "outline": [
+        {
+          "site": "0:c16",
+          "line": 22
+        },
+        {
+          "br": true,
+          "line": 22
+        },
+        {
+          "text": "Wait a moment"
+        },
+        {
+          "br": true
+        },
+        {
+          "region": "0:r7",
+          "line": 22
+        }
+      ],
+      "head": {
+        "line": 21,
+        "text": "errored (e)"
+      },
+      "key": "test/fixtures/outline.rx|/component:App/errored"
+    },
+    {
+      "id": "0:r7",
+      "mod": 0,
+      "kind": "loading",
+      "name": null,
+      "parent": "0:r6",
+      "outline": [
+        {
+          "text": "Ready: "
+        },
+        {
+          "site": "0:c17",
+          "line": 22
+        }
+      ],
+      "head": {
+        "line": 22,
+        "text": "loading on(count)"
+      },
+      "key": "test/fixtures/outline.rx|/component:App/errored/loading"
+    },
+    {
+      "id": "0:r8",
+      "mod": 0,
+      "kind": "children",
+      "name": "Label",
+      "parent": "0:r2",
+      "outline": [
+        {
+          "text": "Given by caller"
+        }
+      ],
+      "key": "test/fixtures/outline.rx|/component:App/children:Label"
+    },
+    {
+      "id": "0:r9",
+      "mod": 0,
+      "kind": "children",
+      "name": "App",
+      "parent": "0:r0",
+      "outline": [],
+      "key": "test/fixtures/outline.rx|/children:App"
+    }
+  ],
+  "lines": {
+    "test/fixtures/outline.rx": {
+      "1": "component Label(props: { children: View }) {",
+      "2": "  <span>{props.children}</span>",
+      "3": "}",
+      "5": "export default component App() {",
+      "6": "  source count := 42",
+      "7": "  rows = [\"Ada\", \"Grace\"]",
+      "8": "  <style>.outline { color: red }</style>",
+      "9": "  <main>",
+      "10": "    <h1>Clicks: {count} &amp; &#x32;!</h1>",
+      "11": "    <p>More <em>text</em> &nbsp; &copy; &notit;",
+      "12": "      on two lines.</p>",
+      "13": "    <input placeholder=\"Enter   &quot;name&quot;\" value={count} title=\"A title\" aria-label=\"The count\" />",
+      "14": "    <img alt=\"Picture &#169;\" src=\"elsewhere\" />",
+      "15": "    <meter value={42} />",
+      "16": "    <script>DO NOT INCLUDE 42</script>",
+      "17": "    {if count > 10 {",
+      "18": "      <p>Milestone reached: {count} clicks!</p>",
+      "19": "      {for name in rows { <p>Hello {name}</p> }}",
+      "20": "    } else { <p>Keep going!</p> }}",
+      "21": "    {errored fallback(e) { <p>Error: {e.message}</p> } {",
+      "22": "      {loading on(count) fallback { <p>Wait a moment</p> } { <p>Ready: {count}</p> }}",
+      "23": "    }}",
+      "24": "    <Label>Given by caller</Label>",
+      "25": "  </main>",
+      "26": "}"
+    }
+  },
+  "title": "outline.rx"
+}

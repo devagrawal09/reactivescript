@@ -206,7 +206,7 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
             continue;
         }
         let ch = c.peek();
-        if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
+        if depth == 0 && (c.starts_with("//") || c.starts_with("=>") || c.starts_with(":=") || ch == '=' || ch == ',' || ch == ')' || ch == '}' || ch == ';' || ch == '\n' || (brace_stops && ch == '{')) {
             break;
         }
         if "([{<".contains(ch) {
@@ -1551,12 +1551,28 @@ fn parse_expr_no_catch(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
             if c.peek() == '{' {
                 let at = c.i;
-                if let Ok(stmts) = parse_block(c) {
-                    if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
-                        return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts) }, c));
+                let stmt_err = match parse_block(c) {
+                    Ok(stmts) => {
+                        if stmts.iter().any(|st| !matches!(&st.k, StmtKind::Expr(Expr { k: ExprKind::Id(_), .. }))) {
+                            return Ok(ex(start, ExprKind::Fn { params, body: Box::new(Expr::made(ExprKind::Lit(Lit::Undefined))), stmts: Some(stmts) }, c));
+                        }
+                        None
                     }
-                }
+                    Err(e) => Some(e),
+                };
                 c.i = at;
+                // A handler is a statement body. If that reading fails and the record reading does too, report the
+                // statement error — the record reading fails at the first `let` and the hint then blames a local that is in a handler.
+                // The statement error wins when it names the habit. Otherwise the expression error does (`n++`), except
+                // JS_LOCAL, which the record reading blames on a `let` that is already in the handler.
+                return match parse_expr(c) {
+                    Ok(body) => Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c)),
+                    Err(e) => Err(match stmt_err {
+                        Some(s) if s.3 != "PARSE" => s,
+                        Some(s) if e.3 == "PARSE" || e.3 == "JS_LOCAL" => s,
+                        _ => e,
+                    }),
+                };
             }
             let body = parse_expr(c)?;
             return Ok(ex(start, ExprKind::Fn { params, body: Box::new(body), stmts: None }, c));

@@ -34,7 +34,9 @@
   #floor { position: absolute; pointer-events: none; transform: translateZ(-44px);
     background-image: linear-gradient(rgba(120, 150, 220, .08) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 150, 220, .08) 1px, transparent 1px);
     background-size: 56px 56px; -webkit-mask: radial-gradient(closest-side, #000 50%, transparent); mask: radial-gradient(closest-side, #000 50%, transparent); transition: opacity .25s }
-  #board { position: relative; width: var(--bw, 1400px); padding: 30px 30px 90px; transform-style: preserve-3d }
+  #board { position: relative; width: 1400px; height: 900px; padding: 0; transform-style: preserve-3d }
+  /* plates are placed by the layout (layoutPlates): bands of dependency depth, side by side */
+  #board > .frame.module, #board > .worldrow { position: absolute; left: 0; top: 0; margin: 0 }
   #board .level, #board .worldrow, #board .wgroups, #board .wgroup, #board .chips, #board .frame, #board .kids, #board .mounts, #board .flabel, #board .incoming { transform-style: preserve-3d }
   body.flat #board .chips, body.flat #board .flabel { transform-style: flat }
   .level { display: grid; gap: 34px; margin-bottom: 52px; position: relative }
@@ -64,6 +66,58 @@
   .frame.module > .flabel { position: absolute; top: 14px; left: 20px; right: 20px; margin: 0; gap: 10px }
   .frame.module > .flabel > span:first-child { font: 600 9.5px/1 ui-sans-serif, system-ui; letter-spacing: .16em; text-transform: uppercase; color: var(--micro) }
   .frame.module > .flabel b { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; letter-spacing: .01em }
+  /* view text: a quiet sketch of what the region shows */
+  .kids > .frame, .frame { min-width: 0 }
+  .ostrip { display: flex; gap: 10px; align-items: baseline; margin: 16px auto 0; max-width: 100%; width: fit-content; padding: 6px 10px; border-radius: 6px; border: 1px dashed rgba(200, 210, 230, .14); background: rgba(255, 255, 255, .02); font: 12px/1.55 ui-monospace, Menlo, monospace; color: #8f99ab }
+  .ostrip > .micro { flex-shrink: 0; font-size: 8.5px }
+  .ostrip .otext { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .ostrip.open .otext { white-space: normal }
+  .ostrip .ot { color: #b4bccb; white-space: pre-wrap }
+  .ostrip:not(.open) .ot { white-space: pre }
+  .ostrip .obr::before { content: " · "; color: #59616f }
+  .ostrip.open .obr { display: block; height: 2px } .ostrip.open .obr::before { content: none }
+  .ostrip .oa { color: #7d8597; font-style: italic; margin: 0 .3em }
+  .ostrip .oh { --c: var(--derived); display: inline-block; vertical-align: baseline; color: #e6e8ec; border: 1px solid color-mix(in srgb, var(--c) 65%, transparent); background: color-mix(in srgb, var(--c) 14%, transparent); border-radius: 4px; padding: 0 5px; margin: 0 1px; font-size: 11.5px; line-height: 1.35; cursor: pointer; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .ostrip .oh:hover, .ostrip .oh.xhl { box-shadow: 0 0 0 1.5px #fff }
+  .chip.xhl { box-shadow: 0 0 0 2px #fff, 0 0 16px rgba(255, 255, 255, .45) }
+  .ostrip .orr { display: inline-block; color: var(--fc, var(--comp)); border: 1px dashed color-mix(in srgb, var(--fc, var(--comp)) 60%, transparent); border-radius: 4px; padding: 0 5px; margin: 0 2px; font-size: 11px; line-height: 1.35 }
+  .ostrip .orr.frame-then, .ostrip .orr.frame-else { --fc: var(--if) } .ostrip .orr.frame-for { --fc: var(--for) } .ostrip .orr.frame-loading { --fc: var(--load) } .ostrip .orr.frame-errored { --fc: var(--errb) }
+  .ostrip .oexp { flex-shrink: 0; background: none; border: 1px solid rgba(150, 180, 255, .22); color: var(--micro); border-radius: 4px; padding: 0 6px; font: 600 9px/1.6 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; cursor: pointer }
+  body.lowzoom .ostrip { visibility: hidden }
+  .clusters { display: flex; flex-wrap: wrap; gap: 22px 26px; justify-content: center; align-items: flex-start; transform-style: preserve-3d }
+  .cluster { position: relative; padding: 24px 14px 14px; border-radius: 12px; border: 1px dashed rgba(150, 180, 255, .16); background: rgba(255, 255, 255, .012); transform-style: preserve-3d; max-width: 100% }
+  .cluster > .clabel { position: absolute; top: 6px; left: 12px; font: 600 9px/1.2 ui-sans-serif, system-ui; letter-spacing: .14em; text-transform: uppercase; color: var(--micro); white-space: nowrap }
+  .cluster > .clabel b { color: #c9d3e6; letter-spacing: .06em; font-family: ui-monospace, Menlo, monospace; text-transform: none; font-size: 10.5px }
+  .cluster .chips + .chips { margin-top: 40px }
+  /* a plate's summary: a card with counts by role and what it exports. It replaces the tokens when the plate is
+     collapsed, and lays over them at low zoom (same size, so nothing moves) */
+  .pbtn { margin-left: auto; background: rgba(255, 255, 255, .05); border: 1px solid rgba(150, 180, 255, .25); color: var(--micro); border-radius: 5px; padding: 1px 7px; cursor: pointer; font: 600 9.5px/1.4 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase }
+  .pbtn:hover { color: var(--text); border-color: rgba(170, 200, 255, .6) }
+  .psum { display: none; font-size: 12px; color: var(--dim) }
+  .frame.module.collapsed { padding-bottom: 18px }
+  .frame.module.collapsed > :not(.flabel):not(.psum) { display: none !important }
+  .frame.module.collapsed > .psum { display: block; margin-top: 4px }
+  /* the overview: each module a card, sized to what it says */
+  body.ov .frame.module { padding: 22px 26px 24px; border-radius: 16px; min-height: 0 }
+  body.ov .frame.module > :not(.psum) { display: none !important }
+  body.ov .frame.module > .psum { display: block; font-size: 18px }
+  .psum .ps-name { display: none; color: var(--text); font: 700 30px/1.15 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .psum .ps-path { display: none; color: var(--micro); font: 16px/1.3 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px }
+  body.ov .psum .ps-name, body.ov .psum .ps-path { display: block }
+  .wsum { display: none }
+  body.ov .worldrow { padding: 18px 26px }
+  body.ov .worldrow > :not(.wsum) { display: none !important }
+  body.ov .worldrow > .wsum { display: flex; align-items: baseline; gap: 14px; font-size: 16px; color: var(--dim) }
+  .wsum b { color: var(--text); font-size: 1.35em }
+  .psum .ps-bars { display: flex; height: .9em; border-radius: .45em; overflow: hidden; margin: .5em 0 .4em; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08) }
+  .psum .ps-bars i { display: block; height: 100% }
+  .psum .ps-counts { display: flex; flex-wrap: wrap; gap: .25em .9em }
+  .psum .ps-counts span b { color: var(--text); font-weight: 700; margin-right: .25em }
+  .psum .ps-ex { margin-top: .6em; display: flex; flex-wrap: wrap; gap: .3em .4em; align-items: center }
+  .psum .ps-ex .micro { font-size: .8em; margin-right: .2em }
+  .psum .ps-ex span.x { font-family: ui-monospace, Menlo, monospace; color: var(--text); border: 1px solid var(--c); border-radius: 1em; padding: 0 .55em; background: color-mix(in srgb, var(--c) 14%, transparent); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .psum .ps-ex .micro { flex-basis: 100% }
+  .psum .ps-live { margin-top: .5em; color: var(--fail); font-weight: 700 }
   .frame.module.planned { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), 0 10px 0 -1px #0a0d13, 0 10px 0 0 rgba(140, 170, 240, .14), 0 40px 70px -22px rgba(0, 0, 0, .85), 0 0 0 2px rgba(226, 232, 240, .35), 0 0 40px rgba(226, 232, 240, .12) }
   .frame.module.hmr { animation: rx-plate 1.15s cubic-bezier(.3, .7, .2, 1) both }
   .frame.module.hmr-settle { animation: rx-plate-settle .5s cubic-bezier(.3, .7, .2, 1.2) both }
@@ -493,6 +547,9 @@
     body.fake #devhud.collapsed .dh-toggle { padding: 0 6px }
     body.fake #miniBtn { margin-right: 178px }
     #toast { top: 44px }
+    /* the overview in a short dock: slim cards (name, role bar, counts) */
+    body.ov .psum .ps-path, body.ov .psum .ps-ex { display: none !important }
+    body.ov .frame.module { padding: 16px 22px 16px }
     .hud::after { --k: rgba(160, 195, 255, .5) }
   }
   @keyframes rx-fade { 0% { opacity: 0 } 15% { opacity: 1 } 100% { opacity: 0 } }
@@ -799,6 +856,73 @@ function modLevel(m, path = new Set()) {
 const firstLine = r => Math.min(...r.nodes.map(n => n.line), ...r.kids.map(firstLine), 1e9);
 const empty = r => r.kind !== "component" && !r.nodes.length && r.kids.every(empty) && r.kind !== "children";
 
+// ---- view text: what a region's markup says, beside its tokens (VIEW-OUTLINE-CONTRACT §3) ----------------------------
+// A quiet text-only sketch of the screen, in document order: static text, holes where the view reads (the site's
+// value in live mode, else what it reads), child regions as small frame tags, human text in attributes. One line, with
+// an expander when long; hidden when zoomed out.
+const holes = new Map();   // site id → its hole elements
+function holeText(id) {
+  const n = nodes.get(id); if (!n) return "?";
+  if (LIVE && typeof live !== "undefined") {
+    const reads = (inc.get(id) ?? []).filter(e => e.type === "read").map(e => nodes.get(e.from)?.key).filter(Boolean);
+    const v = reads.length === 1 && live.values.get(reads[0]);
+    if (v?.error) return `! ${String(v.error).slice(0, 24)}`;
+    if (v?.preview !== undefined) return plainValue(v.preview).slice(0, 28);
+  }
+  return n.name === "{…}" || n.name === "{...}" ? readsOf(n) || shorten(lineOf(n)) : n.name;
+}
+function outlineStrip(r) {
+  const parts = r.outline;
+  if (!parts?.some(p => "text" in p || "site" in p)) return null;
+  const el = document.createElement("div");
+  el.className = "ostrip";
+  el.innerHTML = `<span class="micro">view</span><span class="otext"></span>`;
+  const t = el.querySelector(".otext");
+  let chars = 0;
+  for (const p of parts) {
+    if (p.br) { t.append(Object.assign(document.createElement("span"), { className: "obr" })); continue; }
+    if ("attr" in p) { const a = document.createElement("span"); a.className = "oa"; a.textContent = `${p.attr} "${p.text}"`; t.append(a); chars += p.text.length + p.attr.length; continue; }
+    if ("text" in p) { const a = document.createElement("span"); a.className = "ot"; a.textContent = p.text; t.append(a); chars += p.text.length; continue; }
+    if ("site" in p) {
+      const n = nodes.get(p.site); if (!n || ctlSites.has(p.site)) continue;   // the read that decides an if / for: the region tag says it
+      const h = document.createElement("span");
+      h.className = `oh k-${kindOf(n)}`; h.dataset.hole = p.site; h.textContent = holeText(p.site);
+      h.title = `${KIND[kindOf(n)]?.label ?? n.kind}: ${n.name}${n.line ? ` · L${n.line}` : ""}`;
+      (holes.get(p.site) ?? holes.set(p.site, []).get(p.site)).push(h);
+      t.append(h); chars += h.textContent.length + 2; continue;
+    }
+    if ("region" in p) {
+      const k = regions.get(p.region); if (!k || empty(k)) continue;
+      const g = document.createElement("span");
+      g.className = `orr frame-${k.kind}`;
+      g.textContent = CTL[k.kind] ? controlInfo(k).text : k.name ? `<${k.name} />` : k.kind;
+      t.append(g); chars += g.textContent.length + 2;
+    }
+  }
+  if (chars > 64 || parts.filter(p => p.br).length > 1) {
+    const b = document.createElement("button");
+    b.className = "oexp"; b.textContent = "more"; b.title = "show the whole view text";
+    b.onclick = ev => { ev.stopPropagation(); const o = el.classList.toggle("open"); b.textContent = o ? "less" : "more"; };
+    el.append(b);
+  }
+  return el;
+}
+function paintHoles() { for (const [id, hs] of holes) { const t = holeText(id); for (const h of hs) if (h.textContent !== t) h.textContent = t; } }
+// (bound once the board exists: this part of the script runs before it is declared)
+queueMicrotask(() => {
+board.addEventListener("mouseover", ev => {
+  const h = ev.target.closest(".oh"); if (!h) return;
+  anchors.get(h.dataset.hole)?.classList.add("xhl");
+  for (const o of holes.get(h.dataset.hole) ?? []) o.classList.add("xhl");
+});
+board.addEventListener("mouseout", ev => {
+  const h = ev.target.closest(".oh"); if (!h) return;
+  anchors.get(h.dataset.hole)?.classList.remove("xhl");
+  for (const o of holes.get(h.dataset.hole) ?? []) o.classList.remove("xhl");
+});
+board.addEventListener("click", ev => { const h = ev.target.closest(".oh"); if (!h) return; ev.stopPropagation(); select(h.dataset.hole); }, true);
+});
+
 // ---- control flow: what each branch, row and boundary is, read from its source line ----------------------------
 const CTAG = { then: ["branch", "branch"], else: ["branch", "branch"], for: ["rows", "rows"], loading: ["hour", "loading"], errored: ["warn", "errored"] };
 const ctagHTML = kind => (CTAG[kind] ? `<span class="cw">${ICON[CTAG[kind][0]]}${CTAG[kind][1]}</span>` : "");
@@ -915,9 +1039,21 @@ function readsOf(n) {
 }
 function shorten(s) { const m = s.match(/\{([^{}]{1,40})\}/); return (m ? m[1].trim() : s).slice(0, 28); }
 
+// A row per step of dependency *within the group*: a token sits below the tokens of its group it needs (so arrows inside
+// a frame point up), and things that need only what is elsewhere share the top row instead of a row of their own each
 function rows(list, cls) {
+  const inSet = new Set(list.map(n => n.id)), memo = new Map(), path = new Set();
+  const local = id => {
+    if (memo.has(id)) return memo.get(id);
+    if (path.has(id)) return 0;
+    path.add(id);
+    let r = 0;
+    for (const d of deps.get(id) ?? []) if (inSet.has(d) && d !== id) r = Math.max(r, local(d) + 1);
+    path.delete(id); memo.set(id, r);
+    return r;
+  };
   const byRank = new Map();
-  for (const n of list) { const k = rank(n.id); (byRank.get(k) ?? byRank.set(k, []).get(k)).push(n); }
+  for (const n of list) { const k = local(n.id); (byRank.get(k) ?? byRank.set(k, []).get(k)).push(n); }
   return [...byRank.keys()].sort((a, b) => a - b).map(k => {
     const c = document.createElement("div"); c.className = `chips ${cls}`;
     byRank.get(k).sort((a, b) => ORDER.indexOf(kindOf(a)) - ORDER.indexOf(kindOf(b)) || a.line - b.line).forEach(n => c.append(chip(n)));
@@ -975,8 +1111,21 @@ function frame(r) {
     anchors.set(r.id, lab);
   }
   el.append(lab);
-  el.append(...rows(r.nodes.filter(n => !n.site), "named"), ...rows(r.nodes.filter(n => n.site && !ctlSites.has(n.id)), "sites"));
+  const named = r.nodes.filter(n => !n.site), groups = r.kind === "program" && named.length > 10 ? clusterNames(named, r.mod) : null;
+  if (groups) {
+    const box = document.createElement("div"); box.className = "clusters";
+    for (const g of groups) {
+      const c = document.createElement("div"); c.className = "cluster"; c.dataset.unit = g.unit;
+      c.innerHTML = `<div class="clabel"></div>`;
+      c.firstChild.innerHTML = `${esc(g.label)} <b></b>`; c.firstChild.lastChild.textContent = g.what ?? "";
+      c.append(...rows(g.nodes, "named"));
+      box.append(c);
+    }
+    el.append(box, ...rows(r.nodes.filter(n => n.site && !ctlSites.has(n.id)), "sites"));
+  } else el.append(...rows(named, "named"), ...rows(r.nodes.filter(n => n.site && !ctlSites.has(n.id)), "sites"));
   // components, by what renders what; then the view's regions, side by side where they are siblings
+  const strip = outlineStrip(r);
+  if (strip) el.append(strip);
   const kids = r.kids.filter(k => !empty(k));
   const comps = kids.filter(k => k.kind === "component");
   const levels = new Map();
@@ -991,8 +1140,8 @@ function frame(r) {
 }
 
 function render() {
-  board.querySelectorAll(".level, .worldrow").forEach(c => c.remove());
-  anchors.clear(); moduleEls.clear(); regionEls.clear();
+  board.querySelectorAll(":scope > .level, :scope > .worldrow, :scope > .frame.module").forEach(c => c.remove());
+  anchors.clear(); moduleEls.clear(); regionEls.clear(); holes.clear();
   // the world, on top: everything the program trusts but cannot see into
   const world = G.nodes.filter(n => n.world && !n.from);
   if (world.length) {
@@ -1007,27 +1156,28 @@ function render() {
       ns.sort((a, b) => a.line - b.line).forEach(n => c.append(chip(n)));
       g.append(t, c); groups.append(g);
     }
-    box.append(groups); board.append(box);
+    box.append(groups);
+    const ws = document.createElement("div"); ws.className = "wsum";
+    ws.innerHTML = `<b>Outside the program</b><span>${world.length} JS function${world.length === 1 ? "" : "s"} from ${byFile.size} file${byFile.size === 1 ? "" : "s"}</span>`;
+    box.append(ws);
+    board.append(box);
   }
-  // modules in dependency order, top to bottom; modules on one level side by side
-  const levels = new Map();
-  G.modules.forEach((_, mi) => { if (regions.get(`${mi}:r0`)) { const l = modLevel(mi); (levels.get(l) ?? levels.set(l, []).get(l)).push(mi); } });
-  for (const l of [...levels.keys()].sort((a, b) => a - b)) {
-    const row = document.createElement("div"); row.className = "level";
-    row.style.gridTemplateColumns = levels.get(l).length > 1 ? "repeat(auto-fit, minmax(520px, 1fr))" : "1fr";
-    for (const mi of levels.get(l)) {
-      const root = regions.get(`${mi}:r0`);
-      const f = frame(root); f.classList.add("module");
-      f.querySelector(".flabel").innerHTML = `<span>module</span> <b></b>`;
-      f.querySelector(".flabel b").textContent = G.modules[mi];
-      f.dataset.mod = mi;
-      // regions with no parent other than the program root (an imported component's instance)
-      for (const r of regions.values()) if (r.mod === mi && !r.parent && r.id !== root.id && !empty(r)) f.append(frame(r));
-      moduleEls.set(mi, f);
-      row.append(f);
-    }
-    board.append(row);
-  }
+  // module plates: placed below by layoutPlates, in bands of dependency depth
+  G.modules.forEach((_, mi) => {
+    const root = regions.get(`${mi}:r0`);
+    if (!root) return;
+    const f = frame(root); f.classList.add("module");
+    f.querySelector(".flabel").innerHTML = `<span>module</span> <b class="pname"></b><button class="pbtn" title="collapse to a summary">collapse</button>`;
+    f.querySelector(".flabel b").textContent = G.modules[mi];
+    f.dataset.mod = mi;
+    // regions with no parent other than the program root (an imported component's instance)
+    for (const r of regions.values()) if (r.mod === mi && !r.parent && r.id !== root.id && !empty(r)) f.append(frame(r));
+    f.append(plateSummary(mi));
+    f.style.width = `${plateWidth(mi)}px`;
+    if (plateState.get(mi) === "closed" || autoClosed.has(mi)) f.classList.add("collapsed");
+    moduleEls.set(mi, f);
+    board.append(f);
+  });
   const named = G.nodes.filter(n => !n.site).length, sites = G.nodes.length - named;
   document.getElementById("stats").textContent =
     `${G.modules.length} module${G.modules.length > 1 ? "s" : ""} · ${named} names · ${sites} sites · ${G.edges.length} edges`;
@@ -1036,7 +1186,411 @@ function render() {
   applyHidden();
   paintBoundaries();
   if (typeof live !== "undefined") for (const k of new Set([...live.values.keys(), ...live.held.keys()])) paintState(k);
+  layoutPlates();
+  plateRO.disconnect();
+  for (const el of moduleEls.values()) plateRO.observe(el);
   layoutChanged();
+}
+
+// ---- the world's layout: plates in bands of dependency depth ----------------------------------------------------------
+// Modules stay top to bottom in dependency order (what a module needs sits above it, so every arrow points up), but the
+// modules at one depth share a band, side by side. Within a band they are ordered to cut edge crossings (barycenters of
+// their neighbours, swept down and up), and a band wraps into rows so the whole world has about the screen's shape.
+const LAY = { gapX: 90, gapY: 120, pad: 70, ovGapX: 64, ovGapY: 120 };
+let layout = { rows: [], plates: new Map() };   // rows: [{ top, bottom, keys: [plate key] }]; plates: key → { l, t, r, b, row }
+const plateState = new Map();   // module → "closed" | "open": what the user chose
+const autoClosed = new Set();   // modules folded because the map is huge and they are far from the selection
+const HUGE = 300;               // tokens
+const tokenCount = mi => G.nodes.filter(n => n.mod === mi && !(n.world && !n.from)).length;
+function plateWidth(mi) { return clamp(Math.round(128 * Math.sqrt(tokenCount(mi) + 2)), 360, 1250); }
+const modName = mi => (G.modules[mi] ?? "").split("/").pop().replace(/\.rx$/, "");
+// How many edges join two modules (either way), for ordering and for bundles
+function moduleLinks() {
+  const w = new Map(), add = (a, b) => { if (a === b || a == null || b == null) return; const k = a < b ? `${a},${b}` : `${b},${a}`; w.set(k, (w.get(k) ?? 0) + 1); };
+  const modOf = id => { const n = nodes.get(id); if (n) return n.world && !n.from ? null : n.mod; return regions.get(id)?.mod ?? null; };
+  for (const e of G.edges) add(modOf(e.from), modOf(e.to));
+  return w;
+}
+function layoutPlates(animate = false) {
+  const worldEl = board.querySelector(":scope > .worldrow");
+  const before = animate ? new Map([...moduleEls].map(([mi, el]) => [mi, [el.offsetLeft, el.offsetTop]])) : null;
+  const links = moduleLinks();
+  const weight = (a, b) => links.get(a < b ? `${a},${b}` : `${b},${a}`) ?? 0;
+  const bandsMap = new Map();
+  for (const mi of moduleEls.keys()) { const l = modLevel(mi); (bandsMap.get(l) ?? bandsMap.set(l, []).get(l)).push(mi); }
+  const bands = [...bandsMap.keys()].sort((a, b) => a - b).map(l => bandsMap.get(l));
+  orderBands(bands, weight);
+  // the world's shape: rows about as wide as the free screen is wide, relative to its height
+  const fr = cam.ready ? freeRect() : { w: innerWidth, h: innerHeight - 120 };
+  const aspect = clamp(fr.w / Math.max(200, fr.h), 1, 4);
+  for (const [mi, el] of moduleEls) el.style.width = `${ovMode ? cardWidth(mi) : plateWidth(mi)}px`;
+  const gapX = ovMode ? LAY.ovGapX : LAY.gapX, gapY = ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY;
+  // the overview's cards: alike in width within a band
+  if (ovMode) for (const band of bands) { const w = Math.max(...band.map(cardWidth)); for (const mi of band) moduleEls.get(mi).style.width = `${w}px`; }
+  const sizes = new Map([...moduleEls].map(([mi, el]) => [mi, { w: el.offsetWidth, h: el.offsetHeight }]));
+  const area = [...sizes.values()].reduce((a, s) => a + (s.w + gapX) * (s.h + gapY), 0);
+  // plates: about the screen's shape overall; the overview's cards: a band stays one row unless it is much wider than
+  // the screen's shape allows for the bands' total height
+  const bandH = bands.reduce((a, b) => a + Math.max(...b.map(mi => sizes.get(mi).h)) + gapY, 0);
+  const maxRow = ovMode ? Math.max(...[...sizes.values()].map(s => s.w), aspect * bandH * 1.15, 3 * Math.max(...[...sizes.values()].map(s => s.w)) + 2 * gapX)
+    : Math.max(...[...sizes.values()].map(s => s.w), Math.sqrt(area * aspect) * 1.05);
+  const rowsOf = () => {
+    const rows = [];
+    for (const band of bands) {
+      let row = [], w = 0;
+      for (const mi of band) {
+        const sw = sizes.get(mi).w;
+        if (row.length && w + gapX + sw > maxRow) { rows.push(row); row = []; w = 0; }
+        w += (row.length ? gapX : 0) + sw; row.push(mi);
+      }
+      if (row.length) rows.push(row);
+    }
+    return rows;
+  };
+  const place = (rows = rowsOf()) => {
+    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + gapX * (r.length - 1);
+    const contentW = Math.max(...rows.map(widthOf), 400);
+    let y = LAY.pad;
+    layout = { rows: [], plates: new Map() };
+    if (worldEl) {
+      worldEl.style.width = `${contentW}px`;
+      const h = worldEl.offsetHeight;
+      worldEl.style.left = `${LAY.pad}px`; worldEl.style.top = `${y}px`;
+      layout.plates.set("world", { l: LAY.pad, t: y, r: LAY.pad + contentW, b: y + h, row: 0 });
+      layout.rows.push({ top: y, bottom: y + h, keys: ["world"] });
+      y += h + gapY;
+    }
+    for (const r of rows) {
+      let x = LAY.pad + (contentW - widthOf(r)) / 2;
+      const h = Math.max(...r.map(mi => sizes.get(mi).h));
+      const ri = layout.rows.length;
+      layout.rows.push({ top: y, bottom: y + h, keys: r });
+      for (const mi of r) {
+        const el = moduleEls.get(mi), s = sizes.get(mi);
+        el.style.left = `${x}px`; el.style.top = `${y}px`;
+        layout.plates.set(mi, { l: x, t: y, r: x + s.w, b: y + s.h, row: ri });
+        x += s.w + gapX;
+      }
+      y += h + gapY;
+    }
+    board.style.width = `${contentW + 2 * LAY.pad}px`;
+    board.style.height = `${y - gapY + LAY.pad}px`;
+  };
+  // a row narrower than the world gives its spare width to its plates, the tallest the most: a plate made wider puts
+  // its clusters and regions side by side, and gets shorter
+  const fixed = rowsOf();
+  if (!ovMode) {
+    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + gapX * (r.length - 1);
+    const contentW = Math.max(...fixed.map(widthOf), 400);
+    let grew = false;
+    for (const r of fixed) {
+      const slack = contentW - widthOf(r); if (slack < 120) continue;
+      const hs = r.reduce((a, mi) => a + sizes.get(mi).h, 0);
+      for (const mi of r) {
+        const s0 = sizes.get(mi), w = Math.round(Math.min(s0.w + slack * s0.h / hs, s0.w * 3, 2600));
+        if (w > s0.w + 20) { moduleEls.get(mi).style.width = `${w}px`; grew = true; }
+      }
+    }
+    if (grew) for (const [mi, el] of moduleEls) sizes.set(mi, { w: el.offsetWidth, h: el.offsetHeight });
+  }
+  place(fixed);
+  // clusters face their consumers: a dense plate's clusters go in the order of the plates that use them
+  let moved = false;
+  if (!ovMode) for (const [mi, el] of moduleEls) {
+    const box = el.querySelector(":scope > .clusters"); if (!box) continue;
+    const xOf = c => { const u = c.dataset.unit; if (u[0] === "m") { const p = layout.plates.get(+u.slice(1)); return p ? (p.l + p.r) / 2 : 1e6; } return u === "core" ? -1e6 : 1e6 - 1; };
+    const cs = [...box.children], sorted = [...cs].sort((a, b) => xOf(a) - xOf(b));
+    if (sorted.some((c, i) => c !== cs[i])) { sorted.forEach(c => box.append(c)); moved = true; }
+  }
+  if (moved) { for (const [mi, el] of moduleEls) sizes.set(mi, { w: el.offsetWidth, h: el.offsetHeight }); place(fixed); }
+  if (before && !rm()) for (const [mi, el] of moduleEls) {
+    const [x0, y0] = before.get(mi) ?? [el.offsetLeft, el.offsetTop], dx = x0 - el.offsetLeft, dy = y0 - el.offsetTop;
+    if (Math.abs(dx) + Math.abs(dy) > 1) el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" });
+  }
+}
+/**
+ * Orders the modules within each band to cut crossings: each module moves to the weighted mean position (barycenter) of
+ * the modules it shares edges with, in a few sweeps down and up. Pure: `bands` is an array of arrays of module ids
+ * (sorted in place), `weight(a, b)` the number of edges between two modules.
+ */
+function orderBands(bands, weight) {
+  const pos = new Map();
+  const setPos = () => bands.forEach(b => b.forEach((mi, i) => pos.set(mi, (i + .5) / b.length)));
+  setPos();
+  const bary = (mi, others) => { let s = 0, n = 0; for (const o of others) { const w = weight(mi, o); if (w) { s += w * pos.get(o); n += w; } } return n ? s / n : pos.get(mi); };
+  for (let sweep = 0; sweep < 4; sweep++) {
+    const order = sweep % 2 ? [...bands.keys()].reverse() : [...bands.keys()];
+    for (const k of order) {
+      const others = bands.filter((_, j) => j !== k).flat();
+      const bc = new Map(bands[k].map(mi => [mi, bary(mi, others)]));
+      bands[k].sort((a, b) => bc.get(a) - bc.get(b) || a - b);
+      setPos();
+    }
+  }
+  return bands;
+}
+// plates that grow (a value badge, a held mark) push the rows below them down
+let relayT = 0;
+const plateRO = new ResizeObserver(() => { clearTimeout(relayT); relayT = setTimeout(() => { if (!moduleEls.size) return; const keep = anchorScreen(); layoutPlates(); restoreScreen(keep); layoutChanged(); }, 60); });
+// keep what you look at in place when the layout moves under it
+function anchorScreen() { const el = selected && anchors.get(selected); const b = el && boxOf(el); return b ? { el, sx: toScreen(b.x, b.y) } : null; }
+function restoreScreen(k) { if (!k) return; const b = boxOf(k.el); if (!b) return; setCamAt(b.x, b.y, cam.s, k.sx[0], k.sx[1]); camChanged(); }
+
+// A dense module's names, in clusters: by who uses them (another module, or a component of this one), names nobody
+// outside uses go with the cluster their neighbours are in. Returns null when there is only one cluster.
+function clusterNames(list, mi) {
+  const ids = new Set(list.map(n => n.id));
+  const unitOf = id => {
+    const n = nodes.get(id);
+    if (!n) { const rg = regions.get(id); return rg && rg.mod !== mi ? `m${rg.mod}` : null; }
+    if (n.world && !n.from) return null;
+    if (n.mod !== mi) return `m${n.mod}`;
+    let r = regions.get(n.region);
+    while (r && r.kind !== "component") r = regions.get(r.parent);
+    return r ? `c${r.name}` : null;
+  };
+  const primary = new Map();
+  for (const n of list) {
+    const votes = new Map();
+    for (const e of [...(out.get(n.id) ?? []), ...(inc.get(n.id) ?? [])]) {
+      const other = e.from === n.id ? e.to : e.from;
+      if (ids.has(other)) continue;
+      const u = unitOf(other); if (u) votes.set(u, (votes.get(u) ?? 0) + 1);
+    }
+    let best = null, bv = 0;
+    for (const [u, v] of votes) if (v > bv || (v === bv && u < best)) { best = u; bv = v; }
+    if (best) primary.set(n.id, best);
+  }
+  for (let it = 0; it < 3; it++) for (const n of list) {
+    if (primary.has(n.id)) continue;
+    const votes = new Map();
+    for (const e of [...(out.get(n.id) ?? []), ...(inc.get(n.id) ?? [])]) { const o = e.from === n.id ? e.to : e.from; const u = ids.has(o) && primary.get(o); if (u) votes.set(u, (votes.get(u) ?? 0) + 1); }
+    let best = null, bv = 0; for (const [u, v] of votes) if (v > bv) { best = u; bv = v; }
+    if (best) primary.set(n.id, best);
+  }
+  const groups = new Map();
+  for (const n of list) { const u = primary.get(n.id) ?? "core"; (groups.get(u) ?? groups.set(u, []).get(u)).push(n); }
+  // one-name clusters go together
+  const small = [...groups].filter(([u, ns]) => ns.length < 2 && u !== "core");
+  if (small.length > 1) for (const [u, ns] of small) { groups.delete(u); (groups.get("other") ?? groups.set("other", []).get("other")).push(...ns); }
+  if (groups.size < 2) return null;
+  return [...groups].map(([unit, ns]) => ({
+    unit, nodes: ns,
+    label: unit === "core" ? "inside" : unit === "other" ? "used by one each" : unit[0] === "m" ? "used by" : "used in",
+    what: unit === "core" || unit === "other" ? `${ns.length}` : unit[0] === "m" ? modName(+unit.slice(1)) : `<${unit.slice(1)} />`,
+  }));
+}
+// a plate's summary card: counts by role family, and the names other modules use
+function plateSummary(mi) {
+  const ns = G.nodes.filter(n => n.mod === mi && !(n.world && !n.from));
+  const fam = {};
+  for (const n of ns) { const f = famOf(n); fam[f] = (fam[f] ?? 0) + 1; }
+  const total = ns.length || 1;
+  const ext = new Map();
+  for (const n of ns) {
+    if (n.site) continue;
+    let d = 0;
+    for (const e of [...(out.get(n.id) ?? []), ...(inc.get(n.id) ?? [])]) { const o = nodes.get(e.from === n.id ? e.to : e.from) ?? regions.get(e.from === n.id ? e.to : e.from); if (o && o.mod !== mi) d++; }
+    if (d) ext.set(n, d);
+  }
+  const ex = [...ext].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([n]) => n);
+  const el = document.createElement("div");
+  el.className = "psum";
+  el.innerHTML = `<div class="ps-name"></div><div class="ps-path"></div><div class="ps-bars">${Object.keys(FAM_HEX).filter(f => fam[f]).map(f => `<i style="width:${(fam[f] / total) * 100}%;background:${FAM_HEX[f]}"></i>`).join("")}</div>
+    <div class="ps-counts">${Object.keys(FAM_HEX).filter(f => fam[f]).map(f => `<span><b style="color:${FAM_HEX[f]}">${fam[f]}</b>${f}</span>`).join("")}</div>
+    ${ex.length ? `<div class="ps-ex"><span class="micro">exports</span>${ex.map(n => `<span class="x" style="--c:${FAM_HEX[famOf(n)]}"></span>`).join("")}${ext.size > ex.length ? `<span class="micro">+${ext.size - ex.length}</span>` : ""}</div>` : ""}
+    <div class="ps-live"></div>`;
+  el.querySelectorAll(".ps-ex .x").forEach((x, i) => (x.textContent = ex[i].name));
+  el.querySelector(".ps-name").textContent = modName(mi);
+  el.querySelector(".ps-path").textContent = midPath(G.modules[mi]); el.querySelector(".ps-path").title = G.modules[mi];
+  return el;
+}
+function setCollapsed(mi, closed, { user = false } = {}) {
+  const el = moduleEls.get(mi); if (!el) return;
+  if (user) { plateState.set(mi, closed ? "closed" : "open"); autoClosed.delete(mi); }
+  el.classList.toggle("collapsed", closed);
+  const b = el.querySelector(":scope > .flabel > .pbtn"); if (b) { b.textContent = closed ? "expand" : "collapse"; b.title = closed ? "show its tokens" : "collapse to a summary"; }
+}
+function relayout() { const keep = anchorScreen(); layoutPlates(true); restoreScreen(keep); layoutChanged(); }
+board.addEventListener("click", ev => {
+  const b = ev.target.closest(".pbtn"); if (!b) return;
+  ev.stopPropagation();
+  const mi = +b.closest(".frame.module").dataset.mod;
+  setCollapsed(mi, !moduleEls.get(mi).classList.contains("collapsed"), { user: true });
+  SFX.toggle(); relayout();
+}, true);
+// in the overview, a click on a card reads that module: back to the plates, flying to it
+board.addEventListener("click", ev => {
+  if (!ovMode) return;
+  const p = ev.target.closest(".frame.module"); if (!p) return;
+  ev.stopPropagation();
+  setOverview(false, [ev.clientX, ev.clientY]);
+  const q = layout.plates.get(+p.dataset.mod); if (!q) return;
+  const fr = freeRect();
+  flyTo((q.l + q.r) / 2, q.t + Math.min(q.b - q.t, fr.h / .75) / 2 - 20, Math.max(.6, Math.min(1, fr.w / (q.r - q.l + 80))), 500);
+  SFX.select();
+}, true);
+// a collapsed plate stands in for its tokens; a click on it expands it
+board.addEventListener("click", ev => {
+  const p = ev.target.closest(".frame.module.collapsed"); if (!p || ev.target.closest("[data-id], .pbtn")) return;
+  ev.stopPropagation(); setCollapsed(+p.dataset.mod, false, { user: true }); SFX.toggle(); relayout();
+}, true);
+// On a huge map, a selection folds the modules it does not touch, and unfolds the ones it does; clearing it unfolds them
+function autoFold(ids) {
+  if (!ids && autoClosed.size) { for (const mi of [...autoClosed]) { autoClosed.delete(mi); setCollapsed(mi, false); } relayout(); return; }
+  if (G.nodes.length < (window.__RX_HUGE__ ?? HUGE) || ovMode) return;
+  const keep = new Set();
+  for (const id of ids ?? []) { const n = nodes.get(id) ?? regions.get(id); if (n && !(n.world && !n.from)) keep.add(n.mod); }
+  let changed = false;
+  for (const mi of moduleEls.keys()) {
+    if (plateState.has(mi)) continue;
+    const fold = !!ids && !keep.has(mi);
+    if (fold !== autoClosed.has(mi)) { fold ? autoClosed.add(mi) : autoClosed.delete(mi); setCollapsed(mi, fold); changed = true; }
+  }
+  if (changed) relayout();
+}
+// ---- semantic zoom: the overview -----------------------------------------------------------------------------------
+// Far out, the world is redrawn as an architecture diagram: each module a card (its name, path, role bar, counts and
+// exports), cards sized to their content and alike within a band, the bands evenly spaced, and the modules' bundles
+// between them. Zooming out past OV_IN switches to it, zooming in past OV_OUT switches back; the module under the
+// pointer stays where it is across the switch.
+const OV_IN = .3, OV_OUT = 1.3;
+let ovMode = false, far = false, ovFocal = null;
+function setOverview(on, focal = ovFocal) {
+  if (on === ovMode || !moduleEls.size) return;
+  const fr = freeRect(), [sx, sy] = focal ?? [fr.cx, fr.cy], [bx, by] = toBoard(sx, sy);
+  let key = null, best = Infinity;
+  for (const [k, p] of layout.plates) { const dx = Math.max(p.l - bx, 0, bx - p.r), dy = Math.max(p.t - by, 0, by - p.b); const d = dx * dx + dy * dy; if (d < best) { best = d; key = k; } }
+  const p = layout.plates.get(key), u = p ? clamp((bx - p.l) / (p.r - p.l), 0, 1) : .5, v = p ? clamp((by - p.t) / (p.b - p.t), 0, 1) : .5;
+  const bw0 = BW;
+  ovMode = far = on;
+  document.body.classList.toggle("ov", on);
+  layoutPlates();
+  BW = board.offsetWidth; BH = board.offsetHeight;
+  const q = layout.plates.get(key);
+  const s = clamp(cam.s * bw0 / BW, .06, 2.6);
+  if (q) setCamAt(q.l + u * (q.r - q.l), q.t + v * (q.b - q.t), s, sx, sy); else setCamAt(BW / 2, BH / 2, s, fr.cx, fr.cy);
+  fly = null; inertia = null;
+  layoutChanged(); redraw();
+}
+let textLow = null;
+function farCheck() {
+  const low = cam.s < .5;
+  if (low !== textLow) { textLow = low; document.body.classList.toggle("lowzoom", low); }
+  if (fly || drag?.moved || pinch || !cam.ready) return;
+  if (!ovMode && cam.s < OV_IN) setOverview(true);
+  else if (ovMode && cam.s > OV_OUT) setOverview(false);
+}
+// a card's title on one line: the module's name; its path with the middle cut (src/…/ServerBadge.rx)
+const midPath = p => { const parts = String(p).split("/"); return p.length <= 30 || parts.length < 3 ? p : `${parts[0]}/…/${parts.at(-1)}`; };
+const measureCtx = document.createElement("canvas").getContext("2d");
+function textWidth(t, font) { measureCtx.font = font; return measureCtx.measureText(t).width; }
+function cardWidth(mi) {
+  const title = textWidth(modName(mi), "700 30px ui-monospace, Menlo, monospace");
+  const path = textWidth(midPath(G.modules[mi]), "16px ui-monospace, Menlo, monospace");
+  const ex = compact() ? 0 : moduleEls.get(mi)?.querySelectorAll(".psum .ps-ex .x").length ?? 0;
+  return clamp(Math.ceil(Math.max(title, path, 280, 200 + 32 * Math.min(ex, 12)) + 60), 340, 640);
+}
+
+// ---- edges between plates: planned through the gutters, in lanes, bundled ------------------------------------------
+const plateKeyOf = id => { const n = nodes.get(id); if (n) return n.world && !n.from ? "world" : n.mod; const r = regions.get(id); return r ? r.mod : null; };
+// the x of each gap a route can climb through in a row: left of the first plate, between plates, right of the last
+function channels(row, lay = layout, g = ovMode ? LAY.ovGapX : LAY.gapX) {
+  const ps = row.keys.map(k => lay.plates.get(k)).sort((a, b) => a.l - b.l);
+  const xs = [ps[0].l - g / 2];
+  for (let i = 1; i < ps.length; i++) xs.push((ps[i - 1].r + ps[i].l) / 2);
+  xs.push(ps.at(-1).r + g / 2);
+  return xs;
+}
+// Every bundle (a pair of plates, the lower one depending on the upper one) gets: a port on the lower plate's top and
+// one on the upper plate's bottom, spread so bundles don't share them; the gaps it climbs through between the plates of
+// the rows in between; and a lane in each gutter and gap it uses, so parallel bundles run side by side, not on top of
+// each other, and none runs along a plate's border.
+/**
+ * `pairs`: keys `a>b` or `a>b|kind` (a below b). `lay`: { plates: Map key → { l, t, r, b, row }, rows: [{ top, bottom,
+ * keys }] }. `gaps`: { x, y } between plates and rows. Returns Map key → points [[x, y], …] from a's top to b's bottom.
+ * Pure but for reading `lay`.
+ */
+function planTrunks(pairs, lay = layout, gaps = { x: ovMode ? LAY.ovGapX : LAY.gapX, y: ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY }) {
+  const plan = new Map();
+  const P = k => lay.plates.get(k), cx = p => (p.l + p.r) / 2;
+  // a key is `a>b`, or `a>b|kind` (bundles of one kind of edge each)
+  const ok = [...pairs].map(key => { const [a, b] = key.split("|")[0].split(">"); return { key, a, b }; }).filter(({ a, b }) => { const A = P(pk(a)), B = P(pk(b)); return A && B && A.row > B.row; });
+  // ports, spread along the edge by the other end's position
+  const outs = new Map(), ins = new Map();
+  for (const r of ok) { (outs.get(r.a) ?? outs.set(r.a, []).get(r.a)).push(r); (ins.get(r.b) ?? ins.set(r.b, []).get(r.b)).push(r); }
+  const spread = (p, list, end) => {
+    const xs = new Map(), sorted = [...list].sort((x, y) => cx(P(pk(x[end]))) - cx(P(pk(y[end]))) || (x.key < y.key ? -1 : 1));
+    const w = p.r - p.l, span = Math.min(w * .7, 22 * (sorted.length - 1)), x0 = cx(p) - span / 2;
+    sorted.forEach((r, i) => xs.set(r.key, sorted.length === 1 ? clamp(cx(P(pk(r[end]))), p.l + w * .25, p.r - w * .25) : x0 + (span * i) / (sorted.length - 1)));
+    return xs;
+  };
+  const outX = new Map([...outs].map(([a, l]) => [a, spread(P(pk(a)), l, "b")])), inX = new Map([...ins].map(([b, l]) => [b, spread(P(pk(b)), l, "a")]));
+  // abstract routes: the gutters crossed and the gaps climbed through
+  const routes = ok.map(({ key, a, b }) => {
+    const A = P(pk(a)), B = P(pk(b)), xa = outX.get(a).get(key), xb = inX.get(b).get(key);
+    const steps = []; let x = xa;
+    for (let i = A.row - 1; i > B.row; i--) {
+      const ch = channels(lay.rows[i], lay, gaps.x);
+      let c = 0, cost = Infinity;
+      ch.forEach((cxv, j) => { const k = Math.abs(cxv - xb) + Math.abs(cxv - x) * .6; if (k < cost) { cost = k; c = j; } });
+      steps.push({ row: i, ch: c, x: ch[c] }); x = ch[c];
+    }
+    return { key, a, b, A, B, xa, xb, steps };
+  });
+  // lanes: per gutter (between row i-1 and i) and per gap (row, channel), ordered by where the bundle is going
+  const lanes = new Map(), take = (slot, r) => (lanes.get(slot) ?? lanes.set(slot, []).get(slot)).push(r);
+  for (const r of routes) {
+    take(`g${r.A.row}`, r);
+    for (const s of r.steps) { take(`g${s.row}`, r); take(`c${s.row}:${s.ch}`, r); }
+  }
+  const laneOf = new Map();
+  for (const [slot, rs] of lanes) { rs.sort((p, q) => p.xb - q.xb || p.xa - q.xa); rs.forEach((r, i) => laneOf.set(`${slot}|${r.key}`, i - (rs.length - 1) / 2)); }
+  const gapY = gaps.y, gapX = gaps.x;
+  const lg = slot => clamp(gapY * .7 / Math.max(1, lanes.get(slot).length), 4, 12), lc = slot => clamp(gapX * .6 / Math.max(1, lanes.get(slot).length), 4, 12);
+  const gy = (i, r) => (lay.rows[i - 1].bottom + lay.rows[i].top) / 2 + laneOf.get(`g${i}|${r.key}`) * lg(`g${i}`);
+  for (const r of routes) {
+    const pts = [[r.xa, r.A.t], [r.xa, gy(r.A.row, r)]];
+    for (const s of r.steps) {
+      const x = s.x + laneOf.get(`c${s.row}:${s.ch}|${r.key}`) * lc(`c${s.row}:${s.ch}`);
+      pts.push([x, gy(s.row + 1, r)], [x, gy(s.row, r)]);
+    }
+    pts.push([r.xb, pts.at(-1)[1]], [r.xb, r.B.b]);
+    plan.set(r.key, pts);
+  }
+  return plan;
+}
+const pk = k => (k === "world" ? "world" : +k);
+function roundPath(pts, r = 14) {
+  pts = pts.filter((p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > .5);
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
+    const l1 = Math.hypot(x1 - x0, y1 - y0), l2 = Math.hypot(x2 - x1, y2 - y1);
+    const k = Math.min(r, l1 / 2, l2 / 2);
+    d += ` L${x1 - (x1 - x0) / l1 * k},${y1 - (y1 - y0) / l1 * k} Q${x1},${y1} ${x1 + (x2 - x1) / l2 * k},${y1 + (y2 - y1) / l2 * k}`;
+  }
+  return d + ` L${pts.at(-1)[0]},${pts.at(-1)[1]}`;
+}
+// one edge, from what depends (fromId) to what it needs (toId): a curve inside a plate; between plates, a stub out of
+// the token to its plate's port, the bundle, and a stub from the other port into the token
+function routed(fromId, toId, plan, kind = "") {
+  const ka = plateKeyOf(fromId), kb = plateKeyOf(toId);
+  const A = !ovMode && boxOf(anchors.get(fromId)), B = !ovMode && boxOf(anchors.get(toId));
+  if (ka == null || kb == null) return null;
+  if (ka === kb) return A && B ? { d: edgePath(A, B) } : null;
+  const key = `${ka}>${kb}${kind}`, t = plan?.get(key);
+  if (!t) {
+    if (A && B) return { d: edgePath(A, B) };
+    const PA = layout.plates.get(ka), PB = layout.plates.get(kb);
+    return PA && PB ? { d: edgePath({ ...PA, x: (PA.l + PA.r) / 2, y: (PA.t + PA.b) / 2 }, { ...PB, x: (PB.l + PB.r) / 2, y: (PB.t + PB.b) / 2 }) } : null;
+  }
+  const [xa, ya] = t[0], [xb, yb] = t.at(-1);
+  // stubs run straight up (or down) from the token, behind the tokens in its column, and join the bundle just outside
+  // the plate's edge: never across the plate
+  const head = A && A.t > ya + 4 ? roundPath([[A.x, A.t], [A.x, ya - 12], [xa, ya - 12]], 10) : "";
+  const tail = B && B.b < yb - 4 ? roundPath([[xb, yb + 12], [B.x, yb + 12], [B.x, B.b]], 10) : "";
+  return { head, tail, trunk: roundPath(t), key };
 }
 
 // ---- geometry on the board: layout boxes, untouched by the camera's transforms ------------------------------------
@@ -1078,6 +1632,7 @@ function draw() {
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   let list;
   if (focus) list = [...focus.edges];
+  else if (far) list = G.edges;   // the overview: how the modules depend on one another, as bundles
   else if (document.getElementById("all").checked) list = G.edges;
   else if (DIFF && !hidden.has("d:changes")) list = G.edges.filter(e => e.status !== "same");
   else list = [];
@@ -1085,21 +1640,34 @@ function draw() {
   list = list.filter(e => !(view === "before" && e.status === "added") && !(view === "after" && e.status === "removed"));
   list = list.filter(e => !hidden.has(`e:${edgeKey(e)}`));
   const markers = new Set();
-  const paths = [], glows = [];
+  const paths = [], glows = [], trunks = new Map();
+  const line = (d, s, { glow, marker = true, width = s.w, opacity, cls = "" } = {}) => {
+    const id = `m${s.c.slice(1)}`; if (marker) markers.add(s.c);
+    if (glow) glows.push(`<path d="${d}" fill="none" stroke="${glow}" stroke-width="${width + 6}" stroke-linecap="round" opacity=".4"/>`);
+    else if (focus) glows.push(`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${width + 6}" stroke-linecap="round" opacity=".14"/>`);
+    paths.push(`<path ${cls ? `class="${cls}" ` : ""}d="${d}" fill="none" stroke="${s.c}" stroke-width="${width}" ${s.d ? `stroke-dasharray="${s.d}"` : ""} ${marker ? `marker-end="url(#${id})"` : ""} opacity="${opacity ?? (glow ? 1 : focus ? .95 : .55)}"/>`);
+  };
+  // drawn from what depends to what it depends on: a read points at what it reads
+  const ends = e => (e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to]);
+  const kindOfEdge = e => (far ? "" : `|${edgeKey(e)}`);
+  const pairs = new Set();
+  for (const e of list) { const [f, t] = ends(e), a = plateKeyOf(f), b = plateKeyOf(t); if (a != null && b != null && a !== b) pairs.add(`${a}>${b}${kindOfEdge(e)}`); }
+  const plan = planTrunks(pairs);
   for (const e of list) {
-    // drawn from what depends to what it depends on: a read points at what it reads
-    const [fromId, toId] = e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to];
-    const A = boxOf(anchors.get(fromId)), B = boxOf(anchors.get(toId));
-    if (!A || !B) continue;
+    const [fromId, toId] = ends(e);
     const s = edgeStyle(e); if (!s) continue;
+    const r = routed(fromId, toId, plan, kindOfEdge(e)); if (!r) continue;
     const glow = e.status && e.status !== "same" ? { added: "#22c55e", removed: "#ef4444", changed: "#e879f9" }[e.status] : null;
-    const d = edgePath(A, B);
-    const id = `m${s.c.slice(1)}`; markers.add(s.c);
-    if (glow) glows.push(`<path d="${d}" fill="none" stroke="${glow}" stroke-width="${s.w + 6}" stroke-linecap="round" opacity="${e.status === "removed" ? .35 : .45}"/>`);
-    else if (focus) glows.push(`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${s.w + 6}" stroke-linecap="round" opacity=".14"/>`);
-    paths.push(`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${s.w}" ${s.d ? `stroke-dasharray="${s.d}"` : ""} marker-end="url(#${id})" opacity="${glow ? 1 : focus ? .95 : .55}"/>`);
+    if (r.d) { line(r.d, s, { glow }); continue; }
+    // between plates: the stubs per edge, the trunk once per pair of plates and kind of edge (a bundle)
+    if (r.head) line(r.head, s, { glow, marker: false });
+    if (r.tail) line(r.tail, s, { glow });
+    const k = r.key, t = trunks.get(k);
+    if (t) { t.n++; t.glow ||= glow; t.tail ||= !!r.tail; } else trunks.set(k, { d: r.trunk, s, n: 1, glow, tail: !!r.tail });
   }
-  svg.innerHTML = `<defs>${[...markers].map(c => `<marker id="m${c.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${c}"/></marker>`).join("")}</defs>${glows.join("")}${paths.join("")}`;
+  const bundle = far ? { c: "#9fb4d8", d: "", w: 2 } : null;   // in the overview a bundle is every kind of edge between two modules
+  for (const t of trunks.values()) line(t.d, bundle ?? t.s, { glow: t.glow, marker: !t.tail, width: (bundle ?? t.s).w + Math.min(far ? 10 : 4, Math.log2(t.n) * (far ? 2.2 : 1.4)), opacity: t.glow ? 1 : focus ? .9 : far ? .45 : .5, cls: "trunk" });
+  svg.innerHTML = `<defs>${[...markers].map(c => `<marker id="m${c.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="${ovMode ? 18 : 12}" markerHeight="${ovMode ? 18 : 12}" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${c}"/></marker>`).join("")}</defs>${glows.join("")}${paths.join("")}`;
 }
 let raf = 0; const redraw = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); };
 
@@ -1326,6 +1894,7 @@ function bindPanel() {
     SFX.toggle();
     if (b.dataset.trace === "clear") return select(null);
     const [ids, edges] = b.dataset.trace === "down" ? downstream(selected) : upstream(selected);
+    autoFold(ids);
     setFocus(ids, edges);
     sparkle(edges, true);
   });
@@ -1384,7 +1953,7 @@ function freeRect() {
   if (!c && open) r = vw - side.offsetWidth - 20;
   if (!c) {
     const mini = document.getElementById("mini"), dev = document.getElementById("devhud");
-    if (!document.body.classList.contains("mini-off") && mini.offsetWidth) l = Math.max(l, mini.offsetLeft + mini.offsetWidth + 8);
+    if (!document.body.classList.contains("mini-off") && mini.offsetWidth) l = Math.max(l, mini.offsetLeft + Math.min(mini.offsetWidth, 200) + 8);   // (before the minimap is drawn its canvas has a default size)
     if (dev && !dev.classList.contains("collapsed")) l = Math.max(l, dev.offsetLeft + dev.offsetWidth + 8);
   }
   return { l, t, r, b, w: r - l, h: b - t, cx: (l + r) / 2, cy: (t + b) / 2 };
@@ -1417,11 +1986,13 @@ function applyCam() {
   keepInView();
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
+  farCheck(false);
   drawMiniView();
   clearTimeout(crispT); crispT = setTimeout(crisp, 70);
 }
 function crisp() {
   if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 60); return; }
+  farCheck(true);
   const L = Math.round(clamp(cam.s, .3, 3) * 20) / 20;
   if (L === LZ) return;
   LZ = L;
@@ -1462,33 +2033,51 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
   fly = { t0: performance.now(), dur, s0: cam.s, s1: s, b0: toBoard(fr.cx, fr.cy), b1: [bx, by], tx: fr.cx, ty: fr.cy };
   kick();
 }
-function flyToEl(el, s) { const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
-function fitScale() { const fr = freeRect(), m = compact() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
+function flyToEl(el, s) {
+  if (ovMode && el && !el.closest(".worldrow")) { const mod = el.closest(".frame.module"); const p = mod && layout.plates.get(+mod.dataset.mod); setOverview(false, p ? toScreen((p.l + p.r) / 2, (p.t + p.b) / 2) : null); } const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
+// the largest zoom at which the whole board, tilted and in perspective, fits the free screen with a margin
+function fitScale() {
+  const fr = freeRect(), m = compact() ? 10 : 28, saved = { x: cam.x, y: cam.y, s: cam.s };
+  const fits = s => {
+    setCamAt(BW / 2, BH / 2, s, fr.cx, fr.cy);
+    return [[0, 0], [BW, 0], [0, BH], [BW, BH]].every(([x, y]) => { const [sx, sy] = toScreen(x, y); return sx >= fr.l + m && sx <= fr.r - m && sy >= fr.t + m && sy <= fr.b - m; });
+  };
+  let lo = .02, hi = 1.6;
+  for (let i = 0; i < 22; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  Object.assign(cam, saved);
+  return lo;
+}
 // Frame: the whole board when it can be read that way; a tall one is fitted to the width instead, staying where you are
 // (a whole 8-module app at 10% is a strip nobody can read)
+// Frame: the whole world. When its plates would be too small to read, the overview (cards) is framed instead.
 function frameAll(dur = 600) {
-  const whole = fitScale(), fr = freeRect();
-  if (whole >= .5) return flyTo(BW / 2, BH / 2, whole, dur);
-  const s = clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1);
-  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
-  flyTo(BW / 2, y, s, dur);
+  if (!ovMode && fitScale() < OV_IN && moduleEls.size > 1) setOverview(true);
+  const fit = fitScale();
+  if (ovMode) return flyTo(BW / 2, BH / 2, Math.min(fit, OV_OUT - .1), dur);
+  flyTo(BW / 2, BH / 2, Math.min(fit, 1), dur);
 }
-const framed = () => { const fr = freeRect(); const [bx] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - fitScale()) < .01 || Math.abs(cam.s - clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1)) < .01); };
+const framed = () => { const fr = freeRect(); const [bx, by] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && Math.abs(by - BH / 2) < 4; };
 function home() {
-  // a small map is framed whole; a big one starts at the top, as wide as the screen
+  // a map that fits readably is framed whole; in a short dock, reading size from the first module down; otherwise the
+  // overview: every module as a card, framed (zoom in, or click a card, to read its tokens)
   const fr = freeRect(), fit = fitScale();
-  if (fit >= .8) { setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy); }
+  if (fit >= .55 || moduleEls.size < 2) setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy);
   else if (compact()) {
-    // a short dock: as wide as fits but not so small it can't be read, starting at the first module's plate (what is
-    // outside the program is just above, a drag away)
-    const s = Math.min(clamp((fr.w - 12) / BW, .3, 1), Math.max(.62, fr.h / 520));
-    const first = board.querySelector(".level");
-    const y = first ? boxOf(first)?.t ?? 0 : 0;
-    setCamAt(BW / 2, y, s, fr.cx, fr.t + 8 + 8 * s);
-  } else { const s = clamp((fr.w - 30) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+    const s = Math.min(clamp((fr.w - 12) / BW, .35, 1), Math.max(.62, fr.h / 520));
+    const row = layout.rows.find(r => !r.keys.includes("world")) ?? layout.rows[0];
+    const k = row?.keys[0], p = k != null && layout.plates.get(k);
+    if (p) setCamAt((p.l + p.r) / 2, p.t, s, fr.cx, fr.t + 8 + 8 * s);
+    else setCamAt(BW / 2, 0, s, fr.cx, fr.t + 8);
+  } else {
+    setOverview(true);
+    const f = fitScale();
+    if (f >= .3) setCamAt(BW / 2, BH / 2, Math.min(f, OV_OUT - .1), fr.cx, fr.cy);
+    else { const s = clamp((fr.w - 40) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+  }
   camChanged();
 }
 function zoomAt(sx, sy, f) {
+  ovFocal = [sx, sy];
   const [bx, by] = toBoard(sx, sy);
   fly = null;
   setCamAt(bx, by, clamp(cam.s * f, .08, 2.6), sx, sy);
@@ -1588,7 +2177,7 @@ document.getElementById("frameBtn").innerHTML = ICON.frame;
 document.getElementById("zoomIn").onclick = () => { SFX.toggle(); const fr = freeRect(); zoomAtSmooth(fr.cx, fr.cy, 1.3); };
 document.getElementById("zoomOut").onclick = () => { SFX.toggle(); const fr = freeRect(); zoomAtSmooth(fr.cx, fr.cy, 1 / 1.3); };
 document.getElementById("frameBtn").onclick = () => { SFX.toggle(); frameAll(); };
-function zoomAtSmooth(sx, sy, f) { const [bx, by] = toBoard(sx, sy); flyTo(bx, by, clamp(cam.s * f, .08, 2.6), 260); }
+function zoomAtSmooth(sx, sy, f) { ovFocal = null; const [bx, by] = toBoard(sx, sy); flyTo(bx, by, clamp(cam.s * f, .08, 2.6), 260); }
 
 // minimap: the plates and tokens, drawn once per layout; the viewport's footprint on the plane, drawn per frame
 const minic = document.getElementById("minic"), mctx = minic.getContext("2d");
@@ -1683,7 +2272,7 @@ function select(id, scroll) {
   if (!id) {
     const was = selected;
     clearSelection();
-    if (was) SFX.deselect();
+    if (was) { SFX.deselect(); autoFold(null); }
     if (was && tab === "node") { tab = before?.tab ?? TABS[0][0]; open = before?.open ?? false; before = null; }
     renderPanel(); return;
   }
@@ -1692,8 +2281,9 @@ function select(id, scroll) {
   selected = id;
   const el = anchors.get(id);
   el?.classList.add("sel");
-  if (scroll) flyToEl(el);
   const [ids, edges] = neighbourhood(id);
+  autoFold(ids);
+  if (scroll) flyToEl(el);
   setFocus(ids, edges);
   sparkle(edges);
   SFX.select();
@@ -1703,6 +2293,7 @@ function select(id, scroll) {
   if (LIVE && k) host.post({ type: "select", key: k });
 }
 board.addEventListener("mouseover", ev => {
+  if (drag?.moved || pinch) return;   // passing over tokens while panning lights nothing (a restyle per token would cost frames)
   const c = ev.target.closest("[data-id]");
   if (!c) return;
   if (c.dataset.id !== hoverId) { hoverId = c.dataset.id; if (c.classList.contains("chip")) SFX.hover(); if (!drag?.moved) showTip(hoverId, ev.clientX, ev.clientY); }
@@ -2288,6 +2879,7 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
     if (flush) SFX.note(PITCH[famOf(nodes.get(id))] ?? 440, at / 1000);
   }
   for (const k of new Set(changes.map(c => c?.key).filter(k => keyIds.has(k)))) paintState(k);
+  paintHoles();
   if (selected && changes.some(c => c?.key === nodes.get(selected)?.key)) liveValue();
 }
 // What the app shows right now, sent when the map opens (and to a pop-out): values, requests in the air, and which
@@ -2302,6 +2894,7 @@ function onSnapshot(d) {
     if (v.preview !== undefined) for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
     paintState(key);
   }
+  paintHoles();
   if (Array.isArray(d.held)) {
     const was = [...live.held.keys()];
     live.held.clear();
@@ -2726,6 +3319,8 @@ function startFake(seed) {
   document.getElementById("dhTick").onclick = () => h.tick(10);
 }
 
+// for tests and tools: the layout and the camera
+window.__RX_MAP__ = { get layout() { return layout; }, get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get overview() { return ovMode; } };
 // ---- go ------------------------------------------------------------------------------------------------------------
 readInsets();
 document.body.classList.toggle("mini-off", compact());

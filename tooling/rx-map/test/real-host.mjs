@@ -78,7 +78,7 @@ function setUpApp(solidView) {
 
 // ---- the dev server ------------------------------------------------------------------------------------------------
 const port = 3190 + Math.floor(Math.random() * 400);
-const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort"], { cwd: app, stdio: ["ignore", "pipe", "pipe"] });
+const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], { cwd: app, stdio: ["ignore", "pipe", "pipe"] });
 let viteLog = "";
 vite.stdout.on("data", d => (viteLog += d));
 vite.stderr.on("data", d => (viteLog += d));
@@ -202,13 +202,16 @@ try {
   for (const i of [0, 2, 1, 3, 4, 5]) { await act(page, i); await sleep(700); }
   await waitIdle(page);
   await drain(page);
-  const { head, dom, steps, guessed } = await page.evaluate(() => {
+  const { head, dom, steps, guessed, named } = await page.evaluate(() => {
     let tl;
     const v = globalThis.__RX__.attach(m => { if (m.type === "timeline") tl = m; });
     v.post({ type: "hello", want: ["timeline"] });
     v.detach();
-    const guessed = tl.steps.filter(s => s.changes.some(c => c.name?.endsWith(".$guess"))).map(s => s.seq);
-    return { head: tl.head, steps: tl.steps.map(s => s.seq), dom: globalThis.__T.dom, guessed };
+    const carrier = c => c.name?.endsWith(".$guess");
+    const guessed = tl.steps.filter(s => s.changes.some(carrier)).map(s => s.seq);
+    // Solid with the store-guess record (f9ee22ade) names the property nodes a guess moved beside its carrier
+    const named = tl.steps.some(s => s.changes.some(g => carrier(g) && s.changes.some(c => c.key === g.key && c.path !== undefined && !carrier(c))));
+    return { head: tl.head, steps: tl.steps.map(s => s.seq), dom: globalThis.__T.dom, guessed, named };
   });
   const liveDom = await page.evaluate(() => globalThis.__T.html());
   // the first load landed before the view attached; every step after it has the DOM it showed
@@ -221,11 +224,12 @@ try {
     const reply = (await drain(page)).find(m => m.type === "step" || m.type === "travel-denied");
     return { reply, html: await page.evaluate(() => globalThis.__T.html()) };
   };
-  // Known gap (Solid, reported): a store guess is recorded on the store's guess carrier (`books.$guess`), and its
-  // confirmed landing changes no shown value, so no record names the property nodes it moved (`books.length`, a row's
-  // `read`); pins cannot take the list back past it. Seqs before the last carrier change are checked separately.
-  const lastGuess = Math.max(0, ...guessed);
+  // A Solid whose records name only a store guess's carrier (`books.$guess`), not the property nodes it moved
+  // (`books.length`, a row's `read`), can't be taken back past a confirmed guess: there, seqs before the last carrier
+  // change are only reported. With the store-guess record every seq must show exactly.
+  const lastGuess = named ? 0 : Math.max(0, ...guessed);
   const exact = seen.filter(n => n >= lastGuess), gap = seen.filter(n => n < lastGuess);
+  check(`this Solid's records name the properties a store guess moved: ${named ? "yes, every seq is checked" : "no, an older build: seqs before a guess are reported only"}`, true);
   const order = [...exact].reverse().concat(exact.filter((_, i) => i % 2 === 0), [exact[0], exact.at(-1)]);
   const bad = [];
   for (const n of order) {
@@ -233,13 +237,20 @@ try {
     if (reply?.type !== "step") bad.push({ n, reply });
     else if (html !== dom[n]) bad.push({ n, want: dom[n].length, got: html.length, diff: firstDiff(dom[n], html) });
   }
-  check(`travel(n) shows the DOM the page showed at n: ${order.length} travels back and forth over seqs ${exact.join(",")}`, exact.length >= 4 && bad.length === 0, { bad: bad.map(b => b.n), first: bad.slice(0, 2) });
-  const gapBad = [];
-  for (const n of gap) {
-    const { reply, html } = await shownAt(n);
-    if (reply?.type !== "step" || html !== dom[n]) gapBad.push(n);
+  check(`travel(n) shows the DOM the page showed at n: ${order.length} travels back and forth over seqs ${exact.join(",")}${named ? ` (store guesses at ${guessed.join(",")})` : ""}`,
+    exact.length >= (named ? 8 : 4) && bad.length === 0 && (!named || guessed.length >= 2), { bad: bad.map(b => b.n), first: bad.slice(0, 2), guessed });
+  if (named) {
+    const inexact = [];
+    for (const n of seen) { const { reply } = await shownAt(n); if (reply?.inexact) inexact.push(n); }
+    check("…and no step is marked inexact", inexact.length === 0, inexact);
+  } else {
+    const gapBad = [];
+    for (const n of gap) {
+      const { reply, html } = await shownAt(n);
+      if (reply?.type !== "step" || html !== dom[n]) gapBad.push(n);
+    }
+    console.log(`info known gap (store guess carrier, older Solid): seqs ${gap.join(",") || "none"} before the last guess at #${lastGuess}; DOM differs at ${gapBad.join(",") || "none"}`);
   }
-  console.log(`info known gap (store guess carrier): seqs ${gap.join(",") || "none"} before the last guess at #${lastGuess}; DOM differs at ${gapBad.join(",") || "none"}`);
 
   // a seq in the middle, with the map looking at it
   const mid = exact[Math.floor(exact.length / 2)];

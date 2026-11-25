@@ -504,7 +504,7 @@ class Gen {
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
-      case "as": return go(e.e);
+      case "as": return go(e.e);                                                    // 07 §3: erased
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${"computed" in f ? `[${go(f.computed)}]` : J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");

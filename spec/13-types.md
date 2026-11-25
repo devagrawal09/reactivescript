@@ -33,14 +33,15 @@ does for `.tsrx`. Nothing here is a second type system.
 | --- | --- |
 | `x = e` (an equation) | a `const` of `e`'s type; with `x: T = e`, of `T` (row words such as `pending` are not types, CN-4a) |
 | `source x := e`, `source x = e` | with a written type, that type — not what the initializer narrows it to; without one, the initializer's type widened: a literal to its primitive, `null`, `undefined` and `[]` to `any` (they say nothing about later writes) |
-| `x := v`, `x.a := v` | `v` (or a function of the slot, W-6) checked against the target's type |
+| `x := v`, `x.a := v` | `v` (or a function of the slot, W-6) checked against the target's type — the source's or equation's, not the type a branch has narrowed a read of it to (`{if open { open := false }}` is a boolean write) |
 | `await e` | the answer's type (`Awaited`); `await* e` the stream's element type; `-> v` adds `v`'s type |
 | `e catch (x: A \| B) => alt` | `e`'s type or `alt`'s; `x` is `A \| B` (untyped: `Error`) |
 | `pre x -> i`, `latest e`, `peek e` | the node's own type; `pending? e` is `boolean` |
 | `use c` / `provide c = e` | the context's type / `e` checked against it (RG-7) |
 | `error C(a: T) => …` | a class `C` (a subclass of `Error` with the field `a: T`), constructed by `C(a)` |
 | `fn`, `action`, `server fn` | functions of their parameters; an action and a server fn return a promise |
-| `if x { … }` | the branch narrows `x` (RG-1c); a handler is a closure that runs later, and TypeScript's rules for closures apply to it |
+| `e as T` | `e` asserted as `T` (07 §3); erased where the program runs |
+| `if x { … }` | the branch narrows `x` for a read in the branch (RG-1c). A handler is a closure that runs later: its read of a source, equation or import is a snapshot taken then, so the branch condition may no longer hold and does not narrow it. Snapshot into a local and narrow that: `let d = detail; if (d == null) return` |
 | `for x in xs { … }` | `x` is an element of `xs` |
 
 ## TY-3 — Views
@@ -63,7 +64,10 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-4b.** A `.d.rx` is its JS module's `.d.ts`: each function's
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
-  declaration file is `any`.
+  declaration file is `any`. Where a `.ts` (or `.js`) sits beside the
+  `.d.rx`, the type layer still checks the import against the `.d.rx`:
+  a `ref` parameter or result is that type, not the accessor the `.ts`
+  implementation is written with. The compiled import is unchanged (MO-8c).
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such

@@ -115,6 +115,26 @@ their plate with a cast shadow, and edges run on the plate surface.
   so text is drawn at its size, not scaled as a picture.
 - The board never leaves the screen: a drag or a fling stops with part of it in view.
 
+
+### Layout
+
+- **Bands of dependency depth.** What a module needs sits above it, so every arrow between modules points up; the
+  modules at one depth share a band, side by side, ordered to cut crossings (barycenters), and a band wraps into rows so
+  the world has about the screen's shape. A row narrower than the world gives its spare width to its plates.
+- **Dense plates are clustered** by who uses their names ("used by IssueList", "used in `<Row />`", "inside"), each
+  cluster with its own rows; clusters face the plates that use them.
+- **Collapse** a plate (its header button) to its summary: role bar, counts, the names other modules use. On a map of
+  more than 300 tokens, a selection folds the modules it doesn't touch and unfolds the ones it does.
+- **Edges between plates** leave the token straight up (or down) to just outside its plate, run in bundles through the
+  gutters between bands and the gaps between plates (each bundle in its own lane), and enter the target from below.
+- **The overview** (semantic zoom): zoomed out past 30 %, the world is drawn as an architecture diagram — each module a
+  card sized to what it says (name, short path, role bar, counts, exports), cards alike in width within a band, bands
+  evenly spaced, the bundles between them. Zooming in past 130 %, or clicking a card, goes back to the tokens; the
+  module under the pointer stays in place. A big map opens on the overview, framed whole.
+- **View text** (`regions[].outline`): each region shows what its markup says, in document order, as a quiet one-line
+  strip under its tokens: static text, holes where the view reads (linked to their site tokens; in live mode the value
+  they read), child regions as small frame tags, and human text in attributes. Long strips have an expander; strips
+  hide when zoomed out.
 ## Diff: what changed between two versions
 
 ```sh
@@ -200,11 +220,12 @@ button. The program's own work (timers, answers landing) goes on beneath and doe
 `resume` lands it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a
 `flush`. `step`/`resume` changes come from the recorded previews (TRACE-CONTRACT v0.5: before a key's first change,
 its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
-timeline has seen. `step.inexact` lists keys travel can't show exactly at that seq: a store guessed after it (Solid
-records the guess on the store's `$guess` carrier only) and every name that reads it.
+timeline has seen. Store guesses (`guess books := …`, `guess books[i].read := …`) rewind too: Solid's flush record
+lists the property and presence nodes a guess changed beside the store's `$guess` carrier, and travel pins them like
+any other node. On an older Solid whose record names only the carrier, `step.inexact` lists the keys travel can't show
+exactly at that seq: a store guessed after it and every name that reads it.
 Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
-is running or a resume is still landing, `unsupported` when Solid has no `openView`. Store guesses do not rewind yet
-(see Limits).
+is running or a resume is still landing, `unsupported` when Solid has no `openView`.
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
 page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
@@ -257,8 +278,10 @@ Chromium and checks the DOM under travel, read-only viewing, `inexact` and first
 when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise;
 it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
 `test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
-a temp dir and installed linked to this repository and to `SOLID_VIEW`. `APP=<dir>` uses an installed copy instead;
-`--shots <dir>` saves screenshots.
+a temp dir and installed linked to this repository and to `SOLID_VIEW`; Vite runs with `--force`, so a rebuilt Solid
+is what the page runs, not a stale pre-bundle. When that Solid's record names the properties a store guess moved, every
+recorded seq must show exactly; on an older one, seqs before a guess are reported, not asserted. `APP=<dir>` uses an
+installed copy instead; `--shots <dir>` saves screenshots.
 
 ## MCP: let an agent inspect your app
 
@@ -354,9 +377,8 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
   visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
   shows the same session's timeline and flush count.
-- Time travel: a store guess (`guess books := …`, `guess books[i].read := …`) is recorded by Solid on the store's guess
-  carrier (`books.$guess`), not on the property nodes it changed, and its confirmed landing changes nothing shown, so
-  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it
-  (`step.inexact` says so). A store's first-change `prev` isn't known (its records are per property), so a store
-  has no value before its first change. All of a resume's buffered work is one step.
+- Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view
+  f9ee22ade), travelling to a seq before a confirmed store guess shows the list as it is after it (`step.inexact`
+  says so). A store's first-change `prev` isn't known (its records are per property), so a store has no value before
+  its first change. All of a resume's buffered work is one step.
   The rest are Solid's `openView` limits (08-dev-diagnostics, "Views and time travel").

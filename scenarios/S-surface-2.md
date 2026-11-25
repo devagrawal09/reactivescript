@@ -88,3 +88,18 @@ export default component App() {
 ```
 
 One stylesheet per view (TSRX: "fragments can only have one style tag").
+
+```rx
+-- reject: STYLE_SCOPE
+component Row() {
+  <li class="row">x</li>
+}
+export default component App() {
+  <style>
+    .row { color: red }
+  </style>
+  <Row />
+}
+```
+
+`Row` is its own view (CSS-2). `App`'s `.row` does not style it. Give `Row` its own `<style>`, or pass a class map (CSS-5).

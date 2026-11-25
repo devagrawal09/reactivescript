@@ -10,7 +10,7 @@ use crate::signature::{ExportSig, ModSig};
 use indexmap::{IndexMap, IndexSet};
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 /// The helpers every projection imports (`__`), and the prelude's names (`len`, `map`, …): `ref/types/project.ts`'s PRELUDE.
@@ -156,6 +156,14 @@ fn j(l: &Lit) -> String {
 fn js_str(s: &str) -> String {
     serde_json::to_string(s).unwrap()
 }
+/// The namespace a `.d.rx` is declared as. Same spelling as `ref/types/project.ts`.
+fn ns_name(declared: &str) -> String {
+    let mut s = String::from("__D_");
+    for c in declared.chars() {
+        s.push(if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' });
+    }
+    s
+}
 fn is_handler(a: &str) -> bool {
     crate::awaits::is_handler(a)
 }
@@ -179,7 +187,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), snap: HashSet::new(), rename: HashMap::new(), ambients: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -287,6 +295,14 @@ struct Proj<'a> {
     used: IndexSet<String>,
     /// names the module declares (they shadow the prelude)
     declared: HashSet<String>,
+    /// sources and equations: a write checks this type, not a branch's narrowing (TY-2)
+    slots: HashSet<String>,
+    /// a handler read is a fresh snapshot of this name's type (TY-2)
+    snap: HashSet<String>,
+    /// inside a handler, a snap name reads as its snapshot binding
+    rename: HashMap<String, String>,
+    /// a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
+    ambients: HashSet<String>,
     prelude: Option<&'a str>,
 }
 
@@ -384,6 +400,11 @@ impl Proj<'_> {
         for d in ds {
             if let Some(n) = d.name() {
                 self.declared.insert(n.to_string());
+            }
+            if matches!(d, Decl::Source { .. } | Decl::Eq { .. }) {
+                let n = d.name().unwrap().to_string();
+                self.slots.insert(n.clone()); // before actions, whose writes name them
+                self.snap.insert(n);
             }
         }
         for d in ds {
@@ -496,12 +517,14 @@ impl Proj<'_> {
                         None => Code::of("__.src(").c(self.expr(init, false, None)).t(")"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
+                    self.w.emit(Code::of(&format!("{ind}type __W_{name} = typeof {name};")), *line);
                 }
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
                     let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(", true)");   // R-1: no promise without `await`
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
+                    self.w.emit(Code::of(&format!("{ind}type __W_{name} = typeof {name};")), *line);
                 }
                 Decl::Provide { name, e, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -550,6 +573,13 @@ impl Proj<'_> {
                 s.insert(n.name.clone());
             }
         }
+        if let Some(dts) = declared {
+            if let Some(decls) = self.set.declarations.get(dts) {
+                // TY-4b: the `.d.rx` is the type, even where a `.ts` sits beside it
+                self.declared_import(d, &rest, decls, ind);
+                return;
+            }
+        }
         let mut at = sp.start as usize;
         let def = rest.iter().find(|n| n.name == "default").map(|n| self.name(&n.alias, sp, &mut at));
         let parts: Vec<Code> = rest
@@ -576,6 +606,123 @@ impl Proj<'_> {
         let fa = self.find(&q[1..q.len() - 1], sp, at).map(|a| a - 1).filter(|a| self.src[*a..].starts_with(&q));
         c = c.t(" from ").at(&q, fa).t(";");
         self.w.emit(c, *line);
+        for n in &rest {
+            if !self.is_type_import(d, &n.name) {
+                self.snap_alias(&n.alias, ind, *line);
+            }
+        }
+    }
+    fn is_type_import(&self, d: &Decl, name: &str) -> bool {
+        let Decl::Import { resolved: Some(r), .. } = d else { return false };
+        if self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name: n, .. } if n == name))) {
+            return true;
+        }
+        self.set.signatures.get(r).and_then(|s| s.exports.get(name)).is_some_and(|x| matches!(x, ExportSig::Type))
+    }
+    /// Snap names a handler reads, not counting its parameters, its locals, or a nested arrow. Sorted, so both projections agree.
+    fn handler_snaps(&self, params: &[String], body: &Expr, stmts: Option<&[Stmt]>) -> Vec<String> {
+        let mut bound: HashSet<String> = params.iter().cloned().collect();
+        let mut out = HashSet::new();
+        fn expr(e: &Expr, snap: &HashSet<String>, bound: &HashSet<String>, out: &mut HashSet<String>) {
+            match &e.k {
+                ExprKind::Fn { .. } | ExprKind::ServerFn { .. } | ExprKind::Draft { .. } => {}
+                ExprKind::Id(n) => {
+                    if snap.contains(n) && !bound.contains(n) {
+                        out.insert(n.clone());
+                    }
+                }
+                ExprKind::Bin { l, r, .. } => { expr(l, snap, bound, out); expr(r, snap, bound, out); }
+                ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Throw(e) | ExprKind::As { e, .. } => expr(e, snap, bound, out),
+                ExprKind::Pre { init, .. } => init.iter().for_each(|x| expr(x, snap, bound, out)),
+                ExprKind::Await { e, init, .. } => { expr(e, snap, bound, out); init.iter().for_each(|x| expr(x, snap, bound, out)); }
+                ExprKind::If { c, t, f } => { expr(c, snap, bound, out); expr(t, snap, bound, out); expr(f, snap, bound, out); }
+                ExprKind::Member { o, .. } => expr(o, snap, bound, out),
+                ExprKind::Index { o, i, .. } => { expr(o, snap, bound, out); expr(i, snap, bound, out); }
+                ExprKind::Call { f, args } => { expr(f, snap, bound, out); args.iter().for_each(|a| expr(a, snap, bound, out)); }
+                ExprKind::Arr(items) => items.iter().for_each(|a| expr(a, snap, bound, out)),
+                ExprKind::Rec(fields) => fields.iter().for_each(|f| match f {
+                    Field::Kv { v, .. } => expr(v, snap, bound, out),
+                    Field::Computed { key, v } => { expr(key, snap, bound, out); expr(v, snap, bound, out); }
+                    Field::Spread(x) => expr(x, snap, bound, out),
+                }),
+                ExprKind::Tpl(parts) => parts.iter().for_each(|p| if let TplPart::Expr(x) = p { expr(x, snap, bound, out) }),
+                ExprKind::Catch { e, alt, .. } => { expr(e, snap, bound, out); expr(alt, snap, bound, out); }
+                ExprKind::Omit { e, .. } => expr(e, snap, bound, out),
+                _ => {}
+            }
+        }
+        fn walk_stmts(ss: &[Stmt], snap: &HashSet<String>, bound: &mut HashSet<String>, out: &mut HashSet<String>) {
+            for s in ss {
+                match &s.k {
+                    StmtKind::Let { name, e, .. } => { expr(e, snap, bound, out); bound.insert(name.clone()); }
+                    StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
+                        for p in &target.path {
+                            if let PathSeg::Expr(x) = p { expr(x, snap, bound, out); }
+                        }
+                        expr(e, snap, bound, out);
+                    }
+                    StmtKind::Expr(e) | StmtKind::Throw(e) => expr(e, snap, bound, out),
+                    StmtKind::Return(Some(e)) => expr(e, snap, bound, out),
+                    StmtKind::Sif { c, t, f } => { expr(c, snap, bound, out); walk_stmts(t, snap, bound, out); walk_stmts(f, snap, bound, out); }
+                    StmtKind::Try { body, handler, fin, .. } => {
+                        walk_stmts(body, snap, bound, out);
+                        if let Some(h) = handler { walk_stmts(h, snap, bound, out); }
+                        if let Some(h) = fin { walk_stmts(h, snap, bound, out); }
+                    }
+                    StmtKind::Action(body) => walk_stmts(body, snap, bound, out),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(ss) = stmts { walk_stmts(ss, &self.snap, &mut bound, &mut out); } else { expr(body, &self.snap, &bound, &mut out); }
+        let mut v: Vec<String> = out.into_iter().collect();
+        v.sort();
+        v
+    }
+    /// A handler's read of this name is a snapshot of its type, not a branch's narrowing (TY-2).
+    fn snap_alias(&mut self, alias: &str, ind: &str, line: usize) {
+        self.snap.insert(alias.to_string());
+        self.w.emit(Code::of(&format!("{ind}type __W_{alias} = typeof {alias};")), line);
+    }
+    /// TY-4b: check the import against its `.d.rx`, not whatever TypeScript would resolve the JS module to.
+    fn declared_import(&mut self, d: &Decl, rest: &[&ImportName], decls: &[JsDecl], ind: &str) {
+        let Decl::Import { from, line, declared, .. } = d else { return };
+        // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
+        let ns = ns_name(declared.as_deref().unwrap_or(from));
+        if declared.as_ref().is_some_and(|p| self.ambients.insert(p.clone())) {
+            let body = declaration_file(decls).trim_end().replace("export declare ", "export ").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
+            self.w.emit(Code::of(&format!("{ind}declare namespace {ns} {{\n{body}\n{ind}}}")), *line);
+        }
+        let of = |n: &str| decls.iter().find(|x| x.name() == n);
+        let values: Vec<&&ImportName> = rest.iter().filter(|n| !matches!(of(&n.name), Some(JsDecl::Type { .. }))).collect();
+        if !values.is_empty() {
+            let def = values.iter().find(|n| n.name == "default");
+            let parts: Vec<String> = values.iter().filter(|n| n.name != "default").map(|n| format!("{} as __js_{}", n.name, n.alias)).collect();
+            let mut s = format!("{ind}import ");
+            if let Some(def) = def {
+                s.push_str(&format!("__js_{}", def.alias));
+                if !parts.is_empty() {
+                    s.push_str(", ");
+                }
+            }
+            if !parts.is_empty() {
+                s.push_str(&format!("{{ {} }}", parts.join(", ")));
+            }
+            s.push_str(&format!(" from {};", js_str(from)));
+            self.w.emit(Code::of(&s), *line);
+        }
+        for n in rest {
+            let x = of(&n.name);
+            if x.is_none() || matches!(x, Some(JsDecl::Type { .. })) {
+                self.w.emit(Code::of(&format!("{ind}type {} = {ns}.{};", n.alias, n.name)), *line);
+            } else {
+                self.w.emit(Code::of(&format!("{ind}const {} = __js_{} as typeof {ns}.{};", n.alias, n.alias, n.name)), *line);
+                self.snap_alias(&n.alias, ind, *line);
+            }
+            if matches!(x, Some(JsDecl::Error { .. })) {
+                self.w.emit(Code::of(&format!("{ind}type {} = {ns}.{};", n.alias, n.name)), *line);
+            }
+        }
     }
     /// A JS import's module, from the program's root (where the stubs are written).
     fn mod_path(&self, from: &str) -> String {
@@ -658,9 +805,26 @@ impl Proj<'_> {
                     self.w.emit(Code::of(&format!("{ind}throw ")).c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
-                    let t = self.target(target, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
+                    // TY-2: a write is checked against the slot's type, not the type a branch has narrowed the read to.
+                    if !target.is_ctx() && self.slots.contains(&target.name) {
+                        let mut path = String::new();
+                        for p in &target.path {
+                            match p {
+                                PathSeg::Name(n) => path.push_str(&format!(".{n}")),
+                                PathSeg::Expr(x) => path.push_str(&format!("[{}]", self.expr(x, true, None).s)),
+                            }
+                        }
+                        let base = if target.path.is_empty() {
+                            format!("({} as __W_{})", target.name, target.name)
+                        } else {
+                            format!("({} as NonNullable<__W_{}>)", target.name, target.name)
+                        };
+                        self.w.emit(Code::of(&format!("{ind}__.set({base}{path})(")).c(v).t(");").from(sp), 0);
+                    } else {
+                        let t = self.target(target, sp, &mut at);
+                        self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
+                    }
                 }
                 StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                     let nm = self.name(n, sp, &mut at);
@@ -737,7 +901,10 @@ impl Proj<'_> {
                     self.used.insert(n.clone());
                 }
                 let at = src_at(n);
-                Code::new().at(n, at)
+                match self.rename.get(n) {
+                    Some(r) => Code::of(r),
+                    None => Code::new().at(n, at),
+                }
             }
             ExprKind::Pre { name, init } => {
                 let mut from = sp.start as usize;
@@ -818,11 +985,33 @@ impl Proj<'_> {
             ExprKind::Fn { params, body, stmts } => {
                 let mut from = sp.start as usize;
                 let ps = Code::join(params.iter().map(|p| self.name(p, sp, &mut from)).collect(), ", ");
-                let Some(ss) = stmts else {
-                    return Code::of("((").c(ps).t(") => ").c(self.expr(body, imp, me)).t(")");
+                let names = if imp { self.handler_snaps(params, body, stmts.as_deref()) } else { vec![] };
+                let saved = self.rename.clone();
+                if !names.is_empty() {
+                    for n in &names {
+                        self.rename.insert(n.clone(), format!("__s_{n}"));
+                    }
+                }
+                let (inner, is_stmt, is_async) = if let Some(ss) = stmts {
+                    (self.nested(|me| me.stmts(ss, "  ")), true, has_await(ss))
+                } else {
+                    (self.expr(body, imp, me), false, false)
                 };
-                let inner = self.nested(|me| me.stmts(ss, "  "));
-                Code::of(if has_await(ss) { "(async (" } else { "((" }).c(ps).t(") => {\n").c(inner).t("\n})")
+                self.rename = saved;
+                if names.is_empty() {
+                    return if is_stmt {
+                        Code::of(if is_async { "(async (" } else { "((" }).c(ps).t(") => {\n").c(inner).t("\n})")
+                    } else {
+                        Code::of("((").c(ps).t(") => ").c(inner).t(")")
+                    };
+                }
+                let params_s = names.iter().map(|n| format!("__s_{n}: __W_{n}")).collect::<Vec<_>>().join(", ");
+                let args = names.join(", ");
+                if is_stmt {
+                    Code::of("((").c(ps).t(&format!(") => (({params_s}) => {{\n")).c(inner).t(&format!("\n}})({args}))"))
+                } else {
+                    Code::of("((").c(ps).t(&format!(") => (({params_s}) => ")).c(inner).t(&format!(")({args}))"))
+                }
             }
             ExprKind::ServerFn { params, ptypes, ret, body } => {
                 let mut from = sp.start as usize;

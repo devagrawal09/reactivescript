@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rx-map layout: bands, clusters, the overview, routes</title>
+<!-- The 8-module tracker (fixtures/tracker.json): plates in bands of dependency depth (every dependency above),
+     clusters on the dense plate, the overview's cards (one line titles, alike within a band, nothing overflowing,
+     framed whole), routes between plates that stay in the gutters, collapse and auto-fold. Results in #result. -->
+<style>html, body { margin: 0; height: 100%; background: #000 } iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0 }</style>
+<pre id="result" hidden></pre>
+<script type="module">
+import { pageHTML } from "../page.mjs";
+const checks = [];
+const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks }); };
+try {
+  const graph = await (await fetch("/test/fixtures/tracker.json")).json();
+  const f = document.createElement("iframe");
+  f.srcdoc = pageHTML(graph);
+  document.body.append(f);
+  await new Promise(r => f.addEventListener("load", r, { once: true }));
+  await sleep(300);
+  const w = f.contentWindow, doc = f.contentDocument;
+  const errors = []; w.addEventListener("error", e => errors.push(String(e.message)));
+  // plates mode first
+  // (zoomed in enough that the camera doesn't switch to the overview)
+  w.setOverview(false); w.flyTo(w.__RX_MAP__.BW / 2, w.__RX_MAP__.BH / 3, .7, 0); await sleep(150);
+  const M = w.__RX_MAP__, L = M.layout, P = k => L.plates.get(k);
+  const name = mi => String(graph.modules[mi]).split("/").pop();
+  // dependencies point up: a module's plate sits in a lower row than every module it needs
+  const bad = [];
+  for (const e of graph.edges) {
+    const a = graph.nodes.find(n => n.id === (e.type === "read" ? e.to : e.from)), b = graph.nodes.find(n => n.id === (e.type === "read" ? e.from : e.to));
+    if (!a || !b || a.mod === b.mod || (b.world && !b.from) || (a.world && !a.from)) continue;
+    if (!(P(a.mod).row > P(b.mod).row)) bad.push(`${name(a.mod)} -> ${name(b.mod)}`);
+  }
+  check("every dependency between modules points up (its plate is in a higher row)", !bad.length, [...new Set(bad)]);
+  const rows = L.rows.filter(r => !r.keys.includes("world"));
+  check("modules at one depth sit side by side", rows.some(r => r.keys.length >= 3) && rows.length <= 5, rows.map(r => r.keys.map(name)));
+  const rects = [...L.plates.values()];
+  const overlap = rects.some((p, i) => rects.some((q, j) => j > i && p.l < q.r && q.l < p.r && p.t < q.b && q.t < p.b));
+  check("no two plates overlap", !overlap);
+  const data = [...doc.querySelectorAll("#board > .frame.module")].find(p => /data\.rx$/.test(p.querySelector(".pname").textContent));
+  const cl = [...data.querySelectorAll(":scope > .clusters > .cluster")];
+  check("the dense module is clustered by who uses it, with labels", cl.length >= 3 && cl.some(c => /used by/.test(c.querySelector(".clabel").textContent)), cl.map(c => c.querySelector(".clabel").textContent));
+  // routes between plates stay out of plates (but for where they leave and enter)
+  doc.getElementById("all").click(); await sleep(150); w.draw();
+  const rectsNow = [...M.layout.plates.values()];
+  const inside = [];
+  const paths = [...doc.querySelectorAll("#edges path.trunk")];
+  for (const p of paths) {
+    const len = p.getTotalLength();
+    for (let t = 8; t < len - 8; t += 12) {
+      const pt = p.getPointAtLength(t);
+      const hit = rectsNow.find(r => pt.x > r.l + 3 && pt.x < r.r - 3 && pt.y > r.t + 3 && pt.y < r.b - 3);
+      if (hit) { inside.push([Math.round(pt.x), Math.round(pt.y)]); break; }
+    }
+  }
+  check(`routes between plates (${paths.length}) run in the gutters, never through a plate`, paths.length > 5 && !inside.length, inside.slice(0, 5));
+  doc.getElementById("all").click(); await sleep(50);
+  // collapse a plate: it becomes its summary, the layout closes up, still no overlaps
+  const h0 = data.offsetHeight;
+  data.querySelector(".pbtn").click(); await sleep(600);
+  const rects2 = [...M.layout.plates.values()];
+  check("a collapsed plate shrinks to its summary and the layout closes up", data.classList.contains("collapsed") && data.offsetHeight < h0 * .7 && !data.querySelector(":scope > .clusters").offsetParent && !rects2.some((p, i) => rects2.some((q, j) => j > i && p.l < q.r && q.l < p.r && p.t < q.b && q.t < p.b)), [h0, data.offsetHeight]);
+  data.querySelector(".pbtn").click(); await sleep(600);
+  // auto-fold on a huge map (threshold lowered): a selection folds the modules it doesn't touch
+  w.__RX_HUGE__ = 10;
+  w.flyTo(M.BW / 2, M.BH / 3, .7, 0); await sleep(100);
+  const issues = graph.nodes.find(n => n.name === "issues" && !n.site);
+  w.select(issues.id); await sleep(700);
+  const folded = doc.querySelectorAll("#board > .frame.module.collapsed").length;
+  w.select(null); await sleep(700);
+  check("a selection on a huge map folds the modules it doesn't touch; clearing it unfolds them", folded >= 2 && !doc.querySelector("#board > .frame.module.collapsed"), folded);
+  w.__RX_HUGE__ = undefined;
+  // the overview: cards
+  w.setOverview(true); await sleep(200);
+  const cards = [...doc.querySelectorAll("#board > .frame.module")];
+  const clipped = cards.filter(c => { const n = c.querySelector(".ps-name"); return n.scrollWidth > n.clientWidth + 1 || c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1; }).map(c => c.querySelector(".ps-name").textContent);
+  check("overview: titles on one line, nothing overflows a card", !clipped.length && cards.every(c => c.querySelector(".ps-name").offsetHeight < 50), clipped);
+  const widths = M.layout.rows.filter(r => !r.keys.includes("world")).map(r => new Set(r.keys.map(k => Math.round(M.layout.plates.get(k).r - M.layout.plates.get(k).l))).size);
+  check("overview: cards alike in width within a band", widths.every(n => n === 1), widths);
+  check("overview: every card has the same parts (name, path, role bar, counts)", cards.every(c => c.querySelector(".ps-name") && c.querySelector(".ps-path") && c.querySelector(".ps-bars i") && c.querySelector(".ps-counts span")));
+  const gaps = []; const R = M.layout.rows; for (let i = 1; i < R.length; i++) gaps.push(Math.round(R[i].top - R[i - 1].bottom));
+  check("overview: bands evenly spaced", new Set(gaps).size === 1, gaps);
+  w.frameAll(0); await sleep(150);
+  const fr = w.freeRect();
+  const out = [[0, 0], [M.BW, 0], [0, M.BH], [M.BW, M.BH]].map(([x, y]) => w.toScreen(x, y)).filter(([x, y]) => x < fr.l || x > fr.r || y < fr.t || y > fr.b);
+  check("frame shows everything, with a margin", !out.length, out);
+  check("no page errors", !errors.length, errors);
+} catch (e) { check(`threw: ${e?.stack ?? e}`, false); }
+done();
+</script>
