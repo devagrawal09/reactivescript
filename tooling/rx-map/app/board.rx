@@ -8,7 +8,7 @@ import { flyToId, ensureVisibleId, flyToModule, isPanning } from "./js/camera.js
 import { sfx } from "./js/sound.js"
 import { pointerAt, placeTipAt } from "./js/tip.js"
 import { lvView, plainValue } from "./js/values.js"
-import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
+import { present, isFlying, boundaryOf, lverrHTML, heldHTML, heldHint, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
 import { live, fails } from "./live.rx"
 import { coverage, showCoverage } from "./coverage.rx"
 import { holeText, cardCounts, noteCardWaves, nameParts } from "./js/layout.js"
@@ -95,7 +95,7 @@ export component Token(props: { c: any; extra: string }) {
     {if present(c.decl) { <span class={["b", "dt", `dt-${c.decl.origin}`]} title={c.decl.title}>{c.decl.tag}</span> }}
     {if hasValue { <ValueBadge v={v} fail="" /> }}
     {if stale { <ValueBadge v={fv.badge} fail={fv.error} /> } else if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
-    {if present(held) { <span class="hm" innerHTML={heldHTML(held)}></span> }}
+    {if present(held) { <span class="hm" title={heldHint(k)} innerHTML={heldHTML(held)}></span> }}
     {if live.recordedErrors[k] == true {
       <span class="inx" title="Recorded from the live frame; time travel cannot restore the error boundary">recorded error · not replayed</span>
     } else if live.inexact[k] == true { <span class="inx" title="the app can't show this value exactly at this point in time">can't rewind</span> }}

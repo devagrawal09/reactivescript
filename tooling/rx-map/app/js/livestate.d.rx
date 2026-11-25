@@ -8,6 +8,7 @@ export fn reduce(s: any, msg: any, m: any): void
 export fn playFx(s: any, m: any): void
 export pure fn planReason(hmr: any, key: string): string
 export pure fn heldText(h: any, none: string): string
+export pure fn heldHint(key: string): string
 export pure fn isFlying(live: any, key: string): boolean
 export pure fn boundaryOf(live: any, key: string, id: string): any
 export type PlanItem = { key: string; name: string; reason: string }

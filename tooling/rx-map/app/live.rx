@@ -9,7 +9,7 @@
 // (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
 import { isLive, isRecording, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
 import { icon, keyName } from "./js/vocab.js"
-import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present, callsView, failView } from "./js/livestate.js"
+import { freshLive, prepare, reduce, playFx, planReason, heldText, heldHint, boundaryOf, planView, present, callsView, failView } from "./js/livestate.js"
 import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
 import { renderScrub, startScrub, startTrack, travelKind, seqBy, sendTravel } from "./js/scrub.js"
 import { beforeSwap, afterSwap } from "./js/swap.js"
@@ -245,7 +245,7 @@ export component LiveValue(props: { id: string }) {
     <div class="failbox"><span style={{ display: "contents" }} innerHTML={icon("warn")}></span><div><b>failed</b><div class="mono ferr">{v.error}</div></div></div>
   }}
   {if present(h) {
-    <div class="heldbox"><span style={{ display: "contents" }} innerHTML={icon("lock")}></span><div><b>held</b> · its last write waits on <span class="mono hby">{heldText(h, "an action")}</span>; the value shown is the one before it</div></div>
+    <div class="heldbox"><span style={{ display: "contents" }} innerHTML={icon("lock")}></span><div><b>held</b> · its last write waits on <span class="mono hby">{heldText(h, "an action")}</span>; the value shown is the one before it<div class="hint">{heldHint(k)}</div></div></div>
   }}
   {if has {
     {if v.current && v.count == 0 { <div class="hint">value at open</div> }}
@@ -364,6 +364,7 @@ export component TipLive(props: { nodeKey: string }) {
   } else if present(v) && present(v.error) { <div class="tip-v" style={{ color: "var(--fail)" }}>{`failed: ${v.error}`}</div> }}
   {if present(v) && present(v.preview) { <div class="tip-v">{`= ${v.preview}`}</div> }}
   {if present(h) { <div class="tip-m" style={{ color: "var(--pending)" }}>{`held · waiting on ${heldText(h, "an action")}`}</div> }}
+  {if present(h) { <div class="tip-m hint">{heldHint(props.nodeKey)}</div> }}
   {if present(live.flying[props.nodeKey]) { <div class="tip-m" style={{ color: "var(--pending)" }}><span class="gi" innerHTML={icon("hour")}></span> in the air</div> }}
 }
 

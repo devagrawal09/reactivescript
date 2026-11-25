@@ -625,6 +625,11 @@ export function planReason(hmr, key) {
 }
 /** "waiting on a, b" for a held write. */
 export const heldText = (h, none) => (h?.by?.length ? h.by.map(keyName).join(", ") : none);
+/** What to do about a held write: holds are by design, so read ahead or make the status a guess (guide/async.md). */
+export const heldHint = key => {
+  const name = key ? keyName(key).replace(/~.*$/, "") : "x";
+  return `to show it while the action runs: read \`latest ${name}\` or \`pending? ${name}\` where it is shown, or make status-only state a guess (\`guess saving := true\`); guide/async.md, "Showing progress while an action runs"`;
+};
 /**
  * How each failing key shows: { stale, last, error, badge }. `stale`: a failed re-ask while the app still shows the
  * last value: the bridge said so (`shown` on the change), or it had a value and no tripped errored boundary caught it

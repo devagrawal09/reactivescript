@@ -480,8 +480,10 @@ export default component App() {
 
 A handler that writes and awaits is an action (AC-1b), and an action's writes land when its body ends (AC-1). So a
 write before the `await` does not show while the work runs. Say which you meant: `guess x := …` for state that
-shows while the work runs (on a source with a question, ST-5c); `onFlush(() => { x := … })` for a reset that lands now
-(EF-8); a declared `action` to hold it on purpose; or write it after the `await`. `async.md` ("What lands together, and
+shows while the work runs and goes back when it ends (on any source, ST-5c: a "saving" flag, a status line);
+`onFlush(() => { x := … })` for a reset that lands now and stays (EF-8); a declared `action` to hold it on purpose; or
+write it after the `await`. A result the action keeps can be a plain write that a reader shows early with `latest x`
+(`async.md`, "Showing progress while an action runs"). `async.md` ("What lands together, and
 what waits") is the long form.
 
 ```rx before
@@ -499,7 +501,7 @@ export default component App() {
 export default component App() {
   source status := ""
   <button onClick={() => {
-    onFlush(() => { status := "saving" })
+    guess status := "saving"
     let r = await fetch("save") catch (e) => e.message
     status := r
   }}>status: {status}</button>
