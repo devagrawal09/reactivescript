@@ -71,6 +71,7 @@ const report = (page, r) => {
 try {
   report("live.html", await result("live.html"));
   report("fake.html", await result("fake.html", 30000));
+  report("layout.html", await result("layout.html", 15000));
   if (existsSync(join(solid, "solid/dist/solid.dev.js"))) report("engine.html", await result("engine.html"));
   else console.log(`skip engine.html: no Solid dev build at ${solid} (set SOLID_PACKAGES)`);
   if (shots) {

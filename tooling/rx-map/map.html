@@ -3211,6 +3211,8 @@ function startFake(seed) {
   document.getElementById("dhTick").onclick = () => h.tick(10);
 }
 
+// for tests and tools: the layout and the camera
+window.__RX_MAP__ = { get layout() { return layout; }, get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get overview() { return ovMode; } };
 // ---- go ------------------------------------------------------------------------------------------------------------
 readInsets();
 document.body.classList.toggle("mini-off", compact());
