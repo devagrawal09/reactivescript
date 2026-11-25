@@ -1483,8 +1483,10 @@ function routed(fromId, toId, plan, kind = "") {
     return PA && PB ? { d: edgePath({ ...PA, x: (PA.l + PA.r) / 2, y: (PA.t + PA.b) / 2 }, { ...PB, x: (PB.l + PB.r) / 2, y: (PB.t + PB.b) / 2 }) } : null;
   }
   const [xa, ya] = t[0], [xb, yb] = t.at(-1);
-  const head = A && A.t > ya + 4 ? `M${A.x},${A.t} C${A.x},${A.t - 30} ${xa},${ya + 30} ${xa},${ya}` : "";
-  const tail = B && B.b < yb - 4 ? `M${xb},${yb} C${xb},${yb - 30} ${B.x},${B.b + 30} ${B.x},${B.b}` : "";
+  // stubs run straight up (or down) from the token, behind the tokens in its column, and join the bundle just outside
+  // the plate's edge: never across the plate
+  const head = A && A.t > ya + 4 ? roundPath([[A.x, A.t], [A.x, ya - 12], [xa, ya - 12]], 10) : "";
+  const tail = B && B.b < yb - 4 ? roundPath([[xb, yb + 12], [B.x, yb + 12], [B.x, B.b]], 10) : "";
   return { head, tail, trunk: roundPath(t), key };
 }
 
