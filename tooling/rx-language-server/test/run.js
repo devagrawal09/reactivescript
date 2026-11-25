@@ -12,20 +12,33 @@ const ws = path.join(__dirname, "../.test/shop");
 fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(ws, { recursive: true });
 for (const f of fs.readdirSync(path.join(repo, "examples/shop"))) fs.copyFileSync(path.join(repo, "examples/shop", f), path.join(ws, f));
-fs.writeFileSync(path.join(ws, "api.d.ts"), "export declare function checkout(items: { id: number; qty: number }[], coupon: string): Promise<{ id: number }>;\n");
+// the injected API's types, its `pure` stated as a .d.ts can state it (the brand type; a .ts states it with `pure(…)`), so
+// the shop's `import pure` restates it and is no narrowing (09 MO-11e)
+fs.writeFileSync(path.join(ws, "api.d.ts"), 'import type { Pure } from "@reactivescript/js";\nexport declare function checkout(items: { id: number; qty: number }[], coupon: string): Pure<Promise<{ id: number }>>;\n');
 const nm = path.join(ws, "node_modules");
 fs.mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
 for (const f of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(f => !f.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", f), path.join(nm, f), "dir");
-// MO-11: the brands, and the declaration generator (`@reactivescript/compiler/dts`), as a project installs them
-fs.symlinkSync(path.join(repo, "types"), path.join(nm, "@reactivescript/types"), "dir");
+// MO-11: the helpers (`@reactivescript/js`), and the declaration generator (`@reactivescript/compiler/dts`), as a project
+// installs them
+fs.symlinkSync(path.join(repo, "js"), path.join(nm, "@reactivescript/js"), "dir");
 fs.symlinkSync(path.join(repo, "compiler"), path.join(nm, "@reactivescript/compiler"), "dir");
 const usersTs = [
-  'import type { Pure, Ref } from "@reactivescript/types";',
-  "export function initials(name: string): Pure<string> { return name.slice(0, 1); }",
-  "export function createUpper(source: Ref<string>): Pure<Ref<string>> { return () => source().toUpperCase(); }",
+  'import { pure, ref } from "@reactivescript/js";',
+  "export const initials = pure((name: string) => name.slice(0, 1));",
+  "export const createUpper = pure(ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase()));",
+  "export function greet(name: string) { return `hi ${name}`; }",
   "",
 ].join("\n");
 fs.writeFileSync(path.join(ws, "users.ts"), usersTs);
+fs.writeFileSync(path.join(ws, "narrow.rx"), [
+  'import pure { greet } from "./users"',
+  "export default component Narrow() {",
+  '  source name := "ada"',
+  "  hello = greet(name)",
+  "  <p>{hello}</p>",
+  "}",
+  "",
+].join("\n"));
 fs.writeFileSync(path.join(ws, "profile.rx"), [
   'import { initials, createUpper } from "./users"',
   "export default component Profile() {",
@@ -138,12 +151,16 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   const dg3 = await server.sendDocumentDiagnosticRequest(profile.uri);
   check("its generated declaration checks clean", (dg3.items ?? []).length === 0, dg3.items);
   // the .ts changes on disk, the .rx does not: the analysis is stale by the record's files
-  fs.writeFileSync(path.join(ws, "users.ts"), usersTs.replace("export function initials", "export function initialsOf") + "export function score(n: Pure<number>): number { return n; }\n");
+  fs.writeFileSync(path.join(ws, "users.ts"), usersTs.replace("export const initials", "export const initialsOf") + "export const score = [pure((n: number) => n)][0];\n");
   const dg4 = await server.sendDocumentDiagnosticRequest(profile.uri);
   check("after the .ts drops `initials`, the .rx's import is NOT_EXPORTED (no edit to the .rx)", (dg4.items ?? []).some(d => d.code === "NOT_EXPORTED" && d.range.start.line === 0), dg4.items);
   const users = await server.openTextDocument(path.join(ws, "users.ts"), "typescript");
   const dg5 = await server.sendDocumentDiagnosticRequest(users.uri);
-  check("a misplaced brand is DECLARATION_BRAND, on the .ts at the brand", (dg5.items ?? []).some(d => d.code === "DECLARATION_BRAND" && d.source === "rx" && d.range.start.line === 3), dg5.items);
+  check("a misplaced helper is DECLARATION_HELPER, on the .ts at the call", (dg5.items ?? []).some(d => d.code === "DECLARATION_HELPER" && d.source === "rx" && d.range.start.line === 4), dg5.items);
+  // 09 MO-11e: `import pure` on a defaulted fact of the .ts compiles, and the editor shows the deprecation as a warning
+  const narrowed = await server.openTextDocument(path.join(ws, "narrow.rx"), "reactivescript");
+  const dg6 = await server.sendDocumentDiagnosticRequest(narrowed.uri);
+  check("`import pure` on a defaulted fact is IMPORT_ROW_DEPRECATED, a Warning (severity 2), naming `pure(…)`", (dg6.items ?? []).length === 1 && dg6.items[0].code === "IMPORT_ROW_DEPRECATED" && dg6.items[0].severity === 2 && dg6.items[0].range.start.line === 0 && dg6.items[0].message.includes("`export const greet = pure(…)`"), dg6.items);
 
   await server.shutdown();
   console.log(`\n${pass} pass, ${fail} fail`);

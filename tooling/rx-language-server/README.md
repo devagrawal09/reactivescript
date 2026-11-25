@@ -20,13 +20,16 @@ A `.rx` importing a TS module with no `.d.rx` (spec/09 MO-11) reads the
 declaration generated from it: `src/rxc.js` answers the crate's read of
 `rx-dts:<stem>` with the project's `@reactivescript/compiler/dts` (else this
 repository's), one generator a project, with the project's `typescript`. The
-generator's own diagnostics (`DECLARATION_BRAND`, a misplaced brand) are shown
-on the `.ts`, at the brand. An analysis is cached by the `.rx`'s text and the
+generator's own diagnostics (`DECLARATION_HELPER`, a misplaced
+`@reactivescript/js` helper) are shown on the `.ts`, at the call. An analysis is cached by the `.rx`'s text and the
 stamps of every file it read, the TS modules behind a generated declaration
 included, so saving the `.ts` refreshes the `.rx`'s diagnostics. The
-projection (the virtual code) is remade when the `.rx` changes: a brand added
+projection (the virtual code) is remade when the `.rx` changes: a helper added
 in the `.ts` reaches hover and TypeScript's errors at the `.rx`'s next edit.
 Through `RXC`, `rxc` runs `rx-dts` itself (MO-11d) and none of this is cached.
+A warning is shown as one (severity Warning): `IMPORT_ROW_DEPRECATED` (MO-11e),
+an `import pure` / `fails` / `server` / `client` that narrows a fact the `.ts`
+does not state, with the helper that states it.
 
 The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
 `"jsxImportSource": "@solidjs/web"`) and Solid in its `node_modules`.
@@ -64,9 +67,11 @@ npx rx-tsc --noEmit
 
 After TypeScript's errors it prints the crate's diagnostics for every `.rx`
 module in the program (parse errors, else the checker's, with their rules),
-and exits non-zero if there are any. A module that does not parse has no
+and exits non-zero if there are any errors. A module that does not parse has no
 projection, so TypeScript alone would pass it. Then the generator's
-(`DECLARATION_BRAND`, at the brand in the `.ts` a `.rx` imports). Under `--watch` only
+(`DECLARATION_HELPER`, at the helper call in the `.ts` a `.rx` imports).
+Warnings (`- warning IMPORT_ROW_DEPRECATED: …`) are printed with them and
+counted apart (`Found 1 ReactiveScript warning.`); alone, they exit 0. Under `--watch` only
 TypeScript's errors are reported.
 
 ## Editors
@@ -131,9 +136,10 @@ types from `ref/node_modules`, via `ref/scripts/solid-next.sh`): hover, go to
 definition across modules, references, completion while typing (in code and in
 markup), a parse error, a TypeScript type error and a crate diagnostic, each
 placed on the `.rx`; and a `.ts` with no `.d.rx` (MO-11): a `Ref` hovering as
-its `T`, a rename in the `.ts` reaching the `.rx` unedited, a misplaced brand
-on the `.ts`. `test/tsc.js` runs `rx-tsc` on the same copy, with the MO-11
-cases: brands, a type import, an error class caught, a `Ref` read as `T`, a
-TypeScript error against the `.ts`'s types, `DECLARATION_BRAND`,
-`NOT_EXPORTED`. Both link `types/` and `compiler/` into the copy's
+its `T`, a rename in the `.ts` reaching the `.rx` unedited, a misplaced helper
+on the `.ts`, `IMPORT_ROW_DEPRECATED` as a Warning. `test/tsc.js` runs `rx-tsc`
+on the same copy, with the MO-11 cases: helpers, a type import, an error class
+caught, a `ref` read as `T`, a TypeScript error against the `.ts`'s types,
+`DECLARATION_HELPER`, `NOT_EXPORTED`, and `IMPORT_ROW_DEPRECATED` printed with
+exit 0. Both link `js/` and `compiler/` into the copy's
 `node_modules/@reactivescript/`.
