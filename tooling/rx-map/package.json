@@ -46,6 +46,7 @@
     "mcp.mjs",
     "project.mjs",
     "query.mjs",
+    "revision.mjs",
     "live-protocol.mjs",
     "vite.mjs",
     "fake.mjs",

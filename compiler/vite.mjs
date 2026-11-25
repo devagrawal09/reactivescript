@@ -55,6 +55,12 @@ const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(
 // `import __m0 from "./catalog.rx";` → `"./catalog.rx?rx-dep"` (one line each: the module's map is by line, CP-1c)
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
 
+// the specifiers a module's code imports (static, side-effect, re-export, dynamic), as import analysis reads them
+const IMPORTS = /^\s*(?:import|export)\b[^"'`;]*?\bfrom\s*(["'])([^"']+)\1|^\s*import\s*(["'])([^"']+)\3|\bimport\s*\(\s*(["'])([^"']+)\5\s*\)/gm;
+const importsOf = code => [...new Set([...code.matchAll(IMPORTS)].map(m => m[2] ?? m[4] ?? m[6]))];
+/** The imports a dev entry's prelude adds (see `compile`): the map's, when the project has it. */
+const servedPrelude = hasMap => hasMap ? `import "@reactivescript/map/live";\n` : "";
+
 /** A source map (JSON text) for code that now starts `lines` lines later: each line is a `;` in `mappings`. */
 const shiftMap = (map, lines) => { const m = JSON.parse(map); m.mappings = ";".repeat(lines) + m.mappings; return JSON.stringify(m); };
 
@@ -95,8 +101,10 @@ const revision = graph => createHash("sha256").update(JSON.stringify(graph)).dig
 export default function rx() {
   const programs = new Map(); // hot client entries, not CSS probes or server transforms
   const saves = new Map();
+  const lastCode = new Map();   // entry → the code its last compile returned
   const builds = new Map();   // entry\0target\0moduleName\0spa\0dev → { entry, target, moduleName, spa, dev, out, stamps }
-  const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
+  // fresh: no file it read changed, and no declaration it generated (the crate's synthetic `<stem>.d.rx` key) was written
+  const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t) && [...b.absent].every(f => !existsSync(f));
   /** `dev`: the project root, for a dev build (keys relative to it); null otherwise. */
   function build(entry, target, moduleName, spa, dev = null, force = false, hot = false) {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}\0${hot}`;
@@ -106,8 +114,12 @@ export default function rx() {
     const declare = declarer(read);
     const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa, null, null, null, declare) : app(entry, target, moduleName, spa, true, dev, hot, declare));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-    const files = [...new Set([...(out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry]), ...read])];
-    const b = { entry, target, moduleName, spa, dev, hot, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
+    // Only files on disk are stamped (and so watched): a generated declaration's key names no file, and Vite's dev
+    // import analysis takes every watched file as an import of the module (`addWatchFile`), so it would ask for one.
+    // A declaration written later is caught by `absent` instead.
+    const files = [...new Set([...(out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry]), ...read])].map(f => path.resolve(f));
+    const absent = files.filter(f => !existsSync(f));
+    const b = { entry, target, moduleName, spa, dev, hot, out, absent, stamps: new Map(files.filter(f => !absent.includes(f)).map(f => [f, mtime(f)])) };
     if (!force) builds.set(key, b);
     return b;
   }
@@ -196,14 +208,37 @@ export default function rx() {
       const dev = solid.dev === true && target === "dom" ? base : null;
       const hmr = !!(dev && hot);
       const register = dev && !dep && !file.endsWith(".d.rx") && globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base);
-      const check = () => build(file, target, moduleName, spa, dev, true).out;
       const builtProgram = dep ? containing(file, target, moduleName, spa, base, dev, hmr) : build(file, target, moduleName, spa, dev, false, hmr);
       const { out, stamps } = builtProgram;
-      if (register) register(file, spa, { check, model: () => JSON.parse(model([file], base, declarer())),
-        transformed: out.modules ? () => [...stamps].filter(([f, stamp]) => mtime(f) !== stamp).map(([f]) => f) : undefined });
+      let checked;
+      if (register) register(file, spa, {
+        // what the dev server serves: the dev compile, as hot as the page's
+        check: () => (checked = build(file, target, moduleName, spa, dev, true, hmr)).out,
+        // what Vite's import analysis asks for, for each module served: its imports, and the files it is told to watch
+        served: () => {
+          const b = checked ?? build(file, target, moduleName, spa, dev, true, hmr);
+          checked = undefined;
+          if (!b.out.modules) return [];
+          const prelude = servedPrelude(!!mapTools(base));
+          return Object.entries(b.out.modules).map(([f, m]) => ({ file: f, imports: importsOf((f === file ? prelude : "") + tagDeps(m.code)),
+            watched: [...b.stamps.keys()].filter(w => w !== f) }));
+        },
+        // what the production build compiles: the client (dom), and the server's (ssr) when the app hydrates
+        production: () => [{ target: "dom", spa }, ...(spa ? [] : [{ target: "ssr", spa: false }])]
+          .map(t => ({ target: t.target, out: build(file, t.target, moduleName, t.spa, null, true).out })),
+        model: () => JSON.parse(model([file], base, declarer())),
+        // stale: the entry's served code is not what its program compiles to now; the files that changed since
+        transformed: out.modules ? () => {
+          const now = build(file, target, moduleName, spa, dev, false, hmr);
+          if (!now.out.modules || now.out.modules[file]?.code === lastCode.get(file)) return [];
+          const changed = [...stamps].filter(([f, stamp]) => mtime(f) !== stamp).map(([f]) => f);
+          return changed.length ? changed : [file];
+        } : undefined,
+      });
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
+      if (!dep) lastCode.set(file, m.code);
       for (const p of stamps.keys()) if (p !== file) addWatchFile(p);
       // dev: a program's entry registers its map, when the project has @reactivescript/map; the lines go first, and the
       // module's map is shifted by them

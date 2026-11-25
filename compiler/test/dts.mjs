@@ -322,15 +322,16 @@ export function a(): Rejects<Promise<void>, NotErr> { return null!; }
 export function b(): Rejects<Promise<void>, never> { return null!; }
 export function c(): Rejects<Promise<void>, Error | LooksLike> { return null!; }
 export function d(): Rejects<Promise<void>, RangeError> { return null!; }
+export function e(): Rejects<Promise<void>, never | RangeError> { return null!; }
 `);
-  assert.deepEqual(at(r), ["4:44 DECLARATION_HELPER", "5:44 DECLARATION_HELPER", "6:52 DECLARATION_HELPER"]);
+  assert.deepEqual(at(r), ["4:44 DECLARATION_HELPER", "6:52 DECLARATION_HELPER"]);
   assert.match(r.errors[0].message, /NotErr is not an error class/);
-  assert.match(r.errors[1].message, /never/);
   assert.deepEqual(rows(r), [
     "export fn a(): Promise<void>",
-    "export fn b(): Promise<void>",
+    "export fn b(): Promise<void> rejects(nothing)",
     "export fn c(): Promise<void>",
     "export fn d(): Promise<void> rejects(RangeError)",
+    "export fn e(): Promise<void> rejects(RangeError)",
   ]);
 });
 
@@ -475,6 +476,8 @@ export const f = ref({ result: ["value"] }, () => ({ value: () => "s", set(v: st
 export const g = instantiates((t: EventTarget, type: string) => { void t; void type; });
 export const h = server(async () => "secret");
 export const i = client((x = 1, ...rest: string[]) => x + rest.length);
+export const j = rejects([], async (id: number) => id);
+export const k = server(rejects([] as const, async () => 1));
 `);
   assert.deepEqual(r.errors, []);
   assert.deepEqual(rows(r), [
@@ -488,6 +491,8 @@ export const i = client((x = 1, ...rest: string[]) => x + rest.length);
     "export pure fn g(t: EventTarget, type: string): void instantiates",
     "export server fn h(): Promise<string>",
     "export client fn i(x?: number, ...rest: string[]): number",
+    "export fn j(id: number): Promise<number> rejects(nothing)",
+    "export server fn k(): Promise<number> rejects(nothing)",
   ]);
 });
 
@@ -634,7 +639,6 @@ const list = [Error];
 const spec = { args: [0] };
 export const a = rejects(list, async () => 1);
 export const b = rejects([NotErr, Error], async () => 1);
-export const c = rejects([], async () => 1);
 export const d = ref(spec, (s: Accessor<number>) => s);
 export const e = ref({ args: [1] }, (s: Accessor<number>, n: number) => s);
 export const f = ref({ args: [2] }, (s: Accessor<number>) => s);
@@ -653,7 +657,6 @@ declare const n0: number;
   assert.deepEqual(helperErrors(r), [
     `${loc(text, "list, async")} DECLARATION_HELPER`,
     `${loc(text, "NotErr, Error")} DECLARATION_HELPER`,
-    `${loc(text, "[], async")} DECLARATION_HELPER`,
     `${loc(text, "spec, (s")} DECLARATION_HELPER`,
     `${loc(text, "1] }, (s: Accessor<number>, n")} DECLARATION_HELPER`,
     `${loc(text, "2] }")} DECLARATION_HELPER`,
@@ -671,20 +674,19 @@ declare const n0: number;
   const m = r.errors.map(e => e.message);
   assert.match(m[0], /array literal of error classes/);
   assert.match(m[1], /NotErr is not an error class/);
-  assert.match(m[2], /names no rejection/);
-  assert.match(m[3], /object literal/);
-  assert.match(m[4], /n is not an accessor \(`\(\) => T`\); its type is number/);
-  assert.match(m[5], /f has no parameter 2 \(it takes 1\)/);
-  assert.match(m[6], /g's result is not an accessor \(`\(\) => T`\); it is number/);
-  assert.match(m[7], /element 1 of h's result is not an accessor/);
-  assert.match(m[8], /set in i's result is not an accessor/);
-  assert.match(m[9], /s is optional/);
-  assert.match(m[10], /rest parameter/);
-  assert.match(m[11], /has `args` .* and `result`/);
-  assert.match(m[12], /`args` lists parameter indices as a literal/);
-  assert.match(m[13], /o does not return a tuple; name its accessor properties by key/);
-  assert.match(m[14], /marks nothing/);
-  assert.match(m[15], /LooksLike is not an error class/);
+  assert.match(m[2], /object literal/);
+  assert.match(m[3], /n is not an accessor \(`\(\) => T`\); its type is number/);
+  assert.match(m[4], /f has no parameter 2 \(it takes 1\)/);
+  assert.match(m[5], /g's result is not an accessor \(`\(\) => T`\); it is number/);
+  assert.match(m[6], /element 1 of h's result is not an accessor/);
+  assert.match(m[7], /set in i's result is not an accessor/);
+  assert.match(m[8], /s is optional/);
+  assert.match(m[9], /rest parameter/);
+  assert.match(m[10], /has `args` .* and `result`/);
+  assert.match(m[11], /`args` lists parameter indices as a literal/);
+  assert.match(m[12], /o does not return a tuple; name its accessor properties by key/);
+  assert.match(m[13], /marks nothing/);
+  assert.match(m[14], /LooksLike is not an error class/);
   for (const row of rows(r)) assert.doesNotMatch(row, /\b(pure|rejects|ref)\b/, row);
 });
 

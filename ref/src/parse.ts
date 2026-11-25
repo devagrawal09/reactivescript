@@ -235,7 +235,7 @@ export function parseDeclarations(src: string, generated = false): JsDecl[] {
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined;
     if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b/.exec(t); const raw = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim(); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
-    if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c, true) ?? ["Error"]; c.ws(); c.expect(")"); }
+    if (c.keyword("rejects")) { c.ws(); c.expect("("); c.ws(); rejects = c.keyword("nothing") ? [] : parseClasses(c, true) ?? ["Error"]; c.ws(); c.expect(")"); }   // R-f-8: `rejects(nothing)`, a promise that never rejects (absent is `Error`)
     c.ws(false); const written = c.keyword("instantiates");
     const instantiates = written || refs.some(x => x) || shapeHasRef(shape);   // MO-10a: inferred from a ref on either side
     out.push({ kind: "fn", name, pure, params, generics, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(written ? { instWritten: true } : {}) });

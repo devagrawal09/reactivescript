@@ -7,6 +7,7 @@ import { isEntry } from "./project.mjs";
 import { createMcp } from "./mcp.mjs";
 import { project } from "./project.mjs";
 import { allowCoverageSetup } from "./coverage.mjs";
+import { captureRevisions, staleBanner } from "./revision.mjs";
 
 const noPage = "no page connected; open or reload the app in a browser with Vite HMR enabled";
 const send = (res, status, body) => {
@@ -63,6 +64,13 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         }, 150);
       };
       server.watcher.on("all", runtimeChange);
+      // the builds this server runs on: a rebuild on disk is announced first by check and overview
+      const loaded = captureRevisions(root);
+      // what Vite's dev import analysis does with an import of a served module
+      const resolveImport = server.environments?.client?.pluginContainer ? async (spec, importer) => {
+        const r = await server.environments.client.pluginContainer.resolveId(spec, importer);
+        return r && !r.meta?.["vite:alias"]?.noResolved ? r.id : null;
+      } : undefined;
       const hooks = globalThis[Symbol.for("reactivescript.vite.entries")] ??= new Map();
       const hmr = globalThis[Symbol.for("reactivescript.vite.hmr")] ??= new Map();
       const hub = {
@@ -104,7 +112,7 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         if (event === "unlink") { entries.delete(file); frontends.delete(file); lastGood.delete(file); }
         if (file.endsWith(".rx") || file.endsWith(".ts") || file.endsWith("tsconfig.json")) invalidate();
       });
-      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood, frontends });
+      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood, frontends, resolveImport });
       const capacity = 5000, ring = new Array(capacity);
       let seq = 0, mark, lastPage;
       const matchesRecords = (data, filter, { key, instance, kinds, whole } = {}) => {
@@ -207,7 +215,7 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         if (response.error !== undefined) throw new Error(response.error);
         return method === "status" ? { ...response.result, pages: pages.size } : response.result;
       }
-      const mcp = createMcp({ getProject, live, act });
+      const mcp = createMcp({ getProject, live, act, stale: () => staleBanner(loaded) });
       const print = server.printUrls.bind(server);
       server.printUrls = () => {
         print();
