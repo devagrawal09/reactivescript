@@ -58,6 +58,12 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
 }
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);
+if (!lowerMode && !projectMode) {
+  const f = join(root, "tooling/rx-map/test/fixtures/outline.rx");
+  add("view outline", f, disk);
+  add("view outline cap", "cap.rx", p => p === "cap.rx"
+    ? `export default component App() {\nsource count := 1\n<main>${"<p>{count}</p>".repeat(430)}</main>\n}\n` : undefined);
+}
 
 // MO-8c/d: a real, importer-relative API in a mixed value/type import. Exercise
 // this in the lowering comparison rather than the flight-based scenario runners.
@@ -110,7 +116,11 @@ const got = new Map((JSON.parse(out) as any[]).map(x => [x.id, x]));
 let bad = 0;
 for (const r of reqs) {
   const want = refOf(r); const { id: _, spans, ...have } = got.get(r.id) ?? {};
-  const d = diff(want, have) ?? (spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
+  const outline = (value: typeof have) => Object.values(value.models ?? {}).map((m: any) => m.regions.map((r: any) => r.outline));
+  const d = diff(want, have)
+    ?? (JSON.stringify(outline(want)) !== JSON.stringify(outline(have)) ? "outline JSON differs byte-for-byte" : null)
+    ?? (r.id === "view outline cap" && !outline(have)[0]?.some((o: any[]) => o.length === 401 && o.at(-1)?.text === "…") ? "outline cap must keep 400 parts and an ellipsis" : null)
+    ?? (spans && Object.keys(spans).length ? `spans (CP-8): ${JSON.stringify(spans).slice(0, 400)}` : null);
   if (d) { bad++; console.log(`FAIL ${r.id}\n  ${d}`); } else if (verbose) console.log(`ok   ${r.id}`);
 }
 console.log(`${reqs.length - bad}/${reqs.length} programs: the crate agrees with ref/ (AST, diagnostics, signatures, resolved model), and its spans hold (CP-8)`);

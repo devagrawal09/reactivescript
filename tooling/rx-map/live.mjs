@@ -6,7 +6,7 @@
 //
 // The recorder belongs to the app session, not to a particular map iframe.
 import { pageHTML } from "./page.mjs";
-import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE } from "./live-protocol.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "./live-protocol.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
@@ -132,10 +132,13 @@ function connect(hot) {
   const ready = () => hot.send(LIVE_READY);
   bridges.set(hot, request);
   hot.on(LIVE_REQUEST, request);
+  const trace = record => hot.send(LIVE_TRACE, record);
+  recorder.traces.add(trace);
   hot.on("vite:ws:connect", ready);
   const stop = () => {
     if (!bridges.delete(hot)) return;
     hot.off?.(LIVE_REQUEST, request);
+    recorder.traces.delete(trace);
     hot.off?.("vite:ws:connect", ready);
   };
   hot.dispose?.(stop);
@@ -145,7 +148,7 @@ function connect(hot) {
 
 function getRecorder() {
   if (recording) return recording;
-  const size = 2000, ring = new Array(size), listeners = new Set();
+  const size = 2000, ring = new Array(size), listeners = new Set(), traces = new Set();
   // The timeline: one step per flush, `capacity` of them (TRACE-CONTRACT §4). Beside each step, the engine nodes it
   // changed and what each showed before, which is what travel pins (Solid's openView).
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
@@ -170,8 +173,10 @@ function getRecorder() {
     for (let i = Math.max(0, since, seq - limit); i < seq; i++) records.push(ring[i % size]);
     return records;
   };
-  const addRecord = msg => {
+  const addRecord = (msg, internal) => {
     const { source, v, ...record } = msg;
+    for (const trace of traces) trace(internal?.length ? { ...record, changes: [...record.changes, ...internal] } : { ...record });
+    if (record.type === "flush" && !record.changes.length) return;
     record.seq = ++seq;
     ring[(seq - 1) % size] = record;
     return record;
@@ -244,7 +249,7 @@ function getRecorder() {
     internals[i] = internal;
     // Solid records a store guess on the store's guess carrier (`<store>.$guess`), not on the property nodes it moves
     guesses[i] = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
-    const record = changes.length && addRecord({ type: "flush", at, changes });
+    const record = addRecord({ type: "flush", at, changes }, internal);
     for (const c of changes) if (c.key) {
       if (c.preview !== undefined) latest.set(c.key, c);
       last.set(c.key, { change: c, record });
@@ -376,7 +381,7 @@ function getRecorder() {
     const old = latest.get(key);
     // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.
     const legacy = !globalThis.__RX_NODES__ && old;
-    return { key, ...(legacy ? { preview: old.preview, full: old.full } : {}), pending: !!flight,
+    return { key, ...(!legacy && !flight ? { observation: "unobserved" } : {}), ...(legacy ? { preview: old.preview, full: old.full } : {}), pending: !!flight,
       ...(flight ? { since: flight.since } : {}), ...locate(key) };
   }
   function pending() {
@@ -579,7 +584,7 @@ function getRecorder() {
     if (step) publishStep(step, internal);
     queueReconcile();
   }
-  function query(method, { key, since = 0, limit = 20 } = {}) {
+  function query(method, { key, keys = [], since = 0, limit = 20 } = {}) {
     const known = () => {
       if (typeof key !== "string" || !key) throw new Error("provide a key from find");
       const keys = [...last.keys(), ...graphs.flatMap(g => g.nodes.map(n => n.key))];
@@ -600,10 +605,24 @@ function getRecorder() {
         known();
         return current(key, flightKeys().get(key));
       }
+      case "boundary_history": {
+        const ref = [...regionRefs()].find(([, region]) => region === key)?.[0];
+        const state = allBoundaries().find(b => b.region === key);
+        if (!state) throw new Error(`unknown boundary ${key}`);
+        const notifiers = new Set(Array.isArray(keys) ? keys : []);
+        let origin;
+        const history = recent().filter(r => r.region === key || (r.type === "flight" && notifiers.has(r.key))).slice(-16).map(r => {
+          if (r.type === "flight") { origin = r.origin; return r; }
+          const result = origin ? { ...r, origin } : r;
+          origin = undefined;
+          return result;
+        });
+        return { ...state, ...(!globalThis.__RX_BOUNDARIES__?.has(ref) ? { observation: "not created yet" } : {}), history };
+      }
       case "state":
         if (key !== undefined) {
           const boundary = allBoundaries().find(b => b.region === key);
-          if (boundary) return boundary;
+          if (boundary) return query("boundary_history", { key });
           known();
           return { ...current(key, flightKeys().get(key)), held: held.get(key), runs: [...runs.values()].filter(r => r.key === key) };
         }
@@ -613,22 +632,40 @@ function getRecorder() {
         known();
         const hit = last.get(key);
         const related = new Set([key]);
+        const chain = [];
+        const changed = new Map(hit?.record.changes.map(c => [c.key, c]));
+        const upstream = new Set([key]);
         for (const g of graphs) {
           const byId = new Map(g.nodes.map(n => [n.id, n.key]));
-          for (const e of g.edges) if (e.type === "write" && byId.get(e.to) === key) related.add(byId.get(e.from));
+          const walk = (to, depth) => {
+            if (depth > 5 || chain.length >= 24) return;
+            for (const e of g.edges) {
+              const from = byId.get(e.from);
+              if (!from || byId.get(e.to) !== to) continue;
+              if (e.type === "write") related.add(from);
+              if (e.type !== "read" && e.type !== "passes") continue;
+              if (upstream.has(from)) continue;
+              upstream.add(from);
+              if (changed.has(from)) chain.push({ ...changed.get(from), depth });
+              walk(from, depth + 1);
+            }
+          };
+          walk(key, 1);
         }
-        const events = recent().filter(r => ["run", "revert", "held", "released"].includes(r.type) && related.has(r.key)).slice(-10);
+        const events = recent().filter(r => (["run", "revert", "held", "released"].includes(r.type) && related.has(r.key)) ||
+          (r.type === "flight" && upstream.has(r.key))).slice(-16);
+        const readers = [...held.values()].filter(h => h.by.some(k => upstream.has(k))).map(h => ({ ...h, ...locate(h.key) }));
         const state = current(key, flightKeys().get(key));
-        if (!hit) return { ...state, others: [], events };
+        if (!hit) return { ...state, others: [], events, chain, readers };
         const { change, record } = hit;
         const others = [...new Map(record.changes.filter(c => c.key && c.key !== key).map(c => [c.key, c])).values()];
-        return { ...change, seq: record.seq, at: record.at, others, events, current: state };
+        return { ...change, seq: record.seq, at: record.at, others, events, chain, readers, current: state };
       }
       case "pending": return pending();
       default: throw new Error("unknown live method; use status, tail, state, value, why, or pending");
     }
   }
-  return recording = { listeners, query, snapshot, timeline, travel, resume };
+  return recording = { listeners, traces, query, snapshot, timeline, travel, resume };
 }
 
 // ---- read-only while viewing ----------------------------------------------------------------------------------------
@@ -856,7 +893,9 @@ export function mergeGraphs(list) {
     for (const r of g.regions) {
       if (mod[r.mod].shared) continue;
       if (r.key) byKey.set(r.key, map.get(r.id));
-      out.regions.push({ ...r, id: map.get(r.id), mod: mod[r.mod].i, parent: r.parent == null ? null : map.get(r.parent) ?? re(r.parent) });
+      out.regions.push({ ...r, id: map.get(r.id), mod: mod[r.mod].i, parent: r.parent == null ? null : map.get(r.parent) ?? re(r.parent),
+        ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: map.get(p.site) }
+          : "region" in p ? { ...p, region: map.get(p.region) } : p) } : {}) });
     }
     for (const n of g.nodes) {
       if (mod[n.mod].shared) continue;

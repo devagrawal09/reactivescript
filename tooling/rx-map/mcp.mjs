@@ -21,7 +21,9 @@ const tools = [
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
   tool("tail", "Read recent flushes, flights, boundaries, runs and reverts. since is an exclusive record sequence number.",
-    { since: integer(0), limit: { ...integer(1), maximum: 2000 } }),
+    { since: integer(0), limit: { ...integer(1), maximum: 5000 }, filter: { type: "string", enum: ["semantic", "all"] } }),
+  { ...tool("record", "Mark and retrieve a trace recording.", { action: { type: "string", enum: ["start", "stop", "status"] },
+    filter: { type: "string", enum: ["semantic", "all"] } }, ["action"]), annotations: { readOnlyHint: false } },
   tool("value", "Read the latest value preview for a key in the running page.", { key: str }, ["key"]),
   tool("state", "Read current value, pending and error for a key, or current values, flights, tripped boundaries, running actions and recent reverts.", { key: str }),
   tool("why", "Show current state, the last change, other keys in that flush, and related actions and reverts.", { key: str }, ["key"]),
@@ -66,8 +68,9 @@ async function liveCall(dev, method, params) {
 }
 
 /** Serve newline-delimited JSON-RPC over stdio (or supplied Node streams). */
-export async function serveMcp({ input = process.stdin, output = process.stdout, dev = process.env.RX_DEV_URL, ...options } = {}) {
-  const app = project(options);
+export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (method, p) => liveCall(dev, method, p), ...options } = {}) {
+  const local = getProject ? null : project(options);
+  const projectFor = getProject ?? (() => local);
   const call = async ({ name, arguments: args = {} } = {}) => {
     try {
       const t = tools.find(t => t.name === name);
@@ -77,19 +80,30 @@ export async function serveMcp({ input = process.stdin, output = process.stdout,
       let answer;
       if (liveMethods.has(name)) {
         const method = liveMethods.get(name);
-        const data = await liveCall(dev, method, p);
+        const data = await live(method, p).catch(e => {
+          if (["state", "value"].includes(method) && /no (dev server|page)/.test(e.message)) return { key: p.key, observation: "unobserved" };
+          throw e;
+        });
         answer = { data, text: liveText(method, data) };
       } else if (name === "check") {
-        const data = app.check();
-        answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column}  ${d.severity} ${d.code}  ${d.message}`).join("\n") || "ok" };
+        const data = projectFor().check();
+        answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`).join("\n") || "ok" };
       } else if (name === "diff") {
-        try { answer = queryDiff(app.diff(p.ref ?? "HEAD")); }
+        try { answer = queryDiff(projectFor().diff(p.ref ?? "HEAD")); }
         catch (e) { throw new Error(`${errorMessage(e)}\nUse an existing Git ref and check that both versions compile.`); }
-      } else answer = queryGraph(app.load().graph, name, p);
+      } else {
+        answer = queryGraph(projectFor().load().graph, name, p);
+        if (name === "boundary" && p.key && (dev || getProject)) {
+          answer.data.live = await live("boundary_history", { key: p.key, keys: answer.data.notifiers.map(n => n.key) })
+            .catch(() => ({ observation: "unobserved" }));
+          answer.text += `\n${liveText("boundary_history", answer.data.live)}`;
+        }
+      }
       return { content: [textContent(format === "json" ? JSON.stringify(answer.data, null, 2) : answer.text)] };
     } catch (e) { return { isError: true, content: [textContent(errorMessage(e))] }; }
   };
   async function dispatch(method, params) {
+    const app = { load: () => projectFor().load() };
     switch (method) {
       case "initialize": {
         const v = params?.protocolVersion;
@@ -109,26 +123,35 @@ export async function serveMcp({ input = process.stdin, output = process.stdout,
       default: throw invalid(-32601, `method not found: ${method}`);
     }
   }
-  const send = msg => output.write(JSON.stringify({ jsonrpc: "2.0", ...msg }) + "\n");
-  const failure = (id, code, message) => send({ id, error: { code, message } });
-  const active = new Set();
-  async function receive(line) {
-    let msg;
-    try { msg = JSON.parse(line); } catch { failure(null, -32700, "parse error"); return; }
+  return async function receive(msg) {
+    const failure = (id, code, message) => ({ jsonrpc: "2.0", id, error: { code, message } });
     const id = msg?.id;
     const validId = typeof id === "string" || Number.isSafeInteger(id);
     if (!object(msg) || msg.jsonrpc !== "2.0" || typeof msg.method !== "string" || (Object.hasOwn(msg, "id") && !validId)) {
-      failure(validId ? id : null, -32600, "invalid request");
-      return;
+      return failure(validId ? id : null, -32600, "invalid request");
     }
     if (!validId) return; // Client notifications require no response.
-    if (msg.params !== undefined && !object(msg.params)) { failure(id, -32602, "params must be an object"); return; }
-    try { send({ id, result: await dispatch(msg.method, msg.params) }); }
-    catch (e) { failure(id, e.rpcCode ?? -32603, errorMessage(e)); }
+    if (msg.params !== undefined && !object(msg.params)) return failure(id, -32602, "params must be an object");
+    try { return { jsonrpc: "2.0", id, result: await dispatch(msg.method, msg.params) }; }
+    catch (e) { return failure(id, e.rpcCode ?? -32603, errorMessage(e)); }
+  };
+}
+
+export async function serveMcp({ input = process.stdin, output = process.stdout, ...options } = {}) {
+  const receive = createMcp(options);
+  const active = new Set();
+  async function receiveLine(line) {
+    let msg;
+    try { msg = JSON.parse(line); } catch {
+      output.write('{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"parse error"}}\n');
+      return;
+    }
+    const reply = await receive(msg);
+    if (reply) output.write(JSON.stringify(reply) + "\n");
   }
   for await (const line of createInterface({ input, crlfDelay: Infinity, terminal: false })) {
     if (!line.trim()) continue;
-    const task = receive(line);
+    const task = receiveLine(line);
     active.add(task);
     void task.finally(() => active.delete(task));
   }

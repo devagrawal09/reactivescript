@@ -7,7 +7,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
-import { ModelBuilder, declKeys, moduleKey, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Model, type RegionKind, type CompKind, type OutlinePart } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
@@ -1116,60 +1116,81 @@ class Checker {
   // ---- views ----
   private markup(ms: Markup[], env: Env, viewRoot = false) {
     let styles = 0;
+    const put = (part: OutlinePart) => this.model.outline(env.region.id, part);
+    const site = () => put({ site: this.model.computations.length, line: this.line });
     for (const m of ms) {
       if (m.line) this.line = m.line;
       switch (m.k) {
-        case "text": break;
+        case "text": put({ text: m.s }); break;
         case "style":                                                                         // 07 §6b CSS-1
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": site(); this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
+          const block = outlineBlock(m.tag);
+          if (block || m.tag === "br") put({ br: true, line: m.line });
+          const attr = (a: typeof m.attrs[number]) => {
+            if (outlineHidden(m.tag)) return;
+            if (a.e.k === "lit") this.model.viewAttr(env.region.id, a.name, a.e.v, this.line);
+            else site();
+          };
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
+            for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); } // R-2
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
+              put({ region: kids.id, line: m.line });
               this.markup(m.children, new Env(env, kids));
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          const hidden = Number(outlineHidden(m.tag));
+          this.model.hideOutline += hidden;
           this.markup(m.children, env);
+          this.model.hideOutline -= hidden;
+          if (block) put({ br: true });
           break;
         }
         case "mif": {
+          site();
           this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
-          this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
-          this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
+          const t = this.region(env.region, "then"); put({ region: t.id, line: m.line });
+          this.block(m.tDecls, m.t, new Env(env, t), { scope: "reactive" });
+          const f = this.region(env.region, "else"); if (m.f.length || m.fDecls.length) put({ region: f.id, line: m.line });
+          this.block(m.fDecls, m.f, new Env(env, f), { scope: "reactive" });
           break;
         }
         case "mfor": {
+          site();
           this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
+          put({ region: r.id, line: m.line });
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
         case "loading": {
-          if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
+          if (m.on) { site(); const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
           this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           if (m.on) this.loadOns.push({ region: body, e: m.on, env, line: this.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
         case "portal": {                                                                      // RG-8: a region owned here, rendered elsewhere
-          if (m.to) { const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
+          if (m.to) { site(); const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
           const body = this.region(env.region, "portal"); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           this.later.push(() => this.contentCheck(m.body, env, ["body"]));                     // its place is the end of the document
           break;
@@ -1180,6 +1201,7 @@ class Checker {
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
           const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
           this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }

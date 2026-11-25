@@ -102,7 +102,9 @@ async function openApp(query = "") {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
-  page.on("console", m => { if (m.type() === "error" || m.type() === "warning") errors.push(m.text()); });
+  // Solid's timing diagnostics (HOT_SCOPE_TIME…) depend on machine load, not on correctness: not page errors here.
+  const timing = /^\[(HOT_SCOPE_TIME|SLOW_[A-Z_]+)\]/;
+  page.on("console", m => { if ((m.type() === "error" || m.type() === "warning") && !timing.test(m.text())) errors.push(m.text()); });
   await page.goto(`${origin}/${query}`);
   await page.waitForFunction(() => globalThis.__RX__?.attach && document.querySelector(".counts"), null, { timeout: 15000 });
   await waitIdle(page);

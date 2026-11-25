@@ -2894,6 +2894,7 @@ impl<'a> Checker<'a> {
 
     // ---- views ----
     fn markup(&mut self, ms: &'a [Markup], env: EId, view_root: bool) {
+        use crate::model::{outline_block, outline_hidden, OutlinePart::*};
         let mut styles = 0;
         for m in ms {
             if let Some(l) = m.line {
@@ -2901,7 +2902,7 @@ impl<'a> Checker<'a> {
             }
             let region = self.reg(env);
             match &m.kind {
-                MarkupKind::Text(_) => {}
+                MarkupKind::Text(text) => self.model.outline(region, Text(text.clone()), None),
                 MarkupKind::Style(_) => {
                     if !view_root {
                         self.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there".into());
@@ -2913,10 +2914,14 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
                 }
                 MarkupKind::El { tag, attrs, children } => {
+                    let hidden = outline_hidden(tag);
+                    let block = outline_block(tag);
+                    if block || tag == "br" { self.model.outline(region, Br, m.line); }
                     if is_upper_tag(tag) {
                         let s = self.lookup(env, tag);
                         let is_comp = s.is_some_and(|s| self.syms[s].kind == SymKind::Comp);
@@ -2924,6 +2929,7 @@ impl<'a> Checker<'a> {
                             self.err("UNKNOWN_COMPONENT", "RG-4a", format!("<{}> is not a component declared here", tag));
                         }
                         for a in attrs {
+                            self.model.view_attr(region, &a.name, &a.e.k, self.line as usize);
                             let h = is_handler(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                             self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
@@ -2933,6 +2939,7 @@ impl<'a> Checker<'a> {
                             self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: attrs.iter().filter(|a| !is_handler(&a.name)).map(|a| (field_of(&a.name), &a.e, env)).collect(), passed: attrs.iter().map(|a| (field_of(&a.name), &a.e, env)).collect() });
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
+                            self.model.outline(region, Region(self.regions[kids].id), m.line);
                             let kenv = self.env(Some(env), kids);
                             self.markup(children, kenv, false);
                         } else {
@@ -2941,6 +2948,7 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     for a in attrs {
+                        if !hidden { self.model.view_attr(region, &a.name, &a.e.k, self.line as usize); }
                         let h = is_handler(&a.name);
                         let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                         self.comp(if h { "handler" } else { "reader" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
@@ -2950,19 +2958,26 @@ impl<'a> Checker<'a> {
                             self.handlers.push(HandlerRec { attrs, kids: children, h: &a.e, env, region, line: self.line, what: format!("<{}> {}", tag, a.name) });
                         }
                     }
+                    self.model.hide_outline += usize::from(hidden);
                     self.markup(children, env, false);
+                    self.model.hide_outline -= usize::from(hidden);
+                    if block { self.model.outline(region, Br, None); }
                 }
                 MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("if".into()), |cc| cc.expr(c, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e: c, env, line: self.line });
                     let r = self.region(Some(region), "then", false, None);
+                    self.model.outline(region, Region(self.regions[r].id), m.line);
                     let e1 = self.env(Some(env), r);
                     self.block(t_decls, t, e1, Ctx::reactive());
                     let r = self.region(Some(region), "else", false, None);
+                    if !f.is_empty() || !f_decls.is_empty() { self.model.outline(region, Region(self.regions[r].id), m.line); }
                     let e2 = self.env(Some(env), r);
                     self.block(f_decls, f, e2, Ctx::reactive());
                 }
                 MarkupKind::Mfor { name, xs, decls, body } => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("for".into()), |c| c.expr(xs, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e: xs, env, line: self.line });
                     let src = if let ExprKind::Id(n) = &xs.k { self.lookup(env, n) } else { None };
@@ -2970,6 +2985,7 @@ impl<'a> Checker<'a> {
                         self.err("UNSTABLE_LIST_IDENTITY", "ST-4b", format!("for {} in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)", name));
                     }
                     let r = self.region(Some(region), "for", false, None);
+                    self.model.outline(region, Region(self.regions[r].id), m.line);
                     let inner = self.env(Some(env), r);
                     let s = self.new_sym(Sym::new(SymKind::Value, name, r, self.line));
                     self.envs[inner].vars.insert(name.clone(), s);
@@ -2977,11 +2993,13 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Loading { on, fallback, decls, body } => {
                     if let Some(on) = on {
+                        self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                         self.comp("reader", env, None, Some("loading on".into()), |c| c.expr(on, env, Ctx::reactive(), None));
                         self.readers.push(ReaderRec { region, e: on, env, line: self.line });
                     }
                     self.markup(fallback, env, false);
                     let b = self.region(Some(region), "loading", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
                     self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].provides.insert(HOLD.into());
                     if let Some(on) = on {
@@ -2992,10 +3010,12 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Portal { to, decls, body } => {
                     if let Some(to) = to {
+                        self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                         self.comp("reader", env, None, Some("portal to".into()), |c| c.expr(to, env, Ctx::reactive(), None));
                         self.readers.push(ReaderRec { region, e: to, env, line: self.line });
                     }
                     let b = self.region(Some(region), "portal", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
                     self.regions[b].provides.insert(HOLD.into());
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
@@ -3013,6 +3033,7 @@ impl<'a> Checker<'a> {
                         }
                     }
                     let b = self.region(Some(region), "errored", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
                     self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);

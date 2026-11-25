@@ -18,7 +18,13 @@ export function diffGraphs(A, B) {
   const regMap = new Map();   // A region id → union region id
   for (const r of A.regions) regMap.set(r.id, regB.get(r.key)?.id ?? `a:${r.id}`);
   const regKeysA = new Set(A.regions.map(r => r.key));
-  const regions = B.regions.map(r => ({ ...r, status: regKeysA.has(r.key) ? "same" : "added" }));
+  const regA = new Map(A.regions.map(r => [r.key, r]));
+  const outlineText = r => JSON.stringify(r.outline?.filter(p => "text" in p).map(p => [p.attr ?? "", p.text]));
+  const regions = B.regions.map(r => {
+    const old = regA.get(r.key);
+    const textChanged = old?.outline && r.outline && outlineText(old) !== outlineText(r);
+    return { ...r, status: textChanged ? "changed" : regKeysA.has(r.key) ? "same" : "added", ...(textChanged ? { reason: "text changed" } : {}) };
+  });
   for (const r of A.regions) if (!regB.has(r.key)) regions.push({ ...r, id: `a:${r.id}`, mod: modA[r.mod], parent: r.parent == null ? null : regMap.get(r.parent), status: "removed" });
 
   // ---- nodes: named ones by key; sites by place, then by what they read, then in line order
@@ -35,6 +41,10 @@ export function diffGraphs(A, B) {
     left.forEach((a, i) => { if (bs[i]) match.set(a.id, bs[i].id); });
   }
   const back = new Map([...match].map(([a, b]) => [b, a]));
+  for (const r of regions) if (r.status === "removed" && r.outline) {
+    r.outline = r.outline.map(p => "region" in p ? { ...p, region: regMap.get(p.region) }
+      : "site" in p ? { ...p, site: match.get(p.site) ?? `a:${p.site}` } : p);
+  }
   const nodeA = new Map(A.nodes.map(n => [n.id, n]));
   const textA = n => A.lines[n.file]?.[n.line]?.trim() ?? "";
   const textB = n => B.lines[n.file]?.[n.line]?.trim() ?? "";
