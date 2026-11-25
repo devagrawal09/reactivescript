@@ -133,6 +133,7 @@ named.
 | `CLIENT_QUESTION_UNHELD`          | S   | 10 SV-7b: a client question's reader with no `loading` above it on some path (Solid: `ASYNC_OUTSIDE_LOADING_BOUNDARY`, at run time) | S-server-3 |
 | `CLIENT_NOT_AWAITED`              | S   | 12 SF-5b | S-server-3 |
 | `STYLE_PLACEMENT`                 | S   | 07 CSS-1: a `<style>` off its view's top level, or a second one | S-surface-2 |
+| `STYLE_SCOPE`                     | S   | 07 CSS-2: a `<style>` class matches an element of another component in the file, which is its own view | S-surface-2 |
 | `UNTIL_PREDICATE`                 | S   | 06 AC-6: `until`'s argument is not a predicate `() => e` | S-action-2 |
 | `HOOK_CALLBACK` (new)             | S   | 02 EF-7, EF-8: `onSettled`'s or `onFlush`'s argument is not a closure `() => { … }` | S-flush-1 |
 | `SETTLED_CLEANUP_UNOWNED`, `IO_IN_REACTIVE` (EF-7, EF-8) | S | an `onSettled` callback returning a cleanup; either hook called in reactive scope | S-settled-1, S-flush-1 |

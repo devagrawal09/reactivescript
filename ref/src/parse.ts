@@ -84,7 +84,7 @@ class Cursor {
   }
 }
 
-/** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `=>`, `{` when `braceStops`). 07 §2. */
+/** A TypeScript type, kept as text: balanced up to a depth-0 stop (`=`, `:=`, `,`, `)`, `}`, `=>`, `{` when `braceStops`). 07 §2. `}` at depth 0 closes the block or JSX expression around an `as`. */
 /** A type's text, up to where the declaration goes on. `=>` inside brackets is a function type, as it is anywhere in a
  *  type alias (`arrows`); elsewhere at the top it starts a body (`fn f(): T => …`). */
 function parseType(c: Cursor, braceStops = false, arrows = false): string {
@@ -93,7 +93,7 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
     const ch = c.peek();
     if (c.startsWith("=>") && (depth > 0 || arrows)) { c.i += 2; continue; }
     if (depth === 0) {
-      if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
+      if (c.startsWith("//") || c.startsWith("=>") || c.startsWith(":=") || ch === "=" || ch === "," || ch === ")" || ch === "}" || ch === ";" || ch === "\n" || (braceStops && ch === "{")) break;
     }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
@@ -495,8 +495,22 @@ function parseExprNoCatch(c: Cursor): Expr {
       c.expect("=>"); c.ws();
       if (c.peek() === "{") {                                        // `=> { … }`: a statement body (imperative scope) unless it reads as a record literal
         const at = c.i;
-        try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts }; } catch (e) { if (!(e instanceof ParseError)) throw e; }
+        let stmtErr: ParseError | undefined;
+        try { const stmts = parseBlock(c); if (stmts.some(st => !(st.k === "expr" && st.e.k === "id"))) return { k: "fn", params, body: { k: "lit", v: undefined }, stmts }; }
+        catch (e) { if (!(e instanceof ParseError)) throw e; stmtErr = e; }
         c.i = at;
+        // A handler is a statement body. If that reading fails and the record reading does too, report the statement
+        // error — the record reading fails at the first `let` and the hint then blames a local that is in a handler.
+        try { return { k: "fn", params, body: parseExpr(c) }; }
+        catch (e) {
+          if (!(e instanceof ParseError)) throw e;
+          // The statement error wins when it names the habit. Otherwise the expression error does (`n++`), except
+          // JS_LOCAL, which the record reading blames on a `let` that is already in the handler.
+          if (stmtErr && stmtErr.code !== "PARSE") throw stmtErr;
+          if (e.code !== "PARSE" && e.code !== "JS_LOCAL") throw e;
+          if (stmtErr) throw stmtErr;
+          throw e;
+        }
       }
       return { k: "fn", params, body: parseExpr(c) };
     }

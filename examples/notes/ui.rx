@@ -5,6 +5,10 @@ import { open, save, saveError } from "./data.rx"
 export error TitleRequired() => "a note needs a title"
 
 component Row(props: { note: Note }) {
+  <style>
+    td { padding: 4px 8px }
+    .when { color: gray; text-align: right }
+  </style>
   <tr>
     <td><a onClick={() => { open(props.note.id) }}>{props.note.title}</a></td>
     <td class="when">{props.note.updated}</td>
@@ -14,8 +18,6 @@ component Row(props: { note: Note }) {
 export component NoteList(props: { notes: Note[] }) {
   <style>
     table { border-collapse: collapse; width: 100% }
-    td { padding: 4px 8px }
-    .when { color: gray; text-align: right }
     .empty { font-style: italic }
   </style>
   if len(props.notes) == 0 {
