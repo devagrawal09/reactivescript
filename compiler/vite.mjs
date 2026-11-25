@@ -135,9 +135,9 @@ export default function rx() {
           continue; // let Vite show its diagnostics; the last good graph is still live
         }
         const graph = graphOf(entry, root);
-        const changed = new Set([entry, file, ...old.graph.absModules.filter(f => !next.out.modules[f])]);
+        const changed = new Set(old.graph.absModules.filter(f => !next.out.modules[f]));
         for (const [f, m] of Object.entries(next.out.modules))
-          if (m.code !== old.build.out.modules[f]?.code) changed.add(f);
+          if (m.code !== old.build.out.modules[f]?.code || m.css !== old.build.out.modules[f]?.css) changed.add(f);
         // Cached factories close over their imports: refresh transitive importers
         // too, but keep siblings with no dependency on the edit.
         for (let count = -1; count !== changed.size;) {
@@ -148,6 +148,7 @@ export default function rx() {
         const update = {
           type: "hmr", phase: "plan", id: randomUUID(), modules: [path.relative(root, file).split(path.sep).join("/")],
           graph, plan: planHmr(old.graph, graph), changedModules: [...changed].map(f => path.relative(root, f).split(path.sep).join("/")),
+          metadataOnly: changed.size === 0,
           from: old.revision, to: revision(graph),
         };
         programs.set(entry, { graph, revision: update.to, update, build: next });

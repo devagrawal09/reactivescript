@@ -3,6 +3,7 @@
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
+import { actionInput } from "./action-input.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import {
@@ -45,7 +46,7 @@ let rxKey: string | null = null;
 type Carry = { value: unknown; keepAnswer?: boolean; instance?: string };
 let consumedCarry: { replaces?: string; carryStatus: string } | undefined;
 type CarryGroup = { entries: Carry[]; used: number };
-type DeferredCarries = Map<string, { path: string; value: Carry }>;
+type DeferredCarries = Map<string, { path: string; value: Carry; used?: () => void }>;
 let instanceId = 0;
 let rxInstance: string | undefined;
 type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
@@ -244,12 +245,10 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const reads = RX_INSTRUMENT ? new Set<Inspect>() : undefined;
   let carries: Map<string, CarryGroup> | undefined;
   let deferred: DeferredCarries | undefined;
-  let deferredUntil: ReturnType<typeof setTimeout> | undefined;
   const inputEvents = ["pointerdown", "keydown", "input", "click"];
   const clearDeferred = () => {
     if (!deferred) return;
     deferred = undefined;
-    clearTimeout(deferredUntil);
     for (const type of inputEvents) opts.root?.removeEventListener?.(type, clearDeferred, true);
   };
   const takeCarry = () => {
@@ -258,8 +257,9 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     if (group) return group.entries[group.used++];
     const seed = deferred?.get(rxKey);
     if (!seed || pathOfKey(rxKey)?.join("/") !== seed.path) return;
-    deferred!.delete(rxKey);
-    if (!deferred!.size) clearDeferred();
+    // There may be a second candidate mount as the pending ancestor lands.
+    // Keep the seed for the bounded replacement window, not for user remounts.
+    seed.used?.();
     return seed.value;
   };
   // Only a Vite hot boundary enables persistent module owners. Do not change
@@ -432,6 +432,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
         } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
         return (...a: unknown[]) => {
+          a = untrack(() => actionInput(a, $TARGET));
           const id = ++runId;
           trace({ type: "run", key, id, ownerPath, state: "start", args: a });
           const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
@@ -443,7 +444,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         };
       }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
-      return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
+      return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a, $TARGET))); p.catch(e => { app.asyncError = e; }); return p; };
     },
     traceCallback<T extends (...args: any[]) => any>(fn: T): T {
       const origin = currentAction ?? callbackOrigin;
@@ -590,13 +591,17 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           m.dispose();
         }
       },
-      defer(seeds: DeferredCarries) {
+      async defer(seeds: DeferredCarries) {
         // Without a pending read the branch is absent, not waiting to mount.
-        if (!seeds.size || ![...reads!].some(read => read(() => undefined).pending)) return;
+        const pending = () => [...reads!].some(read => read(() => undefined).pending);
+        if (!seeds.size || !pending()) return;
         deferred = seeds;
         // Never restore a stale draft on a later user-driven remount.
         for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
-        deferredUntil = setTimeout(clearDeferred, 3000);
+        const deadline = performance.now() + 10000;
+        while (deferred === seeds && pending() && performance.now() < deadline)
+          await new Promise(resolve => setTimeout(resolve, 16));
+        if (deferred === seeds) clearDeferred();
       },
       end() { carries = undefined; },
     },

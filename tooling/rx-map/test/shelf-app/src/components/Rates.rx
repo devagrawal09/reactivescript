@@ -1,0 +1,5 @@
+source updates := 0
+
+export component Rates() {
+  <button type="button" data-testid="hmr-rates" onClick={() => { updates := n => n + 1 }}>{updates}</button>
+}

@@ -296,7 +296,7 @@ export component PlanPanel() {
       <h3 class="plan-lost">{`Not carried · ${pv.uncarried.length}`}</h3>
       <p class="hint" style={{ margin: "0 0 4px" }}>{`its state couldn't be carried over: the host fell back to ${pv.fallback == "" ? "a refresh" : `a ${pv.fallback}`}`}</p>
       <ul class="plan-list">
-        {for it in pv.uncarried { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">uncarried</span></li> }}
+        {for it in pv.uncarried { <li><span class="ico-b" innerHTML={icon("reset")}></span><a href="#" data-key={it.key} class="mono">{it.name}</a><span class="tag">{it.reason}</span></li> }}
       </ul>
     }}
     {if pv.reseeded.length > 0 {

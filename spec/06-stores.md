@@ -230,12 +230,18 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   all 76 eval .rx apps and the repository's examples it fires on those 3
   runs only (S-infer-6).
 - **AC-1f (Calls pass the parameters).** [taken by default 2026-11-14] A
-  call of an action declared in the module passes one argument per
+  call captures store values before the action starts, including stores
+  nested inside plain records or arrays. They retain the contents seen
+  at the call (W-4); subsequent writes cannot change that input. Data
+  that contains no store, functions, and opaque JS objects retain identity.
+  A call of an action declared in the module passes one argument per
   parameter; any other count is `ARGUMENT_COUNT` (static). The parameters
   are the action's whole input: a missing one is `undefined` in the body
   and an extra one is dropped, silently either way. An action imported from
   an `.rx` module or passed as a prop is not checked (its signature carries
-  no parameters yet, MO-3). Found by the eval board (r15prep,
+  no parameters yet, MO-3). Parameters have no defaults
+  (`ACTION_PARAMETER_DEFAULT`); pass the intended value at the call.
+  Found by the eval board (r15prep,
   `check-accepts-arity-and-missing-props.rx`; S-check-1).
 - **AC-1g (An answer takes only what is the server's).** [taken by default
   2026-11-17] In a declared action, a write after an `await` into a source

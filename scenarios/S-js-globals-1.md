@@ -1,4 +1,4 @@
-# S-js-globals-1 — JavaScript globals are not in scope
+# S-js-globals-1 — host JavaScript globals are not in scope
 
 Rules exercised: SV-7a, MO-8c.
 
@@ -14,9 +14,9 @@ export default component App() { <p>ok</p> }
 | --- | --- | --- |
 | 0 | mount | `ok` |
 
-## Rejected: Number and Math must be imported
+## Rejected: browser globals must be imported
 
 ```rx
 -- reject: UNBOUND
-export default component App() { <p>{Number("1")}{Math.floor(1.2)}</p> }
+export default component App() { <p>{window.location.href}</p> }
 ```

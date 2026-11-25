@@ -371,20 +371,6 @@ function getRecorder() {
     }
     // New flights will be recorded separately; give their landings the HMR origin.
     const after = valueFrame(keys);
-    for (const [key, all] of instanceFrame(keys)) {
-      const old = oldInstances.get(moved.get(key) ?? key) ?? [];
-      const gone = old.filter(read => !all.includes(read));
-      const born = all.filter(read => !old.includes(read));
-      for (const read of born) {
-        // Carry provides the exact predecessor. For resets, only infer a
-        // replacement when there is one candidate in this owner path.
-        const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
-        const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
-        if (!from) continue;
-        const status = read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
-        continuity.set(read, { from, to: read.instance, status });
-      }
-    }
     for (const key of [...plan.rerun, ...plan.reset, ...plan.added])
       if ([...flights.values()].some(f => f.key === key) || inspect(key)?.pending) hmrAnswers.set(key, `hmr ${id}`);
     const changes = [], raw = [], inexact = new Set();
@@ -411,9 +397,31 @@ function getRecorder() {
     replacing = null;
     // Start a timeline seam even if the edit only changed the view, not its values.
     addStep(performance.now(), changes, raw, [], false, `hmr ${id}`, [...inexact]);
+    // Async remounts record their own flushes while the carry result settles.
+    try {
+      fallback = await fallback;
+    } catch (e) {
+      hmr({ phase: "failed", id, error: errorPreview(e), fallback: "none" });
+      queueReconcile();
+      return;
+    }
+    for (const [key, all] of instanceFrame(keys)) {
+      const old = oldInstances.get(moved.get(key) ?? key) ?? [];
+      const gone = old.filter(read => !all.includes(read));
+      const born = all.filter(read => !old.includes(read));
+      for (const read of born) {
+        // Carry provides the exact predecessor. For resets, only infer a
+        // replacement when there is one candidate in this owner path.
+        const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
+        const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
+        if (!from) continue;
+        const status = fallback.has(key) ? "reset" : read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
+        continuity.set(read, { from, to: read.instance, status });
+      }
+    }
     const changed = new Set([...plan.reset, ...plan.rerun, ...plan.added]);
     hmr({ phase: "done", id, changes: changes.filter(c => changed.has(c.key)),
-      ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback].sort() } : {}) });
+      ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback.keys()].sort(), uncarriedReasons: Object.fromEntries(fallback) } : {}) });
     queueReconcile();
   }
   const shownLast = new WeakMap(); // engine node → the value last recorded for it (a landing's records say "pin")

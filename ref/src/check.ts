@@ -3,6 +3,7 @@
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+import { pureGlobal } from "./pure-globals.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
@@ -869,11 +870,8 @@ class Checker {
     if (s) { this.sided(s, ctx); return s; }
     if (BUILTINS.has(name)) return undefined;
     if (ctx.scope === "imperative" && (name === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
-    if (name === "Number" || name === "Math") {
-      this.err("UNBOUND", "SV-7a", `${name} is not a global in .rx: in js-globals.js write \`export const ${name} = globalThis.${name}\`, then here write \`import { ${name} } from "./js-globals.js"\``);
-      return undefined;
-    }
-    this.err("UNBOUND", "SCOPE", `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
+    if (pureGlobal(name)) this.err("UNBOUND", "SV-7a", `${name} is a prelude namespace: use an allowed member directly, for example \`Math.round(x)\``);
+    else this.err("UNBOUND", "SCOPE", `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a); for a host global, wrap it in a JS function and import that function`);
     return undefined;
   }
   /** 12 SF-3/SF-5: what a name may be on this side. In a server body: nothing reactive (captured by kind, not position), and
@@ -931,7 +929,12 @@ class Checker {
       case "bin": go(e.l); go(e.r); return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": this.expr(e.o, env, ctx, field ? `${e.p}.${field}` : e.p); return;
+      case "member":
+        if (e.o.k === "id" && !env.lookup(e.o.name) && pureGlobal(e.o.name)) {
+          if (!pureGlobal(e.o.name, e.p)) this.err("UNBOUND", "SV-7a", `${e.o.name}.${e.p} is not in the pure prelude; wrap it in a JS function and import that function`);
+          return;
+        }
+        this.expr(e.o, env, ctx, field ? `${e.p}.${field}` : e.p); return;
       case "index": {
         const part = e.i.k === "lit" && (typeof e.i.v === "number" || typeof e.i.v === "string") ? String(e.i.v) : "*";
         this.expr(e.o, env, ctx, field ? `${part}.${field}` : part); go(e.i); return;
@@ -939,6 +942,7 @@ class Checker {
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) { if ("computed" in f) go(f.computed); go("spread" in f ? f.spread : f.v); } return;
       case "call": {
+        if (e.f.k === "id" && !env.lookup(e.f.name) && pureGlobal(e.f.name, "()")) { e.args.forEach(go); return; }
         let callee = e.f; while (callee.k === "as") callee = callee.e;
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until")) {                  // AC-6: `until(() => p)`, a function of the language (Solid's until)
           if (ctx.scope === "reactive") this.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited");

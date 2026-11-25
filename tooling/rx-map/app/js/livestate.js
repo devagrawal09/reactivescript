@@ -460,6 +460,7 @@ function onHmr(s, d, M) {
     // v0.7: the keys whose state could not be carried (the host fell back to a refresh for them)
     h.fallback = d.fallback ?? null;
     h.uncarried = Array.isArray(d.uncarried) ? [...d.uncarried] : [];
+    h.uncarriedReasons = d.uncarriedReasons ?? {};
     // verify, don't predict: a name the plan said it would keep whose value came back changed (in the replacement's
     // own step, or in `done`'s changes) was reseeded; one the host could not carry is listed under Not carried
     const changed = {};
@@ -551,8 +552,8 @@ function wave(w, M, flush) {
 // ---- reads for the views (pure, over a state the store hands in) ----------------------------------------------
 /** The reload plan's line for a key: "kept (unchanged)", "moved to x (renamed)", or "". */
 export function planReason(hmr, key) {
+  if (hmr?.uncarried?.includes(key)) return `not carried (${hmr.uncarriedReasons?.[key] ?? "refresh"})`;
   const p = hmr?.plan?.plan; if (!p || !key) return "";
-  if (hmr.uncarried?.includes(key)) return "not carried (the host fell back to a refresh)";
   if (hmr.reseeded?.includes(key)) return "reseeded (the plan said kept; its value changed)";
   for (const [g, name] of PLAN_GROUPS) if (p[g]?.includes(key)) return `${name.toLowerCase()} (${p.reasons?.[key] ?? "?"})`;
   const m = p.moved?.find(m => m.from === key);
@@ -595,7 +596,7 @@ export function planView(hmr) {
   return {
     groups, moved, phase, reseeded,
     // v0.7: what the host could not carry over (a refresh fallback re-initialised it)
-    uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k) })), fallback: hmr?.fallback ?? "",
+    uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k), reason: hmr.uncarriedReasons?.[k] ?? "uncarried" })), fallback: hmr?.fallback ?? "",
     phaseName: ({ plan: "plan", apply: "applying", done: "done", failed: "failed" })[phase] ?? phase,
     modules: (hmr?.plan?.modules ?? []).join(", "),
     text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : (hmr?.uncarried?.length ? "Applied, with a refresh fallback: the map now shows the new graph; the names under Not carried lost their state."

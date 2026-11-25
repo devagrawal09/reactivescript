@@ -1597,6 +1597,7 @@ impl<'p> Gen<'p> {
             return Ok(E::Index(Box::new(id("$p")), Box::new(E::Num(name[1..].parse::<f64>().unwrap())), false));
         }
         let Some(b) = self.lookup(env, name) else {
+            if crate::check::pure_global(name, None) { return Ok(id(name)); }
             if builtin(name) {
                 return Ok(dot(id("__B"), name));
             }
