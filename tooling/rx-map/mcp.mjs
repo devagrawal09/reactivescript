@@ -1,7 +1,10 @@
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
 import { plain, project } from "./project.mjs";
 import { liveText, queryDiff, queryGraph } from "./query.mjs";
 import { ACT_METHODS, LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
+import { rebase, summary, uncovered } from "./coverage.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
@@ -22,6 +25,9 @@ const tools = [
     { key: str, direction: { type: "string", enum: ["down", "up"], default: "down" }, depth: integer(0) }, ["key"]),
   tool("boundary", "List loading and errored boundaries, or show what can notify one.", { key: str }),
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
+  tool("coverage", "Show covered/total reactive paths by kind for the program or one module.", { module: str }),
+  tool("uncovered", "List at most 50 uncovered reactive paths in priority order.",
+    { module: str, kind: { type: "string", enum: ["node", "edge", "loading", "errored", "guess", "action"] } }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
   tool("tail", "Read recent flushes, flights, boundaries, runs and reverts. since is an exclusive record sequence number.",
     { ...selection, since: integer(0), limit: { ...integer(1), maximum: 5000 }, filter: { type: "string", enum: ["semantic", "all"] } }),
@@ -56,6 +62,15 @@ function validate({ name, inputSchema: s }, args) {
       : typeof v === "string" && !(v.length < p.minLength || v.length > p.maxLength) && (!p.enum || p.enum.includes(v)));
     if (!valid) throw new Error(`invalid argument ${k}; see tools/list for ${name}`);
   }
+}
+
+function graphRoot(graph) {
+  // The Vite-mounted server gets its project via getProject rather than --root.
+  for (const [i, module] of graph.modules.entries()) {
+    const file = graph.absModules?.[i], parts = module.split(/[\\/]/);
+    if (file?.endsWith(sep + parts.join(sep))) return parts.reduce(root => dirname(root), file);
+  }
+  return process.cwd();
 }
 
 async function liveCall(dev, method, params) {
@@ -111,7 +126,23 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         const { graph, warning: stale } = projectFor().load();
         warning = stale;
         freshness = graph.freshness;
-        answer = queryGraph(graph, name, p);
+        if (name === "coverage" || name === "uncovered") {
+          const path = resolve(options.root ?? graphRoot(graph), process.env.RX_COVERAGE || ".rx-coverage/coverage.json");
+          let json;
+          try { json = readFileSync(path, "utf8"); }
+          catch (e) { if (e.code !== "ENOENT") throw e; throw new Error(`No coverage file at ${path}; use rx-map coverage merge to write it.`); }
+          const file = JSON.parse(json);
+          if (file?.rxCoverage !== 1) throw new Error(`${path}: expected rxCoverage: 1`);
+          const current = rebase(file, graph);
+          if (name === "coverage") {
+            const data = summary(current, p);
+            answer = { data, text: Object.entries(data).map(([kind, x]) => `${kind} ${x.covered}/${x.total}`).join("\n") };
+          } else {
+            const data = uncovered(current, { ...p, limit: 50 })
+              .map(x => ({ id: x.id, file: x.module, line: x.line, label: x.label }));
+            answer = { data, text: data.map(x => `${x.file}:${x.line}  ${x.label} (${x.id})`).join("\n") || "No uncovered paths." };
+          }
+        } else answer = queryGraph(graph, name, p);
         if (name === "boundary" && p.key && (dev || getProject)) {
           answer.data.live = await live("boundary_history", { key: p.key, keys: answer.data.notifiers.map(n => n.key) })
             .catch(() => ({ observation: "unobserved" }));

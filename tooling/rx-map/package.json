@@ -9,7 +9,7 @@
     "directory": "tooling/rx-map"
   },
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": ["./coverage/browser.mjs", "./coverage/vitest.mjs"],
   "dependencies": {
     "@reactivescript/compiler": "^0.3.1"
   },
@@ -33,6 +33,9 @@
     "./hmr": "./hmr.mjs",
     "./layout": "./layout.mjs",
     "./conformance": "./conformance.mjs",
+    "./coverage": "./coverage.mjs",
+    "./coverage/vitest": "./coverage/vitest.mjs",
+    "./coverage/browser": "./coverage/browser.mjs",
     "./package.json": "./package.json"
   },
   "files": [
@@ -49,22 +52,29 @@
     "hmr.mjs",
     "layout.mjs",
     "conformance.mjs",
+    "coverage.mjs",
+    "coverage/",
     "rx-map.mjs",
     "README.md",
     "vite.d.ts",
     "live.d.ts"
   ],
   "peerDependencies": {
-    "solid-js": "^2.0.0-rc.23"
+    "solid-js": "^2.0.0-rc.23",
+    "vitest": ">=3"
   },
   "peerDependenciesMeta": {
     "solid-js": {
+      "optional": true
+    },
+    "vitest": {
       "optional": true
     }
   },
   "scripts": {
     "build": "node build.mjs",
     "prepack": "node build.mjs",
-    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs test/layout.test.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
+    "scenarios": "node scenarios.mjs",
+    "test": "node build.mjs --check && node --test --test-concurrency=1 test/mcp.mjs test/graph.test.mjs test/layout.test.mjs test/coverage.test.mjs test/scenarios.test.mjs && node test/coverage-page.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
   }
 }
