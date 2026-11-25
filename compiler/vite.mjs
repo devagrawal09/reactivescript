@@ -28,6 +28,18 @@ import { planHmr } from "./hmr.mjs";
 
 const { app, model } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
+// 09 MO-11d: a TS module's declaration is generated in process (`./dts.mjs`), answered at the crate's `rx-dts:` key. If the
+// generator does not load, the crate runs `rx-dts` itself.
+const dtsModule = await import("./dts.mjs").catch(() => null);
+let declarations;
+/** A `declare(stem)` for `app`/`model` that adds each file a record read to `files` (they are stamped and watched). */
+const declarer = files => dtsModule && (stem => {
+  let r;
+  try { r = (declarations ??= dtsModule.createDeclarations()).record(stem); } catch { return null; }
+  if (!r) return null;
+  for (const f of r.files ?? []) files?.add(path.resolve(f));
+  return JSON.stringify(r);
+});
 // the page each code points to: the package's copy (scripts/guide.mjs), else the repository's
 const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/diagnostics.md"), path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/diagnostics.md")].find(existsSync)
   ?? "https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md";
@@ -76,7 +88,7 @@ function mapTools(root) {
   try { req = createRequire(path.join(root, "package.json")); req.resolve("@reactivescript/map/live"); } catch { return; }
   return req;
 }
-const graphOf = (entry, root) => buildGraph(JSON.parse(model([entry], root)), { root });
+const graphOf = (entry, root) => buildGraph(JSON.parse(model([entry], root, declarer())), { root });
 const revision = graph => createHash("sha256").update(JSON.stringify(graph)).digest("hex");
 
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
@@ -90,9 +102,11 @@ export default function rx() {
     const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}\0${hot}`;
     const prior = builds.get(key);
     if (!force && prior?.out.modules && fresh(prior)) return prior;
-    const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa) : app(entry, target, moduleName, spa, true, dev, hot));
+    const read = new Set();   // the TS modules (and what they import) the generated declarations were read from
+    const declare = declarer(read);
+    const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa, null, null, null, declare) : app(entry, target, moduleName, spa, true, dev, hot, declare));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-    const files = out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry];
+    const files = [...new Set([...(out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : [entry]), ...read])];
     const b = { entry, target, moduleName, spa, dev, hot, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     if (!force) builds.set(key, b);
     return b;
@@ -175,7 +189,7 @@ export default function rx() {
       const check = () => build(file, target, moduleName, spa, dev, true).out;
       const builtProgram = dep ? containing(file, target, moduleName, spa, base, dev, hmr) : build(file, target, moduleName, spa, dev, false, hmr);
       const { out, stamps } = builtProgram;
-      if (register) register(file, spa, { check, model: () => JSON.parse(model([file], base)),
+      if (register) register(file, spa, { check, model: () => JSON.parse(model([file], base, declarer())),
         transformed: out.modules ? () => [...stamps].filter(([f, stamp]) => mtime(f) !== stamp).map(([f]) => f) : undefined });
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);

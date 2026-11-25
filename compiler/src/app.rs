@@ -8,12 +8,69 @@ use crate::modules::load_modules;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
+/// A file's text, or for `rx-dts:<stem>` (09 MO-11d) the generated declaration's record, from the generator (`read_dts`).
 pub fn read_disk(p: &str) -> Option<String> {
+    if let Some(stem) = p.strip_prefix(crate::modules::DTS_KEY) {
+        return read_dts(stem);
+    }
     if Path::new(p).is_file() {
         std::fs::read_to_string(p).ok()
     } else {
         None
     }
+}
+
+/// MO-11d: the record (JSON) `rx-dts --record <stem>` prints — `$RX_DTS` (a command line, split on spaces) if set, else the
+/// nearest `node_modules/.bin/rx-dts` up from the stem's directory. `None` when there is nothing to run, it fails, or it
+/// answers `null`. Once per stem per process (the command keeps its own cache, fresh while the files it read are unchanged).
+pub fn read_dts(stem: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
+    static MEMO: LazyLock<Mutex<HashMap<String, Option<String>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = MEMO.lock().ok().and_then(|m| m.get(stem).cloned()) {
+        return hit;
+    }
+    let got = spawn_dts(stem);
+    if let Ok(mut m) = MEMO.lock() {
+        m.insert(stem.to_string(), got.clone());
+    }
+    got
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_dts(stem: &str) -> Option<String> {
+    let mut cmd: Vec<String> = match std::env::var("RX_DTS") {
+        Ok(v) if !v.trim().is_empty() => v.split_whitespace().map(String::from).collect(),
+        _ => {
+            let mut dir = Path::new(stem).parent();
+            let mut found = None;
+            while let Some(d) = dir {
+                let bin = d.join("node_modules").join(".bin");
+                let hit = [if cfg!(windows) { "rx-dts.cmd" } else { "rx-dts" }, "rx-dts"].iter().map(|n| bin.join(n)).find(|p| p.is_file());
+                if let Some(p) = hit {
+                    found = Some(p.to_string_lossy().into_owned());
+                    break;
+                }
+                dir = d.parent();
+            }
+            vec![found?]
+        }
+    };
+    cmd.push("--record".into());
+    cmd.push(stem.to_string());
+    let out = std::process::Command::new(&cmd[0]).args(&cmd[1..]).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::inherit()).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(out.stdout).ok()?;
+    let text = text.trim();
+    if text.is_empty() || text == "null" {
+        return None;
+    }
+    Some(text.to_string())
+}
+#[cfg(target_arch = "wasm32")]
+fn spawn_dts(_stem: &str) -> Option<String> {
+    None
 }
 
 pub fn target(name: &str) -> Target {
@@ -37,17 +94,22 @@ pub fn app_dev(entry: &str, target: Target, module_name: &str, spa: bool, dev: O
 }
 
 pub(crate) fn app_hot(entry: &str, target: Target, module_name: &str, spa: bool, dev: Option<&str>, hot: bool) -> Value {
+    app_hot_with(entry, target, module_name, spa, dev, hot, &read_disk)
+}
+
+/// `app_hot` over `read` (a host's files, and its answers at `rx-dts:` keys, MO-11d).
+pub fn app_hot_with(entry: &str, target: Target, module_name: &str, spa: bool, dev: Option<&str>, hot: bool, read: &dyn Fn(&str) -> Option<String>) -> Value {
     let hot = hot && dev.is_some();
     // module keys are POSIX paths (`modules::join_path`); Windows takes `D:/a/b.rx` as it takes `D:\a\b.rx`
     let entry = &entry.replace('\\', "/");
     (|| {
-        if read_disk(entry).is_none() {
+        if read(entry).is_none() {
             return Err(json!({ "error": format!("{entry}: no such file") }));
         }
-        let set = load_modules(entry, &read_disk).map_err(|e| {
+        let set = load_modules(entry, read).map_err(|e| {
             // a parse error is a diagnostic like the checker's, with its code (PARSE, or the habit it names)
             let file = e.2.clone().unwrap_or_else(|| entry.to_string());
-            let mut d = crate::serve::parse_error_in(&file, &e, read_disk(&file).as_deref());
+            let mut d = crate::serve::parse_error_in(&file, &e, read(&file).as_deref());
             d["msg"] = json!(crate::serve::parse_message(&e));
             json!({ "diagnostics": [d] })
         })?;
@@ -59,7 +121,7 @@ pub(crate) fn app_hot(entry: &str, target: Target, module_name: &str, spa: bool,
         let mut modules = Map::new();
         for (name, module) in &out.files {
             let path = &out.paths[name];
-            let text = read_disk(path).unwrap_or_default();
+            let text = read(path).unwrap_or_default();
             let mut l = lower_view(module, path, target, module_name, Some((path, &text))).map_err(|e| json!({ "error": e }))?;
             if hot && path == &set.entry {
                 // The frontend supplies the serialized plan and optional observer, not the entry's implementation.
@@ -83,11 +145,15 @@ pub(crate) fn app_hot(entry: &str, target: Target, module_name: &str, spa: bool,
 /// `rxc model`'s answer for the programs `entries` start (absolute paths): each module's resolved model (CP-6) once, in
 /// load order, its `file` and its symbols' keys relative to `root`. `{error}` when an entry does not load.
 pub fn model(entries: &[String], root: &str) -> Value {
+    model_with(entries, root, &read_disk)
+}
+/// `model` over `read` (a host's files, and its answers at `rx-dts:` keys, MO-11d).
+pub fn model_with(entries: &[String], root: &str, read: &dyn Fn(&str) -> Option<String>) -> Value {
     let mut out: Vec<Value> = vec![];
     let mut seen = std::collections::HashSet::new();
     for entry in entries {
         let entry = entry.replace('\\', "/");
-        let set = match load_modules(&entry, &read_disk) {
+        let set = match load_modules(&entry, read) {
             Ok(s) => s,
             Err(e) => return json!({ "error": e.0 }),
         };
