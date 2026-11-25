@@ -18,7 +18,14 @@ let recording;
 // Resolve before the entry calls register: its first render can start flights
 // in the same turn, before a lazy attribution import would finish.
 const engine = await Promise.all([import("solid-js"), import("solid-js/attribution")]).catch(() => []);
-const untracked = fn => engine[0]?.runWithOwner ? engine[0].runWithOwner(null, fn) : fn();
+// Previews read app state from wherever the bridge runs (an action's click handler, a flush record): untrack, so
+// Solid's strict-read check (STRICT_READ_UNTRACKED) doesn't count the bridge's reads as the app's; no owner, so
+// nothing the read makes is owned by the app's scope.
+const untracked = fn => {
+  const solid = engine[0];
+  const run = solid?.untrack ? () => solid.untrack(fn) : fn;
+  return solid?.runWithOwner ? solid.runWithOwner(null, run) : run();
+};
 const errorPreview = error => untracked(() => preview(error, 200));
 function previews(value) {
   const out = { preview: preview(value) };
@@ -154,6 +161,7 @@ function getRecorder() {
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
   let guessesNamed = false; // this Solid's records name the store properties a guess moved
   const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity), internals = new Array(capacity);
+  const carrierOnly = new Array(capacity);
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const activeErrors = new Map(), held = new Map(), writes = new Set(), dirty = new Set();
@@ -221,19 +229,24 @@ function getRecorder() {
       }
     }
   }
+  // A key touched by an instance being made or disposed, a flight, a write or an error: the timeline's state for it
+  // must be the state of the instance alive now (a component-scoped key outlives its instances: a remounted
+  // component's first answer is no engine change, and a disposed one's last value or error is not the app's).
+  const headState = new Map(), registered = new Set();
   function reconcileErrors(changes) {
+    const expected = new Map();
+    for (const c of changes) if (c.key) expected.set(c.key, stateOf(c));
     for (const key of dirty) {
-      const entry = inspect(key);
-      const error = entry?.error == null ? undefined : errorPreview(entry.error);
-      const before = activeErrors.get(key);
-      if (error === before) continue;
-      if (error !== undefined) {
-        activeErrors.set(key, error);
-        changes.push({ key, name: RX + key, error });
-      } else {
-        activeErrors.delete(key);
-        if (entry?.value) changes.push({ key, name: RX + key, ...entry.value });
-      }
+      // a name the RX registry never had (a named Solid node, an older runtime) is the engine record's alone
+      if (!globalThis.__RX_NODES__?.has(key) && !registered.has(key)) continue;
+      const now = currentState(key);
+      const was = expected.has(key) ? expected.get(key) : headState.get(key);
+      if (now?.startsWith(ERR)) activeErrors.set(key, now.slice(ERR.length));
+      else activeErrors.delete(key);
+      if (now === was) continue;
+      if (now === undefined) changes.push({ key, name: RX + key });
+      else if (now.startsWith(ERR)) changes.push({ key, name: RX + key, error: now.slice(ERR.length) });
+      else changes.push({ key, name: RX + key, ...inspect(key).value });
     }
     dirty.clear();
     return changes;
@@ -252,8 +265,20 @@ function getRecorder() {
     // (f9ee22ade) also lists the property and presence nodes it moved, which travel pins like any other; an older
     // Solid lists only the carrier, and pins can't take the store back past that guess.
     const carriers = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
+    const wasNamed = guessesNamed;
     for (const k of carriers) if (changes.some(c => c.key === k && c.path !== undefined && !c.name?.endsWith(".$guess"))) guessesNamed = true;
-    guesses[i] = carriers;
+    // A list whose length changed with no index entry beside it was rewritten wholesale (`list := [x, ...list]`): Solid
+    // lists only its container and length, and under a view a list's items still come from the store's backing
+    // (openView known gap), so its rows can't be taken back past this step.
+    const rowless = changes.filter(c => c.key && c.path === "length" && !changes.some(d => d.key === c.key && /^\d+(\.|$)/.test(d.path ?? ""))).map(c => c.key);
+    guesses[i] = guessesNamed ? rowless : [...carriers, ...rowless];
+    if (!wasNamed && guessesNamed) for (let s = oldest(); s < flushes; s++) {
+      // (the first named guess tells this Solid apart: earlier carrier-only entries were not gaps)
+      const j = (s - 1) % capacity;
+      guesses[j] = (guesses[j] ?? []).filter(k => !carrierOnly[j]?.includes(k));
+    }
+    carrierOnly[i] = guessesNamed ? [] : carriers;
+    applyPreviews(headState, changes);
     const record = addRecord({ type: "flush", at, changes }, internal);
     for (const c of changes) if (c.key) {
       if (c.preview !== undefined) latest.set(c.key, c);
@@ -334,6 +359,7 @@ function getRecorder() {
     });
   };
   const trace = event => {
+    if (event.type === "node") registered.add(event.key);
     if (event.type === "write" || event.type === "node") {
       if (event.type === "write") writes.add(event.key);
       dirty.add(event.key);
@@ -441,7 +467,6 @@ function getRecorder() {
   // Keys travel can't show exactly at n: on a Solid whose records name only a store guess's carrier, a store guessed
   // after n (and what reads it). Once a guess's record has named its properties, this Solid has none.
   function inexactAt(n) {
-    if (guessesNamed) return [];
     const roots = new Set();
     for (let s = n + 1; s <= flushes; s++) for (const k of guesses[(s - 1) % capacity] ?? []) roots.add(k);
     if (!roots.size) return [];
@@ -471,8 +496,9 @@ function getRecorder() {
     for (const key of [...new Set([...from.keys(), ...to.keys()])].sort()) {
       if (from.has(key) === to.has(key) && from.get(key) === to.get(key)) continue;
       const c = { key, name: nameOf(key), ...locate(key) };
-      if (from.has(key)) c.prev = from.get(key);
-      if (to.has(key)) c.preview = to.get(key);
+      const a = from.get(key), b = to.get(key);
+      if (a !== undefined) a.startsWith(ERR) ? (c.prevError = a.slice(ERR.length)) : (c.prev = a);
+      if (b !== undefined) b.startsWith(ERR) ? (c.error = b.slice(ERR.length)) : (c.preview = b);
       changes.push(c);
     }
     return changes;
@@ -491,11 +517,33 @@ function getRecorder() {
     (blocker ??= blockInput(() => resume())).show(n);
   }
   const deny = (to, reason) => publish({ type: "travel-denied", to, reason });
+  // A question in the air or an action still running is a hold that has not landed: opening a view now, its landing
+  // would come beneath the view and could not be told apart from what the view shows. Moving between seqs once
+  // viewing is fine (the app is read-only, and what lands stays beneath).
+  const holding = () => !!landing || (!view && (flightKeys().size > 0 || runs.size > 0 || held.size > 0
+    || [...writes].some(key => inspect(key, () => undefined)?.held)));
+  // Travel asked for while holding waits (TRACE-CONTRACT v0.6 `travel-pending`): the newest target wins, and goes
+  // when the hold has landed. `resume` drops it.
+  let queued = null, queueTimer = 0;
+  function tryQueued() {
+    if (queued === null || queueTimer) return;
+    // never from inside a flush or an action body: openView throws there
+    queueTimer = setTimeout(() => {
+      queueTimer = 0;
+      if (queued === null) return;
+      if (holding()) return void setTimeout(tryQueued, 50);
+      const to = queued;
+      queued = null;
+      travel(to);
+    }, 0);
+  }
   function travel(to) {
-    // A question in the air or an action still running is a hold that has not landed: its landing would come
-    // beneath the view and could not be told apart from what the view shows.
-    if (landing || flightKeys().size || runs.size || held.size || [...writes].some(key => inspect(key, () => undefined)?.held))
-      return deny(to, "pending");
+    if (holding()) {
+      queued = to; // checked when it goes: the seq may be recorded by then
+      publish({ type: "travel-pending", to });
+      return tryQueued();
+    }
+    queued = null;
     if (!Number.isInteger(to) || to < oldest() || to > flushes) return deny(to, "evicted");
     const openView = engine[1]?.openView;
     if (typeof openView !== "function") return deny(to, "unsupported");
@@ -519,6 +567,7 @@ function getRecorder() {
     }
   }
   function resume() {
+    queued = null;
     if (landing) return; // its resume is on the way
     if (!view) return publish({ type: "resume", head: flushes, changes: [] });
     const v = view, from = viewing;
@@ -566,15 +615,15 @@ function getRecorder() {
     // its current value comes from the node itself.
     for (const key of head.keys()) if (!now.has(key)) {
       const cur = inspect(key);
-      if (cur?.value && cur.value.preview !== head.get(key)) now.set(key, { key, name: nameOf(key), ...cur.value });
+      if (cur?.value && cur.error == null && cur.value.preview !== head.get(key)) now.set(key, { key, name: nameOf(key), ...cur.value });
     }
     const changes = [];
     const landed = new Map(reconcileErrors([...now.values()]).map(c => [c.key, c]));
     for (const [key, c] of landed) {
-      if (!c.error && head.has(key) && head.get(key) === c.preview) continue;
+      if (head.has(key) && head.get(key) === stateOf(c)) continue;
       const out = { ...c, ...locate(key) };
       delete out.prev;
-      if (head.has(key)) out.prev = head.get(key);
+      if (head.has(key)) { if (!head.get(key).startsWith(ERR)) out.prev = head.get(key); }
       else {
         // a first change: the node's own value before, as the timeline last recorded it
         const own = [...nodes.values()].find(x => x.name === RX + key);
@@ -721,11 +770,23 @@ function blockInput(onResume) {
   };
 }
 
+// A key's shown state in the timeline: its preview, or its error (TRACE-CONTRACT v0.6: an error is a state, not an
+// absence). Absent = no value shown (never answered, or no live instance).
+const ERR = "\u0000error\u0000";
+const stateOf = c => c.error !== undefined ? ERR + c.error : c.preview;
 function applyPreviews(map, changes) {
   for (const c of changes ?? []) if (c.key) {
-    if (c.preview === undefined) map.delete(c.key);
-    else map.set(c.key, c.preview);
+    const v = stateOf(c);
+    if (v === undefined) map.delete(c.key);
+    else map.set(c.key, v);
   }
+}
+// The state of the instance a key shows now (the newest live one): undefined when none is alive or it has no value yet.
+function currentState(key) {
+  const e = inspect(key);
+  if (!e) return undefined;
+  if (e.error != null) return ERR + errorPreview(e.error);
+  return e.value?.preview;
 }
 
 // ---- the engine's records ---------------------------------------------------------------------------------------
@@ -786,7 +847,15 @@ function listen(post, dirty) {
         event.interaction && formatOrigin(event.interaction));
       // Solid's flight record covers successful landings and supersession, not
       // rejection. Observe native promise rejection without replacing the promise.
-      if (flight instanceof Promise) flight.then(undefined, () => {
+      if (flight instanceof Promise) flight.then(() => {
+        // Nor does it cover a node disposed while asking (a component a route or a view remounted): its answer lands
+        // nowhere, and an open flight would hold travel forever. (`_flags` bit 6 is REACTIVE_DISPOSED.)
+        setTimeout(() => {
+          if (announced.get(node) !== flight || !(node._flags & (1 << 6))) return;
+          announced.delete(node);
+          post({ type: "flight", key, state: "abandon" }, event.nodeId);
+        }, 0);
+      }, () => {
         if (announced.get(node) !== flight) return;
         announced.delete(node);
         post({ type: "flight", key, state: "abandon" }, event.nodeId);

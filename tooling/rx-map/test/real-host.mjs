@@ -37,6 +37,7 @@ const chrome = process.env.CHROME ?? (() => {
   const dir = existsSync(base) && readdirSync(base).filter(d => d.startsWith("chromium_headless_shell")).sort().pop();
   return dir ? join(base, dir, "chrome-headless-shell-linux64/chrome-headless-shell") : undefined;
 })();
+const UNDO_KEYS = ["src/App.rx|App|undo"];
 const TICK = Number(process.env.TICK_MS ?? 80);
 
 // test/shelf-app in a temp dir, linked to this repository and to SOLID_VIEW's packages; reinstalled when the links change.
@@ -220,7 +221,8 @@ try {
   const liveDom = await page.evaluate(() => globalThis.__T.html());
   // the first load landed before the view attached; every step after it has the DOM it showed
   const seen = steps.filter(s => dom[s] !== undefined);
-  check(`recorded ${steps.length} steps, head ${head}, a DOM snapshot for ${seen.length}`, seen.length > 5 && seen.length >= steps.length - 1, { steps, have: Object.keys(dom) });
+  // (the loads before the view attached have none)
+  check(`recorded ${steps.length} steps, head ${head}, a DOM snapshot for ${seen.length}`, seen.length > 5 && seen.every((n, i) => i === 0 || n === seen[i - 1] + 1) && seen.at(-1) === head, { steps, have: Object.keys(dom) });
   check("the live DOM is the head's", liveDom === dom[head]);
 
   const shownAt = async n => {
@@ -235,18 +237,20 @@ try {
   const exact = seen.filter(n => n >= lastGuess), gap = seen.filter(n => n < lastGuess);
   check(`this Solid's records name the properties a store guess moved: ${named ? "yes, every seq is checked" : "no, an older build: seqs before a guess are reported only"}`, true);
   const order = [...exact].reverse().concat(exact.filter((_, i) => i % 2 === 0), [exact[0], exact.at(-1)]);
-  const bad = [];
+  const bad = [], undoOff = new Set();
   for (const n of order) {
     const { reply, html } = await shownAt(n);
     if (reply?.type !== "step") bad.push({ n, reply });
-    else if (html !== dom[n]) bad.push({ n, want: dom[n].length, got: html.length, diff: firstDiff(dom[n], html) });
+    else if (unlessInexact(html, reply) !== unlessInexact(dom[n], reply)) bad.push({ n, want: dom[n].length, got: html.length, diff: firstDiff(dom[n], html) });
+    else if (html !== dom[n]) undoOff.add(n);
   }
   check(`travel(n) shows the DOM the page showed at n: ${order.length} travels back and forth over seqs ${exact.join(",")}${named ? ` (store guesses at ${guessed.join(",")})` : ""}`,
     exact.length >= (named ? 8 : 4) && bad.length === 0 && (!named || guessed.length >= 2), { bad: bad.map(b => b.n), first: bad.slice(0, 2), guessed });
   if (named) {
-    const inexact = [];
-    for (const n of seen) { const { reply } = await shownAt(n); if (reply?.inexact) inexact.push(n); }
-    check("…and no step is marked inexact", inexact.length === 0, inexact);
+    const other = [];
+    for (const n of seen) { const { reply } = await shownAt(n); if (reply?.inexact && !reply.inexact.includes(UNDO_KEYS[0])) other.push({ n, inexact: reply.inexact }); }
+    check("…and nothing but the undo list (rewritten wholesale, Solid's list-items gap) and its readers is marked inexact", other.length === 0, other);
+    console.log(`info the undo list, marked inexact, differs at ${[...undoOff].join(",") || "none"}`);
   } else {
     const gapBad = [];
     for (const n of gap) {
@@ -326,7 +330,7 @@ try {
     v.detach();
     return tl.steps.flatMap(s => s.changes).find(c => c.key === "src/App.rx|App|filter");
   }));
-  check("the first change of filter carries its value before (\"all\")", firstFilter?.prev === '"all"', firstFilter);
+  check("filter's first state in the timeline is \"all\" (its initial value or a first change's prev)", firstFilter?.prev === '"all"' || firstFilter?.preview === '"all"', firstFilter);
 
   if (shots) {
     await drain(page);
@@ -345,20 +349,138 @@ try {
     console.log(`wrote ${join(shots, "travel-early.png")}, ${join(shots, "gap-store-guess.png")}, ${join(shots, "resumed.png")}`);
   }
 
-  // denied: evicted seqs, and while an action is still running
+  // denied: evicted seqs
   await post(page, { type: "travel", to: 0 });
   const d0 = (await drain(page)).find(m => m.type === "travel-denied");
   check("travel to a seq never recorded is denied (evicted)", d0?.reason === "evicted", d0);
-  await act(page, 0); // toggle: an action awaiting save()
-  await post(page, { type: "travel", to: steps[0] });
-  const d1 = (await drain(page)).find(m => m.type === "travel-denied" || m.type === "step");
-  check("travel while an action is running is denied (pending)", d1?.type === "travel-denied" && d1.reason === "pending", d1);
-  await waitIdle(page);
-
   check("no page errors", page.errors.length === 0, page.errors.slice(0, 5));
+  await page.close();
+
+  await roundThree();
 } finally {
   await browser.close();
   vite.kill();
+}
+
+// Round-3 tester feedback (usability/round3-browser.md, tool point 3): (a) an undo list (an array of objects, prepended
+// and filtered) must come back intact; (b) a component-scoped name shows the instance alive at the viewed seq, never a
+// disposed one's value or error; (c) travel asked for while a hold is in the air waits for it instead of failing.
+async function roundThree() {
+  console.log("-- round 3: undo list, remounted instances, travel while pending");
+  const page = await openApp();
+  const html = () => page.evaluate(() => globalThis.__T.html());
+  const timeline = () => page.evaluate(() => {
+    let tl;
+    const v = globalThis.__RX__.attach(m => { if (m.type === "timeline") tl = m; });
+    v.post({ type: "hello", want: ["timeline"] });
+    v.detach();
+    return tl;
+  });
+  const settle = async () => { await sleep(150); await waitIdle(page); await sleep(100); };
+  // a travel may wait for a hold to land (travel-pending): take the step when it comes
+  const travelTo = async n => {
+    await post(page, { type: "travel", to: n });
+    for (let i = 0; i < 80; i++) {
+      const reply = (await drain(page)).find(m => m.type === "step" || m.type === "travel-denied");
+      if (reply) return reply;
+      await sleep(50);
+    }
+  };
+  const toggle = async i => { await page.locator('li[data-testid="book"] input[type="checkbox"]').nth(i).click(); await settle(); };
+  // (a) three successful toggles prepend three undo entries; undoing the middle one filters it out
+  await toggle(1);
+  await toggle(2);
+  await toggle(3);
+  const entries = () => page.evaluate(() => [...document.querySelectorAll(".undo-entry")].map(b => b.textContent));
+  const before = await entries();
+  await page.locator(".undo-entry").nth(1).click();
+  await settle();
+  check(`the undo list: ${JSON.stringify(before)}, then ${JSON.stringify(await entries())}`, before.length === 3 && (await entries()).length === 2);
+  // (b) switch the shelf panel to a shelf that fails, then back: a new ShelfInfo instance each time
+  await page.getByRole("button", { name: "shelf nope", exact: true }).click();
+  await settle();
+  const nopeShown = await page.evaluate(() => !!document.querySelector('[data-testid="shelf-error"]'));
+  await page.getByRole("button", { name: "shelf other", exact: true }).click();
+  await settle();
+  await page.getByRole("button", { name: "unread", exact: true }).click();
+  await settle();
+  check("the shelf panel failed for nope, and is healthy again for other", nopeShown && (await page.evaluate(() => document.querySelector('[data-testid="shelf"]')?.textContent)) === "Shelf other (5)");
+
+  const tl = await timeline();
+  const dom = await page.evaluate(() => globalThis.__T.dom);
+  const seen = tl.steps.map(s => s.seq).filter(n => dom[n] !== undefined);
+  const live = await html();
+  // The shelf panel is a component remounted per shelf id. A view that pins `shelfId` back remounts the panel, and the
+  // new instance asks again (Solid's openView limit: state born in a branch the view remounts starts over), so its
+  // DOM is reported, not asserted; the rest of the page must be exact.
+  const panel = h => h.replace(/<section class="shelf-info[^"]*">[\s\S]*?<\/section>/, "<section>…</section>");
+  const bad = [], panelOff = [], undoOff = [], inexactAt = new Map();
+  for (const n of [...seen].reverse()) {
+    const reply = await travelTo(n);
+    const got = await html();
+    const keep = h => unlessInexact(panel(h), reply);
+    if (reply?.type !== "step" || keep(got) !== keep(dom[n])) bad.push({ n, reply: reply?.type, diff: reply?.type === "step" ? firstDiff(keep(dom[n]), keep(got)) : reply });
+    else if (panel(got) !== panel(dom[n])) undoOff.push(n);
+    else if (got !== dom[n]) panelOff.push(n);
+    if (reply?.type === "step") inexactAt.set(n, reply.inexact ?? []);
+  }
+  check(`(a) travel shows the recorded DOM at every seq: ${seen.length} seqs back from #${tl.head}`, bad.length === 0, { bad: bad.map(b => b.n), first: bad.slice(0, 2) });
+  // (a) the undo list can't be rewound (Solid: a list rewritten wholesale records only its length, and its items come
+  // from the backing under a view): every seq whose undo list differs must say so
+  const unflagged = undoOff.filter(n => !inexactAt.get(n).includes(UNDO_KEYS[0]));
+  check(`(a) every seq whose undo list can't be shown is marked inexact (differs at ${undoOff.join(",") || "none"})`, unflagged.length === 0, unflagged);
+  check("(a) …and the newest seq is exact, not marked", (inexactAt.get(seen.at(-1)) ?? []).length === 0, inexactAt.get(seen.at(-1)));
+  console.log(`info the remounted shelf panel (openView: a remounted branch starts over) differs at ${panelOff.join(",") || "none"}`);
+
+  // (b) the map's values: replay the timeline and the steps as a view does, and compare with the app at each seq
+  const infoKey = "src/components/ShelfInfo.rx|ShelfInfo|info";
+  const nopeSeq = seen.filter(n => dom[n].includes('data-testid="shelf-error"')).at(-1);
+  const otherSeq = seen.filter(n => dom[n].includes("Shelf other (5)")).at(-1);
+  const replies = [];
+  const stateAt = async n => {
+    const r = await travelTo(n);
+    replies.push(r && { type: r.type, from: r.from, to: r.to, reason: r.reason, info: r.changes?.filter(c => /ShelfInfo|shelfId/.test(c.key)) });
+    return r?.changes?.find(c => c.key === infoKey);
+  };
+  await post(page, { type: "resume" });
+  await settle();
+  await drain(page);
+  await stateAt(nopeSeq);
+  const back = await stateAt(otherSeq);
+  check(`(b) at #${otherSeq} (shelf other, after the failed nope instance was disposed) info shows the live instance's value`,
+    back && back.error === undefined && back.preview?.includes("Shelf other"), replies);
+  const toNope = await stateAt(nopeSeq);
+  check(`(b) at #${nopeSeq} (the nope instance) info shows its error`, toNope?.error?.includes("NotFound"), toNope);
+  await post(page, { type: "resume" });
+  await settle();
+  await drain(page);
+  check("…and resume gives back the live DOM", (await html()) === live, firstDiff(live, await html()));
+
+  // (c) travel asked for while an action runs waits for it and then goes
+  await page.getByRole("button", { name: "all", exact: true }).click();
+  await settle();
+  await drain(page);
+  await page.locator('li[data-testid="book"] input[type="checkbox"]').nth(0).click();
+  const target = seen[2];
+  await post(page, { type: "travel", to: target });
+  await post(page, { type: "travel", to: seen[1] }); // a drag: the latest target wins
+  const early = await drain(page);
+  check("(c) travel while an action runs is not denied", !early.some(m => m.type === "travel-denied"), early.map(m => `${m.type}${m.reason ? ` ${m.reason}` : ""}`));
+  await settle();
+  await sleep(300);
+  const later = (await drain(page)).filter(m => m.type === "step");
+  check(`(c) …and once it has landed, the app shows the last target, #${seen[1]}`, later.length === 1 && later[0].to === seen[1]
+    && unlessInexact(panel(await html()), later[0]) === unlessInexact(panel(dom[seen[1]]), later[0]), later.map(m => m.to));
+  await post(page, { type: "resume" });
+  await settle();
+  check("round 3: no page errors", page.errors.length === 0, page.errors.slice(0, 5));
+  await page.close();
+}
+// The undo list is rewritten wholesale (`undo := u => [x, ...u]`): Solid records only its length, and under a view a
+// list's items come from the store's backing, so the host marks it `inexact` before such a rewrite. Where it says so,
+// the list is left out of the DOM comparison (and reported); everything else must match.
+function unlessInexact(html, step) {
+  return step?.inexact?.includes(UNDO_KEYS[0]) ? html.replace(/<div class="undo[^"]*">[\s\S]*?<\/div>/, '<div class="undo">…</div>') : html;
 }
 
 function firstDiff(a, b) {

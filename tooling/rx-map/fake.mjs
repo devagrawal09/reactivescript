@@ -1199,6 +1199,7 @@ export function createFakeHost(graph, opts = {}) {
       tickCount += 1;
       if (!booted) bootFlights();
       landDue();
+      if (queued != null && !inFlight.size && !holds.length) { const to = queued; queued = null; travel(to); }
       if (rate > 0 && tickCount % rate === 0) act();
     }
   }
@@ -1213,11 +1214,16 @@ export function createFakeHost(graph, opts = {}) {
     };
   }
 
+  // Travel asked for while a flight or a hold is open waits for it (TRACE-CONTRACT v0.6 `travel-pending`): the newest
+  // target wins and goes once everything has landed; `resume` drops it.
+  let queued = null;
   function travel(to) {
     if (inFlight.size || holds.length) {
-      emit({ type: "travel-denied", to, reason: "pending" });
+      queued = to; // checked when it goes: the seq may be recorded by then
+      emit({ type: "travel-pending", to });
       return;
     }
+    queued = null;
     if (typeof to !== "number" || !Number.isInteger(to) || to < 1 || to > head || to <= floor) {
       emit({ type: "travel-denied", to, reason: "evicted" });
       return;
@@ -1229,6 +1235,7 @@ export function createFakeHost(graph, opts = {}) {
   }
 
   function resume() {
+    queued = null;
     if (viewing == null) {
       emit({ type: "resume", head, changes: [] });
       return;
