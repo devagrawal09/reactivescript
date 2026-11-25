@@ -42,7 +42,8 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
-type Carry = { value: unknown; keepAnswer?: boolean };
+type Carry = { value: unknown; keepAnswer?: boolean; instance?: string };
+let consumedCarry: { replaces?: string; carryStatus: string } | undefined;
 type CarryGroup = { entries: Carry[]; used: number };
 let instanceId = 0;
 let rxInstance: string | undefined;
@@ -52,7 +53,7 @@ type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unkno
   source?: boolean;
 };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
-type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
@@ -61,6 +62,7 @@ const dev = globalThis as typeof globalThis & {
 const trace = (e: DevEvent) => { if (RX_INSTRUMENT) try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
 let runId = 0;
 let currentRun: number | undefined;
+let currentAction: string | undefined, callbackOrigin: string | undefined;
 function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
   let set = map.get(k);
   if (!set) map.set(k, set = new Set());
@@ -77,8 +79,9 @@ const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>) => T = RX
       const path = OBSERVE?.ownerPath?.(getOwner());
       const scope = k.split("|").at(-2);
       const ownerPath = path?.length ? path : scope ? [`<${scope}>`] : undefined;
-      const was = rxKey, wasInstance = rxInstance;
+      const was = rxKey, wasInstance = rxInstance, previousCarry = consumedCarry;
       rxKey = k; rxInstance = instance;
+      consumedCarry = undefined;
       try {
         const out = f();
         const get = Array.isArray(out) ? out[0] : out;
@@ -110,18 +113,20 @@ const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>) => T = RX
           // The bridge keeps handles only for the lifetime of this declaration.
           Object.assign(inspect, { node: (get as any)[$REFRESH], hmrValue: () => inspect(latestWhole) });
           const nodes = dev.__RX_NODES__ ??= new Map();
-          Object.assign(inspect, { instance, ownerPath, source: !!writer });
+          Object.assign(inspect, { instance, ownerPath, source: !!writer, ...consumedCarry });
           if (own && writer) remember(own, k, inspect);
           remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
           trace({ type: "node", key: k, instance });
           if (writer) {
-            const { set, path } = writer;
-            writer.set = v => { set(v); trace({ type: "write", key: k, instance, run: currentRun }); };
-            writer.path = (p, v) => { path(p, v); trace({ type: "write", key: k, instance, run: currentRun }); };
+            const { set, path, guess } = writer;
+            const written = () => trace({ type: "write", key: k, instance, run: currentRun, origin: callbackOrigin });
+            writer.set = v => { if (callbackOrigin) written(); set(v); if (!callbackOrigin) written(); };
+            writer.path = (p, v) => { if (callbackOrigin) written(); path(p, v); if (!callbackOrigin) written(); };
+            writer.guess = (v, p) => { if (callbackOrigin) written(); guess(v, p); };
           }
         }
         return out;
-      } finally { rxKey = was; rxInstance = wasInstance; }
+      } finally { rxKey = was; rxInstance = wasInstance; consumedCarry = previousCarry; }
     }
   : (_k, f) => f();
 
@@ -318,6 +323,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     ...(RX_INSTRUMENT || RX_HARNESS ? {
       sourceDev(name: string, init: Acc, guessed = false): [Acc, Writer] {
         const seed = takeCarry();
+        if (seed) consumedCarry = { replaces: seed.instance, carryStatus: "carried" };
         return app.source(name, seed ? seed.value : untrack(init), guessed);
       },
     } : {}),
@@ -326,6 +332,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
       const answer = RX_INSTRUMENT && !mode.derived ? takeCarry() : undefined;
       if (answer) {
+        consumedCarry = { replaces: answer.instance, carryStatus: answer.keepAnswer && !hoistedBy.get(name)?.length ? "carried" : "re-asked" };
         // A question without tracked inputs can keep its answer without starting
         // I/O. Explicit refresh still calls the new question.
         if (answer.keepAnswer && !hoistedBy.get(name)?.length) {
@@ -393,9 +400,10 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         const run = action(function* (id: number, ...a: unknown[]) {
           const iter = gen(...a);
           const step = (method: "next" | "throw" | "return") => (value: unknown) => {
-            const previous = currentRun;
+            const previous = currentRun, previousAction = currentAction;
             currentRun = id;
-            try { return iter[method](value); } finally { currentRun = previous; }
+            currentAction = callbackOrigin ?? `${key} #${id}`;
+            try { return iter[method](value); } finally { currentRun = previous; currentAction = previousAction; }
           };
           return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
         } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
@@ -412,6 +420,15 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
+    },
+    traceCallback<T extends (...args: any[]) => any>(fn: T): T {
+      const origin = currentAction ?? callbackOrigin;
+      if (!RX_INSTRUMENT || !origin) return fn;
+      return function (this: unknown, ...args: unknown[]) {
+        const previous = callbackOrigin;
+        callbackOrigin = origin;
+        try { return fn.apply(this, args); } finally { callbackOrigin = previous; }
+      } as T;
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */

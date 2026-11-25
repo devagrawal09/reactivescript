@@ -37,7 +37,7 @@ export function prepareCarry(before, after, plan, sources, changedModules) {
     }
     const keepAnswer = n.question && kept.has(key) && !after.edges.some(e => e.to === n.id && e.type === "read" && e.mode === "tracked");
     expected.set(key, ownerPaths);
-    carry.set(key, { entries: shown.map(v => ({ value: v.value, keepAnswer })), used: 0 });
+    carry.set(key, { entries: shown.map((v, i) => ({ value: v.value, keepAnswer, instance: reads[i].instance })), used: 0 });
   }
   return { carry, fallback, expected };
 }

@@ -1,12 +1,12 @@
 import { createInterface } from "node:readline";
 import { plain, project } from "./project.mjs";
 import { liveText, queryDiff, queryGraph } from "./query.mjs";
-import { LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
+import { ACT_METHODS, LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
 const imports = { type: "boolean", default: false };
-const selection = { key: str, instance: str, kinds: { type: "array", minItems: 1, maxItems: 16,
+const selection = { key: str, instance: str, whole: { type: "boolean", default: false }, kinds: { type: "array", minItems: 1, maxItems: 16,
   items: { type: "string", enum: ["flush", "flight", "run", "boundary", "held", "released", "revert"] } } };
 const tool = (name, description, properties = {}, required = []) => ({
   name, description, annotations: { readOnlyHint: true },
@@ -33,6 +33,11 @@ const tools = [
   tool("pending", "List nodes waiting for a request to finish."),
 ];
 const resources = ["graph", "model"].map(name => ({ uri: `rx://${name}`, name, mimeType: "application/json" }));
+const acting = [
+  { ...tool("travel", "Seek to a timeline step in the newest connected page.", { seq: integer(1) }, ["seq"]), annotations: { readOnlyHint: false } },
+  { ...tool("resume", "Resume the newest connected page from time travel."), annotations: { readOnlyHint: false } },
+  tool("timeline", "Read the latest timeline steps and their changes.", { limit: { ...integer(1), maximum: 2000 } }),
+];
 const liveMethods = new Map(LIVE_METHODS.map(k => [k === "status" ? "live_status" : k, k]));
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const object = x => x !== null && typeof x === "object" && !Array.isArray(x);
@@ -73,24 +78,26 @@ async function liveCall(dev, method, params) {
 }
 
 /** Serve newline-delimited JSON-RPC over stdio (or supplied Node streams). */
-export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (method, p) => liveCall(dev, method, p), ...options } = {}) {
+export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (method, p) => liveCall(dev, method, p), act = false, ...options } = {}) {
+  const catalog = act ? [...tools, ...acting] : tools;
   const local = getProject ? null : project(options);
   const projectFor = getProject ?? (() => local);
   const call = async ({ name, arguments: args = {} } = {}) => {
     try {
-      const t = tools.find(t => t.name === name);
+      const t = catalog.find(t => t.name === name);
       if (!t) throw new Error(`unknown tool ${JSON.stringify(name)}; use tools/list`);
       validate(t, args);
       const { format, ...p } = args;
       let answer;
       let warning;
-      if (liveMethods.has(name)) {
-        const method = liveMethods.get(name);
+      let freshness;
+      if (liveMethods.has(name) || ACT_METHODS.includes(name)) {
+        const method = liveMethods.get(name) ?? name;
         const data = await live(method, p).catch(e => {
           if (["state", "value"].includes(method) && /no (dev server|page)/.test(e.message)) return { key: p.key, observation: "unobserved" };
           throw e;
         });
-        answer = { data, text: liveText(method, data) };
+        answer = { data, text: ACT_METHODS.includes(method) ? JSON.stringify(data, null, 2) : liveText(method, data) };
       } else if (name === "check") {
         const app = projectFor();
         const data = app.check(true);
@@ -98,11 +105,12 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         warning = stale.map(s => `stale entry transform: ${s.file} (changed: ${s.files.join(", ")}). ${s.fix}`).join("\n");
         answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`).join("\n") || "ok" };
       } else if (name === "diff") {
-        try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; answer = queryDiff(graph); }
+        try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; freshness = graph.freshness; answer = queryDiff(graph); }
         catch (e) { throw new Error(`${errorMessage(e)}\nUse an existing Git ref and check that both versions compile.`); }
       } else {
         const { graph, warning: stale } = projectFor().load();
         warning = stale;
+        freshness = graph.freshness;
         answer = queryGraph(graph, name, p);
         if (name === "boundary" && p.key && (dev || getProject)) {
           answer.data.live = await live("boundary_history", { key: p.key, keys: answer.data.notifiers.map(n => n.key) })
@@ -110,9 +118,11 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
           answer.text += `\n${liveText("boundary_history", answer.data.live)}`;
         }
       }
+      const entries = freshness?.map(e => `${e.entry}: ${e.status}${e.at ? ` at ${e.at}` : ""} (${e.modules.join(", ") || "no modules"})`).join("\n");
       return { content: format === "json"
-        ? [textContent(JSON.stringify(answer.data, null, 2)), ...(warning ? [textContent(warning)] : [])]
-        : [textContent(warning ? `${warning}\n${answer.text}` : answer.text)] };
+        ? [textContent(JSON.stringify(answer.data, null, 2)), ...(warning ? [textContent(warning)] : []),
+          ...(freshness ? [textContent(JSON.stringify({ freshness }))] : [])]
+        : [textContent([warning, entries, answer.text].filter(Boolean).join("\n"))] };
     } catch (e) { return { isError: true, content: [textContent(errorMessage(e))] }; }
   };
   async function dispatch(method, params) {
@@ -125,7 +135,7 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
           capabilities: { tools: {}, resources: {} }, serverInfo: { name: "rx-map", version: "0.1.0" } };
       }
       case "ping": case "notifications/initialized": return {};
-      case "tools/list": return { tools };
+      case "tools/list": return { tools: catalog };
       case "tools/call": return call(params);
       case "resources/list": return { resources };
       case "resources/read": {

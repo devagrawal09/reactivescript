@@ -88,11 +88,20 @@ function setUpApp(solidView) {
 
 // ---- the dev server ------------------------------------------------------------------------------------------------
 const port = 3190 + Math.floor(Math.random() * 400);
-const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], { cwd: app, stdio: ["ignore", "pipe", "pipe"] });
+const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], {
+  cwd: app, env: { ...process.env, RX_MCP_ACT: "1" }, stdio: ["ignore", "pipe", "pipe"],
+});
 let viteLog = "";
 vite.stdout.on("data", d => (viteLog += d));
 vite.stderr.on("data", d => (viteLog += d));
 const origin = `http://localhost:${port}`;
+async function mcp(name, args = {}) {
+  const res = await fetch(`${origin}/__rx/mcp`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { ...args, format: "json" } } }) });
+  const { result, error } = await res.json();
+  assert.ok(result && !result.isError, error?.message ?? result?.content[0].text);
+  return JSON.parse(result.content[0].text);
+}
 for (let i = 0; !viteLog.includes("Local:"); i++) {
   if (i > 300 || vite.exitCode !== null) { console.error(`vite did not start (exit ${vite.exitCode}) on port ${port}:\n${viteLog}`); process.exit(1); }
   await new Promise(r => setTimeout(r, 100));
@@ -451,6 +460,19 @@ async function realHmr() {
     });
     const btn = page.getByTestId("hmr-counter");
     for (let i = 0; i < 3; i++) await btn.click();
+    await shown("counter", "3");
+    await page.waitForTimeout(100);
+    const oldInstance = (await mcp("state", { key: key("counter") })).instance;
+    const timeline = await mcp("timeline", { limit: 20 });
+    const atOne = timeline.steps.find(s => s.changes.some(c => c.key === key("counter") && c.preview === "1"));
+    assert.ok(atOne, "missing MCP timeline step for counter=1");
+    const step = await mcp("travel", { seq: atOne.seq });
+    assert.equal(step.type, "step");
+    assert.ok(step.changes.some(c => c.key === key("counter") && c.preview === "1"));
+    await shown("counter", "1");
+    assert.equal((await mcp("resume")).type, "resume");
+    await shown("counter", "3");
+    console.log("ok   MCP timeline, travel and resume use the real host");
     const row = page.getByTestId("hmr-row").first();
     await row.click();
     assert.equal(await row.textContent(), "1");
@@ -472,6 +494,8 @@ async function realHmr() {
       { counter: "unchanged" }, async ({ done }) => {
         await page.getByRole("heading", { name: "New shelf" }).waitFor();
         await state("counter", "3");
+        const after = await mcp("state", { key: key("counter") });
+        assert.deepEqual(after.continuity, { from: oldInstance, to: after.instance, status: "carried" });
         assert.equal(await row.textContent(), "0");
         assert.equal(done.fallback, "refresh");
         assert.ok(done.uncarried.includes("src/components/Book.rx|BookRow|local"));

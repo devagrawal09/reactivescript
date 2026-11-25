@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { LIVE_METHODS, LIVE_PATH, LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, MCP_PATH } from "./live-protocol.mjs";
+import { LIVE_METHODS, LIVE_PATH, LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, MCP_PATH, matchesKey } from "./live-protocol.mjs";
+import { isEntry } from "./project.mjs";
 import { createMcp } from "./mcp.mjs";
 import { project } from "./project.mjs";
 
@@ -20,7 +21,7 @@ async function bodyOf(req) {
 }
 
 /** Expose the dev page's read-only recorder at GET/POST /__rx/live. */
-export function rxMap() {
+export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {}) {
   return {
     name: "rx:live",
     apply(_config, env) { return env.command === "serve" && !env.isPreview; },
@@ -46,6 +47,7 @@ export function rxMap() {
         warm.unref();
       };
       const register = (file, spa, frontend) => {
+        if (!isEntry(file)) return;
         if (frontend) {
           const old = frontends.get(file);
           frontends.set(file, { ...frontend, transformed: frontend.transformed ?? old?.transformed });
@@ -59,21 +61,23 @@ export function rxMap() {
         if (hmr.get(root) === hub) hmr.delete(root);
       });
       server.watcher?.on("all", (event, file) => {
+        if (event === "unlink") { entries.delete(file); frontends.delete(file); lastGood.delete(file); }
         if (file.endsWith(".rx") || file.endsWith(".ts") || file.endsWith("tsconfig.json")) invalidate();
       });
       const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood, frontends });
       const capacity = 5000, ring = new Array(capacity);
       let seq = 0, mark, lastPage;
-      const records = (since, limit, filter, page, { key, instance, kinds } = {}) => {
-        const matches = r => (key === undefined || r.key === key) && (instance === undefined || r.instance === instance);
+      const records = (since, limit, filter, page, { key, instance, kinds, whole } = {}) => {
+        const matches = r => matchesKey(r, key) && (instance === undefined || r.instance === instance);
         const out = [];
         for (let i = seq; i > since && i > seq - capacity && out.length < limit; i--) {
           const { data, socket } = ring[(i - 1) % capacity];
           if (page && socket !== page) continue;
           if (kinds && !kinds.includes(data.type)) continue;
           if (data.type === "flush") {
-            const changes = data.changes.filter(c => c && (filter === "all" || c.key) && matches(c));
-            if (changes.length) out.push({ ...data, changes });
+            const changes = data.changes.filter(c => c && (filter === "all" || c.key));
+            const matched = changes.filter(matches);
+            if (matched.length) out.push({ ...data, changes: whole ? changes : matched });
           } else if (matches(data)) out.push(data);
         }
         return out.reverse();
@@ -134,7 +138,7 @@ export function rxMap() {
         if (response.error !== undefined) throw new Error(response.error);
         return method === "status" ? { ...response.result, pages: pages.size } : response.result;
       }
-      const mcp = createMcp({ getProject, live });
+      const mcp = createMcp({ getProject, live, act });
       const print = server.printUrls.bind(server);
       server.printUrls = () => {
         print();

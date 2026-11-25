@@ -1557,7 +1557,7 @@ impl<'p> Gen<'p> {
             ExprKind::Fn { params, body, stmts } => {
                 let inner = self.params(env, params);
                 let ps: Vec<P> = params.iter().map(|p| P::Id(mg(p))).collect();
-                match stmts {
+                let f = match stmts {
                     Some(ss) if crate::infer::inferred_action(ss).is_some() => {
                         // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
                         let b = self.stmts(ss, inner, &Ctx { imp: true, gen: true, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() }, false)?;
@@ -1573,7 +1573,8 @@ impl<'p> Gen<'p> {
                         let b = self.expr(body, inner, &Ctx { imp: ctx.imp, dynamic: ctx.dynamic, effect: ctx.effect, ..Ctx::default() })?;
                         E::Arrow { params: ps, body: Body::Expr(Box::new(b)), is_async: false }
                     }
-                }
+                };
+                if ctx.imp && !self.dev_module.is_empty() { rtc("traceCallback", vec![f]) } else { f }
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {

@@ -421,6 +421,14 @@ Static tools: `check`, `overview`, `find`, `node`, `reach`, `boundary`, `diff`. 
 look up a key for `node` or `reach`. `boundary` lists its own keys. `diff` defaults to `HEAD`. The `rx://graph` and
 `rx://model` resources return JSON; any tool also accepts `format: "json"` for its structured answer.
 
+Live tools accept the same keys as `find`, including field paths. `tail` and `record stop` with `key` show only
+matching changes; pass `whole: true` to include the rest of a matching flush.
+
+The MCP endpoint cannot change the running page by default. Opt in with `rxMap({ mcp: { act: true } })` or start
+Vite with `RX_MCP_ACT=1`. The Vite `/__rx/mcp` endpoint then exposes `timeline(limit?)`, `travel(seq)`, and
+`resume()`. Only `travel` and `resume` act on the page; `timeline` reads retained steps. They target the newest
+connected page and use the same host and limits as the map. `record` only changes the recorder's bookmark.
+
 If a build breaks after a successful one, static queries reuse the last good model in this MCP session and say when it
 was built and which files changed. `check` reports current errors. Use keys like `src/state.rx||ui.hidden` with
 `node`, `find`, or `reach` to inspect a field. `node` on the whole store lists observed fields; whole-store accesses

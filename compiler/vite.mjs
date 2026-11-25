@@ -170,7 +170,7 @@ export default function rx() {
       const base = path.resolve(root ?? process.cwd());
       const dev = solid.dev === true && target === "dom" ? base : null;
       const hmr = !!(dev && hot);
-      const register = dev && !dep && globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base);
+      const register = dev && !dep && !file.endsWith(".d.rx") && globalThis[Symbol.for("reactivescript.vite.entries")]?.get(base);
       const check = () => build(file, target, moduleName, spa, dev, true).out;
       const builtProgram = dep ? containing(file, target, moduleName, spa, base, dev, hmr) : build(file, target, moduleName, spa, dev, false, hmr);
       const { out, stamps } = builtProgram;
