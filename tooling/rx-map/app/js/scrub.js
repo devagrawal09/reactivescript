@@ -1,7 +1,6 @@
 // The timeline under the map (map.html's renderScrub, atX, causeColor, trackSeq, the track's pointer and keys, and
-// travel's 70 ms throttle). The canvas and the playhead are drawn from the live mirror (livestate.js); the label, the
-// LIVE button and the aria values are live.rx's.
-import { mirror } from "./livestate.js";
+// travel's 70 ms throttle). The canvas and the playhead are drawn from the committed timeline live.rx hands in
+// (`live.tl`, as of the last commit); the label, the LIVE button and the aria values are live.rx's.
 import { post } from "./transport.js";
 import { famOf, FAM_HEX } from "./vocab.js";
 
@@ -34,12 +33,11 @@ function causeColor(M, s) {
   return k ? FAM_HEX[famOf(M.nodes.get(M.keyIds.get(k)[0]))] : "rgba(226,232,240,.6)";
 }
 
-/** Draws the timeline: flights, a tick per flush, module replacements, the playhead. */
-export function renderScrub(M) {
+/** Draws the timeline `tl` (live.tl): flights, a tick per flush, module replacements, the playhead. */
+export function renderScrub(M, tl) {
   const { trackc, playhead } = els();
-  if (!trackc || !playhead) return;
+  if (!trackc || !playhead || !tl) return;
   if (!tW) sizeScrub();
-  const tl = mirror().tl;
   const c = trackc.getContext("2d");
   if (!c) return;
   const dpr = DPR();
@@ -88,17 +86,15 @@ export function startScrub(draw) {
 }
 
 // ---- travel ----------------------------------------------------------------------------------------------------
-/** What travelling to `seq` means now: "resume" (the head, while viewing), "stay" (already there) or "go". */
-export function travelKind(seq) {
-  const tl = mirror().tl;
+/** What travelling to `seq` means from `tl`: "resume" (the head, while viewing), "stay" (already there) or "go". */
+export function travelKind(tl, seq) {
   if (seq == null) return "stay";
   if (seq >= tl.head && tl.viewing != null) return "resume";
   if (seq === (tl.viewing ?? tl.head) && tl.target == null) return "stay";
   return "go";
 }
-/** The seq `n` steps from the one shown (or -1 for "resume", -2 for nothing to do). */
-export function seqBy(n) {
-  const tl = mirror().tl;
+/** The seq `n` steps from the one `tl` shows (or -1 for "resume", -2 for nothing to do). */
+export function seqBy(tl, n) {
   const seqs = tl.steps.map(s => s.seq);
   if (!seqs.length) return -2;
   let i = seqs.indexOf(shownSeq(tl)); if (i < 0) i = seqs.length - 1;
@@ -106,39 +102,40 @@ export function seqBy(n) {
   if (j === seqs.length - 1 && n > 0 && tl.viewing != null) return -1;
   return seqs[j];
 }
-/** The first recorded seq, or -2. */
-export const firstSeq = () => mirror().tl.steps[0]?.seq ?? -2;
-
 let lastTravel = 0, travelTimer = 0;
-/** Sends `travel` to the host: dragging sends at most every 70 ms; the last one always goes (to the target then). */
+/** Sends `travel` to the host: dragging sends at most every 70 ms; the last one always goes (the latest `seq`). */
 export function sendTravel(seq) {
   clearTimeout(travelTimer);
-  const go = () => { lastTravel = performance.now(); post({ type: "travel", to: mirror().tl.target ?? seq }); };
+  // a pending send is replaced, so `seq` is the latest target when it goes
+  const go = () => { lastTravel = performance.now(); post({ type: "travel", to: seq }); };
   if (performance.now() - lastTravel > 70) go(); else travelTimer = setTimeout(go, 70);
 }
 
 // the step under the pointer
-function trackSeq(ev) {
+function trackSeq(tl, ev) {
   const { track } = els();
-  const r = track.getBoundingClientRect(), steps = mirror().tl.steps, n = steps.length;
+  const r = track.getBoundingClientRect(), steps = tl.steps, n = steps.length;
   if (!n) return null;
   const i = clamp(Math.round((ev.clientX - r.left - padX) / Math.max(1, r.width - 2 * padX) * (n - 1)), 0, n - 1);
   return { seq: steps[i].seq, last: i === n - 1 };
 }
-/** Drag on the track to travel; ← / → step, Home goes to the first, End resumes. Returns the stop. */
+/**
+ * Drag on the track to travel; ← / → step, Home goes to the first, End resumes. `on.tl()` reads the committed
+ * timeline (live.tl). Returns the stop.
+ */
 export function startTrack(on) {
   const { track } = els();
   if (!track) return () => {};
   const down = ev => {
     try { track.setPointerCapture(ev.pointerId); } catch {}
-    const go = e => { const t = trackSeq(e); if (t) (t.last && mirror().tl.viewing != null && e.type === "pointerup" ? on.resume() : on.travel(t.seq)); };
+    const go = e => { const tl = on.tl(), t = trackSeq(tl, e); if (t) (t.last && tl.viewing != null && e.type === "pointerup" ? on.resume() : on.travel(t.seq)); };
     go(ev);
     track.onpointermove = go;
     track.onpointerup = e => { track.onpointermove = null; track.onpointerup = null; go(e); };
   };
   const key = ev => {
     if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") { ev.preventDefault(); ev.stopPropagation(); on.travelBy(ev.key === "ArrowLeft" ? -1 : 1); }
-    else if (ev.key === "Home") { ev.preventDefault(); const s = firstSeq(); if (s >= 0) on.travel(s); }
+    else if (ev.key === "Home") { ev.preventDefault(); const s = on.tl().steps[0]?.seq ?? -2; if (s >= 0) on.travel(s); }
     else if (ev.key === "End") { ev.preventDefault(); on.resume(); }
   };
   track.addEventListener("pointerdown", down);

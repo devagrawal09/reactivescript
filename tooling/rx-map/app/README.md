@@ -45,12 +45,12 @@ JS (`js/*.js`, each with a `.d.rx` beside it):
 | `sound.js` | the WebAudio cues |
 | `hl.js` | the RX highlighter, `md` |
 | `values.js` | value previews: lists, the chip badge, `valueAt` |
-| `livestate.js` | the live reducer (one, run on a JS mirror and on the store's draft), `present()` |
+| `livestate.js` | the live reducer (a draft updater: `live := s => reduce(s, m, model)`, one per message), the fx queue it fills and `playFx`, `present()` |
 | `transport.js` | the host link: postMessage, the in-page fake, `__RX_VIEW__`, the pop-out window |
 | `scrub.js` | the timeline canvas and track pointer |
 | `swap.js` | a module replacement's graph swap (FLIP bookkeeping) |
 | `fakehost.js` | the embedded fake host (fake.mjs + hmr.mjs) and its timer |
-| `panel.js` | panel lookups and texts RX can't write (escapes, `in`, edge descriptions) |
+| `panel.js` | panel lookups and what RX can't write (`in`, edge descriptions) |
 | `tip.js` | the tooltip's place |
 | `dom.js` | reading events (`closestId`, `leftId`, …) |
 | `util.js` | `unique`, `toSet` |
@@ -64,7 +64,6 @@ JS (`js/*.js`, each with a `.d.rx` beside it):
   turn compose.
 - No DOM element refs: JS finds elements by id / `data-id` after mount.
 - `==` / `!=` are strict (`__rt.eq` is `===`): a missing key is `undefined`, not `null`. Use `present(x)`.
-- String literals lose their escapes (`"a\nb"` → `"anb"`): put such strings in JS.
-- `<></>` renders the text "null": don't use an empty fragment.
-- Two synthetic events in one task see the first one's writes only after Solid's microtask flush; a handler that
-  must see its own last state reads it from JS (e.g. `soundOn()`).
+- Two events in one task see the first one's writes only after Solid's microtask flush. Messages: one functional
+  write each (W-6 composes them in arrival order); transient effects are queued in state by the reducer and played
+  from an effect after commit; JS reads the committed store through an accessor (`state: () => live`).

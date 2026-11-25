@@ -1,8 +1,11 @@
-// Live mode's state and its reducer (livestate.js): the mirror, and the reads the views make over the store.
+// Live mode's state and its reducer (livestate.js), the transient effects it queues, and the reads the views make.
 export pure fn freshLive(): any
-export fn ingest(raw: any, m: any, extra: any): any
-export pure fn reduce(s: any, msg: any, m: any): any
-export fn previews(): any
+/** The message as the reducer takes it, or null. Not pure: stores an hmr plan's graph (putGraph). */
+export fn prepare(raw: any, m: any): any
+/** A draft updater: mutates `s` (the store's draft, in a functional write) and queues effects on `s.fx`. */
+export fn reduce(s: any, msg: any, m: any): void
+/** Plays the queued effects not played yet (from an effect on `live.fxSeq`). */
+export fn playFx(s: any, m: any): void
 export pure fn planReason(hmr: any, key: string): string
 export pure fn heldText(h: any, none: string): string
 export pure fn isFlying(live: any, key: string): boolean

@@ -6,7 +6,7 @@
 // the page hands to `startLive` (live.rx's dispatch), then on to every pop-out this map feeds.
 import { isLive, isPopout, pristine, bodyClass, fakeSeed, servedGraph } from "./env.js";
 import { startFake } from "./fakehost.js";
-import { mirror, previews, setLiveHooks } from "./livestate.js";
+import { previewsOf, setLiveHooks } from "./livestate.js";
 import { toast } from "./fx.js";
 import { sfx } from "./sound.js";
 import { playApply, scheduleSwap, cancelSwap } from "./swap.js";
@@ -14,6 +14,7 @@ import { playApply, scheduleSwap, cancelSwap } from "./swap.js";
 const popups = new Set();   // pop-out windows this map relays to: { win, receive }
 let opener = null;          // in a pop-out: the link to the map that opened it (or to the app's bridge)
 let receiveFn = () => {};
+let stateFn = null;         // the committed live state (startLive's `on.state`, a read of live.rx's store)
 let currentGraph = null;
 let fakeUnsub = null;
 
@@ -39,9 +40,12 @@ function receive(d) {
 /** The graph the map draws now (kept up to date by live.rx): `__RX_VIEW__.graph()`, a pop-out's start. */
 export function setCurrentGraph(g) { currentGraph = g; }
 
-// What a view holds, as messages: a pop-out starts from it
+// What a view holds, as messages: a pop-out starts from it (as of the last commit; plain copies, not store proxies:
+// the pop-out puts them in a store of its own)
 function viewState() {
-  const S = mirror(), tl = S.tl;
+  const S = stateFn ? JSON.parse(JSON.stringify(stateFn())) : null;
+  if (!S) return { graph: null, timeline: null, snapshot: null };
+  const tl = S.tl;
   return {
     graph: S.hmr.swapped ? currentGraph : null,
     timeline: { source: "rx-map", v: 1, type: "timeline", head: tl.head, viewing: tl.viewing, capacity: tl.capacity, steps: tl.steps, flushes: S.flushes },
@@ -55,7 +59,8 @@ function viewState() {
 // `window.__RX_VIEW__`: for tests, tools and pop-outs. Set when this module loads (a pop-out checks its opener for it).
 window.__RX_VIEW__ = {
   receive, connect: () => connectHost(),
-  values: () => previews(),
+  // what the map shows as of the last commit (a test waits for it: Solid commits on a microtask)
+  values: () => (stateFn ? previewsOf(stateFn()) : {}),
   graph: () => currentGraph,
   // a pop-out attaches here: it gets every host message, and its own messages go to this map's host
   attach(win, rcv) {
@@ -73,13 +78,14 @@ function connectHost() {
 }
 
 /**
- * Starts live mode: `on.receive(msg)` gets every host message; in a pop-out, `on.graph(g)` loads a graph and
- * `on.connected(ok)` reports the feed. Returns the stop.
+ * Starts live mode: `on.receive(msg)` gets every host message; `on.state()` reads the committed live state; in a
+ * pop-out, `on.graph(g)` loads a graph and `on.connected(ok)` reports the feed. Returns the stop.
  */
 export function startLive(on) {
   if (!isLive()) return () => {};
   receiveFn = on.receive;
-  setLiveHooks({ post, apply: M => { playApply(M); scheduleSwap(on.swap); }, cancelSwap });
+  stateFn = on.state;
+  setLiveHooks({ post, apply: (M, hmr) => { playApply(M, hmr); scheduleSwap(on.swap); }, cancelSwap });
   bodyClass("live", true);
   const stops = [];
   if (isPopout()) {
@@ -95,7 +101,7 @@ export function startLive(on) {
     stops.push(() => removeEventListener("message", onMessage));
     queueMicrotask(connectHost);
   }
-  return () => { for (const s of stops) s(); fakeUnsub?.(); fakeUnsub = null; receiveFn = () => {}; };
+  return () => { for (const s of stops) s(); fakeUnsub?.(); fakeUnsub = null; receiveFn = () => {}; stateFn = null; };
 }
 
 // ---- pop-out: the same live map in a window of its own ------------------------------------------------------
@@ -160,7 +166,7 @@ function joinOpener(on) {
     const st = opener.state();
     const catchUp = () => {
       receiveFn(st.timeline);
-      receiveFn({ type: "~flushes", n: st.timeline.flushes ?? mirror().flushes });
+      receiveFn({ type: "~flushes", n: st.timeline?.flushes ?? 0 });
       receiveFn(st.snapshot);
     };
     // a new graph is drawn first: its keys are what the messages are read against

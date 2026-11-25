@@ -2,14 +2,14 @@
 // replacement, the pop-out and the fake host's HUD.
 //
 // All of it is one source, `live` (a store; its shape is livestate.js freshLive). Every message goes through
-// `dispatch`, which hands it to livestate.js `ingest` (the JS mirror, and the transient effects: rings, comets, orbs,
-// sounds, toasts) and then applies the same reducer to the store with a functional write, so several messages handled
-// in one turn compose. The views draw everything that stays (values, classes, badges, the label, the note) from the
-// store. Steps, flights and hmrs of the timeline are in the store too, but only the canvas reads them, from the
-// mirror (scrub.js).
+// `dispatch`: livestate.js `prepare` (what follows from the message and the model), then one functional write,
+// `live := s => reduce(s, m, model)`, so a burst of messages handled in one turn composes in arrival order. The reducer
+// queues the transient effects (rings, comets, orbs, sounds, toasts, the hmr apply, `snapshot?`) on `live.fx`; an
+// effect plays them after the commit. The views draw everything that stays from the store; the JS that reads the state
+// (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
 import { isLive, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
 import { icon, keyName } from "./js/vocab.js"
-import { freshLive, ingest, reduce, planReason, heldText, boundaryOf, planView, present } from "./js/livestate.js"
+import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present } from "./js/livestate.js"
 import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
 import { renderScrub, startScrub, startTrack, travelKind, seqBy, sendTravel } from "./js/scrub.js"
 import { beforeSwap, afterSwap } from "./js/swap.js"
@@ -25,9 +25,9 @@ import { openTab, pick } from "./ui.rx"
 // ---- the state --------------------------------------------------------------------------------------------------
 export source live: any := freshLive()
 
-/** Every message in (the host's, and the page's own "~" ones): the mirror and its effects, then the store. */
+/** Every message in (the host's, and the page's own "~" ones): one functional write each. */
 export action dispatch(raw: any) {
-  let m = ingest(raw, model, null)
+  let m = prepare(raw, model)
   if (m != null) {
     live := s => reduce(s, m, model)
     if (m.type == "hmr" && m.phase == "plan" && selected == null) { openTab("plan") }
@@ -42,7 +42,7 @@ export action resume() {
 }
 /** Travel to a seq (dragging: the host hears at most every 70 ms; the last always). */
 export action travel(seq: number) {
-  let k = travelKind(seq)
+  let k = travelKind(live.tl, seq)
   if (k == "resume") { resume() }
   else if (k == "go") {
     dispatch({ type: "~target", seq: seq })
@@ -51,7 +51,7 @@ export action travel(seq: number) {
 }
 /** `n` steps back (negative) or forward from the step shown; past the last, resume. */
 export action travelBy(n: number) {
-  let s = seqBy(n)
+  let s = seqBy(live.tl, n)
   if (s == -1) { resume() } else if (s >= 0) { travel(s) }
 }
 
@@ -59,7 +59,7 @@ export action travelBy(n: number) {
 action swapIn() {
   let no = live.hmr.plan == null ? -1 : live.hmr.plan.graphNo
   if (no >= 0) {
-    beforeSwap(model, selected)
+    beforeSwap(model, selected, live.hmr)
     select(null)
     swapGraph(graphAt(no))
   }
@@ -71,6 +71,7 @@ export component LiveBridge() {
   effect () {
     return startLive({
       receive: (m) => { dispatch(m) },
+      state: () => live,
       graph: (g) => { swapGraph(g) },
       connected: (ok) => { dispatch({ type: "~connected", ok: ok }) },
       swap: () => { swapIn() },
@@ -81,12 +82,14 @@ export component LiveBridge() {
   // a new graph (a module replacement, a pop-out's catch-up): what the map holds goes on the new tokens
   effect (model) {
     setCurrentGraph(graphOf($0))
-    let r = afterSwap($0, (changes) => { dispatch({ type: "~done", changes: changes }) })
+    let r = afterSwap($0, live, (changes) => { dispatch({ type: "~done", changes: changes }) })
     if (r != null) {
       if (r.id != "") { select(r.id) } else if (r.hadSel) { openTab("plan") }
     }
   }
   effect (live.tl.viewing != null) { bodyClass("viewing", $0) }
+  // the transient effects the reducer queued, played once each, in order, after the commit
+  effect (live.fxSeq) { playFx(live, model) }
   // the host may show what is selected
   effect (selected) {
     if ($0 != null && isLive()) {
@@ -132,10 +135,10 @@ viewingNow = live.tl.viewing != null || live.tl.target != null
 firstSeq = live.tl.steps.length > 0 ? live.tl.steps[0].seq : 0
 
 export component Scrub() {
-  // the canvas (flights, ticks, module replacements) and the playhead are drawn by scrub.js from the mirror
-  effect () { return startScrub(() => { renderScrub(model) }) }
-  effect (live.tl.rev, model) { renderScrub($1) }
-  effect () { return startTrack({ travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) }
+  // the canvas (flights, ticks, module replacements) and the playhead are drawn by scrub.js from the committed live.tl
+  effect () { return startScrub(() => { renderScrub(model, live.tl) }) }
+  effect (live.tl.rev, model) { renderScrub($1, live.tl) }
+  effect () { return startTrack({ tl: () => live.tl, travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) }
 
   <div id="scrub" hidden={!isLive()}>
     <button class={["hbtn", isLive() && !viewingNow && "on"]} id="liveBtn" title="back to live"

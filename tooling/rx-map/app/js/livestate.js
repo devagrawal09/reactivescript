@@ -1,11 +1,19 @@
 // Live mode's state, as one plain object, and the one reducer that changes it. Ported from map.html's onLive and its
 // handlers (onFlight, onFlush, applyChanges, onSnapshot, onTimeline, onStep, onResume, reconcile, onHmr, …).
 //
-// The same reducer runs twice per message: here on a plain JS mirror (so `__RX_VIEW__.values()`, the timeline canvas,
-// travel's throttle and the transient effects read the state synchronously, burst after burst), and in live.rx on the
-// store's draft (`live := s => reduce(s, m, model)`), which the views render. It changes `s` in place and returns
-// nothing, so it works on both; it must stay deterministic (no clocks, no randomness): what it needs from outside is
-// put on the message first by `enrich`.
+// A message goes in in two steps (live.rx dispatch):
+//  1. `prepare(raw, M)`: what follows from the message and the model alone, before the write: unknown keys dropped,
+//     the causal waves (ring / comet timings) worked out, an hmr plan's graph stored (`putGraph`, a side effect: it
+//     happens once, here, and the message carries its number).
+//  2. `live := s => reduce(s, m, M)`: one functional write per message. Solid hands the updater the store's draft,
+//     with every earlier message of the burst already applied (W-6), so whatever depends on the state (a flight's
+//     default `at`, an hmr message for a plan that is no longer current, whether a landed flight should ask for a
+//     snapshot, which orbs a snapshot moves) is decided here, in arrival order. `reduce` MUTATES that draft and returns
+//     nothing: returning a fresh state would copy the timeline (up to 2000 steps) per message. It must stay
+//     deterministic and free of effects (no clocks, no randomness, no DOM, no sound, no posting).
+// The transient effects (rings, comets, orbs, sounds, toasts, the hmr apply, `snapshot?` to the host) are records the
+// reducer appends to `s.fx` (numbered by `s.fxSeq`); live.rx plays them after the commit (`playFx`, from an effect on
+// `live.fxSeq`), in order, each once.
 //
 // Message types starting with "~" are the page's own (a travel target, the pop-out's connection, the swap after a
 // module replacement); the transport drops them from outside.
@@ -19,7 +27,7 @@ import { putGraph } from "./graphs.js";
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-/** A fresh, empty live state (a new object every call: the mirror and the store must not share one). */
+/** A fresh, empty live state (a new object every call). */
 export function freshLive() {
   return {
     // key → { preview?, error?, pending, count, seq, origin, current, shown, old, anim, delay, roll }
@@ -34,14 +42,11 @@ export function freshLive() {
     tl: { steps: [], head: 0, viewing: null, target: null, capacity: 2000, flights: [], hmrs: [], rev: 0 },
     // a module replacement: the plan (its graph kept by number), its phase, and what the board marks for it
     hmr: { plan: null, phase: null, error: null, swapped: false, pendingDone: null, marks: {}, planned: {}, incoming: {} },
+    // the transient effects still to play (playFx), each numbered: { n, k, … }
+    fx: [],
+    fxSeq: 0,
   };
 }
-
-let S = freshLive();
-/** The mirror: the live state as of the last message handled (plain, synchronous). */
-export const mirror = () => S;
-/** What `__RX_VIEW__.values()` returns: every key's preview. */
-export const previews = () => Object.fromEntries(Object.entries(S.values).map(([k, v]) => [k, v.preview]));
 
 const has = (M, key) => key != null && M.keyIds.has(key);
 const idsOf = (M, key) => M.keyIds.get(key) ?? [];
@@ -49,24 +54,33 @@ const chipIds = (M, key) => idsOf(M, key).filter(id => anchorOf(id)?.classList.c
 const lastAt = s => s.tl.steps.length ? s.tl.steps[s.tl.steps.length - 1].at : 0;
 const del = (o, k) => { if (k in o) delete o[k]; };
 
-// ---- enrich: what the reducer needs that isn't in the message (computed once, from the mirror before it changes) --
-function enrich(raw, M, extra) {
-  const m = { ...raw, ...extra };
-  if (m.type === "flight" && !has(M, m.key)) return null;
-  if (m.type === "flight") m.at = m.at ?? lastAt(S);
+// ---- prepare: what follows from the message and the model alone (no state), before the write -----------------
+/**
+ * The message as the reducer takes it, or null when the map ignores it (not a message; a flight or held write for a
+ * key the map doesn't draw). Stores an hmr plan's graph (`putGraph`) and puts its number on the message.
+ */
+export function prepare(raw, M) {
+  if (!raw || typeof raw.type !== "string") return null;
+  const m = { ...raw };
+  if ((m.type === "flight" || m.type === "held") && !has(M, m.key)) return null;
   if (m.type === "flush" || m.type === "step" || m.type === "resume" || m.type === "~done") {
-    const flush = m.type === "flush";
     m.changes = (m.changes ?? []).filter(c => c && has(M, c.key));
-    m.waves = waves(M, m.changes, flush, m.cause, m.order);
+    m.waves = waves(M, m.changes, m.type === "flush", m.cause, m.order);
   }
-  if (m.type === "hmr") {
-    if (m.phase !== "plan" && (!S.hmr.plan || m.id !== S.hmr.plan.id)) return null;
-    if (m.phase === "plan") m.graphNo = m.graph?.nodes ? putGraph(m.graph) : -1;
-    if (m.phase === "done" && S.hmr.swapped) m.waves = waves(M, (m.changes ?? []).filter(c => c && has(M, c.key)), false);
+  if (m.type === "hmr" && m.phase === "plan") m.graphNo = m.graph?.nodes ? putGraph(m.graph) : -1;
+  if (m.type === "hmr" && m.phase === "done") {
+    // used only if the swap has happened by then (the reducer decides); otherwise ~done brings them in later
+    m.known = (m.changes ?? []).filter(c => c && has(M, c.key));
+    m.waves = waves(M, m.known, false);
   }
-  if (m.type === "released" && !(m.key in S.held)) return null;
-  if (m.type === "held" && !has(M, m.key)) return null;
   return m;
+}
+
+// a transient effect to play after the commit
+function emit(s, r) {
+  s.fxSeq++;
+  s.fx.push({ n: s.fxSeq, ...r });
+  if (s.fx.length > 600) s.fx.splice(0, 300);   // played long ago (a burst longer than that loses its oldest)
 }
 
 // causal waves: a changed node one step after the changed nodes it reads (or after its cause). Returns, per changed id,
@@ -103,7 +117,10 @@ function waves(M, changes, flush, cause, order) {
 }
 
 // ---- the reducer ---------------------------------------------------------------------------------------------
-/** Applies one (enriched) message to `s`, in place. `M` is the model the keys are looked up in. */
+/**
+ * Applies one prepared message to `s` IN PLACE (the store's draft: `live := s => reduce(s, m, model)`), and queues
+ * its transient effects on `s.fx`. Returns nothing. `M` is the model the keys are looked up in.
+ */
 export function reduce(s, m, M) {
   switch (m.type) {
     case "reset": return onReset(s);
@@ -112,43 +129,55 @@ export function reduce(s, m, M) {
     case "timeline": return onTimeline(s, m, M);
     case "step": return onStep(s, m, M);
     case "resume": return onResume(s, m, M);
-    case "travel-denied": s.tl.target = null; s.tl.rev++; return;
+    case "travel-denied": s.tl.target = null; s.tl.rev++; emit(s, { k: "denied", to: m.to, reason: m.reason ?? null }); return;
     case "hmr": return onHmr(s, m, M);
     case "snapshot": return onSnapshot(s, m, M);
+    case "revert": emit(s, { k: "revert", key: m.key }); return;
     case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null }; return;
     case "held": s.held[m.key] = { by: [...(m.by ?? [])], since: m.at ?? null }; return;
-    case "released": del(s.held, m.key); return;
+    case "released": del(s.held, m.key); return;   // a key not held: nothing to do
     case "run": if (m.state === "start") s.runs[m.id] = m.key; else del(s.runs, m.id); return;
     case "~target": s.tl.target = m.seq; s.tl.rev++; return;
     case "~connected": s.connected = m.ok; return;
     case "~flushes": s.flushes = m.n; return;
     case "~swapped": return onSwapped(s);
-    case "~done": s.hmr.pendingDone = null; return applyChanges(s, m.changes, m.waves, { seq: s.tl.viewing ?? s.tl.head });
+    case "~done":
+      s.hmr.pendingDone = null;
+      applyChanges(s, m.changes, m.waves, { seq: s.tl.viewing ?? s.tl.head });
+      emit(s, { k: "wave", w: m.waves });
+      return;
   }
 }
 
 function onReset(s) {
   const f = freshLive();
   for (const k of Object.keys(f)) {
-    if (k === "connected") continue;
+    if (k === "connected" || k === "fx" || k === "fxSeq") continue;
     s[k] = f[k];
   }
+  emit(s, { k: "reset" });
 }
 
 function onFlight(s, m) {
+  const at = m.at ?? lastAt(s);
+  const v = s.values[m.key];
+  // the engine doesn't include a question's first answer in its flush changes: a landing asks for a snapshot
+  const ask = m.state === "land" && (!!v?.pending || !v?.current);
   const k = s.flying[m.key] ?? 0;
   const next = m.state === "start" ? k + 1 : Math.max(0, k - 1);
   if (next) s.flying[m.key] = next; else del(s.flying, m.key);
   const fl = s.tl.flights;
-  if (m.state === "start") fl.push({ key: m.key, start: m.at, end: null, state: null });
+  if (m.state === "start") fl.push({ key: m.key, start: at, end: null, state: null });
   else {
-    for (let i = fl.length - 1; i >= 0; i--) if (fl[i].key === m.key && fl[i].end == null) { fl[i].end = m.at; fl[i].state = m.state; break; }
+    for (let i = fl.length - 1; i >= 0; i--) if (fl[i].key === m.key && fl[i].end == null) { fl[i].end = at; fl[i].state = m.state; break; }
   }
   if (fl.length > 400) fl.splice(0, fl.length - 400);
   s.tl.rev++;
+  emit(s, { k: "flight", key: m.key, state: m.state, next, ask });
 }
 
 function onFlush(s, m) {
+  emit(s, { k: "flush", w: m.waves });
   s.flushes++;
   if (typeof m.seq === "number") {
     s.tl.steps.push({ seq: m.seq, at: m.at, origin: m.origin, cause: m.cause, changes: m.changes, order: m.order });
@@ -202,12 +231,15 @@ function onSnapshot(s, d, M) {
     for (const h of d.held) if (h?.key && has(M, h.key)) s.held[h.key] = { by: [...(h.by ?? [])], since: h.since ?? null };
   }
   if (Array.isArray(d.flights)) {
+    const off = Object.keys(s.flying);
     s.flying = {};
     for (const { key, since } of d.flights) {
       if (!has(M, key)) continue;
       s.flying[key] = 1;
       if (!s.tl.flights.some(f => f.key === key && f.end == null)) s.tl.flights.push({ key, start: since ?? lastAt(s), end: null, state: null });
     }
+    // the orbs: off the keys that were in the air, on the ones that are
+    emit(s, { k: "orbs", off, on: Object.keys(s.flying) });
   }
   if (Array.isArray(d.boundaries)) {
     s.boundaries = {};
@@ -241,6 +273,7 @@ function onTimeline(s, d, M) {
 
 function onStep(s, d, M) {
   s.tl.viewing = d.to; s.tl.target = null;
+  emit(s, { k: "step", direction: d.direction, w: d.waves });
   const dir = d.direction === "back" ? "down" : "up";
   applyChanges(s, d.changes, d.waves, { dir });
   reconcile(s, M, d.to, dir);
@@ -251,6 +284,7 @@ function onStep(s, d, M) {
 
 function onResume(s, d, M) {
   s.tl.viewing = null; s.tl.target = null;
+  emit(s, { k: "resume", w: d.waves });
   if (typeof d.head === "number") s.tl.head = d.head;
   applyChanges(s, d.changes, d.waves, { dir: "up" });
   reconcile(s, M, s.tl.head, "up");
@@ -280,6 +314,8 @@ export function modIndex(G, m) { return G.modules.findIndex(x => x === m || x.en
 
 function onHmr(s, d, M) {
   const h = s.hmr;
+  // apply / done / failed speak of a plan: not the current one, they are stale
+  if (d.phase !== "plan" && (!h.plan || d.id !== h.plan.id)) return;
   if (d.phase === "plan") {
     const p = d.plan ?? {};
     const marks = {};
@@ -297,16 +333,18 @@ function onHmr(s, d, M) {
     s.hmr = { plan: { id: d.id, modules: [...(d.modules ?? [])], plan: p, graphNo: d.graphNo }, phase: "plan", error: null, swapped: false, pendingDone: null, marks, planned, incoming };
     s.tl.hmrs.push({ seq: s.tl.head, id: d.id });
     s.tl.rev++;
+    emit(s, { k: "plan" });
     return;
   }
-  if (d.phase === "apply") h.phase = "apply";
+  if (d.phase === "apply") { h.phase = "apply"; emit(s, { k: "apply" }); }
   else if (d.phase === "done") {
     h.phase = "done";
-    if (h.swapped) applyChanges(s, (d.changes ?? []).filter(c => c && has(M, c.key)), d.waves, {});
+    if (h.swapped) { applyChanges(s, d.known ?? [], d.waves, {}); emit(s, { k: "wave", w: d.waves }); }
     else h.pendingDone = d.changes ?? [];
   } else if (d.phase === "failed") {
     h.phase = "failed"; h.error = d.error ?? null;
     h.marks = {}; h.planned = {}; h.incoming = {};
+    emit(s, { k: "failed", error: d.error ?? null, fallback: d.fallback ?? null });
   }
 }
 
@@ -316,65 +354,58 @@ function onSwapped(s) {
   for (const k of Object.keys(s.values)) { const v = s.values[k]; if (v.preview !== undefined) v.anim = null; }
 }
 
-// ---- in: the mirror, then the transient effects --------------------------------------------------------------
-/**
- * Handles a message on the JS side: enriches it, applies it to the mirror, plays its transient effects (rings,
- * comets, orbs, sounds, toasts), and returns it for the store (`live := s => reduce(s, m, model)`), or null when the
- * map ignores it. The page's hooks (`setLiveHooks`): `post` (to the host), `apply` (play the apply phase and swap soon),
- * `cancelSwap`.
- */
-export function ingest(raw, M, extra) {
-  if (!raw || typeof raw.type !== "string") return null;
-  const m = enrich(raw, M, extra);
-  if (!m) return null;
-  const was = { flying: { ...S.flying }, pending: S.values[m.key]?.pending, current: S.values[m.key]?.current };
-  reduce(S, m, M);
-  try { play(m, M, was); } catch (e) { console.error(e); }
-  return m;
-}
-
+// ---- out: the transient effects, after the commit ------------------------------------------------------------
 const hooks = { post: () => {}, apply: () => {}, cancelSwap: () => {} };
 /** The transport and the swap timer, for the effects that talk back. */
 export function setLiveHooks(h) { Object.assign(hooks, h); }
 
-function play(m, M, was) {
-  switch (m.type) {
+let played = 0;   // the last fx record played (fxSeq only grows: a reset keeps it)
+/**
+ * Plays the effects queued on the committed state `s` since the last call, in order, each once (live.rx runs it from
+ * an effect on `live.fxSeq`). `M` is the model drawn now. The hooks (`setLiveHooks`): `post` (to the host), `apply`
+ * (play the apply phase with the plan, and swap soon), `cancelSwap`.
+ */
+export function playFx(s, M) {
+  for (const r of s.fx) {
+    if (r.n <= played) continue;
+    played = r.n;
+    try { play(r, s, M); } catch (e) { console.error(e); }
+  }
+}
+
+function play(r, s, M) {
+  switch (r.k) {
     case "reset": clearPulses(); clearOrbs(); hooks.cancelSwap(); return;
-    case "flight": {
-      const next = S.flying[m.key] ?? 0;
-      for (const id of chipIds(M, m.key)) { if (m.state === "start") orb(id, "start"); else if (!next) orb(id, m.state); }
-      sfx(({ start: "flightStart", land: "land", abandon: "abandon" })[m.state] ?? "");
-      // the engine doesn't include a question's first answer in its flush changes
-      if (m.state === "land" && (was.pending || !was.current)) hooks.post({ type: "snapshot?" });
+    case "flight":
+      for (const id of chipIds(M, r.key)) { if (r.state === "start") orb(id, "start"); else if (!r.next) orb(id, r.state); }
+      sfx(({ start: "flightStart", land: "land", abandon: "abandon" })[r.state] ?? "");
+      if (r.ask) hooks.post({ type: "snapshot?" });
       return;
-    }
-    case "flush": beat("liveBadge"); return wave(m.waves, M, true);
-    case "step": rewind(m.direction); sfx("rewind", m.direction); return wave(m.waves, M, false);
-    case "resume": rewind("forward"); sfx("rewind", "forward"); return wave(m.waves, M, false);
-    case "~done": return wave(m.waves, M, false);
-    case "travel-denied":
-      toast(`<span class="micro">time</span> can't travel to <b class="mono">#${esc(m.to)}</b>: ${esc(m.reason ?? "denied")}`);
+    case "flush": beat("liveBadge"); return wave(r.w, M, true);
+    case "step": rewind(r.direction); sfx("rewind", r.direction); return wave(r.w, M, false);
+    case "resume": rewind("forward"); sfx("rewind", "forward"); return wave(r.w, M, false);
+    case "wave": return wave(r.w, M, false);
+    case "denied":
+      toast(`<span class="micro">time</span> can't travel to <b class="mono">#${esc(r.to)}</b>: ${esc(r.reason ?? "denied")}`);
       shake("scrub"); sfx("denied");
       return;
-    case "snapshot":
-      if (Array.isArray(m.flights)) {
-        for (const k of Object.keys(was.flying)) for (const id of chipIds(M, k)) anchorOf(id)?.querySelector(".orb")?.remove();
-        for (const k of Object.keys(S.flying)) for (const id of chipIds(M, k)) orb(id, "start");
-      }
+    case "orbs":
+      for (const k of r.off) for (const id of chipIds(M, k)) anchorOf(id)?.querySelector(".orb")?.remove();
+      for (const k of r.on) for (const id of chipIds(M, k)) orb(id, "start");
       return;
-    case "revert": for (const id of chipIds(M, m.key)) revert(id); return;
-    case "hmr":
-      if (m.phase === "plan") { hooks.cancelSwap(); sfx("plan"); }
-      else if (m.phase === "apply") { sfx("hmr"); hooks.apply(M); }
-      else if (m.phase === "done" && m.waves) wave(m.waves, M, false);
-      else if (m.phase === "failed") {
-        hooks.cancelSwap();
-        toast(`<span class="micro" style="color:var(--fail)">reload failed</span> ${esc(m.error ?? "")}${m.fallback === "reload" ? " · reloading the page" : ""}`, 3600);
-        sfx("denied");
-      }
+    case "revert": for (const id of chipIds(M, r.key)) revert(id); return;
+    case "plan": hooks.cancelSwap(); sfx("plan"); return;
+    case "apply": sfx("hmr"); hooks.apply(M, s.hmr); return;
+    case "failed":
+      hooks.cancelSwap();
+      toast(`<span class="micro" style="color:var(--fail)">reload failed</span> ${esc(r.error ?? "")}${r.fallback === "reload" ? " · reloading the page" : ""}`, 3600);
+      sfx("denied");
       return;
   }
 }
+
+/** What `__RX_VIEW__.values()` returns: every key's preview, read from the (committed) state handed in. */
+export const previewsOf = s => Object.fromEntries(Object.entries(s.values).map(([k, v]) => [k, v.preview]));
 
 // rings on every changed token at its wave's moment; for a flush, comets from what it read and a note per family
 function wave(w, M, flush) {

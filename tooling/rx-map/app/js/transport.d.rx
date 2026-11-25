@@ -1,5 +1,5 @@
 // Live mode's plumbing (transport.js): the host, __RX_VIEW__, the pop-out.
-export type LiveHooks = { receive: (m: any) => void; graph: (g: any) => void; connected: (ok: boolean) => void; swap: () => void }
+export type LiveHooks = { receive: (m: any) => void; state: () => any; graph: (g: any) => void; connected: (ok: boolean) => void; swap: () => void }
 export fn post(m: any): void
 export fn startLive(on: LiveHooks): () => void
 export fn setCurrentGraph(g: any): void

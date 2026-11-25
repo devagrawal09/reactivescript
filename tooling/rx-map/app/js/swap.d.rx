@@ -1,5 +1,6 @@
-// A module replacement's swap (swap.js): FLIP, carrying live state over, the selection by key.
+// A module replacement's swap (swap.js): FLIP, carrying live state over, the selection by key. `h` is live.hmr and
+// `live` the live state, as committed.
 export type AfterSwap = { id: string; hadSel: boolean }
-export fn beforeSwap(m: any, selected: string | null): void
-export fn afterSwap(m: any, done: (changes: any[]) => void): AfterSwap | null
+export fn beforeSwap(m: any, selected: string | null, h: any): void
+export fn afterSwap(m: any, live: any, done: (changes: any[]) => void): AfterSwap | null
 export fn cancelSwap(): void
