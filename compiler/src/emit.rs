@@ -1323,7 +1323,7 @@ impl<'p> Gen<'p> {
         // Observe a foreign accessor through a named dev memo; the foreign
         // primitive itself stays owned by the JS adapter and is called once.
         let observed = |r: E, p: Part| if rx_key.is_some() && p == Part::Ref {
-            rtc("memo", vec![E::Null, thunk(call(r, vec![]))])
+            rtc("observeRef", vec![r])
         } else { part(r, p) };
         let ix = |r: &str, k: E| E::Index(Box::new(id(r)), Box::new(k), false);
         match &e.k {

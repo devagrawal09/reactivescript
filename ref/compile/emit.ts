@@ -441,7 +441,7 @@ class Gen {
   private foreign(d: Extract<Decl, { k: "eq" }>, env: Env, b: Bind, pad: string): string | null {
     const e = d.e;
     const part = (r: string, p: Shape) => p === "ref"
-      ? this.keys.has(d) ? `__rt.memo(null, () => ${r}())` : r
+      ? this.keys.has(d) ? `__rt.observeRef(${r})` : r
       : `() => ${r}`;
     const keyed = (expr: string) => this.under(this.keys.get(d), expr);
     if (e.k === "call" && e.f.k === "id") {
