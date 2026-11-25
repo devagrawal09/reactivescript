@@ -337,7 +337,7 @@ class Proj {
       case "if": return `(${go(e.c)} ? ${go(e.t)} : ${go(e.f)})`;
       case "throw": return `__.raise(${go(e.e)})`;
       case "catch": return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
-      case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{/g, m => "\\" + m) : "${" + go(p) + "}").join("") + "`";
+      case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{|[\x00-\x1f]/g, m => m.charCodeAt(0) < 32 ? "\\x" + m.charCodeAt(0).toString(16).padStart(2, "0") : "\\" + m) : "${" + go(p) + "}").join("") + "`";
       case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
       case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it

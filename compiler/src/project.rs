@@ -1168,7 +1168,7 @@ impl Proj<'_> {
     }
 }
 
-/// A template literal's text: `` ` ``, `\` and `${` escaped.
+/// A template literal's cooked text, escaped back into TSX.
 fn escape_tpl(s: &str) -> String {
     let mut out = String::new();
     let mut it = s.chars().peekable();
@@ -1182,6 +1182,7 @@ fn escape_tpl(s: &str) -> String {
                 out.push_str("\\${");
                 it.next();
             }
+            '\x00'..='\x1f' => out.push_str(&format!("\\x{:02x}", c as u32)),
             _ => out.push(c),
         }
     }
