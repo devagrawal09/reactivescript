@@ -43,3 +43,18 @@ test("test/fixtures/scenario-coverage.txt is what the scenarios give (node scena
   if (missing(r)) return t.skip(r.stderr.trim());
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
+
+test("a typed action catch is covered by the compiled runtime and live bridge", t => {
+  const dir = mkdtempSync(join(tmpdir(), "rx-scenarios-"));
+  try {
+    const out = join(dir, "coverage.json");
+    const r = run("--coverage", out, "S-app-notes");
+    if (missing(r)) return t.skip(r.stderr.trim());
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const file = JSON.parse(readFileSync(out, "utf8"));
+    const id = "action:examples/notes/data.rx||save:caught:Conflict:0";
+    assert.deepEqual(file.hits[id], { n: 1, by: ["S-app-notes / Frames"] });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -86,8 +86,12 @@ function describe(graph) {
     if (reactive(n)) add("node", n.key, module, n.line, n.key, `${n.name} changes`);
     if (n.kind !== "action" || !n.key || n.world || n.site) continue;
     add("action", `${n.key}:ok`, module, n.line, n.key, `${n.name} succeeds`);
-    // v0.3: a class one of the action's own catches handles can't reject it (a catch-all handles every class, `Error`
-    // included; a typed catch its classes). The bridge doesn't see a caught rejection, so it is no path at all.
+    const typed = (n.catches ?? []).filter(c => c.classes !== null);
+    typed.forEach(({ classes }, site) => {
+      for (const name of classes) add("action", `${n.key}:caught:${name}:${site}`, module, n.line, n.key,
+        `${n.name}'s typed catch ${site + 1} catches ${name}`);
+    });
+    // A class one of the action's own catches handles can't reject it. Catch-alls have no named paths.
     const handled = name => (n.catches ?? []).some(c => c.classes == null || c.classes.includes(name));
     const seen = new Set([n.id]), todo = [n.id];
     while (todo.length) for (const e of calls.get(todo.pop()) ?? []) {
@@ -317,6 +321,9 @@ export function createCollector({ graphs = [], tool }) {
         } else if (candidates.length === 1 && msg.runId === undefined) hit(`guess:${candidates[0].pair}:${outcome}`);
         break;
       }
+      case "caught":
+        hit(`action:${key}:caught:${msg.class}:${msg.site}`);
+        break;
       case "run": {
         const id = runId(msg);
         if (msg.state === "start") {

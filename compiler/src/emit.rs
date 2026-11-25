@@ -88,6 +88,7 @@ struct Ctx {
     self_: Option<String>,
     effect: bool,
     dynamic: bool,
+    action_trace: Option<(String, std::rc::Rc<std::cell::Cell<usize>>)>,
 }
 fn reactive() -> Ctx {
     Ctx::default()
@@ -829,7 +830,8 @@ impl<'p> Gen<'p> {
             let Decl::Action { name, params, body, .. } = d else { continue };
             let n0 = out.len();
             let penv = self.params(env, params);
-            let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, ..Ctx::default() }, false)?;
+            let action_trace = self.keys.get(&(d as *const Decl)).map(|key| (key.clone(), Default::default()));
+            let body = self.stmts(body, penv, &Ctx { imp: true, gen: true, action_trace, ..Ctx::default() }, false)?;
             let gen = E::Func(Box::new(Func { name: None, params: params.iter().map(|p| P::Id(mg(p))).collect(), directives: vec![], body, is_async: false, generator: true }));
             let mut args = vec![gen];
             if let Some(k) = self.keys.get(&(d as *const Decl)) {
@@ -1661,12 +1663,14 @@ impl<'p> Gen<'p> {
                     out.push(S::Let(v.clone(), None));
                 }
                 let body = self.expr(ce, env, &sub)?;
-                let cls = self.classes(classes.as_deref(), env)?;
+                let match_error = self.catch_match(ctx, classes.as_deref(), &ev, env)?;
                 let a = self.expr(alt, h, &sub)?;
+                let mut handler = vec![S::IfThen(not(match_error), Box::new(S::Throw(id(ev.clone()))))];
+                handler.push(set(a));
                 out.push(S::Try {
                     block: vec![set(body)],
                     param: Some(ev.clone()),
-                    handler: Some(vec![S::IfThen(not(rtc("isA", vec![id(ev.clone()), cls])), Box::new(S::Throw(id(ev)))), set(a)]),
+                    handler: Some(handler),
                     fin: None,
                 });
                 if let (Some(v), StmtKind::Let { name, .. }) = (&v, &s.k) {
@@ -1744,6 +1748,8 @@ impl<'p> Gen<'p> {
                     out.push(S::If(c, t, Some(f)));
                 }
                 StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                    let v = catch_name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    let match_error = catch_classes.as_deref().map(|cs| self.catch_match(ctx, Some(cs), &v, env)).transpose()?;
                     let block = self.stmts(body, env, ctx, false)?;
                     let (param, handler) = match handler {
                         Some(hs) => {
@@ -1751,12 +1757,10 @@ impl<'p> Gen<'p> {
                             if let Some(n) = catch_name {
                                 self.set(h, n, val(mg(n)));
                             }
-                            let v = catch_name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
                             let mut hb = vec![];
-                            if let Some(cc) = catch_classes {
+                            if let Some(m) = match_error {
                                 // R-f-6: a typed catch rethrows other classes
-                                let cls = self.classes(Some(cc), env)?;
-                                hb.push(S::IfThen(not(rtc("isA", vec![id(v.clone()), cls])), Box::new(S::Throw(id(v.clone())))));
+                                hb.push(S::IfThen(not(m), Box::new(S::Throw(id(v.clone())))));
                             }
                             hb.append(&mut self.stmts(hs, h, ctx, false)?);
                             (Some(v), Some(hb))
@@ -1772,6 +1776,17 @@ impl<'p> Gen<'p> {
             }
         }
         Ok(out)
+    }
+
+    fn catch_match(&mut self, ctx: &Ctx, classes: Option<&[String]>, error: &str, env: Env) -> R<E> {
+        let values = self.classes(classes, env)?;
+        let (Some((key, next)), Some(classes)) = (&ctx.action_trace, classes) else {
+            return Ok(rtc("isA", vec![id(error), values]));
+        };
+        let site = next.get();
+        next.set(site + 1);
+        let names = E::Arr(classes.iter().map(|c| str(c.clone())).collect());
+        Ok(rtc("actionCaught", vec![str(key.clone()), E::Num(site as f64), id(error), names, values]))
     }
 
     // ---- views: JSX, which Solid's compiler lowers for the DOM, the server and the test renderer
