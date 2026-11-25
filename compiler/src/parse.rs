@@ -645,6 +645,9 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         c.ws(true);
         let pure = c.keyword("pure");
         c.ws(true);
+        if c.keyword("const") {
+            return c.fail("a .d.rx cannot declare a const export; expose a stable value through `export pure fn getValue(): T`");
+        }
         if !c.keyword("fn") {
             return c.fail("fn");
         }
@@ -664,8 +667,16 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 c.ws(true);
             }
             refs.push(r);
-            params.push(c.ident_or("param")?);
+            let mut p = c.ident_or("param")?;
             c.ws(false);
+            if c.eat("?") {
+                c.ws(false);
+                if r || c.peek() != ':' {
+                    return c.fail("an optional parameter is a value parameter written `x?: T`");
+                }
+                p.push('?');
+            }
+            params.push(p);
             ptypes.push(if c.peek() == ':' {
                 c.bump();
                 c.ws(true);
@@ -987,6 +998,15 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         return Ok(d);
     }
     if c.keyword("import") {
+        let start = c.i;
+        c.ws(true);
+        if c.keyword("type") {
+            c.ws(true);
+            if c.starts_with("{") {
+                return c.fail("declare the type with `export type` in the module's .d.rx, then use `import { T }` in .rx");
+            }
+        }
+        c.i = start;
         c.ws(true);
         let side = if IMPORT_SIDE.is_match(c.rest()) {
             if c.keyword("server") {

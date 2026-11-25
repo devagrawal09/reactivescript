@@ -191,10 +191,11 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
+    if (c.keyword("const")) c.fail("a .d.rx cannot declare a const export; expose a stable value through `export pure fn getValue(): T`");
     if (!c.keyword("fn")) c.fail("fn");
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const generics = typeParams(c); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = [];
-    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); params.push(c.ident() ?? c.fail("param")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
+    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const p = c.ident() ?? c.fail("param"); c.ws(false); const optional = c.eat("?"); if (optional) { c.ws(false); if (r || c.peek() !== ":") c.fail("an optional parameter is a value parameter written `x?: T`"); } params.push(optional ? `${p}?` : p); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined;
     if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b/.exec(t); const raw = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim(); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
@@ -310,6 +311,7 @@ function parseDecl(c: Cursor): Decl {
     if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
     const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
+    const start = c.i; c.ws(); if (c.keyword("type")) { c.ws(); if (c.startsWith("{")) c.fail("declare the type with `export type` in the module's .d.rx, then use `import { T }` in .rx"); } c.i = start;
     c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];
