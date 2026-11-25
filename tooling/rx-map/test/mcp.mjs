@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE } from "../live-protocol.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "../live-protocol.mjs";
 import { rxMap } from "../vite.mjs";
 
 const repo = fileURLToPath(new URL("../../..", import.meta.url));
@@ -52,8 +52,8 @@ test("stdio JSON-RPC negotiation, notifications, catalog and errors", { timeout:
   assert.equal((await c.rpc("ping", [])).error.code, -32602);
   assert.equal((await c.rpc("bad")).error.code, -32601);
   const list = (await c.rpc("tools/list")).result.tools;
-  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "live_status", "tail", "value", "state", "why", "pending"]);
-  assert.ok(list.every(t => t.annotations.readOnlyHint));
+  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "live_status", "tail", "record", "value", "state", "why", "pending"]);
+  assert.ok(list.every(t => t.annotations.readOnlyHint === (t.name !== "record")));
   assert.equal((await c.call("node")).isError, true);
   assert.equal((await c.call("reach", { key: "x", direction: "sideways" })).isError, true);
   assert.equal((await c.call("unknown")).isError, true);
@@ -118,27 +118,30 @@ test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout:
   assert.match(await c.text("diff"), /added source another.*dep.rx\|\|another.*dep.rx:2/);
   assert.equal((await c.call("diff", { ref: "not-a-ref" })).isError, true);
   put("main.rx", "source broken :=\n");
-  assert.match(await c.text("check"), /^main\.rx:\d+:\d+\s+error/);
+  assert.match(await c.text("check"), /^main\.rx:\d+:\d+\s+PARSE/);
   assert.equal((await c.call("overview")).isError, true);
   // One broken dependency must not hide an independent checker error
   // in the same entry's graph.
   put("dep.rx", "export source count := 1\nsource broken :=\n");
   put("main.rx", 'import { count } from "./dep.rx"\nresult = count + missing\n');
   const batch = await c.text("check");
-  assert.match(batch, /dep\.rx:.*error PARSE/);
-  assert.match(batch, /main\.rx:.*error UNBOUND/);
+  assert.match(batch, /dep\.rx:\d+:\d+ PARSE/);
+  assert.match(batch, /main\.rx:\d+:\d+ UNBOUND/);
 });
 
 test("HTTP and MCP live tools select the newest page, correlate replies, and report disconnects", { timeout: 10000 }, async t => {
   const ws = new EventEmitter();
-  let endpoint;
-  const http = createServer((req, res) => { req.url = ""; void endpoint(req, res); });
-  const config = { ws, middlewares: { use(path, fn) { assert.equal(path, "/__rx/live"); endpoint = fn; } }, printUrls() {} };
+  const endpoints = new Map();
+  const http = createServer((req, res) => { const endpoint = endpoints.get(req.url); req.url = ""; void endpoint(req, res); });
+  const config = { ws, config: { root: repo }, middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} };
   rxMap().configureServer(config);
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   t.after(() => http.close());
   const dev = `http://127.0.0.1:${http.address().port}`, url = `${dev}/__rx/live`;
   const c = client(t, ["--dev", dev]);
+  const httpRpc = async (method, params) => (await fetch(`${dev}/__rx/mcp`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: request(1, method, params) })).json();
+  assert.deepEqual((await httpRpc("tools/list")).result, (await c.rpc("tools/list")).result);
   assert.equal((await fetch(url)).status, 503);
   assert.match((await c.call("live_status")).content[0].text, /no page connected/);
   const key = "test.rx||count";
@@ -159,7 +162,13 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   ws.emit(LIVE_READY, undefined, oldest);
   assert.deepEqual((await (await fetch(url)).json()).result, { pages: 2, flushes: 4, uptime: 15 });
   assert.equal(await c.text("value", { key }), `${key}=4  test.rx:1`);
+  await c.json("record", { action: "start" });
+  ws.emit(LIVE_TRACE, { type: "flight", at: 100, key, state: "start" }, newest);
+  ws.emit(LIVE_TRACE, { type: "flush", at: 120, changes: [{ key: null, name: "internal" }] }, newest);
+  ws.emit(LIVE_TRACE, { type: "flight", at: 250, key, state: "land" }, newest);
   newest.socket.emit("close");
+  const trace = await c.json("record", { action: "stop" });
+  assert.deepEqual(trace.records.map(r => [r.type, r.at]), [["flight", 0], ["flight", 150]]);
   assert.deepEqual(await c.json("live_status"), { pages: 1, flushes: 2, uptime: 15 });
   oldest.socket.emit("close");
   assert.equal((await fetch(url)).status, 503);

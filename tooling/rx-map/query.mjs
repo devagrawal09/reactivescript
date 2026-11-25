@@ -140,8 +140,8 @@ export function queryGraph(g, method, p) {
       `${describe(data)}  role=${data.role}  marks=${marks.join(",") || "none"}`, `  declaration: ${data.declaration.trim()}`,
       ...(data.component ? [`  component ${describe(data.component)}`] : []),
       ...data.boundaries.map(b => `  boundary ${describe(b)}`),
-      ...Object.entries({ reads: data.reads, writes: data.writes, calls: data.calls, "read-by": data.readBy, "written-by": data.writtenBy })
-        .flatMap(([k, list]) => list.length ? list.map(x => `  ${k} ${describe(x)}${[x.mode, x.probe, x.op, x.field].filter(Boolean).map(v => `  ${v}`).join("")}`) : [`  ${k}: none`]),
+      ...Object.entries({ "read-by": data.readBy, "written-by": data.writtenBy, reads: data.reads, writes: data.writes, calls: data.calls })
+        .flatMap(([k, list]) => list.map(x => `  ${k} ${describe(x)}${[x.mode, x.probe, x.op, x.field].filter(Boolean).map(v => `  ${v}`).join("")}`)),
     ]);
   }
   const down = p.direction === "down";
@@ -175,9 +175,12 @@ export function queryGraph(g, method, p) {
 export function queryDiff(g) {
   const byId = new Map(g.nodes.map(n => [n.id, n]));
   const changes = g.diff.summary.map(i => ({ ...i, nodes: i.ids.map(id => ref(byId.get(id))) }));
-  return result({ before: g.diff.before, after: g.diff.after, changes },
+  const boundaries = g.regions.filter(r => isBoundary(r) && ["added", "removed"].includes(r.status))
+    .map(r => ({ key: r.key, file: g.modules[r.mod], line: r.head?.line, kind: r.kind, status: r.status }));
+  return result({ before: g.diff.before, after: g.diff.after, changes, boundaries },
     [`${g.diff.before} → ${g.diff.after}`, ...(changes.length ? changes.map(i =>
-      `${i.text.replaceAll("`", "")}  [${i.nodes.map(n => `${n.key}${location(n)}`).join("; ")}]`) : ["no notable behavior changes"])]);
+      `${i.text.replaceAll("`", "")}  [${i.nodes.map(n => `${n.key}${location(n)}`).join("; ")}]`) : boundaries.length ? [] : ["no notable behavior changes"]),
+    ...boundaries.map(b => `${b.status} boundary ${describe(b)}`)]);
 }
 /** Text rendering of the live recorder's read-only queries. */
 export function liveText(method, data) {
@@ -185,11 +188,13 @@ export function liveText(method, data) {
   const since = r => r.since === undefined ? "" : ` since ${at(r.since)}`;
   const val = r => `${r.key ?? r.name}=${String(r.preview ?? "(no value)").replace(/\r?\n/g, "\\n")}${r.path ? ` [${r.path}]` : ""}${location(r)}`;
   const waiting = r => `${r.key}  held${r.by.length ? `: waiting on ${r.by.join(", ")}` : ""}${since(r)}`;
-  const value = r => `${val(r)}${r.pending ? `  pending${since(r)}` : ""}${r.error ? `  error: ${r.error}` : ""}${r.held ? `\n${waiting(r.held)}` : ""}`;
+  const value = r => `${r.error || r.observation || (r.pending && r.preview === undefined)
+    ? `${r.key ?? ""}  ${r.observation ?? (r.error ? `error: ${r.error}` : "pending (no value yet)")}${location(r)}`
+    : `${val(r)}${r.pending ? `  pending${since(r)}` : ""}`}${r.held ? `\n${waiting(r.held)}` : ""}`;
   const boundary = r => `${r.region}  ${r.state}${r.error ? `: ${r.error}` : ""}`;
   const running = r => `${r.key}  running #${r.id}${since(r)}`;
   const event = r => {
-    const label = r.type === "boundary" ? boundary(r)
+    const label = r.type === "boundary" ? `${boundary(r)}${r.origin ? ` ← ${r.origin}` : ""}`
       : r.type === "held" ? waiting(r)
       : `${r.key}  ${[r.type, r.state, r.id === undefined ? "" : `#${r.id}`, r.args, r.error, r.reason, r.origin].filter(Boolean).join(" ")}${location(r)}`;
     return `${r.seq}  ${at(r.at)}  ${label}`;
@@ -198,13 +203,18 @@ export function liveText(method, data) {
   switch (method) {
     case "status": return `connected pages: ${data.pages}\nflushes: ${data.flushes}\nuptime: ${at(data.uptime)}`;
     case "tail": return data.flatMap(r => r.type === "flush" ? r.changes.map(c => `${r.seq}  ${at(r.at)}  ${change(c)}`) : event(r)).join("\n") || "no records";
+    case "record": return data.records ? `${data.truncated ? "recording truncated\n" : ""}${liveText("tail", data.records)}`
+      : data.recording ? `recording since #${data.since} (${data.filter})` : "not recording";
+    case "boundary_history": return [data.observation ?? `current: ${boundary(data)}`, ...(data.history ?? []).map(event)].join("\n");
     case "value": return value(data);
     case "state":
-      if (data.region) return boundary(data);
-      if (data.key) return [value(data), ...data.runs.map(running)].join("\n");
+      if (data.observation && !data.key) return data.observation;
+      if (data.region) return data.observation ?? boundary(data);
+      if (data.key) return [value(data), ...(data.runs ?? []).map(running)].join("\n");
       return [...data.values.map(value), ...data.boundaries.map(boundary), ...(data.held ?? []).map(waiting), ...data.runs.map(running), ...data.reverts.map(event)].join("\n") || "no live state";
     case "why": return [value(data.current ?? data), ...(data.seq ? [`${data.seq}  ${at(data.at)}  ${change(data)}`,
-      ...data.others.map(c => `same flush  ${change(c)}`)] : ["no change recorded"]), ...data.events.map(event)].join("\n");
+      ...(data.chain ?? []).map(c => `${"  ".repeat(c.depth)}← ${change(c)}`)] : ["no change recorded"]),
+      ...data.events.map(event), ...(data.readers ?? []).map(r => `${waiting(r)}${location(r)}`)].join("\n");
     case "pending": return data.map(r => `${r.key}${since(r)}${location(r)}`).join("\n") || "no pending requests";
   }
 }

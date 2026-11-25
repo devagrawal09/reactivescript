@@ -316,11 +316,27 @@ to the Vite `plugins` array. Start Vite and open the app. The compiler's dev ent
 `{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by
 default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
 
-Live tools: `live_status`, `tail`, `state`, `value`, `why`, `pending`. They read the newest connected page.
+Vite prints `➜ RX MCP:` with the Streamable HTTP endpoint. Use it without starting a stdio process:
+
+```json
+{ "mcp": { "rx": { "type": "remote", "url": "http://localhost:5173/__rx/mcp" } } }
+```
+
+For Claude Code (`.mcp.json`):
+
+```json
+{ "mcpServers": { "rx": { "type": "http", "url": "http://localhost:5173/__rx/mcp" } } }
+```
+
+Live tools: `live_status`, `tail`, `record`, `state`, `value`, `why`, `pending`. They read the newest connected page.
+`record start` marks that page's trace; `record stop` returns the events since the mark, in relative milliseconds.
+`tail` and `record` default to semantic changes. Use `filter: "all"` to include Solid internals.
 `state` shows current values and errors, held writes, in-flight requests, tripped boundaries, running actions and recent optimistic
 reverts. Pass a `key` to ask about one declaration or boundary. `value`, `why` and `pending` can answer before the first
-flush; `why` also includes changes and related action/revert events when recorded. `tail` defaults to 20 records out of
-the most recent 2000; pass `since` as the last received sequence number to skip older records.
+flush; `why` follows upstream changes and includes related flights and runs when recorded. `boundary(key)` adds current
+state and recent retry history. `tail` defaults to 20 records out of the most recent 5000 on the server; pass `since` as
+the last received sequence number to skip older records. Set `RXC` to the compiler binary if `rxc` is not on `PATH` for
+`check`; the tool also runs the app's `rx-tsc --noEmit` when installed and configured.
 
 Times are in milliseconds on the page's clock. These tools don't execute actions or write state, but previews (including
 action arguments) can contain application data. Keep the Vite endpoint on a trusted dev network.
