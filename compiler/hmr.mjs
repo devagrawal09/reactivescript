@@ -14,7 +14,7 @@ const paths = items => items.map(item => (item.ownerPath ?? []).join("/"));
 /** Only primary source accessors enter this app-local registry; auxiliaries
  * for a hoisted await/catch share a trace key but do not consume a seed. */
 export function prepareCarry(before, after, plan, sources, changedModules) {
-  const carry = new Map(), fallback = new Set(), expected = new Map();
+  const carry = new Map(), fallback = new Set(), expected = new Map(), reasons = new Map();
   const moved = new Map(plan.moved.map(({ from, to }) => [to, from]));
   const nodes = new Map(after.nodes.map(n => [n.key, n]));
   const kept = new Set(plan.kept);
@@ -30,8 +30,13 @@ export function prepareCarry(before, after, plan, sources, changedModules) {
     // More than one render site or a static shape edit makes mount order
     // ambiguous. One unchanged site (including a keyed list) pairs in order.
     const site = sites(after, scope);
-    if (sites(before, scope) !== site || (reads.length > 1 && (!site || site.includes("\n") || new Set(ownerPaths).size !== 1))
-      || shown.some(v => !v || !Object.hasOwn(v, "value") || v.held)) {
+    if (sites(before, scope) !== site || (reads.length > 1 && (!site || site.includes("\n") || new Set(ownerPaths).size !== 1))) {
+      reasons.set(key, "ambiguous-instance");
+      fallback.add(key);
+      continue;
+    }
+    if (shown.some(v => !v || !Object.hasOwn(v, "value") || v.held)) {
+      reasons.set(key, "value-unavailable");
       fallback.add(key);
       continue;
     }
@@ -39,24 +44,44 @@ export function prepareCarry(before, after, plan, sources, changedModules) {
     expected.set(key, ownerPaths);
     carry.set(key, { entries: shown.map((v, i) => ({ value: v.value, keepAnswer, instance: reads[i].instance })), used: 0 });
   }
-  return { carry, fallback, expected };
+  return { carry, fallback, expected, reasons };
 }
 
-export function finishCarry({ carry, fallback, expected }, sources) {
+// Registry values of stores are detached record/array snapshots. Compare their
+// contents, but keep identity semantics for opaque values.
+function equalCarryValue(a, b, seen = new WeakMap()) {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== "object" || typeof b !== "object") return false;
+  const p = Object.getPrototypeOf(a);
+  if (p !== Object.getPrototypeOf(b) || ![Object.prototype, Array.prototype, null].includes(p)) return false;
+  if (seen.has(a)) return seen.get(a) === b;
+  seen.set(a, b);
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every(k => Object.hasOwn(b, k) && equalCarryValue(a[k], b[k], seen));
+}
+
+export function finishCarry({ carry, fallback, expected, reasons }, sources) {
   for (const [key, group] of carry) {
-    const actual = paths([...(sources.get(key) ?? [])]);
-    if (group.used !== group.entries.length || actual.length !== group.entries.length
-      || actual.some((path, i) => path !== expected.get(key)[i])) fallback.add(key);
+    const readers = [...(sources.get(key) ?? [])];
+    const actual = paths(readers);
+    const reason = !actual.length ? "instance-not-mounted"
+      : group.used !== group.entries.length || actual.length !== group.entries.length
+        || actual.some((path, i) => path !== expected.get(key)[i]) ? "instance-mismatch"
+      : readers.some((read, i) => {
+        const shown = read.hmrValue?.();
+        return !shown || !Object.hasOwn(shown, "value") || !equalCarryValue(group.entries[i].value, shown.value);
+      }) ? "value-mismatch" : undefined;
+    if (reason) { fallback.add(key); reasons.set(key, reason); }
   }
   return [...fallback];
 }
 
 // An entry replaced above Loading can have no new owner at its first flush.
 // Only a wholly absent singleton can be matched later without guessing order.
-export function deferredCarry({ carry, expected }, sources) {
+export function deferredCarry({ carry, expected }, sources, includeMounted = false) {
   return new Map([...carry].flatMap(([key, group]) => {
     const [path] = expected.get(key);
-    return group.entries.length === 1 && !group.used && path && !sources.has(key)
+    return group.entries.length === 1 && path && (includeMounted || (!group.used && !sources.has(key)))
       ? [[key, { path, value: group.entries[0] }]] : [];
   }));
 }

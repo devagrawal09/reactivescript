@@ -258,8 +258,8 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     if (group) return group.entries[group.used++];
     const seed = deferred?.get(rxKey);
     if (!seed || pathOfKey(rxKey)?.join("/") !== seed.path) return;
-    deferred!.delete(rxKey);
-    if (!deferred!.size) clearDeferred();
+    // There may be a second candidate mount as the pending ancestor lands.
+    // Keep the seed for the bounded replacement window, not for user remounts.
     return seed.value;
   };
   // Only a Vite hot boundary enables persistent module owners. Do not change
@@ -596,7 +596,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         deferred = seeds;
         // Never restore a stale draft on a later user-driven remount.
         for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
-        deferredUntil = setTimeout(clearDeferred, 3000);
+        deferredUntil = setTimeout(clearDeferred, 10000);
       },
       end() { carries = undefined; },
     },

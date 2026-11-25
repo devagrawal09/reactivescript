@@ -421,13 +421,18 @@ async function realHmr() {
   const originalDep = readFileSync(dep, "utf8");
   const previewFile = join(app, "src/components/DraftPreview.rx");
   const originalPreview = readFileSync(previewFile, "utf8");
+  const draftFile = join(app, "src/components/DraftDialog.rx");
+  const originalDraft = readFileSync(draftFile, "utf8");
+  const ratesFile = join(app, "src/components/Rates.rx");
+  const originalRates = readFileSync(ratesFile, "utf8");
   const rows = join(app, "src/components/Book.rx");
   const originalRows = readFileSync(rows, "utf8");
-  let text = original.replace('  source filter:', `  source counter: number := 0
+  let text = 'import { Rates } from "./components/Rates.rx"\n' + original.replace('  source filter:', `  source counter: number := 0
   source answer: string = str(await loadAnswer("first"))
   doubled = counter * 2
   source filter:`).replace("import pure { load }", "import pure { load, loadAnswer }")
     .replace("    <h1>Shelf</h1>", `    <h1>Shelf</h1>
+    <Rates />
     <button type="button" data-testid="hmr-counter" onClick={() => { counter := c => c + 1 }}>{counter}</button>
     <p data-testid="hmr-double">{doubled}</p>
     {errored fallback(e) { <p>{e.message}</p> } {
@@ -461,6 +466,17 @@ async function realHmr() {
       return Object.fromEntries(s.values.map(v => [v.key, v.preview]));
     });
     const btn = page.getByTestId("hmr-counter");
+    const rates = page.getByTestId("hmr-rates");
+    await rates.click();
+    await rates.click();
+    const ratesKey = "src/components/Rates.rx||updates";
+    const originalRateInstance = (await mcp("state", { key: ratesKey })).instance;
+    const comment = await saveRx(page, ratesFile, "// comment-only edit\n" + originalRates.replace("updates := 0", "updates  :=  0"));
+    assert.equal(comment.plan.reasons[ratesKey], "unchanged");
+    assert.equal(await rates.textContent(), "2");
+    assert.equal((await mcp("state", { key: ratesKey })).instance, originalRateInstance);
+    assert.ok(!comment.done.uncarried?.includes(ratesKey));
+    console.log("ok   HMR comment/whitespace save leaves module-level source and owner untouched");
     for (let i = 0; i < 3; i++) await btn.click();
     await shown("counter", "3");
     await page.waitForTimeout(100);
@@ -582,6 +598,18 @@ async function realHmr() {
     assert.equal(await draft.inputValue(), typed);
     assert.equal((await values())[draftKey], JSON.stringify(typed));
     console.log("ok   HMR child edit preserves parent draft after async remount");
+    // Remove the gate to test the value readback after a synchronous mount.
+    text = text.replace('        ready = await loadAnswer("ready") catch (e) => ""', '        ready = "ready"');
+    await saveRx(page, filename, text);
+    await draft.fill(typed);
+    const overwritten = await saveRx(page, draftFile, originalDraft.replace('  source text: string := ""', `  source text: string := ""
+  action clear() { text := "" }
+  effect () { clear() }`));
+    assert.equal(overwritten.plan.reasons[draftKey], "unchanged");
+    assert.equal(await draft.inputValue(), "");
+    assert.ok(overwritten.done.uncarried.includes(draftKey));
+    assert.equal(overwritten.done.uncarriedReasons[draftKey], "value-mismatch");
+    console.log("ok   HMR done reports a kept draft overwritten during apply as uncarried");
     await edit("scope-changed: move to module scope resets", s => s.replace('  source fresh: string := "new"\n', "")
       .replace("export default component App()", 'source fresh: string := "new"\n\nexport default component App()'),
       { fresh: "scope-changed" }, async ({ plan }) => {
@@ -603,6 +631,8 @@ async function realHmr() {
     writeFileSync(filename, original);
     writeFileSync(dep, originalDep);
     writeFileSync(previewFile, originalPreview);
+    writeFileSync(draftFile, originalDraft);
+    writeFileSync(ratesFile, originalRates);
     writeFileSync(rows, originalRows);
   }
 }
