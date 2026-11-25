@@ -130,6 +130,10 @@ component NodePanel(props: { id: string }) {
   {if n.async { <div class="hint" style={{ "margin-top": "4px" }}>· <Gi /> can be pending: a reader under no <code>loading</code> holds its instant</div> }}
   {if n.io { <div class="hint" style={{ "margin-top": "4px" }}>· <Gio /> <b>io</b>: touches the world (R-io)</div> }}
   {if n.world { <div class="hint" style={{ "margin-top": "4px" }}>· trust point: the checker sees only its declared signature</div> }}
+  {if n.decl != null {
+    <div class="hint" style={{ "margin-top": "4px" }}>· declared {n.decl.origin == "written" ? "in a written .d.rx" : n.decl.origin == "brand" ? `by brands (${n.decl.brands.join(", ")})` : "by default (no brand)"}: <code>{n.decl.from}</code></div>
+    <pre class="code" innerHTML={hl(n.decl.line)}></pre>
+  }}
   {if n.kind == "action" { <div class="hint" style={{ "margin-top": "4px" }}>· writes are held until the action returns; guesses show now</div> }}
   <PlanReason nodeKey={n.key} tip={false} />
   {if isLive() && hasKey(model, n.key) && !liveKinds.includes(n.kind) {
@@ -231,7 +235,7 @@ component Guide() {
     <Sample kk="comp" cls="" name="Card" d="" gp={false} gq={false} chg={false} />
   </div>
   <pre class="code" innerHTML={hl("source count := 0                    // a well: state\ntotal = count * 2                    // always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // one change")}></pre>
-  <p class="hint"><b>Marks are properties</b>, on any role: <Gi /> and stripes can be pending, <b>?</b> re-asks a standing question, <Gio /> touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
+  <p class="hint"><b>Marks are properties</b>, on any role: <Gi /> and stripes can be pending, <b>?</b> re-asks a standing question, <Gio /> touches the world, a dashed border is a trust point, and a JS import's tag says where its declaration comes from: <b>d.rx</b> (written), <b>brand</b> (brands in its <code>.ts</code>), <b>default</b> (generated, no brand). In a diff, an outer ring and a corner badge say added, changed or removed.</p>
   <p class="hint"><b>Everything points up.</b> A thing sits below what it depends on: modules below the modules they import, components below the components they render, equations below what they read, actions below what they write, handlers below the actions they call. Each row inside a frame is one step deeper.</p>
   <p class="hint"><b>Move around.</b> Drag to pan. A mouse wheel, a pinch or ctrl + wheel zoom toward the pointer; a trackpad's two-finger scroll pans, shift + wheel pans sideways. Double-click a token (or a module) to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>
   <p class="hint">Hover a token to lift it and see its edges. Click to pin it and trace <b>what it affects</b> (writes and tracked reads, the way a change travels) or <b>what it depends on</b>.</p>

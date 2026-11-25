@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,8 +16,8 @@ const repo = fileURLToPath(new URL("../../..", import.meta.url));
 const cli = fileURLToPath(new URL("../rx-map.mjs", import.meta.url));
 const RXC = process.env.RXC ?? ["release", "debug"].map(mode => join(repo, `compiler/target/${mode}/rxc`)).find(existsSync) ?? "rxc";
 const request = (id, method, params) => JSON.stringify({ jsonrpc: "2.0", id, method, params });
-function client(t, args) {
-  const child = spawn(process.execPath, [cli, "mcp", ...args], { env: { ...process.env, RXC }, stdio: ["pipe", "pipe", "inherit"] });
+function client(t, args, env = { ...process.env, RXC }) {
+  const child = spawn(process.execPath, [cli, "mcp", ...args], { env, stdio: ["pipe", "pipe", "inherit"] });
   t.after(() => { child.stdin.end(); child.kill(); });
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
   let id = 0;
@@ -338,4 +339,73 @@ export default component App() {
   const up = (await c.json("reach", { key: "main.rx|Row|rightText", direction: "up" })).map(r => r.key);
   assert.ok(up.includes("main.rx||right"));
   assert.ok(!up.includes("main.rx||left"));
+});
+
+// 09 MO-11: a JS import's declaration generated from the sibling .ts (brands), a written .d.rx line, the default.
+function tsModuleApp(t) {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-dts-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const put = (f, s) => writeFileSync(join(root, f), s);
+  mkdirSync(join(root, "node_modules/@reactivescript"), { recursive: true });
+  symlinkSync(join(repo, "types"), join(root, "node_modules/@reactivescript/types"), "dir");
+  symlinkSync(join(repo, "compiler"), join(root, "node_modules/@reactivescript/compiler"), "dir");
+  symlinkSync(realpathSync(join(repo, "ref/node_modules/typescript")), join(root, "node_modules/typescript"), "dir");
+  const users = [
+    'import type { Pure, Rejects } from "@reactivescript/types";',
+    "export class NotFound extends Error {}",
+    "export function initials(name: string): Pure<string> { return name.slice(0, 1); }",
+    "export async function save(name: string): Promise<void> { void name; }",
+    "export async function logVisit(page: string): Promise<void> { void page; }",
+    "",
+  ].join("\n");
+  put("users.ts", users);
+  put("users.d.rx", "export fn save(name: string): Promise<void> rejects(NotFound)\n");
+  put("main.rx", [
+    'import { initials, save, logVisit, NotFound } from "./users"',
+    "export default component App() {",
+    '  source name := "ada"',
+    '  source status := ""',
+    "  first = initials(name)",
+    '  action store() { try { await save(name); await logVisit("x"); status := "saved" } catch (e) { status := "failed" } }',
+    "  <p>{first}{status}</p>",
+    "}",
+    "",
+  ].join("\n"));
+  return { root, put, users };
+}
+async function declarations(c) {
+  const imported = async name => (await c.json("node", { key: `main.rx||${name}` })).imported;
+  assert.deepEqual(await imported("initials"), { line: "export pure fn initials(name: string): string", from: "users.ts", origin: "brand", brands: ["Pure"] });
+  assert.deepEqual(await imported("save"), { line: "export fn save(name: string): Promise<void> rejects(NotFound)", from: "users.d.rx", origin: "written" });
+  assert.deepEqual(await imported("logVisit"), { line: "export fn logVisit(page: string): Promise<void>", from: "users.ts", origin: "default" });
+  assert.match(await c.text("node", { key: "main.rx||initials" }), /^  imported: export pure fn initials\(name: string\): string  from users\.ts  \(brand: Pure\)$/m);
+  assert.match(await c.text("node", { key: "main.rx||save" }), /^  imported: .* from users\.d\.rx  \(written\)$/m);
+}
+
+test("MO-11 through $RXC: rxc runs $RX_DTS; node shows each import's declaration; check reports a misplaced brand in the .ts", { timeout: 30000 }, async t => {
+  const { root, put, users } = tsModuleApp(t);
+  const c = client(t, ["--root", root], { ...process.env, RXC, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` });
+  assert.equal(await c.text("check"), "ok");
+  await declarations(c);
+  put("users.ts", users + "export function score(n: Pure<number>): number { return n; }\n");
+  utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 2000));
+  assert.match(await c.text("check"), /^users\.ts:6:\d+\s+DECLARATION_BRAND/m);
+  put("main.rx", 'import { remove } from "./users"\nexport default component App() { <p>x</p> }\n');
+  assert.match(await c.text("check"), /^main\.rx:1:\d+\s+NOT_EXPORTED/m);
+});
+
+test("MO-11 through Node-API: the declare callback answers rx-dts in process", { timeout: 30000 }, async t => {
+  try { createRequire(import.meta.url)(join(repo, "compiler")); } catch (e) { if (/native binding/i.test(e.message)) return t.skip("Node-API compiler is not built"); throw e; }
+  const { root, put, users } = tsModuleApp(t);
+  const env = { ...process.env, RX_DTS: join(root, "no-such-rx-dts") };
+  delete env.RXC;
+  const c = client(t, ["--root", root], env);
+  await declarations(c);
+  // the generator's files invalidate the snapshot: an edit to the .ts alone reaches the graph
+  put("users.ts", users.replace("logVisit(page: string): Promise<void>", "logVisit(page: string): Pure<Promise<void>>"));
+  utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 2000));
+  assert.deepEqual((await c.json("node", { key: "main.rx||logVisit" })).imported, { line: "export pure fn logVisit(page: string): Promise<void>", from: "users.ts", origin: "brand", brands: ["Pure"] });
+  put("users.ts", users + "export function score(n: Pure<number>): number { return n; }\n");
+  utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 4000));
+  assert.match(await c.text("overview"), /^program has 1 error/m);
 });

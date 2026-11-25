@@ -379,6 +379,15 @@ finds `.rx` modules under the root that no other module imports, excluding `node
 Set `RXC` to the absolute path to `rxc` if it isn't on `PATH`. Without `RXC`, the server prefers the project's installed
 compiler's `model` export for modeling; `check` still needs the CLI.
 
+A JS import from a TS module with no `.d.rx` (spec/09 MO-11) is declared by what is generated from the `.ts`. On the
+Node-API path the server generates it in process (`@reactivescript/compiler/dts`: the project's, else its own, with the
+project's `typescript`); with `RXC`, `rxc` runs `rx-dts` itself: `$RX_DTS` (a command line, e.g.
+`node /path/to/compiler/bin/rx-dts.mjs`), else the nearest `node_modules/.bin/rx-dts`, else `DECLARATION_UNAVAILABLE`.
+An edit to the `.ts` refreshes the model. `check` reports the generator's diagnostics (`DECLARATION_BRAND` in the `.ts`,
+`NOT_EXPORTED`); `node` on an imported name shows its declaration line, the file it is from (the `.d.rx` or the `.ts`)
+and its origin (`written`, `brand` with the brands, `default`), as `imported` in JSON. The map tags each such token
+`d.rx` / `brand` / `default`, with the line on hover.
+
 OpenCode (`opencode.jsonc`):
 
 ```json

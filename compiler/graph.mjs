@@ -51,6 +51,9 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
       nodes.push({ id, mod: mi, file, kind: s.kind, name: s.name, line: s.line, region: `${mi}:r${s.region}`,
         io: !!s.io, question: !!s.question, async: !!s.question, world: s.kind === "import",
         ...(spec && !spec.endsWith(".rx") ? { jsFrom: spec } : {}),
+        // a JS import's effective declaration (09 MO-11): its line, the file it is from (a written `.d.rx`, or the TS
+        // module it was generated from), and its origin (`written`, `brand` with the brands, `default`)
+        ...(s.decl ? { decl: { line: s.decl.line, from: s.decl.from, origin: s.decl.origin, brands: s.decl.brands ?? [] } } : {}),
         ...(s.key ? { rxKey: s.key } : {}) });
       symNode.set(`${mi}:${s.id}`, id);
       byName.set(`${files[mi]}:${s.name}`, id);
