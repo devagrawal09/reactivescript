@@ -1219,20 +1219,7 @@ function layoutPlates(animate = false) {
   const bandsMap = new Map();
   for (const mi of moduleEls.keys()) { const l = modLevel(mi); (bandsMap.get(l) ?? bandsMap.set(l, []).get(l)).push(mi); }
   const bands = [...bandsMap.keys()].sort((a, b) => a - b).map(l => bandsMap.get(l));
-  // order within bands: barycenters over the neighbouring bands, a few sweeps
-  const pos = new Map();
-  const setPos = () => bands.forEach(b => b.forEach((mi, i) => pos.set(mi, (i + .5) / b.length)));
-  setPos();
-  const bary = (mi, others) => { let s = 0, n = 0; for (const o of others) { const w = weight(mi, o); if (w) { s += w * pos.get(o); n += w; } } return n ? s / n : pos.get(mi); };
-  for (let sweep = 0; sweep < 4; sweep++) {
-    const order = sweep % 2 ? [...bands.keys()].reverse() : [...bands.keys()];
-    for (const k of order) {
-      const others = bands.filter((_, j) => j !== k).flat();
-      const bc = new Map(bands[k].map(mi => [mi, bary(mi, others)]));
-      bands[k].sort((a, b) => bc.get(a) - bc.get(b) || a - b);
-      setPos();
-    }
-  }
+  orderBands(bands, weight);
   // the world's shape: rows about as wide as the free screen is wide, relative to its height
   const fr = cam.ready ? freeRect() : { w: innerWidth, h: innerHeight - 120 };
   const aspect = clamp(fr.w / Math.max(200, fr.h), 1, 4);
@@ -1320,6 +1307,27 @@ function layoutPlates(animate = false) {
     const [x0, y0] = before.get(mi) ?? [el.offsetLeft, el.offsetTop], dx = x0 - el.offsetLeft, dy = y0 - el.offsetTop;
     if (Math.abs(dx) + Math.abs(dy) > 1) el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" });
   }
+}
+/**
+ * Orders the modules within each band to cut crossings: each module moves to the weighted mean position (barycenter) of
+ * the modules it shares edges with, in a few sweeps down and up. Pure: `bands` is an array of arrays of module ids
+ * (sorted in place), `weight(a, b)` the number of edges between two modules.
+ */
+function orderBands(bands, weight) {
+  const pos = new Map();
+  const setPos = () => bands.forEach(b => b.forEach((mi, i) => pos.set(mi, (i + .5) / b.length)));
+  setPos();
+  const bary = (mi, others) => { let s = 0, n = 0; for (const o of others) { const w = weight(mi, o); if (w) { s += w * pos.get(o); n += w; } } return n ? s / n : pos.get(mi); };
+  for (let sweep = 0; sweep < 4; sweep++) {
+    const order = sweep % 2 ? [...bands.keys()].reverse() : [...bands.keys()];
+    for (const k of order) {
+      const others = bands.filter((_, j) => j !== k).flat();
+      const bc = new Map(bands[k].map(mi => [mi, bary(mi, others)]));
+      bands[k].sort((a, b) => bc.get(a) - bc.get(b) || a - b);
+      setPos();
+    }
+  }
+  return bands;
 }
 // plates that grow (a value badge, a held mark) push the rows below them down
 let relayT = 0;
@@ -1486,9 +1494,9 @@ function cardWidth(mi) {
 
 // ---- edges between plates: planned through the gutters, in lanes, bundled ------------------------------------------
 const plateKeyOf = id => { const n = nodes.get(id); if (n) return n.world && !n.from ? "world" : n.mod; const r = regions.get(id); return r ? r.mod : null; };
-function channels(row) {
-  const ps = row.keys.map(k => layout.plates.get(k)).sort((a, b) => a.l - b.l);
-  const g = ovMode ? LAY.ovGapX : LAY.gapX;
+// the x of each gap a route can climb through in a row: left of the first plate, between plates, right of the last
+function channels(row, lay = layout, g = ovMode ? LAY.ovGapX : LAY.gapX) {
+  const ps = row.keys.map(k => lay.plates.get(k)).sort((a, b) => a.l - b.l);
   const xs = [ps[0].l - g / 2];
   for (let i = 1; i < ps.length; i++) xs.push((ps[i - 1].r + ps[i].l) / 2);
   xs.push(ps.at(-1).r + g / 2);
@@ -1498,9 +1506,14 @@ function channels(row) {
 // one on the upper plate's bottom, spread so bundles don't share them; the gaps it climbs through between the plates of
 // the rows in between; and a lane in each gutter and gap it uses, so parallel bundles run side by side, not on top of
 // each other, and none runs along a plate's border.
-function planTrunks(pairs) {
+/**
+ * `pairs`: keys `a>b` or `a>b|kind` (a below b). `lay`: { plates: Map key → { l, t, r, b, row }, rows: [{ top, bottom,
+ * keys }] }. `gaps`: { x, y } between plates and rows. Returns Map key → points [[x, y], …] from a's top to b's bottom.
+ * Pure but for reading `lay`.
+ */
+function planTrunks(pairs, lay = layout, gaps = { x: ovMode ? LAY.ovGapX : LAY.gapX, y: ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY }) {
   const plan = new Map();
-  const P = k => layout.plates.get(k), cx = p => (p.l + p.r) / 2;
+  const P = k => lay.plates.get(k), cx = p => (p.l + p.r) / 2;
   // a key is `a>b`, or `a>b|kind` (bundles of one kind of edge each)
   const ok = [...pairs].map(key => { const [a, b] = key.split("|")[0].split(">"); return { key, a, b }; }).filter(({ a, b }) => { const A = P(pk(a)), B = P(pk(b)); return A && B && A.row > B.row; });
   // ports, spread along the edge by the other end's position
@@ -1518,7 +1531,7 @@ function planTrunks(pairs) {
     const A = P(pk(a)), B = P(pk(b)), xa = outX.get(a).get(key), xb = inX.get(b).get(key);
     const steps = []; let x = xa;
     for (let i = A.row - 1; i > B.row; i--) {
-      const ch = channels(layout.rows[i]);
+      const ch = channels(lay.rows[i], lay, gaps.x);
       let c = 0, cost = Infinity;
       ch.forEach((cxv, j) => { const k = Math.abs(cxv - xb) + Math.abs(cxv - x) * .6; if (k < cost) { cost = k; c = j; } });
       steps.push({ row: i, ch: c, x: ch[c] }); x = ch[c];
@@ -1533,9 +1546,9 @@ function planTrunks(pairs) {
   }
   const laneOf = new Map();
   for (const [slot, rs] of lanes) { rs.sort((p, q) => p.xb - q.xb || p.xa - q.xa); rs.forEach((r, i) => laneOf.set(`${slot}|${r.key}`, i - (rs.length - 1) / 2)); }
-  const gapY = ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY, gapX = ovMode ? LAY.ovGapX : LAY.gapX;
+  const gapY = gaps.y, gapX = gaps.x;
   const lg = slot => clamp(gapY * .7 / Math.max(1, lanes.get(slot).length), 4, 12), lc = slot => clamp(gapX * .6 / Math.max(1, lanes.get(slot).length), 4, 12);
-  const gy = (i, r) => (layout.rows[i - 1].bottom + layout.rows[i].top) / 2 + laneOf.get(`g${i}|${r.key}`) * lg(`g${i}`);
+  const gy = (i, r) => (lay.rows[i - 1].bottom + lay.rows[i].top) / 2 + laneOf.get(`g${i}|${r.key}`) * lg(`g${i}`);
   for (const r of routes) {
     const pts = [[r.xa, r.A.t], [r.xa, gy(r.A.row, r)]];
     for (const s of r.steps) {

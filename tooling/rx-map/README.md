@@ -115,6 +115,26 @@ their plate with a cast shadow, and edges run on the plate surface.
   so text is drawn at its size, not scaled as a picture.
 - The board never leaves the screen: a drag or a fling stops with part of it in view.
 
+
+### Layout
+
+- **Bands of dependency depth.** What a module needs sits above it, so every arrow between modules points up; the
+  modules at one depth share a band, side by side, ordered to cut crossings (barycenters), and a band wraps into rows so
+  the world has about the screen's shape. A row narrower than the world gives its spare width to its plates.
+- **Dense plates are clustered** by who uses their names ("used by IssueList", "used in `<Row />`", "inside"), each
+  cluster with its own rows; clusters face the plates that use them.
+- **Collapse** a plate (its header button) to its summary: role bar, counts, the names other modules use. On a map of
+  more than 300 tokens, a selection folds the modules it doesn't touch and unfolds the ones it does.
+- **Edges between plates** leave the token straight up (or down) to just outside its plate, run in bundles through the
+  gutters between bands and the gaps between plates (each bundle in its own lane), and enter the target from below.
+- **The overview** (semantic zoom): zoomed out past 30 %, the world is drawn as an architecture diagram — each module a
+  card sized to what it says (name, short path, role bar, counts, exports), cards alike in width within a band, bands
+  evenly spaced, the bundles between them. Zooming in past 130 %, or clicking a card, goes back to the tokens; the
+  module under the pointer stays in place. A big map opens on the overview, framed whole.
+- **View text** (`regions[].outline`): each region shows what its markup says, in document order, as a quiet one-line
+  strip under its tokens: static text, holes where the view reads (linked to their site tokens; in live mode the value
+  they read), child regions as small frame tags, and human text in attributes. Long strips have an expander; strips
+  hide when zoomed out.
 ## Diff: what changed between two versions
 
 ```sh
