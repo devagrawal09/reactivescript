@@ -1270,7 +1270,7 @@ function freeVars(e: Expr, out: Set<string>) {
     case "rec": e.fields.forEach(f => freeVars("spread" in f ? f.spread : f.v, out)); break;
     case "tpl": e.parts.forEach(p => { if (typeof p !== "string") freeVars(p, out); }); break;
     case "fn": { const o = new Set<string>(); freeVars(e.body, o); for (const st of e.stmts ?? []) if ("e" in st) freeVars(st.e, o); for (const n of o) if (!e.params.includes(n)) out.add(n); break; }
-    case "spread": case "omit": freeVars(e.e, out); break;
+    case "spread": case "omit": case "as": freeVars(e.e, out); break;
     case "use": break;
     case "draft": { freeVars(e.seed, out); for (const st of e.body) { if (st.k === "write" || st.k === "let" || st.k === "expr" || st.k === "optimistic") freeVars(st.e, out); if (st.k === "write") for (const p of st.target.path) if (typeof p !== "string") freeVars(p, out); } out.delete("d"); break; }
   }
