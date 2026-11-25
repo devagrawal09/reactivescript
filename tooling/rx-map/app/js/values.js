@@ -1,0 +1,54 @@
+// A list's preview (`[{id: 1, name: "Ada"}, …4]`) reads as a count and its first items.
+export function listOf(p) {
+  p = String(p ?? "");
+  const m = /^Array\((\d+)\)$/.exec(p);
+  if (m) return { count: +m[1], exact: true, items: [] };
+  if (p[0] !== "[") return null;
+  const items = [];
+  let depth = 0, str = null, cur = "", closed = false;
+  for (let i = 1; i < p.length; i++) {
+    const c = p[i];
+    if (str) { cur += c; if (c === "\\") { cur += p[++i] ?? ""; } else if (c === str) str = null; continue; }
+    if (c === '"' || c === "'" || c === "`") { str = c; cur += c; continue; }
+    if (c === "[" || c === "{" || c === "(") depth++;
+    if (c === "]" || c === "}" || c === ")") { if (!depth) { closed = true; break; } depth--; }
+    if (c === "," && !depth) { items.push(cur.trim()); cur = ""; continue; }
+    cur += c;
+  }
+  if (cur.trim()) items.push(cur.trim());
+  let more = 0, exact = closed;
+  if (items.length && /^…\d+$/.test(items.at(-1))) more = +items.pop().slice(1);
+  else if (!closed && items.length) { items.pop(); exact = false; }   // cut at 80 characters: the last item is partial
+  return { count: items.length + more, exact, items: items.map(itemLabel) };
+}
+export function itemLabel(t) {
+  if (t[0] === "{") {
+    const fields = [...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)];
+    const str = fields.find(f => f[2][0] === '"' && !/^(id|key)$/.test(f[1])) ?? fields[0];
+    t = str ? str[2].trim() : "{…}";
+  }
+  if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
+  return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+}
+export const plainValue = v => { const l = listOf(v); return l ? `${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}` : String(v ?? ""); };
+export const listDetail = listOf;
+
+export function lvView(text) {
+  const l = listOf(text);
+  if (!l) return { list: false, text: String(text ?? ""), count: "", items: [], more: "", empty: false };
+  const items = l.items.slice(0, 2);
+  return { list: true, text: "", count: `${l.count}${l.exact ? "" : "+"}`, items, more: l.count > 2 ? `+${l.count - items.length}` : "", empty: l.count === 0 };
+}
+
+// The last change at or before seq, or its first recorded change's prev (TRACE §4b).
+export function valueAt(steps, key, seq) {
+  let before, after;
+  for (const s of steps) for (const c of s.changes ?? []) {
+    if (c?.key !== key) continue;
+    if (s.seq <= seq) { if (typeof c.preview === "string" || typeof c.error === "string") before = c; }
+    else if (!after) after = c;
+  }
+  if (before) return typeof before.preview === "string" ? { preview: before.full ?? before.preview } : { error: before.error };
+  if (after && typeof after.prev === "string") return { preview: after.prev };
+  return null;
+}
