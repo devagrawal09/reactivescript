@@ -17,7 +17,8 @@ export type Expr =
   | { k: "index"; o: Expr; i: Expr; opt?: boolean }
   | { k: "call"; f: Expr; args: Expr[] }
   | { k: "arr"; items: Expr[] }
-  | { k: "rec"; fields: ({ key: string; v: Expr } | { spread: Expr })[] }
+  | { k: "rec"; fields: ({ key: string; v: Expr } | { computed: Expr; v: Expr } | { spread: Expr })[] }
+  | { k: "as"; e: Expr; ty: string }
   | { k: "fn"; params: string[]; body: Expr; stmts?: Stmt[] }   // stmts: a statement-bodied arrow (imperative scope, 07 §5)
   | { k: "draft"; seed: Expr; body: Stmt[] }                  // ST-3: the only writes in reactive scope, to `d`
   | { k: "use"; name: string }                                 // RG-7b: the nearest provision above

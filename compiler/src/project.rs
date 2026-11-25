@@ -753,6 +753,7 @@ impl Proj<'_> {
                 }
             }
             ExprKind::Peek(x) | ExprKind::Latest(x) => go!(x),
+            ExprKind::As { e: x, ty } => Code::of("(").c(go!(x)).t(" as ").c(self.ty(ty, e.span, &mut (x.span.end as usize))).t(")"),
             ExprKind::Pending(x) => Code::of("__.pending(").c(go!(x)).t(")"),
             ExprKind::Await { e: x, init, stream } => {
                 if imp {
@@ -804,6 +805,7 @@ impl Proj<'_> {
                     .map(|f| match f {
                         Field::Spread(x) => Code::of("...").c(go!(x)),
                         Field::Kv { key, v } => Code::of(&js_str(key)).t(": ").c(go!(v)),
+                        Field::Computed { key, v } => Code::of("[").c(go!(key)).t("]: ").c(go!(v)),
                     })
                     .collect();
                 Code::of("({ ").c(Code::join(fs, ", ")).t(" })")

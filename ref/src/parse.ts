@@ -145,7 +145,7 @@ function typeParams(c: Cursor): string | undefined {
     else if (c.eat(">")) { if (--depth === 0) return c.src.slice(start, c.i); }
     else if (c.peek() === "'" || c.peek() === '"' || c.peek() === "`") {
       const quote = c.peek(); c.i++;
-      while (!c.eof() && c.peek() !== quote) { if (c.eat("\\")) c.i++; else c.i++; }
+      while (!c.eof() && c.peek() !== quote) { if (c.eat("\\")) c.i++; c.i++; }
       c.expect(quote);
     } else c.i++;
   }
@@ -525,11 +525,38 @@ function parseBin(c: Cursor, lvl: number): Expr {
   let l = parseBin(c, lvl + 1);
   for (;;) {
     c.ws(false);
+    if (lvl === 4 && c.keyword("as")) {
+      c.ws(); l = { k: "as", e: l, ty: assertionType(c) };
+      continue;
+    }
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();
     l = { k: "bin", op: OP_ALIAS[op] ?? op, l, r: parseBin(c, lvl + 1) };
   }
+}
+/** A type assertion ends at the surrounding expression's delimiter, not at a nested type delimiter. */
+function assertionType(c: Cursor): string {
+  const start = c.i; let end = start; const stack: string[] = [];
+  while (!c.eof()) {
+    const ch = c.peek();
+    if (!stack.length && (/[,\n;:)=\]}?+*/%!&<>-]/.test(ch) && !(ch === "&" && c.peek(1) !== "&") || c.startsWith("||") || c.peekIdent() === "as" || c.peekIdent() === "catch")) {
+      if (ch !== "<") break;
+      try { typeParams(c); end = c.i; continue; } catch (e) { if (!(e instanceof ParseError)) throw e; c.i = end; break; }
+    }
+    if (c.ident() !== null) { end = c.i; continue; }
+    if (c.startsWith("=>") && stack.length) { c.i += 2; end = c.i; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      c.i++; while (!c.eof() && c.peek() !== ch) { if (c.eat("\\")) c.i++; c.i++; } c.expect(ch);
+    } else {
+      if (ch === "(" || ch === "[" || ch === "{" || ch === "<") stack.push(({ "(": ")", "[": "]", "{": "}", "<": ">" })[ch]!);
+      else if (stack.at(-1) === ch) stack.pop();
+      c.i++;
+    }
+    if (!/\s/.test(ch)) end = c.i;
+  }
+  if (end === start || stack.length) c.fail("type after `as`");
+  c.i = end; return c.src.slice(start, end);
 }
 function parseUnary(c: Cursor): Expr {
   c.ws();
@@ -555,6 +582,8 @@ function parseUnary(c: Cursor): Expr {
 function parsePostfix(c: Cursor): Expr {
   let e = parsePrimary(c);
   for (;;) {
+    const save = c.i; c.ws();
+    if (!c.startsWith(".") && !c.startsWith("?.")) c.i = save;
     if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
     else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
@@ -603,9 +632,13 @@ function parsePrimary(c: Cursor): Expr {
     c.expect("]"); return { k: "arr", items };
   }
   if (c.eat("{")) {
-    c.ws(); const fields: ({ key: string; v: Expr } | { spread: Expr })[] = [];
+    c.ws(); const fields: Extract<Expr, { k: "rec" }>["fields"] = [];
     while (!c.startsWith("}")) {
       if (c.eat("...")) { c.ws(); fields.push({ spread: parseExpr(c) }); c.ws(); if (!c.eat(",")) break; c.ws(); continue; }
+      if (c.eat("[")) {
+        const computed = parseExpr(c); c.ws(); c.expect("]"); c.ws(); c.expect(":");
+        fields.push({ computed, v: parseExpr(c) }); c.ws(); if (!c.eat(",")) break; c.ws(); continue;
+      }
       const key = c.ident() ?? (c.peek() === '"' || c.peek() === "'" ? String((parsePrimary(c) as { v: unknown }).v) : c.fail("field")); c.ws();
       if (c.eat(":")) { c.ws(); fields.push({ key, v: parseExpr(c) }); } else fields.push({ key, v: { k: "id", name: key } });
       c.ws(); if (!c.eat(",")) break; c.ws();

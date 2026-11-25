@@ -264,7 +264,8 @@ class Proj {
       case "stylemap": { const r = transform(`export const __s = <style>${e.css}</style>;`, { filename: "class-map.tsrx", generate: "dom" }) as { code: string }; const m = /export const __s = (\{[\s\S]*?\});/.exec(r.code); return `(${m ? m[1].replace(/\n\s*/g, " ").replace(/: "[^"]*"/g, ': "" as string') : "{}"} as const)`; }   // 07 CSS-5: TSRX's class map, as its typecheck projection writes it
       case "call": return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       case "arr": return `[${e.items.map(go).join(", ")}]`;
-      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+      case "as": return `(${go(e.e)} as ${e.ty})`;
+      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${"computed" in f ? `[${go(f.computed)}]` : J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "spread": return `...${go(e.e)}`;
       case "omit": return `__.omit(${[go(e.e), ...e.keys.map(k => J(k))].join(", ")})`;
       case "fn": {

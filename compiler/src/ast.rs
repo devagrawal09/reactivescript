@@ -22,6 +22,7 @@ pub enum TplPart {
 #[derive(Debug, Clone)]
 pub enum Field {
     Kv { key: String, v: Expr },
+    Computed { key: Expr, v: Expr },
     Spread(Expr),
 }
 
@@ -83,6 +84,7 @@ pub enum ExprKind {
     Call { f: Box<Expr>, args: Vec<Expr> },
     Arr(Vec<Expr>),
     Rec(Vec<Field>),
+    As { e: Box<Expr>, ty: String },
     /// `stmts`: a statement-bodied arrow (imperative scope, 07 §5)
     Fn { params: Vec<String>, body: Box<Expr>, stmts: Option<Vec<Stmt>> },
     /// ST-3
@@ -420,6 +422,7 @@ impl Expr {
             ExprKind::Call { .. } => "call",
             ExprKind::Arr(_) => "arr",
             ExprKind::Rec(_) => "rec",
+            ExprKind::As { .. } => "as",
             ExprKind::Fn { .. } => "fn",
             ExprKind::Draft { .. } => "draft",
             ExprKind::Use(_) => "use",
@@ -443,6 +446,7 @@ impl Expr {
             ExprKind::Pre { name, init } => obj(vec![("k", k), ("name", s(name)), ("init", ob(init))]),
             ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Throw(e) => obj(vec![("k", k), ("e", b(e))]),
             ExprKind::Omit { e, keys } => obj(vec![("k", k), ("e", b(e)), ("keys", Some(strs(keys)))]),
+            ExprKind::As { e, ty } => obj(vec![("k", k), ("e", b(e)), ("ty", s(ty))]),
             ExprKind::Await { e, init, stream } => obj(vec![("k", k), ("e", b(e)), ("init", ob(init)), ("stream", Some(Value::Bool(*stream)))]),
             ExprKind::If { c, t, f } => obj(vec![("k", k), ("c", b(c)), ("t", b(t)), ("f", b(f))]),
             ExprKind::Tpl(parts) => obj(vec![
@@ -462,6 +466,7 @@ impl Expr {
                             .iter()
                             .map(|f| match f {
                                 Field::Kv { key, v } => obj(vec![("key", s(key)), ("v", Some(v.to_json()))]),
+                                Field::Computed { key, v } => obj(vec![("computed", Some(key.to_json())), ("v", Some(v.to_json()))]),
                                 Field::Spread(e) => obj(vec![("spread", Some(e.to_json()))]),
                             })
                             .collect(),
