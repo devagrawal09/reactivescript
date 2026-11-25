@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// rxmcp <app-root> <tool> [key=value ...] (or --list)
+const { spawnSync } = require("node:child_process");
+const [root, tool, ...args] = process.argv.slice(2);
+if (!root || !tool) { console.error("usage: rxmcp <app-root> <tool|--list> [key=value ...]"); process.exit(1); }
+const params = Object.fromEntries(args.map(arg => {
+  const i = arg.indexOf("=");
+  if (i < 1) { console.error(`expected key=value: ${arg}`); process.exit(1); }
+  const key = arg.slice(0, i), value = arg.slice(i + 1);
+  // Stable keys, instance IDs and search text remain strings even if they
+  // look like JSON. Quote the entire key=value argument when it has spaces.
+  if (["key", "query", "instance", "module", "ref"].includes(key)) return [key, value];
+  try { return [key, JSON.parse(value)]; } catch { return [key, value]; }
+}));
+const request = JSON.stringify({ jsonrpc: "2.0", id: 1, method: tool === "--list" ? "tools/list" : "tools/call",
+  ...(tool === "--list" ? {} : { params: { name: tool, arguments: params } }) });
+const base = "/home/lucifer/work/solidjs/rx-integ";
+const out = process.env.RX_DEV_URL
+  ? spawnSync("curl", ["-sS", "--max-time", "35", "-H", "Content-Type: application/json",
+    "-H", "Accept: application/json, text/event-stream", "--data-binary", request, new URL("/__rx/mcp", process.env.RX_DEV_URL).href], { encoding: "utf8", maxBuffer: 32 << 20 })
+  : spawnSync(process.execPath, [`${base}/tooling/rx-map/rx-map.mjs`, "mcp", "--root", root],
+    { input: request + "\n", encoding: "utf8", maxBuffer: 32 << 20,
+      env: { ...process.env, RXC: process.env.RXC ?? `${base}/compiler/target/release/rxc` } });
+try {
+  if (out.status !== 0) throw new Error(out.stderr || out.error?.message || `transport exited ${out.status}`);
+  const { result, error } = JSON.parse(out.stdout);
+  if (error) throw new Error(error.message);
+  if (!result) throw new Error("empty MCP result");
+  const text = result.content?.map(c => c.text).join("\n") ?? JSON.stringify(result, null, 2);
+  if (result.isError) throw new Error(text);
+  console.log(text);
+} catch (e) { console.error(`ERROR: ${e.message}`); process.exitCode = 1; }

@@ -1,0 +1,38 @@
+42db363 Real JS modules win over the test API and declared types bind no values
+f30e1bb Read generic and private types in foreign declarations.
+d103f95 Parse computed keys, casts, and multiline member chains.
+7065778 Run the expression fixture in declaration order.
+81aaa4a Report diagnostics across a recovering module graph.
+5ad54b3 Type assertions parse in handlers, and a handler parse error stays on its line.
+adf0cc8 Visit computed keys during expression analysis.
+66e6758 Document foreign declaration type parameters and rows.
+7c0e41b A write checks the source's type, not the type a branch narrowed it to.
+3f7da8d A .d.rx is the type of its JS module, even when a .ts sits beside it.
+f4667d7 A handler reads a snapshot, so a view branch does not narrow it.
+a5e9030 A component's style that only matches another component in the file is an error.
+3805aeb A handler parse error keeps a named habit when the statement reading has none.
+8b241fa The notes list's row styles live on Row, the view they match.
+13e817d The Solid oracle erases a type assertion, so a handler write of one keeps the value.
+5fc18a6 Cook escapes in strings and template literals.
+675cd04 Render empty JSX fragments without text.
+6ac4e3b Preserve inline spaces in JSX text.
+3fefe8e Let a declaration file import types from another .d.rx or an .rx export type.
+4fa970a Flag a typed error boundary whose children an inner catch-all wraps.
+af9015f Exercise imported declaration types through rx-tsc
+057644d Bind the JS primitive before reading its value in rx-tsc test
+e417daf Accept optional value parameters in JS declarations
+1ee3fe1 Verify optional arguments through rx-tsc
+1e998f6 Use the scenario notation for an empty frame
+ba60c70 Keep optional-declaration fixture independent of mock JS
+caa132d Only diagnose a dead typed boundary when the inner fallback is static
+d303341 Complete language conformance and gate checker and lowering parity
+a2d1777 Keep indexed model reads in parity
+
+5b280a5 Key dev declarations and expose their resolved model
+0c54e01 Hydrate a dev client against non-dev server output
+81b0c7d Preserve module keys in non-bundled lowering
+ad7d6de Do not allocate foreign observation memos during hydration
+
+1811357 Add the ReactiveScript map and keyed dev replacement
+19273b4 Rebuild the map page from the split compiler and runtime
+b4995f1 Check travel denial against stock Solid
