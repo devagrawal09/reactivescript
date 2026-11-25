@@ -61,7 +61,7 @@ does for `.tsrx`. Nothing here is a second type system.
 
 - **TY-4a.** An `.rx` import carries types: `export type T` crosses an
   import (MO-6c), as does every export's type.
-- **TY-4b.** A `.d.rx` is its JS module's `.d.ts`: each function's
+- **TY-4b.** A written `.d.rx` line is its JS module's `.d.ts`: each function's
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
   declaration file is `any`. Where a `.ts` (or `.js`) sits beside the
@@ -71,7 +71,21 @@ does for `.tsrx`. Nothing here is a second type system.
   A type the `.d.rx` imports (MO-8e) is in that namespace as an alias of the
   other file's namespace (`type Card = __D_….Card`), never an `import` of
   the sibling `.ts`. An `.rx` `export type` is an alias of that module's
-  projection.
+  projection. A *generated* line (09 MO-11) carries rows only: its export
+  is typed by TypeScript's own declaration, imported from the module
+  (`import { f as __js_f } from "./api"`), so generics, overloads, classes,
+  enums and types are TypeScript's. The types its text prints are for
+  people. A written line that overrides it is typed by its text, as above.
+  A written line can name a generated type, and a type import (MO-8e) can
+  name a TS module's type. Each is bridged to TypeScript's
+  (`import type { User as __T_… } from "./api"`).
+- **TY-4d.** A generated function with `Ref` positions (MO-11c) is seen as
+  its rows say (MO-10): a `Ref<T>` parameter takes a `T`, and a `Ref<T>`
+  result or part reads as `T`. The import is cast through the prelude's
+  `__.ReadAt` and `__.ReadResult`, which map the parameter tuple and the
+  result of `typeof __js_f`. In a generic function those positions are
+  `any`, because TypeScript cannot map a generic signature. That loses
+  precision but never reports a false error.
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such

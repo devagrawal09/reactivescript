@@ -813,7 +813,7 @@ export default component App() {
 
 ### TYPE_IMPORT
 
-A `.d.rx` imports types only (MO-8e): `import { T, U as V } from "./x"`, from another `.d.rx` or an `.rx` `export type`. A function is a value. Copying the type into the file was the workaround; import the type instead.
+A `.d.rx` imports types only (MO-8e): `import { T, U as V } from "./x"`, from another `.d.rx`, a `.ts` module, or an `.rx` `export type`. A function is a value. Copying the type into the file was the workaround; import the type instead.
 
 ```rx
 -- module: ./fns.d.rx
@@ -1252,8 +1252,35 @@ A local declaration has the name of an import (MO-1d). Rename one: `import { ini
 
 ### NOT_EXPORTED
 
-The module, or its `.d.rx` declaration file, does not export that name (MO-6, MO-8). Check the spelling, or declare the
-export.
+The module, or its declaration, does not export that name (MO-6, MO-8, MO-11). For a `.ts` module the declaration is
+generated from the `.ts`, so the name is not among its exports: check the spelling, or export it from the `.ts`. A line
+in a `.d.rx` beside a `.ts` that names an export the `.ts` lacks is reported at that line: remove it, or fix the name.
+
+### DECLARATION_BRAND
+
+A brand from `@reactivescript/types` in a `.ts` is somewhere the compiler can't read it as a fact (MO-11c). Brands go
+on the return type of the exported function, wrapped in any order. `Ref` also goes on a parameter. The error is
+reported at the brand, in the `.ts`:
+
+```ts
+export const limit: Pure<number> = 10                       // a brand on a value: it describes a call
+export function load(id: Pure<number>): Promise<Item>       // Pure on a parameter
+export function load(id: number): Promise<Pure<Item>>       // Pure inside the result
+export function watch(src?: Ref<string>): Ref<string>       // Ref on an optional parameter
+export function load(id: number): Rejects<Promise<Item>, "missing">   // a Rejects member that isn't an Error class
+```
+
+Write `export function load(id: number): Pure<Rejects<Promise<Item>, NotFound>>`, with
+`class NotFound extends Error {}`. Overloads of one function carry the same brands, or none. `Ref` marks a parameter,
+the result, or a top-level element or property of the result, and nothing deeper (`Promise<Ref<T>>` is refused).
+
+### DECLARATION_UNAVAILABLE
+
+The import names a TypeScript module, but no generator could read it (MO-11d). The compiler won't guess, because every
+tool must give the same verdict. Usually TypeScript or `@reactivescript/compiler` (whose `rx-dts` generates the
+declaration) isn't installed where native `rxc` runs: `npm i -D @reactivescript/compiler typescript`, or point `RX_DTS`
+at an `rx-dts` command. A module written `export = …` (CommonJS) isn't an ES module. Declare it in a `.d.rx` beside a
+`.js` re-export instead.
 
 ### MODULE_NOT_FOUND
 
@@ -1266,9 +1293,11 @@ Two modules import each other, directly or through others (MO-5). Move what both
 
 ### IMPORT_ROW_MISMATCH
 
-An import restates what its source already declares (MO-4, MO-8, SF-5): `pure` on a function that is io, `fails(…)` on
-an `.rx` module (its rows are its signature's), or `server` / `client` on a name its `.d.rx` declares otherwise. Drop
-the annotation on the import and let the declaration say it.
+An import restates what its source already declares (MO-4, MO-8, MO-11e, SF-5): `pure` on a function that is io,
+`fails(…)` on an `.rx` module (its rows are its signature's), or `server` / `client` on a name its `.d.rx` declares
+otherwise. For a `.ts` module, an import may still narrow a fact the `.ts` left to the default (`import pure` of an
+unbranded function), but not one a brand or a `.d.rx` line states. Drop the annotation on the import and let the
+declaration say it, or brand the `.ts` (`Pure<…>`, `Rejects<…>`).
 
 ## Server functions
 
