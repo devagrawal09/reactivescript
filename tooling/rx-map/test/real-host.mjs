@@ -23,6 +23,11 @@ import assert from "node:assert/strict";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
 if (!process.env.APP && !process.env.SOLID_VIEW) {
+  // In CI the real host is the arbiter (TRACE-CONTRACT §5): a missing Solid build is a failure, not a skip.
+  if (process.env.CI) {
+    console.error("FAIL real-host.mjs: CI is set but SOLID_VIEW is not (build the Solid pinned in solid-view.json)");
+    process.exit(1);
+  }
   console.log("skip real-host.mjs: set SOLID_VIEW to a built Solid with openView (or APP to an installed shelf app)");
   process.exit(0);
 }
@@ -176,6 +181,8 @@ function makeHost(graph, opts = {}) {
         finally { await saveRx(page, file, text); }
       },
       async dispose() { await page.close(); },
+      // what the app displays now (TRACE-CONTRACT §5: the arbiter)
+      shown: keys => page.evaluate(k => globalThis.__T.view.shown(k), keys),
     };
   })();
 }
@@ -575,7 +582,14 @@ async function roundThree() {
       await sleep(50);
     }
   };
-  const toggle = async i => { await page.locator('li[data-testid="book"] input[type="checkbox"]').nth(i).click(); await settle(); };
+  // a toggle is done when its undo entry shows (save, then refresh: ~500 ms), not merely when nothing is in flight
+  const undoCount = () => page.evaluate(() => document.querySelectorAll(".undo-entry").length);
+  const toggle = async i => {
+    const before = await undoCount();
+    await page.locator('li[data-testid="book"] input[type="checkbox"]').nth(i).click();
+    for (let t = 0; t < 60 && (await undoCount()) === before; t++) await sleep(50);
+    await settle();
+  };
   // (a) three successful toggles prepend three undo entries; undoing the middle one filters it out
   await toggle(1);
   await toggle(2);
@@ -680,6 +694,27 @@ async function roundThree() {
     && unlessInexact(panel(await html()), later[0]) === unlessInexact(panel(dom[seen[1]]), later[0]), later.map(m => m.to));
   await post(page, { type: "resume" });
   await settle();
+  // finding 9: a travel waits for a question in the air at most 3 s, then is denied with what it waits on
+  await page.getByRole("button", { name: "shelf slow", exact: true }).click();
+  await sleep(200);
+  await drain(page);
+  const t0 = Date.now();
+  await post(page, { type: "travel", to: seen[1] });
+  let denied;
+  for (let i = 0; i < 100 && !denied; i++) {
+    denied = (await drain(page)).find(m => m.type === "travel-denied" || m.type === "step");
+    if (!denied) await sleep(50);
+  }
+  const waited = Date.now() - t0;
+  check(`(finding 9) a travel waiting on a slow question is denied "pending" after ~3 s (${waited} ms), naming it`,
+    denied?.type === "travel-denied" && denied.reason === "pending" && waited >= 2800 && waited < 4500
+      && denied.keys?.includes("src/components/ShelfInfo.rx|ShelfInfo|info"), { denied, waited });
+  await sleep(5200);
+  await settle();
+
+  // finding 12: the timeline holds no disposed engine nodes (the shelf panels remounted above)
+  const kept = await page.evaluate(() => globalThis.__RX__.retained());
+  check(`(finding 12) the timeline keeps no disposed component's nodes (${kept.nodes} nodes held)`, kept.nodes > 0 && kept.disposed === 0, kept);
   check("round 3: no page errors", page.errors.length === 0, page.errors.slice(0, 5));
   await page.close();
 }

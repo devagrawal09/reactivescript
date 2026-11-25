@@ -22,7 +22,7 @@ export default component App() {
   source undo: UndoEntry[] := []
   // The shelf panel is remounted per shelf id: one ShelfInfo instance at a time (round-3: values per live instance).
   source shelfId := "main"
-  shelves = ["main", "nope", "other"]
+  shelves = ["main", "nope", "other", "slow"]
   filters: Filter[] = ["all", "unread", "read"]
 
   q = query.trim().toLowerCase()

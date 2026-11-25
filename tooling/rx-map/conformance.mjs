@@ -193,6 +193,25 @@ function drive(makeHost, graphs, opts, start) {
   return results;
 }
 
+// What the app displays (§5: the arbiter for a real host). `host.shown(keys)` returns `{ [key]: {preview}|{error} }`
+// for the keys it displays now (absent: shows none). Compared with the replay of the host's own messages, over the
+// replay's keys, except those a step marks inexact.
+const toStates = shown => {
+  const m = new Map();
+  for (const [k, v] of shown instanceof Map ? shown : Object.entries(shown ?? {})) {
+    const st = v == null ? undefined : typeof v === "string" ? v : stateOf(v);
+    if (st !== undefined) m.set(k, st);
+  }
+  return m;
+};
+const fmtState = v => v === undefined ? "nothing" : v.startsWith(ERR) ? `error ${v.slice(ERR.length)}` : v;
+function* shownVs(h, want, skip = []) {
+  if (typeof h.shown !== "function") return null;
+  const keys = [...want.keys()].filter(k => !skip.includes(k));
+  const got = toStates(yield h.shown(keys));
+  return keys.filter(k => got.get(k) !== want.get(k)).map(k => `${k}: shows ${fmtState(got.get(k))}, replay ${fmtState(want.get(k))}`);
+}
+
 function* checkOne(makeHost, graph, label, seed, push) {
   const hostOpts = { seed, rate: 0, capacity: 2000 };
   const host = yield makeHost(graph, hostOpts);
@@ -276,9 +295,11 @@ function* checkOne(makeHost, graph, label, seed, push) {
     for (let i = 0; i < 4; i++) { yield h.act(); yield h.tick(8); }
     yield h.tick(12);
   };
+  const everything = [msgs];
   const collect = h => {
     const box = [];
     h.subscribe(m => box.push(m));
+    everything.push(box);
     return box;
   };
 
@@ -297,12 +318,14 @@ function* checkOne(makeHost, graph, label, seed, push) {
       let detail = `got ${pendingReply?.type ?? "nothing"} ${pendingReply?.reason ?? ""}`;
       if (pendingReply?.type === "travel-pending") {
         const nWait = pMsgs.length;
-        for (let i = 0; i < 6; i++) yield pHost.tick(4);
+        for (let i = 0; i < 8; i++) yield pHost.tick(4);
         const after = pMsgs.slice(nWait);
         const landed = after.findIndex(m => m.type === "flight" && m.state !== "start");
         const step = after.findIndex(m => m.type === "step" || m.type === "travel-denied");
-        ok = step >= 0 && (after[step].type === "travel-denied" ? after[step].reason === "evicted" : after[step].to === 1)
-          && (landed < 0 || landed < step);
+        // it goes once the flight lands, or (bounded wait, v0.8) is denied "pending" with what it waits on
+        ok = step >= 0 && (after[step].type === "travel-denied"
+          ? after[step].reason === "evicted" || (after[step].reason === "pending" && Array.isArray(after[step].keys))
+          : after[step].to === 1 && (landed < 0 || landed < step));
         detail = step < 0 ? "travel-pending, then no step after the flight landed" : `travel-pending, then ${after[step].type} ${after[step].to ?? ""}`;
       }
       push(ok, "travel pending while a flight is open", label, ok ? undefined : detail);
@@ -363,6 +386,9 @@ function* checkOne(makeHost, graph, label, seed, push) {
         }
       } else exactDetail = `keys ${got.join(",")} want ${want.join(",")}`;
       push(exact, "step changes exact", label, exactDetail || undefined);
+      const off = yield* shownVs(travelHost, atTo, step.inexact ?? []);
+      push(off === null || off.length === 0, "app shows the travelled state", label,
+        off === null ? "host has no shown(): not checked" : off.slice(0, 3).join("; ") || undefined);
       if (step.from !== fromBefore && step.from !== head) {
         // from should be the live head we travelled from
       }
@@ -402,6 +428,12 @@ function* checkOne(makeHost, graph, label, seed, push) {
       directOk = s1?.type === "step" && s2?.type === "step" && direct?.type === "step"
         && mapsEqual(shownA, shownB) && mapsEqual(shownB, reconstruct(otherSteps, n2));
       if (!directOk) directDetail = !direct ? "no step" : !s1 || !s2 ? "path missing a step" : "shown state differs";
+      const offA = yield* shownVs(path, reconstruct(pathSteps, n2), s2?.inexact ?? []);
+      const offB = yield* shownVs(other, reconstruct(otherSteps, n2), direct?.inexact ?? []);
+      if (directOk && ((offA && offA.length) || (offB && offB.length))) {
+        directOk = false;
+        directDetail = `the app shows another state: ${[...(offA ?? []), ...(offB ?? [])].slice(0, 2).join("; ")}`;
+      }
       yield path.dispose?.();
       yield other.dispose?.();
     } catch (e) { directDetail = e?.message ?? String(e); }
@@ -421,8 +453,31 @@ function* checkOne(makeHost, graph, label, seed, push) {
     const nHello = travelMsgs.length;
     yield travelHost.post({ type: "hello", want: ["timeline"] });
     const tl = travelMsgs.slice(nHello).find(m => m.type === "timeline");
-    const kept = !leaked && tl && (tl.steps?.length ?? 0) >= stepsNow().length;
-    push(kept, "flushes during viewing kept", label, leaked ? "a flush was shown while viewing" : tl ? undefined : "no timeline after resume");
+    // Nothing done while viewing is lost: after resume the app shows the replay of the timeline at its head (an act()
+    // that ran beneath the view and whose step went missing shows in the app but not in the replay).
+    const liveOff = tl && resumed?.type === "resume" ? yield* shownVs(travelHost, reconstruct(tl.steps ?? [], resumed.head)) : null;
+    const kept = !leaked && tl && (tl.steps?.length ?? 0) >= stepsNow().length && (!liveOff || liveOff.length === 0);
+    push(kept, "flushes during viewing kept", label, leaked ? "a flush was shown while viewing" : !tl ? "no timeline after resume"
+      : liveOff?.length ? `work done while viewing is not in the timeline: ${liveOff.slice(0, 2).join("; ")}` : liveOff ? undefined : "host has no shown(): timeline length only");
+    push(!liveOff || liveOff.length === 0, "app shows the live state after resume", label,
+      liveOff === null ? "host has no shown(): not checked" : liveOff.slice(0, 3).join("; ") || undefined);
+
+    // Current state (v0.3, v0.4 per instance): a snapshot is what the app shows now, and agrees with the timeline at
+    // its head (the newest live instance of each key).
+    const nSnap = travelMsgs.length;
+    yield travelHost.post({ type: "snapshot?" });
+    const snap = travelMsgs.slice(nSnap).find(m => m.type === "snapshot");
+    if (!snap) push(false, "snapshot on request", label, "no snapshot for snapshot?");
+    else {
+      push(true, "snapshot on request", label);
+      const snapStates = toStates(new Map((snap.values ?? []).map(v => [v.key, v])));
+      const head = tl ? reconstruct(tl.steps ?? [], tl.head) : new Map();
+      const stale = [...head].filter(([k, v]) => snapStates.get(k) !== v).map(([k, v]) => `${k}: snapshot ${fmtState(snapStates.get(k))}, timeline ${fmtState(v)}`);
+      push(stale.length === 0, "values per live instance: snapshot agrees with the timeline head", label, stale.slice(0, 3).join("; ") || undefined);
+      const snapOff = yield* shownVs(travelHost, snapStates);
+      push(!snapOff || snapOff.length === 0, "snapshot shows what the app shows", label,
+        snapOff === null ? "host has no shown(): not checked" : snapOff.slice(0, 3).join("; ") || undefined);
+    }
 
     let resumeOk = false, resumeDetail = "";
     if (resumed?.type === "resume" && tl) {
@@ -440,6 +495,65 @@ function* checkOne(makeHost, graph, label, seed, push) {
   const badInexact = [...msgs, ...(travelMsgs ?? [])].filter(m => m.type === "step" && m.inexact !== undefined)
     .flatMap(m => Array.isArray(m.inexact) ? m.inexact.filter(k => !allKeys.has(k)) : ["not a list"]);
   push(!badInexact.length, "step inexact keys exist", label, badInexact.slice(0, 3).join(", ") || undefined);
+
+  // The v0.3–v0.7 messages, over every host's messages.
+  const every = everything.flat();
+  {
+    const hello = msgs.findIndex(m => m.type === "timeline"), snapAt = msgs.findIndex(m => m.type === "snapshot");
+    push(snapAt >= 0 && snapAt < hello, "snapshot answers hello, before timeline", label, snapAt < 0 ? "no snapshot" : snapAt > hello ? "after timeline" : undefined);
+    const bad = [];
+    const STATES = new Set(["ok", "fallback", "error"]);
+    for (const m of every.filter(m => m.type === "snapshot")) {
+      for (const v of m.values ?? []) {
+        if (!allKeys.has(v.key)) bad.push(`value key ${v.key}`);
+        if (v.preview !== undefined && (typeof v.preview !== "string" || v.preview.length > 80)) bad.push(`preview of ${v.key}`);
+        if (v.preview === undefined && v.error === undefined && !v.pending) bad.push(`${v.key} has no preview, error or pending`);
+      }
+      for (const f of m.flights ?? []) if (!allKeys.has(f.key) || typeof f.since !== "number") bad.push(`flight ${f.key}`);
+      for (const b of m.boundaries ?? []) if (typeof b.region !== "string" || !STATES.has(b.state)) bad.push(`boundary ${b.region} ${b.state}`);
+      for (const r of m.runs ?? []) if (!allKeys.has(r.key) || r.id === undefined) bad.push(`run ${r.key}`);
+      for (const h of m.held ?? []) if (!allKeys.has(h.key) || !Array.isArray(h.by)) bad.push(`held ${h.key}`);
+      if (!Array.isArray(m.values) || !Array.isArray(m.flights) || !Array.isArray(m.boundaries) || !Array.isArray(m.runs)) bad.push("a list is missing");
+    }
+    push(bad.length === 0, "snapshot well formed", label, bad.slice(0, 3).join("; ") || undefined);
+
+    const bounds = every.filter(m => m.type === "boundary");
+    const badB = bounds.filter(b => typeof b.region !== "string" || !STATES.has(b.state) || (b.error !== undefined && b.state !== "error"));
+    push(badB.length === 0, "boundary messages well formed", label, badB.length ? JSON.stringify(badB[0]) : bounds.length ? undefined : "none seen");
+
+    for (const box of everything) {
+      const open = new Map();
+      for (const m of box) {
+        if (m.type !== "run") continue;
+        if (!allKeys.has(m.key)) { bad.push(`run of unknown ${m.key}`); continue; }
+        if (m.state === "start") { if (open.has(m.id)) bad.push(`run ${m.id} started twice`); open.set(m.id, m.key); }
+        else if (m.state === "end" || m.state === "error") { if (!open.has(m.id)) bad.push(`run ${m.id} ${m.state} without start`); open.delete(m.id); }
+        else bad.push(`run state ${m.state}`);
+      }
+    }
+    const runs = every.filter(m => m.type === "run");
+    push(!bad.some(b => b.startsWith("run")), "runs pair start with end or error", label, bad.filter(b => b.startsWith("run")).slice(0, 3).join("; ") || (runs.length ? undefined : "none seen"));
+
+    const heldBad = [];
+    for (const box of everything) {
+      const held = new Set();
+      for (const m of box) {
+        if (m.type === "held") { if (!allKeys.has(m.key) || !Array.isArray(m.by)) heldBad.push(`held ${m.key}`); held.add(m.key); }
+        else if (m.type === "released") { if (!held.has(m.key)) heldBad.push(`released ${m.key} without held`); held.delete(m.key); }
+      }
+    }
+    push(heldBad.length === 0, "held before released", label, heldBad.slice(0, 3).join("; ") || (every.some(m => m.type === "held") ? undefined : "none seen"));
+
+    const reverts = every.filter(m => m.type === "revert");
+    const badR = reverts.filter(m => !allKeys.has(m.key));
+    push(badR.length === 0, "revert keys exist", label, badR.length ? badR[0].key : reverts.length ? undefined : "none seen");
+
+    // v0.4/v0.6: an error is a state of its own: a change carrying one has no preview
+    const both = every.filter(m => m.type === "flush" || m.type === "step" || m.type === "resume")
+      .flatMap(m => m.changes ?? []).filter(c => c.error !== undefined && c.preview !== undefined);
+    push(both.length === 0, "an error change carries no preview", label, both.length ? both[0].key : undefined);
+
+  }
 
   // Eviction: a small ring drops early seqs.
   try {
@@ -491,6 +605,12 @@ function* checkOne(makeHost, graph, label, seed, push) {
       const allow = new Set([...(planMsg.plan.rerun ?? []), ...(planMsg.plan.reset ?? []), ...(planMsg.plan.added ?? [])]);
       const bad = (doneMsg?.changes ?? []).filter(c => c.key != null && !allow.has(c.key)).map(c => c.key);
       push(!!doneMsg && bad.length === 0, "hmr done changes subset", label, !doneMsg ? "no done" : bad.length ? bad.join(", ") : undefined);
+      // v0.7: keys whose state could not be carried come with fallback "refresh", and exist
+      const known = new Set([...keysOf(graph), ...keysOf(planMsg.graph ?? graph)]);
+      const unc = doneMsg?.uncarried;
+      const uncOk = !doneMsg || (unc === undefined ? doneMsg.fallback !== "refresh"
+        : Array.isArray(unc) && doneMsg.fallback === "refresh" && unc.every(k => known.has(k)));
+      push(uncOk, "hmr uncarried keys reported with refresh", label, uncOk ? (unc ? undefined : "none uncarried") : JSON.stringify({ fallback: doneMsg.fallback, uncarried: unc }));
     }
     yield h.dispose?.();
   } catch (e) {

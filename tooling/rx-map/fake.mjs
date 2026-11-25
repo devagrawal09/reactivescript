@@ -622,6 +622,7 @@ export function createFakeHost(graph, opts = {}) {
   let editCount = 0;
   let hmrN = 0;
   let landN = 0;
+  let runN = 0;
 
   const subs = new Set();
   const values = new Map();
@@ -1073,6 +1074,8 @@ export function createFakeHost(graph, opts = {}) {
     const args = params.map(sampleArg);
     const origin = `action ${action.name}(${args.map(fmtArg).join(", ")})`;
     const argEnv = new Map(params.map((p, i) => [p.name, args[i]]));
+    const run = ++runN;
+    emit({ type: "run", key: action.key, id: run, state: "start", at: clock, args: preview(args) });
     const awaitAt = text.search(/\bawait\b/);
     const edges = g.edges.filter(e => e.from === action.id && e.type === "write").slice().sort((a, b) => String(a.op).localeCompare(String(b.op)));
     const sync = [];
@@ -1112,11 +1115,11 @@ export function createFakeHost(graph, opts = {}) {
     propagateWithPrev(syncWrites.map(w => w.node), ctx, prevs);
     if (held.length || refreshHeld.length) {
       const delay = 2 + Math.floor(rng() * 3);
-      holds.push({ landTick: tickCount + delay, writes: held, refresh: refreshHeld, cause: action.key, origin });
+      holds.push({ landTick: tickCount + delay, writes: held, refresh: refreshHeld, cause: action.key, origin, run });
       // v0.4: the written-but-held sources, and what they wait on (what the action awaits: its calls, else itself)
       const by = g.edges.filter(e => e.from === action.id && e.type === "call").map(e => byId.get(e.to)?.key).filter(Boolean);
       for (const w of held) emit({ type: "held", key: w.node.key, by: by.length ? [...new Set(by)] : [action.key], at: clock });
-    }
+    } else emit({ type: "run", key: action.key, id: run, state: "end", at: clock });
   }
 
   function landFlight(f) {
@@ -1165,6 +1168,7 @@ export function createFakeHost(graph, opts = {}) {
       }
       propagateWithPrev(writes.map(w => w.node), { cause: h.cause, origin: h.origin }, prevs);
       for (const w of writes) emit({ type: "released", key: w.node.key, at: clock });
+      if (h.run) emit({ type: "run", key: h.cause, id: h.run, state: "end", at: clock });
       for (const n of h.refresh) scheduleFlight(n, { cause: h.cause, origin: h.origin });
     }
     const dueF = [...inFlight.values()].filter(f => f.landTick <= tickCount).sort((a, b) => a.node.key < b.node.key ? -1 : 1);
@@ -1200,6 +1204,11 @@ export function createFakeHost(graph, opts = {}) {
       if (!booted) bootFlights();
       landDue();
       if (queued != null && !inFlight.size && !holds.length) { const to = queued; queued = null; travel(to); }
+      else if (queued != null && tickCount - queuedSince >= PENDING_TICKS) {
+        const to = queued;
+        queued = null;
+        emit({ type: "travel-denied", to, reason: "pending", keys: waitingOn() });
+      }
       if (rate > 0 && tickCount % rate === 0) act();
     }
   }
@@ -1216,9 +1225,13 @@ export function createFakeHost(graph, opts = {}) {
 
   // Travel asked for while a flight or a hold is open waits for it (TRACE-CONTRACT v0.6 `travel-pending`): the newest
   // target wins and goes once everything has landed; `resume` drops it.
-  let queued = null;
+  // It waits PENDING_TICKS at most, then is denied "pending" with the keys still in the air (finding 9: no wait forever).
+  const PENDING_TICKS = 12;
+  let queued = null, queuedSince = 0;
+  const waitingOn = () => [...new Set([...inFlight.keys(), ...holds.flatMap(h => [...h.writes.map(w => w.node.key), ...h.refresh.map(n => n.key)])])].sort();
   function travel(to) {
     if (inFlight.size || holds.length) {
+      if (queued == null) queuedSince = tickCount;
       queued = to; // checked when it goes: the seq may be recorded by then
       emit({ type: "travel-pending", to });
       return;
@@ -1248,7 +1261,8 @@ export function createFakeHost(graph, opts = {}) {
 
   function post(msg) {
     if (disposed || !msg || typeof msg !== "object") return;
-    if (msg.type === "hello") emit(timeline());
+    if (msg.type === "hello") { emit(snapshot()); emit(timeline()); }
+    else if (msg.type === "snapshot?") emit(snapshot());
     else if (msg.type === "travel") travel(msg.to);
     else if (msg.type === "resume") resume();
     else if (msg.type === "select") selected = msg.key ?? null;
@@ -1257,6 +1271,26 @@ export function createFakeHost(graph, opts = {}) {
   function subscribe(fn) {
     subs.add(fn);
     return () => subs.delete(fn);
+  }
+
+  // What the app displays now (TRACE-CONTRACT §5, the arbiter): while viewing, the state as of the viewed seq; live,
+  // the fake's true values, not what its timeline says.
+  function displayed() {
+    if (viewing != null) return valuesAt(viewing);
+    const m = new Map();
+    for (const [k, v] of values) if (v !== undefined) m.set(k, preview(v));
+    return m;
+  }
+  function shownKeys(keys) {
+    const m = displayed(), out = {};
+    for (const k of keys ?? m.keys()) if (m.has(k)) out[k] = { preview: m.get(k) };
+    return out;
+  }
+  function snapshot() {
+    const m = displayed();
+    return { type: "snapshot", at: clock, values: [...m].map(([key, p]) => ({ key, preview: p })),
+      flights: [...inFlight.values()].map(f => ({ key: f.node.key, since: clock })), boundaries: [],
+      runs: holds.filter(h => h.run).map(h => ({ key: h.cause, id: h.run, since: clock })) };
   }
 
   function freshId(mod) {
@@ -1412,7 +1446,7 @@ export function createFakeHost(graph, opts = {}) {
   }
 
 
-  return { post, subscribe, tick, act, editModule, dispose };
+  return { post, subscribe, tick, act, editModule, dispose, shown: shownKeys };
 }
 
 function isCli() {
