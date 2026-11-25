@@ -1,6 +1,7 @@
 // The legend: what every role, mark, edge and frame looks like, with real tokens as samples. Every row with a count is
 // also a show / hide toggle for that kind on the map (state.rx `hidden`, remembered).
 import { icon, roleIcon, ctagHTML } from "./js/vocab.js"
+import { esc } from "./js/hl.js"
 import { isDiff } from "./js/env.js"
 import { sfx } from "./js/sound.js"
 import { graphOf, kindCount, edgeCount } from "./js/model.js"
@@ -65,7 +66,7 @@ component Row(props: { k: string; count: number; children: View }) {
 // a frame's tag as a sample
 component FrameTag(props: { kind: string; text: string }) {
   <span class={["frame", props.kind]} style={{ border: "0", padding: "0", background: "none", "box-shadow": "none" }}>
-    <span class="ctag" innerHTML={`${ctagHTML(props.kind)}${props.text}`}></span>
+    <span class="ctag" innerHTML={`${ctagHTML(props.kind)}${esc(props.text)}`}></span>
   </span>
 }
 
