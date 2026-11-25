@@ -316,7 +316,8 @@ class Gen {
     for (const d of decls) if (d.k === "effect") {
       const inner = new Env(env);
       out.push(...this.hoistAll(d.inputs, env, pad));
-      out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}}));   // SC-2: the apply reads σ, untracked`);
+      const key = d.inputs.length && d.body.length && d.body.every(s => s.k === "write") ? this.keys.get(d) : undefined;
+      out.push(`${pad}__rt.effect(${d.inputs.length}, () => [${d.inputs.map(i => this.expr(i, env, { imp: false })).join(", ")}], ($p) => __rt.untrack(() => {\n${this.stmts(d.body, inner, { imp: true, effect: true }, ind + 1, true)}\n${pad}})${key ? `, ${J(key)}` : ""});   // SC-2: the apply reads σ, untracked`);
     }
     if (!exportsTail) out.push(...this.hoistAll(viewReaders(view), env, pad));
     out.push(exportsTail ? `${pad}return ${exportsTail};` : `${pad}return ${this.markup(view, env, ind)};`);
