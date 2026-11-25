@@ -55,7 +55,7 @@ const TICK = Number(process.env.TICK_MS ?? 80);
 function setUpApp(solidView) {
   const pkgs = existsSync(join(solidView, "packages/solid")) ? join(solidView, "packages") : solidView;
   for (const p of ["solid/dist", "signals/dist", "web/dist"]) if (!existsSync(join(pkgs, p))) die(`${join(pkgs, p)} missing: build Solid first`);
-  if (!readFileSync(join(pkgs, "signals/dist/dev.attribution.js"), "utf8").includes("openView")) die(`${pkgs}: this Solid has no openView`);
+  if (!args.includes("--stock") && !readFileSync(join(pkgs, "signals/dist/dev.attribution.js"), "utf8").includes("openView")) die(`${pkgs}: this Solid has no openView`);
   if (!readdirSync(join(repo, "compiler")).some(f => f.endsWith(".node"))) die("build the compiler first (cd compiler && npm run build)");
   if (!existsSync(join(repo, "runtime/dist/web.js"))) die("build the runtime first (cd runtime && node build.mjs)");
   const link = p => `link:${p}`;
@@ -227,7 +227,15 @@ async function saveRx(page, file, text) {
 }
 
 try {
-  if (args.includes("--hmr-only")) {
+  if (args.includes("--stock")) {
+    const page = await openApp();
+    await post(page, { type: "travel", to: 0 });
+    const denied = (await drain(page)).find(m => m.type === "travel-denied");
+    check("stock Solid denies travel without crashing", denied?.reason === "unsupported" && !page.errors.length, { denied, errors: page.errors });
+    await act(page, 1);
+    check("the app still responds after a denied travel", await page.getByRole("button", { name: "unread", exact: true }).count() === 1);
+    await page.close();
+  } else if (args.includes("--hmr-only")) {
     await realHmr();
   } else {
   // ---- conformance -------------------------------------------------------------------------------------------------
