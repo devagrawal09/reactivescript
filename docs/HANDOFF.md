@@ -7,7 +7,8 @@ work through "Start here" at the bottom. The work runs in a Tembo sandbox. The w
 
 > **2026-11-24, branch `pin-main`:** the pins moved to reactivescript `main` `e650b85` and Solid `main` `30e7805e`
 > (2.0.3+). Numbers, syntax (`guess x := v`) and pins below are rc.21's where [PIN-MAIN.md](PIN-MAIN.md) says
-> otherwise; read it first.
+> otherwise; read it first. The eval-todo app, plan v2.2 DOM input, the language server's eval snippets and the pin move
+> are handed off in [HANDOFF-EVAL-TODO.md](HANDOFF-EVAL-TODO.md).
 
 ## Goal and thesis
 - **The thesis: "Solid" is a semantic model plus a conformance suite.** Syntaxes (Solid TSX, RX, solid-yield's
