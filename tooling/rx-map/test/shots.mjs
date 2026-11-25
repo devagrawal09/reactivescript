@@ -95,6 +95,15 @@ const zoomTo = s => async page => {
     return [...document.querySelectorAll(sel)].every(e => getComputedStyle(e).opacity === "1");
   }, null, { timeout: 60000 });
 };
+// users.rx opens at the overview (two levels): the per-token marks a scenario is about are drawn at the detail level,
+// so fly to the token at reading size first (an older page's hook has no flyTo: it was a page global)
+const detailAt = async (page, name, s = .9) => {
+  await page.evaluate(([id, s]) => {
+    const M = window.__RX_MAP__, el = document.querySelector(`#board .chip[data-id="${CSS.escape(id)}"]`), b = el && (M.boxOf ?? window.boxOf)(el);
+    if (b) (M.flyTo ?? window.flyTo)(b.x, b.y + 120, s, 0);
+  }, [node(name).id, s]);
+  await page.waitForTimeout(900);
+};
 const scenarios = [
   { name: "static", caption: "users.rx with no live host" },
   { name: "diff", graph: diff, caption: "users.rx: status → userCountLabel; rename → users changes from a write to a refresh" },
@@ -123,7 +132,7 @@ const scenarios = [
       { type: "step", from: 6, to: 2, direction: "back",
         changes: [change("total", "4", "2"), change("page", "2", "1"), change("query", '""', '"grace"')] });
     await visible(page, "#liveBadge:text-is('viewing #2 of 6')");
-    await page.waitForTimeout(350);
+    await detailAt(page, "page");
   } },
   { name: "hmr", opts: live, caption: "Reload plan preview: kept, reset, re-run, added and removed nodes", async run(page) {
     await post(page, { type: "hmr", phase: "plan", id: "h1", modules: users.modules, graph: hmrGraph, plan: {
@@ -131,7 +140,7 @@ const scenarios = [
       added: ["examples/users.rx||resultsLabel"], removed: [key("status")], moved: [], reasons,
     } });
     await visible(page, "#panel :text('Module replacement')");
-    await page.waitForTimeout(350);
+    await detailAt(page, "users");
   } },
   { name: "failures", opts: live, caption: "A failed users value and the App error boundary showing its fallback", async run(page, _context, viewport) {
     if (!boundary) throw new Error("users.rx has no error or loading boundary");
@@ -139,18 +148,14 @@ const scenarios = [
       flights: [], runs: [], held: [], boundaries: [{ region: boundary.key ?? boundary.id, state: "error", error: failure }] });
     await visible(page, `${chip("users")}.failed`);
     await visible(page, ".frame.tripped .trip");
-    // The source is at the top of the board, but the boundary is below Row. Frame both.
-    const compact = viewport.height < 500;
-    const canvas = page.locator("#canvas");
-    await canvas.dispatchEvent("wheel", { ctrlKey: true, deltaY: compact ? 375 : 150,
-      clientX: viewport.width / 2, clientY: viewport.height / 2 });
-    await canvas.dispatchEvent("wheel", { deltaY: compact ? 100 : 110 });
-    await page.waitForTimeout(350);
+    // the source is at the top of the board, the boundary below Row: the detail level, between them
+    await detailAt(page, "users", viewport.height < 500 ? .55 : .6);
   } },
   { name: "held", opts: live, caption: "query's write is held waiting on the search action", async run(page) {
     await post(page, { type: "snapshot", at: 110, values: [{ key: key("query"), preview: '""' }], flights: [], runs: [], boundaries: [] },
       { type: "held", key: key("query"), by: [key("search")], at: 120 });
     await visible(page, `${chip("query")}.held .hm`);
+    await detailAt(page, "query");
   } },
   { name: "popout", opts: live, caption: "Live window opened with Pop out, carrying the opener's values", async run(page, context, viewport) {
     await post(page, flush);
