@@ -519,8 +519,9 @@ class Gen {
       case "call": {
         if (e.f.k === "id" && e.f.name === "until" && !env.lookup("until") && e.args[0]?.k === "fn") { const p = e.args[0]; return `__rt.until(() => ${this.expr(p.body, env, { imp: false, dyn: ctx.dyn })})`; }   // AC-6: Solid's until; the predicate is reactive scope
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env.lookup(e.f.name)) return `__rt.${e.f.name}(${e.args.map(go).join(", ")})`;   // EF-7, EF-8: Solid's own
-        if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${e.args.map(go).join(", ")})`;
-        return `${go(e.f)}(${e.args.map(go).join(", ")})`;
+        const args = e.args.map(a => a.k === "spread" ? `...${go(a.e)}` : go(a)).join(", ");
+        if (e.f.k === "member") return `${go(e.f.o)}?.${e.f.p}(${args})`;
+        return `${go(e.f)}(${args})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
       case "as": return go(e.e);                                                    // 07 §3: erased
@@ -534,6 +535,7 @@ class Gen {
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
+        if (e.op === "instanceof") return `__rt.isA(${go(e.l)}, [${e.r.k === "id" && e.r.name === "Error" && !env.lookup("Error") ? "Error" : go(e.r)}])`;
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;

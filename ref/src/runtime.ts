@@ -889,7 +889,8 @@ export class Runtime {
         if (e.op === "&&") { if (isAbsent(l)) return l; return l ? this.ev(e.r, region, env) : l; }
         if (e.op === "||") { if (isAbsent(l)) return l; return l ? l : this.ev(e.r, region, env); }
         if (e.op === "??") { if (isAbsent(l)) return l; return l != null ? l : this.ev(e.r, region, env); }
-        const r = this.ev(e.r, region, env);
+        const r = e.op === "instanceof" && e.r.k === "id" && e.r.name === "Error" && !env?.has("Error") && !region.lookup("Error") ? Error : this.ev(e.r, region, env);
+        if (e.op === "instanceof" && !isAbsent(l) && !isAbsent(r)) return isA(l, [r]);
         if (isAbsent(l)) return l; if (isAbsent(r)) return r;
         return BIN[e.op](l, r);
       }
@@ -932,7 +933,12 @@ export class Runtime {
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !region.lookup(e.f.name)) return this.hook(e.f.name, e.args[0], region, env);   // EF-7, EF-8
         if (e.f.k === "member") { self = this.ev(e.f.o, region, env); if (isAbsent(self)) return self; f = self == null ? undefined : (self as any)[e.f.p]; if (isObj(self)) this.track(self, e.f.p); }   // a method call: `xs.map(f)`, TS verbatim
         else f = this.ev(e.f, region, env);
-        const args = e.args.map(a => this.ev(a, region, env)); const bad = args.find(isAbsent); if (isAbsent(f)) return f;
+        const args: unknown[] = [];
+        for (const a of e.args) {
+          const v = this.ev(a.k === "spread" ? a.e : a, region, env);
+          if (a.k === "spread" && !isAbsent(v)) args.push(...(v as Iterable<unknown>)); else args.push(v);
+        }
+        const bad = args.find(isAbsent); if (isAbsent(f)) return f;
         if (bad && this.demandMode) return bad;                        // absence propagates in reactive scope; in imperative scope an error is a value (E-12)
         if (typeof f !== "function") throw new RuleError("TYPE", "call of non-function");
         if ((f as { io?: boolean }).io && this.demandMode) throw new RuleError("IO-2", "io function called in reactive scope");

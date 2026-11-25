@@ -1531,7 +1531,10 @@ impl<'p> Gen<'p> {
                 let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
                 let mut xs = vec![];
                 for a in args {
-                    xs.push(self.expr(a, env, &sub)?);
+                    xs.push(match &a.k {
+                        ExprKind::Spread(x) => E::Spread(Box::new(self.expr(x, env, &sub)?)),
+                        _ => self.expr(a, env, &sub)?,
+                    });
                 }
                 call(callee, xs)
             }
@@ -1580,6 +1583,11 @@ impl<'p> Gen<'p> {
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
+                if op == "instanceof" {
+                    let l = self.expr(l, env, &sub)?;
+                    let r = if matches!(&r.k, ExprKind::Id(n) if n == "Error" && self.lookup(env, n).is_none()) { id("Error") } else { self.expr(r, env, &sub)? };
+                    return Ok(rtc("isA", vec![l, E::Arr(vec![r])]));
+                }
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {

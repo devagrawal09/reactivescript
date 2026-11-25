@@ -305,6 +305,9 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
         return Some(("REACTIVE_WRITE_IN_OWNED_SCOPE", format!("an arrow that writes takes a braced body, `() => {{ {} := … }}`: an expression-bodied arrow is a pure function (SC-3)", name)));
     }
     if OP_ASSIGN.is_match(rest) || (rest.starts_with('=') && !rest[1..].starts_with('=') && !rest[1..].starts_with('>')) {
+        if name.contains('.') {
+            return Some(("ASSIGNMENT", "direct property assignment is not .rx: render DOM properties from state (e.g. `value={draft}`), or import a JS function for imperative DOM work; use `:=` only for RX source paths".into()));
+        }
         return Some(("ASSIGNMENT", format!("a source is written with `:=`, as a statement in a handler or action: `{n} := {n} + 1`, or `{n} := v => v + 1` (W-1, W-6); .rx has no `=`, `+=` or `++` on state", n = name)));
     }
     if JS_FUNCTION.is_match(line) {
@@ -1832,6 +1835,11 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
             l = ex(start, ExprKind::As { e: Box::new(l), ty }, c);
             continue;
         }
+        if lvl == 4 && c.keyword("instanceof") {
+            c.ws(true);
+            l = ex(start, ExprKind::Bin { op: "instanceof".into(), l: Box::new(l), r: Box::new(parse_bin(c, lvl + 1)?) }, c);
+            continue;
+        }
         let op = LEVELS[lvl].iter().find(|o| c.starts_with(o) && !(**o == "-" && c.peek_at(1) == '>'));
         let Some(op) = op else { return Ok(l) };
         c.i += op.len();
@@ -1971,7 +1979,13 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
             c.ws(true);
             let mut args = vec![];
             while !c.starts_with(")") {
-                args.push(parse_expr(c)?);
+                let arg_start = c.i;
+                if c.eat("...") {
+                    c.ws(true);
+                    args.push(ex(arg_start, ExprKind::Spread(Box::new(parse_expr(c)?)), c));
+                } else {
+                    args.push(parse_expr(c)?);
+                }
                 c.ws(true);
                 if !c.eat(",") {
                     break;
