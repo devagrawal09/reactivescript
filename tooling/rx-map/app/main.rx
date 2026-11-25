@@ -1,0 +1,68 @@
+// rx-map: a .rx program drawn from the checker's resolved model, as a world of plates and tokens under a HUD.
+// The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
+import { icon } from "./js/vocab.js"
+import { pageTitle, bodyClass, isLive } from "./js/env.js"
+import { measureAnchors, boardSize } from "./js/geometry.js"
+import { startCamera, layoutChanged, onLayout, zoomBy, frameAll } from "./js/camera.js"
+import { startMinimap } from "./js/minimap.js"
+import { within, targetValue, targetChecked } from "./js/dom.js"
+import { Board } from "./board.rx"
+import { board, selected, focus, hidden, diff, diffView, allEdges, select, setLayout, setDiffView, setAllEdges } from "./state.rx"
+
+export default component App() {
+  source miniOn := true
+
+  // the camera and the minimap are JS; they start once the world is on the page
+  effect () { return startCamera() }
+  effect () { return startMinimap() }
+  // after each layout, the edges are drawn on the boxes the board was laid out at
+  effect () { return onLayout(() => { setLayout({ boxes: measureAnchors(), w: boardSize().w, h: boardSize().h }) }) }
+  effect (board, hidden, diffView) { layoutChanged() }
+  // whole modes key off classes on <body>
+  effect (focus != null) { bodyClass("focus", $0) }
+  effect (board.flat) { bodyClass("flat", $0) }
+  effect (diff) { bodyClass("diff", $0) }
+  effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
+  effect (miniOn) { bodyClass("mini-off", !$0) }
+
+  <div id="canvas" onClick={(ev) => { if (!within(ev, "#board [data-id], .nref") && selected != null) { select(null) } }}>
+    <div id="world">
+      <div id="floor"></div>
+      <Board />
+    </div>
+  </div>
+  <div id="rewind"></div>
+  <header class="hud">
+    <h1><span class="logo"></span>RX·MAP <small class="mono">{pageTitle()}</small></h1>
+    <span id="qwrap"><input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount" /><span id="qcount" class="mono" aria-live="polite"></span></span>
+    <label><input type="checkbox" id="all" checked={allEdges} onChange={(ev) => { setAllEdges(targetChecked(ev)) }} /> all edges</label>
+    <button id="hiddenBtn" hidden={hidden.length == 0} title="open the legend to show them again">{hidden.length} hidden</button>
+    <span id="diffbar">
+      <select id="view" value={diffView} onChange={(ev) => { setDiffView(targetValue(ev)) }}>
+        <option value="both">before + after</option><option value="before">before</option><option value="after">after</option>
+      </select>
+    </span>
+    <span class="spacer"></span>
+    <span class="stats" id="stats">{board.stats}</span>
+    <span id="panelBtns"></span>
+  </header>
+  <aside id="side" class="hud closed"><div id="ptabs" role="tablist"></div><div id="panel" role="tabpanel"></div></aside>
+  <div id="mini" class="hud" aria-hidden="true"><div class="micro"><span>Map</span><span id="miniInfo"></span></div><canvas id="minic"></canvas></div>
+  <div id="bar" class="hud">
+    <button class="hbtn ic" id="miniBtn" title="minimap" aria-label="minimap" aria-pressed={miniOn ? "true" : "false"} innerHTML={icon("map")}
+      onClick={() => { miniOn := !miniOn }}></button>
+    <div id="scrub" hidden={!isLive()}></div>
+    <span class="spacer"></span>
+    <div id="dock">
+      <button class={["hbtn", "ic", allEdges && "on"]} id="edgesBtn" title="all edges" aria-label="all edges" aria-pressed={allEdges ? "true" : "false"} innerHTML={icon("edges")}
+        onClick={() => { setAllEdges(!allEdges) }}></button>
+      <button class="hbtn ic" id="zoomOut" title="zoom out (−)" aria-label="zoom out" innerHTML={icon("minus")} onClick={() => { zoomBy(1 / 1.3) }}></button>
+      <span id="zoomPct">100%</span>
+      <button class="hbtn ic" id="zoomIn" title="zoom in (+)" aria-label="zoom in" innerHTML={icon("plus")} onClick={() => { zoomBy(1.3) }}></button>
+      <button class="hbtn ic" id="frameBtn" title="frame all (F)" aria-label="frame all" innerHTML={icon("frame")} onClick={() => { frameAll() }}></button>
+      <button class="hbtn ic" id="soundBtn" title="sound" aria-label="sound" aria-pressed="false" innerHTML={icon("soundOff")}></button>
+    </div>
+  </div>
+  <div id="tip" class="hud" role="tooltip"></div>
+  <div id="toast" class="hud" role="status"></div>
+}

@@ -1,0 +1,7 @@
+// Reading DOM events (dom.js).
+export pure fn closestId(ev: any, sel: string): string
+export pure fn closestGo(ev: any): string
+export pure fn within(ev: any, sel: string): boolean
+export pure fn leftId(ev: any): string
+export pure fn targetValue(ev: any): string
+export pure fn targetChecked(ev: any): boolean

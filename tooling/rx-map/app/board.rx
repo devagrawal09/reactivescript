@@ -1,0 +1,137 @@
+// The world: the board of plates, frames and tokens, and the edges drawn on it. What to draw is the model's board tree
+// (model.js boardTree); what is lit, hidden or selected is state.rx.
+import { icon, roleIcon, ctagHTML, edgeStyle, edgeKey } from "./js/vocab.js"
+import { edgeView } from "./js/edges.js"
+import { graphOf } from "./js/model.js"
+import { unique } from "./js/util.js"
+import { Chip, Frame } from "./js/model.js"
+import { board, model, selected, hoverId, lit, focus, allEdges, diff, diffView, hidden, layout, select, hover } from "./state.rx"
+import { closestId, closestGo, leftId } from "./js/dom.js"
+import { flyToId } from "./js/camera.js"
+
+// one token: its cast shadow, its body (the shape), its icon, then its name and marks
+export component Token(props: { c: Chip; extra: string }) {
+  { c } = props
+  <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
+      c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
+      selected == c.id && "sel", lit[c.id] == true && "lit"]}
+    style={{ display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
+    data-id={c.id} role="button" tabIndex={0} aria-label={c.aria}>
+    {if c.status != "" { <span class="d">{c.mark}</span> }}
+    <span class="sh"></span>
+    <span class="tok"></span>
+    <span class="ico" innerHTML={props.extra == "cread" ? icon("eye") : roleIcon(c.kk)}></span>
+    <span class="n">{c.name}</span>
+    {if c.async { <span class={["g", "gp", c.chgAsync && "chg"]} title="can be pending" innerHTML={icon("hour")}></span> }}
+    {if c.question { <span class={["g", "gq", c.chgQuestion && "chg"]} title="re-asks a standing question until written">?</span> }}
+    {for b in c.badges { <span class="b">{b}</span> }}
+  </span>
+}
+
+// a region's frame: its header, its rows of tokens (one row per step of dependency), then its child regions
+export component FrameBox(props: { f: Frame }) {
+  { f } = props
+  h = f.head
+  <div class={["frame", f.kind, f.ctl && "ctl", f.module != null && "module", f.status != "" && `d-${f.status}`]}
+    data-mod={f.module != null ? `${f.module.index}` : undefined}>
+    {if f.module != null {
+      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}><span>module</span> <b>{f.module.path}</b></div>
+    } else if h.type == "comp" {
+      <div class="flabel"><Token c={h.chip} extra="compref" /></div>
+    } else if h.type == "ctl" {
+      <div class="flabel">
+        <span class={["ctag", lit[f.id] == true && "lit", selected == f.id && "sel"]} data-id={f.id} role="button" tabIndex={0} aria-label={h.aria}>
+          <span innerHTML={ctagHTML(f.kind)} style={{ display: "contents" }}></span>{h.text}
+        </span>
+        {if h.read != null { <Token c={h.read} extra="cread" /> }}
+        {if h.boundary {
+          <span class={["notifiers", h.notifiers.length == 0 && "none"]}>
+            {h.notifiers.length == 0 ? h.none : h.lead}
+            {for n in h.notifiers { <button class="nref" data-go={n.id} title="select it">{n.label}</button> }}
+          </span>
+        }}
+      </div>
+    } else if h.b != "" {
+      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}>{h.text} <b>{h.b}</b></div>
+    } else {
+      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}><span>{h.text}</span></div>
+    }}
+    {for row in f.named { <div class="chips named">{for c in row { <Token c={c} extra="" /> }}</div> }}
+    {for row in f.sites { <div class="chips sites">{for c in row { <Token c={c} extra="" /> }}</div> }}
+    {for g in f.compGrids { <Grid frames={g} min={420} /> }}
+    {if f.view.length > 0 { <Grid frames={f.view} min={300} /> }}
+    {if f.mounts.length > 0 { <div class="mounts">{for k in f.mounts { <FrameBox f={k} /> }}</div> }}
+    {for k in f.extra { <FrameBox f={k} /> }}
+  </div>
+}
+
+component Grid(props: { frames: Frame[]; min: number }) {
+  <div class="kids" style={{ "grid-template-columns": props.frames.length > 1 ? `repeat(auto-fit, minmax(${props.min}px, 1fr))` : "1fr" }}>
+    {for k in props.frames { <FrameBox f={k} /> }}
+  </div>
+}
+
+// ---- edges: drawn from what depends to what it depends on, so a read points at what it reads ----------------------
+G = graphOf(model)
+shown = focus != null ? focus.edges.map(i => G.edges[i])
+  : allEdges ? G.edges
+  : diff && !hidden.includes("d:changes") ? G.edges.filter(e => e.status != "same")
+  : []
+drawn = shown
+  .filter(e => !(diffView == "before" && e.status == "added") && !(diffView == "after" && e.status == "removed"))
+  .filter(e => !hidden.includes(`e:${edgeKey(e)}`))
+  .map(e => edgeView(e, layout.boxes, focus != null))
+  .filter(v => v != null)
+markers = unique(drawn.map(v => v.c))
+
+export component Edges() {
+  <svg id="edges" width={layout.w} height={layout.h} viewBox={`0 0 ${layout.w} ${layout.h}`}>
+    <defs>
+      {for c in markers {
+        <marker id={`m${c.slice(1)}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill={c} />
+        </marker>
+      }}
+    </defs>
+    {for v in drawn { {if v.glow != "" { <path d={v.d} fill="none" stroke={v.glow} stroke-width={v.glowW} stroke-linecap="round" opacity={v.glowOp} /> }} }}
+    {for v in drawn {
+      <path d={v.d} fill="none" stroke={v.c} stroke-width={v.w} stroke-dasharray={v.dash == "" ? undefined : v.dash} marker-end={`url(#m${v.c.slice(1)})`} opacity={v.op} />
+    }}
+  </svg>
+}
+
+// the world column, then the module plates in dependency order, a row per level
+export component Board() {
+  <div id="board"
+    onMouseOver={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { hover(id) } }}
+    onMouseOut={(ev) => { if (leftId(ev) != "") { hover(null) } }}
+    onClick={(ev) => {
+      let go = closestGo(ev)
+      let id = closestId(ev, "[data-id]")
+      if (go != "") { select(go); flyToId(go, "select") }
+      else if (id != "") { select(id == selected ? null : id) }
+      else if (selected != null) { select(null) }
+    }}
+    onDblClick={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "") { if (selected != id) { select(id) } flyToId(id, "dbl") } }}>
+    <Edges />
+    <div id="fx"><svg id="trails"></svg></div>
+    {if board.world.length > 0 {
+      <div class="world worldrow">
+        <div class="title"><b>Outside the program</b> · JS modules it calls</div>
+        <div class="wgroups">
+          {for g in board.world {
+            <div class="wgroup">
+              <div class="mono wfile">from {g.file}</div>
+              <div class="chips">{for c in g.chips { <Token c={c} extra="" /> }}</div>
+            </div>
+          }}
+        </div>
+      </div>
+    }}
+    {for row in board.levels {
+      <div class="level" style={{ "grid-template-columns": row.length > 1 ? "repeat(auto-fit, minmax(520px, 1fr))" : "1fr" }}>
+        {for f in row { <FrameBox f={f} /> }}
+      </div>
+    }}
+  </div>
+}

@@ -1,0 +1,33 @@
+// The map's model of a graph (model.js): indexes, traces and the board tree the views draw.
+export type Model = any
+export type Trace = { ids: string[]; edges: number[] }
+export type Chip = { id: string; key: string; kk: string; shape: string; fam: string; name: string; badges: string[]; site: boolean; async: boolean; question: boolean; io: boolean; trust: boolean; chgAsync: boolean; chgQuestion: boolean; chgKind: boolean; chgIo: boolean; status: string; mark: string; aria: string }
+export type Notifier = { id: string; label: string }
+export type Head = { type: string; text: string; aria: string; read: Chip | null; notifiers: Notifier[]; boundary: boolean; lead: string; none: string; b: string; chip: Chip }
+export type Frame = { id: string; key: string; kind: string; status: string; ctl: boolean; head: Head; named: Chip[][]; sites: Chip[][]; compGrids: Frame[][]; view: Frame[]; mounts: Frame[]; module: { index: number; path: string } | null; extra: Frame[] }
+export type WorldGroup = { file: string; chips: Chip[] }
+export type Board = { world: WorldGroup[]; levels: Frame[][]; stats: string; flat: boolean }
+export pure fn buildModel(g: any): Model
+export pure fn boardTree(m: Model): Board
+export pure fn graphOf(m: Model): any
+export pure fn nodeOf(m: Model, id: string): any
+export pure fn regionOf(m: Model, id: string): any
+export pure fn isRegion(m: Model, id: string): boolean
+export pure fn regionByRef(m: Model, which: string): any
+export pure fn idsOfKey(m: Model, key: string): string[]
+export pure fn hasKey(m: Model, key: string): boolean
+export pure fn keyOf(m: Model, id: string): string | null
+export pure fn inEdges(m: Model, id: string): any[]
+export pure fn outEdges(m: Model, id: string): any[]
+export pure fn kindCount(m: Model): any
+export pure fn edgeCount(m: Model): any
+export pure fn label(m: Model, id: string): string
+export pure fn lineOf(m: Model, n: any): string
+export pure fn moduleLine(m: Model, mod: number, line: number): string
+export pure fn controlInfo(m: Model, r: any): any
+export pure fn coverCount(m: Model, id: string): number
+export pure fn readsOf(m: Model, n: any): string
+export pure fn neighbourhood(m: Model, id: string, view: string): Trace
+export pure fn downstream(m: Model, id: string, view: string): Trace
+export pure fn upstream(m: Model, id: string, view: string): Trace
+export pure fn summaryTrace(m: Model, i: number): any
