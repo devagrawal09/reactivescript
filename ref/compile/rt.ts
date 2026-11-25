@@ -5,7 +5,7 @@
 // for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
-import { actionInput } from "../src/action-input.ts";
+import { actionInput } from "./action-input.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {

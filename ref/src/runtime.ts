@@ -1,7 +1,7 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { classMap } from "./style.ts";
-import { actionInput } from "./action-input.ts";
+import { actionInput } from "../compile/action-input.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;

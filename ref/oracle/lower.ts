@@ -3,7 +3,7 @@
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
 import { classMap } from "../src/style.ts";
-import { actionInput } from "../src/action-input.ts";
+import { actionInput } from "../compile/action-input.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";

@@ -3,7 +3,7 @@
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
-import { actionInput } from "../src/action-input.ts";
+import { actionInput } from "./action-input.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import {
