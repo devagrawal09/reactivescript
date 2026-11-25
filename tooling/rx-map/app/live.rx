@@ -19,3 +19,27 @@ export component ViewNote() {
 export component DevHud() {
   <></>
 }
+
+// ---- pieces other views show (stubs until the live work fills them) -------------------------------------------------
+/** The selected name's "Live value" section in the node panel (only in live mode, for a name with a key). */
+export component LiveValue(props: { id: string }) {
+  <></>
+}
+/** A loading / errored boundary's "Now" section in the region panel. */
+export component BoundaryNow(props: { id: string }) {
+  <></>
+}
+/** The Reload tab's content (a module replacement's plan). */
+export component PlanPanel() {
+  <></>
+}
+/** Whether there is a module replacement plan to show (the panel then has a Reload tab). */
+export hasPlan = false
+/** A name's line in the reload plan: in the node panel (`tip` false: an h3 and a hint) or in the tooltip. */
+export component PlanReason(props: { nodeKey: string; tip: boolean }) {
+  <></>
+}
+/** A name's live lines in the tooltip: its value, its failure, held, in the air. */
+export component TipLive(props: { nodeKey: string }) {
+  <></>
+}
