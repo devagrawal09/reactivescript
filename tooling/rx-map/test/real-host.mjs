@@ -612,10 +612,14 @@ async function roundThree() {
     if (reply?.type === "step") inexactAt.set(n, reply.inexact ?? []);
   }
   check(`(a) travel shows the recorded DOM at every seq: ${seen.length} seqs back from #${tl.head}`, bad.length === 0, { bad: bad.map(b => b.n), first: bad.slice(0, 2) });
-  // (a) the undo list can't be rewound (Solid: a list rewritten wholesale records only its length, and its items come
-  // from the backing under a view): every seq whose undo list differs must say so
+  // On new Solid the real DOM must be exact even just before the async guess.
+  // Older builds still tell us which step's undo list they cannot reproduce.
   const unflagged = undoOff.filter(n => !inexactAt.get(n).includes(UNDO_KEYS[0]));
-  if (await listsThroughPin(page)) {
+  if (await page.evaluate(() => globalThis.__RX__.travel?.guessedListsThroughPin === true)) {
+    check("(a) the undo list rewinds across its async guess, without any inexact marks",
+      undoOff.length === 0 && [...inexactAt.values()].every(keys => !keys.includes(UNDO_KEYS[0])),
+      { undoOff, marked: [...inexactAt].filter(([, keys]) => keys.includes(UNDO_KEYS[0])).map(([n]) => n) });
+  } else if (await listsThroughPin(page)) {
     // Solid with 980f5b4c5 rewinds a list rewritten wholesale; this one was also guessed over by undoOp (a guess held
     // across an await), which that fix doesn't cover: only seqs before the guess may be marked, and those that
     // differ must be

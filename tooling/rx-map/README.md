@@ -254,8 +254,8 @@ the host probes for that once, at the first travel, with a private list (`global
 dev only). `step.inexact` lists the keys travel can't show exactly at that seq, and every name that reads them:
 
 - on an older Solid, a list rewritten wholesale after it (its rows come from the store's backing under a view);
-- with that fix, a wholesale-rewritten list an optimistic layer guessed over after it (a guess held across an await,
-  then landed: its rows still read wrong under the view);
+- with only that fix, a wholesale-rewritten list an optimistic layer guessed over after it (a guess held across an
+  await, then landed). Solid-view 49b25a45c fixes this too; the host probes it separately on the first relevant travel;
 - on a Solid whose record names only a guess's carrier, a store guessed after it.
 
 Per instance: a component-scoped name outlives its instances (a component remounted per route). The timeline shows
@@ -427,9 +427,9 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   records replacement flushes; reopening the map still shows the same session's timeline and flush count.
   Ambiguous instances refresh normally rather than sharing a carried value. Travel uses the newest code:
   old expressions and replaced store backings may be reported as `inexact`.
-- Time travel: a wholesale-rewritten list that was also guessed over doesn't rewind before that guess (marked
-  `inexact`, above; on an older Solid, no wholesale-rewritten list does); a component a view remounts (it
-  pins a route back) starts over: its own async state asks again rather than showing its history.
+- Time travel: older Solid builds may not rewind a wholesale-rewritten list or a list guessed over across an await
+  (`inexact`, above). A component a view remounts (it pins a route back) starts over: its own async state asks again
+  rather than showing its history.
 - Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view
   f9ee22ade), travelling to a seq before a confirmed store guess shows the list as it is after it (`step.inexact`
   says so). A store's first-change `prev` isn't known (its records are per property), so a store has no value before
