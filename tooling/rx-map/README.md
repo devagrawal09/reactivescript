@@ -248,10 +248,15 @@ button. The program's own work (timers, answers landing) goes on beneath and doe
 its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
 timeline has seen. Store guesses (`guess books := …`, `guess books[i].read := …`) rewind too: Solid's flush record
 lists the property and presence nodes a guess changed beside the store's `$guess` carrier, and travel pins them like
-any other node. `step.inexact` lists the keys travel can't show exactly at that seq, and every name that reads them: a
-list rewritten wholesale after it (`undo := u => [x, ...u]`: Solid records only its length, and under a view a list's
-items come from the store's backing), and, on an older Solid whose record names only a guess's carrier, a store
-guessed after it.
+any other node. A list rewritten wholesale (`undo := u => [x, ...u]`, whose record names only its container and
+length) rewinds too on a Solid whose view reads a list's rows through its pinned container (solid-view 980f5b4c5);
+the host probes for that once, at the first travel, with a private list (`globalThis.__RX__.travel.listsThroughPin`,
+dev only). `step.inexact` lists the keys travel can't show exactly at that seq, and every name that reads them:
+
+- on an older Solid, a list rewritten wholesale after it (its rows come from the store's backing under a view);
+- with that fix, a wholesale-rewritten list an optimistic layer guessed over after it (a guess held across an await,
+  then landed: its rows still read wrong under the view);
+- on a Solid whose record names only a guess's carrier, a store guessed after it.
 
 Per instance: a component-scoped name outlives its instances (a component remounted per route). The timeline shows
 the instance alive at each seq: when an instance is made or disposed, answers, or fails, the recorder compares the
@@ -420,7 +425,8 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
   visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
   shows the same session's timeline and flush count.
-- Time travel: a list rewritten wholesale doesn't rewind (marked `inexact`, above); a component a view remounts (it
+- Time travel: a wholesale-rewritten list that was also guessed over doesn't rewind before that guess (marked
+  `inexact`, above; on an older Solid, no wholesale-rewritten list does); a component a view remounts (it
   pins a route back) starts over: its own async state asks again rather than showing its history.
 - Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view
   f9ee22ade), travelling to a seq before a confirmed store guess shows the list as it is after it (`step.inexact`
