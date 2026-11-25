@@ -167,6 +167,9 @@ try {
   await sleep(40);
   check("a failed value: rose token, the error in its badge", chip("users").classList.contains("failed") && /listUsers 503/.test(chip("users").querySelector(".lverr")?.textContent ?? ""), chip("users").className);
   check("a held write: an amber mark that says what it waits on", chip("page").classList.contains("held") && /held.*waiting on users/i.test(chip("page").querySelector(".hm")?.textContent ?? ""), chip("page").querySelector(".hm")?.textContent);
+  check("the held mark's title says how to show it while the action runs", /`latest page` or `pending\? page`.*guess saving := true.*Showing progress while an action runs/.test(chip("page").querySelector(".hm")?.title ?? ""), chip("page").querySelector(".hm")?.title);
+  win.select(K("page").id); await sleep(30);
+  check("the panel's held box carries the same hint", /`latest page`/.test(doc.querySelector("#liveval .heldbox")?.textContent ?? ""), doc.querySelector("#liveval .heldbox")?.textContent);
   win.select(K("users").id); await sleep(30);
   check("the panel says it failed, and with what", /failed/i.test(doc.querySelector("#liveval .failbox")?.textContent ?? "") && /listUsers 503/.test(doc.getElementById("liveval").textContent), doc.getElementById("liveval")?.textContent);
   win.select(K("status").id); await sleep(30);
