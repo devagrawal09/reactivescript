@@ -19,17 +19,26 @@ export function listOf(p) {
   let more = 0, exact = closed;
   if (items.length && /^…\d+$/.test(items.at(-1))) more = +items.pop().slice(1);
   else if (!closed && items.length) { items.pop(); exact = false; }   // cut at 80 characters: the last item is partial
-  return { count: items.length + more, exact, items: items.map(itemLabel) };
+  return { count: items.length + more, exact, items: itemLabels(items) };
 }
-export function itemLabel(t) {
-  if (t[0] === "{") {
-    const fields = [...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)];
-    const str = fields.find(f => f[2][0] === '"' && !/^(id|key)$/.test(f[1])) ?? fields[0];
-    t = str ? str[2].trim() : "{…}";
-  }
-  if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
-  return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+// a row of a list is named by its title (title, name, label, text…); failing that, by the first string field that tells
+// the rows apart (not `board: "web"` on every row); failing that, its first string field
+const TITLE_FIELDS = ["title", "name", "label", "text", "summary", "subject", "heading", "message", "body"];
+export function itemLabels(items) {
+  const fieldsOf = t => (t[0] === "{" ? new Map([...t.matchAll(/(\w+):\s*("(?:\\.|[^"\\])*"|[^,}]+)/g)].map(m => [m[1], m[2].trim()])) : null);
+  const parsed = items.map(fieldsOf);
+  const strFields = f => [...(f ?? [])].filter(([k, v]) => v[0] === '"' && !/^(id|key)$/.test(k)).map(([k]) => k);
+  const objs = parsed.filter(Boolean);
+  let pick = TITLE_FIELDS.find(k => objs.length && objs.every(f => f.get(k)?.[0] === '"'));
+  if (!pick && objs.length > 1) pick = strFields(objs[0]).find(k => new Set(objs.map(f => f.get(k))).size > 1);
+  return items.map((t, i) => {
+    const f = parsed[i];
+    if (f) { const k = (pick && f.has(pick) && pick) ?? strFields(f)[0] ?? [...f.keys()][0]; t = k ? f.get(k) : "{…}"; }
+    if (t[0] === '"') t = t.slice(1, t.endsWith('"') ? -1 : undefined);
+    return t.length > 14 ? `${t.slice(0, 13)}…` : t;
+  });
 }
+export const itemLabel = t => itemLabels([t])[0];
 export const plainValue = v => { const l = listOf(v); return l ? `${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}` : String(v ?? ""); };
 export const listDetail = listOf;
 
