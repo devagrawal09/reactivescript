@@ -50,7 +50,8 @@ try {
   for (const [id, t] of L.tokens) {
     if (t.role !== "named" && t.role !== "site") continue;
     const b = w.boxOf(w.eval("anchors").get(id));
-    if (!b || Math.abs(b.l - t.x) > 1.5 || Math.abs(b.t - t.y) > 1.5 || Math.abs(b.r - b.l - t.w) > 1.5) off.push(id);
+    // (offsets are whole px in the element's zoomed units: up to a zoom's worth of rounding)
+    if (!b || Math.abs(b.l - t.x) > 3 || Math.abs(b.t - t.y) > 3 || Math.abs(b.r - b.l - t.w) > 3) off.push(id);
   }
   check("every token is drawn at its layout box", !off.length, off.slice(0, 6));
   // routes between plates stay out of plates (but for where they leave and enter)
@@ -85,7 +86,11 @@ try {
   const { up, down } = w.eval("RXL").LEVELS, b2 = (down[2] + up[1]) / 2, b3 = (down[3] + up[2]) / 2;
   for (const s of [.2, b2, up[1] + .01, b3, up[2] + .01, b3, down[3] - .01, b2, down[2] - .01]) seq.push(await at(s));
   check("zoom picks the level, with hysteresis", JSON.stringify(seq) === "[1,1,2,2,3,3,2,2,1]", seq);
-  check("names read at 11px or more when the structure level comes in, view sites when the detail level does", parseFloat(w.getComputedStyle(doc.querySelector("#board .chip.placed:not(.site) .n")).fontSize) * up[1] >= 11 && parseFloat(w.getComputedStyle(doc.querySelector("#board .chip.site.placed .n")).fontSize) * up[2] >= 11);
+  // on screen: the font size, times the level's zoom the page draws it at, times the camera's zoom
+  const px = sel => { const e = doc.querySelector(sel); if (!e) return Infinity; return parseFloat(w.getComputedStyle(e).fontSize) * w.eval("zoomUnder")(e); };
+  const pxs = { name: px("#board .chip.placed:not(.site) .n") * up[1], tag: px("#board .frame:not(.module) > .flabel .ctag") * up[1], module: px("#board .frame.module > .flabel b") * up[1], site: px("#board .chip.site.placed .n") * up[2], strip: px("#board .ostrip .otext") * up[2] };
+  check("each level's text reads at 11px or more when that level comes in (names, tags, module labels at 2; sites, view text at 3)", Object.values(pxs).every(v => v >= 11) && Number.isFinite(pxs.name + pxs.tag + pxs.module + pxs.site), pxs);
+  check("the three levels each get a real stretch of zoom", up[1] <= .4 && up[2] >= .7, [up, down]);
   // the overview's cards fill their plates and never spill
   await at(.2); await sleep(260);
   const spill = [];

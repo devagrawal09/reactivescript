@@ -87,7 +87,11 @@ test("the aspect is the only option that moves things; zoom isn't an input", () 
 
 test("levelFor: a level comes in once its text reads at 11px; hysteresis on the way down", () => {
   const { up, down } = LEVELS;
-  assert.ok(METRICS.nameFont * up[1] >= 11 && METRICS.siteFont * up[2] >= 11, "names at L2, view sites at L3, 11px or more");
+  const Z = METRICS.zoom;
+  assert.ok(Math.min(METRICS.nameFont, METRICS.tagFont) * Z.named * up[1] >= 11, "names and tags read at 11px when L2 comes in");
+  assert.ok(Math.min(METRICS.siteFont, METRICS.stripFont) * Z.site * up[2] >= 11, "view sites and view text read at 11px when L3 comes in");
+  // three levels that each get a real stretch of zoom
+  assert.ok(up[1] <= .4 && up[2] >= .7 && up[2] - up[1] >= .3, JSON.stringify(LEVELS));
   assert.ok(down[2] < up[1] && down[3] < up[2] && up[1] < up[2] && down[2] < down[3]);
   assert.equal(levelFor(.1, 3), 1);
   assert.equal(levelFor(1.2, 1), 3);
@@ -104,4 +108,34 @@ test("levelFor: a level comes in once its text reads at 11px; hysteresis on the 
   const seq = [.3, b2, up[1] + .01, b2, b3, up[2] + .01, b3, down[3] - .01, b2, down[2] - .01].map(s => (l = levelFor(s, l)));
   assert.deepEqual(seq, [1, 1, 2, 2, 2, 3, 3, 2, 2, 1]);
   assert.deepEqual(levelThresholds({ minText: 11 }), LEVELS);
+});
+
+test("view text reads like the screen: text holes and human-text attributes, no class / handler / data-* holes", () => {
+  const A = analyze(load("outline-graph.json"));
+  let strips = 0;
+  for (const r of A.regions.values()) {
+    const parts = A.stripParts(r);
+    if (!parts) continue;
+    strips++;
+    assert.ok(parts.some(p => "text" in p || "site" in p), `${r.id}: a strip has words`);
+    for (const p of parts) {
+      if ("site" in p) {
+        const n = A.nodes.get(p.site);
+        assert.ok(/^\{/.test(n.name) || /(placeholder|title|alt|aria-label|value|label)$/i.test(n.name), `${r.id}: hole ${n.name}`);
+        assert.ok(!/\b(class|style|on[A-Z]\w*|data-[\w-]+|disabled|checked)$/.test(n.name), `${r.id}: ${n.name}`);
+      }
+      if ("attr" in p) assert.match(p.attr, /^(placeholder|title|alt|aria-label|aria-description|aria-placeholder|label|value)$/i);
+    }
+  }
+  assert.ok(strips > 5, `${strips} strips`);
+  // every laid-out region with words gets a strip (a mount, "renders <X />", is only its tag)
+  const L = layoutWorld(A);
+  for (const [id, f] of L.frames) if (f.kind !== "children" && f.kind !== "imported") assert.equal(L.strips.has(id), !!A.stripParts(A.regions.get(id)), id);
+});
+
+test("each level's things are sized at its scale: names bigger than view sites, plate labels at the names' scale", () => {
+  const A = analyze(graphs.tracker), L = layoutWorld(A);
+  const h = role => Math.min(...[...L.tokens.values()].filter(t => t.role === role).map(t => t.h));
+  assert.ok(h("named") >= 2 * h("site") * .9, `${h("named")} vs ${h("site")}`);
+  for (const f of L.frames.values()) if (f.kind === "program") assert.ok(f.label.h >= 18 * METRICS.zoom.named - .5);
 });

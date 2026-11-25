@@ -41,6 +41,10 @@ export const SHAPE = { source: "well", asource: "well", eq: "flow", aeq: "flow",
 export const kindOf = n => (n.kind === "source" && n.question ? "asource" : n.kind === "eq" && n.async ? "aeq" : n.kind);
 const FRAME_WORD = { component: "component", for: "for each", then: "if · then", else: "else", loading: "loading", errored: "errored", children: "renders", imported: "renders (imported)" };
 const REACTIVE = new Set(["reader", "prop", "effect", "provide"]);
+/** Attributes whose value is words on the screen (or read aloud). */
+export const HUMAN_ATTR = /^(placeholder|title|alt|aria-label|aria-description|aria-placeholder|label|value)$/i;
+/** A view site that puts text on the screen: a `{ expr }` child, or a human-text attribute (`input placeholder`). */
+export const textHole = n => /^\{(…|\.\.\.)\}$/.test(n.name) || HUMAN_ATTR.test(String(n.name).split(/\s+/).pop());
 
 // ---- analysis: what the map derives from a graph ---------------------------------------------------------------------
 /**
@@ -216,7 +220,26 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
     for (const e of G.edges) add(modOf(e.from), modOf(e.to));
     return w;
   };
-  return { G, nodes, out, inc, regions, compRegion, compOfRegion, deps, ctlSites, boundaryCover, keyIds,
+  // a region's view text as the screen says it: its words, holes only where the view puts text (a `{ expr }` child, a
+  // human-text attribute: placeholder, title, alt, aria-label, value), child regions where there are words around
+  // them. Classes, styles, data-*, handlers, boolean attributes stay site tokens only. Null when nothing is left to read.
+  const stripMemo = new Map();
+  const stripParts = r => {
+    if (stripMemo.has(r.id)) return stripMemo.get(r.id);
+    const parts = [];
+    for (const p of r.outline ?? []) {
+      if ("site" in p) { const n = nodes.get(p.site); if (n && !ctlSites.has(p.site) && textHole(n)) parts.push(p); }
+      else if ("region" in p) { const k = regions.get(p.region); if (k && !empty(k)) parts.push(p); }
+      else if ("attr" in p) { if (HUMAN_ATTR.test(p.attr) && String(p.text).trim()) parts.push(p); }
+      else if ("text" in p) { if (String(p.text).trim()) parts.push(p); }
+      else if (p.br) { if (parts.length && !parts.at(-1).br) parts.push(p); }
+    }
+    while (parts.at(-1)?.br) parts.pop();
+    const v = parts.some(p => "text" in p || "site" in p) ? parts : null;
+    stripMemo.set(r.id, v);
+    return v;
+  };
+  return { G, nodes, out, inc, regions, compRegion, compOfRegion, deps, ctlSites, boundaryCover, keyIds, stripParts,
     rank, rendered, compLevel, modLevel, firstLine, empty, lineOf, controlInfo, label, readsOf, chipLabel, modName, clusterNames, moduleLinks };
 }
 
@@ -225,15 +248,24 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
 export const METRICS = {
   // a monospace glyph is .6em; .64 leaves slack for hinting at small sizes
   mono: .64, sans: .56, nameFont: 13.5, siteFont: 12.5, badgeFont: 10, tagFont: 12.5, stripFont: 12, labelFont: 12,
+  // each level's things are drawn at that level's scale (the page zooms them by it), so each level's text reads at
+  // its own zoom: the structure level's names and headers big, the detail level's view sites and view text smaller
+  zoom: { named: 2.4, site: 1.2 },
+  // base sizes, before the zoom
   namedH: 34, siteH: 28, labelH: 30, stripH: 30,
   gapX: 16, siteGapX: 14, rowGap: 56, lineGap: 30,
-  frame: { t: 12, x: 16, b: 18 }, plate: { t: 46, x: 24, b: 28 }, cluster: { t: 26, x: 14, b: 16, gapX: 26, gapY: 24 },
-  kidsGap: 20, sitesSep: 44, stripGap: 16, compMin: 420, viewMin: 300,
+  frame: { t: 12, x: 16, b: 18 }, plate: { t: 20, x: 24, b: 28 }, cluster: { t: 10, x: 14, b: 16, gapX: 26, gapY: 24 },
+  kidsGap: 20, sitesSep: 44, stripGap: 16, compMin: 560, viewMin: 400, plateScale: 1.7,
   plates: { gapX: 90, gapY: 120, pad: 70 },
 };
 const monoW = (text, font, M) => String(text).length * font * M.mono;
-/** A token's box size: its icon, name, marks and badges, in the page's chip paddings. */
-export function tokenSize(n, A, M = METRICS) {
+/** A token's box size, at its level's zoom (`zoom: false` for the unzoomed size). */
+export function tokenSize(n, A, M = METRICS, zoom = true) {
+  const s = baseTokenSize(n, A, M), k = zoom ? (n.site ? M.zoom.site : M.zoom.named) : 1;
+  return { w: Math.ceil(s.w * k), h: s.h * k };
+}
+/** A token's unzoomed size: its icon, name, marks and badges, in the page's chip paddings. */
+export function baseTokenSize(n, A, M = METRICS) {
   const kk = kindOf(n), shape = SHAPE[kk] ?? "plug", site = !!n.site;
   const pad = shape === "act" ? (site ? [13, 19] : [15, 22]) : shape === "ring" ? [15, 17] : site ? [8, 11] : [10, 14];
   let w = pad[0] + pad[1] + 14 + 6 + monoW(A.chipLabel(n), site ? M.siteFont : M.nameFont, M);
@@ -262,11 +294,12 @@ function rankRows(list, A) {
   for (const n of list) { const k = local(n.id); (byRank.get(k) ?? byRank.set(k, []).get(k)).push(n); }
   return [...byRank.keys()].sort((a, b) => a - b).map(k => byRank.get(k).sort((a, b) => ORDER.indexOf(kindOf(a)) - ORDER.indexOf(kindOf(b)) || a.line - b.line || (a.id < b.id ? -1 : 1)));
 }
-function flowTokens(groups, x, y, w, gapX, ctx, extra) {
+function flowTokens(groups, x, y, w, gapX0, ctx, extra) {
   const M = ctx.M;
   let cy = y;
   groups.forEach((g, gi) => {
-    if (gi) cy += g[0]?.site ? M.rowGap - 12 : M.rowGap;   // between steps of dependency: room for the arrows
+    const k = g[0]?.site ? M.zoom.site : M.zoom.named, gapX = gapX0 * k;
+    if (gi) cy += g[0]?.site ? (M.rowGap - 12) * k : M.rowGap * Math.sqrt(k);   // between steps of dependency: room for the arrows
     const lines = [[]]; let lw = 0;
     for (const n of g) {
       const s = ctx.size(n);
@@ -274,7 +307,7 @@ function flowTokens(groups, x, y, w, gapX, ctx, extra) {
       lw += (lines.at(-1).length ? gapX : 0) + s.w; lines.at(-1).push([n, s]);
     }
     lines.forEach((line, li) => {
-      if (li) cy += M.lineGap;                              // a wrapped line: room for value badges under tokens
+      if (li) cy += M.lineGap * k;                          // a wrapped line: room for value badges under tokens
       const lineW = line.reduce((a, [, s]) => a + s.w, 0) + gapX * (line.length - 1);
       const h = Math.max(...line.map(([, s]) => s.h));
       let cx = x + Math.max(0, (w - lineW) / 2);
@@ -285,21 +318,21 @@ function flowTokens(groups, x, y, w, gapX, ctx, extra) {
   return cy - y;
 }
 // the natural width of token rows: the widest row, unwrapped
-const rowsWidth = (groups, gapX, ctx) => Math.max(0, ...groups.map(g => g.reduce((a, n) => a + ctx.size(n).w, 0) + gapX * (g.length - 1)));
+const rowsWidth = (groups, gapX, ctx) => Math.max(0, ...groups.map(g => g.reduce((a, n) => a + ctx.size(n).w, 0) + gapX * (g[0]?.site ? ctx.M.zoom.site : ctx.M.zoom.named) * (g.length - 1)));
 
-// estimate of a region's view-text strip width (one line)
+// estimate of a region's view-text strip width (one line), at the detail level's zoom
 function stripWidth(r, A, M) {
   let chars = 0;
-  for (const p of r.outline ?? []) {
+  for (const p of A.stripParts(r) ?? []) {
     if (p.br) chars += 3;
     else if ("attr" in p) chars += p.attr.length + p.text.length + 4;
     else if ("text" in p) chars += p.text.length;
     else if ("site" in p) { const n = A.nodes.get(p.site); if (n && !A.ctlSites.has(p.site)) chars += Math.min(22, A.chipLabel(n).length) + 3; }
     else if ("region" in p) { const k = A.regions.get(p.region); if (k && !A.empty(k)) chars += (CTL[k.kind] ? A.controlInfo(k).text.length : (k.name ?? k.kind).length + 4) + 3; }
   }
-  return 60 + chars * M.stripFont * M.mono;
+  return (60 + chars * M.stripFont * M.mono) * M.zoom.site;
 }
-const hasStrip = r => r.outline?.some(p => "text" in p || "site" in p);
+const hasStrip = (r, A) => !!A.stripParts(r);
 
 // ---- a region's frame: header, names, sites, view text, then the regions inside ---------------------------------------
 function layRegion(r, x, y, w, ctx, depth, parent) {
@@ -308,31 +341,34 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
   const pad = isRoot ? M.plate : M.frame;
   const inner = w - 2 * pad.x;
   const top = y;
-  ctx.frames.set(r.id, { id: r.id, kind: r.kind, x, y, w, h: 0, depth, parent, label: { x: x + pad.x, y: y + (isRoot ? 12 : pad.t), w: inner, h: M.labelH } });
-  let cy = y + pad.t + (isRoot ? 0 : M.labelH + 12);
+  // the header (a plate's module label too) is the structure level's text: at its zoom
+  const KN = M.zoom.named, LH = M.labelH * KN;
+  ctx.frames.set(r.id, { id: r.id, kind: r.kind, x, y, w, h: 0, depth, parent, label: { x: x + pad.x, y: y + (isRoot ? 12 : pad.t), w: inner, h: isRoot ? 18 * KN : LH } });
+  let cy = y + pad.t + (isRoot ? 12 + 18 * KN : LH + 12);
   // the header's own tokens: a component's name, a control construct's tag (and what it reads)
   if (!isRoot) {
     const comp = r.kind === "component" ? A.G.nodes.find(n => A.compRegion.get(n.id) === r.id) : null;
     const lx = x + pad.x, ly = y + pad.t;
-    if (comp) { const s = ctx.size(comp); ctx.token(comp, lx, ly + 1, { w: s.w, h: M.labelH - 2 }, { role: "label", region: r.id, level: 2 }); }
+    if (comp) { const s = ctx.size(comp); ctx.token(comp, lx, ly + KN, { w: Math.min(inner, s.w), h: LH - 2 * KN }, { role: "label", region: r.id, level: 2 }); }
     else if (CTL[r.kind]) {
       const info = A.controlInfo(r);
       // the tag, and what it reads beside it; in a narrow frame both shrink (the page cuts their text) to fit the header
-      const sw0 = info.site ? ctx.size(info.site).w : 0;
-      let tw = Math.min(inner, 70 + monoW(info.text, M.tagFont, M) + 24);
-      if (info.site) tw = Math.min(tw, Math.max(80, inner - sw0 - 8));
-      ctx.tokens.set(r.id, { id: r.id, x: lx, y: ly, w: tw, h: M.labelH, role: "label", region: r.id, level: 2 });
-      if (info.site) ctx.token(info.site, lx + tw + 8, ly + 2, { w: Math.max(24, Math.min(sw0, inner - tw - 8)), h: M.labelH - 4 }, { role: "label", region: r.id, level: 3 });
+      // (what it reads sits in the header too, so at the header's zoom)
+      const sw0 = info.site ? tokenSize(info.site, A, M, false).w * KN : 0;
+      let tw = Math.min(inner, (70 + monoW(info.text, M.tagFont, M) + 24) * KN);
+      if (info.site) tw = Math.min(tw, Math.max(80 * KN, inner - sw0 - 8 * KN));
+      ctx.tokens.set(r.id, { id: r.id, x: lx, y: ly, w: tw, h: LH, role: "label", region: r.id, level: 2 });
+      if (info.site) ctx.token(info.site, lx + tw + 8 * KN, ly + 2 * KN, { w: Math.max(24 * KN, Math.min(sw0, inner - tw - 8 * KN)), h: LH - 4 * KN }, { role: "label", region: r.id, level: 3 });
     }
   }
   const named = r.nodes.filter(n => !n.site), sites = r.nodes.filter(n => n.site && !A.ctlSites.has(n.id));
   const groups = isRoot && named.length > 10 ? A.clusterNames(named, r.mod) : null;
   if (groups) {
     // clusters, in the order of the plates that use them (ctx.clusterOrder), flowed in lines
-    const C = M.cluster;
+    const C = { ...M.cluster, t: M.cluster.t + 16 * KN };   // the label, at the structure level's zoom
     const order = ctx.clusterOrder?.(r.mod) ?? (u => (u === "core" ? -1 : 0));
     groups.sort((a, b) => order(a.unit) - order(b.unit) || (a.unit < b.unit ? -1 : 1));
-    const boxes = groups.map(g => { const rr = rankRows(g.nodes, A); return { g, rr, w: Math.min(inner, Math.max(160, rowsWidth(rr, M.gapX, ctx) + 2 * C.x, 30 + monoW(`${g.label} ${g.what}`, 10, M))) }; });
+    const boxes = groups.map(g => { const rr = rankRows(g.nodes, A); return { g, rr, w: Math.min(inner, Math.max(160, rowsWidth(rr, M.gapX, ctx) + 2 * C.x, (30 + monoW(`${g.label} ${g.what}`, 10, M)) * KN)) }; });
     let lines = [[]], lw = 0;
     for (const b of boxes) { if (lines.at(-1).length && lw + C.gapX + b.w > inner) { lines.push([]); lw = 0; } lw += (lines.at(-1).length ? C.gapX : 0) + b.w; lines.at(-1).push(b); }
     for (const line of lines) {
@@ -349,19 +385,19 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
   } else if (named.length) cy += flowTokens(rankRows(named, A), x + pad.x, cy, inner, M.gapX, ctx, { region: r.id });
   // view sites: the detail level's; reserved
   if (sites.length) {
-    if (cy > y + pad.t + (isRoot ? 0 : M.labelH + 12)) cy += M.sitesSep;
+    if (cy > y + pad.t + (isRoot ? 12 + 18 * KN : LH + 12)) cy += M.sitesSep;
     const sy = cy;
     cy += flowTokens(rankRows(sites, A), x + pad.x, cy, inner, M.siteGapX, ctx, { region: r.id });
     ctx.reserved.push({ region: r.id, kind: "sites", x: x + pad.x, y: sy, w: inner, h: cy - sy });
   }
   // the view text strip: one line, reserved
-  if (hasStrip(r)) {
+  if (hasStrip(r, A)) {
     cy += M.stripGap;
     const sw = Math.min(inner, stripWidth(r, A, M));
-    const box = { x: x + pad.x + (inner - sw) / 2, y: cy, w: sw, h: M.stripH };
+    const box = { x: x + pad.x + (inner - sw) / 2, y: cy, w: sw, h: M.stripH * M.zoom.site };
     ctx.strips.set(r.id, box);
     ctx.reserved.push({ region: r.id, kind: "strip", ...box });
-    cy += M.stripH;
+    cy += box.h;
   }
   // regions inside: components by what renders what, then the view's regions side by side, then the mounts
   const kids = r.kids.filter(k => !A.empty(k));
@@ -388,11 +424,11 @@ function layRegion(r, x, y, w, ctx, depth, parent) {
     cy += 12;
     let cx = x + pad.x, lh = 0;
     for (const k of mounts) {
-      const mw = Math.min(inner, 24 + monoW(`${FRAME_WORD[k.kind]} <${k.name ?? ""} />`, M.labelFont, M));
+      const mw = Math.min(inner, (24 + monoW(`${FRAME_WORD[k.kind]} <${k.name ?? ""} />`, M.labelFont, M)) * KN), mh = 28 * KN;
       if (cx > x + pad.x && cx + mw > x + pad.x + inner) { cx = x + pad.x; cy += lh + 8; lh = 0; }
-      ctx.frames.set(k.id, { id: k.id, kind: k.kind, x: cx, y: cy, w: mw, h: 28, depth: depth + 1, parent: r.id, label: { x: cx + 8, y: cy, w: mw - 16, h: 28 } });
-      ctx.tokens.set(k.id, { id: k.id, x: cx, y: cy, w: mw, h: 28, role: "label", region: k.id, level: 2 });
-      cx += mw + 8; lh = Math.max(lh, 28);
+      ctx.frames.set(k.id, { id: k.id, kind: k.kind, x: cx, y: cy, w: mw, h: mh, depth: depth + 1, parent: r.id, label: { x: cx + 8 * KN, y: cy, w: mw - 16 * KN, h: mh } });
+      ctx.tokens.set(k.id, { id: k.id, x: cx, y: cy, w: mw, h: mh, role: "label", region: k.id, level: 2 });
+      cx += mw + 8; lh = Math.max(lh, mh);
     }
     cy += lh;
   }
@@ -438,7 +474,7 @@ export function layoutWorld(A, { aspect = 1.6, metrics = {}, size } = {}) {
   const P = M.plates;
   const mods = A.G.modules.map((_, mi) => mi).filter(mi => A.regions.get(`${mi}:r0`));
   const tokenCount = mi => A.G.nodes.filter(n => n.mod === mi && !(n.world && !n.from)).length;
-  const baseW = mi => Math.round(Math.min(1250, Math.max(360, 128 * Math.sqrt(tokenCount(mi) + 2))));
+  const baseW = mi => Math.round(M.plateScale * Math.min(1250, Math.max(360, 128 * Math.sqrt(tokenCount(mi) + 2))));
   const links = A.moduleLinks(), weight = (a, b) => links.get(a < b ? `${a},${b}` : `${b},${a}`) ?? 0;
   const bandsMap = new Map();
   for (const mi of mods) { const l = A.modLevel(mi); (bandsMap.get(l) ?? bandsMap.set(l, []).get(l)).push(mi); }
@@ -482,16 +518,18 @@ export function layoutWorld(A, { aspect = 1.6, metrics = {}, size } = {}) {
     if (world.length) {
       const byFile = new Map();
       for (const n of [...world].sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line))) (byFile.get(n.file) ?? byFile.set(n.file, []).get(n.file)).push(n);
+      // at the structure level's zoom: the title, each file's label, its tokens
+      const KN = M.zoom.named, NH = M.namedH * KN, GX = M.gapX * KN, FL = 16 * KN;
       const x0 = P.pad + 18, inner = contentW - 36;
-      let cx = x0, cy = y + 40, lh = 0;
+      let cx = x0, cy = y + 16 + 22 * KN, lh = 0;
       for (const [file, ns] of byFile) {
-        const tw = ns.reduce((a, n) => a + sizeOf(n).w, 0) + M.gapX * (ns.length - 1);
-        const gw = Math.min(inner, Math.max(tw, monoW(`from ${file}`, 11, M)));
+        const tw = ns.reduce((a, n) => a + sizeOf(n).w, 0) + GX * (ns.length - 1);
+        const gw = Math.min(inner, Math.max(tw, monoW(`from ${file}`, 11, M) * KN));
         if (cx > x0 && cx + gw > x0 + inner) { cx = x0; cy += lh + 18; lh = 0; }
-        let tx = cx, ty = cy + 20, rowH = M.namedH;
-        for (const n of ns) { const s = sizeOf(n); if (tx > cx && tx + s.w > cx + gw) { tx = cx; ty += M.namedH + 12; rowH += M.namedH + 12; } L.tokens.set(n.id, { id: n.id, x: tx, y: ty, w: s.w, h: s.h, role: "world", region: null, level: 2 }); tx += s.w + M.gapX; }
-        L.worldGroups.push({ file, x: cx, y: cy, w: gw, h: 20 + rowH, label: { x: cx, y: cy, w: gw, h: 16 } });
-        lh = Math.max(lh, 20 + rowH); cx += gw + 30;
+        let tx = cx, ty = cy + FL + 4, rowH = NH;
+        for (const n of ns) { const s = sizeOf(n); if (tx > cx && tx + s.w > cx + gw) { tx = cx; ty += NH + 12; rowH += NH + 12; } L.tokens.set(n.id, { id: n.id, x: tx, y: ty, w: Math.min(s.w, gw), h: s.h, role: "world", region: null, level: 2 }); tx += s.w + GX; }
+        L.worldGroups.push({ file, x: cx, y: cy, w: gw, h: FL + 4 + rowH, label: { x: cx, y: cy, w: gw, h: FL } });
+        lh = Math.max(lh, FL + 4 + rowH); cx += gw + 30 * KN;
       }
       const h = cy + lh + 18 - y;
       L.plates.set("world", { key: "world", x: P.pad, y, w: contentW, h, row: 0, band: -1 });
@@ -588,16 +626,18 @@ export function planTrunks(pairs, L) {
 }
 
 /**
- * The zoom thresholds between detail levels. A level comes in only once its text reads at `minText` px on screen or
- * more: the structure level (2) when a name (`METRICS.nameFont`) does, the detail level (3) when a view site's text
- * (`METRICS.siteFont`) does. Going back down waits `hysteresis` lower, so a zoom resting near a threshold doesn't flicker.
+ * The zoom thresholds between detail levels. Each level's text is drawn at that level's scale (`METRICS.zoom`), and a
+ * level comes in only once its smallest reading text is `minText` px on screen or more: the structure level (2) when its
+ * names and header tags (`nameFont`, `tagFont` at `zoom.named`) do, the detail level (3) when its view sites and view
+ * text (`siteFont`, `stripFont` at `zoom.site`) do. Going back down waits `hysteresis` lower, so a zoom resting near a
+ * threshold doesn't flicker.
  */
 export function levelThresholds({ minText = 11, hysteresis = .05, metrics = METRICS } = {}) {
-  const at = font => Math.ceil((minText / font) * 100) / 100;
-  const up = { 1: at(metrics.nameFont), 2: at(metrics.siteFont) };
+  const at = px => Math.ceil((minText / px) * 100) / 100;
+  const up = { 1: at(Math.min(metrics.nameFont, metrics.tagFont) * metrics.zoom.named), 2: at(Math.min(metrics.siteFont, metrics.stripFont) * metrics.zoom.site) };
   return { up, down: { 2: +(up[1] - hysteresis).toFixed(2), 3: +(up[2] - hysteresis).toFixed(2) }, minText };
 }
-/** The thresholds the page uses: up 1→2 at .82, 2→3 at .88; down 3→2 below .83, 2→1 below .77. */
+/** The thresholds the page uses: up 1→2 at .37, 2→3 at .77; down 3→2 below .72, 2→1 below .32. */
 export const LEVELS = levelThresholds();
 /** The detail level for a zoom, with hysteresis: `prev` is the current level. */
 export function levelFor(s, prev = 3, LV = LEVELS) {

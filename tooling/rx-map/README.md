@@ -129,14 +129,15 @@ their plate with a cast shadow, and edges run on the plate surface.
 - **One layout, three detail levels.** Every plate, frame, token, view-text strip and gutter is placed once per graph,
   sized for the richest level, and never moves with zoom: changing level only changes what is drawn inside the same
   boxes (a 200 ms cross-fade; instant under reduced motion). Fit and the minimap use the same extent at every level.
-  - **Overview** (below 82 %): each plate shows its card — name, path, role bar, counts, exports — scaled to fill the
+  - **Overview** (below 37 %): each plate shows its card — name, path, role bar, counts, exports — scaled to fill the
     same box, and the bundles between modules. Live: a flush touching the module pulses its card; the card counts its
     names changing now, failed (rose), held and in the air (amber, with a breathing outline while a request is out).
-  - **Structure** (82 %–88 %): frames and their tags, the named tokens, the edges between named things. Where view
-    sites and view text go, a faint reserved area.
-  - **Detail** (from 88 %): everything — view sites, view text, value and line badges.
+  - **Structure** (37 %–77 %): frames and their tags, the named tokens, the edges between named things, drawn big (the
+    module label too). Where view sites go, only a quiet "n view sites".
+  - **Detail** (from 77 %): everything — view sites, view text, value and line badges, at their own, smaller scale.
 
-  A level comes in only once its text reads at 11 px on screen (names at 13.5 px, view sites at 12.5 px); going back
+  Each level's things are drawn at that level's scale inside the same boxes (`METRICS.zoom`: names, tags and headers
+  2.4×, view sites and view text 1.2×), and a level comes in only once its own text reads at 11 px on screen; going back
   down waits 5 % lower, so a zoom resting at a threshold doesn't flicker. Double-click a module's card to fly into it.
 - **`layout.mjs`** is the layout as a pure module (no DOM), shared with the page (build.mjs embeds it) and anything else
   that draws the map:
@@ -154,8 +155,10 @@ their plate with a cast shadow, and edges run on the plate surface.
   Deterministic for a graph and aspect; `test/layout.test.mjs` checks finite boxes, no overlaps, tokens inside their
   frames, arrows up, reserved space for the detail level, and the thresholds.
 - **View text** (`regions[].outline`): each region shows what its markup says, in document order, as a quiet one-line
-  strip under its tokens: static text, holes where the view reads (linked to their site tokens; in live mode the value
-  they read), child regions as small frame tags, and human text in attributes. Long strips have an expander; strips
+  strip under its tokens — the screen's words: static text, holes only where the view puts text (a `{ expr }` child or a
+  human-text attribute: placeholder, title, alt, aria-label, value; linked to their site tokens, in live mode the value
+  they read), and child regions as small frame tags among them. Classes, styles, `data-*`, handlers and boolean
+  attributes stay site tokens only; a region with no words has no strip. Long strips have an expander; strips
   show at the detail level.
 ## Diff: what changed between two versions
 

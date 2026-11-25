@@ -132,7 +132,8 @@
   body.lv1 #board .frame.module > :not(.psum), body.lv1 #board .worldrow > :not(.wsum) { opacity: 0; pointer-events: none }
   #board .frame.module > :not(.psum), #board .worldrow > :not(.wsum) { transition: opacity .2s ease }
   /* level 2, structure: no view sites, no view text, no value badges; where they go, a faint reserved area */
-  .resv { position: absolute; border-radius: 8px; border: 1px dashed rgba(200, 210, 230, .1); background: repeating-linear-gradient(90deg, rgba(200, 210, 230, .05) 0 26px, transparent 26px 40px) 0 50% / 100% 6px no-repeat; opacity: 0; pointer-events: none; transition: opacity .2s ease }
+  .resv { position: absolute; display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity .2s ease }
+  .resv span { font: italic 11px/1 ui-sans-serif, system-ui; color: rgba(200, 210, 230, .32); letter-spacing: .04em }
   body.lv2 .resv { opacity: 1 }
   #board .chip.site, #board .ostrip, #board .chip .lv, #board .chip .lverr, #board .flabel .cread { transition: opacity .2s ease, transform .2s cubic-bezier(.2, .9, .3, 1.25) }
   body.lv2 #board .chip.site, body.lv2 #board .ostrip, body.lv2 #board .chip .lv, body.lv2 #board .chip .lverr, body.lv2 #board .flabel .cread { opacity: 0; pointer-events: none }
@@ -798,8 +799,8 @@ function holeText(id) {
   return n.name === "{…}" || n.name === "{...}" ? readsOf(n) || shorten(lineOf(n)) : n.name;
 }
 function outlineStrip(r) {
-  const parts = r.outline;
-  if (!parts?.some(p => "text" in p || "site" in p)) return null;
+  const parts = A.stripParts(r);   // the screen's words: text, text holes, human-text attributes
+  if (!parts) return null;
   const el = document.createElement("div");
   el.className = "ostrip";
   el.innerHTML = `<span class="micro">view</span><span class="otext"></span>`;
@@ -924,10 +925,13 @@ const midPath = p => { const parts = String(p).split("/"); return p.length <= 30
 const measureCtx = document.createElement("canvas").getContext("2d");
 function textWidth(t, font) { measureCtx.font = font; return measureCtx.measureText(t).width; }
 
-// a box from the layout, placed inside the element for `parent` (a frame's box, or the board)
-function put(el, b, parent) {
-  el.style.left = `${b.x - (parent?.x ?? 0)}px`; el.style.top = `${b.y - (parent?.y ?? 0)}px`;
-  el.style.width = `${b.w}px`; el.style.height = `${b.h}px`;
+// a box from the layout, placed inside the element for `parent` (a frame's box, or the board), drawn at zoom `k` (its
+// level's scale: the box is the same, what's in it is bigger or smaller)
+const KN = () => RXL.METRICS.zoom.named, KS = () => RXL.METRICS.zoom.site;
+function put(el, b, parent, k = 1) {
+  el.style.left = `${(b.x - (parent?.x ?? 0)) / k}px`; el.style.top = `${(b.y - (parent?.y ?? 0)) / k}px`;
+  el.style.width = `${b.w / k}px`; el.style.height = `${b.h / k}px`;
+  if (k !== 1) el.style.zoom = String(k);
   return el;
 }
 // the screen's shape the world is laid out for: the free screen at load (fixed afterwards, so nothing moves)
@@ -994,12 +998,13 @@ function render() {
     const box = put(document.createElement("div"), wp, null);
     box.className = "world worldrow";
     box.innerHTML = `<div class="title"><b>Outside the program</b> · JS modules it calls</div>`;
+    box.firstChild.style.zoom = String(KN());
     for (const g of L.worldGroups) {
-      const t = put(document.createElement("div"), g.label, wp); t.className = "mono wfile"; t.textContent = `from ${g.file}`;
+      const t = put(document.createElement("div"), g.label, wp, KN()); t.className = "mono wfile"; t.textContent = `from ${g.file}`;
       box.append(t);
     }
     const world = G.nodes.filter(n => n.world && !n.from);
-    for (const n of world) { const tb = L.tokens.get(n.id); if (tb) { const c = put(chip(n), tb, wp); c.classList.add("placed"); box.append(c); } }
+    for (const n of world) { const tb = L.tokens.get(n.id); if (tb) { const c = put(chip(n), tb, wp, KN()); c.classList.add("placed"); box.append(c); } }
     const ws = document.createElement("div"); ws.className = "wsum";
     ws.innerHTML = `<div class="ws-in"><b>Outside the program</b><span>${world.length} JS function${world.length === 1 ? "" : "s"} from ${L.worldGroups.length} file${L.worldGroups.length === 1 ? "" : "s"}</span></div>`;
     box.append(ws);
@@ -1013,7 +1018,7 @@ function render() {
     const el = put(document.createElement("div"), f, parentBox);
     el.className = `frame ${r.kind}` + (r.status && r.status !== "same" ? ` d-${r.status}` : "");
     regionEls.set(r.id, el);
-    const lab = put(frameHeader(r, el), f.label, f);
+    const lab = put(frameHeader(r, el), f.label, f, KN());
     el.append(lab);
     if (r.kind === "program") {
       el.classList.add("module"); el.dataset.mod = r.mod;
@@ -1030,12 +1035,17 @@ function render() {
     d.className = "cluster"; d.dataset.unit = c.unit;
     d.innerHTML = `<div class="clabel"></div>`;
     d.firstChild.innerHTML = `${esc(c.label)} <b></b>`; d.firstChild.lastChild.textContent = c.what ?? "";
+    d.firstChild.style.zoom = String(KN());
     el.insertBefore(d, el.children[1] ?? null);
   }
-  // areas the detail level fills: shown faint at the structure level
+  // areas the detail level fills: empty at the structure level, but for a quiet "n view sites" where the sites go
   for (const v of L.reserved) {
+    if (v.kind !== "sites") continue;
     const fb = L.frames.get(v.region), el = regionEls.get(v.region); if (!fb || !el) continue;
+    const n = [...L.tokens.values()].filter(t => t.role === "site" && t.region === v.region && t.x >= v.x && t.y >= v.y && t.y < v.y + v.h).length;
+    if (!n) continue;
     const d = put(document.createElement("div"), v, fb); d.className = `resv resv-${v.kind}`;
+    d.innerHTML = `<span></span>`; d.firstChild.textContent = `${n} view site${n === 1 ? "" : "s"}`; d.firstChild.style.zoom = String(KN());
     el.append(d);
   }
   // tokens: names and view sites, in their places
@@ -1043,14 +1053,14 @@ function render() {
     if (t.role !== "named" && t.role !== "site") continue;
     const n = nodes.get(id); if (!n) continue;
     const fb = L.frames.get(t.region) ?? L.frames.get(`${n.mod}:r0`), el = regionEls.get(fb?.id); if (!el) continue;
-    const c = put(chip(n), t, fb); c.classList.add("placed");
+    const c = put(chip(n), t, fb, n.site ? KS() : KN()); c.classList.add("placed");
     el.append(c);
   }
   // view text strips
   for (const [rid, b] of L.strips) {
     const r = regions.get(rid), fb = L.frames.get(rid), el = regionEls.get(rid);
     const s = r && el && outlineStrip(r);
-    if (s) el.append(put(s, b, fb));
+    if (s) el.append(put(s, b, fb, KS()));
   }
   // the overview's card in each plate
   for (const [mi, el] of moduleEls) el.append(plateSummary(mi));
@@ -1137,12 +1147,16 @@ function routed(fromId, toId, plan, kind = "") {
 }
 
 // ---- geometry on the board: layout boxes, untouched by the camera's transforms ------------------------------------
+// an element's box on the board. Things drawn at a level's scale carry a CSS zoom, and an element's offsets are in its
+// own zoomed units: each offset is scaled by the zoom of it and everything around it up to the board
+const zoomUnder = e => { let z = 1; for (let a = e; a && a !== board; a = a.parentElement) z *= +a.style.zoom || 1; return z; };
 function boxOf(el) {
   if (!el || !el.offsetParent) return null;
   let x = 0, y = 0, e = el;
-  while (e && e !== board) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+  while (e && e !== board) { const z = zoomUnder(e); x += e.offsetLeft * z; y += e.offsetTop * z; e = e.offsetParent; }
   if (e !== board) return null;
-  return { l: x, t: y, r: x + el.offsetWidth, b: y + el.offsetHeight, x: x + el.offsetWidth / 2, y: y + el.offsetHeight / 2 };
+  const z = zoomUnder(el), w = el.offsetWidth * z, h = el.offsetHeight * z;
+  return { l: x, t: y, r: x + w, b: y + h, x: x + w / 2, y: y + h / 2 };
 }
 // from what depends (A) up to what it needs (B)
 function edgePath(A, B) {
