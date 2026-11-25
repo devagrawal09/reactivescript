@@ -5,6 +5,8 @@
 // checkout of it, else the one pnpm installed in solid-next. The Node-API build first: `npm run build` here,
 // and the runtime's: `npm run build` in ../runtime.
 // Usage: SOLID_VITE_PLUGIN=../solid-vite-plugin node compiler/test/vite.mjs [filter]
+// e.g. SOLID_VITE_PLUGIN=$(realpath ../rx-r4-mcp/node_modules/@solidjs/vite-plugin) NODE_PATH=<playwright's node_modules>:$PWD/ref/node_modules
+//      node compiler/test/vite.mjs ts-module
 import { readdirSync, mkdirSync, rmSync, symlinkSync, writeFileSync, cpSync, readFileSync, existsSync, realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -172,7 +174,9 @@ export default component Main() {
   user: User | null = await fetchUser(id) catch (e: NotFound) => null
   <main>
     <button onClick={() => { id := 2 }}>next</button>
-    <p>{user == null ? "nobody" : user.name}</p>
+    {loading fallback { <p>loading…</p> } {
+      <p>{user == null ? "nobody" : user.name}</p>
+    }}
   </main>
 }
 `);
