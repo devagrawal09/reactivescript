@@ -18,6 +18,7 @@ import { parseScenario } from "./src/scenario.ts";
 import { loadModules } from "./src/modules.ts";
 import { checkModules } from "./src/check.ts";
 import { printSignature } from "./src/signature.ts";
+import { withDeclarations } from "./src/dts-host.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lowerMode = process.argv.includes("--lower");
@@ -36,12 +37,13 @@ function add(id: string, entry: string, read: (p: string) => string | undefined,
   try { loadModules(entry, rec); } catch { /* the files read up to the error are what both sides see */ }
   reqs.push({ id, entry, files, ...(extra ? { extra } : {}), ...(product ? { product } : {}) });
 }
-const disk = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined;
+const disk0 = (p: string) => existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined;
+const disk = withDeclarations(disk0);   // MO-11d: the generated declarations are answers in `files`, as every other file read
 
 const sdir = join(root, "scenarios");
 for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLATE.md").sort()) {
   const sc = parseScenario(f.replace(/\.md$/, ""), readFileSync(join(sdir, f), "utf8"), sdir);
-  const read = (src: string) => (p: string) => p === sc.entry ? src : sc.modules.get(p) ?? disk(p);
+  const read = (src: string) => withDeclarations((p: string) => p === sc.entry ? src : sc.modules.get(p) ?? disk0(p), sc.modules);
   if (lowerMode) {                                                     // what compile/run.ts compiles: each table, with its handler rows
     const base = sc.tables.find(t => t.title === "Frames");
     for (const t of sc.tables) {
@@ -65,6 +67,24 @@ if (!lowerMode && !projectMode) {
     ? `export default component App() {\nsource count := 1\n<main>${"<p>{count}</p>".repeat(430)}</main>\n}\n` : undefined);
 }
 
+// MO-11: a TS module's generated declaration, merged with a written line that names its type and imports another TS
+// module's type (MO-8e); and a TS module no generator answers for (MO-11d).
+{
+  const files = new Map([
+    ["src/main.rx", `import pure { load, Book } from "./api"
+import { Shelf, shelves } from "./shelf"
+export default component App() {
+  book: Book = load()
+  <p>{book.title}</p>
+}
+`],
+    ["src/api.ts", `import type { Shelf } from "./shelf";\nexport type Book = { title: string; shelf?: Shelf };\nexport const load = (): Book => ({ title: "A" });\nexport function count(...xs: Book[]): number { return xs.length; }\n`],
+    ["src/api.d.rx", `import { Shelf } from "./shelf"\nexport pure fn load(s?: Shelf): Book\n`],
+    ["src/shelf.ts", `export type Shelf<T = string> = { name: T };\nexport const shelves = 3;\n`],
+  ]);
+  add("MO-11 generated, merged, and a type import from a TS module", "src/main.rx", withDeclarations(p => files.get(p), files), lowerMode ? [] : undefined);
+  add("MO-11d no generator", "src/main.rx", p => files.get(p), lowerMode ? [] : undefined);
+}
 // MO-8c/d: a real, importer-relative API in a mixed value/type import. Exercise
 // this in the lowering comparison rather than the flight-based scenario runners.
 if (lowerMode) {

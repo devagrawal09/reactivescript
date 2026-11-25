@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { moduleSet, type Scenario } from "../src/scenario.ts";
 import { parseStmts } from "../src/parse.ts";
 import { loadModules } from "../src/modules.ts";
+import { withDeclarations } from "../src/dts-host.ts";
 import { compileModules, CompileError } from "./emit.ts";
 import { lowerViews, STRING_RENDERER, type Target } from "./jsx.ts";
 
@@ -24,7 +25,8 @@ export function build(sc: Scenario, src: string, handlers: string[]): Built {
     return { entry: out.entry, css: out.css, views: t => lowerViews(out.files, t) };
   }
   const files: Record<string, string> = {};
-  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
+  const read0 = withDeclarations(p => p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined), sc.modules);   // MO-11d
+  const read = (p: string) => { const s = read0(p); if (s !== undefined) files[p] = s; return s; };
   loadModules(sc.entry, read);
   const [r] = JSON.parse(execFileSync(rxc, ["lower"], { input: JSON.stringify([{ id: sc.name, entry: sc.entry, files, extra: handlers, renderer: STRING_RENDERER }]), maxBuffer: 1 << 30 }).toString());
   if (r.compileError) throw new CompileError(r.compileError);

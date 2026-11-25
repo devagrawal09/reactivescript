@@ -4,13 +4,14 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadModules } from "./src/modules.ts";
+import { withDeclarations } from "./src/dts-host.ts";
 import { checkModules } from "./src/check.ts";
 import { printSignature } from "./src/signature.ts";
 const args = process.argv.slice(2); const sigOut = args.includes("--signature");
 let bad = 0;
 for (const f of args.filter(a => !a.startsWith("--"))) {
   try {
-    const set = loadModules(resolve(f), p => statSync(p, { throwIfNoEntry: false })?.isFile() ? readFileSync(p, "utf8") : undefined);
+    const set = loadModules(resolve(f), withDeclarations(p => statSync(p, { throwIfNoEntry: false })?.isFile() ? readFileSync(p, "utf8") : undefined));
     const { diags, sigs } = checkModules(set);
     const rel = (p?: string) => (p ?? resolve(f)).replace(process.cwd() + "/", "");
     if (!diags.length) console.log(`ok   ${f}${set.order.length > 1 ? ` (+${set.order.length - 1} module${set.order.length > 2 ? "s" : ""})` : ""}`);
