@@ -63,6 +63,10 @@ fn is_handler(attr: &str) -> bool {
     let b = attr.as_bytes();
     b.len() > 2 && b[0] == b'o' && b[1] == b'n' && (b[2].is_ascii_uppercase() || b[2] == b':')
 }
+/// E-9: a `ref` parameter, or a body that declares a source, effect, or region. An equation is not a node.
+pub(crate) fn instantiating_fn(params: &[crate::ast::Param], decls: &[Decl]) -> bool {
+    params.iter().any(|p| p.r#ref) || decls.iter().any(|d| matches!(d, Decl::Source { .. } | Decl::Effect { .. } | Decl::Component { .. }))
+}
 fn is_upper_tag(tag: &str) -> bool {
     tag.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase())
 }
@@ -1328,7 +1332,7 @@ impl<'a> Checker<'a> {
                 }
                 Decl::Fn { params, decls: fdecls, .. } => {
                     sym.params = Some(params.iter().map(|p| SigParam { name: p.name.clone(), r#ref: p.r#ref, ty: p.ty.clone() }).collect());
-                    sym.instantiating = params.iter().any(|p| p.r#ref) || !fdecls.is_empty();
+                    sym.instantiating = instantiating_fn(params, fdecls);
                     sym.fn_decl = Some(d);
                     sym.decl_env = Some(env);
                 }
@@ -1971,7 +1975,7 @@ impl<'a> Checker<'a> {
             }
             Decl::Fn { name, params, decls, tail, line, .. } => {
                 let region = self.reg(env);
-                let r = if !decls.is_empty() { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
+                let r = if instantiating_fn(params, decls) { self.region(Some(region), "fn", false, Some(name.clone())) } else { region };
                 let inner = self.env(Some(env), r);
                 for p in params {
                     if p.r#ref {

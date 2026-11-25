@@ -5,6 +5,22 @@
 import { classMap } from "../src/style.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
+/** Equation decls of a lifted fn, dependencies first, so `i = …` is a local each call (E-9). Same walk as `ref/src/runtime.ts`. */
+function eqOrder(decls: Decl[]): Extract<Decl, { k: "eq" }>[] {
+  const eqs = decls.filter((d): d is Extract<Decl, { k: "eq" }> => d.k === "eq");
+  const by = new Map(eqs.map(d => [d.name, d]));
+  const done = new Set<string>(); const out: typeof eqs = [];
+  const ids = (e: Expr, into: Set<string>) => {
+    if (!e?.k || e.k === "fn" || e.k === "draft") return;
+    if (e.k === "id") into.add(e.name);
+    for (const v of Object.values(e)) {
+      if (Array.isArray(v)) for (const x of v) if (x && typeof x === "object" && "k" in x) ids(x as Expr, into);
+      else if (v && typeof v === "object" && "k" in v) ids(v as Expr, into);
+    }
+  };
+  const visit = (d: Extract<Decl, { k: "eq" }>) => { if (done.has(d.name)) return; done.add(d.name); const ns = new Set<string>(); ids(d.e, ns); for (const n of ns) { const t = by.get(n); if (t && t !== d) visit(t); } out.push(d); };
+  eqs.forEach(visit); return out;
+}
 import { createRenderer } from "@solidjs/universal";
 import { Show, For, Loading, Errored } from "solid-js";
 import { getObserver } from "@solidjs/signals";
@@ -336,7 +352,7 @@ export class Oracle {
             break;
           }
           const fnDecl = this.fnOf(d.e, scope);
-          if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
+          if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.some(x => x.k === "source" || x.k === "effect" || x.k === "component"))) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
           if (d.e.k === "catch" && d.e.e.k === "await" && !d.deferred) {   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`)
             const c = d.e; const classes = this.classValues(c.classes, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
             const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); };
@@ -458,7 +474,7 @@ export class Oracle {
             if (!this.imperative) return b.get();
             try { return b.get(); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; }   // H-10: an apply block or handler reads σ; R-f-7: a snapshot of an error throws it
           }
-          case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.ev(f.tail, home, en); }; }
+          case "fn": { const f = b.decl, home = b.home; return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); for (const d of eqOrder(f.decls)) en.set(d.name, this.ev(d.e, home, en)); return this.ev(f.tail, home, en); }; }
           case "action": return b.run;
           case "comp": throw new Error("component applied outside a view");
         }

@@ -11,6 +11,8 @@ import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Mo
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
+/** E-9: a `ref` parameter, or a body that declares a source, effect, or region. An equation is not a node — `fn f(x) { i = …; i }` lifts, like `fn f(x) => …`. */
+export function instantiatingFn(d: { params: { ref: boolean }[]; decls: Decl[] }) { return d.params.some(p => p.ref) || d.decls.some(x => x.k === "source" || x.k === "effect" || x.k === "component"); }
 const isHandler = (attr: string) => /^on[A-Z:]/.test(attr);                                   // SC-4
 
 // ---------------------------------------------------------------- regions and symbols
@@ -539,7 +541,7 @@ class Checker {
       if (d.k === "server") sym.params = d.params.map(name => ({ name, ref: false }));
       if (d.k === "source") sym.question = !!d.question;
       if (d.k === "action") { sym.io = true; sym.arity = d.params.length; }                 // R-io-2: an action is io; AC-1f: its parameters
-      if (d.k === "fn") { sym.params = d.params; sym.instantiating = d.params.some(p => p.ref) || d.decls.length > 0; sym.fnDecl = d; sym.declEnv = env; }
+      if (d.k === "fn") { sym.params = d.params; sym.instantiating = instantiatingFn(d); sym.fnDecl = d; sym.declEnv = env; }
       if (d.k === "component") { sym.comp = d; sym.compRegion = this.region(env.region, "component", { component: true, name: d.name }); this.compSyms.set(sym.compRegion, sym); }
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
@@ -777,7 +779,7 @@ class Checker {
         return;
       }
       case "fn": {
-        const r = d.decls.length ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
+        const r = instantiatingFn(d) ? this.region(env.region, "fn", { name: d.name }) : env.region;                     // RG-6: an instantiating fn is a region
         const inner = new Env(env, r);
         for (const p of d.params) this.bind(inner, p.name, { kind: p.ref ? "eq" : "value", name: p.name, region: r, line: d.line, param: true });
         this.comp("fn", env, { name: d.name }, () => { this.block(d.decls, [], inner, { scope: "reactive", inFn: true }); this.expr(d.tail, inner, { scope: "reactive", inFn: true }); });
