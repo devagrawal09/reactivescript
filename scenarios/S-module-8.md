@@ -29,6 +29,8 @@ export type Ref<T> = () => T;
 export type Instantiates<R> = R;
 export type Server<R> = R;
 export type Client<R> = R;
+export declare function pure<F>(fn: F): F;
+export declare function ref<F>(spec: { args?: number[]; result?: true | number[] | string[] }, fn: F): F;
 ```
 
 ```ts
@@ -66,6 +68,32 @@ export declare function createShout(s: Ref<string>): Pure<Ref<string>>;
 -- module: ./bad.d.ts
 import type { Pure } from "@reactivescript/js";
 export declare function score(n: Pure<number>): number;
+```
+
+```ts
+-- module: ./counter.ts
+import { pure, ref } from "@reactivescript/js";
+export const createCount = pure(ref({ result: true }, (n: number) => () => n + 1));
+```
+
+```rx
+-- module: ./a.rx
+import { createCount } from "./counter"
+export component A() {
+  n = createCount(1)
+
+  <p>{n}</p>
+}
+```
+
+```rx
+-- module: ./b.rx
+import { createCount } from "./counter"
+export component B() {
+  n = createCount(2)
+
+  <p>{n}</p>
+}
 ```
 
 What the loader reads for `./api` (the generated lines, then the written one in place of
@@ -266,6 +294,25 @@ export default component App() {
 ```
 
 MO-11c: `Pure` marks a function's return type; on a parameter it is not a fact the generator can read.
+
+```rx
+-- reject: DECLARATION_HELPER only
+import { createCount } from "./counter"
+import { A } from "./a.rx"
+import { B } from "./b.rx"
+export default component App() {
+  n = createCount(3)
+
+  <p>{n}</p>
+  <A />
+  <B />
+}
+```
+
+MO-11d: `ref(…)` already makes `createCount` pure, so `pure(…)` around it is an error at its line in
+`counter.ts`, which fails the build. That error is the only diagnostic: an export whose declaration failed is
+bound as unknown wherever it is imported (no rows, no failures), so its three uses in reactive scope report no
+`IO_IN_REACTIVE` that would only be fallout of the default.
 
 ```rx
 -- reject: IMPORT_ROW_ON_TS

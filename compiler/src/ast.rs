@@ -213,6 +213,8 @@ pub enum Decl {
         declared_errors: Option<Vec<String>>,
         declared_pure: Option<Vec<String>>,
         declared_side: Option<Vec<(String, Side)>>,
+        /// MO-11d: names whose generated declaration failed (reported at the TS module), bound as unknown (set by the loader)
+        lenient: Vec<String>,
     },
     Error { name: String, params: Vec<String>, ptypes: Vec<Option<String>>, msg: Option<Expr>, line: usize, span: Span, exported: bool },
     TypeDecl { name: String, line: usize, span: Span, text: String, exported: bool },
@@ -545,7 +547,7 @@ impl Decl {
                 ("type", os(ty)),
                 ("exported", flag(*exported)),
             ]),
-            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side, .. } => obj(vec![
+            Decl::Import { names, from, pure, side, line, fails, resolved, declared, declared_errors, declared_pure, declared_side, lenient, .. } => obj(vec![
                 ("k", s("import")),
                 ("names", Some(Value::Array(names.iter().map(|n| obj(vec![("name", s(&n.name)), ("alias", s(&n.alias))])).collect()))),
                 ("from", s(from)),
@@ -567,6 +569,7 @@ impl Decl {
                         Value::Object(m)
                     }),
                 ),
+                ("lenient", if lenient.is_empty() { None } else { Some(strs(lenient)) }),
             ]),
             Decl::Error { name, params, ptypes, msg, line, exported, .. } => obj(vec![
                 ("k", s("error")),

@@ -82,6 +82,9 @@ try {
   check("highlighter tokens in the node panel", !!doc.querySelector("#panel pre.now .tk-state") && !!doc.querySelector("#panel pre.now .tk-pend"), doc.querySelector("#panel pre.now")?.innerHTML);
   const lv = doc.getElementById("liveval");
   check("panel shows Live value", /Live value/.test(doc.getElementById("panel").textContent) && lv?.querySelector("pre")?.textContent.startsWith("[{id: 1"), lv?.innerHTML);
+  // only a JS import has a declaration: an equation that calls one shows none (round 5: "declared by default (no helper):
+  // undefined" under pageAns, as `undefined != null` held)
+  check("no declaration line on a node with none", !/declared (by|in) /.test(doc.getElementById("panel").textContent), doc.getElementById("panel").textContent);
   check("panel says how often", /changed 1×/.test(lv?.textContent ?? ""), lv?.textContent);
   post({ type: "flight", key: "examples/users.rx||users", state: "start" });
   await sleep(50);
