@@ -269,6 +269,7 @@ re!(JS_APIS, r"\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|creat
 re!(JS_FUNCTION, r"^(export\s+)?(default\s+)?(async\s+)?function\b");
 re!(JS_LOCAL, r"^(const|let|var)\b");
 re!(JS_RETURN, r"^return\b");
+re!(FOR_NAME, r"\bfor\s+[A-Za-z_$]");
 re!(NAME_BEFORE, r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*$");
 re!(ARROW_BEFORE, r"=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$");
 re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
@@ -302,6 +303,12 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     }
     if let Some(c) = JS_APIS.captures(line) {
         return Some(("JS_API", format!("`{}` is not .rx: state is `source x := …`, a value computed from others is `x = …`, a side effect is `effect (x) {{ … }}`", &c[1])));
+    }
+    if msg == "expression" && rest.starts_with('<') && before.contains('?') {
+        return Some(("JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`".into()));
+    }
+    if msg == "in" && rest.trim_start().starts_with(',') && FOR_NAME.is_match(line) {
+        return Some(("FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`".into()));
     }
     None
 }

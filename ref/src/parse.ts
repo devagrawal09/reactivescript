@@ -29,6 +29,10 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   const api = JS_APIS.exec(line);
   if (api)
     return ["JS_API", `\`${api[1]}\` is not .rx: state is \`source x := …\`, a value computed from others is \`x = …\`, a side effect is \`effect (x) { … }\``];
+  if (msg === "expression" && rest.startsWith("<") && before.includes("?"))
+    return ["JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`"];
+  if (msg === "in" && /^\s*,/.test(rest) && /\bfor\s+[A-Za-z_$]/.test(line))
+    return ["FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`"];
   return null;
 }
 let viewAt = 0;

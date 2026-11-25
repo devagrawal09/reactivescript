@@ -97,6 +97,42 @@ export default component App() {
 }
 ```
 
+### JSX_TERNARY
+
+`c ? a : b` is an expression, and markup is not an expression. A branch of elements is `{if c { … } else { … }}`.
+
+```rx before
+export default component App() {
+  source c := true
+  <p>{c ? <span/> : ""}</p>
+}
+```
+
+```rx after
+export default component App() {
+  source c := true
+  <p>{if c { <span/> } else { <span></span> }}</p>
+}
+```
+
+### FOR_INDEX
+
+`for` binds one name. The index is `xs.indexOf(x)` in the body, or map the list to pairs first.
+
+```rx before
+export default component App() {
+  source xs := [1]
+  {for x, i in xs { <p>{x}</p> }}
+}
+```
+
+```rx after
+export default component App() {
+  source xs := [1]
+  {for x in xs { <p>{x} {xs.indexOf(x)}</p> }}
+}
+```
+
 ### ASSIGNMENT
 
 A source is written with `:=` as a statement, in a handler or an action (W-1). There is no `=`, `+=` or `++` on state.
