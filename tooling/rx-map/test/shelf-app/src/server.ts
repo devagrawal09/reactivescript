@@ -3,6 +3,10 @@
 export type Book = { id: string; title: string; author: string; read: boolean };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export async function loadAnswer(text: string): Promise<string> {
+  await delay(350);
+  return text;
+}
 
 let db: Book[] = [
   { id: 'b1', title: 'The Left Hand of Darkness', author: 'Ursula K. Le Guin', read: true },

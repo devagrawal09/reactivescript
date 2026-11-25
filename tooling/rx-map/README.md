@@ -420,8 +420,10 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
 - Edges into a `for` row are drawn once per site, not per row.
 - Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
-  visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
-  shows the same session's timeline and flush count.
+  visible in current state even when it did not appear in a Solid flush. The live host emits HMR plans and
+  records replacement flushes; reopening the map still shows the same session's timeline and flush count.
+  Ambiguous instances refresh normally rather than sharing a carried value. Travel uses the newest code:
+  old expressions and replaced store backings may be reported as `inexact`.
 - Time travel: a list rewritten wholesale doesn't rewind (marked `inexact`, above); a component a view remounts (it
   pins a route back) starts over: its own async state asks again rather than showing its history.
 - Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view

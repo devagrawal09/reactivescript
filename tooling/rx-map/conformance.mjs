@@ -61,7 +61,7 @@ export function partitionErrors(plan, oldGraph, newGraph) {
     froms.add(m.from);
     if (seen.has(m.from)) errors.push(`${m.from} is moved.from and also in ${seen.get(m.from)}`);
     const bucket = seen.get(m.to);
-    if (bucket !== "kept" && bucket !== "reset") errors.push(`moved.to ${m.to} is ${bucket ?? "missing"}, want kept or reset`);
+    if (bucket !== "kept" && bucket !== "reset" && bucket !== "rerun") errors.push(`moved.to ${m.to} is ${bucket ?? "missing"}, want kept, reset or rerun`);
   }
   for (const k of universe) {
     if (!seen.has(k) && !froms.has(k)) errors.push(`${k} missing from the plan`);
