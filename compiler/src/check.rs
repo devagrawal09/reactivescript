@@ -2065,6 +2065,10 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
+        if matches!(name, "Number" | "Math") {
+            self.err("UNBOUND", "SV-7a", format!("{name} is not a global in .rx: in js-globals.js write `export const {name} = globalThis.{name}`, then here write `import {{ {name} }} from \"./js-globals.js\"`"));
+            return None;
+        }
         self.err("UNBOUND", "SCOPE", format!("{} is not declared here (a component sees its declaration site, not its caller — RG-7a)", name));
         None
     }

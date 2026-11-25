@@ -822,6 +822,10 @@ class Checker {
     if (s) { this.sided(s, ctx); return s; }
     if (BUILTINS.has(name)) return undefined;
     if (ctx.scope === "imperative" && (name === "log" || /^\$\d+$/.test(name))) return undefined;   // the apply block's parameters; `log` is io and only in imperative scope
+    if (name === "Number" || name === "Math") {
+      this.err("UNBOUND", "SV-7a", `${name} is not a global in .rx: in js-globals.js write \`export const ${name} = globalThis.${name}\`, then here write \`import { ${name} } from "./js-globals.js"\``);
+      return undefined;
+    }
     this.err("UNBOUND", "SCOPE", `${name} is not declared here (a component sees its declaration site, not its caller — RG-7a)`);
     return undefined;
   }
