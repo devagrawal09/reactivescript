@@ -88,7 +88,13 @@ export function partitionErrors(plan, oldGraph, newGraph) {
 }
 
 function reconstruct(steps, n) {
-  const m = new Map();
+  // Before a key's first change, its value is that change's `prev` (§4b).
+  const m = new Map(), seen = new Set();
+  for (const s of steps) for (const c of s.changes ?? []) {
+    if (c.key == null || seen.has(c.key)) continue;
+    seen.add(c.key);
+    if (c.prev !== undefined) m.set(c.key, c.prev);
+  }
   for (const s of steps) {
     if (s.seq > n) break;
     for (const c of s.changes ?? []) {
@@ -412,6 +418,11 @@ function* checkOne(makeHost, graph, label, seed, push) {
     push(resumeOk, "resume matches live", label, resumeDetail || undefined);
     yield travelHost.dispose?.();
   }
+
+  // `step.inexact` (§4b): a list of graph keys when present.
+  const badInexact = [...msgs, ...(travelMsgs ?? [])].filter(m => m.type === "step" && m.inexact !== undefined)
+    .flatMap(m => Array.isArray(m.inexact) ? m.inexact.filter(k => !allKeys.has(k)) : ["not a list"]);
+  push(!badInexact.length, "step inexact keys exist", label, badInexact.slice(0, 3).join(", ") || undefined);
 
   // Eviction: a small ring drops early seqs.
   try {

@@ -194,12 +194,17 @@ timeline travels the running app, DOM included. The recorder keeps a ring of 200
 `globalThis.__RX_TIMELINE_CAPACITY__` before the entry runs to change it); beside each step, the engine nodes the flush
 changed and what each showed before. `travel(n)` opens a view and pins every node changed after `n` at what it showed
 before its first change after `n`; sync derivations, render effects, `if`/`for` structure and the DOM re-derive from
-the pins. While viewing, the app keeps running beneath and nothing it does shows: no `flush` is sent. `resume` lands
-all of it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a `flush`.
-`step`/`resume` changes come from the recorded previews, so they are exact for every key the timeline has seen.
+the pins. While viewing, the app is read-only: capture-phase listeners stop pointer and keyboard input on the page
+(not in the map, the devtools or the badge), and a small badge, "viewing #n — resume to interact", has a Resume
+button. The program's own work (timers, answers landing) goes on beneath and doesn't show: no `flush` is sent.
+`resume` lands it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a
+`flush`. `step`/`resume` changes come from the recorded previews (TRACE-CONTRACT v0.5: before a key's first change,
+its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
+timeline has seen. `step.inexact` lists keys travel can't show exactly at that seq: a store guessed after it (Solid
+records the guess on the store's `$guess` carrier only) and every name that reads it.
 Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
-is running or a resume is still landing, `unsupported` when Solid has no `openView`. The page stays clickable while
-viewing; a click writes beneath the view and shows at resume. Store guesses do not rewind yet (see Limits).
+is running or a resume is still landing, `unsupported` when Solid has no `openView`. Store guesses do not rewind yet
+(see Limits).
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It starts from what this
 map holds and gets every host message through it; its travel, resume and select go to this map's host. Closing either
@@ -234,9 +239,12 @@ harness.
 `./conformance` has `runConformance(makeHost, graphs)` for a host whose calls return at once (the fake) and
 `runConformanceAsync` for one whose calls take time (a real app in a browser: `makeHost` and the host's calls may
 return promises). `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
-Chromium and checks the DOM under travel: `APP=<dir> node test/real-host.mjs [--shots <dir>]`, with Playwright on
-`NODE_PATH`. The app is the shelf template with a deterministic fake server and `?cap=N` setting the ring's capacity,
-linked to this package and to a Solid build with `openView`; it is not part of `npm test`.
+Chromium and checks the DOM under travel, read-only viewing, `inexact` and first-change `prev`. `npm test` runs it
+when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise;
+it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
+`test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
+a temp dir and installed linked to this repository and to `SOLID_VIEW`. `APP=<dir>` uses an installed copy instead;
+`--shots <dir>` saves screenshots.
 
 ## MCP: let an agent inspect your app
 
@@ -318,7 +326,7 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   shows the same session's timeline and flush count.
 - Time travel: a store guess (`guess books := …`, `guess books[i].read := …`) is recorded by Solid on the store's guess
   carrier (`books.$guess`), not on the property nodes it changed, and its confirmed landing changes nothing shown, so
-  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it.
-  A name whose first value never came in a flush has no value in the timeline before its first change, so the map
-  can't roll it back past that change (the app itself is shown right). All of a resume's buffered work is one step.
+  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it
+  (`step.inexact` says so). A store's first-change `prev` isn't known (its records are per property), so a store
+  has no value before its first change. All of a resume's buffered work is one step.
   The rest are Solid's `openView` limits (08-dev-diagnostics, "Views and time travel").

@@ -82,6 +82,7 @@ export function mount(el) {
   const iframe = document.createElement("iframe");
   iframe.title = "rx-map";
   iframe.style.cssText = "display:block;width:100%;height:100%;border:0";
+  el.setAttribute("data-rx-map", ""); // input here stays live while the app is read-only (viewing)
   let ready = false;
   const post = msg => {
     if (ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
@@ -137,7 +138,7 @@ function getRecorder() {
   // The timeline: one step per flush, `capacity` of them (TRACE-CONTRACT §4). Beside each step, the engine nodes it
   // changed and what each showed before, which is what travel pins (Solid's openView).
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
-  const steps = new Array(capacity), raws = new Array(capacity);
+  const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity);
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const start = performance.now();
@@ -176,6 +177,8 @@ function getRecorder() {
     const step = { seq: ++flushes, at, changes };
     steps[i] = step;
     raws[i] = raw;
+    // Solid records a store guess on the store's guess carrier (`<store>.$guess`), not on the property nodes it moves
+    guesses[i] = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
     const record = addRecord({ type: "flush", at, changes });
     for (const c of changes) if (c.key) {
       if (c.preview !== undefined) latest.set(c.key, c);
@@ -313,10 +316,35 @@ function getRecorder() {
     return out;
   }
   const oldest = () => Math.max(1, flushes - capacity + 1);
+  // Before a key's first recorded change, its value is that change's `prev` (TRACE-CONTRACT §4b).
   function valuesAt(n) {
-    const m = new Map(base);
+    const m = new Map(base), seen = new Set(base.keys());
+    for (let s = oldest(); s <= flushes; s++)
+      for (const c of steps[(s - 1) % capacity].changes) {
+        if (!c.key || seen.has(c.key)) continue;
+        seen.add(c.key);
+        if (c.prev !== undefined) m.set(c.key, c.prev);
+      }
     for (let s = oldest(); s <= n; s++) applyPreviews(m, steps[(s - 1) % capacity].changes);
     return m;
+  }
+  // Keys travel can't show exactly at n: a store guessed after n (and what reads it), since its pins can't take the
+  // store's property nodes back past the guess (Solid records the guess on the carrier only).
+  function inexactAt(n) {
+    const roots = new Set();
+    for (let s = n + 1; s <= flushes; s++) for (const k of guesses[(s - 1) % capacity] ?? []) roots.add(k);
+    if (!roots.size) return [];
+    const out = new Set(roots);
+    for (const g of graphs) {
+      const byId = new Map(g.nodes.map(x => [x.id, x])), next = new Map();
+      for (const e of g.edges) if (e.type === "read") (next.get(e.from) ?? next.set(e.from, []).get(e.from)).push(e.to);
+      const todo = g.nodes.filter(x => roots.has(x.key)).map(x => x.id), seen = new Set(todo);
+      while (todo.length) for (const to of next.get(todo.pop()) ?? []) if (!seen.has(to)) {
+        seen.add(to); todo.push(to);
+        if (byId.get(to)?.key) out.add(byId.get(to).key);
+      }
+    }
+    return [...out].sort();
   }
   function pinsFor(n) {
     const pins = new Map();
@@ -338,6 +366,19 @@ function getRecorder() {
     }
     return changes;
   }
+  // While viewing the app is read-only (TRACE-CONTRACT §4b): input on it would write beneath the view, unseen.
+  let blocker = null;
+  function readOnly(n) {
+    if (typeof document === "undefined") return;
+    if (n == null) {
+      blocker?.off();
+      blocker = null;
+      document.documentElement.removeAttribute("data-rx-viewing");
+      return;
+    }
+    document.documentElement.setAttribute("data-rx-viewing", String(n));
+    (blocker ??= blockInput(() => resume())).show(n);
+  }
   const deny = (to, reason) => publish({ type: "travel-denied", to, reason });
   function travel(to) {
     // A question in the air or an action still running is a hold that has not landed: its landing would come
@@ -354,11 +395,13 @@ function getRecorder() {
       const from = viewing ?? flushes;
       view.show(pinsFor(to));
       viewing = to;
-      document.documentElement?.setAttribute("data-rx-viewing", String(to));
-      publish({ type: "step", from, to, direction: to < from ? "back" : "forward", changes: diffValues(valuesAt(from), valuesAt(to)) });
+      readOnly(to);
+      const inexact = inexactAt(to);
+      publish({ type: "step", from, to, direction: to < from ? "back" : "forward", changes: diffValues(valuesAt(from), valuesAt(to)),
+        ...(inexact.length ? { inexact } : {}) });
     } catch (e) {
       // openView throws inside a flush, an effect or an action body (and while another view is open)
-      if (view && viewing === null) { const v = view; view = null; try { v.resume(); } catch {} }
+      if (view && viewing === null) { const v = view; view = null; readOnly(null); try { v.resume(); } catch {} }
       deny(to, "unsupported");
       console.warn("[rx-map] travel failed:", e);
     }
@@ -370,6 +413,7 @@ function getRecorder() {
     view = null;
     viewing = null;
     landing = { view: v, from, records: [] };
+    readOnly(null);
     let done = false;
     try { done = v.resume(); } catch (e) { console.warn("[rx-map] resume failed:", e); done = true; }
     if (done) land();
@@ -390,15 +434,14 @@ function getRecorder() {
   function land() {
     const { from, records } = landing;
     landing = null;
-    document.documentElement?.removeAttribute("data-rx-viewing");
     const head = valuesAt(flushes);
     const now = new Map(), nodes = new Map();
     let at = performance.now();
     for (const r of records) {
       at = r.at ?? at;
       for (const { before, ...c } of r.changes) if (c.key) now.set(c.key, c);
-      for (const { node, prev, value } of r.raw ?? []) {
-        if (!nodes.has(node)) nodes.set(node, { node, prev: shownLast.has(node) ? shownLast.get(node) : prev });
+      for (const { node, name, prev, value } of r.raw ?? []) {
+        if (!nodes.has(node)) nodes.set(node, { node, name, prev: shownLast.has(node) ? shownLast.get(node) : prev });
         nodes.get(node).value = value;
       }
     }
@@ -419,6 +462,11 @@ function getRecorder() {
       const out = { ...c, ...locate(key) };
       delete out.prev;
       if (head.has(key)) out.prev = head.get(key);
+      else {
+        // a first change: the node's own value before, as the timeline last recorded it
+        const own = [...nodes.values()].find(x => x.name === RX + key);
+        if (own && own.prev !== undefined) out.prev = untracked(() => preview(own.prev));
+      }
       changes.push(out);
     }
     // The landing is one new step when something keyed moved; otherwise its records are only the pins coming off.
@@ -483,6 +531,53 @@ function getRecorder() {
   return recording = { listeners, query, snapshot, timeline, travel, resume };
 }
 
+// ---- read-only while viewing ----------------------------------------------------------------------------------------
+// Capture-phase listeners on the window stop pointer and keyboard input before the app (or Solid's delegated
+// handlers) sees it, except in the map, the devtools and the badge, which says why and offers a way back.
+const BLOCKED = ["pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu",
+  "touchstart", "touchend", "keydown", "keyup", "keypress", "beforeinput", "input", "change", "submit", "paste", "cut",
+  "drop", "dragstart"];
+const ALLOWED = "[data-rx-map], [data-rx-viewing-badge], [data-solid-dev-toolbar-root], [data-solid-dev-toolbar]";
+function blockInput(onResume) {
+  const badge = document.createElement("div");
+  badge.setAttribute("data-rx-viewing-badge", "");
+  const shadow = badge.attachShadow({ mode: "open" });
+  shadow.innerHTML = `<style>
+    .b { position: fixed; left: 12px; bottom: 12px; z-index: 2147483647; display: flex; gap: 8px; align-items: center;
+      padding: 5px 6px 5px 10px; border-radius: 999px; font: 500 12px/1.2 system-ui, sans-serif; color: #e2e8f0;
+      background: rgba(15, 23, 42, .88); box-shadow: 0 2px 10px rgba(0, 0, 0, .25); transition: transform .15s }
+    .b.nudge { transform: translateY(-3px) }
+    button { font: inherit; color: #0f172a; background: #e2e8f0; border: 0; border-radius: 999px; padding: 3px 9px; cursor: pointer }
+  </style><div class="b" role="status"><span></span><button type="button">Resume</button></div>`;
+  const box = shadow.querySelector(".b"), label = shadow.querySelector("span");
+  shadow.querySelector("button").addEventListener("click", () => onResume());
+  const allowed = ev => ev.composedPath().some(n => n instanceof Element && n.matches(ALLOWED));
+  let nudged = 0;
+  const stop = ev => {
+    if (allowed(ev)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    if (ev.type === "pointerdown" || ev.type === "keydown") {
+      box.classList.add("nudge");
+      clearTimeout(nudged);
+      nudged = setTimeout(() => box.classList.remove("nudge"), 160);
+    }
+  };
+  for (const t of BLOCKED) window.addEventListener(t, stop, true);
+  // a caret left in an app field would suggest typing works
+  const active = document.activeElement;
+  if (active && active !== document.body && !active.closest?.(ALLOWED)) active.blur?.();
+  document.body.append(badge);
+  return {
+    show(n) { label.textContent = `viewing #${n} — resume to interact`; },
+    off() {
+      for (const t of BLOCKED) window.removeEventListener(t, stop, true);
+      clearTimeout(nudged);
+      badge.remove();
+    },
+  };
+}
+
 function applyPreviews(map, changes) {
   for (const c of changes ?? []) if (c.key) {
     if (c.preview === undefined) map.delete(c.key);
@@ -524,9 +619,10 @@ function listen(post) {
     });
     // The engine's own nodes and what each showed before: what time travel pins.
     const raw = [];
-    for (const body of live?.changes ?? []) {
+    for (let i = 0; i < (live?.changes?.length ?? 0); i++) {
+      const body = live.changes[i];
       if (!body?.node || solid.OBSERVE.isExcluded?.(body.node)) continue;
-      raw.push({ node: body.node, prev: body.prev, value: body.value });
+      raw.push({ node: body.node, name: event.changes[i]?.nodeName, prev: body.prev, value: body.value });
     }
     post({ source: SOURCE, type: "flush", at: event.at, changes, raw });
   };
