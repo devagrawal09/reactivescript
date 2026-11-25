@@ -921,9 +921,17 @@ impl<'p> Gen<'p> {
             }
             let apply = self.stmts(body, inner, &Ctx { imp: true, effect: true, ..Ctx::default() }, true)?;
             // SC-2: the apply reads σ, untracked
+            let mut args = vec![E::Num(inputs.len() as f64), thunk(E::Arr(ins)), arrow(&["$p"], rtc("untrack", vec![arrow_block(vec![], apply, false)]))];
+            // Replay resource/DOM effects normally: they need to install work on the new owner.
+            // A tracked effect that only writes RX state can resume its input comparison.
+            if !inputs.is_empty() && !body.is_empty() && body.iter().all(|s| matches!(&s.k, StmtKind::Write { .. })) {
+                if let Some(key) = self.keys.get(&(d as *const Decl)) {
+                    args.push(str(key));
+                }
+            }
             out.push(sexpr(rtc(
                 "effect",
-                vec![E::Num(inputs.len() as f64), thunk(E::Arr(ins)), arrow(&["$p"], rtc("untrack", vec![arrow_block(vec![], apply, false)]))],
+                args,
             )));
             at(&mut out, n0, d.line());
         }

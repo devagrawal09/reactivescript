@@ -12,7 +12,7 @@
 // $CHROME or Playwright's headless shell.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -38,6 +38,7 @@ try { ({ chromium } = require("playwright")); } catch { die("no playwright: put 
 const args = process.argv.slice(2);
 const shots = args.includes("--shots") ? resolve(args[args.indexOf("--shots") + 1]) : null;
 let ownApp = null; // the app dir this run made (removed at exit); an APP given from outside is left alone
+let linkedRuntime;
 const app = process.env.APP ? resolve(process.env.APP) : setUpApp(resolve(process.env.SOLID_VIEW));
 process.on("exit", () => { if (ownApp) try { rmSync(ownApp, { recursive: true, force: true }); } catch {} });
 const chrome = process.env.CHROME ?? (() => {
@@ -80,6 +81,10 @@ function setUpApp(solidView) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   cpSync(join(here, "shelf-app"), dir, { recursive: true, force: true });
+  linkedRuntime = join(dir, ".runtime");
+  mkdirSync(linkedRuntime);
+  for (const f of ["package.json", "dist"]) cpSync(join(repo, "runtime", f), join(linkedRuntime, f), { recursive: true });
+  pkg.dependencies["@reactivescript/runtime"] = link(linkedRuntime);
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   writeFileSync(join(dir, "pnpm-workspace.yaml"), workspace);
   const r = spawnSync("pnpm", ["install", "--prefer-offline", "--reporter=silent"], { cwd: dir, stdio: ["ignore", "inherit", "inherit"] });
@@ -229,6 +234,7 @@ async function saveRx(page, file, text) {
 try {
   if (args.includes("--hmr-only")) {
     await realHmr();
+    if (linkedRuntime) await runtimeReload();
   } else {
   // ---- conformance -------------------------------------------------------------------------------------------------
   const first = await openApp();
@@ -421,10 +427,34 @@ try {
 
   await roundThree();
   await realHmr();
+  if (linkedRuntime) await runtimeReload();
   }
 } finally {
   await browser.close();
   vite.kill();
+}
+
+async function runtimeReload() {
+  const page = await openApp();
+  const files = ["web.js", "web.dev.js", "server.js", "server.dev.js"];
+  let navigations = 0;
+  page.on("framenavigated", frame => { if (frame === page.mainFrame()) navigations++; });
+  try {
+    const loaded = page.waitForEvent("domcontentloaded", { timeout: 10000 });
+    for (const file of files) {
+      const target = join(linkedRuntime, "dist", file);
+      const next = join(linkedRuntime, `${file}.next`);
+      writeFileSync(next, `${readFileSync(target, "utf8")}\n;globalThis.__RX_TEST_REBUILT_RUNTIME__ = true;\n`);
+      renameSync(next, target);
+    }
+    await loaded;
+    await page.waitForFunction(() => globalThis.__RX_TEST_REBUILT_RUNTIME__ && document.querySelector(".counts"), null, { timeout: 10000 });
+    await mcp("state", { key: "src/App.rx|App|filter" });
+    await sleep(500);
+    assert.equal(navigations, 1);
+    assert.deepEqual(page.errors, []);
+    console.log("ok   a rebuilt linked runtime reloads once and reconnects MCP");
+  } finally { await page.close(); }
 }
 
 async function realHmr() {
@@ -439,6 +469,7 @@ async function realHmr() {
   const originalDraft = readFileSync(draftFile, "utf8");
   const ratesFile = join(app, "src/components/Rates.rx");
   const originalRates = readFileSync(ratesFile, "utf8");
+  const newChild = join(app, "src/components/AddedDuringHmr.rx");
   const rows = join(app, "src/components/Book.rx");
   const originalRows = readFileSync(rows, "utf8");
   let text = 'import { Rates } from "./components/Rates.rx"\n' + original.replace('  source filter:', `  source counter: number := 0
@@ -462,6 +493,7 @@ async function realHmr() {
       source repeated := 20
       <button type="button" data-testid="hmr-reindexed" onClick={() => { repeated := c => c + 1 }}>{repeated}</button>
     }}`);
+  const startText = text;
   const key = name => `src/App.rx|App|${name}`;
   let page;
   try {
@@ -491,6 +523,43 @@ async function realHmr() {
     assert.equal((await mcp("state", { key: ratesKey })).instance, originalRateInstance);
     assert.ok(!comment.done.uncarried?.includes(ratesKey));
     console.log("ok   HMR comment/whitespace save leaves module-level source and owner untouched");
+    const nav = page.url();
+    let navigated = false;
+    const onNavigation = frame => { if (frame === page.mainFrame()) navigated = true; };
+    page.on("framenavigated", onNavigation);
+    try {
+      // Inbox's pagination reset: an unchanged state-writing effect whose
+      // input is equal must not replay just because its component remounted.
+      text = text.replace("  source counter: number := 0", `  source counter: number := 0
+  hmrFilter = { filter: filter }
+      effect (hmrFilter) { counter := 0 }
+  action hmrIncrement() { counter := c => c + 1 }`).replace("onClick={() => { counter := c => c + 1 }}", "onClick={hmrIncrement}");
+      await saveRx(page, filename, text);
+      await btn.click();
+      await shown("counter", "1");
+      const carry = async (label, next, selector, expected) => {
+        const { plan, done } = await saveRx(page, filename, text = next);
+        assert.equal(plan.reasons[key("counter")], "unchanged");
+        assert.ok(!done.uncarried?.includes(key("counter")), JSON.stringify(done.uncarriedReasons));
+        await shown("counter", "1");
+        await page.locator(selector).getByText(expected, { exact: true }).waitFor();
+        assert.equal(page.url(), nav);
+        assert.equal(navigated, false);
+        console.log(`ok   HMR ${label} applies without reloading or resetting a source`);
+      };
+      await carry("text edit", text.replace("<h1>Shelf</h1>", "<h1>My shelf</h1>"), "main", "My shelf");
+      await carry("new source and equation", text.replace("  source counter:", '  source hmrExtra := "new"\n  hmrLabel = hmrExtra + " label"\n  source counter:').replace("<h1>My shelf</h1>", '<h1>My shelf</h1><aside>{hmrLabel}</aside>'), "aside", "new label");
+      await carry("markup structure", text.replace("<aside>", "<section data-hmr-structure=\"true\">").replace("</aside>", "</section>"), "[data-hmr-structure]", "new label");
+      writeFileSync(newChild, "export component AddedDuringHmr() { <p>New child</p> }\n");
+      await carry("new child module", 'import { AddedDuringHmr } from "./components/AddedDuringHmr.rx"\n' + text.replace("<Rates />", "<Rates /><AddedDuringHmr />"), "main", "New child");
+      await carry("action body", text.replace("c => c + 1", "c => c + 2"), "main", "New child");
+      await btn.click();
+      await shown("counter", "3");
+      const reset = await saveRx(page, filename, text.replace("effect (hmrFilter)", "effect (hmrFilter, true)"));
+      await shown("counter", "0");
+      assert.equal(reset.done.uncarriedReasons[key("counter")], "value-mismatch");
+      await saveRx(page, filename, text = startText);
+    } finally { page.off("framenavigated", onNavigation); }
     for (let i = 0; i < 3; i++) await btn.click();
     await shown("counter", "3");
     await page.waitForTimeout(100);
@@ -651,6 +720,7 @@ async function realHmr() {
     writeFileSync(previewFile, originalPreview);
     writeFileSync(draftFile, originalDraft);
     writeFileSync(ratesFile, originalRates);
+    rmSync(newChild, { force: true });
     writeFileSync(rows, originalRows);
   }
 }

@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { LIVE_METHODS, LIVE_PATH, LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, MCP_PATH, matchesKey } from "./live-protocol.mjs";
 import { isEntry } from "./project.mjs";
 import { createMcp } from "./mcp.mjs";
@@ -24,15 +27,43 @@ async function bodyOf(req) {
 
 /** Expose the dev page's read-only recorder at GET/POST /__rx/live. */
 export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {}) {
+  let runtimeFiles = new Set();
   return {
     name: "rx:live",
     apply(_config, env) { return env.command === "serve" && !env.isPreview; },
-    config: () => ({ resolve: { dedupe: ["solid-js", "@solidjs/signals"] } }),
+    config: () => ({
+      resolve: { dedupe: ["solid-js", "@solidjs/signals"] },
+      optimizeDeps: { exclude: ["@reactivescript/runtime"] },
+    }),
+    hotUpdate: {
+      order: "pre",
+      handler({ file }) { if (runtimeFiles.has(file)) return []; },
+    },
     configResolved: allowCoverageSetup,
     configureServer(server) {
       const pages = new Map(), pending = new Map();
       const entries = new Map(), frontends = new Map();
       const root = server.config.root;
+      // A linked runtime lives outside the app watcher. It isn't a keyed RX
+      // module: invalidate its old transforms and reload once as a batch.
+      let runtimeTimer;
+      try {
+        const req = createRequire(join(root, "package.json"));
+        const dist = dirname(realpathSync(req.resolve("@reactivescript/runtime/web")));
+        runtimeFiles = new Set(["web.js", "web.dev.js", "server.js", "server.dev.js"].map(name => join(dist, name)));
+        server.watcher.add(dirname(dist));
+      } catch { /* no local runtime package */ }
+      const runtimeChange = (event, file) => {
+        if (!runtimeFiles.has(file) || !["add", "change", "unlink"].includes(event)) return;
+        clearTimeout(runtimeTimer);
+        runtimeTimer = setTimeout(() => {
+          if (![...runtimeFiles].every(existsSync)) return; // an unlink is not a completed build
+          for (const env of Object.values(server.environments)) for (const f of runtimeFiles)
+            for (const mod of env.moduleGraph.getModulesByFile(f) ?? []) env.moduleGraph.invalidateModule(mod);
+          server.environments.client.hot.send({ type: "full-reload", path: "*" });
+        }, 150);
+      };
+      server.watcher.on("all", runtimeChange);
       // the builds this server runs on: a rebuild on disk is announced first by check and overview
       const loaded = captureRevisions(root);
       // what Vite's dev import analysis does with an import of a served module
@@ -45,6 +76,11 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
       const hub = {
         send: (event, data) => server.environments.client.hot.send({ type: "custom", event, data }),
         modules: file => server.environments.client.moduleGraph.getModulesByFile(file),
+        invalidate: modules => {
+          const graph = server.environments.client.moduleGraph;
+          const seen = new Set(), timestamp = Date.now();
+          for (const mod of modules) graph.invalidateModule(mod, seen, timestamp, true);
+        },
       };
       hmr.set(root, hub);
       let app;
@@ -67,6 +103,8 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
       hooks.set(root, register);
       server.httpServer?.once("close", () => {
         clearTimeout(warm);
+        clearTimeout(runtimeTimer);
+        server.watcher.off("all", runtimeChange);
         if (hooks.get(root) === register) hooks.delete(root);
         if (hmr.get(root) === hub) hmr.delete(root);
       });
