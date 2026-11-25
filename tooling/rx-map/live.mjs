@@ -152,6 +152,7 @@ function getRecorder() {
   // The timeline: one step per flush, `capacity` of them (TRACE-CONTRACT §4). Beside each step, the engine nodes it
   // changed and what each showed before, which is what travel pins (Solid's openView).
   const capacity = Math.max(1, Math.floor(globalThis.__RX_TIMELINE_CAPACITY__ ?? 2000));
+  let guessesNamed = false; // this Solid's records name the store properties a guess moved
   const steps = new Array(capacity), raws = new Array(capacity), guesses = new Array(capacity), internals = new Array(capacity);
   const base = new Map(); // previews as of just before the oldest step kept
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
@@ -247,8 +248,12 @@ function getRecorder() {
     steps[i] = step;
     raws[i] = raw;
     internals[i] = internal;
-    // Solid records a store guess on the store's guess carrier (`<store>.$guess`), not on the property nodes it moves
-    guesses[i] = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
+    // A store guess shows through the store's guess carrier (`<store>.$guess`). Solid with the store-guess record
+    // (f9ee22ade) also lists the property and presence nodes it moved, which travel pins like any other; an older
+    // Solid lists only the carrier, and pins can't take the store back past that guess.
+    const carriers = changes.filter(c => c.key && c.name?.endsWith(".$guess")).map(c => c.key);
+    for (const k of carriers) if (changes.some(c => c.key === k && c.path !== undefined && !c.name?.endsWith(".$guess"))) guessesNamed = true;
+    guesses[i] = carriers;
     const record = addRecord({ type: "flush", at, changes }, internal);
     for (const c of changes) if (c.key) {
       if (c.preview !== undefined) latest.set(c.key, c);
@@ -433,9 +438,10 @@ function getRecorder() {
     for (let s = oldest(); s <= n; s++) applyPreviews(m, steps[(s - 1) % capacity].changes);
     return m;
   }
-  // Keys travel can't show exactly at n: a store guessed after n (and what reads it), since its pins can't take the
-  // store's property nodes back past the guess (Solid records the guess on the carrier only).
+  // Keys travel can't show exactly at n: on a Solid whose records name only a store guess's carrier, a store guessed
+  // after n (and what reads it). Once a guess's record has named its properties, this Solid has none.
   function inexactAt(n) {
+    if (guessesNamed) return [];
     const roots = new Set();
     for (let s = n + 1; s <= flushes; s++) for (const k of guesses[(s - 1) % capacity] ?? []) roots.add(k);
     if (!roots.size) return [];
