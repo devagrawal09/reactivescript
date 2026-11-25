@@ -168,6 +168,8 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   fn identity<T>(value: T): T`, and private `type` or `interface`
   declarations for types used in the file. In a JS declaration,
   `rejects(A, B)` names the same rejection row as `rejects(A | B)`.
+  A value parameter may be optional, as in `export pure fn label(x?: string): string`.
+  This affects its TypeScript call signature only; it supplies no default.
 - **MO-8b.** With a declaration file, the file is the row, as a signature is
   for an `.rx` import (MO-4a): an import that names an undeclared export is
   `NOT_EXPORTED`; `pure` on the import must agree (`IMPORT_ROW_MISMATCH`

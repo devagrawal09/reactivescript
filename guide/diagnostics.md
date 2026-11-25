@@ -285,6 +285,12 @@ by then it may have changed (a rename accepted), be somewhere else (an earlier m
 action still holds, so the screen loses the edit or shows the row twice. When the answer doesn't say where a row is now
 (a move answers only where it went), re-ask the answers it left and joined with `refresh`.
 
+Even `let id = entry.id` inside the action is still a projection of the row under AC-1g. If the id
+identifies what the user asked for, pass just that primitive from the handler: change
+`finish(entry)` to `finish(entry.id)` and `action finish(entry: Entry)` to `action finish(id: string)`
+(or `number`, if that's the id type). Use `id` to find the current row inside the functional write;
+don't carry the displayed row or its fields into the answer.
+
 ```rx before
 type Card = { id: number; title: string }
 export default component App() {
