@@ -10,8 +10,10 @@
 // releases it. A held request is named by its **site** (the question memo or the action await that issued it, from the
 // leg's wire-id map) and its call number per site, counting the calls the document render made (one-based).
 //
-// After each step the harness waits until nothing is in transit to the leg server and the page is quiet (the frame,
-// the frames seen and the request count unchanged over five 20 ms page turns). Each run writes, per step:
+// After each step the harness waits until nothing is in flight (every fetch the page issued reached the proxy and was
+// answered or held; every released response reached the page in full) and nothing is queued in the page (short timers,
+// idle callbacks, dynamic imports), and then the page is quiet (the frame, the frames seen and the request count
+// unchanged over five 20 ms page turns): `settle`. Each run writes, per step:
 //   (a) the frame: `#app`'s text, script and template contents excluded (slice 5's definition), and every distinct
 //       frame a MutationObserver saw during the step;
 //   (b) the client request log: site, call, wire id, args, outcome (`ok` or `error`: the response's
@@ -28,6 +30,7 @@ import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseSync } from 'oxc-parser/src-js/index';
 import { compileModule, type Compiled } from './compile.ts';
 // @ts-ignore: a plain .mjs helper shared with the leg servers
 import { hostModule } from './host-table.mjs';
@@ -155,7 +158,13 @@ IMPORTS.dev = {
  *  every element the client creates through createElement/cloneNode/importNode is marked; parsed ones never are), the
  *  frame, the frames-seen observer, and the clickables. */
 const PRELUDE = `window.__framesConsole=[];for(const level of ['error','warn']){const f=console[level];console[level]=function(...a){window.__framesConsole.push(level+': '+a.map(x=>x instanceof Error?x.name+': '+x.message:typeof x==='string'?x:String(x)).join(' '));return f.apply(this,a)}}
-(()=>{const f=window.fetch;let n=0;window.fetch=function(input,init){init=Object.assign({},init);const h=new Headers(init.headers||(input instanceof Request?input.headers:undefined));h.set('x-frames-seq',String(++n));init.headers=h;return f.call(this,input,init)}})();
+(()=>{const f=window.fetch;let n=0;const got=new Set();window.__framesNet=()=>({issued:n,got:[...got]});window.fetch=function(input,init){init=Object.assign({},init);const h=new Headers(init.headers||(input instanceof Request?input.headers:undefined));const seq=++n;h.set('x-frames-seq',String(seq));init.headers=h;const p=f.call(this,input,init);const done=()=>{got.add(seq)};p.then(r=>r.clone().arrayBuffer().then(done,done),done);return p}})();
+(()=>{const st=window.setTimeout,ct=window.clearTimeout,pending=new Map();window.__framesSetTimeout=st.bind(window);
+window.setTimeout=function(fn,ms,...a){let id;id=st.call(window,(...b)=>{pending.delete(id);if(typeof fn==='function')return fn(...b)},ms,...a);if(!(Number(ms)>1000))pending.set(id,1);return id};
+window.clearTimeout=function(id){pending.delete(id);return ct.call(window,id)};
+if(window.requestIdleCallback){const ri=window.requestIdleCallback,ci=window.cancelIdleCallback,idle=new Set();window.requestIdleCallback=function(fn,o){let id;id=ri.call(window,d=>{idle.delete(id);return fn(d)},o);idle.add(id);return id};window.cancelIdleCallback=function(id){idle.delete(id);return ci.call(window,id)};window.__framesIdle=()=>idle.size}
+window.__framesImports=0;window.__framesImport=(s,base)=>{window.__framesImports++;const spec=typeof s==='string'&&/^\\.\\.?\\//.test(s)?new URL(s,base).href:s;return import(spec).finally(()=>{window.__framesImports--})};
+window.__framesPending=()=>pending.size+(window.__framesIdle?window.__framesIdle():0)+window.__framesImports})();
 (()=>{const mark=n=>{if(n&&n.nodeType===1){n.__fresh=1;for(const c of n.querySelectorAll('*'))c.__fresh=1}else if(n&&n.nodeType===11)for(const c of n.querySelectorAll('*'))c.__fresh=1;return n};
 const ce=Document.prototype.createElement;Document.prototype.createElement=function(...a){return mark(ce.apply(this,a))};
 const cn=Node.prototype.cloneNode;Node.prototype.cloneNode=function(...a){return mark(cn.apply(this,a))};
@@ -167,6 +176,32 @@ window.__framesClickables=()=>{const root=document.getElementById('app');return 
 window.__framesTargets=()=>{const root=document.getElementById('app');const t=window.__framesText;const info=window.__framesClickables().map(e=>({text:t(e),parent:e.parentElement&&e.parentElement!==root?t(e.parentElement):undefined}));
 return info.map(c=>Object.assign({text:c.text},c.parent===undefined?{}:{parent:c.parent},{index:info.filter(d=>d.text===c.text&&d.parent===c.parent).indexOf(c)}))};
 window.__framesClick=t=>{const root=document.getElementById('app');const f=window.__framesText;const el=window.__framesClickables().filter(e=>f(e)===t.text&&(t.parent===undefined||(e.parentElement&&e.parentElement!==root&&f(e.parentElement)===t.parent)))[t.index];if(!el)return 'no clickable '+JSON.stringify(t);el.click();return null};`;
+
+/** Every dynamic `import(x)` of a served module becomes `__framesImport(x, import.meta.url)` (the prelude): the same
+ *  import, resolved the same way (a relative specifier against the importing module), counted while pending, so a step
+ *  is not over while a module Solid loads lazily is still loading (settle). Solid's server-function client loads
+ *  `@solidjs/web/serialization/decode` on its first decode, the frames client its tiers. */
+const countedImports = new Map<string, string>();
+function countImports(path: string, code: string): string {
+  const key = createHash('sha256').update(code).digest('hex');
+  let out = countedImports.get(key);
+  if (out !== undefined) return out;
+  const edits: { at: number; end: number; text: string }[] = [];
+  const walk = (n: any) => {
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    if (!n || typeof n !== 'object') return;
+    if (n.type === 'ImportExpression') {
+      if (n.options) throw new Error('an import() with options in ' + path);
+      edits.push({ at: n.start, end: n.source.start, text: '__framesImport(' }, { at: n.end - 1, end: n.end - 1, text: ', import.meta.url' });
+    }
+    for (const v of Object.values(n)) if (v && typeof v === 'object') walk(v);
+  };
+  if (code.includes('import(')) walk(parseSync(path, code, { sourceType: 'module' }).program);
+  out = code;
+  for (const e of edits.sort((a, b) => b.at - a.at)) out = out.slice(0, e.at) + e.text + out.slice(e.end);
+  countedImports.set(key, out);
+  return out;
+}
 
 function entryModule(entry: string): string {
   // `onHydrationEnd` (solid-js) fires when hydration is complete page-wide, which for an adopted server component
@@ -241,7 +276,9 @@ export async function runLeg(leg: LegServer, b: Built, entry: string, opts: RunO
       while (queued.has(nextSeq)) { const run = queued.get(nextSeq)!; queued.delete(nextSeq); nextSeq++; await run(); }
     } finally { pumping = false; }
   };
+  let received = 0;
   const forward = (req: IncomingMessage, res: ServerResponse) => {
+    received++;
     const seq = Number(req.headers['x-frames-seq']);
     const step = currentStep;
     const chunks: Buffer[] = [];
@@ -305,7 +342,7 @@ export async function runLeg(leg: LegServer, b: Built, entry: string, opts: RunO
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
     const send = (type: string, body: string | Buffer) => {
-      if (type === 'text/javascript') modules.push({ url: url.pathname, text: body.toString() });
+      if (type === 'text/javascript') { modules.push({ url: url.pathname, text: body.toString() }); body = countImports(url.pathname, body.toString()); }
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body);
     };
     if (url.pathname === '/favicon.ico') { res.writeHead(204); res.end(); return; }
@@ -358,12 +395,24 @@ export async function runLeg(leg: LegServer, b: Built, entry: string, opts: RunO
   const steps: Step[] = [], frames: string[] = [], seen: string[][] = [], dom: string[] = [], hosts: HostRow[] = [];
   let hostsSeen = 0;
   const frame = (): Promise<string> => page.evaluate(() => (window as any).__framesFrame());
+  // A step is over when the page has nothing left in flight and nothing queued, and then stays quiet. In flight: a
+  // fetch the page issued that has not reached the proxy (`issued` vs `received`), a request the proxy has not answered
+  // or held (`transit`), and a released response the page has not received in full (the prelude reads a clone of every
+  // response to its end). Queued: the page's pending timers of at most 1 s, idle callbacks and dynamic imports (the
+  // prelude counts them; Solid's frames client mounts deferred occurrences in idle slices, hydration ends in a timer,
+  // the first decode of a server function's response imports its decoder: countImports). Only then do five
+  // quiet 20 ms turns (the frame, the frames seen and the request count unchanged) end the step. Without the first
+  // part, a response the proxy had released could reach the page after the quiet turns, and the step recorded the
+  // frame before it (docs/PIN-MAIN-FRONTEND.md, "Frames tests timing").
   const settle = async () => {
     let last = '', stable = 0;
     for (let i = 0; i < 500 && stable < 5; i++) {
-      await page.evaluate(() => new Promise(r => setTimeout(r, 20)));
-      const now = JSON.stringify([transit, arrived, await page.evaluate(() => (window as any).__framesSeen)]);
-      stable = transit === 0 && now === last ? stable + 1 : 0;
+      await page.evaluate(() => new Promise(r => (window as any).__framesSetTimeout(r, 20)));
+      const p = await page.evaluate(() => ({ net: (window as any).__framesNet(), pending: (window as any).__framesPending(), seen: (window as any).__framesSeen }));
+      const got = new Set<number>(p.net.got);
+      const busy = transit !== 0 || p.net.issued !== received || p.pending !== 0 || held.some(h => h.released && !got.has(h.seq));
+      const now = JSON.stringify([transit, arrived, p.seen]);
+      stable = !busy && now === last ? stable + 1 : 0;
       last = now;
     }
     if (stable < 5) problems.push('the page did not settle');

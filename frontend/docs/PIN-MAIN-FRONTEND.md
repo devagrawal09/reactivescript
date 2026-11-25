@@ -173,3 +173,55 @@ Failing now on the Rust leg only:
   counts.
 - The repository root's `README.md` and `docs/HANDOFF.md` (outside `frontend/`, not edited here) still state rc.21
   numbers: 12 upstream tsc diagnostics, fuzz 179 + 21, plan/eval/SSR 85 + 15, the S-store-8 note.
+
+## Frames tests timing
+
+The browser frames tests (`slices/tracker-frames.test.ts`, `plan/frames.test.ts`, the placement fuzz) failed
+intermittently after the move, the native T and N legs included. Cause: **(a), a race in the harness's step detection**
+(`frames/harness.ts` `settle`), not nondeterminism in Solid main. It is present at the old pins too. This machine's load
+exposes it: a shared 20-core host at load average 17–54 while the other agents worked. The old baseline (147–149/149)
+was measured under less load.
+
+**The race.** A step ended after five quiet 20 ms page turns: frame, frames seen and request count unchanged, nothing in
+transit inside the proxy. Two kinds of page work were invisible to that test:
+
+1. A response the proxy had just released, still on its way to the page. Instrumented runs (page timestamps of fetch,
+   response, body and frame mutations, drained after each step) caught failing steps where the released response
+   reached the page 5 ms and 102 ms *after* settle had ended. The step had recorded the frame from before the response:
+   `step 15: frame "…Assigned #3 to me", expected "…Could not assign #2"`, and `step 9: open#2 is not a held request`
+   (the response's follow-up requests came after the step).
+2. Modules Solid imports lazily. The server-function client `import()`s `@solidjs/web/serialization/decode` (and through
+   it seroval's chunks) when it first decodes a response, and the frames client loads its tiers the same way. With only
+   (1) fixed, the remaining failures were all step 15. The harness server's log shows `decode.js`, seroval and
+   `validator.js` served 73–93 ms before settle ended: the graph was still loading when the step was recorded.
+
+**The fix** (`frames/harness.ts`): settle first requires that nothing is in flight or queued, then the same five quiet
+turns.
+- Every fetch the page issued has reached the proxy: the prelude counts issued fetches, the proxy counts received ones.
+- No request is in transit in the proxy (as before).
+- Every released response has reached the page in full: the prelude reads a clone of each response to its end.
+- The page has no pending timer of at most 1 s, no pending idle callback and no pending dynamic import. The prelude
+  counts timers and idle callbacks. Every `import(x)` in a served module is rewritten, through oxc's AST, to
+  `__framesImport(x, import.meta.url)`: the same import, resolved against the same module, counted until it settles.
+  G4 still checks the modules as served by Solid's dist.
+
+Nothing compared changed: the same frames, frames seen, requests, host logs, DOM and wire records. There are no retries
+and no longer sleeps. A page that never settles still fails ("the page did not settle").
+
+**Rates** (Chrome, `RUST_*` set as the gate does, load average per run in parentheses where recorded):
+
+| Run | Original harness | Fixed harness |
+| --- | --- | --- |
+| `slices/tracker-frames.test.ts` alone ×20, new pins | 6/20 runs fail (8 test failures) | 0/20 (load 11–26) |
+| tracker-frames + `plan/frames.test.ts` + `ssr/*.test.ts` ×10, new pins | 7/10 runs fail (20 test failures) | 0/10 (load 17–33) |
+| placement fuzz 1–100 `--jobs 4 --rust` ×3, new pins | extra divergent seeds in 1 of 3 runs (17, 21) | only seed 19, the listed one, in 3 of 3 |
+| tracker-frames alone, CPU throttled ×4 and ×8 (`FRAMES_CPU_THROTTLE`), load 10–36 | 4/4 runs fail | 0/4 |
+| full suite (149 tests) | 3 and 5 failures (lead's two runs) | 149/149 (load 25) |
+| old pins (rc.21 / fdbcad92 frontend), tracker-frames alone ×20 | 15/20 runs fail | — |
+| old pins, the three-file combination ×10 | 4/10 runs fail (18 test failures) | 9/10; the one failure is an ssr-async server-leg timeout (load 25), no frames test (load 25–43) |
+| old pins, placement fuzz ×3 | 1, 7 and about 25 extra divergent seeds | — |
+
+Fixing only (1) gave the new pins 0/20 alone and 0/10 combined at first. Later, under load 18–34, the combination failed
+in 2 of 10 runs, all at step 15. The old pins under load 27–54 failed in 6 of 10. Both are cause (2), which the final
+fix covers. The old-pin rows ran the old frontend copy against its rc.21 build and old rust-solid binaries, with the
+same harness changes applied.
