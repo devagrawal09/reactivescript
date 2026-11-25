@@ -1,20 +1,20 @@
 # The map, as an RX program
 
-`map.html`'s page rewritten in ReactiveScript. RX owns the state and the views; small JS modules own the imperative
-parts and the math. Plan: `rx-vision/MAP-IN-RX.md`. Same DOM contract (ids, classes, data attributes, messages) as
-`map.html`, so the harness tests are the acceptance tests.
+The map page, written in ReactiveScript (until the cut-over it was `map.html`, vanilla JS). RX owns the state and
+the views; small JS modules own the imperative parts and the math. Plan: `rx-vision/MAP-IN-RX.md`. It kept
+`map.html`'s DOM contract (ids, classes, data attributes, messages), which the harness tests check.
 
 ```sh
-node app/build.mjs                 # app/page.mjs: pageHTML(graph, { live, fake }), as ../page.mjs
-MAP_PAGE=app node test/run.mjs     # the harnesses against it
-node test/shots.mjs /tmp/shots     # vanilla vs RX screenshots, side by side (index.html)
+npm run build                      # page.mjs: pageHTML(graph, { live, fake })
+node test/run.mjs                  # the harnesses
+node test/shots.mjs /tmp/shots     # screenshots of every scenario (BEFORE=<older page.mjs> side by side)
 ```
 
 ## Build
 
-`build.mjs` compiles `main.rx` with the compiler's Node-API `app()`, bundles it (esbuild, from `ref/node_modules`)
+`../build.mjs` compiles `main.rx` with the compiler's Node-API `app()`, bundles it (esbuild, from `ref/node_modules`)
 with Solid's dists and `@reactivescript/runtime` into one IIFE (`boot.js` is the entry), and puts it and `map.css`
-into `shell.html`. `app/page.mjs` is generated and not committed until the cut-over.
+into `shell.html`, and writes `../page.mjs` (generated, committed).
 
 ## Modules
 

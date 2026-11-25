@@ -3,7 +3,6 @@
 //
 //   node test/run.mjs                 # live.html (made-up messages) and engine.html (a real Solid dev build)
 //   node test/run.mjs --shots <dir>   # also writes screenshots of the lit map
-//   MAP_PAGE=app node test/run.mjs   # test the RX page (build it with node app/build.mjs first)
 //
 // Needs `rxc` (as for the CLI: $RXC, compiler/target/{release,debug}/rxc, PATH) and a Chromium: $CHROME, else
 // Playwright's headless shell. engine.html needs Solid's built dev dists: $SOLID_PACKAGES (a solid checkout's
@@ -21,8 +20,7 @@ const here = fileURLToPath(new URL("..", import.meta.url));
 const repo = resolve(here, "../..");
 const args = process.argv.slice(2);
 const shots = args.includes("--shots") ? resolve(args[args.indexOf("--shots") + 1]) : null;
-const pageModule = process.env.MAP_PAGE === "app" ? "app/page.mjs" : "page.mjs";
-console.log(`testing ${pageModule}`);
+
 
 const rxc = process.env.RXC ?? [resolve(repo, "compiler/target/release/rxc"), resolve(repo, "compiler/target/debug/rxc")].find(existsSync) ?? "rxc";
 const chrome = process.env.CHROME ?? (() => {
@@ -46,7 +44,7 @@ const server = createServer((req, res) => {
     return res.writeHead(200, { "content-type": TYPES[".js"] }).end(stripTypeScriptTypes(ts));
   }
   const [root, path] = url.pathname.startsWith("/solid/") ? [solid, url.pathname.slice(7)]
-    : [here, url.pathname === "/page.mjs" ? pageModule : url.pathname.slice(1)];
+    : [here, url.pathname.slice(1)];
   const file = resolve(root, path);
   if (!file.startsWith(root) || !existsSync(file)) return res.writeHead(404).end();
   res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream" }).end(readFileSync(file));

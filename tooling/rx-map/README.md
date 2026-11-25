@@ -137,7 +137,7 @@ their plate with a cast shadow, and edges run on the plate surface.
   The detail level is drawn at one scale (`METRICS.zoom`, 1.85×) inside its boxes, so its smallest text (view sites and
   view text) reads at 11 px on screen right where it comes in; going back to the overview waits until below 45 %, so a
   zoom resting at the threshold doesn't flicker. Double-click a module's card to fly into it.
-- **`layout.mjs`** is the layout as a pure module (no DOM), shared with the page (build.mjs embeds it) and anything else
+- **`layout.mjs`** is the layout as a pure module (no DOM), shared with the page (the page's program imports it; build.mjs bundles it) and anything else
   that draws the map:
 
   ```js
@@ -307,11 +307,30 @@ What it shows:
   tokens glint, reset ones flip, re-run ones spin, removed ones sink; then the new graph is swapped in and each token
   slides to its new place.
 
-`page.mjs` is generated from `map.html`: run `npm run build` after editing the page. `npm test` checks that it is
-current and runs the live harnesses (`test/live.html`, with made-up flush, flight, timeline, step, resume and hmr
+The page is a ReactiveScript program, `app/` (`app/README.md`: its modules, and the JS modules that do the camera,
+geometry, effects, sound and the live reducer). `page.mjs` is generated from it: `npm run build` compiles `app/main.rx`
+with this repository's compiler, bundles it with its own copy of Solid and `@reactivescript/runtime` and the CSS into
+one self-contained page (esbuild, a build-time dependency taken from `ref/node_modules`; the package itself has no
+runtime dependencies), and writes it into `page.mjs`. Run it after editing anything under `app/`.
+
+`page.mjs` is committed (consumers that link this package use it as is) and is built from exactly these inputs; its
+second line names their versions, and `npm run build -- --check` fails when any of them would change it:
+
+- `app/` (the `.rx` modules, `app/js/*.js`, `map.css`, `shell.html`, `boot.js`), and `layout.mjs`, `fake.mjs`,
+  `hmr.mjs` from this package;
+- the compiler's Node-API binding in `compiler/` (`compiler.<platform>.node`, built from this repository's
+  `compiler/` with `npm run build` there): the `.rx` is compiled with it;
+- `runtime/dist` (`@reactivescript/runtime`, built with `node runtime/build.mjs`);
+- Solid's built dists, `solid-js` (`dist/solid.js`, `dist/internal.js`), `@solidjs/web` (`dist/web.js`) and
+  `@solidjs/signals` (`dist/prod/index.js`), from the packages `ref/node_modules/solid-js` resolves to (the pinned
+  Solid, `ref/SOLID_NEXT`); `RX_SOLID=<a Solid checkout's packages dir>` overrides it;
+- esbuild from `ref/node_modules` (a build-time dependency only), minifying.
+
+`npm test` checks that `page.mjs` is current and runs the live harnesses (`test/live.html`, with made-up flush, flight, timeline, step, resume and hmr
 messages, `test/fake.html`, which drives the in-page fake host and checks the page against it and runs the
 conformance suite in the browser, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
-saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
+saves a screenshot, and `node test/shots.mjs <dir>` shoots every scenario (static, diff, live, fake, travel, hmr,
+failures, held, pop-out, big) at 1440x900 and 1440x360 (`BEFORE=<an older page.mjs>` puts it beside them). Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
 
 `./conformance` has `runConformance(makeHost, graphs)` for a host whose calls return at once (the fake) and

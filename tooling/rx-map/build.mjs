@@ -1,35 +1,93 @@
 #!/usr/bin/env node
-// Writes page.mjs: map.html as a string in a module, so the page can be made in Node (the CLI, a Vite plugin) and in
-// the browser (./live). map.html is the source; page.mjs is generated and committed.
+// Builds the map page from its .rx program (app/): compiles app/main.rx with this repository's compiler (Node-API
+// `app()`), bundles it with its own copy of Solid 2 and @reactivescript/runtime (esbuild, a dev-only dependency) and
+// the CSS into one self-contained HTML page, and writes it as a string in page.mjs, which exports
+// `pageHTML(graph, opts)`. page.mjs is generated and committed: the package ships it and has no runtime dependencies.
 //
-//   node build.mjs           # write page.mjs
-//   node build.mjs --check   # fail if page.mjs is not what map.html gives
-import { readFileSync, writeFileSync } from "node:fs";
+//   node build.mjs            # write page.mjs
+//   node build.mjs --check    # fail if page.mjs is not what the sources give
+//   node build.mjs --html <graph.json> <out.html> [--live] [--fake <seed>]   # also write one page, for a look
+//
+// Where things come from: the compiler's binding (compiler/index.js), esbuild and Solid from ref/node_modules (Solid's
+// built dists, pinned below: the packages' own exports would pull Solid's TypeScript sources in), the runtime from
+// runtime/dist. `RX_SOLID` overrides the Solid packages dir (a checkout's `packages`).
+import { readFileSync, writeFileSync, existsSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const here = new URL(".", import.meta.url);
-let html = readFileSync(new URL("map.html", here), "utf8");
-for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "/*__FAKELIB__*/null", "/*__LAYOUTLIB__*/null", "<!--__TITLE__-->"])
-  if (!html.includes(p)) throw new Error(`map.html lost its ${p} placeholder`);
+const here = path.dirname(fileURLToPath(import.meta.url));   // the package
+const src = path.join(here, "app");                          // the program
+const repo = path.resolve(here, "../..");
+const refReq = createRequire(path.join(repo, "ref/package.json"));
+const esbuild = refReq("esbuild");
+const { app } = createRequire(path.join(repo, "compiler/package.json"))("./index.js");
+const solidPkgs = process.env.RX_SOLID ?? path.dirname(realpathSync(path.join(repo, "ref/node_modules/solid-js")));
+const PIN = {
+  "solid-js": "solid/dist/solid.js",
+  "solid-js/internal": "solid/dist/internal.js",
+  "@solidjs/web": "web/dist/web.js",
+  "@solidjs/signals": "signals/dist/prod/index.js",
+};
+for (const f of Object.values(PIN)) if (!existsSync(path.join(solidPkgs, f))) throw new Error(`no Solid build at ${path.join(solidPkgs, f)} (set RX_SOLID to a Solid checkout's packages dir)`);
 
-// The fake host (fake.mjs and the planner it uses, hmr.mjs) goes into the page as one closure, so a page can run it
-// itself (`?fake=<seed>`, or `pageHTML(graph, { fake })`): imports and exports dropped, the Node-only CLI cut off.
-const strip = src => src.replace(/^import\b[^;]*;[ \t]*$/gm, "").replace(/^export (?=(?:async )?function|const|let|class)/gm, "");
-const hmrSrc = readFileSync(createRequire(import.meta.url).resolve("@reactivescript/compiler/hmr"), "utf8");
-let fakeSrc = readFileSync(new URL("fake.mjs", here), "utf8");
-const cli = fakeSrc.indexOf("\nfunction isCli()");
-if (cli < 0) throw new Error("fake.mjs: cannot find where its CLI starts (function isCli)");
-fakeSrc = fakeSrc.slice(0, cli);
-const lib = `(() => {\n// ---- hmr.mjs\n${strip(hmrSrc)}\n// ---- fake.mjs\n${strip(fakeSrc)}\nreturn { createFakeHost, planHmr, preview };\n})()`;
-if (/<\/script|<!--|<script/i.test(lib)) throw new Error("fake.mjs / hmr.mjs contain text that would end the page's script");
-html = html.replace("/*__FAKELIB__*/null", () => lib);
-// The layout (layout.mjs) the same way: the page and the RX map share one module
-const layoutSrc = readFileSync(new URL("layout.mjs", here), "utf8");
-const layoutLib = `(() => {\n// ---- layout.mjs\n${strip(layoutSrc)}\nreturn { analyze, layoutWorld, planTrunks, channels, orderBands, tokenSize, levelFor, levelThresholds, LEVELS, METRICS, kindOf, CTL, ORDER, SHAPE };\n})()`;
-if (/<\/script|<!--|<script/i.test(layoutLib)) throw new Error("layout.mjs contains text that would end the page's script");
-html = html.replace("/*__LAYOUTLIB__*/null", () => layoutLib);
+const entry = path.join(src, "main.rx");
+const out = JSON.parse(app(entry, "dom", null, true, false));
+if (out.diagnostics) {
+  for (const d of out.diagnostics) console.error(`${d.file}:${d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : d.line}: error ${d.code} [${d.rule}] ${d.msg}`);
+  process.exit(1);
+}
+if (out.error) { console.error(out.error); process.exit(1); }
+const mods = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
 
-const out = `// Generated from map.html by build.mjs (\`npm run build\`). Edit map.html, not this file.
+// fake.mjs (the fake host, without its Node-only CLI) and hmr.mjs, as one module the page imports
+const fakeSrc = (() => {
+  const s = readFileSync(path.join(here, "fake.mjs"), "utf8");
+  const cli = s.indexOf("\nfunction isCli()");
+  if (cli < 0) throw new Error("fake.mjs: cannot find where its CLI starts (function isCli)");
+  return s.slice(0, cli);
+})();
+
+const res = await esbuild.build({
+  stdin: { contents: readFileSync(path.join(src, "boot.js"), "utf8"), resolveDir: src, sourcefile: "boot.js", loader: "js" },
+  bundle: true, write: false, format: "iife", platform: "browser", target: "es2022",
+  minify: !process.argv.includes("--no-minify"), legalComments: "none", charset: "utf8",
+  alias: { "@reactivescript/runtime": path.join(repo, "runtime/dist/web.js") },
+  logLevel: "error",
+  plugins: [{
+    name: "rx-map",
+    setup(b) {
+      b.onResolve({ filter: /^(solid-js|solid-js\/internal|@solidjs\/web|@solidjs\/signals)$/ }, a => ({ path: path.join(solidPkgs, PIN[a.path]) }));
+      b.onResolve({ filter: /\.rx$/ }, a => ({ path: path.resolve(a.resolveDir, a.path), namespace: "rx" }));
+      b.onLoad({ filter: /.*/, namespace: "rx" }, a => {
+        const m = mods[a.path];
+        if (!m) throw new Error(`${a.path}: not in the compiled program`);
+        return { contents: m.code, loader: "js", resolveDir: path.dirname(a.path) };
+      });
+      b.onResolve({ filter: /^rx-map:fake$/ }, () => ({ path: path.join(here, "fake.mjs"), namespace: "fake" }));
+      b.onLoad({ filter: /.*/, namespace: "fake" }, () => ({ contents: fakeSrc, loader: "js", resolveDir: here }));
+    },
+  }],
+});
+const js = res.outputFiles[0].text;
+const css = readFileSync(path.join(src, "map.css"), "utf8") + Object.values(mods).map(m => m.css ?? "").join("\n");
+if (/<\/script/i.test(js)) throw new Error("the bundle contains </script");
+if (/<\/style/i.test(css)) throw new Error("the CSS contains </style");
+
+let html = readFileSync(path.join(src, "shell.html"), "utf8").replace("/*__CSS__*/", () => css).replace("/*__JS__*/", () => js);
+for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "<!--__TITLE__-->"])
+  if (!html.includes(p)) throw new Error(`shell.html lost its ${p} placeholder`);
+
+// what the page was built from: a change to any of these makes page.mjs stale (`--check` fails), so rebuild
+const version = p => JSON.parse(readFileSync(p, "utf8")).version;
+const inputs = [
+  `@reactivescript/compiler ${version(path.join(repo, "compiler/package.json"))} (Node-API binding)`,
+  `@reactivescript/runtime ${version(path.join(repo, "runtime/package.json"))} (runtime/dist)`,
+  `solid-js ${version(path.join(solidPkgs, "solid/package.json"))}, @solidjs/web ${version(path.join(solidPkgs, "web/package.json"))}, @solidjs/signals ${version(path.join(solidPkgs, "signals/package.json"))} (dists)`,
+  `esbuild ${version(refReq.resolve("esbuild/package.json"))}`,
+].join("; ");
+const page = `// Generated from app/ (main.rx and its modules) by build.mjs (npm run build). Edit the sources, not this file.
+// Built with: ${inputs}.
 const HTML = ${JSON.stringify(html)};
 
 const esc = s => String(s).replace(/[<&]/g, c => (c === "<" ? "&lt;" : "&amp;"));
@@ -48,14 +106,22 @@ export function pageHTML(graph, { live = false, fake = null } = {}) {
     .replace("/*__GRAPH__*/null", () => JSON.stringify(graph).replace(/</g, "\\\\u003c"));
 }
 `;
-
-const target = new URL("page.mjs", here);
-if (process.argv.includes("--check")) {
+const target = path.join(here, "page.mjs");
+const args = process.argv.slice(2);
+if (args.includes("--check")) {
   let now = "";
   try { now = readFileSync(target, "utf8"); } catch {}
-  if (now !== out) { console.error("page.mjs is stale: run `npm run build` in tooling/rx-map"); process.exit(1); }
+  if (now !== page) { console.error("page.mjs is stale: run `npm run build` in tooling/rx-map"); process.exit(1); }
   console.log("page.mjs is up to date");
 } else {
-  writeFileSync(target, out);
-  console.log(`page.mjs: ${html.length} chars (map.html with the fake host)`);
+  writeFileSync(target, page);
+  console.log(`page.mjs: ${html.length} chars (${js.length} js, ${css.length} css)`);
+}
+const h = args.indexOf("--html");
+if (h >= 0) {
+  const { pageHTML } = await import(`${target}?t=${Date.now()}`);
+  const graph = JSON.parse(readFileSync(args[h + 1], "utf8"));
+  const f = args.indexOf("--fake");
+  writeFileSync(args[h + 2], pageHTML(graph, { live: args.includes("--live"), fake: f >= 0 ? args[f + 1] : null }));
+  console.log(`wrote ${args[h + 2]}`);
 }

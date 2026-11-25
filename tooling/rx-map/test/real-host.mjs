@@ -88,11 +88,7 @@ function setUpApp(solidView) {
 
 // ---- the dev server ------------------------------------------------------------------------------------------------
 const port = 3190 + Math.floor(Math.random() * 400);
-// MAP_PAGE=app: the map drawn is the RX build (app/page.mjs), served in place of page.mjs by the shelf app's Vite config
-const mapPage = process.env.MAP_PAGE === "app" ? join(here, "../app/page.mjs") : null;
-if (mapPage && !existsSync(mapPage)) die("no app/page.mjs: run `node app/build.mjs` first");
-console.log(`testing ${mapPage ? "app/page.mjs" : "page.mjs"}`);
-const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], { cwd: app, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...(mapPage ? { RX_MAP_PAGE: mapPage } : {}) } });
+const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], { cwd: app, stdio: ["ignore", "pipe", "pipe"] });
 let viteLog = "";
 vite.stdout.on("data", d => (viteLog += d));
 vite.stderr.on("data", d => (viteLog += d));

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// From tooling/rx-map: node app/build.mjs && node test/shots.mjs <outdir>
+// From tooling/rx-map: node test/shots.mjs <outdir>
+// Screenshots of the map page (page.mjs) for each scenario at 1440x900 and 1440x360. BEFORE=<a page.mjs> (e.g. one
+// saved with `git show <ref>:tooling/rx-map/page.mjs > /tmp/before.mjs`) shoots that one too, side by side.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -8,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { diffGraphs } from "../diff.mjs";
 import { buildGraph } from "../graph.mjs";
-import { pageHTML as vanilla } from "../page.mjs";
+import { pageHTML as now } from "../page.mjs";
 
 if (process.argv.length !== 3) {
   console.error("usage: node test/shots.mjs <outdir>");
@@ -175,12 +177,9 @@ const scenarios = [
   { name: "big", graph: big, caption: `${big.title} (${big.nodes.length} nodes), the largest example graph` },
 ];
 
-const variants = [["vanilla", vanilla]];
-try { variants.push(["rx", (await import("../app/page.mjs")).pageHTML]); }
-catch (error) {
-  // Keep the baseline useful even while the rewrite cannot be built.
-  variants.push(["rx", () => { throw new Error(`Cannot load app/page.mjs (run node app/build.mjs): ${error.message}`); }]);
-}
+const variants = [];
+if (process.env.BEFORE) variants.push(["before", (await import(resolve(process.env.BEFORE))).pageHTML]);
+variants.push(["now", now]);
 
 mkdirSync(outdir, { recursive: true });
 let browser = await chromium.launch({ executablePath, args: ["--no-sandbox"] });
@@ -204,7 +203,7 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
     const page = await context.newPage();
     await page.setContent(render(scenario.graph ?? users, scenario.opts), { timeout: 30000 });
     if (scenario.opts?.live) {
-      // The vanilla listener ignores its own window's messages to avoid echoing host requests.
+      // The page ignores its own window's messages to avoid echoing host requests.
       // The rig is iframe-less: relay only our self-posted host messages through the view's public receive hook.
       await page.evaluate(() => addEventListener("message", ev => {
         if (ev.source === window && ev.data?.source === "rx-map" && ev.data?.v === 1) window.__RX_VIEW__.receive(ev.data);
@@ -215,7 +214,7 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
       target = (await scenario.run?.(page, context, viewport)) ?? page;
       await scenario.ready?.(target);
     } catch (error) {
-      record.note = `${scenario.name === "popout" && target === page && variant === "vanilla" ? "Skipped: " : ""}${stripVTControlCharacters(error.message)}`;
+      record.note = `${scenario.name === "popout" && target === page && variant === "before" ? "Skipped: " : ""}${stripVTControlCharacters(error.message)}`;
       if (scenario.name === "popout" && target === page) return record;
       // A partial render is still useful for comparison. Label it, rather than silently passing it off as the scenario.
     }
@@ -250,15 +249,13 @@ try {
     const pair = [];
     for (const [variant, render] of variants) {
       const filename = `${scenario.name}-${size}-${variant}.png`;
-      const skip = variant === "rx" && scenario.name === "popout" && !pair[0].record.captured
-        ? "Skipped: vanilla did not open a pop-out." : undefined;
-      const record = await capture(scenario, viewport, variant, render, filename, skip);
+      const record = await capture(scenario, viewport, variant, render, filename);
       pair.push({ variant, filename, record });
       console.log(`${record.captured ? "wrote" : "no shot:"} ${filename}${record.note ? ` (${record.note.split("\n")[0]})` : ""}`);
     }
     sections.push(`<section><h2>${scenario.name} · ${size}</h2><p>${esc(scenario.caption)}</p><div class="pair">
 ${pair.map(({ filename, variant, record }) => {
-  const caption = `${variant === "vanilla" ? "Vanilla" : "RX"} · ${scenario.name} · ${size}`;
+  const caption = `${variant} · ${scenario.name} · ${size}`;
   return `<figure>${record.captured
     ? `<a href="${filename}"><img src="${filename}" width="${viewport.width}" height="${viewport.height}" alt="${caption}" loading="lazy"></a>`
     : `<div class="missing">No screenshot</div>`}
@@ -272,7 +269,7 @@ ${record.note ? `<pre>${esc(record.note)}</pre>` : ""}</figure>`;
   writeFileSync(join(outdir, "errors.json"), JSON.stringify(records, null, 2) + "\n");
   writeFileSync(join(outdir, "index.html"), `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rx-map: vanilla vs RX</title>
+<title>rx-map: shots</title>
 <style>
 body { font: 16px system-ui, sans-serif; background: #141922; color: #ebeff6; margin: 2vw }
 a { color: #94cbff }
@@ -283,7 +280,7 @@ img { display: block; width: 100%; height: auto }
 figcaption, pre, .missing { background: #232b39; padding: .65em; margin: 0 }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; color: #ffb6a4 }
 </style>
-<h1>rx-map: vanilla vs RX</h1>
+<h1>rx-map: shots</h1>
 <p>Click a screenshot for the full-size PNG. See <a href="errors.json">errors.json</a> for browser and scenario errors.</p>
 ${sections.join("\n")}
 </html>\n`);
