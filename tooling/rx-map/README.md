@@ -276,7 +276,7 @@ to the Vite `plugins` array. Start Vite and open the app. The compiler's dev ent
 default; use `--dev http://localhost:3001` or `RX_DEV_URL` to override.
 
 Live tools: `live_status`, `tail`, `state`, `value`, `why`, `pending`. They read the newest connected page.
-`state` shows current values and errors, in-flight requests, tripped boundaries, running actions and recent optimistic
+`state` shows current values and errors, held writes, in-flight requests, tripped boundaries, running actions and recent optimistic
 reverts. Pass a `key` to ask about one declaration or boundary. `value`, `why` and `pending` can answer before the first
 flush; `why` also includes changes and related action/revert events when recorded. `tail` defaults to 20 records out of
 the most recent 2000; pass `since` as the last received sequence number to skip older records.

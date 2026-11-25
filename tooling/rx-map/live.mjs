@@ -19,7 +19,7 @@ let recording;
 // in the same turn, before a lazy attribution import would finish.
 const engine = await Promise.all([import("solid-js"), import("solid-js/attribution")]).catch(() => []);
 const untracked = fn => engine[0]?.runWithOwner ? engine[0].runWithOwner(null, fn) : fn();
-const errorPreview = error => untracked(() => preview(error));
+const errorPreview = error => untracked(() => preview(error, 200));
 function previews(value) {
   const out = { preview: preview(value) };
   if (value !== null && typeof value === "object" && !(value instanceof Error)) {
@@ -28,18 +28,19 @@ function previews(value) {
   }
   return out;
 }
-function inspect(key) {
+function inspect(key, format = previews) {
   const entries = globalThis.__RX_NODES__?.get(key);
   if (!entries?.size) return;
-  try { return [...entries].at(-1)(previews); } catch { /* instrumentation is best effort */ }
+  try { return [...entries].at(-1)(format); } catch { /* instrumentation is best effort */ }
 }
 
 /** Adds a program's graph (from `@reactivescript/map/graph`'s `buildGraph`). Re-registering its entry replaces it. */
 export function register(graph, { hot } = {}) {
   getRecorder();
   if (hot) connect(hot);
-  const entry = graph?.modules?.[0];
-  const i = graphs.findIndex(g => g.modules?.[0] === entry);
+  // Models are dependency-first: shared imports do not identify the entry.
+  const entry = graph?.modules?.at(-1);
+  const i = graphs.findIndex(g => g.modules?.at(-1) === entry);
   if (i >= 0) {
     if (JSON.stringify(graphs[i]) === JSON.stringify(graph)) return;
     graphs[i] = graph;
@@ -55,17 +56,19 @@ export function mount(el) {
   const iframe = document.createElement("iframe");
   iframe.title = "rx-map";
   iframe.style.cssText = "display:block;width:100%;height:100%;border:0";
-  let ready = false;
+  let ready = false, internals = false;
   const post = msg => {
-    if (ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
+    if (msg && ready && iframe.contentWindow) iframe.contentWindow.postMessage(msg, "*");
   };
+  const forward = (msg, raw) => post(internals && raw ? raw : msg);
   const receive = ({ source, data }) => {
     if (source !== iframe.contentWindow || data?.source !== SOURCE || data.v !== 1) return;
     const recorder = getRecorder();
     if (data.type === "hello") {
       ready = true;
+      internals = data.want?.includes?.("internals") === true;
       post(recorder.snapshot());
-      post(recorder.timeline());
+      post(recorder.timeline(internals));
     } else if (data.type === "snapshot?") post(recorder.snapshot());
     else if (data.type === "travel" || data.type === "resume")
       post(message({ type: "travel-denied", to: data.to ?? recorder.timeline().head, reason: "unsupported" }));
@@ -80,10 +83,10 @@ export function mount(el) {
   m.load();
   el.append(iframe);
   mounts.add(m);
-  getRecorder().listeners.add(post);
+  getRecorder().listeners.add(forward);
   return () => {
     if (!mounts.delete(m)) return;
-    recording?.listeners.delete(post);
+    recording?.listeners.delete(forward);
     window.removeEventListener("message", receive);
     iframe.remove();
   };
@@ -114,6 +117,7 @@ function getRecorder() {
   if (recording) return recording;
   const size = 2000, ring = new Array(size), steps = new Array(size), listeners = new Set();
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
+  const activeErrors = new Map(), held = new Map(), writes = new Set(), dirty = new Set();
   const start = performance.now();
   let seq = 0, flushes = 0;
   const locate = key => {
@@ -134,29 +138,86 @@ function getRecorder() {
     ring[(seq - 1) % size] = record;
     return record;
   };
-  const publish = msg => { for (const post of listeners) post(message(msg)); };
+  const publish = (msg, raw) => { for (const post of listeners) post(msg && message(msg), raw && message(raw)); };
   const flightKeys = () => {
     const keys = new Map();
     for (const r of flights.values()) if (!keys.has(r.key) || keys.get(r.key).since > r.since) keys.set(r.key, r);
     return keys;
   };
+  function heldBy(key) {
+    const blocking = new Set(flightKeys().keys());
+    const reached = new Set([key]);
+    for (const g of graphs) {
+      const keys = new Map(g.nodes.map(n => [n.id, n.key]));
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const e of g.edges) {
+          const from = keys.get(e.from), to = keys.get(e.to);
+          if (e.type === "read" && e.mode === "tracked" && reached.has(from) && to && !reached.has(to)) {
+            reached.add(to); grew = true;
+          }
+        }
+      }
+    }
+    return [...blocking].filter(k => reached.has(k));
+  }
+  function reconcileWrites(at) {
+    for (const key of writes) {
+      const now = inspect(key, () => undefined);
+      const old = held.get(key);
+      if (now?.held) {
+        const by = heldBy(key);
+        if (!old || by.join("|") !== old.by.join("|")) {
+          held.set(key, { key, by, since: old?.since ?? at });
+          send({ type: "held", key, by, at });
+        }
+      } else {
+        if (held.delete(key)) send({ type: "released", key, at });
+      }
+    }
+  }
+  function reconcileErrors(changes) {
+    for (const key of dirty) {
+      const entry = inspect(key);
+      const error = entry?.error == null ? undefined : errorPreview(entry.error);
+      const before = activeErrors.get(key);
+      if (error === before) continue;
+      if (error !== undefined) {
+        activeErrors.set(key, error);
+        changes.push({ key, name: RX + key, error });
+      } else {
+        activeErrors.delete(key);
+        if (entry?.value) changes.push({ key, name: RX + key, ...entry.value });
+      }
+    }
+    dirty.clear();
+    return changes;
+  }
   const send = (msg, flightId, since, origin) => {
     if (msg.type === "flush") {
-      const changes = msg.changes.map(c => ({ ...c, ...locate(c.key), ...(c.key && latest.has(c.key) ? { prev: latest.get(c.key).preview } : {}) }));
       const { at } = msg;
+      const raw = reconcileErrors(msg.changes);
+      const errors = new Map(raw.filter(c => c.key && c.error !== undefined).map(c => [c.key, c]));
+      const changes = raw.filter(c => c.key && (!errors.has(c.key) || errors.get(c.key) === c))
+        .map(c => ({ ...c, ...locate(c.key), ...(latest.get(c.key)?.preview !== undefined ? { prev: latest.get(c.key).preview } : {}) }));
+      const internals = raw.filter(c => !c.key);
+      if (!changes.length && !internals.length) return;
       const step = { seq: ++flushes, at, changes };
-      steps[(flushes - 1) % size] = step;
-      const record = addRecord({ type: "flush", at, changes });
+      steps[(flushes - 1) % size] = { step, internals };
+      const record = changes.length && addRecord({ type: "flush", at, changes });
       for (const c of changes) if (c.key) {
         if (c.preview !== undefined) latest.set(c.key, c);
         last.set(c.key, { change: c, record });
       }
-      publish({ type: "flush", ...step });
+      publish({ type: "flush", ...step },
+        internals.length ? { type: "flush", ...step, changes: [...changes, ...internals] } : undefined);
     } else if (msg.type === "flight") {
       const at = performance.now();
       const before = [...flights.values()].some(r => r.key === msg.key);
       if (msg.state === "start") flights.set(flightId, { key: msg.key, since: since ?? at, ...locate(msg.key) });
       else if (!flights.delete(flightId)) return;
+      dirty.add(msg.key);
       const after = [...flights.values()].some(r => r.key === msg.key);
       if (before === after) return;
       addRecord({ ...msg, at, origin, ...locate(msg.key) });
@@ -166,7 +227,10 @@ function getRecorder() {
       publish(msg);
     }
   };
-  listen(send);
+  listen((msg, ...args) => {
+    send(msg, ...args);
+    queueReconcile();
+  }, key => dirty.add(key));
   // The compiler supplies the resolved region ID. Keep graph path numbering (including #n)
   // in the graph builder, rather than deriving a second path by walking the JSX.
   const regionRefs = () => new Map(graphs.flatMap(g => g.regions
@@ -192,11 +256,32 @@ function getRecorder() {
   }
   // Fallback cleanup can happen in the same turn as a replacement fallback mounts.
   let boundariesQueued = false;
+  let reconcileQueued = false;
+  const queueReconcile = () => {
+    if (reconcileQueued) return;
+    reconcileQueued = true;
+    queueMicrotask(() => {
+      reconcileQueued = false;
+      const at = performance.now();
+      reconcileWrites(at);
+      send({ type: "flush", at, changes: [] });
+    });
+  };
   const trace = event => {
+    if (event.type === "write" || event.type === "node") {
+      if (event.type === "write") writes.add(event.key);
+      dirty.add(event.key);
+      queueReconcile();
+      return;
+    }
     if (event.type === "dispose") {
       for (const [id, f] of flights) if (f.key === event.key)
         send({ type: "flight", key: event.key, state: "abandon" }, id);
       latest.delete(event.key);
+      activeErrors.delete(event.key);
+      writes.delete(event.key);
+      if (held.delete(event.key)) send({ type: "released", key: event.key, at: performance.now() });
+      queueReconcile();
       return;
     }
     if (event.type === "boundary") {
@@ -225,11 +310,12 @@ function getRecorder() {
       if (state === "error") msg.error = errorPreview(error);
     }
     send(msg);
+    queueReconcile();
   };
   globalThis.__RX_TRACE__ = trace;
   function current(key, flight) {
     const now = inspect(key);
-    if (now) return { key, ...now.value, ...(now.error ? { error: now.error.preview } : {}),
+    if (now) return { key, ...now.value, ...(now.error ? { error: errorPreview(now.error) } : {}),
       pending: !!(!now.error && (flight || now.pending)), ...(!now.error && flight ? { since: flight.since } : {}), ...locate(key) };
     const old = latest.get(key);
     // Support named Solid nodes (and older RX runtimes), but never resurrect disposed registry nodes.
@@ -247,13 +333,18 @@ function getRecorder() {
   function snapshot() {
     const all = states(), at = performance.now();
     return message({ type: "snapshot", at,
-      values: all.filter(s => s.preview !== undefined).map(({ key, preview, full }) => ({ key, preview, full })),
+      values: all.filter(s => s.preview !== undefined || s.error || s.pending).map(({ key, preview, full, error, pending }) => ({
+        key, preview, full, ...(error ? { error } : {}), ...(pending ? { pending: true } : {}) })),
       flights: all.filter(s => s.pending && s.since !== undefined).map(({ key, since }) => ({ key, since })),
-      boundaries: allBoundaries(), runs: [...runs.values()] });
+      boundaries: allBoundaries(), runs: [...runs.values()], held: [...held.values()] });
   }
-  function timeline() {
+  function timeline(showInternals = false) {
     const history = [];
-    for (let i = Math.max(0, flushes - size); i < flushes; i++) history.push(steps[i % size]);
+    for (let i = Math.max(0, flushes - size); i < flushes; i++) {
+      const { step, internals } = steps[i % size];
+      if (showInternals) history.push({ ...step, changes: [...step.changes, ...internals] });
+      else history.push(step);
+    }
     return message({ type: "timeline", head: flushes, viewing: null, steps: history, capacity: size });
   }
   function query(method, { key, since = 0, limit = 20 } = {}) {
@@ -282,10 +373,10 @@ function getRecorder() {
           const boundary = allBoundaries().find(b => b.region === key);
           if (boundary) return boundary;
           known();
-          return { ...current(key, flightKeys().get(key)), runs: [...runs.values()].filter(r => r.key === key) };
+          return { ...current(key, flightKeys().get(key)), held: held.get(key), runs: [...runs.values()].filter(r => r.key === key) };
         }
         return { values: states(), flights: pending(), boundaries: allBoundaries().filter(b => b.state !== "ok"),
-          runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
+          held: [...held.values()], runs: [...runs.values()], reverts: recent().filter(r => r.type === "revert").slice(-10) };
       case "why": {
         known();
         const hit = last.get(key);
@@ -294,7 +385,7 @@ function getRecorder() {
           const byId = new Map(g.nodes.map(n => [n.id, n.key]));
           for (const e of g.edges) if (e.type === "write" && byId.get(e.to) === key) related.add(byId.get(e.from));
         }
-        const events = recent().filter(r => (r.type === "run" || r.type === "revert") && related.has(r.key)).slice(-10);
+        const events = recent().filter(r => ["run", "revert", "held", "released"].includes(r.type) && related.has(r.key)).slice(-10);
         const state = current(key, flightKeys().get(key));
         if (!hit) return { ...state, others: [], events };
         const { change, record } = hit;
@@ -310,7 +401,7 @@ function getRecorder() {
 
 // ---- the engine's records ---------------------------------------------------------------------------------------
 // Without a dev Solid (no records channel), the map is drawn and stays still.
-function listen(post) {
+function listen(post, dirty) {
   const [solid, attr] = engine;
   const records = solid?.OBSERVE?.records;
   const attribution = attr?.attribution;
@@ -320,16 +411,17 @@ function listen(post) {
   // A flush lists every node whose shown value it changed; with `bodies`, the values beside them (live, so they are
   // previewed now).
   const onFlush = (event, live) => {
-    if (!event.changes?.length) return;
     const roots = new Map();
-    const changes = event.changes.map((c, i) => {
+    const changes = (event.changes ?? []).map((c, i) => {
       const out = { name: c.nodeName, key: keyOf(c.nodeName) };
       const body = live?.changes?.[i];
       if (out.key) {
+        dirty(out.key);
         if (!roots.has(out.key)) roots.set(out.key, inspect(out.key));
         const root = roots.get(out.key);
         if (c.key !== undefined && c.key !== "$guess") out.path = storePath(body?.node, c.key);
-        if (root?.value) Object.assign(out, root.value);
+        if (root?.error != null) out.error = errorPreview(root.error);
+        else if (root?.value) Object.assign(out, root.value);
         else if (!root && !out.path && body && "value" in body) Object.assign(out, untracked(() => previews(body.value)));
       } else if (body && "value" in body) out.preview = untracked(() => preview(body.value));
       const origin = c.origin ?? event.interaction;
@@ -348,6 +440,7 @@ function listen(post) {
   const onRun = (event, node) => {
     const key = keyOf(event.nodeName);
     if (!key || !node) return;
+    dirty(key);
     const flight = node._x?._inFlight;
     if (flight && announced.get(node) !== flight) {
       announced.set(node, flight);
@@ -428,7 +521,7 @@ function show(v, depth, max) {
   }
   if (v === null) return "null";
   if (v instanceof Date) return isNaN(v) ? "Invalid Date" : v.toISOString();
-  if (v instanceof Error) return `${v.name}: ${v.message}`;
+  if (v instanceof Error) return `${v.name === "Error" && v.constructor?.name ? v.constructor.name : v.name}: ${v.message}`;
   if (typeof v.then === "function") return "Promise";
   const arr = Array.isArray(v);
   if (depth <= 0) return arr ? `Array(${v.length})` : "{…}";

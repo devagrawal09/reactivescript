@@ -326,6 +326,8 @@
   .chip.pulse::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r) + 4px); border: 2px solid #fff; pointer-events: none; box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 8px rgba(255, 255, 255, .35); animation: rx-pulse 1s ease-out var(--pd, 0ms) both }
   .chip.pulse.p2::before { animation-name: rx-pulse2 }
   .chip.reverting .tok { animation: rx-revert .8s ease-out }
+  .chip.live-error .tok { outline: 2px solid #fb7185; outline-offset: 2px }
+  .chip.live-held .tok { outline: 2px dashed var(--pending); outline-offset: 2px }
   @keyframes rx-revert { 20% { filter: brightness(1.5) drop-shadow(0 0 6px #fb7185) drop-shadow(0 0 4px #fb7185) } }
   @keyframes rx-pulse { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
   @keyframes rx-pulse2 { 0% { opacity: 0; transform: scale(.9) } 8% { opacity: 1; transform: scale(1) } 55% { opacity: .55 } 100% { opacity: 0; transform: scale(1.08, 1.35) } }
@@ -1905,7 +1907,7 @@ function toast(html, ms = 2400) { toastEl.innerHTML = html; toastEl.classList.ad
 // ---- live: a host (a running dev build, a fake, a recording) speaks TRACE-CONTRACT v0.1 ---------------------------
 // Messages carry the key a dev build names its Solid nodes with (`rx:<key>`), the same key as a node here. A key this map
 // does not have (a node from outside the program, an older build) is ignored, and so is a message type it does not know.
-const live = { values: new Map(), flying: new Map(), flushes: 0, boundaries: new Map() };
+const live = { values: new Map(), flying: new Map(), flushes: 0, boundaries: new Map(), held: new Map() };
 const tl = { steps: [], head: 0, viewing: null, capacity: 2000, flights: [], hmrs: [], target: null };
 // where messages to the host go: an in-page fake (`window.__RX_FAKE__`, with post/subscribe) or the parent window
 // Where messages to the host go. A pop-out hands them to the map that opened it; an in-page fake host
@@ -1994,6 +1996,14 @@ function liveBadge() {
   if (b) b.textContent = `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
 }
 const chipsOf = key => (keyIds.get(key) ?? []).map(id => anchors.get(id)).filter(el => el?.classList.contains("chip"));
+function paintState(key) {
+  const v = live.values.get(key);
+  for (const el of chipsOf(key)) {
+    el.classList.toggle("live-error", !!v?.error);
+    el.classList.toggle("live-held", live.held.has(key));
+    if (v?.error && v.preview === undefined) el.querySelector(".lv")?.remove();
+  }
+}
 const liveRuns = new Map();
 const lit = key => live.flying.has(key) || [...liveRuns.values()].some(r => r.key === key);
 const paintRun = key => { for (const el of chipsOf(key)) el.classList.toggle("flying", lit(key)); };
@@ -2019,12 +2029,15 @@ function onLive(d) {
     case "hmr": return onHmr(d);
     case "snapshot": return onSnapshot(d);
     case "boundary": live.boundaries.set(d.region, d); return paintBoundaries();
+    case "held": live.held.set(d.key, d); paintState(d.key); return liveValue();
+    case "released": live.held.delete(d.key); paintState(d.key); return liveValue();
     case "run": return onRun(d);
     case "revert": return onRevert(d);
   }
 }
 function onReset() {
-  live.values.clear(); live.flying.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
+  for (const el of board.querySelectorAll(".live-error,.live-held")) el.classList.remove("live-error", "live-held");
+  live.values.clear(); live.flying.clear(); live.held.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
   Object.assign(tl, { steps: [], head: 0, viewing: null, flights: [], hmrs: [], target: null });
   document.body.classList.remove("viewing");
   document.querySelectorAll("#board .chip.pulse, #board .chip.flying").forEach(c => c.classList.remove("pulse", "p2", "flying"));
@@ -2049,7 +2062,7 @@ function onFlight(d) {
   if (tl.flights.length > 400) tl.flights.splice(0, tl.flights.length - 400);
   ({ start: SFX.flightStart, land: SFX.land, abandon: SFX.abandon })[d.state]?.();
   // The engine doesn't include a question's first answer in its flush changes.
-  if (d.state === "land" && !live.values.get(d.key)?.current) host.post({ type: "snapshot?" });
+  if (d.state !== "start" && (live.values.get(d.key)?.pending || !live.values.get(d.key)?.current)) host.post({ type: "snapshot?" });
   if (selected && nodes.get(selected)?.key === d.key) liveValue();
   renderScrub();
 }
@@ -2075,8 +2088,10 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
     if (flush) { v.count++; v.seq = seq; }
     else v.seq = tl.viewing ?? tl.head;
     v.origin = c.origin ?? v.origin ?? null;
-    if (typeof c.preview === "string") v.preview = c.full ?? c.preview;
+    if (c.error) { v.error = c.error; delete v.preview; }
+    if (typeof c.preview === "string") { v.preview = c.full ?? c.preview; delete v.error; }
     live.values.set(c.key, v);
+    paintState(c.key);
     for (const id of keyIds.get(c.key)) byId.set(id, c);
   }
   // causal waves: a changed node one step after the changed nodes it reads (or after its cause)
@@ -2115,11 +2130,19 @@ function applyChanges(changes, { flush = false, dir = "up", cause, order, seq } 
 // What the app shows right now, sent when the map opens (and to a pop-out): values, requests in the air, and which
 // boundaries show their fallback. Applied quietly: nothing changed, the map just catches up.
 function onSnapshot(d) {
-  for (const { key, preview, full } of d.values ?? []) {
-    if (!keyIds.has(key) || typeof preview !== "string") continue;
+  if (Array.isArray(d.held)) {
+    const keys = new Set(live.held.keys());
+    live.held.clear();
+    for (const h of d.held) { live.held.set(h.key, h); keys.add(h.key); }
+    for (const key of keys) paintState(key);
+  }
+  for (const { key, preview, full, error, pending } of d.values ?? []) {
+    if (!keyIds.has(key)) continue;
     const v = live.values.get(key) ?? { count: 0 };
+    Object.assign(v, { error, pending });
     v.preview = full ?? preview; v.current = true; v.seq ??= tl.head; live.values.set(key, v);
-    for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
+    if (typeof v.preview === "string") for (const el of chipsOf(key)) setValue(el, v.preview, { still: true });
+    paintState(key);
   }
   if (Array.isArray(d.flights)) {
     for (const k of live.flying.keys()) for (const el of chipsOf(k)) { el.classList.remove("flying"); el.querySelector(".orb")?.remove(); }
@@ -2166,10 +2189,12 @@ function liveValue() {
   const box = document.getElementById("liveval");
   const n = selected && nodes.get(selected);
   if (!box || !n) return;
-  const v = live.values.get(n.key), fly = live.flying.has(n.key);
+  const v = live.values.get(n.key), fly = live.flying.has(n.key) || v?.pending, h = live.held.get(n.key);
   box.innerHTML = (v?.preview !== undefined ? `<pre class="code"></pre>` : `<p class="hint">${v ? "changed; its value was not sent" : "No change seen since the map opened."}</p>`)
     + (v ? `<div class="hint">changed ${v.count}× · last in flush ${v.seq}<span class="origin"></span>${tl.viewing != null ? ` · viewing #${tl.viewing}` : ""}</div>` : "")
-    + (fly ? `<div class="hint" style="color:var(--pending)">${GI} a request is in the air</div>` : "");
+    + (fly ? `<div class="hint" style="color:var(--pending)">${GI} a request is in the air</div>` : "")
+    + (v?.error ? `<div class="hint" style="color:#fb7185">${esc(v.error)}</div>` : "")
+    + (h ? `<div class="hint" style="color:var(--pending)">held${h.by?.length ? `: waiting on ${esc(h.by.join(", "))}` : ""}</div>` : "");
   if (box.querySelector("pre")) box.querySelector("pre").textContent = v.preview;
   const l = v?.preview !== undefined && listOf(v.preview);
   if (l && l.items.length) box.querySelector("pre").insertAdjacentHTML("afterend", `<div class="hint">${l.count}${l.exact ? "" : "+"} item${l.count === 1 ? "" : "s"}</div><ol class="lvlist">${l.items.map(i => `<li>${esc(i)}</li>`).join("")}${l.count > l.items.length ? `<li class="hint">… ${l.count - l.items.length} more</li>` : ""}</ol>`);
