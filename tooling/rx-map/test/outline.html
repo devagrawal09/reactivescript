@@ -40,7 +40,8 @@ try {
   w.__RX_VIEW__.receive({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [{ key: count.key, name: "count", preview: "43" }] });
   await sleep(30);
   check("live: and follows it", hole.textContent === "43", hole.textContent);
-  w.flyTo(w.__RX_MAP__.BW / 2, w.__RX_MAP__.BH / 2, .35, 0); await sleep(150);
+  w.flyTo(w.__RX_MAP__.BW / 2, w.__RX_MAP__.BH / 2, .35, 0);
+  for (let i = 0; i < 20 && w.__RX_MAP__.level === 3; i++) await sleep(50);   // the camera settles on its next frames
   { const still = f.contentDocument.createElement("style"); still.textContent = "* { transition: none !important }"; f.contentDocument.head.append(still); }
   check("zoomed out, the view text hides (the structure level)", w.__RX_MAP__.level < 3 && (w.getComputedStyle(app).opacity === "0" || w.getComputedStyle(app.closest(".frame.module > *") ?? app).opacity === "0" || !app.offsetParent), [w.__RX_MAP__.level, w.getComputedStyle(app).opacity]);
 } catch (e) { check(`threw: ${e?.stack ?? e}`, false); }
