@@ -1,6 +1,6 @@
 // The map's state: the graph and its model, what is selected, hovered, traced and hidden, and the layout the edges
 // are drawn on. Every view reads it; only the actions here write it.
-import { isDiff, loadJSON } from "./js/env.js"
+import { isDiff, loadJSON, saveJSON } from "./js/env.js"
 import { graphAt, putGraph } from "./js/graphs.js"
 import { toSet } from "./js/util.js"
 import { buildModel, boardTree, graphOf, neighbourhood, downstream, upstream, keyOf } from "./js/model.js"
@@ -24,6 +24,10 @@ export source diffView: string := "both"
 export source allEdges := false
 // legend toggles: `k:<kind>`, `e:<edge key>`, `d:changes`; remembered
 export source hidden: string[] := loadJSON("rx-map:hidden", [])
+effect (hidden) { saveJSON("rx-map:hidden", $0) }
+// a diff summary item marks its first name as if selected, without selecting it
+export source marked: string | null := null
+export action mark(id: string | null) { marked := id }
 
 // what is lit, as a lookup: a view asks `lit[id]`
 export lit = toSet(focus == null ? [] : focus.ids)
@@ -39,6 +43,7 @@ export action hover(id: string | null) {
 }
 export action select(id: string | null) {
   selected := id
+  marked := null
   focus := id == null ? null : neighbourhood(model, id, diffView)
 }
 export action traceFrom(dir: string) {

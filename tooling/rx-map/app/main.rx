@@ -12,7 +12,7 @@ import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive,
 import { Board } from "./board.rx"
 import { PanelButton, Side } from "./panel.rx"
 import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud } from "./live.rx"
-import { openTab, pick, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
+import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
 import { Tip } from "./tip.rx"
 import { board, model, selected, focus, hidden, diff, diffView, allEdges, select, setLayout, setDiffView, setAllEdges, showTrace } from "./state.rx"
 
@@ -24,8 +24,9 @@ export default component App() {
   effect () { return onCompactChange((c) => { miniOn := !c }) }
   // a selection sends one light wave along its edges
   effect (selected) { if ($0 != null) { sparkle(edgesAt(model, neighbourhood(model, $0, diffView).edges), false) } }
-  // search: the first match is flown to as the query changes
-  effect (hits) { if ($0.length > 0) { flyToId($0[0], "search") } }
+  // search: the first match is flown to as the query changes (not when the matches change for another reason, such
+  // as a legend toggle: rx-map MCP `reach state.rx||hidden` showed hidden → hits → this effect)
+  effect (query) { if (hits.length > 0) { flyToId(hits[0], "search") } }
   // #name selects a name; #name:down / #name:up also traces it
   action fromHash(h: string) {
     let parts = h.split(":")
@@ -46,6 +47,7 @@ export default component App() {
         if (typing()) { blurActive() }
         else if (selected != null) { pick(null, false) }
         else if (!isFramed()) { frameAll() }
+        else if (open) { closePanel() }
       }
       else if (!typing() && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
         if (ev.key == "f" || ev.key == "F") { frameAll() }

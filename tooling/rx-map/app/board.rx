@@ -5,7 +5,7 @@ import { edgeView } from "./js/edges.js"
 import { graphOf } from "./js/model.js"
 import { unique } from "./js/util.js"
 import { Chip, Frame } from "./js/model.js"
-import { board, model, selected, hoverId, lit, focus, allEdges, diff, diffView, hidden, layout, hover } from "./state.rx"
+import { board, model, selected, marked, hoverId, lit, focus, allEdges, diff, diffView, hidden, layout, hover } from "./state.rx"
 import { pick, hits, hitSet, hitAt } from "./ui.rx"
 import { closestId, closestGo, leftId, within } from "./js/dom.js"
 import { flyToId, ensureVisibleId } from "./js/camera.js"
@@ -17,7 +17,7 @@ export component Token(props: { c: Chip; extra: string }) {
   { c } = props
   <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
-      selected == c.id && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur"]}
+      (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur"]}
     style={{ display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
     data-id={c.id} role="button" tabIndex={0} aria-label={c.aria}>
     {if c.status != "" { <span class="d">{c.mark}</span> }}
