@@ -200,11 +200,12 @@ button. The program's own work (timers, answers landing) goes on beneath and doe
 `resume` lands it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a
 `flush`. `step`/`resume` changes come from the recorded previews (TRACE-CONTRACT v0.5: before a key's first change,
 its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
-timeline has seen. `step.inexact` lists keys travel can't show exactly at that seq: a store guessed after it (Solid
-records the guess on the store's `$guess` carrier only) and every name that reads it.
+timeline has seen. Store guesses (`guess books := …`, `guess books[i].read := …`) rewind too: Solid's flush record
+lists the property and presence nodes a guess changed beside the store's `$guess` carrier, and travel pins them like
+any other node. On an older Solid whose record names only the carrier, `step.inexact` lists the keys travel can't show
+exactly at that seq: a store guessed after it and every name that reads it.
 Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
-is running or a resume is still landing, `unsupported` when Solid has no `openView`. Store guesses do not rewind yet
-(see Limits).
+is running or a resume is still landing, `unsupported` when Solid has no `openView`.
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
 page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
@@ -257,8 +258,10 @@ Chromium and checks the DOM under travel, read-only viewing, `inexact` and first
 when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `packages` dir), and skips it otherwise;
 it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
 `test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
-a temp dir and installed linked to this repository and to `SOLID_VIEW`. `APP=<dir>` uses an installed copy instead;
-`--shots <dir>` saves screenshots.
+a temp dir and installed linked to this repository and to `SOLID_VIEW`; Vite runs with `--force`, so a rebuilt Solid
+is what the page runs, not a stale pre-bundle. When that Solid's record names the properties a store guess moved, every
+recorded seq must show exactly; on an older one, seqs before a guess are reported, not asserted. `APP=<dir>` uses an
+installed copy instead; `--shots <dir>` saves screenshots.
 
 ## MCP: let an agent inspect your app
 
@@ -354,9 +357,8 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
   visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
   shows the same session's timeline and flush count.
-- Time travel: a store guess (`guess books := …`, `guess books[i].read := …`) is recorded by Solid on the store's guess
-  carrier (`books.$guess`), not on the property nodes it changed, and its confirmed landing changes nothing shown, so
-  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it
-  (`step.inexact` says so). A store's first-change `prev` isn't known (its records are per property), so a store
-  has no value before its first change. All of a resume's buffered work is one step.
+- Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view
+  f9ee22ade), travelling to a seq before a confirmed store guess shows the list as it is after it (`step.inexact`
+  says so). A store's first-change `prev` isn't known (its records are per property), so a store has no value before
+  its first change. All of a resume's buffered work is one step.
   The rest are Solid's `openView` limits (08-dev-diagnostics, "Views and time travel").
