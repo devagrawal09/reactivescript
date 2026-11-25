@@ -213,11 +213,20 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
       if (scenario.name === "popout" && target === page) return record;
       // A partial render is still useful for comparison. Label it, rather than silently passing it off as the scenario.
     }
-    // Chromium can miss the first compositor frame on a large board.
-    await target.screenshot({ path, timeout: 60000 }).catch(error => {
+    // A big board can be caught half rasterised (headless, on a loaded machine: even the HUD half drawn), and
+    // Chromium can miss the first compositor frame: shoot until two captures in a row are the same picture.
+    const shoot = () => target.screenshot({ timeout: 60000 }).catch(error => {
       if (!error.message.includes("Unable to capture screenshot")) throw error;
-      return target.screenshot({ path, timeout: 60000 });
+      return target.screenshot({ timeout: 60000 });
     });
+    let last = await shoot(), shot = null;
+    for (let i = 0; i < 8 && !shot; i++) {
+      await target.waitForTimeout(700);
+      const next = await shoot();
+      if (next.equals(last)) shot = next; else last = next;
+    }
+    if (!shot) record.note = `${record.note ? `${record.note}\n` : ""}the picture never settled (animated); the last capture is shown`;
+    writeFileSync(path, shot ?? last);
     record.captured = true;
   } catch (error) {
     record.note = stripVTControlCharacters(error.message);
