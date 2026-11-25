@@ -6,7 +6,8 @@ diagnostic. The broader direction: **"Solid" is a semantic model plus a conforma
 runtimes (Solid JS, a Rust port), renderers and client/server placement are plugins around that core.
 
 Everything here is a verified subset, not full readiness: each claim below is a gate that compares against native Solid
-2 (rc.21) exactly. Start with [docs/HANDOFF.md](docs/HANDOFF.md) for the state of the work and the open decisions.
+2 exactly (Solid `main` at `30e7805e`, 2.0.3+; the move from rc.21 is recorded in
+[docs/PIN-MAIN.md](docs/PIN-MAIN.md)). Start with [docs/HANDOFF.md](docs/HANDOFF.md) for the state of the work and the open decisions.
 
 ## Layout
 
@@ -17,7 +18,7 @@ Everything here is a verified subset, not full readiness: each claim below is a 
 | [`docs/`](docs/HANDOFF.md) | [`HANDOFF.md`](docs/HANDOFF.md), [`HISTORY.md`](docs/HISTORY.md) (the branches this repository was consolidated from) and `scratch/` research notes and drafts |
 | [`dashboard/`](dashboard/README.md) | A local status dashboard; [`notes.json`](dashboard/notes.json) is the narrative state |
 | [`scripts/setup.sh`](scripts/setup.sh) | Clones and builds the pinned checkouts below, links `frontend/upstream` and installs the folders' dependencies. Run it with `sh` |
-| `reactivescript/`, `solid-next/` | Pinned checkouts created by `scripts/setup.sh`, gitignored and kept clean: [ryansolid/reactivescript](https://github.com/ryansolid/reactivescript) at `fdbcad92` and [solidjs/solid](https://github.com/solidjs/solid) at `2105ffb8` (2.0.0-rc.21, reactivescript's `ref/SOLID_NEXT`) |
+| `reactivescript/`, `solid-next/` | Pinned checkouts created by `scripts/setup.sh`, gitignored and kept clean: [solidjs/reactivescript](https://github.com/solidjs/reactivescript) `main` at `e650b85` and [solidjs/solid](https://github.com/solidjs/solid) `main` at `30e7805e` (2.0.3+, reactivescript's `ref/SOLID_NEXT`) |
 
 The folders keep the sibling layout they were developed in, so their relative paths resolve: `frontend/upstream` links
 to `../reactivescript` (a symlink `scripts/setup.sh` creates; below); the frontend's Solid packages are `file:../solid-next/packages/*`; the gate's default
@@ -33,7 +34,7 @@ sh scripts/setup.sh           # in the Tembo sandbox: nix shell nixpkgs#nodejs_2
 sh scripts/setup.sh --check   # changes nothing; reports whether the layout is ready
 ```
 
-It is idempotent. It clones `reactivescript/` at `fdbcad92` and `npm ci`s its `ref/`; clones `solid-next/` at `2105ffb8`
+It is idempotent. It clones `reactivescript/` at `e650b85` (`RX_REPO=/path/to/a/local/clone` clones from disk) and `npm ci`s its `ref/`; clones `solid-next/` at `30e7805e`
 and builds it as reactivescript's `ref/scripts/solid-next.sh` does (`npx -y pnpm@11.1.1 install --frozen-lockfile`;
 signals, solid, web and universal: build, then types if present; the compiler), skipping the build when the checkout did
 not move and its outputs exist (`SETUP_REBUILD=1` forces it); then `npm ci` in `frontend/` and `cargo build` in
@@ -61,19 +62,25 @@ npm run verify:subset   # Result: PASS, Tests: 149, pass 149, fail 0
 
 `scripts/verify-pinned.sh --subset` checks the pins (both checkouts clean, at `pins.json`'s commits and reactivescript's
 `ref/SOLID_NEXT`), builds `scenario`, `plan-trace`, `ssr` and `frames-server` in `RUST_SOLID` (default `../rust-solid`), and runs strict
-types (0 package diagnostics, the 12 baseline upstream ones), the 149 listed tests (131 before slice 6, plus 18 for slice 6:
+types (0 package diagnostics, the 40 baseline upstream ones), the 149 listed tests (131 before slice 6, plus 18 for slice 6:
 `slices/tracker-frames.test.ts` 10, `plan/frames.test.ts` 7 and one in `tsx/verifier.test.ts`, `frontend/docs/RESULTS.md`, "Slice 6"; the 131 were 106, plus 18 for plan v2.1:
 `slices/tracker-async.test.ts` 11, the Rust tracker-async leg among them, `slices/eval-async.test.ts` 2, two each in
 `plan/plan-fuzz.test.ts` and `eval/eval.test.ts`, one in `tsx/verifier.test.ts`, `frontend/plan/docs/PLAN-V2.md`,
 "v2.1: async data"; plus 7 for slice 5's async data, `ssr/ssr-async.test.ts`, `rust-solid/docs/SSR.md`, "Async data
 and streaming"), the TSX fuzz
-on seeds 0–199 (179 agree, 21 listed interpreter-only differences), the plan, eval and SSR fuzz on seeds 1–100 (85
+on seeds 0–199 (184 agree, 16 listed interpreter-only differences), the plan fuzz on seeds 1–100 (30 agree, 55 listed upstream
+differences of compiled RX alone, `UPSTREAM_RX_SHOW`, docs/PIN-MAIN.md, and 15 refused), the eval and SSR fuzz on seeds 1–100 (85
 agree and 15 refused each; the SSR fuzz hydrates in Chromium, on PATH or `$CHROMIUM`), and the plan v2.1 and async eval
-fuzz on seeds 1–100 (84 agree on every leg, Rust's included, and 16 refused each; a Rust refusal of the version,
+fuzz on seeds 1–100 (plan: 73 agree on every leg, Rust's included, 11 listed `UPSTREAM_RX_SHOW` and 16 refused; eval: 84 agree and 16 refused; a Rust refusal of the version,
 `rust-unsupported`, fails), and the SSR fuzz v2.1 on seeds 1–100 (84 agree, 16 refused: Rust's renderToStream chunks
 and renderToString HTML equal Solid's, and each stream, fed chunk by chunk, hydrates in Chromium as Solid's does), and
 the placement fuzz on seeds 1–100 (50 agree, 42 client-only, 7 refused, 1 listed divergence, seed 19, suspected Solid issue 8; R, rust-solid's `frames-server`, equals Solid's server on all 93 programs the legs run).
 `report.ts` checks each against `baselines/`.
+
+On this machine the gate needs `CHROMIUM=/usr/bin/google-chrome npm run verify:subset` (any Chromium: without one on PATH or in
+`$CHROMIUM` the browser tests hang).
+
+The long-run numbers below are rc.21's unless [docs/PIN-MAIN.md](docs/PIN-MAIN.md) lists the run as re-measured at Solid `main`.
 
 Longer runs, whose summaries are recorded in `rust-solid/docs/` (byte-identical on seeds 1–1000):
 
@@ -111,17 +118,17 @@ git diff --check
 ```
 
 The scenarios: the tracker plan (v2), the like plans (v1 and v2) and the tracker-async plan (v2.1) give the native
-frames, and the Rust host log equals Solid's entry for entry (`plan-diff`: 453/453, 34/34 and 399/399).
+frames, and the Rust host log equals Solid's entry for entry (`plan-diff`: 454/454, 35/35 and 400/400).
 
 ```sh
 F=crates/runtime/tests/fixtures
 cargo run -q --bin scenario -- $F/tracker.plan.json $F/tracker.scenario.json   # the 13 tracker frames
 cargo run -q --bin scenario -- $F/like.plan.json $F/like.scenario.json         # ["0","1","0","1","1"]
 cargo run -q --bin scenario -- $F/like.plan-v2.json $F/like.scenario.json      # ["0","1","0","1","1"]
-node --conditions=browser fuzz/plan-diff.mjs $F/tracker.plan.json $F/tracker.scenario.json   # entries 453/453
-node --conditions=browser fuzz/plan-diff.mjs $F/like.plan-v2.json $F/like.scenario.json      # entries 34/34
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker.plan.json $F/tracker.scenario.json   # entries 454/454
+node --conditions=browser fuzz/plan-diff.mjs $F/like.plan-v2.json $F/like.scenario.json      # entries 35/35
 cargo run -q --bin scenario -- $F/tracker-async.plan.json $F/tracker-async.scenario.json   # the 18 tracker-async frames
-node --conditions=browser fuzz/plan-diff.mjs $F/tracker-async.plan.json $F/tracker-async.scenario.json   # entries 399/399
+node --conditions=browser fuzz/plan-diff.mjs $F/tracker-async.plan.json $F/tracker-async.scenario.json   # entries 400/400
 ```
 
 The fuzz modes compare the Rust port with Solid JS exactly, trace for trace (`node fuzz/run.mjs MODE --seeds 1000 --start 1

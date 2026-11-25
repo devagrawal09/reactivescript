@@ -118,8 +118,8 @@ done
 cat <<'EOF'
 
 Setup done. The gates (README.md, "Gates"):
-  cd frontend && npm run verify:subset            # PASS 106/106 (default RUST_SOLID=../rust-solid)
-  cd rust-solid && cargo test                     # 132 passed
+  cd frontend && npm run verify:subset            # PASS 149/149 (default RUST_SOLID=../rust-solid; CHROMIUM=/path/to/chrome if none is on PATH)
+  cd rust-solid && cargo test                     # 175 passed
   cd rust-solid && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
   cd rust-solid && cargo run -q --bin scenario -- crates/runtime/tests/fixtures/tracker.plan.json crates/runtime/tests/fixtures/tracker.scenario.json
   cd rust-solid && cargo run -q --bin scenario -- crates/runtime/tests/fixtures/like.plan.json crates/runtime/tests/fixtures/like.scenario.json

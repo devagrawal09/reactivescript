@@ -5,6 +5,10 @@ Updated 2026-11-11. Everything below is on branch `solid-model` of `devagrawal09
 work through "Start here" at the bottom. The work runs in a Tembo sandbox. The working copy is
 `/workspace/rx-tsx-refresh/solid-model`, not a checkout on the Mac.
 
+> **2026-11-24, branch `pin-main`:** the pins moved to reactivescript `main` `e650b85` and Solid `main` `30e7805e`
+> (2.0.3+). Numbers, syntax (`guess x := v`) and pins below are rc.21's where [PIN-MAIN.md](PIN-MAIN.md) says
+> otherwise; read it first.
+
 ## Goal and thesis
 - **The thesis: "Solid" is a semantic model plus a conformance suite.** Syntaxes (Solid TSX, RX, solid-yield's
   generators), host languages, runtimes (Solid JS, the Rust port), renderers (universal, server, Frames) and
