@@ -213,6 +213,18 @@ fn parse_type(c: &mut Cursor, brace_stops: bool, arrows: bool) -> R<String> {
             depth += 1;
         } else if ")]}>".contains(ch) {
             depth -= 1;
+        } else if matches!(ch, '"' | '\'' | '`') {
+            // a string literal type: its text is not structure
+            c.bump();
+            while !c.eof() && c.peek() != ch && c.peek() != '\n' {
+                if c.peek() == '\\' {
+                    c.bump();
+                }
+                c.bump();
+            }
+            if c.peek() != ch {
+                continue;
+            }
         }
         c.bump();
     }
@@ -494,13 +506,66 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, generics: Option<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
-    Error { name: String, line: usize },
-    Type { name: String, line: usize, text: String, exported: bool },
+    /// `inst_written`: the word `instantiates` itself. `gen` (every kind but an import): the TS module a generated line
+    /// came from (MO-11), set by the loader; `None` for a written line.
+    Fn { name: String, pure: bool, params: Vec<String>, generics: Option<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool, inst_written: bool, gen: Option<String>, src: String },
+    Error { name: String, line: usize, gen: Option<String>, src: String },
+    /// `text` is empty for a generated bodiless type (`export type T<A>`, MO-11b), whose parameters are `generics`.
+    Type { name: String, line: usize, text: String, exported: bool, generics: Option<String>, gen: Option<String>, src: String },
+    /// MO-11b: a JS value, as an undeclared JS import is.
+    Const { name: String, line: usize, ty: Option<String>, gen: Option<String>, src: String },
     /// MO-8e: types only. `target` / `rx` are filled by the loader, not the parser.
     Import { names: Vec<ImportName>, from: String, line: usize, target: Option<String>, rx: bool },
 }
 impl JsDecl {
+    pub fn line(&self) -> usize {
+        match self {
+            JsDecl::Fn { line, .. } | JsDecl::Error { line, .. } | JsDecl::Type { line, .. } | JsDecl::Const { line, .. } | JsDecl::Import { line, .. } => *line,
+        }
+    }
+    /// MO-11f: the declaration's line, as its file has it.
+    pub fn src(&self) -> &str {
+        match self {
+            JsDecl::Fn { src, .. } | JsDecl::Error { src, .. } | JsDecl::Type { src, .. } | JsDecl::Const { src, .. } => src,
+            JsDecl::Import { .. } => "",
+        }
+    }
+    /// MO-11: the TS module a generated line came from; `None` for a written one (or an import).
+    pub fn generated(&self) -> Option<&str> {
+        match self {
+            JsDecl::Fn { gen, .. } | JsDecl::Error { gen, .. } | JsDecl::Type { gen, .. } | JsDecl::Const { gen, .. } => gen.as_deref(),
+            JsDecl::Import { .. } => None,
+        }
+    }
+    pub fn set_generated(&mut self, from: &str) {
+        match self {
+            JsDecl::Fn { gen, .. } | JsDecl::Error { gen, .. } | JsDecl::Type { gen, .. } | JsDecl::Const { gen, .. } => *gen = Some(from.to_string()),
+            JsDecl::Import { .. } => {}
+        }
+    }
+    /// MO-11c: the brands a generated line's rows say were written in the `.ts` (a fact without one is defaulted).
+    pub fn brands(&self) -> Vec<&'static str> {
+        let JsDecl::Fn { pure, rejects, refs, shape, inst_written, side, .. } = self else { return vec![] };
+        let mut out = vec![];
+        if *pure {
+            out.push("Pure");
+        }
+        if rejects.is_some() {
+            out.push("Rejects");
+        }
+        if refs.iter().any(|x| *x) || shape.has_ref() {
+            out.push("Ref");
+        }
+        if *inst_written {
+            out.push("Instantiates");
+        }
+        match side {
+            Some(Side::Server) => out.push("Server"),
+            Some(Side::Client) => out.push("Client"),
+            None => {}
+        }
+        out
+    }
     pub fn exported(&self) -> bool {
         match self {
             Self::Type { exported, .. } => *exported,
@@ -510,7 +575,7 @@ impl JsDecl {
     }
     pub fn name(&self) -> &str {
         match self {
-            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } => name,
+            JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } | JsDecl::Const { name, .. } => name,
             JsDecl::Import { .. } => "",
         }
     }
@@ -589,12 +654,23 @@ fn type_params(c: &mut Cursor) -> R<Option<String>> {
     c.fail("expected '>' to end type parameters")
 }
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
+    parse_declarations_in(src, false)
+}
+/// `generated`: the text rx-dts printed from a TS module (MO-11d), where a type may be bodiless (`export type T<A>`).
+pub fn parse_declarations_in(src: &str, generated: bool) -> R<Vec<JsDecl>> {
     let mut c = Cursor::new(src);
-    let mut out = vec![];
+    let mut out: Vec<JsDecl> = vec![];
     loop {
         c.ws(true);
         if c.eat(";") { continue; }
         if c.eof() {
+            let lines: Vec<&str> = src.split('\n').collect();
+            for x in out.iter_mut() {
+                let at = x.line();
+                if let JsDecl::Fn { src, .. } | JsDecl::Error { src, .. } | JsDecl::Type { src, .. } | JsDecl::Const { src, .. } = x {
+                    *src = js_trim(lines.get(at.wrapping_sub(1)).copied().unwrap_or("")).to_string();
+                }
+            }
             return Ok(out);
         }
         let line = c.line();
@@ -613,7 +689,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
             c.ws(true);
             let name = c.ident_or("type name")?;
             c.ws(true);
-            type_params(&mut c)?;
+            let generics = type_params(&mut c)?;
             c.ws(true);
             if c.eat("=") {
                 c.ws(true);
@@ -632,17 +708,38 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                         break;
                     }
                 }
+            } else if generated && exported {
+                // MO-11b: TypeScript's type, by name
+                out.push(JsDecl::Type { name, line, text: String::new(), exported, generics, gen: None, src: String::new() });
+                continue;
+            } else {
+                return c.fail("a type needs `= …` (only a declaration generated from a TS module names a type without one)");
             }
-            out.push(JsDecl::Type { name, line, text: c.src[t0..c.i].to_string(), exported });
+            out.push(JsDecl::Type { name, line, text: c.src[t0..c.i].to_string(), exported, generics: None, gen: None, src: String::new() });
             continue;
         }
         if !exported {
-            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`, or `import { T } from \"./x\"`");
+            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export const …`, `export type …`, or `import { T } from \"./x\"`");
         }
         if c.keyword("error") {
             c.ws(true);
             let name = c.ident_or("error class name")?;
-            out.push(JsDecl::Error { name, line });
+            out.push(JsDecl::Error { name, line, gen: None, src: String::new() });
+            continue;
+        }
+        if c.keyword("const") {
+            // MO-11b: a JS value
+            c.ws(true);
+            let name = c.ident_or("const name")?;
+            c.ws(false);
+            let ty = if c.peek() == ':' {
+                c.bump();
+                c.ws(true);
+                Some(parse_type(&mut c, false, true)?)
+            } else {
+                None
+            };
+            out.push(JsDecl::Const { name, line, ty, gen: None, src: String::new() });
             continue;
         }
         let side = if c.keyword("server") {
@@ -656,7 +753,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let pure = c.keyword("pure");
         c.ws(true);
         if c.keyword("const") {
-            return c.fail("a .d.rx cannot declare a const export; expose a stable value through `export pure fn getValue(): T`");
+            return c.fail("`export const` declares a value, which has no rows: drop the `pure`/`server`/`client`");
         }
         if !c.keyword("fn") {
             return c.fail("fn");
@@ -677,14 +774,21 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                 c.ws(true);
             }
             refs.push(r);
+            let rest = c.eat("...");
+            if rest && r {
+                return c.fail("a rest parameter is a value parameter (`...xs: T[]`)");
+            }
             let mut p = c.ident_or("param")?;
             c.ws(false);
-            if c.eat("?") {
+            if !rest && c.eat("?") {
                 c.ws(false);
                 if r || c.peek() != ':' {
                     return c.fail("an optional parameter is a value parameter written `x?: T`");
                 }
                 p.push('?');
+            }
+            if rest {
+                p.insert_str(0, "...");
             }
             params.push(p);
             ptypes.push(if c.peek() == ':' {
@@ -743,7 +847,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let written = c.keyword("instantiates");
         let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref()); // MO-10a
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, generics, rejects, line, side, ptypes, ret, refs, shape, instantiates });
+        out.push(JsDecl::Fn { name, pure, params, generics, rejects, line, side, ptypes, ret, refs, shape, instantiates, inst_written: written, gen: None, src: String::new() });
     }
 }
 
@@ -1013,7 +1117,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         if c.keyword("type") {
             c.ws(true);
             if c.starts_with("{") {
-                return c.fail("declare the type with `export type` in the module's .d.rx, then use `import { T }` in .rx");
+                return c.fail("an .rx import has no `import type`: a type a module exports is imported with a plain `import { T } from \"./x\"` and erases from the emitted import — a `.ts` module's types by its generated declaration (MO-11b), a JS module's by its .d.rx (MO-8d)");
             }
         }
         c.i = start;

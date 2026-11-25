@@ -172,6 +172,9 @@ body.lv1 #board .frame.module > :not(.psum), body.lv1 #board .worldrow > :not(.w
 .chip .ico { display: inline-grid; place-items: center; color: var(--c) }
 .chip .n { font-family: ui-monospace, Menlo, monospace; font-size: 13.5px }
 .chip .b { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, .35); color: var(--dim) }
+/* a JS import's declaration origin (09 MO-11): a written .d.rx, brands in the .ts, or the default */
+.chip .dt { pointer-events: auto; cursor: help; letter-spacing: .02em }
+.chip .dt-brand { color: var(--outside) } .chip .dt-written { color: var(--text, #e5e7eb) } .chip .dt-default { font-style: italic; opacity: .75 }
 .chip.site { --r: 7px; padding: 4px 11px 6px 8px }
 .chip.site .n { font-size: 12.5px }
 .chip.sample { pointer-events: none; transform: none }

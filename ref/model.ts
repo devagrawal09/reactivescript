@@ -4,10 +4,11 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadModules } from "./src/modules.ts";
+import { withDeclarations } from "./src/dts-host.ts";
 import { checkModules } from "./src/check.ts";
 let bad = 0;
 for (const f of process.argv.slice(2)) {
-  const set = loadModules(resolve(f), p => statSync(p, { throwIfNoEntry: false })?.isFile() ? readFileSync(p, "utf8") : undefined);
+  const set = loadModules(resolve(f), withDeclarations(p => statSync(p, { throwIfNoEntry: false })?.isFile() ? readFileSync(p, "utf8") : undefined));
   const { diags, models } = checkModules(set, { root: process.cwd() });   // a symbol's key names its module from the cwd, as `file` does
   for (const d of diags) { bad++; console.error(`${d.file ?? f}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }
   const rel = (p: string) => p.replace(process.cwd() + "/", "");

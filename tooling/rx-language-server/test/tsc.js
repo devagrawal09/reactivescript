@@ -22,6 +22,9 @@ const nm = path.join(ws, "node_modules");
 fs.mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
 for (const f of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(f => !f.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", f), path.join(nm, f), "dir");
 fs.symlinkSync(path.join(repo, "runtime"), path.join(nm, "@reactivescript/runtime"), "dir");
+// MO-11: the brands, and the declaration generator (`@reactivescript/compiler/dts`), as a project installs them
+fs.symlinkSync(path.join(repo, "types"), path.join(nm, "@reactivescript/types"), "dir");
+fs.symlinkSync(path.join(repo, "compiler"), path.join(nm, "@reactivescript/compiler"), "dir");
 const tsconfig = include => fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
   include,
@@ -107,6 +110,59 @@ const omitted = run(...sharedTypes, labels(""));
 check("an optional .d.rx parameter can be omitted", omitted.status === 0 && omitted.out.trim() === "", omitted);
 const wrongType = run(...sharedTypes, labels("123"));
 check("the imported .d.rx type rejects the sibling TS type", wrongType.status !== 0 && /main\.rx\(2,\d+\): error TS2345/.test(wrongType.out), wrongType);
+
+// 09 MO-11, 13 TY-4b/TY-4d: a .ts with no .d.rx declares itself. Its rows are generated from it (brands where written),
+// its types are TypeScript's own.
+const usersTs = [
+  'import type { Pure, Ref, Rejects } from "@reactivescript/types";',
+  "export type User = { name: string; age: number };",
+  "export class NotFound extends Error {}",
+  "export function initials(name: string): Pure<string> { return name.slice(0, 1); }",
+  "export async function loadUser(id: number): Pure<Rejects<Promise<User>, NotFound>> { if (id < 0) throw new NotFound(); return { name: 'Ada', age: 36 }; }",
+  "export function createUpper(source: Ref<string>): Pure<Ref<string>> { return () => source().toUpperCase(); }",
+  "export async function save(user: User): Rejects<Promise<void>, NotFound> { void user; }",
+  "",
+].join("\n");
+const usersRx = [
+  'import { initials, loadUser, createUpper, save, NotFound, User } from "./users"',
+  "export default component App() {",
+  '  source name := "ada"',
+  '  source status := ""',
+  "  first = initials(name)",
+  "  user: User | null = await loadUser(1) catch (e: NotFound) => null",
+  "  loud = createUpper(name)",
+  "  shout = loud.trim()",
+  '  label = user == null ? "" : `${user.name} ${user.age}`',
+  "  action store() {",
+  '    try { await save({ name: name, age: 1 }); status := "saved" }',
+  '    catch (e: NotFound) { status := "missing" }',
+  "  }",
+  "  errored fallback(e) { <p>{e.message}</p> } { <p>{first}{shout}{label}{status}</p> }",
+  "}",
+  "",
+].join("\n");
+const tsModule = (...edits) => run(
+  { include: ["."] },
+  { file: "users.ts", text: () => usersTs },
+  { file: "main.rx", text: () => usersRx },
+  ...edits,
+);
+const generated = tsModule();
+check("a .ts with no .d.rx: a branded pure fn in an equation, a type import, an error class caught, a Ref read as T — passes", generated.status === 0 && generated.out.trim() === "", generated);
+
+const badArg = tsModule({ file: "main.rx", text: () => usersRx.replace("loadUser(1)", 'loadUser("1")') });
+const badLine = usersRx.split("\n").findIndex(l => l.includes("loadUser(1)")) + 1;
+check("a type error against the .ts's own types fails, on the .rx line", badArg.status !== 0 && new RegExp(`main\\.rx\\(${badLine},\\d+\\): error TS2345`).test(badArg.out), badArg);
+
+const refAsT = tsModule({ file: "main.rx", text: () => usersRx.replace("shout = loud.trim()", "shout: number = loud") });
+check("a Ref result reads as its T (TY-4d): `string` is not `number`", refAsT.status !== 0 && /main\.rx\(\d+,\d+\): error TS2322/.test(refAsT.out), refAsT);
+
+const misplaced = tsModule({ file: "users.ts", text: () => usersTs + "export function score(n: Pure<number>): number { return n; }\n" });
+const brandLine = (usersTs + "export function score").split("\n").length;
+check("a misplaced brand is DECLARATION_BRAND, at the brand in the .ts", misplaced.status !== 0 && new RegExp(`^users\\.ts:${brandLine}:\\d+ - error DECLARATION_BRAND: .*\\(MO-11c\\)`, "m").test(misplaced.out), misplaced);
+
+const missing = tsModule({ file: "main.rx", text: () => usersRx.replace("save, NotFound", "save, remove, NotFound") });
+check("an import of a name the .ts lacks is NOT_EXPORTED, on the .rx", missing.status !== 0 && /^main\.rx:1:\d+ - error NOT_EXPORTED/m.test(missing.out), missing);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

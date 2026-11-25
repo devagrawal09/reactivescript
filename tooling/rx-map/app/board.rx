@@ -84,6 +84,7 @@ export component Token(props: { c: any; extra: string }) {
     {if c.async { <span class={["g", "gp", c.chgAsync && "chg"]} title="can be pending" innerHTML={icon("hour")}></span> }}
     {if c.question { <span class={["g", "gq", c.chgQuestion && "chg"]} title="re-asks a standing question until written">?</span> }}
     {for b in c.badges { <span class="b">{b}</span> }}
+    {if present(c.decl) { <span class={["b", "dt", `dt-${c.decl.origin}`]} title={c.decl.title}>{c.decl.tag}</span> }}
     {if hasValue { <ValueBadge v={v} /> }}
     {if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
     {if present(held) { <span class="hm" innerHTML={heldHTML(held)}></span> }}

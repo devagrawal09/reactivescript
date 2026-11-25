@@ -196,6 +196,10 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
         out.push(Projected { path: format!("{rx}.d.ts"), code: signature_stub(sig), lines: vec![], rx: rx.strip_suffix(".rx").map(|s| format!("{s}.d.rx")).unwrap_or(rx.clone()), mappings: vec![], ranges: vec![] });
     }
     for (dts, decls) in &set.declarations {
+        // a generated declaration's module is the TS module itself (TY-4b)
+        if decls.iter().any(is_gen) {
+            continue;
+        }
         let path = dts.strip_suffix(".d.rx").map(|s| format!("{s}.d.ts")).unwrap_or(dts.clone());
         out.push(Projected { path, code: declaration_module(dts, decls, set), lines: vec![], rx: dts.clone(), mappings: vec![], ranges: vec![] });
     }
@@ -265,6 +269,7 @@ fn declaration_file(decls: &[JsDecl]) -> String {
             JsDecl::Import { names, target, .. } => names.iter().map(|n| format!("type {} = {};", n.alias, target.as_ref().map(|t| bridge_name(t, &n.name)).unwrap_or_else(|| "any".into()))).collect::<Vec<_>>().join("\n"),
             JsDecl::Type { text, exported, .. } => format!("{}{text}", if *exported { "export " } else { "" }),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
+            JsDecl::Const { name, ty, .. } => format!("export declare const {name}: {};", ty.as_deref().unwrap_or("any")),
             JsDecl::Fn { name, params, generics, ptypes, ret, .. } => {
                 let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
                     Some(t) => format!("{n}: {t}"),
@@ -281,6 +286,79 @@ fn ns_block(dts: &str, decls: &[JsDecl]) -> String {
     let body = declaration_file(decls).trim_end().replace("export declare ", "export ").lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
     format!("declare namespace {} {{\n{body}\n}}", ns_name(dts))
 }
+/// MO-11: a line generated from the TS module (its types are TypeScript's, TY-4b).
+fn is_gen(d: &JsDecl) -> bool {
+    d.generated().is_some()
+}
+fn stem_of(dts: &str) -> &str {
+    dts.strip_suffix(".d.rx").unwrap_or(dts)
+}
+/// The written lines' namespace of a declaration with generated lines; `extra`: the bridges of the generated types.
+fn ns_block_in(dts: &str, decls: &[JsDecl], extra: &[String], ind: &str) -> String {
+    let written: Vec<JsDecl> = decls.iter().filter(|d| !is_gen(d)).cloned().collect();
+    let mut parts = vec![declaration_file(&written).trim_end().to_string()];
+    parts.extend(extra.iter().cloned());
+    let text = parts.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
+    let body = text.replace("export declare ", "export ").split('\n').map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n");
+    format!("{ind}declare namespace {} {{\n{body}\n{ind}}}", ns_name(dts))
+}
+/// `<A, B extends X = Y>` → `<A, B>`: a type's parameters, passed through an alias.
+fn type_args(generics: &str) -> String {
+    let inner = generics.strip_prefix('<').and_then(|s| s.strip_suffix('>')).unwrap_or(generics);
+    let names: Vec<String> = split_top(inner, ',')
+        .iter()
+        .map(|p| {
+            let m: String = p.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$').collect();
+            if m.is_empty() || m.chars().next().is_some_and(|c| c.is_ascii_digit()) { "any".to_string() } else { m }
+        })
+        .collect();
+    format!("<{}>", names.join(", "))
+}
+fn split_top(s: &str, sep: char) -> Vec<String> {
+    let cs: Vec<char> = s.chars().collect();
+    let (mut out, mut depth, mut from) = (vec![], 0i64, 0usize);
+    for i in 0..cs.len() {
+        let ch = cs[i];
+        if "([{<".contains(ch) {
+            depth += 1;
+        } else if ")]}>".contains(ch) && !(ch == '>' && i > 0 && cs[i - 1] == '=') {
+            depth -= 1;
+        } else if depth == 0 && ch == sep {
+            out.push(cs[from..i].iter().collect::<String>());
+            from = i + 1;
+        }
+    }
+    out.push(cs[from..].iter().collect::<String>());
+    out.into_iter().map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+}
+/// TY-4d: a primitive's result shape as `__.ReadResult` takes it.
+fn shape_type(s: &crate::parse::Shape) -> String {
+    use crate::parse::{Part, Shape};
+    let part = |p: &Part| if *p == Part::Ref { "\"ref\"" } else { "\"value\"" };
+    match s {
+        Shape::Part(p) => part(p).to_string(),
+        Shape::Items(xs) => format!("[{}]", xs.iter().map(part).collect::<Vec<_>>().join(", ")),
+        Shape::Fields(fs) => format!("{{ {} }}", fs.iter().map(|(k, p)| format!("{}: {}", js_str(k), part(p))).collect::<Vec<_>>().join("; ")),
+    }
+}
+/// TY-4b: each generated type and error class of a declaration, which its written lines may name, bridged to TypeScript's: a
+/// module-level `import type` of it, and an alias in the namespace.
+fn gen_bridges(dts: &str, decls: &[JsDecl], from_file: &str, bridged: &mut HashSet<String>) -> (String, Vec<String>) {
+    let (mut pre, mut body) = (String::new(), vec![]);
+    for d in decls {
+        if !is_gen(d) || !matches!(d, JsDecl::Type { .. } | JsDecl::Error { .. }) {
+            continue;
+        }
+        let name = d.name();
+        let b = bridge_name(&ns_name(dts), name);
+        if bridged.insert(b.clone()) {
+            pre.push_str(&format!("import type {{ {name} as {b} }} from {};\n", js_str(&rel_module(from_file, stem_of(dts)))));
+        }
+        let gs = if let JsDecl::Type { generics: Some(g), .. } = d { Some(g.as_str()) } else { None };
+        body.push(format!("export type {name}{} = {b}{};", gs.unwrap_or(""), gs.map(type_args).unwrap_or_default()));
+    }
+    (pre, body)
+}
 /// Dependency namespaces and the bridges this file's type imports name. `seen` holds `.d.rx` paths already emitted.
 fn decl_preamble(decls: &[JsDecl], set: &ModuleSet, from_file: &str, seen: &mut HashSet<String>, bridged: &mut HashSet<String>) -> String {
     let mut out = String::new();
@@ -289,13 +367,18 @@ fn decl_preamble(decls: &[JsDecl], set: &ModuleSet, from_file: &str, seen: &mut 
         if !rx {
             out.push_str(&dep_text(target, set, from_file, seen, bridged));
         }
+        let td = if *rx { None } else { set.declarations.get(target) };
         for n in names {
             let b = bridge_name(target, &n.name);
             if !bridged.insert(b.clone()) {
                 continue;
             }
+            // MO-8e: a TS module's type, TypeScript's
+            let gen = td.is_some_and(|td| td.iter().any(|y| is_gen(y) && y.name() == n.name));
             if *rx {
                 out.push_str(&format!("import type {{ {} as {b} }} from {};\n", n.name, js_str(&rel_module(from_file, target))));
+            } else if gen {
+                out.push_str(&format!("import type {{ {} as {b} }} from {};\n", n.name, js_str(&rel_module(from_file, stem_of(target)))));
             } else {
                 out.push_str(&format!("type {b} = {}.{};\n", ns_name(target), n.name));
             }
@@ -308,7 +391,17 @@ fn dep_text(target: &str, set: &ModuleSet, from_file: &str, seen: &mut HashSet<S
         return String::new();
     }
     let Some(decls) = set.declarations.get(target) else { return String::new() };
-    format!("{}{}\n", decl_preamble(decls, set, from_file, seen, bridged), ns_block(target, decls))
+    if !decls.iter().any(is_gen) {
+        return format!("{}{}\n", decl_preamble(decls, set, from_file, seen, bridged), ns_block(target, decls));
+    }
+    let written: Vec<JsDecl> = decls.iter().filter(|d| !is_gen(d)).cloned().collect();
+    let pre = decl_preamble(&written, set, from_file, seen, bridged);
+    if !written.iter().any(|d| !matches!(d, JsDecl::Import { .. })) {
+        // all generated: no namespace, TypeScript has it
+        return pre;
+    }
+    let (gpre, gbody) = gen_bridges(target, decls, from_file, bridged);
+    format!("{pre}{gpre}{}\n", ns_block_in(target, decls, &gbody, ""))
 }
 /// The standalone `.d.ts`: a file with no type import is `declaration_file`, unchanged.
 fn declaration_module(dts: &str, decls: &[JsDecl], set: &ModuleSet) -> String {
@@ -761,7 +854,10 @@ impl Proj<'_> {
         // a declare namespace, not a module: nothing for TypeScript to resolve beside the `.ts`
         let ns = ns_name(declared.as_deref().unwrap_or(from));
         let dts = declared.clone().unwrap_or_default();
-        if self.ambients.insert(dts.clone()) {
+        // MO-11: lines generated from a TS module, typed by TypeScript
+        let gen = decls.iter().any(is_gen);
+        let first = self.ambients.insert(dts.clone());
+        if first && !gen {
             let pre = if decls.iter().any(|d| matches!(d, JsDecl::Import { .. })) {
                 decl_preamble(decls, self.set, self.path, &mut self.ambients, &mut self.bridged)
             } else {
@@ -771,6 +867,23 @@ impl Proj<'_> {
             let block = format!("{ind}declare namespace {ns} {{\n{body}\n{ind}}}");
             let text = if pre.is_empty() { block } else { format!("{}\n{block}", pre.trim_end()) };
             self.w.emit(Code::of(&text), *line);
+        } else if first {
+            let written: Vec<JsDecl> = decls.iter().filter(|x| !is_gen(x)).cloned().collect();
+            let pre = if written.iter().any(|d| matches!(d, JsDecl::Import { .. })) {
+                decl_preamble(&written, self.set, self.path, &mut self.ambients, &mut self.bridged)
+            } else {
+                String::new()
+            };
+            if written.iter().any(|d| !matches!(d, JsDecl::Import { .. })) {
+                // the written lines' namespace, which may name the generated types (TY-4b)
+                let (gpre, gbody) = gen_bridges(&dts, decls, self.path, &mut self.bridged);
+                let all = pre + &gpre;
+                let block = ns_block_in(&dts, decls, &gbody, ind);
+                let text = if all.is_empty() { block } else { format!("{}\n{block}", all.trim_end_matches('\n')) };
+                self.w.emit(Code::of(&text), *line);
+            } else if !pre.is_empty() {
+                self.w.emit(Code::of(pre.trim_end_matches('\n')), *line);
+            }
         }
         let of = |n: &str| decls.iter().find(|x| x.name() == n);
         let values: Vec<&&ImportName> = rest.iter().filter(|n| !matches!(of(&n.name), Some(JsDecl::Type { .. }))).collect();
@@ -790,8 +903,40 @@ impl Proj<'_> {
             s.push_str(&format!(" from {};", js_str(from)));
             self.w.emit(Code::of(&s), *line);
         }
+        // MO-8d: erased; TypeScript's type
+        let gen_types: Vec<String> = rest
+            .iter()
+            .filter(|n| matches!(of(&n.name), Some(x @ JsDecl::Type { .. }) if is_gen(x)))
+            .map(|n| if n.name == n.alias { n.name.clone() } else { format!("{} as {}", n.name, n.alias) })
+            .collect();
+        if !gen_types.is_empty() {
+            self.w.emit(Code::of(&format!("{ind}import type {{ {} }} from {};", gen_types.join(", "), js_str(from))), *line);
+        }
         for n in rest {
             let x = of(&n.name);
+            if let Some(x) = x.filter(|x| is_gen(x)) {
+                // TY-4b: TypeScript's declaration of the export
+                let js = format!("__js_{}", n.alias);
+                match x {
+                    JsDecl::Type { .. } => continue,
+                    JsDecl::Error { .. } => {
+                        self.w.emit(Code::of(&format!("{ind}const {} = {js} as unknown as __.Raise<typeof {js}>;", n.alias)), *line);
+                        self.snap_alias(&n.alias, ind, *line);
+                        self.w.emit(Code::of(&format!("{ind}type {} = {js};", n.alias)), *line);
+                        continue;
+                    }
+                    JsDecl::Fn { refs, shape, generics, .. } if refs.iter().any(|r| *r) || shape.has_ref() => {
+                        // TY-4d: seen through its rows
+                        let idx: Vec<String> = refs.iter().enumerate().filter(|(_, r)| **r).map(|(i, _)| i.to_string()).collect();
+                        let g = if generics.is_some() { ", true" } else { "" };
+                        let i = if idx.is_empty() { "never".to_string() } else { idx.join(" | ") };
+                        self.w.emit(Code::of(&format!("{ind}const {} = {js} as unknown as (...a: __.ReadAt<Parameters<typeof {js}>, {i}{g}>) => __.ReadResult<ReturnType<typeof {js}>, {}{g}>;", n.alias, shape_type(shape))), *line);
+                    }
+                    _ => self.w.emit(Code::of(&format!("{ind}const {} = {js};", n.alias)), *line),
+                }
+                self.snap_alias(&n.alias, ind, *line);
+                continue;
+            }
             if x.is_none() || matches!(x, Some(JsDecl::Type { .. })) {
                 self.w.emit(Code::of(&format!("{ind}type {} = {ns}.{};", n.alias, n.name)), *line);
             } else {

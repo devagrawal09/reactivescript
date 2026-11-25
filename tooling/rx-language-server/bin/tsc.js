@@ -6,9 +6,10 @@
 //
 // The crate's own diagnostics (parse errors, else the checker's, with their rules) are reported after TypeScript's, for
 // every `.rx` module in the program: a module that does not parse has no projection, so TypeScript alone would pass it.
+// So are the declaration generator's (09 MO-11c, a misplaced brand), in the `.ts` modules those `.rx` import.
 const path = require("node:path");
 const { runTsc } = require("@volar/typescript/lib/quickstart/runTsc");
-const { rxLanguagePlugin, analyses, guideUrl } = require("../src/index.js");
+const { rxLanguagePlugin, analyses, declarationDiagnostics, guideUrl } = require("../src/index.js");
 
 const tsc = require.resolve("typescript/lib/tsc");
 
@@ -24,6 +25,12 @@ process.on("exit", code => {
       const where = d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : "1:1";
       process.stdout.write(`${path.relative(process.cwd(), file)}:${where} - error ${d.code}: ${d.message} (${d.rule})\n`);
     }
+  }
+  // the declarations generated from TS modules (09 MO-11): a misplaced brand is reported in the `.ts`, at the brand
+  for (const e of declarationDiagnostics()) {
+    errors++;
+    codes.add(e.code);
+    process.stdout.write(`${path.relative(process.cwd(), e.file)}:${e.line}:${e.column + 1} - error ${e.code}: ${e.message} (${e.rule})\n`);
   }
   if (errors) {
     process.stdout.write(`\nFound ${errors} ReactiveScript error${errors === 1 ? "" : "s"}.\n`);

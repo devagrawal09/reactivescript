@@ -10,10 +10,14 @@
   },
   "main": "index.js",
   "types": "index.d.ts",
+  "bin": {
+    "rx-dts": "bin/rx-dts.mjs"
+  },
   "exports": {
     "./hot": "./hot.mjs",
     "./hmr": "./hmr.mjs",
     "./graph": "./graph.mjs",
+    "./dts": "./dts.mjs",
     ".": {
       "types": "./index.d.ts",
       "default": "./index.js"
@@ -27,6 +31,8 @@
     "hot.mjs",
     "hmr.mjs",
     "graph.mjs",
+    "dts.mjs",
+    "bin/",
     "index.js",
     "index.d.ts",
     "vite.mjs",
@@ -41,7 +47,7 @@
     "create-npm-dirs": "napi create-npm-dirs",
     "version": "napi version && node scripts/sync-optional-deps.mjs",
     "prepack": "node scripts/guide.mjs",
-    "test": "node test/node.mjs && node --test test/hmr.mjs"
+    "test": "node test/node.mjs && node --test test/hmr.mjs && node test/dts.mjs"
   },
   "napi": {
     "binaryName": "compiler",
@@ -63,10 +69,14 @@
     }
   },
   "peerDependencies": {
-    "@solidjs/vite-plugin": "*"
+    "@solidjs/vite-plugin": "*",
+    "typescript": ">=5"
   },
   "peerDependenciesMeta": {
     "@solidjs/vite-plugin": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     }
   },

@@ -20,6 +20,41 @@ function wasmPath() {
   return undefined;
 }
 
+/** 09 MO-11d: the declaration generated from a TS module, answered to the crate's read of `rx-dts:<stem>` — the
+ *  project's `@reactivescript/compiler/dts` (resolved from the stem), else the repository's. One generator a project. */
+const generators = new Map();
+function generatorFor(stem) {
+  let id;
+  try { id = require.resolve("@reactivescript/compiler/dts", { paths: [path.dirname(stem)] }); } catch {
+    const own = path.join(repo, "compiler/dts.mjs");
+    if (!existsSync(own)) return null;
+    id = own;
+  }
+  if (!generators.has(id)) {
+    let g = null;
+    try { g = require(id).createDeclarations(); } catch (e) { console.error(`rx: the declaration generator did not load (${e?.message ?? e})`); }
+    generators.set(id, g);
+  }
+  return generators.get(id);
+}
+function record(stem) {
+  const g = generatorFor(stem);
+  if (!g) return null;
+  try { return g.record(stem) ?? null; } catch (e) { console.error(`rx: rx-dts ${stem}: ${e?.stack ?? e}`); return null; }
+}
+function declaration(stem) {
+  const r = record(stem);
+  return r ? JSON.stringify(r) : null;
+}
+
+/** A file's stamp on disk (`-`: none), for an analysis's staleness. */
+function stamp(f) {
+  try { const s = statSync(f); return s.isFile() ? `${s.mtimeMs}:${s.size}` : "-"; } catch { return "-"; }
+}
+/** What the crate read during the current request: every file it asked for (found or not), and the declaration records
+ *  it was given, whose own `files` (the TS modules TypeScript read) count as read too. */
+let reading = null;
+
 /** The crate in process, over `src/wasm.rs`'s ABI. */
 function loadWasm(file) {
   let x;
@@ -34,6 +69,15 @@ function loadWasm(file) {
   const env = {
     rx_read(ptr, len) {
       const f = dec.decode(new Uint8Array(x.memory.buffer, ptr, len));
+      if (f.startsWith("rx-dts:")) {
+        const r = record(f.slice(7));
+        if (reading) {
+          reading.stems.set(f.slice(7), r);
+          for (const g of r?.files ?? []) reading.deps.set(g, stamp(g));
+        }
+        return r === null ? 0 : put(enc.encode(JSON.stringify(r)));
+      }
+      if (reading) reading.deps.set(f, stamp(f));
       try { if (!statSync(f).isFile()) return 0; return put(readFileSync(f)); } catch { return 0; }
     },
   };
@@ -69,10 +113,21 @@ function ask(method, params) {
   }
 }
 
-/** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it. */
+/** A file's projection (`code`, `mappings`, `ranges`, UTF-16 offsets) and its diagnostics, as the editor has it. In
+ *  process, also what it read: `deps` (file → stamp; stale when one changes, `stale`) and `records` (stem → the record of
+ *  the declaration generated from a TS module, MO-11, whose `errors` are in that module, not in this file). Through
+ *  $RXC, `rxc` runs `rx-dts` itself (MO-11d) and neither is known. */
 function analyze(file, text, prelude) {
-  return ask("analyze", { file, overlays: { [file]: text }, prelude });
+  reading = { deps: new Map(), stems: new Map() };
+  try {
+    const result = ask("analyze", { file, overlays: { [file]: text }, prelude });
+    reading.deps.delete(file);
+    return Object.assign(result, { deps: reading.deps, records: reading.stems });
+  } finally { reading = null; }
 }
+
+/** Whether a file read for an analysis has changed on disk since. */
+const stale = deps => { for (const [f, s] of deps ?? []) if (stamp(f) !== s) return true; return false; };
 
 /** Where a file's projection imports the prelude from: written once beside the nearest `node_modules`, so its own
  *  `@solidjs/web` resolves; a `.d.ts`, so the import needs no extension. */
@@ -91,4 +146,4 @@ function preludeFor(file) {
   return at;
 }
 
-module.exports = { analyze, preludeFor, rxcPath, wasmPath };
+module.exports = { analyze, preludeFor, rxcPath, wasmPath, declaration, record, stale };

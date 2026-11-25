@@ -17,6 +17,7 @@ const strip = (s: string) => s.replace(/`/g, "").trim();
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { loadModules, joinPath, type ModuleSet } from "./modules.ts";
+import { withDeclarations } from "./dts-host.ts";
 import { checkModules, type ModSig, type ExportSig } from "./check.ts";
 import { printSignature, parseSignature } from "./signature.ts";
 
@@ -44,7 +45,7 @@ export function signaturesInPlace(set: ModuleSet): string | null {
 /** The module set for one of a scenario's programs: the entry is `src`; its `.rx` imports are the `## Modules` fences, else files
  *  beside the entry (a `file:` program). */
 export function moduleSet(sc: Scenario, src: string): ModuleSet {
-  return loadModules(sc.entry, p => p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined));
+  return loadModules(sc.entry, withDeclarations(p => p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined), sc.modules));   // MO-11d: a TS module's declaration, generated over the same files
 }
 export function parseScenario(name: string, md: string, baseDir = "."): Scenario {
   const sections = md.split(/^## /m).slice(1).map(s => { const nl = s.indexOf("\n"); return { title: s.slice(0, nl).trim(), body: s.slice(nl + 1) }; });

@@ -3,7 +3,7 @@
 // adds the counts, edge indexes and the reads the views make. Pure: `buildModel(graph)` returns a fresh model (the graph
 // handed in is not changed); every other export reads one. Where things go on the board is layout.js.
 import { FAM, FAM_HEX, KIND, SHAPE, STATUS, kindOf, famOf, edgeKey as edgeKeyOf } from "./vocab.js";
-import { analyze } from "../../layout.mjs";
+import { analyze, declTag } from "../../layout.mjs";
 
 /** The model of a graph: what every view and trace reads. Opaque to RX; read through the functions below. */
 export function buildModel(g) {
@@ -117,7 +117,10 @@ export function chipView(M, n) {
     site: !!n.site, async: !!n.async, question: n.kind === "source" && !!n.question, io: !!n.io, trust: !!n.world,
     chgAsync: "async" in chg, chgQuestion: "question" in chg, chgKind: "kind" in chg, chgIo: "io" in chg,
     status, mark: status ? STATUS[status] : "",
-    aria: `${meta.label ?? n.kind} ${name}${status ? `, ${status}` : ""}`,
+    // a JS import's declaration: where its rows come from (09 MO-11), the line itself on hover
+    decl: n.decl ? { tag: declTag(n), origin: n.decl.origin,
+      title: `${n.decl.line}\n${n.decl.origin === "written" ? "written in" : "generated from"} ${n.decl.from}${n.decl.origin === "brand" ? ` · ${n.decl.brands.join(", ")}` : n.decl.origin === "default" ? " · no brand: the default" : ""}` } : null,
+    aria: `${meta.label ?? n.kind} ${name}${status ? `, ${status}` : ""}${n.decl ? `, declared ${n.decl.origin === "written" ? "in a .d.rx" : n.decl.origin === "brand" ? "by brands" : "by default"}` : ""}`,
   };
 }
 

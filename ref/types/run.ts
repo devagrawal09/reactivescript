@@ -13,12 +13,14 @@ import { projectModules, PRELUDE, type Projected } from "./project.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { loadModules } from "../src/modules.ts";
+import { withDeclarations } from "../src/dts-host.ts";
 
 const rxc = fileURLToPath(new URL("../../compiler/target/release/rxc", import.meta.url));
 /** RX_CRATE=1: the crate's projection of the program, read from the same files ref/ reads. */
 function crateProjection(sc: Scenario, src: string): Projected[] {
   const files: Record<string, string> = {};
-  const read = (p: string) => { const s = p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined); if (s !== undefined) files[p] = s; return s; };
+  const read0 = withDeclarations(p => p === sc.entry ? src : sc.modules.get(p) ?? (existsSync(p) && statSync(p).isFile() ? readFileSync(p, "utf8") : undefined), sc.modules);
+  const read = (p: string) => { const s = read0(p); if (s !== undefined) files[p] = s; return s; };
   loadModules(sc.entry, read);
   const out = JSON.parse(execFileSync(rxc, ["project"], { input: JSON.stringify([{ id: 0, entry: sc.entry, files }]), maxBuffer: 1 << 28 }).toString());
   return out.programs[0].files;
@@ -40,6 +42,9 @@ function add(sc: Scenario, title: string, src: string, expect: string | null) {
   if (checkModules(set).diags.length) return;                                    // the checker refused it: no types are asked
   const dir = join(out, `${sc.name}.${seq++}`); const root = dirname(set.entry.startsWith("/") ? set.entry : "/" + set.entry);
   const files = new Map<string, Projected>();
+  for (const [k, text] of sc.modules) if (!/\.rx$/.test(k)) {             // MO-11: a TS module (and what it imports) is TypeScript's to read, beside the projection
+    const f = join(dir, relative(root, k.startsWith("/") ? k : "/" + k)); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text);
+  }
   for (const p of process.env.RX_CRATE ? crateProjection(sc, src) : projectModules(set)) {
     const rel = relative(root, p.path.startsWith("/") ? p.path : "/" + p.path); const f = join(dir, rel);
     mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, p.code); files.set(f, p);

@@ -1,7 +1,7 @@
 // The .rx language plugin for Volar (spec/11 CP-8). A `.rx` file's virtual code is its TSX projection (spec/13 TY-1c),
 // made by the crate with mappings onto the `.rx`: TypeScript's hover, definition, references, rename, completion and
 // type errors come back through them. The crate's own diagnostics (rule IDs, spec/99) are a service of their own.
-const { analyze, preludeFor } = require("./rxc");
+const { analyze, preludeFor, record, stale } = require("./rxc");
 
 /** The page that explains a diagnostic code and its fix (the compiler's guide/diagnostics.md, one section a code). */
 const guideUrl = code => `https://github.com/solidjs/reactivescript/blob/main/guide/diagnostics.md#${String(code).toLowerCase()}`;
@@ -18,11 +18,12 @@ const isDeclaration = f => f.endsWith(".d.rx");
 
 const snapshotOf = text => ({ getText: (s, e) => text.slice(s, e), getLength: () => text.length, getChangeRange: () => undefined });
 
-/** The last analysis of each file, by its text: the virtual code and the diagnostics share one `rxc` run. */
+/** The last analysis of each file, by its text and the stamps of what it read (the modules it imports, their `.d.rx`, and
+ *  the TS modules a generated declaration came from, MO-11): the virtual code and the diagnostics share one `rxc` run. */
 const cache = new Map();
 function analysis(file, text) {
   const hit = cache.get(file);
-  if (hit && hit.text === text) return hit.result;
+  if (hit && hit.text === text && !stale(hit.result.deps)) return hit.result;
   let result;
   try { result = analyze(file, text, preludeFor(file)); } catch (e) {
     console.error(`rx: analyzing ${file} failed: ${e?.stack ?? e}`); // the server's log, else the failure is silent
@@ -77,6 +78,19 @@ function rxLanguagePlugin(ts, asFileName = uri => uri.fsPath ?? String(uri)) {
   };
 }
 
+/** 09 MO-11: the TS modules whose generated declarations some analysis read, by stem. */
+const tsStems = () => { const s = new Set(); for (const { result } of cache.values()) for (const stem of result.records?.keys() ?? []) s.add(stem); return s; };
+const TS_FILE = /(\.d)?\.(ts|tsx|mts|cts)$/;
+const stemOfTs = f => f.replace(/\/index\.(d\.ts|ts|tsx)$/, "").replace(TS_FILE, "");
+
+/** The generator's diagnostics (`DECLARATION_BRAND`, MO-11c) in a TS module an `.rx` imports, as `{file, line (1-based),
+ *  column, code, message}`, from its declaration as it is on disk now. */
+function declarationErrors(file) {
+  if (!tsStems().has(stemOfTs(file))) return [];
+  return (record(stemOfTs(file))?.errors ?? []).filter(e => e.file === file);
+}
+const ruleOf = code => (code === "DECLARATION_BRAND" ? "MO-11c" : code === "DECLARATION_UNAVAILABLE" ? "MO-11d" : "MO-11");
+
 /** The crate's diagnostics on a `.rx` document: the editor's parse's errors, else the checker's (CP-8d). Volar hands
  *  the service the root virtual code's document, whose URI encodes the `.rx` file's. */
 function rxDiagnostics() {
@@ -86,10 +100,20 @@ function rxDiagnostics() {
     create(context) {
       return {
         provideDiagnostics(document) {
-          if (document.languageId !== "reactivescript") return;
           const { URI } = require("vscode-uri");
           const uri = URI.parse(document.uri);
-          const source = context.decodeEmbeddedDocumentUri(uri)?.[0] ?? uri;
+          const embedded = context.decodeEmbeddedDocumentUri(uri);
+          // a TS module itself (not a .rx's embedded projection): the generator's diagnostics in it, MO-11c
+          if (!embedded && uri.scheme === "file" && /^typescript/.test(document.languageId) && TS_FILE.test(uri.fsPath)) return declarationErrors(uri.fsPath.replace(/\\/g, "/")).map(e => ({
+            range: { start: { line: e.line - 1, character: e.column }, end: { line: e.line - 1, character: e.column } },
+            severity: 1,
+            source: "rx",
+            code: e.code,
+            codeDescription: { href: guideUrl(e.code) },
+            message: `${e.message} (${ruleOf(e.code)})`,
+          }));
+          if (document.languageId !== "reactivescript") return;
+          const source = embedded?.[0] ?? uri;
           if (source.scheme !== "file") return;
           const file = source.fsPath;
           if (!isModule(file)) return;
@@ -114,4 +138,16 @@ function rxDiagnostics() {
 /** Every `.rx` module analyzed so far, with its last analysis (the command line reports their crate diagnostics). */
 const analyses = () => [...cache].filter(([f]) => isModule(f)).map(([file, { result }]) => ({ file, result }));
 
-module.exports = { rxLanguagePlugin, rxDiagnostics, analysis, analyses, guideUrl };
+/** The generator's diagnostics in the TS modules those analyses read (MO-11c), each once, with its rule. */
+function declarationDiagnostics() {
+  const seen = new Set(), out = [];
+  for (const { result } of analyses()) for (const r of result.records?.values() ?? []) for (const e of r?.errors ?? []) {
+    const key = `${e.file}:${e.line}:${e.column}:${e.code}:${e.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...e, rule: ruleOf(e.code) });
+  }
+  return out;
+}
+
+module.exports = { rxLanguagePlugin, rxDiagnostics, analysis, analyses, declarationDiagnostics, guideUrl };

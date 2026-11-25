@@ -3,12 +3,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildGraph, controlHeads } from "../graph.mjs";
 import { diffGraphs } from "../diff.mjs";
 import { queryDiff, queryGraph } from "../query.mjs";
+import { baseTokenSize, declTag } from "../layout.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
@@ -64,4 +66,35 @@ test("view outlines keep text and original site and region references", () => {
   assert.equal(diff.regions.find(r => r.id === app.id).status, "changed");
   assert.match(queryDiff(diff).text, /text changed fixtures\/outline\.rx/);
   assert.equal(diffGraphs(g, g).regions.find(r => r.id === app.id).status, "same");
+});
+
+test("a JS import's declaration origin (09 MO-11) reaches the graph, the query and the token", t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-decl-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "node_modules/@reactivescript"), { recursive: true });
+  symlinkSync(join(repo, "types"), join(root, "node_modules/@reactivescript/types"), "dir");
+  symlinkSync(realpathSync(join(repo, "ref/node_modules/typescript")), join(root, "node_modules/typescript"), "dir");
+  writeFileSync(join(root, "api.ts"), [
+    'import type { Pure, Ref } from "@reactivescript/types";',
+    "export function createShout(s: Ref<string>): Pure<Ref<string>> { return () => s() + '!'; }",
+    "export async function save(n: string): Promise<void> { void n; }",
+    "export async function log(n: string): Promise<void> { void n; }",
+    "",
+  ].join("\n"));
+  writeFileSync(join(root, "api.d.rx"), "export fn save(n: string): Promise<void> rejects(Error)\n");
+  writeFileSync(join(root, "main.rx"), 'import { createShout, save, log } from "./api"\nsource name := "a"\nloud = createShout(name)\naction go() { try { await save(name); await log(name) } catch (e) {} }\n');
+  const env = { ...process.env, RX_DTS: `${process.execPath} ${join(repo, "compiler/bin/rx-dts.mjs")}` };
+  const g = buildGraph(JSON.parse(execFileSync(rxc, ["model", "main.rx"], { cwd: root, encoding: "utf8", env })), { root });
+  const decl = name => g.nodes.find(n => n.name === name)?.decl;
+  assert.deepEqual(decl("createShout"), { line: "export pure fn createShout(ref s: string): ref string", from: "api.ts", origin: "brand", brands: ["Pure", "Ref"] });
+  assert.deepEqual(decl("save"), { line: "export fn save(n: string): Promise<void> rejects(Error)", from: "api.d.rx", origin: "written", brands: [] });
+  assert.equal(decl("log").origin, "default");
+  const tags = g.nodes.filter(n => n.decl).map(n => [n.name, declTag(n)]);
+  assert.deepEqual(tags, [["createShout", "brand"], ["save", "d.rx"], ["log", "default"]]);
+  // a Ref primitive is a fn on its plate (MO-10a), the rest JS imports in the outside column: each carries the tag,
+  // a badge the token's box makes room for
+  const A = { chipLabel: n => n.name };
+  const shout = g.nodes.find(n => n.name === "createShout");
+  assert.ok(baseTokenSize(shout, A).w > baseTokenSize({ ...shout, decl: undefined }, A).w);
+  assert.match(queryGraph(g, "node", { key: "main.rx||save" }).text, /imported: export fn save\(n: string\): Promise<void> rejects\(Error\)  from api\.d\.rx  \(written\)/);
 });

@@ -27,7 +27,10 @@ export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | 
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
 export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; shadowed?: number; deadTyped?: true };
-export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string };
+/** MO-11f: a JS import's declaration — its effective `.d.rx` line, the file it is from (the written `.d.rx`, or the TS module it
+ *  was generated from), and where its facts came from: `written`, `brand` (with the brands) or `default`. */
+export type SymDecl = { line: string; from: string; origin: "written" | "brand" | "default"; brands: string[] };
+export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string; decl?: SymDecl };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
 
@@ -40,7 +43,7 @@ const outlineText = (text: string) => decodeHTMLStrict(text).replace(/[ \t\n\r\f
 
 const READ_KINDS = new Set(["source", "eq", "props", "context"]);
 const CALL_KINDS = new Set(["fn", "action", "server", "import"]);
-type SymLike = { kind: string; name: string; region: { id: number }; line: number; question?: boolean; io?: boolean; imported?: string; key?: string };
+type SymLike = { kind: string; name: string; region: { id: number }; line: number; question?: boolean; io?: boolean; imported?: string; key?: string; decl?: SymDecl };
 
 /** A module's key part: its POSIX path relative to `root` (the project root), or the path as the loader has it. */
 export function moduleKey(path: string, root?: string): string {
@@ -164,7 +167,7 @@ export class ModelBuilder {
       }
       return { ...r, outline };
     }),
-      symbols: this.syms.map((s, id) => ({ id, name: s.name, kind: s.kind, region: s.region.id, line: s.line, ...(s.kind === "source" ? { question: !!s.question } : {}), ...(s.io ? { io: true as const } : {}), ...(s.imported ? { from: s.imported } : {}), ...(s.key ? { key: s.key } : {}) })),
+      symbols: this.syms.map((s, id) => ({ id, name: s.name, kind: s.kind, region: s.region.id, line: s.line, ...(s.kind === "source" ? { question: !!s.question } : {}), ...(s.io ? { io: true as const } : {}), ...(s.imported ? { from: s.imported } : {}), ...(s.key ? { key: s.key } : {}), ...(s.decl ? { decl: s.decl } : {}) })),
       computations: this.computations };
   }
 }

@@ -264,6 +264,8 @@ export function tokenSize(n, A, M = METRICS, zoom = true) {
   const s = baseTokenSize(n, A, M), k = zoom ? M.zoom : 1;
   return { w: Math.ceil(s.w * k), h: s.h * k };
 }
+/** A JS import's declaration origin (09 MO-11) as its token's tag: `d.rx` (a written line), `brand`, `default`; else null. */
+export const declTag = n => (n.decl ? (n.decl.origin === "written" ? "d.rx" : n.decl.origin) : null);
 /** A token's unzoomed size: its icon, name, marks and badges, in the page's chip paddings. */
 export function baseTokenSize(n, A, M = METRICS) {
   const kk = kindOf(n), shape = SHAPE[kk] ?? "plug", site = !!n.site;
@@ -271,7 +273,7 @@ export function baseTokenSize(n, A, M = METRICS) {
   let w = pad[0] + pad[1] + 14 + 6 + monoW(A.chipLabel(n), site ? M.siteFont : M.nameFont, M);
   if (n.async) w += 13 + 6;
   if (n.kind === "source" && n.question) w += 15 + 6;
-  const badges = [n.flavor, n.from, site ? `L${n.line}` : null].filter(Boolean);
+  const badges = [n.flavor, n.from, site ? `L${n.line}` : null, declTag(n)].filter(Boolean);
   for (const b of badges) w += 6 + 10 + monoW(b, M.badgeFont, M);
   return { w: Math.ceil(Math.min(w, 420)), h: site ? M.siteH : M.namedH };
 }

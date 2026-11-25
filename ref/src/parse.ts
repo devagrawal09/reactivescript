@@ -102,6 +102,10 @@ function parseType(c: Cursor, braceStops = false, arrows = false): string {
     }
     if (ch === "(" || ch === "[" || ch === "{" || ch === "<") depth++;
     else if (ch === ")" || ch === "]" || ch === "}" || ch === ">") depth--;
+    else if (ch === '"' || ch === "'" || ch === "`") {                // a string literal type: its text is not structure
+      c.i++; while (!c.eof() && c.peek() !== ch && c.peek() !== "\n") { if (c.peek() === "\\") c.i++; c.i++; }
+      if (c.peek() !== ch) continue;
+    }
     c.i++;
   }
   const t = c.src.slice(start, c.i).trim(); if (!t) c.fail("type"); return t;
@@ -136,11 +140,25 @@ export function parseProgram(src: string): Program {
 
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
-export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; generics?: string; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+export type JsDecl = (
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; generics?: string; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean; instWritten?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref); instWritten: the word itself
   | { kind: "error"; name: string; line: number }
-  | { kind: "type"; name: string; line: number; text?: string; exported: boolean }
-  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; target?: string; rx?: boolean };   // MO-8e: types only; target/rx filled by the loader
+  | { kind: "type"; name: string; line: number; text?: string; exported: boolean; generics?: string }   // generics: a generated bodiless type's parameters (`<A, B>`)
+  | { kind: "const"; name: string; line: number; type?: string }   // MO-11b: a JS value, as an undeclared JS import is
+  | { kind: "import"; names: { name: string; alias: string }[]; from: string; line: number; target?: string; rx?: boolean }   // MO-8e: types only; target/rx filled by the loader
+) & { origin?: "written" | "generated"; generatedFrom?: string; src?: string };   // src: the declaration's line, as its file has it (MO-11f)   // MO-11: set by the loader on a declaration it keeps — a line of the written `.d.rx`, or one generated from the TS module (`generatedFrom`, its path)
+/** MO-11c: the brands a generated line's rows say were written in the `.ts` (a fact without one is defaulted). */
+export function brandsOf(d: JsDecl): string[] {
+  if (d.kind !== "fn") return [];
+  const out: string[] = [];
+  if (d.pure) out.push("Pure");
+  if (d.rejects) out.push("Rejects");
+  if (d.refs?.some(x => x) || shapeHasRef(d.shape)) out.push("Ref");
+  if (d.instWritten) out.push("Instantiates");
+  if (d.side === "server") out.push("Server");
+  if (d.side === "client") out.push("Client");
+  return out;
+}
 function typeParams(c: Cursor): string | undefined {
   const start = c.i;
   if (!c.eat("<")) return;
@@ -182,25 +200,35 @@ function parseDeclImport(c: Cursor, line: number): JsDecl {
   c.i = save;
   return { kind: "import", names, from: from.v, line };
 }
-export function parseDeclarations(src: string): JsDecl[] {
+/** `generated`: the text rx-dts printed from a TS module (MO-11d), where a type may be bodiless (`export type T<A>`). */
+export function parseDeclarations(src: string, generated = false): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
-    c.ws(); if (c.eat(";")) continue; if (c.eof()) return out;
+    c.ws(); if (c.eat(";")) continue;
+    if (c.eof()) { const lines = src.split("\n"); for (const x of out) if (x.kind !== "import") x.src = (lines[x.line - 1] ?? "").trim(); return out; }
     const line = c.line;
     const exported = c.keyword("export");
     c.ws();
     if (!exported && c.peekIdent() === "import") { out.push(parseDeclImport(c, line)); continue; }
     if (exported && c.peekIdent() === "import") c.fail("a declaration file imports types for its signatures; it does not re-export (`import { T } from \"./x\"`)");
-    if (c.peekIdent() === "type" || c.peekIdent() === "interface") { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i), exported }); continue; }
-    if (!exported) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`, or `import { T } from \"./x\"`");
+    if (c.peekIdent() === "type" || c.peekIdent() === "interface") {
+      const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); const generics = typeParams(c); c.ws();
+      if (c.eat("=")) { c.ws(); parseType(c, false, true); }
+      else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); }
+      else if (generated && exported) { out.push({ kind: "type", name, line, exported, ...(generics ? { generics } : {}) }); continue; }   // MO-11b: TypeScript's type, by name
+      else c.fail("a type needs `= …` (only a declaration generated from a TS module names a type without one)");
+      out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i), exported }); continue;
+    }
+    if (!exported) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export const …`, `export type …`, or `import { T } from \"./x\"`");
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
+    if (c.keyword("const")) { c.ws(); const name = c.ident() ?? c.fail("const name"); c.ws(false); const type = c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined; out.push({ kind: "const", name, line, ...(type ? { type } : {}) }); continue; }   // MO-11b: a JS value
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
-    if (c.keyword("const")) c.fail("a .d.rx cannot declare a const export; expose a stable value through `export pure fn getValue(): T`");
+    if (c.keyword("const")) c.fail("`export const` declares a value, which has no rows: drop the `pure`/`server`/`client`");
     if (!c.keyword("fn")) c.fail("fn");
     c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const generics = typeParams(c); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = [];
-    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const p = c.ident() ?? c.fail("param"); c.ws(false); const optional = c.eat("?"); if (optional) { c.ws(false); if (r || c.peek() !== ":") c.fail("an optional parameter is a value parameter written `x?: T`"); } params.push(optional ? `${p}?` : p); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
+    while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); const rest = c.eat("..."); if (rest && r) c.fail("a rest parameter is a value parameter (`...xs: T[]`)"); const p = c.ident() ?? c.fail("param"); c.ws(false); const optional = !rest && c.eat("?"); if (optional) { c.ws(false); if (r || c.peek() !== ":") c.fail("an optional parameter is a value parameter written `x?: T`"); } params.push(rest ? `...${p}` : optional ? `${p}?` : p); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined;
     if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b/.exec(t); const raw = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim(); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
@@ -208,7 +236,7 @@ export function parseDeclarations(src: string): JsDecl[] {
     if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c, true) ?? ["Error"]; c.ws(); c.expect(")"); }
     c.ws(false); const written = c.keyword("instantiates");
     const instantiates = written || refs.some(x => x) || shapeHasRef(shape);   // MO-10a: inferred from a ref on either side
-    out.push({ kind: "fn", name, pure, params, generics, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}) });
+    out.push({ kind: "fn", name, pure, params, generics, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}), ...(written ? { instWritten: true } : {}) });
   }
 }
 
@@ -316,7 +344,7 @@ function parseDecl(c: Cursor): Decl {
     if (c.keyword("default")) { c.ws(); const d = parseDecl(c); if (d.k !== "component") c.fail("export default: only a component is a module's default export (the app's entry, MO-1c)"); d.exported = true; d.isDefault = true; return d; }
     const d = parseDecl(c); if (d.k === "import" || d.k === "effect" || d.k === "provide") c.fail("export of a non-declaration"); (d as { exported?: boolean }).exported = true; return d; }
   if (c.keyword("import")) {                                           // 07 §1: `import pure? { a, b as c } from "m"` / `import X from "m"`
-    const start = c.i; c.ws(); if (c.keyword("type")) { c.ws(); if (c.startsWith("{")) c.fail("declare the type with `export type` in the module's .d.rx, then use `import { T }` in .rx"); } c.i = start;
+    const start = c.i; c.ws(); if (c.keyword("type")) { c.ws(); if (c.startsWith("{")) c.fail("an .rx import has no `import type`: a type a module exports is imported with a plain `import { T } from \"./x\"` and erases from the emitted import — a `.ts` module's types by its generated declaration (MO-11b), a JS module's by its .d.rx (MO-8d)"); } c.i = start;
     c.ws(); const side = /^(server|client)\s+(pure\b|\{)/.test(c.src.slice(c.i)) ? (c.keyword("server") ? "server" as const : (c.keyword("client"), "client" as const)) : undefined; c.ws();   // 12 SF-5: `import server pure { q }`
     const pure = c.keyword("pure"); c.ws();
     const names: { name: string; alias: string }[] = [];

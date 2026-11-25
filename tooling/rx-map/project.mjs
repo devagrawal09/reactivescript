@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } f
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import { buildGraph } from "./graph.mjs";
 import { diffGraphs } from "./diff.mjs";
 
+const ownGenerator = fileURLToPath(new URL("../../compiler/dts.mjs", import.meta.url));
 const run = (cwd, cmd, args, options = {}) => execFileSync(cmd, args, {
   cwd, encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"], timeout: 30000, ...options,
 });
@@ -81,11 +83,34 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       return napi;
     }
   }
+  // 09 MO-11d: on the napi path, a TS module's declaration is generated in process — the project's
+  // `@reactivescript/compiler/dts`, else the map's own, else this repository's; one generator a project, with the
+  // project's TypeScript.
+  // Every file a record read counts for invalidation (`declFiles`). Through $RXC, `rxc` runs `rx-dts` itself: $RX_DTS,
+  // else the nearest `node_modules/.bin/rx-dts`.
+  let generator;
+  const declFiles = new Set();
+  function declare(stem) {
+    if (generator === undefined) {
+      generator = null;
+      let id;
+      for (const from of [require, createRequire(import.meta.url)]) {
+        try { id = from.resolve("@reactivescript/compiler/dts"); break; } catch {}
+      }
+      id ??= statSync(ownGenerator, { throwIfNoEntry: false }) ? ownGenerator : null;
+      try { if (id) generator = createRequire(import.meta.url)(id).createDeclarations(); } catch {}
+    }
+    if (!generator) return null;
+    let r;
+    try { r = generator.record(stem); } catch { return null; }
+    for (const f of r?.files ?? []) declFiles.add(f);
+    return r ? JSON.stringify(r) : null;
+  }
   function modelOf(files, cwd, current = false) {
     if (!files.length) return [];
     const native = nativeCompiler();
     if (native?.model) {
-      const model = JSON.parse(native.model(files, cwd));
+      const model = JSON.parse(native.model(files, cwd, declare));
       if (!Array.isArray(model)) throw new Error(model.error ?? "compiler returned no model");
       return model;
     }
@@ -108,7 +133,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       return cached;
     }
     const files = scan(root);
-    const stamp = stampOf(files, cached?.graph?.absModules);
+    const stamp = stampOf(files, [...cached?.graph?.absModules ?? [], ...declFiles]);
     if (stamp !== cached?.stamp) {
       const selected = entries.length ? entries.filter(isEntry) : discover(files.filter(isEntry));
       for (const f of lastGood.keys()) if (!isEntry(f)) lastGood.delete(f);
@@ -127,7 +152,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
     if (!builds.has(entry)) {
       const frontend = frontends.get(entry);
       const native = frontend ? undefined : nativeCompiler();
-      const out = frontend ? frontend.check() : JSON.parse(native?.app ? native.app(entry, "dom", null, spa)
+      const out = frontend ? frontend.check() : JSON.parse(native?.app ? native.app(entry, "dom", null, spa, null, null, null, declare)
         : compiler(root, ["app", entry, ...(spa ? ["--spa"] : [])]));
       builds.set(entry, out.diagnostics?.length ? out.diagnostics : out.error
         ? [{ file: entry, code: "BUILD", message: out.error }] : []);
@@ -188,7 +213,9 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       s.graph.freshness = freshness;
       s.graph.moduleFreshness = [...modules].map(([file, m]) => ({ file: where(root, file), current: m.fresh }));
       // Imported modules outside the scanned tree must also invalidate the snapshot.
-      if (!managed) s.stamp = stampOf(s.files, s.graph.absModules);
+      // So must the TS modules a generated declaration read (MO-11), and under $RXC each import's `decl.from`.
+      for (const n of s.graph.nodes) if (n.decl?.from) declFiles.add(resolve(root, n.decl.from));
+      if (!managed) s.stamp = stampOf(s.files, [...s.graph.absModules, ...declFiles]);
     }
     return s;
   }

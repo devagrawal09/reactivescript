@@ -8,13 +8,16 @@ code. When the compiler reports an error, `diagnostics.md` has its code: why, an
 ## Modules
 
 ```rx
-import pure { fetchUser } from "./api"     // a loader: callable anywhere, re-asked when its inputs change
-import { saveUser } from "./api"           // io: callable only in imperative code (handlers, actions, effects)
+import { fetchUser, saveUser, User } from "./api"   // api.ts: what each export is comes from the .ts itself
 import { Avatar } from "./Avatar.rx"       // another .rx module
 export default component App() { … }       // the entry module's default component is mounted
 ```
 
-A Solid library (solid-primitives and the like) is declared once in a `.d.rx` and then used like .rx: `libraries.md`.
+A `.ts` module declares itself. An unmarked function is io, callable only in imperative code (handlers, actions,
+effects). A loader you can call anywhere is marked in the `.ts`: `function fetchUser(id: number): Pure<Promise<User>>`,
+with `Pure` from `@reactivescript/types`. A type (`User`) is imported like a value and erases. Plain JS with no
+types says it at the import, `import pure { fetchUser } from "./api.js"`. A Solid library (solid-primitives and the
+like), with its brands or a `.d.rx`, is then used like .rx: `libraries.md`.
 
 A file's top level is imports, exports and declarations. A `source` at the top level is app state; inside a
 component it is that instance's state. Only the block that declares a source writes it: importers, props, function

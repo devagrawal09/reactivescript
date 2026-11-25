@@ -13,7 +13,29 @@ fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(ws, { recursive: true });
 for (const f of fs.readdirSync(path.join(repo, "examples/shop"))) fs.copyFileSync(path.join(repo, "examples/shop", f), path.join(ws, f));
 fs.writeFileSync(path.join(ws, "api.d.ts"), "export declare function checkout(items: { id: number; qty: number }[], coupon: string): Promise<{ id: number }>;\n");
-fs.symlinkSync(path.join(repo, "ref/node_modules"), path.join(ws, "node_modules"), "dir");
+const nm = path.join(ws, "node_modules");
+fs.mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
+for (const f of fs.readdirSync(path.join(repo, "ref/node_modules")).filter(f => !f.startsWith("."))) fs.symlinkSync(path.join(repo, "ref/node_modules", f), path.join(nm, f), "dir");
+// MO-11: the brands, and the declaration generator (`@reactivescript/compiler/dts`), as a project installs them
+fs.symlinkSync(path.join(repo, "types"), path.join(nm, "@reactivescript/types"), "dir");
+fs.symlinkSync(path.join(repo, "compiler"), path.join(nm, "@reactivescript/compiler"), "dir");
+const usersTs = [
+  'import type { Pure, Ref } from "@reactivescript/types";',
+  "export function initials(name: string): Pure<string> { return name.slice(0, 1); }",
+  "export function createUpper(source: Ref<string>): Pure<Ref<string>> { return () => source().toUpperCase(); }",
+  "",
+].join("\n");
+fs.writeFileSync(path.join(ws, "users.ts"), usersTs);
+fs.writeFileSync(path.join(ws, "profile.rx"), [
+  'import { initials, createUpper } from "./users"',
+  "export default component Profile() {",
+  '  source name := "ada"',
+  "  first = initials(name)",
+  "  loud = createUpper(name)",
+  "  <p>{first}{loud}</p>",
+  "}",
+  "",
+].join("\n"));
 fs.writeFileSync(path.join(ws, "tsconfig.json"), JSON.stringify({
   compilerOptions: { jsx: "preserve", jsxImportSource: "@solidjs/web", strict: true, noImplicitAny: false, target: "ES2022", module: "ESNext", moduleResolution: "Bundler", allowImportingTsExtensions: true, noEmit: true, skipLibCheck: true, lib: ["ES2022", "DOM"], types: [] },
   include: ["*.rx", "*.ts"],
@@ -107,6 +129,21 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   check("in markup, after `props.product.`: Product's fields", l3.includes("name") && l3.includes("price"), l3.slice(0, 20));
   const h6 = await server.sendHoverRequest(ui.uri, at(uit, "onClick", 2));
   check("an attribute hovers as Solid's JSX type", /onClick/.test(hoverText(h6)), h6);
+
+  console.log("a .ts with no .d.rx (09 MO-11)");
+  const profile = await server.openTextDocument(path.join(ws, "profile.rx"), "reactivescript");
+  const pt = profile.getText();
+  const h7 = await server.sendHoverRequest(profile.uri, at(pt, "loud =", 1));
+  check("a Ref result hovers as its T (TY-4d): `loud: string`", /loud: string/.test(hoverText(h7)), h7);
+  const dg3 = await server.sendDocumentDiagnosticRequest(profile.uri);
+  check("its generated declaration checks clean", (dg3.items ?? []).length === 0, dg3.items);
+  // the .ts changes on disk, the .rx does not: the analysis is stale by the record's files
+  fs.writeFileSync(path.join(ws, "users.ts"), usersTs.replace("export function initials", "export function initialsOf") + "export function score(n: Pure<number>): number { return n; }\n");
+  const dg4 = await server.sendDocumentDiagnosticRequest(profile.uri);
+  check("after the .ts drops `initials`, the .rx's import is NOT_EXPORTED (no edit to the .rx)", (dg4.items ?? []).some(d => d.code === "NOT_EXPORTED" && d.range.start.line === 0), dg4.items);
+  const users = await server.openTextDocument(path.join(ws, "users.ts"), "typescript");
+  const dg5 = await server.sendDocumentDiagnosticRequest(users.uri);
+  check("a misplaced brand is DECLARATION_BRAND, on the .ts at the brand", (dg5.items ?? []).some(d => d.code === "DECLARATION_BRAND" && d.source === "rx" && d.range.start.line === 3), dg5.items);
 
   await server.shutdown();
   console.log(`\n${pass} pass, ${fail} fail`);

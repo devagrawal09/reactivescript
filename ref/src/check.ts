@@ -7,6 +7,10 @@ import { pureGlobal } from "./pure-globals.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
+import { brandsOf } from "./parse.ts";
+import type { SymDecl } from "./model.ts";
+/** MO-11f: a declaration's line, as its file has it. */
+const declLine = (x: JsDecl) => x.src ?? "";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
 import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Model, type RegionKind, type CompKind, type OutlinePart } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
@@ -98,6 +102,7 @@ type Sym = {
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
   serverRejects?: () => Set<string>;   // SF-6b: what a call's promise rejects with — its body's failures, and Error (transit)
   foreign?: Shape;                     // MO-10: a declared JS primitive (a fn) or an instance of one (an equation): what its result is
+  decl?: SymDecl;                      // MO-11f: a JS import's declaration line, the file it is from, and where its facts came from
   reader?: boolean;                    // MO-10d: bound from a foreign accessor — it may hold, as a question's reader does
   noProps?: string;                    // RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
   fnDecl?: Extract<Decl, { k: "fn" }>; declEnv?: Env;   // a fn's declaration and the scope it names from (SF-3: what it reaches)   // a context (RG-7): its identity, whether it carries a source, and its declared rows (null: inferred from its provisions)
@@ -623,16 +628,30 @@ class Checker {
    *  `fails` is refused, and a name it does not declare is not exported. */
   private importDeclared(d: Extract<Decl, { k: "import" }>, env: Env) {
     const decls = this.opts.declarations?.get(d.declared!) ?? []; const file = d.declared!.split("/").pop();
-    if (d.fails) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+    const ts = decls.find(x => x.origin === "generated")?.generatedFrom;   // MO-11: the declaration is (partly) generated from this TS module
+    const tsFile = ts?.split("/").pop();
+    const rule = ts ? "MO-11e" : "MO-8";
+    if (d.fails && !ts) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${d.from}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+    const decl = (x: JsDecl): SymDecl => { const brands = x.origin === "generated" ? brandsOf(x) : []; return { line: declLine(x), from: moduleKey(x.origin === "generated" ? x.generatedFrom! : d.declared!, this.opts.root), origin: x.origin !== "generated" ? "written" : brands.length ? "brand" : "default", brands }; };   // MO-11f
     for (const { name, alias } of d.names) {
       const x = decls.find(y => y.kind !== "import" && y.name === name && (y.kind !== "type" || y.exported));
-      if (!x) { this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`); this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue; }
-      if (x.kind === "type") continue;
-      if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line }); continue; }
-      if (d.pure && !x.pure) this.err("IMPORT_ROW_MISMATCH", "MO-8", `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
-      if (d.side && x.side !== d.side) this.err("IMPORT_ROW_MISMATCH", "SF-5", `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
-      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set() }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
-      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !x.pure, rejects: new Set(x.rejects ?? ["Error"]), side: x.side });
+      if (!x) {
+        if (ts) this.err("NOT_EXPORTED", "MO-11b", `${tsFile} exports no ${name === "default" ? "default" : name} (${d.from} is the TS module ${tsFile}; its declaration is generated from it)`);
+        else this.err("NOT_EXPORTED", "MO-8", `${file} declares no export ${name} (declare it, or it is not ${d.from}'s)`);
+        this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: true }); continue;
+      }
+      if (x.kind === "type" || x.kind === "import") continue;
+      if (x.kind === "error") { this.bind(env, alias, { kind: "errclass", name: alias, region: env.region, line: d.line, decl: decl(x) }); continue; }
+      if (x.kind === "const") { this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !d.pure, rejects: new Set(d.fails ?? ["Error"]), side: d.side, decl: decl(x) }); continue; }   // MO-11b: a JS value — R-io-4 and R-f-8, narrowed at the import
+      const gen = x.origin === "generated";
+      // MO-11e: per fact, a written line beats a brand beats the import beats the default; the import may narrow only a defaulted fact
+      if (d.fails && ts && !gen) this.err("IMPORT_ROW_MISMATCH", rule, `${name}'s rows are declared in ${file}: \`fails\` on the import cannot restate them`);
+      if (d.fails && gen && x.rejects) this.err("IMPORT_ROW_MISMATCH", rule, `${name} rejects with ${x.rejects.join(" | ")} by its \`Rejects<…>\` brand in ${tsFile}; \`fails\` on the import cannot restate it`);
+      if (d.pure && !x.pure && !gen) this.err("IMPORT_ROW_MISMATCH", rule, `${name} is declared io in ${file} (\`export fn\`, not \`export pure fn\`); \`pure\` on the import cannot lower it`);
+      if (d.side && x.side !== d.side && (!gen || x.side)) this.err("IMPORT_ROW_MISMATCH", ts ? rule : "SF-5", gen ? `${name} is \`${x.side}\` by its \`${x.side === "server" ? "Server" : "Client"}<…>\` brand in ${tsFile}; \`${d.side}\` on the import cannot restate it` : `${name} is declared ${x.side ? `\`${x.side}\`` : "for both sides"} in ${file}; \`${d.side}\` on the import cannot restate it`);
+      if (x.instantiates) { this.bind(env, alias, { kind: "fn", name: alias, region: env.region, line: d.line, params: x.params.map((n, i) => ({ name: n, ref: !!x.refs?.[i] })), instantiating: true, foreign: x.shape, rows: () => new Set(), failsT: () => ({ cls: new Set(), props: [] }), rejects: new Set(), decl: decl(x) }); continue; }   // MO-10a: a primitive is an instantiation (RG-6)
+      const pure = x.pure || (gen && d.pure);
+      this.bind(env, alias, { kind: "import", name: alias, region: env.region, line: d.line, io: !pure, rejects: new Set(x.rejects ?? (gen ? d.fails : undefined) ?? ["Error"]), side: x.side ?? (gen ? d.side : undefined), decl: decl(x) });
     }
   }
   /** MO-10b: an equation bound from a primitive's result, or from a part of it (`[a, b] = f(…)`, `x.k`): a `ref` part is a
