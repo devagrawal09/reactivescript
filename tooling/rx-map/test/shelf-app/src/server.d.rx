@@ -1,5 +1,6 @@
 export type Book = { id: string; title: string; author: string; read: boolean }
 export pure fn load(): Promise<Book[]>
+export pure fn loadAnswer(text: string): Promise<string>
 export fn save(book: Book): Promise<Book>
 export fn newId(): string
 export fn revert(opId: string): Promise<void>

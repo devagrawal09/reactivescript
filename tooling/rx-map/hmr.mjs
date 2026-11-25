@@ -46,10 +46,13 @@ export function declText(graph, node) {
   return out.join("\n");
 }
 
+// Keep literal text intact, including // and spaces inside quotes.
+const LITERAL_OR_COMMENT = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`)|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
 /** Comments stripped, blank lines dropped, trailing space dropped. A comment-only edit is not a change. */
 export function normDecl(text) {
-  return String(text ?? "").split("\n").map(l => l.replace(/\/\/.*$/, "").trim()).filter(Boolean).join("\n");
+  return String(text ?? "").replace(LITERAL_OR_COMMENT, (_match, literal) => literal ?? " ").trim();
 }
+const comparable = text => (normDecl(text).match(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[\p{ID_Continue}$]+|[^\s]/gu) ?? []).join("\0");
 
 function normType(t) {
   if (!t) return "";
@@ -73,7 +76,7 @@ export function blankName(text, name) {
 export function parseDecl(kind, _name, text) {
   const raw = String(text ?? "").trim();
   if (kind === "source") {
-    const m = /^(?:export\s+)?source\s+\w+\s*(?::\s*([^=]+?))?\s*(:=|=)\s*([\s\S]*)$/.exec(raw);
+    const m = /^(?:export\s+)?source\s+\w+\s*(?::\s*([^=]+?))?(?:\s+key\s+\w+)?\s*(:=|=)\s*([\s\S]*)$/.exec(raw);
     if (!m) return { type: null, op: null, rhs: raw };
     let type = m[1]?.trim() || null;
     if (type) type = type.replace(/\s+key\s+[\s\S]+$/, "").trim() || null;
@@ -143,6 +146,9 @@ export function planHmr(oldGraph, newGraph, edits) {
   const take = (o, n, move) => {
     if (!o || !n || usedO.has(o.key) || usedN.has(n.key)) return false;
     if (o.kind !== n.kind && move) return false;
+    // The wire partitions keys (not declaration instances). When a move's
+    // old key is still present, prefer the exact key over an overlapping move.
+    if (move && (o.key === n.key || newByKey.has(o.key))) return false;
     usedO.add(o.key);
     usedN.add(n.key);
     paired.push({ o, n, move });
@@ -168,8 +174,8 @@ export function planHmr(oldGraph, newGraph, edits) {
     if (!ns) continue;
     for (const o of os) {
       if (usedO.has(o.key)) continue;
-      const ot = normDecl(declText(oldGraph, o));
-      const n = ns.find(x => !usedN.has(x.key) && normDecl(declText(newGraph, x)) === ot);
+      const ot = comparable(declText(oldGraph, o));
+      const n = ns.find(x => !usedN.has(x.key) && comparable(declText(newGraph, x)) === ot);
       if (n) take(o, n, o.key === n.key ? null : "reindexed");
     }
   }
@@ -183,14 +189,14 @@ export function planHmr(oldGraph, newGraph, edits) {
 
   // Rename: same kind, module and scope, declaration equal once the binding name is blanked.
   const byDist = (o, list) => {
-    const ob = blankName(normDecl(declText(oldGraph, o)), o.name);
+    const ob = comparable(blankName(normDecl(declText(oldGraph, o)), o.name));
     const op = keyParts(o.key);
     let best = null, bestDist = Infinity;
     for (const n of list) {
       if (usedN.has(n.key) || n.kind !== o.kind || n.name === o.name) continue;
       const np = keyParts(n.key);
       if (np.module !== op.module || np.scope !== op.scope) continue;
-      if (blankName(normDecl(declText(newGraph, n)), n.name) !== ob) continue;
+      if (comparable(blankName(normDecl(declText(newGraph, n)), n.name)) !== ob) continue;
       const dist = Math.abs((n.line ?? 0) - (o.line ?? 0));
       if (dist < bestDist) { best = n; bestDist = dist; }
     }
@@ -205,14 +211,14 @@ export function planHmr(oldGraph, newGraph, edits) {
   // Same declaration moved into another component: the key's scope changed. That resets state.
   for (const o of oldN) {
     if (usedO.has(o.key)) continue;
-    const ob = blankName(normDecl(declText(oldGraph, o)), o.name);
+    const ob = comparable(blankName(normDecl(declText(oldGraph, o)), o.name));
     const op = keyParts(o.key);
     let best = null, bestDist = Infinity;
     for (const n of newN) {
       if (usedN.has(n.key) || n.kind !== o.kind) continue;
       const np = keyParts(n.key);
       if (np.module !== op.module || np.name !== op.name || np.scope === op.scope) continue;
-      if (blankName(normDecl(declText(newGraph, n)), n.name) !== ob) continue;
+      if (comparable(blankName(normDecl(declText(newGraph, n)), n.name)) !== ob) continue;
       const dist = Math.abs((n.line ?? 0) - (o.line ?? 0));
       if (dist < bestDist) { best = n; bestDist = dist; }
     }
@@ -229,11 +235,14 @@ export function planHmr(oldGraph, newGraph, edits) {
     const np = parseDecl(n.kind, n.name, nt);
     if (o.kind !== n.kind) return { bucket: "reset", reason: "kind-changed" };
     if (keyParts(o.key).scope !== keyParts(n.key).scope) return { bucket: "reset", reason: "scope-changed" };
-    if (normType(op.type) !== normType(np.type) && n.kind !== "action") return { bucket: "reset", reason: "type-changed" };
-    const rhsChanged = normDecl(op.rhs ?? "") !== normDecl(np.rhs ?? "");
+    if (normType(o.type ?? op.type) !== normType(n.type ?? np.type) && n.kind !== "action") return { bucket: "reset", reason: "type-changed" };
+    const rhsChanged = comparable(op.rhs) !== comparable(np.rhs);
     // The binding name is part of the text. Blank it, or a rename looks like an expression edit.
-    const bodyChanged = blankName(ot, o.name) !== blankName(nt, n.name);
-    if (n.kind === "source" && (rhsChanged || bodyChanged)) return { bucket: "kept", reason: "init-changed" };
+    const bodyChanged = comparable(blankName(ot, o.name)) !== comparable(blankName(nt, n.name));
+    if (n.kind === "source" && (rhsChanged || bodyChanged)) {
+      if (np.op === "=" && (n.question || /\bawait\b/.test(np.rhs))) return { bucket: "rerun", reason: "expr-changed" };
+      return { bucket: "kept", reason: "init-changed" };
+    }
     if ((n.kind === "eq" || n.kind === "effect" || n.kind === "action") && (rhsChanged || bodyChanged))
       return { bucket: "rerun", reason: "expr-changed" };
     return { bucket: "pending", reason: null };
@@ -241,16 +250,6 @@ export function planHmr(oldGraph, newGraph, edits) {
 
   for (const p of paired) {
     const c = ownChange(p.o, p.n);
-    // A move's `to` has to land in kept or reset (partition rule). An expression change is a rerun, so a
-    // cross-key pair whose body changed is removed + added rather than a move. Heuristic renames have the
-    // same text, so they don't hit this; a hint can.
-    if (p.move && c.bucket === "rerun") {
-      plan.removed.push(p.o.key);
-      plan.reasons[p.o.key] = "gone";
-      plan.added.push(p.n.key);
-      plan.reasons[p.n.key] = "new";
-      continue;
-    }
     if (p.move) {
       plan.moved.push({ from: p.o.key, to: p.n.key });
       plan.reasons[p.o.key] = p.move === "reindexed" ? "reindexed" : p.move === "scope" ? "scope-changed" : "renamed";
@@ -261,7 +260,7 @@ export function planHmr(oldGraph, newGraph, edits) {
       plan.reasons[p.n.key] = c.reason;
     }
   }
-  for (const o of oldN) if (!usedO.has(o.key)) {
+  for (const o of oldN) if (!usedO.has(o.key) && !newByKey.has(o.key)) {
     plan.removed.push(o.key);
     plan.reasons[o.key] = "gone";
   }

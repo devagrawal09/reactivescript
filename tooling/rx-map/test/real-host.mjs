@@ -18,6 +18,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runConformanceAsync } from "../conformance.mjs";
+import assert from "node:assert/strict";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
@@ -113,8 +114,9 @@ async function openApp(query = "") {
   // Solid's timing diagnostics (HOT_SCOPE_TIME…) depend on machine load, not on correctness: not page errors here.
   const timing = /^\[(HOT_SCOPE_TIME|SLOW_[A-Z_]+)\]/;
   page.on("console", m => { if ((m.type() === "error" || m.type() === "warning") && !timing.test(m.text())) errors.push(m.text()); });
-  await page.goto(`${origin}/${query}`);
-  await page.waitForFunction(() => globalThis.__RX__?.attach && document.querySelector(".counts"), null, { timeout: 15000 });
+  await page.goto(`${origin}/${query}`, { waitUntil: "domcontentloaded" });
+  try { await page.waitForFunction(() => globalThis.__RX__?.attach && document.querySelector(".counts"), null, { timeout: 15000 }); }
+  catch (e) { throw new Error(`${e.message}\n${await page.evaluate(() => JSON.stringify({ rx: !!globalThis.__RX__, text: document.body.innerText.slice(0, 1000) }))}\n${errors.join("\n")}\n${viteLog}`); }
   await waitIdle(page);
   await page.evaluate(() => {
     // the app's markup; an empty style attribute a click can leave on an element is not the app's
@@ -171,13 +173,37 @@ function makeHost(graph, opts = {}) {
       async post(msg) { await post(page, msg); await flushOut(); },
       async act() { await act(page, acts++); await flushOut(); },
       async tick(n = 1) { await sleep(n * TICK); await flushOut(); },
-      async editModule() { throw new Error("the real host plans no HMR yet (TRACE-CONTRACT §2 module replacement)"); },
+      async editModule(module) {
+        const file = join(app, module);
+        const text = readFileSync(file, "utf8");
+        try { await saveRx(page, file, text + "\n// real host conformance\n"); await flushOut(); }
+        finally { await saveRx(page, file, text); }
+      },
       async dispose() { await page.close(); },
     };
   })();
 }
 
+async function saveRx(page, file, text) {
+  const start = await page.evaluate(() => globalThis.__T.msgs.length);
+  writeFileSync(file, text);
+  try {
+    await page.waitForFunction(start => globalThis.__T?.msgs.slice(start).some(m => m.type === "hmr" && ["done", "failed"].includes(m.phase)), start, { timeout: 8000 });
+  } catch (e) {
+    throw new Error(`${e.message}\n${await page.evaluate(() => JSON.stringify(globalThis.__T?.msgs.filter(m => m.type === "hmr").map(({ graph, plan, ...m }) => m)))}\n${viteLog}\n${page.errors.join("\n")}`);
+  }
+  const records = await page.evaluate(start => globalThis.__T.msgs.slice(start), start);
+  const last = records.find(m => m.type === "hmr" && ["done", "failed"].includes(m.phase));
+  const phases = records.filter(m => m.type === "hmr" && m.id === last.id);
+  assert.deepEqual(phases.map(m => m.phase), ["plan", "apply", "done"], JSON.stringify(phases.map(({ graph, plan, ...m }) => m)));
+  assert.ok(phases.every(m => m.id === phases[0].id));
+  return { plan: phases[0].plan, done: phases[2], flush: records.find(m => m.type === "flush" && m.origin === `hmr ${phases[0].id}`) };
+}
+
 try {
+  if (args.includes("--hmr-only")) {
+    await realHmr();
+  } else {
   // ---- conformance -------------------------------------------------------------------------------------------------
   const first = await openApp();
   const graph = await first.evaluate(() => JSON.parse(JSON.stringify(globalThis.__RX__.graphs[0])));
@@ -186,10 +212,9 @@ try {
   const results = await runConformanceAsync(makeHost, [graph], { seed: 1 });
   console.log("-- conformance against the real host");
   for (const r of results) {
-    const hmr = r.check.startsWith("hmr ");
-    const line = `${r.ok ? "ok  " : hmr ? "n/a " : "FAIL"} ${r.check}${r.graph ? ` [${r.graph}]` : ""}${r.detail ? `: ${r.detail}` : ""}`;
+    const line = `${r.ok ? "ok  " : "FAIL"} ${r.check}${r.graph ? ` [${r.graph}]` : ""}${r.detail ? `: ${r.detail}` : ""}`;
     console.log(line);
-    if (!r.ok && !hmr) failed++;
+    if (!r.ok) failed++;
   }
 
   // ---- the DOM under travel ----------------------------------------------------------------------------------------
@@ -369,9 +394,163 @@ try {
   await page.close();
 
   await roundThree();
+  await realHmr();
+  }
 } finally {
   await browser.close();
   vite.kill();
+}
+
+async function realHmr() {
+  console.log("-- keyed HMR from disk");
+  const filename = join(app, "src/App.rx");
+  const original = readFileSync(filename, "utf8");
+  const dep = join(app, "src/components/ShelfInfo.rx");
+  const originalDep = readFileSync(dep, "utf8");
+  const rows = join(app, "src/components/Book.rx");
+  const originalRows = readFileSync(rows, "utf8");
+  let text = original.replace('  source filter:', `  source counter: number := 0
+  source answer: string = await loadAnswer("first")
+  doubled = counter * 2
+  source filter:`).replace("import pure { load }", "import pure { load, loadAnswer }")
+    .replace("    <h1>Shelf</h1>", `    <h1>Shelf</h1>
+    <button type="button" data-testid="hmr-counter" onClick={() => { counter := c => c + 1 }}>{counter}</button>
+    <p data-testid="hmr-double">{doubled}</p>
+    {errored fallback(e) { <p>{e.message}</p> } {
+      {loading fallback { <p data-testid="hmr-loading">Asking…</p> } {
+        <p data-testid="hmr-answer">{answer}</p>
+      }}
+    }}
+    {if true {
+      source repeated := 10
+      <p>{repeated}</p>
+    }}
+    {if true {
+      source repeated := 20
+      <button type="button" data-testid="hmr-reindexed" onClick={() => { repeated := c => c + 1 }}>{repeated}</button>
+    }}`);
+  const key = name => `src/App.rx|App|${name}`;
+  let page;
+  try {
+    writeFileSync(filename, text);
+    writeFileSync(rows, originalRows.replace("  <style>", "  source local := 0\n  <style>")
+      .replace('    <span class="title">', '    <button type="button" data-testid="hmr-row" onClick={() => { local := c => c + 1 }}>{local}</button>\n    <span class="title">'));
+    page = await openApp();
+    const shown = async (id, want) => {
+      await page.waitForFunction(([id, want]) => document.querySelector(`[data-testid="hmr-${id}"]`)?.textContent === want, [id, want]);
+    };
+    const values = () => page.evaluate(() => {
+      let s;
+      const v = globalThis.__RX__.attach(m => { if (m.type === "snapshot") s = m; });
+      v.post({ type: "snapshot?" });
+      v.detach();
+      return Object.fromEntries(s.values.map(v => [v.key, v.preview]));
+    });
+    const btn = page.getByTestId("hmr-counter");
+    for (let i = 0; i < 3; i++) await btn.click();
+    const row = page.getByTestId("hmr-row").first();
+    await row.click();
+    assert.equal(await row.textContent(), "1");
+    const state = async (name, value, rendered = value) => {
+      if (rendered !== null) await shown("counter", rendered);
+      assert.equal((await values())[key(name)], value);
+    };
+    const edit = async (label, update, reasons, verify) => {
+      text = update(text);
+      const result = await saveRx(page, filename, text);
+      for (const [name, why] of Object.entries(reasons)) assert.equal(result.plan.reasons[key(name)], why, name);
+      assert.ok(result.flush, "missing HMR timeline flush");
+      await verify(result);
+      console.log(`ok   HMR ${label}`);
+      return result;
+    };
+    await state("counter", "3");
+    await edit("unchanged: unrelated DOM edit keeps counter at 3", s => s.replace("<h1>Shelf</h1>", "<h1>New shelf</h1>"),
+      { counter: "unchanged" }, async ({ done }) => {
+        await page.getByRole("heading", { name: "New shelf" }).waitFor();
+        await state("counter", "3");
+        assert.equal(await row.textContent(), "0");
+        assert.equal(done.fallback, "refresh");
+        assert.ok(done.uncarried.includes("src/components/Book.rx|BookRow|local"));
+      });
+    await edit("init-changed: counter keeps 3 rather than taking 7", s => s.replace("counter: number := 0", "counter: number := 7"),
+      { counter: "init-changed" }, async () => state("counter", "3"));
+    const beforeExpr = await page.evaluate(() => {
+      let n; const v = globalThis.__RX__.attach(m => { if (m.type === "timeline") n = m.head; });
+      v.post({ type: "hello" }); v.detach(); return n;
+    });
+    const changed = await edit("expr-changed: equation goes from 6 to 9", s => s.replace("counter * 2", "counter * 3"),
+      { doubled: "expr-changed" }, async ({ done, flush }) => {
+        await state("counter", "3"); await shown("double", "9");
+        assert.equal((await values())[key("doubled")], "9");
+        assert.ok(done.changes.some(c => c.key === key("doubled") && c.prev === "6" && c.preview === "9"));
+        assert.ok(flush.changes.some(c => c.key === key("doubled") && c.preview === "9"));
+      });
+    await waitIdle(page);
+    await post(page, { type: "travel", to: beforeExpr });
+    const historical = (await drain(page)).findLast(m => m.type === "step");
+    assert.ok(historical?.inexact?.includes(key("doubled")), "new code cannot reproduce an old synchronous expression");
+    assert.equal(historical.changes.find(c => c.key === key("doubled"))?.preview, "6");
+    await post(page, { type: "travel", to: changed.flush.seq });
+    await shown("double", "9");
+    await post(page, { type: "resume" });
+    await shown("double", "9");
+    await btn.click();
+    await state("counter", "4");
+    await post(page, { type: "travel", to: changed.flush.seq });
+    await state("counter", "3");
+    await shown("double", "9");
+    await post(page, { type: "resume" });
+    await state("counter", "4");
+    console.log(`ok   HMR travel across #${changed.flush.seq} reports the old expression; travel to the HMR step shows counter 3 instead of 4`);
+    await edit("standing question re-asks and shows its old answer until landing", s => s.replace('loadAnswer("first")', 'loadAnswer("second")'),
+      { answer: "expr-changed" }, async ({ done }) => {
+        await shown("answer", "first"); await shown("answer", "second");
+        assert.equal((await values())[key("answer")], '"second"');
+        const records = await page.evaluate(() => globalThis.__T.msgs);
+        assert.ok(records.some(m => m.type === "flight" && m.key === key("answer") && m.state === "start"));
+        assert.ok(records.some(m => m.type === "flush" && m.origin === `hmr ${done.id}` && m.changes.some(c => c.key === key("answer") && c.preview === '"second"')));
+      });
+    await edit("renamed: moved source keeps 4", s => s.replace(/\bcounter\b/g, (word, i) => s.slice(i - 4, i) === "hmr-" ? word : "tally"),
+      { counter: "renamed", tally: "unchanged" }, async ({ plan }) => {
+        assert.deepEqual(plan.moved.find(m => m.from === key("counter")), { from: key("counter"), to: key("tally") });
+        await state("tally", "4");
+        assert.equal((await values())[key("counter")], undefined);
+      });
+    await edit("type-changed: source resets",
+      s => s.replace("tally: number := 7", "tally: string := \"reset\"").replace("tally * 3", "tally + \"\"").replace("tally := c => c + 1", "tally := c => c + \"!\""),
+      { tally: "type-changed", doubled: "expr-changed" }, async () => { await state("tally", '"reset"', "reset"); await shown("double", "reset"); });
+    await edit("kind-changed: source becomes equation", s => s.replace('source tally: string := "reset"', 'tally: string = "equation"').replace(' onClick={() => { tally := c => c + "!" }}', ""),
+      { tally: "kind-changed", doubled: "upstream-changed" }, async () => { await state("tally", '"equation"', "equation"); await shown("double", "equation"); });
+    await edit("new/gone: add and remove keys", s => s.replace('tally: string = "equation"', 'source fresh: string := "new"').replace("doubled = tally", "doubled = fresh").replace("{tally}", "{fresh}"),
+      { tally: "gone", fresh: "new" }, async () => { await state("fresh", '"new"', "new"); assert.equal((await values())[key("tally")], undefined); });
+    const depEdit = await saveRx(page, dep, originalDep.replace('${info.name} (', '${info.name} has ('));
+    await page.getByText("Shelf main has (4)").waitFor();
+    await state("fresh", '"new"', "new");
+    assert.equal(depEdit.plan.reasons["src/components/ShelfInfo.rx|ShelfInfo|label"], "expr-changed");
+    console.log("ok   HMR dependency edit: replacement code reaches the mounted importer");
+    await edit("scope-changed: move to module scope resets", s => s.replace('  source fresh: string := "new"\n', "")
+      .replace("export default component App()", 'source fresh: string := "new"\n\nexport default component App()'),
+      { fresh: "scope-changed" }, async ({ plan }) => {
+        assert.ok(plan.reset.includes("src/App.rx||fresh"));
+        await shown("counter", "new");
+        assert.equal((await values())["src/App.rx||fresh"], '"new"');
+      });
+    await page.getByTestId("hmr-reindexed").click();
+    await shown("reindexed", "21");
+    await edit("reindexed: #1 shifts to base key and keeps 21", s => s.replace(/    \{if true \{\n      source repeated := 10\n      <p>\{repeated\}<\/p>\n    \}\}\n/, ""),
+      { "repeated#1": "reindexed" }, async ({ plan }) => {
+        assert.deepEqual(plan.moved.find(m => m.from === key("repeated#1")), { from: key("repeated#1"), to: key("repeated") });
+        await shown("reindexed", "21");
+        assert.equal((await values())[key("repeated")], "21");
+      });
+    assert.deepEqual(page.errors, []);
+  } finally {
+    await page?.close();
+    writeFileSync(filename, original);
+    writeFileSync(dep, originalDep);
+    writeFileSync(rows, originalRows);
+  }
 }
 
 // Round-3 tester feedback (usability/round3-browser.md, tool point 3): (a) an undo list (an array of objects, prepended

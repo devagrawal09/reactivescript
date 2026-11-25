@@ -30,6 +30,12 @@ export function rxMap() {
       const entries = new Map();
       const root = server.config.root;
       const hooks = globalThis[Symbol.for("reactivescript.vite.entries")] ??= new Map();
+      const hmr = globalThis[Symbol.for("reactivescript.vite.hmr")] ??= new Map();
+      const hub = {
+        send: (event, data) => server.environments.client.hot.send({ type: "custom", event, data }),
+        modules: file => server.environments.client.moduleGraph.getModulesByFile(file),
+      };
+      hmr.set(root, hub);
       let app;
       const lastGood = new Map();
       let warm;
@@ -41,7 +47,11 @@ export function rxMap() {
       };
       const register = (file, spa) => { if (entries.get(file) !== spa) { entries.set(file, spa); invalidate(); } };
       hooks.set(root, register);
-      server.httpServer?.once("close", () => { clearTimeout(warm); if (hooks.get(root) === register) hooks.delete(root); });
+      server.httpServer?.once("close", () => {
+        clearTimeout(warm);
+        if (hooks.get(root) === register) hooks.delete(root);
+        if (hmr.get(root) === hub) hmr.delete(root);
+      });
       server.watcher?.on("all", (event, file) => {
         if (file.endsWith(".rx") || file.endsWith(".ts") || file.endsWith("tsconfig.json")) invalidate();
       });
