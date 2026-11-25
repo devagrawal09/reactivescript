@@ -564,6 +564,11 @@ export function planReason(hmr, key) {
 }
 /** "waiting on a, b" for a held write. */
 export const heldText = (h, none) => (h?.by?.length ? h.by.map(keyName).join(", ") : none);
+/** What to do about a held write: holds are by design, so read ahead or make the status a guess (guide/async.md). */
+export const heldHint = key => {
+  const name = key ? keyName(key).replace(/~.*$/, "") : "x";
+  return `to show it while the action runs: read \`latest ${name}\` or \`pending? ${name}\` where it is shown, or make status-only state a guess (\`guess saving := true\`); guide/async.md, "Showing progress while an action runs"`;
+};
 /** Whether a key glows: a request in the air or an action running. */
 export const isFlying = (live, key) => (live.flying[key] ?? 0) > 0 || Object.values(live.runs).includes(key);
 /** A boundary's report, by its region's key or id. */
