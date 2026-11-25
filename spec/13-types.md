@@ -64,7 +64,10 @@ does for `.tsrx`. Nothing here is a second type system.
 - **TY-4b.** A `.d.rx` is its JS module's `.d.ts`: each function's
   parameter types and return type (`export pure fn f(id: number): Promise<User>`),
   its `export type`s, and its error classes (MO-8). A JS module with no
-  declaration file is `any`.
+  declaration file is `any`. Where a `.ts` (or `.js`) sits beside the
+  `.d.rx`, the type layer still checks the import against the `.d.rx`:
+  a `ref` parameter or result is that type, not the accessor the `.ts`
+  implementation is written with. The compiled import is unchanged (MO-8c).
 - **TY-4c.** An `.rx` module read by its `.d.rx` (09 MO-9) is typed by the
   `.d.ts` TypeScript emits from that module's projection (TY-1c), shipped
   beside it: the `.d.rx` carries rows, the `.d.ts` types. `ref/` has no such
