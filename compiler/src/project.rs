@@ -179,7 +179,7 @@ pub fn project_modules_with(set: &ModuleSet, prelude: Option<&str>) -> Vec<Proje
     for path in &set.order {
         let p = &set.programs[path];
         let src = set.sources.get(path).map(|s| s.as_str()).unwrap_or("");
-        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), prelude };
+        let mut pr = Proj { w: W::new(), set, path, src, js_stubs: &mut js_stubs, used: IndexSet::new(), declared: HashSet::new(), slots: HashSet::new(), prelude };
         pr.module(p);
         let w = pr.w;
         out.push(Projected { path: projected_path(path), code: w.buf.s, lines: w.lines, rx: path.clone(), mappings: w.buf.m, ranges: w.buf.r });
@@ -287,6 +287,8 @@ struct Proj<'a> {
     used: IndexSet<String>,
     /// names the module declares (they shadow the prelude)
     declared: HashSet<String>,
+    /// sources and equations: a write checks this type, not a branch's narrowing (TY-2)
+    slots: HashSet<String>,
     prelude: Option<&'a str>,
 }
 
@@ -384,6 +386,9 @@ impl Proj<'_> {
         for d in ds {
             if let Some(n) = d.name() {
                 self.declared.insert(n.to_string());
+            }
+            if matches!(d, Decl::Source { .. } | Decl::Eq { .. }) {
+                self.slots.insert(d.name().unwrap().to_string()); // before actions, whose writes name them
             }
         }
         for d in ds {
@@ -496,12 +501,14 @@ impl Proj<'_> {
                         None => Code::of("__.src(").c(self.expr(init, false, None)).t(")"),
                     };
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
+                    self.w.emit(Code::of(&format!("{ind}type __W_{name} = typeof {name};")), *line);
                 }
                 Decl::Eq { name, e, line, ty, .. } => {
                     let nm = self.name(name, sp, &mut at);
                     let a = self.ann(ty, sp, &mut at);
                     let v = Code::of("__.eq(").c(self.expr(e, false, Some(name))).t(", true)");   // R-1: no promise without `await`
                     self.w.emit(Code::of(ind).t(ex(d)).t("const ").c(nm).c(a).t(" = ").c(v).t(";").from(sp), *line);
+                    self.w.emit(Code::of(&format!("{ind}type __W_{name} = typeof {name};")), *line);
                 }
                 Decl::Provide { name, e, line, .. } => {
                     let nm = self.name(name, sp, &mut at);
@@ -656,9 +663,26 @@ impl Proj<'_> {
                     self.w.emit(Code::of(&format!("{ind}throw ")).c(v).t(";").from(sp), 0);
                 }
                 StmtKind::Write { target, e } | StmtKind::Optimistic { target, e } => {
-                    let t = self.target(target, sp, &mut at);
                     let v = self.expr(e, true, None);
-                    self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
+                    // TY-2: a write is checked against the slot's type, not the type a branch has narrowed the read to.
+                    if !target.is_ctx() && self.slots.contains(&target.name) {
+                        let mut path = String::new();
+                        for p in &target.path {
+                            match p {
+                                PathSeg::Name(n) => path.push_str(&format!(".{n}")),
+                                PathSeg::Expr(x) => path.push_str(&format!("[{}]", self.expr(x, true, None).s)),
+                            }
+                        }
+                        let base = if target.path.is_empty() {
+                            format!("({} as __W_{})", target.name, target.name)
+                        } else {
+                            format!("({} as NonNullable<__W_{}>)", target.name, target.name)
+                        };
+                        self.w.emit(Code::of(&format!("{ind}__.set({base}{path})(")).c(v).t(");").from(sp), 0);
+                    } else {
+                        let t = self.target(target, sp, &mut at);
+                        self.w.emit(Code::of(&format!("{ind}__.set(")).c(t).t(")(").c(v).t(");").from(sp), 0);
+                    }
                 }
                 StmtKind::Refresh(n) | StmtKind::Affects(n) => {
                     let nm = self.name(n, sp, &mut at);

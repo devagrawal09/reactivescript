@@ -121,6 +121,7 @@ class Proj {
   w: W; set: ModuleSet; path: string; jsStubs: Map<string, Set<string>>;
   private used = new Set<string>();                         // prelude names the module reads
   private declared = new Set<string>();                     // names the module declares (they shadow the prelude)
+  private slots = new Set<string>();                        // sources and equations: a write checks this type, not a branch's narrowing (TY-2)
   constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
 
   module(p: Program) {
@@ -142,6 +143,7 @@ class Proj {
   decls(ds: Decl[], ind: string, top = false) {
     const ex = (d: Decl) => top && (d as { exported?: boolean }).exported ? "export " : "";
     for (const d of ds) if ("name" in d) this.declared.add(d.name);
+    for (const d of ds) if (d.k === "source" || d.k === "eq") this.slots.add(d.name);   // before actions, whose writes name them
     for (const d of ds) {
       if (d.k === "import") this.importDecl(d, ind);
       if (d.k === "typedecl") this.w.emit(`${ind}${ex(d)}${d.text ?? `type ${d.name} = any;`}`, d.line);
@@ -170,8 +172,8 @@ class Proj {
       }
     }
     for (const d of this.order(ds)) {
-      if (d.k === "source") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line);
-      if (d.k === "eq") this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line);   // R-1: no promise without `await`
+      if (d.k === "source") { this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = ${typeText(d.type) ? `__.typed<${typeText(d.type)}>(${this.expr(d.init, false)})` : `__.src(${this.expr(d.init, false)})`};`, d.line); this.w.emit(`${ind}type __W_${d.name} = typeof ${d.name};`, d.line); }
+      if (d.k === "eq") { this.w.emit(`${ind}${ex(d)}const ${d.name}${ann(d.type)} = __.eq(${this.expr(d.e, false, d.name)}, true);`, d.line); this.w.emit(`${ind}type __W_${d.name} = typeof ${d.name};`, d.line); }   // R-1: no promise without `await`
       if (d.k === "provide") this.w.emit(`${ind}__.provide(${d.name}, ${this.expr(d.e, false)});`, d.line);
     }
     for (const d of ds) if (d.k === "effect") {
@@ -221,7 +223,7 @@ class Proj {
         case "expr": this.w.emit(`${ind}${e(s.e)};`, 0); break;
         case "return": this.w.emit(`${ind}return${s.e ? " " + e(s.e) : ""};`, 0); break;
         case "throw": this.w.emit(`${ind}throw ${e(s.e)};`, 0); break;
-        case "write": case "optimistic": this.w.emit(`${ind}__.set(${this.target(s.target)})(${e(s.e)});`, 0); break;
+        case "write": case "optimistic": this.write(s.target, e(s.e), ind); break;
         case "refresh": case "affects": this.w.emit(`${ind}void ${s.name};`, 0); break;
         case "action": this.w.emit(`${ind}void (async () => {`, 0); this.stmts(s.body, ind + "  "); this.w.emit(`${ind}})();`, 0); break;
         case "sif": this.w.emit(`${ind}if (${e(s.c)}) {`, 0); this.stmts(s.t, ind + "  "); this.w.emit(`${ind}} else {`, 0); this.stmts(s.f, ind + "  "); this.w.emit(`${ind}}`, 0); break;
@@ -233,6 +235,17 @@ class Proj {
         }
       }
     }
+  }
+  /** TY-2: a write is checked against the slot's type, not the type a branch has narrowed the read to. */
+  private write(t: Target, v: string, ind: string) {
+    if (!t.ctx && this.slots.has(t.name)) {
+      let path = "";
+      for (const p of t.path) path += typeof p === "string" ? `.${p}` : `[${this.expr(p, true)}]`;
+      const base = t.path.length ? `(${t.name} as NonNullable<__W_${t.name}>)` : `(${t.name} as __W_${t.name})`;
+      this.w.emit(`${ind}__.set(${base}${path})(${v});`, 0);
+      return;
+    }
+    this.w.emit(`${ind}__.set(${this.target(t)})(${v});`, 0);
   }
   private target(t: Target): string {
     let s = t.ctx ? `__.use(${t.name})` : t.name;
