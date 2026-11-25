@@ -1299,8 +1299,14 @@ impl<'a> Checker<'a> {
                 }
             }
             match d {
-                Decl::Import { names, pure, fails, side, line, .. } => {
+                Decl::Import { names, pure, fails, side, line, lenient, .. } => {
                     for n in names {
+                        if lenient.contains(&n.name) {
+                            let s = Self::unknown_import(&n.alias, region, *line as i64);
+                            let s = self.bind(env, &n.alias, s);
+                            self.import_syms.insert(s);
+                            continue;
+                        }
                         let mut s = Sym::new(SymKind::Import, &n.alias, region, *line as i64);
                         s.io = !pure;
                         s.rejects = Some(fails.clone().unwrap_or_else(|| vec!["Error".into()]).into_iter().collect());
@@ -1591,8 +1597,17 @@ impl<'a> Checker<'a> {
         Some(s)
     }
     /// MO-8: bind a JS import's names from its declaration file.
+    /// MO-11d: a TS export whose generated declaration failed, or every name of a TS module with none. The error is the TS
+    /// module's (or the import's), and the build fails on it; the name is unknown here — callable anywhere, with no rows
+    /// and no failures, not instantiating — so its uses report nothing that is only fallout.
+    fn unknown_import(alias: &str, region: RId, line: i64) -> Sym<'a> {
+        let mut s = Sym::new(SymKind::Import, alias, region, line);
+        s.io = false;
+        s.rejects = Some(IndexSet::new());
+        s
+    }
     fn import_declared(&mut self, d: &'a Decl, env: EId) {
-        let Decl::Import { names, from, pure, line, fails, side, declared, .. } = d else { return };
+        let Decl::Import { names, from, pure, line, fails, side, declared, lenient, .. } = d else { return };
         let region = self.reg(env);
         let line = *line as i64;
         let declared = declared.as_ref().unwrap();
@@ -1613,6 +1628,11 @@ impl<'a> Checker<'a> {
             serde_json::json!({ "line": x.src(), "from": module_key(x.generated().unwrap_or(declared), root), "origin": origin, "helpers": helpers })
         };
         for ImportName { name, alias } in names {
+            if lenient.contains(name) {
+                let s = Self::unknown_import(alias, region, line);
+                self.bind(env, alias, s);
+                continue;
+            }
             let Some(x) = decls.iter().find(|y| y.name() == name && y.exported()) else {
                 if ts.is_some() {
                     self.err("NOT_EXPORTED", "MO-11b", format!("{} exports no {} ({} is the TS module {}; its declaration is generated from it)", ts_file, name, from, ts_file));

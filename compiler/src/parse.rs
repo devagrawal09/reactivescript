@@ -1175,7 +1175,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         };
         let save = c.i;
         c.ws(false);
-        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None };
+        let mk = |fails| Decl::Import { names, from, pure, side, line, span: Span::NONE, fails, resolved: None, declared: None, declared_errors: None, declared_pure: None, declared_side: None, lenient: vec![] };
         if c.keyword("fails") {
             c.ws(true);
             let fails = parse_classes(c)?.unwrap_or_else(|| vec!["Error".to_string()]);
