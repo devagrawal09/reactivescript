@@ -31,7 +31,7 @@ use reactivescript::check::{check_modules, check_modules_in};
 use reactivescript::emit::{compile_dev, compile_into, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
-use reactivescript::modules::load_modules;
+use reactivescript::modules::{load_modules, load_modules_recovering};
 use reactivescript::serve;
 use reactivescript::signature::print_signature;
 use serde_json::{json, Map, Value};
@@ -331,7 +331,9 @@ fn main() {
             let as_json = cmd == "check" && args.iter().any(|a| a == "--json");
             let mut found: Vec<Value> = vec![];
             for f in args[1..].iter().filter(|a| !a.starts_with("--")) {
-                let set = match load_modules(&abs(f), &read_disk) {
+                let entry = abs(f);
+                let loaded = if cmd == "check" { load_modules_recovering(&entry, &read_disk) } else { load_modules(&entry, &read_disk) };
+                let set = match loaded {
                     Ok(s) => s,
                     Err(e) => {
                         bad += 1;
@@ -343,9 +345,20 @@ fn main() {
                         continue;
                     }
                 };
+                for e in &set.parse_errors {
+                    bad += 1;
+                    if as_json {
+                        found.push(parse_error_json(f, e));
+                    } else {
+                        eprintln!("{}", parse_error_text(f, e));
+                    }
+                }
                 // a symbol's key names its module from the cwd, as `file` does
                 let checked = if cmd == "model" { check_modules_in(&set, spa, Some(&cwd())) } else { check_modules(&set, spa) };
                 for d in &checked.diags {
+                    // As in `rx-tsc`, a file with parse errors gets its parse diagnostics,
+                    // not checker diagnostics from its partial tree. Still check other files.
+                    if set.parse_errors.iter().any(|e| e.2 == d.file) { continue; }
                     bad += 1;
                     if as_json {
                         found.push(serve::diagnostic_json(&set, d));
@@ -365,7 +378,7 @@ fn main() {
                         })
                         .collect();
                     println!("{}", serde_json::to_string_pretty(&ms).unwrap());
-                } else if checked.diags.is_empty() && !as_json {
+                } else if checked.diags.is_empty() && set.parse_errors.is_empty() && !as_json {
                     println!("{}: ok", f);
                 }
             }
