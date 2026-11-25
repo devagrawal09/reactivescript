@@ -2,5 +2,13 @@
 export function register(graph: unknown, options?: { hot?: unknown }): void;
 /** Mounts the live map into `el`; returns a dispose function. */
 export function mount(el: HTMLElement): () => void;
+/**
+ * A view without the map page (tests, other tools in the app's window): `listener` gets every host message and
+ * `post` takes view messages (`hello`, `snapshot?`, `travel`, `resume`). TRACE-CONTRACT §2–3.
+ */
+export function attach(listener: (msg: { source: "rx-map"; v: 1; type: string; [k: string]: unknown }) => void): {
+  post(msg: { type: string; [k: string]: unknown }): void;
+  detach(): void;
+};
 export function preview(value: unknown, max?: number, depth?: number): string;
 export function mergeGraphs(list: unknown[]): unknown;
