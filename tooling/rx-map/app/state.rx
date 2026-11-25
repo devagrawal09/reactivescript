@@ -3,13 +3,14 @@
 import { isDiff, loadJSON, saveJSON } from "./js/env.js"
 import { graphAt, putGraph } from "./js/graphs.js"
 import { toSet } from "./js/util.js"
-import { buildModel, boardTree, graphOf, neighbourhood, downstream, upstream, keyOf } from "./js/model.js"
+import { buildModel, neighbourhood, downstream, upstream } from "./js/model.js"
+import { boardView, detailLevel, overviewLevel } from "./js/layout.js"
 
 // ---- the graph -----------------------------------------------------------------------------------------------
 // the graph is held by number (graphs.js): a source holding the graph itself would be a store over all of it
 export source graphNo: number := 0
 export model = buildModel(graphAt(graphNo))
-export board = boardTree(model)
+export board = boardView(model)
 export diff = isDiff()
 
 // ---- what is looked at ---------------------------------------------------------------------------------------
@@ -32,9 +33,9 @@ export action mark(id: string | null) { marked := id }
 // what is lit, as a lookup: a view asks `lit[id]`
 export lit = toSet(focus == null ? [] : focus.ids)
 
-// ---- the layout the edges are drawn on (measured from the DOM after each layout) ------------------------------
-export source layout: { boxes: any; w: number; h: number } := { boxes: {}, w: 0, h: 0 }
-export action setLayout(l: { boxes: any; w: number; h: number }) { layout := l }
+export source level := detailLevel()
+export overview = level == overviewLevel()
+export action showLevel(l: number) { level := l }
 
 // ---- selection and traces --------------------------------------------------------------------------------------
 export action hover(id: string | null) {

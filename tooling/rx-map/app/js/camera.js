@@ -1,10 +1,25 @@
 import { compactNow, onCompactChange, reducedMotion } from "./env.js";
-import { boardSize, boxOf, boxOfId } from "./geometry.js";
+import { boxOfId, boxOf, zoomUnder, anchorOf, moduleEl, regionEl } from "./geometry.js";
 import { buildMini, drawMiniView } from "./minimap.js";
+import { LEVELS, levelFor, overviewLevel, detailLevel, detailZoom, fitCards } from "./layout.js";
 
 const PERSP = 1500, TILT = 10;
 const initialCam = () => ({ x: 0, y: 0, s: 1, rx: 0, ry: 0, trx: 0, try: 0, ready: false });
 let cam = initialCam();
+let level = detailLevel(), pinnedAt = null, readBoard, readModel, publishLevel, onDragStart;
+function setLevel(l) {
+  if (level === l) return;
+  level = l;
+  publishLevel(l);
+  zoomPct.title = l === overviewLevel() ? "overview" : "detail";
+  if (l === overviewLevel()) fitCards(readBoard().L);
+}
+const syncLevel = () => {
+  if (pinnedAt !== cam.s) {
+    pinnedAt = null;
+    setLevel(levelFor(cam.s, level));
+  }
+};
 let canvas, world, board, floor, zoomPct, disposeCamera;
 let vw = 0, vh = 0, BW = 1400, BH = 1000;
 const rad = d => d * Math.PI / 180;
@@ -53,6 +68,7 @@ let fly = null, inertia = null, tickId = 0, camDirty = false;
 const pointers = new Map();
 let drag = null, pinch = null, suppressClick = false;
 export const isMoving = () => !!(fly || inertia || drag?.moved || pinch);
+export const isPanning = () => !!(drag?.moved || pinch);
 
 // The board never leaves the screen entirely.
 function keepInView() {
@@ -67,6 +83,7 @@ function applyCam() {
   keepInView();
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
+  syncLevel();
   drawMiniView();
   clearTimeout(crispT); crispT = setTimeout(crisp, 70);
 }
@@ -117,35 +134,46 @@ export function flyToBox(box, scale) {
   if (box) flyTo(box.x, box.y, scale ?? clamp(Math.max(cam.s, .9), .3, 2.6));
 }
 export function flyToId(id, mode) {
-  const s = mode === "dbl" ? clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2) : mode === "search" ? Math.max(cam.s, .8) : undefined;
+  const s = mode === "dbl" ? clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2)
+    : mode === "search" ? Math.max(cam.s, detailZoom() + .03)
+    : mode === "select" && level !== detailLevel() ? detailZoom() + .1 : undefined;
   flyToBox(boxOfId(id), s);
 }
-function fitScale() { const fr = freeRect(), m = compactNow() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
-const frameWidthScale = fr => clamp((fr.w - (compactNow() ? 12 : 40)) / BW, .3, 1);
-
-// Frame the whole board if readable, or fit its width and stay at the current height.
-export function frameAll(dur = 600) {
-  const whole = fitScale(), fr = freeRect();
-  if (whole >= .5) return flyTo(BW / 2, BH / 2, whole, dur);
-  const s = frameWidthScale(fr);
-  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
-  flyTo(BW / 2, y, s, dur);
+export function flyToModule(ev) {
+  const el = ev.target.closest(".module"), p = el && readBoard().L.plates.get(+el.dataset.mod);
+  if (!p) return;
+  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, detailZoom() + .02, 1.2);
+  flyTo(p.x + p.w / 2, p.y + Math.min(p.h, fr.h / s) / 2, s);
 }
+function fitScale() {
+  const fr = freeRect(), m = compactNow() ? 10 : 28, { x, y, s } = cam;
+  const fits = s => {
+    setCamAt(BW / 2, BH / 2, s, fr.cx, fr.cy);
+    return [[0, 0], [BW, 0], [0, BH], [BW, BH]].every(([x, y]) => {
+      const [sx, sy] = toScreen(x, y);
+      return sx >= fr.l + m && sx <= fr.r - m && sy >= fr.t + m && sy <= fr.b - m;
+    });
+  };
+  let lo = .02, hi = 1.6;
+  for (let i = 0; i < 22; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  Object.assign(cam, { x, y, s });
+  return lo;
+}
+export function frameAll(dur = 600) { flyTo(BW / 2, BH / 2, Math.min(fitScale(), 1), dur); }
 export function isFramed() {
-  const fr = freeRect(), [bx] = toBoard(fr.cx, fr.cy);
-  return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - fitScale()) < .01 || Math.abs(cam.s - frameWidthScale(fr)) < .01);
+  const fr = freeRect(), [bx, by] = toBoard(fr.cx, fr.cy);
+  return Math.abs(bx - BW / 2) < 4 && Math.abs(by - BH / 2) < 4;
 }
 export function home() {
   if (!cam.ready) return;
-  // A small map is framed whole; a big one starts at the top.
-  const fr = freeRect(), fit = fitScale();
-  if (fit >= .8) { setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy); }
-  else if (compactNow()) {
-    // A short dock starts at the first module's plate.
-    const s = Math.min(clamp((fr.w - 12) / BW, .3, 1), Math.max(.62, fr.h / 520));
-    const y = boxOf(board.querySelector(".level"))?.t ?? 0;
-    setCamAt(BW / 2, y, s, fr.cx, fr.t + 8 + 8 * s);
-  } else { const s = clamp((fr.w - 30) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+  const fr = freeRect(), fit = fitScale(), L = readBoard().L;
+  if (compactNow() && fit < .55 && document.querySelectorAll(".module").length > 1) {
+    const s = Math.min(clamp((fr.w - 12) / BW, .35, 1), Math.max(.7, fr.h / 520));
+    const row = L.rows.find(r => !r.keys.includes("world")) ?? L.rows[0];
+    const p = L.plates.get(row?.keys[0]);
+    if (p) setCamAt(p.x + p.w / 2, p.y, s, fr.cx, fr.t + 8 + 8 * s);
+    else setCamAt(BW / 2, 0, s, fr.cx, fr.t + 8);
+  } else setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy);
   camChanged();
 }
 function zoomAt(sx, sy, f) {
@@ -180,6 +208,7 @@ function pointerDown(ev) {
     const [a, b] = [...pointers.values()];
     pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), m: [(a.x + b.x) / 2, (a.y + b.y) / 2] };
     drag = null;
+    onDragStart();
   } else drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, x: ev.clientX, y: ev.clientY, moved: false, samples: [] };
 }
 function pointerMove(ev) {
@@ -197,6 +226,7 @@ function pointerMove(ev) {
     if (!drag.moved && Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) > 4) {
       drag.moved = true; canvas.setPointerCapture(ev.pointerId); canvas.classList.add("grabbing");
       document.getElementById("tip")?.classList.remove("on");
+      onDragStart();
     }
     if (drag.moved) {
       const [X0, Y0] = toPlane(drag.x, drag.y), [X1, Y1] = toPlane(ev.clientX, ev.clientY);
@@ -234,16 +264,25 @@ function endPointer(ev) {
 }
 function pointerLeave() { cam.trx = 0; cam.try = 0; kick(); }
 function click(ev) { if (suppressClick) { ev.stopPropagation(); ev.preventDefault(); suppressClick = false; } }
+let padUntil = 0;
+function wheelKind(ev, now = performance.now()) {
+  if (ev.ctrlKey || ev.metaKey) return "zoom";
+  if (ev.shiftKey) return "sideways";
+  if (ev.deltaMode !== 0) return "zoom";
+  const steppy = ev.deltaX === 0 && Number.isInteger(ev.deltaY) && Math.abs(ev.deltaY) >= 50;
+  if (!steppy) padUntil = now + 400;
+  return steppy && now > padUntil ? "zoom" : "pan";
+}
 function wheel(ev) {
   ev.preventDefault();
   const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
-  // Shift scrolls sideways; ctrl / ⌘ + wheel or a trackpad pinch zooms toward the pointer.
-  if (ev.ctrlKey || ev.metaKey) {
-    zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0022)));
+  const kind = wheelKind(ev);
+  if (kind === "zoom") {
+    zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0018)));
     return;
   }
   fly = null; inertia = null;
-  if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
+  if (kind === "sideways") cam.x -= (ev.deltaX || ev.deltaY) * unit;
   else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
   camDirty = false; applyCam();
 }
@@ -252,7 +291,7 @@ function resize() { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(
 // After layout: the board's size, the floor under it, the minimap, the edges.
 let layoutRaf = 0;
 const layoutListeners = new Set();
-function measureBoard() { ({ w: BW, h: BH } = boardSize()); }
+function measureBoard() { ({ width: BW, height: BH } = readBoard().L); }
 export function layoutChanged() {
   if (!cam.ready) return;
   cancelAnimationFrame(layoutRaf);
@@ -261,23 +300,22 @@ export function layoutChanged() {
     measureBoard();
     const m = 700;
     Object.assign(floor.style, { left: `${-m}px`, top: `${-m}px`, width: `${BW + 2 * m}px`, height: `${BH + 2 * m}px` });
-    buildMini();
+    buildMini(readBoard().L, readModel());
+    fitCards(readBoard().L);
     for (const f of layoutListeners) f();
   });
 }
 export function onLayout(f) { layoutListeners.add(f); return () => { layoutListeners.delete(f); }; }
 
-export function setBoardWidth() {
-  document.getElementById("board").style.setProperty("--bw", `${clamp(innerWidth - 40, 1040, 1560)}px`);
-}
-export function startCamera() {
+export function startCamera(access) {
   if (disposeCamera) return disposeCamera;
   canvas = document.getElementById("canvas"); world = document.getElementById("world");
   board = document.getElementById("board"); floor = document.getElementById("floor");
   zoomPct = document.getElementById("zoomPct");
   vw = innerWidth; vh = innerHeight;
   readInsets();
-  setBoardWidth();
+  ({ board: readBoard, model: readModel, level: publishLevel, drag: onDragStart } = access);
+  document.body.classList.add(`lv${level}`);
   measureBoard();
   const events = [
     ["pointerdown", pointerDown], ["pointermove", pointerMove], ["pointerup", endPointer],
@@ -286,9 +324,15 @@ export function startCamera() {
   for (const event of events) canvas.addEventListener(...event);
   window.addEventListener("resize", resize);
   const offCompact = onCompactChange(onCompact);
-  const observer = new ResizeObserver(layoutChanged);
-  observer.observe(board);
   cam.ready = true;
+  window.__RX_MAP__ = {
+    get layout() { return readBoard().L; }, get analysis() { return readModel().A; },
+    get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get level() { return level; },
+    setLevel(l) { pinnedAt = cam.s; setLevel(l); },
+    flyTo, frameAll, zoomAt, freeRect, toScreen, boxOf, anchor: anchorOf, module: moduleEl, region: regionEl, zoomUnder, LEVELS,
+    // The edge view draws on the RX commit, not on an animation frame.
+    draw: () => new Promise(r => setTimeout(r, 0)),
+  };
   home();
   layoutChanged();
 
@@ -297,7 +341,7 @@ export function startCamera() {
     for (const event of events) canvas.removeEventListener(...event);
     window.removeEventListener("resize", resize);
     offCompact();
-    observer.disconnect();
+    delete window.__RX_MAP__;
     cancelAnimationFrame(layoutRaf); cancelAnimationFrame(tickId); clearTimeout(crispT);
     layoutRaf = tickId = crispT = 0;
     for (const id of pointers.keys()) if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
@@ -307,6 +351,7 @@ export function startCamera() {
     board.style.zoom = floor.style.zoom = "";
     LZ = 1;
     cam = initialCam();
+    level = detailLevel(); pinnedAt = null;
     fly = inertia = drag = pinch = null;
     camDirty = suppressClick = false;
     canvas = world = board = floor = zoomPct = disposeCamera = undefined;

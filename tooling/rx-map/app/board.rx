@@ -1,22 +1,66 @@
-// The world: the board of plates, frames and tokens, and the edges drawn on it. What to draw is the model's board tree
-// (model.js boardTree); what is lit, hidden or selected is state.rx.
-import { icon, roleIcon, ctagHTML, edgeStyle, edgeKey } from "./js/vocab.js"
-import { edgeView } from "./js/edges.js"
-import { graphOf } from "./js/model.js"
-import { unique } from "./js/util.js"
-import { Chip, Frame } from "./js/model.js"
-import { board, model, selected, marked, hoverId, lit, focus, allEdges, diff, diffView, hidden, layout, hover } from "./state.rx"
+// The world, drawn on the fixed boxes from layout.mjs.
+import { icon, roleIcon, ctagHTML } from "./js/vocab.js"
+import { edgeLayer, caughtPairs } from "./js/edges.js"
+import { board, model, selected, marked, hoverId, lit, focus, allEdges, diff, diffView, hidden, level, overview, hover } from "./state.rx"
 import { pick, hits, hitSet, hitAt } from "./ui.rx"
 import { closestId, closestGo, leftId, within } from "./js/dom.js"
-import { flyToId, ensureVisibleId } from "./js/camera.js"
+import { flyToId, ensureVisibleId, flyToModule, isPanning } from "./js/camera.js"
 import { sfx } from "./js/sound.js"
 import { pointerAt, placeTipAt } from "./js/tip.js"
 import { lvView, plainValue } from "./js/values.js"
 import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
 import { live } from "./live.rx"
+import { holeText, cardCounts, noteCardWaves } from "./js/layout.js"
+
+source recent: string[] := []
+effect (live.fxSeq) { noteCardWaves(model, () => live, (keys) => { recent := keys }) }
+
+component ModuleCard(props: { m: any }) {
+  c = props.m.card
+  counts = cardCounts(model, props.m.index, live.values, live.held, live.flying, recent)
+  <div class={["psum", counts.some(v => v.k == "fly") && "busy", counts.some(v => v.k == "fail") && "failing"]}>
+    <div class="ps-in">
+      <div class="ps-name">{c.name}</div><div class="ps-path" title={c.path}>{c.shortPath}</div>
+      <div class="ps-bars">{for r in c.roles { <i style={{ width: r.width, background: r.color }}></i> }}</div>
+      <div class="ps-counts">{for r in c.roles { <span><b style={{ color: r.color }}>{r.count}</b>{r.name}</span> }}</div>
+      {if c.exports.length > 0 {
+        <div class="ps-ex"><span class="micro">exports</span>
+          {for n in c.exports { <span class="x" style={{ "--c": n.color }}>{n.name}</span> }}
+          {if c.extra > 0 { <span class="micro">+{c.extra}</span> }}
+        </div>
+      }}
+      {if diff && c.diff.length > 0 {
+        <div class="ps-diff">{for d in c.diff { <span class={`d-${d.st}`}>{d.mark}{d.count} {d.st}</span> }}</div>
+      }}
+      <div class="ps-live">{for v in counts { <span class={`pl-${v.k}`}>{v.text}</span> }}</div>
+    </div>
+  </div>
+}
+
+source holeId: string | null := null
+component OutlineStrip(props: { strip: any }) {
+  { strip } = props
+  source expanded := false
+  <div class={["ostrip", expanded && "open"]} style={strip.style}>
+    <span class="micro">view</span>
+    <span class="otext">
+      {for p in strip.parts {
+        {if present(p.id) {
+          <span class={[p.cls, holeId == p.id && "xhl"]} data-hole={p.id} title={p.title}
+            onMouseOver={() => { if (!isPanning()) { holeId := p.id } }}
+            onMouseOut={() => { holeId := null }}
+            onClick={(ev) => { ev.stopPropagation(); pick(p.id, false) }}>{holeText(p, live.values)}</span>
+        } else { <span class={p.cls}>{p.text}</span> }}
+      }}
+    </span>
+    {if strip.more {
+      <button class="oexp" title="show the whole view text" onClick={(ev) => { ev.stopPropagation(); expanded := !expanded }}>{expanded ? "less" : "more"}</button>
+    }}
+  </div>
+}
 
 // one token: its cast shadow, its body (the shape), its icon, then its name and marks
-export component Token(props: { c: Chip; extra: string }) {
+export component Token(props: { c: any; extra: string }) {
   { c } = props
   // live: its value (and the badge's roll), a failure, a held write, a request in the air, its place in a reload plan
   k = present(c.key) ? c.key : ""
@@ -27,11 +71,11 @@ export component Token(props: { c: Chip; extra: string }) {
   failed = present(v) && present(v.error)
   <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
-      (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur",
+      (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur", holeId == c.id && "xhl",
       failed && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
       present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact"]}
-    style={{ display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
-    data-id={c.id} role="button" tabIndex={0} aria-label={c.aria}>
+    style={{ ...c.style, display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
+    data-id={c.id} data-level={c.level} role="button" tabIndex={overview ? -1 : 0} aria-label={c.aria}>
     {if c.status != "" { <span class="d">{c.mark}</span> }}
     <span class="sh"></span>
     <span class="tok"></span>
@@ -69,7 +113,7 @@ component ValueBadge(props: { v: any }) {
 }
 
 // a region's frame: its header, its rows of tokens (one row per step of dependency), then its child regions
-export component FrameBox(props: { f: Frame }) {
+export component FrameBox(props: { f: any }) {
   { f } = props
   h = f.head
   // live: a boundary showing its fallback is tripped (loading: amber stripes; errored: rose, with its error)
@@ -79,19 +123,24 @@ export component FrameBox(props: { f: Frame }) {
   // a module replacement's plan: the plate is marked, and what it adds waits in a tray
   modNo = f.module != null ? `${f.module.index}` : ""
   incoming = live.hmr.incoming[modNo]
-  <div class={["frame", f.kind, f.ctl && "ctl", f.module != null && "module", f.status != "" && `d-${f.status}`,
+  <div class={["frame", f.kind, f.ctl && "ctl", f.dead && "dead", f.module != null && "module", f.status != "" && `d-${f.status}`,
       tripped && "tripped", tripped && `trip-${trip}`, modNo != "" && live.hmr.planned[modNo] == true && "planned"]}
-    data-mod={f.module != null ? `${f.module.index}` : undefined}>
+    data-mod={f.module != null ? `${f.module.index}` : undefined} data-region={f.id} style={f.style}>
     {if f.module != null {
-      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}><span>module</span> <b>{f.module.path}</b></div>
+      <div class="flabel" style={f.labelStyle}><span>module</span> <b class="pname">{f.module.path}</b></div>
     } else if h.type == "comp" {
-      <div class="flabel"><Token c={h.chip} extra="compref" /></div>
+      <div class="flabel" style={f.labelStyle}><Token c={h.chip} extra="compref" /></div>
     } else if h.type == "ctl" {
-      <div class="flabel">
-        <span class={["ctag", lit[f.id] == true && "lit", selected == f.id && "sel"]} data-id={f.id} role="button" tabIndex={0} aria-label={h.aria}>
+      <div class="flabel" style={f.labelStyle}>
+        <span class={["ctag", lit[f.id] == true && "lit", selected == f.id && "sel"]} data-id={f.id} role="button" tabIndex={overview ? -1 : 0} aria-label={h.aria}>
           <span innerHTML={ctagHTML(f.kind)} style={{ display: "contents" }}></span>{h.text}
         </span>
         {if h.read != null { <Token c={h.read} extra="cread" /> }}
+        {if f.dead {
+          <span class="deadmark" title="an errored boundary inside catches every error first, so this one never shows its fallback">
+            <span style={{ display: "contents" }} innerHTML={icon("warn")}></span><b>dead</b><span>an inner catch-all catches first</span>
+          </span>
+        }}
         {if h.boundary {
           <span class={["notifiers", h.notifiers.length == 0 && "none"]}>
             {h.notifiers.length == 0 ? h.none : h.lead}
@@ -101,59 +150,42 @@ export component FrameBox(props: { f: Frame }) {
         {if tripped { <span class="trip" data-id={f.id} role="button" tabIndex={0} title="open this boundary" innerHTML={tripHTML(trip, b.error)}></span> }}
       </div>
     } else if h.b != "" {
-      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}>{h.text} <b>{h.b}</b></div>
+      <div class={["flabel", lit[f.id] == true && "lit"]} style={f.labelStyle} data-id={f.id}>{h.text} <b>{h.b}</b></div>
     } else {
-      <div class={["flabel", lit[f.id] == true && "lit"]} data-id={f.id}><span>{h.text}</span></div>
+      <div class={["flabel", lit[f.id] == true && "lit"]} style={f.labelStyle} data-id={f.id}><span>{h.text}</span></div>
     }}
-    {for row in f.named { <div class="chips named">{for c in row { <Token c={c} extra="" /> }}</div> }}
-    {for row in f.sites { <div class="chips sites">{for c in row { <Token c={c} extra="" /> }}</div> }}
-    {for g in f.compGrids { <Grid frames={g} min={420} /> }}
-    {if f.view.length > 0 { <Grid frames={f.view} min={300} /> }}
-    {if f.mounts.length > 0 { <div class="mounts">{for k in f.mounts { <FrameBox f={k} /> }}</div> }}
-    {for k in f.extra { <FrameBox f={k} /> }}
+    {for c in f.clusters { <div class="cluster" data-unit={c.unit} style={c.style}><div class="clabel" style={c.labelStyle}>{c.label} <b>{c.what}</b></div></div> }}
+    {for k in f.kids { <FrameBox f={k} /> }}
+    {for c in f.chips { <Token c={c} extra="placed" /> }}
+    {if f.strip != null { <OutlineStrip strip={f.strip} /> }}
     {if present(incoming) { <div class="incoming" innerHTML={incomingHTML(incoming)}></div> }}
-  </div>
-}
-
-component Grid(props: { frames: Frame[]; min: number }) {
-  <div class="kids" style={{ "grid-template-columns": props.frames.length > 1 ? `repeat(auto-fit, minmax(${props.min}px, 1fr))` : "1fr" }}>
-    {for k in props.frames { <FrameBox f={k} /> }}
+    {if f.module != null { <ModuleCard m={f.module} /> }}
   </div>
 }
 
 // ---- edges: drawn from what depends to what it depends on, so a read points at what it reads ----------------------
-G = graphOf(model)
-shown = focus != null ? focus.edges.map(i => G.edges[i])
-  : allEdges ? G.edges
-  : diff && !hidden.includes("d:changes") ? G.edges.filter(e => e.status != "same")
-  : []
-drawn = shown
-  .filter(e => !(diffView == "before" && e.status == "added") && !(diffView == "after" && e.status == "removed"))
-  .filter(e => !hidden.includes(`e:${edgeKey(e)}`))
-  .map(e => edgeView(e, layout.boxes, focus != null))
-  .filter(v => v != null)
-markers = unique(drawn.map(v => v.c))
+caught = caughtPairs(model, live.values, live.boundaries)
+drawn = edgeLayer(model, board.L, level, focus, allEdges, diffView, hidden, caught)
 
 export component Edges() {
-  <svg id="edges" width={layout.w} height={layout.h} viewBox={`0 0 ${layout.w} ${layout.h}`}>
+  <svg id="edges" width={board.L.width} height={board.L.height} viewBox={`0 0 ${board.L.width} ${board.L.height}`}>
     <defs>
-      {for c in markers {
-        <marker id={`m${c.slice(1)}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      {for c in drawn.markers {
+        <marker id={`m${c.slice(1)}`} viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth={drawn.size} markerHeight={drawn.size} orient="auto-start-reverse">
           <path d="M0,1 L9,5 L0,9 z" fill={c} />
         </marker>
       }}
     </defs>
-    {for v in drawn { {if v.glow != "" { <path d={v.d} fill="none" stroke={v.glow} stroke-width={v.glowW} stroke-linecap="round" opacity={v.glowOp} /> }} }}
-    {for v in drawn {
-      <path d={v.d} fill="none" stroke={v.c} stroke-width={v.w} stroke-dasharray={v.dash == "" ? undefined : v.dash} marker-end={`url(#m${v.c.slice(1)})`} opacity={v.op} />
+    {for v in drawn.glows { <path d={v.d} fill="none" stroke={v.c} stroke-width={v.w} stroke-linecap="round" opacity={v.op} /> }}
+    {for v in drawn.paths {
+      <path class={v.cls} d={v.d} fill="none" stroke={v.c} stroke-width={v.w} stroke-dasharray={v.dash} marker-end={v.marker} opacity={v.op} />
     }}
   </svg>
 }
 
-// the world column, then the module plates in dependency order, a row per level
 export component Board() {
-  <div id="board"
-    onMouseOver={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { if (within(ev, ".chip")) { sfx("hover") } hover(id) } }}
+  <div id="board" style={board.style}
+    onMouseOver={(ev) => { if (!isPanning()) { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { if (within(ev, ".chip")) { sfx("hover") } hover(id) } } }}
     onMouseMove={(ev) => { pointerAt(ev) }}
     onMouseOut={(ev) => { if (leftId(ev) != "") { hover(null) } }}
     onFocusIn={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "") { ensureVisibleId(id); hover(id); placeTipAt(id) } }}
@@ -166,26 +198,17 @@ export component Board() {
       else if (id != "") { pick(id == selected ? null : id, false) }
       else if (selected != null) { pick(null, false) }
     }}
-    onDblClick={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "") { if (selected != id) { pick(id, false) } flyToId(id, "dbl") } }}>
+    onDblClick={(ev) => { ev.preventDefault(); let id = closestId(ev, "[data-id]"); if (!overview && id != "") { if (selected != id) { pick(id, false) } flyToId(id, "dbl") } else { flyToModule(ev) } }}>
     <Edges />
     <div id="fx"><svg id="trails"></svg></div>
-    {if board.world.length > 0 {
-      <div class="world worldrow">
-        <div class="title"><b>Outside the program</b> · JS modules it calls</div>
-        <div class="wgroups">
-          {for g in board.world {
-            <div class="wgroup">
-              <div class="mono wfile">from {g.file}</div>
-              <div class="chips">{for c in g.chips { <Token c={c} extra="" /> }}</div>
-            </div>
-          }}
-        </div>
+    {if board.world != null {
+      <div class="world worldrow" style={board.world.style}>
+        <div class="title" style={board.world.titleStyle}><b>Outside the program</b> · JS modules it calls</div>
+        {for g in board.world.groups { <div class="mono wfile" style={g.style}>from {g.file}</div> }}
+        {for c in board.world.chips { <Token c={c} extra="placed" /> }}
+        <div class="wsum"><div class="ws-in"><b>Outside the program</b><span>{board.world.chips.length} JS function{board.world.chips.length == 1 ? "" : "s"} from {board.world.groups.length} file{board.world.groups.length == 1 ? "" : "s"}</span></div></div>
       </div>
     }}
-    {for row in board.levels {
-      <div class="level" style={{ "grid-template-columns": row.length > 1 ? "repeat(auto-fit, minmax(520px, 1fr))" : "1fr" }}>
-        {for f in row { <FrameBox f={f} /> }}
-      </div>
-    }}
+    {for f in board.roots { <FrameBox f={f} /> }}
   </div>
 }

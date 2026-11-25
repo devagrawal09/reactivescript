@@ -1,3 +1,2 @@
-// An edge as the edge layer draws it (edges.js).
-export type EdgeView = { d: string; c: string; w: number; dash: string; op: number; glow: string; glowW: number; glowOp: number }
-export pure fn edgeView(e: any, boxes: any, focused: boolean): EdgeView | null
+export pure fn caughtPairs(m: any, values: any, boundaries: any): any[]
+export pure fn edgeLayer(m: any, layout: any, level: number, focus: any, all: boolean, view: string, hidden: string[], caught: any[]): any

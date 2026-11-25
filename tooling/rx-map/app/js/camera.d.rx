@@ -1,4 +1,4 @@
-export fn startCamera(): () => void
+export fn startCamera(access: { board: () => any; model: () => any; level: (l: number) => void; drag: () => void }): () => void
 export fn home(): void
 export fn frameAll(): void
 export fn isFramed(): boolean
@@ -7,3 +7,5 @@ export fn flyToId(id: string, mode: string): void
 export fn ensureVisibleId(id: string): void
 export fn layoutChanged(): void
 export fn onLayout(f: () => void): () => void
+export fn flyToModule(ev: any): void
+export fn isPanning(): boolean

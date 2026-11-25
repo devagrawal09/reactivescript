@@ -2,16 +2,24 @@
 const getBoard = () => document.getElementById("board");
 const anchorClasses = [".chip", ".ctag", ".flabel"];
 const anchorSelector = data => anchorClasses.map(c => c + data).join(", ");
+export function zoomUnder(el) {
+  let z = 1;
+  for (let e = el, board = getBoard(); e && e !== board; e = e.parentElement) z *= +e.style.zoom || 1;
+  return z;
+}
 
 export function boxOf(el) {
   if (!el || !el.offsetParent) return null;
   const board = getBoard();
   if (!board) return null;
   let x = 0, y = 0, e = el;
-  while (e && e !== board) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+  while (e && e !== board) { const z = zoomUnder(e); x += e.offsetLeft * z; y += e.offsetTop * z; e = e.offsetParent; }
   if (e !== board) return null;
-  return { l: x, t: y, r: x + el.offsetWidth, b: y + el.offsetHeight, x: x + el.offsetWidth / 2, y: y + el.offsetHeight / 2 };
+  const z = zoomUnder(el), w = el.offsetWidth * z, h = el.offsetHeight * z;
+  return { l: x, t: y, r: x + w, b: y + h, x: x + w / 2, y: y + h / 2 };
 }
+export const moduleEl = i => getBoard()?.querySelector(`.module[data-mod="${CSS.escape(String(i))}"]`) ?? null;
+export const regionEl = id => getBoard()?.querySelector(`.frame[data-region="${CSS.escape(id)}"]`) ?? null;
 
 export function anchorOf(id) {
   return getBoard()?.querySelector(anchorSelector(`[data-id="${CSS.escape(id)}"]`)) ?? null;

@@ -2,8 +2,8 @@
 // The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
 import { icon } from "./js/vocab.js"
 import { pageTitle, bodyClass, isLive, compactNow, onCompactChange, hash, onHashChange, loadText } from "./js/env.js"
-import { measureAnchors, boardSize } from "./js/geometry.js"
-import { startCamera, layoutChanged, onLayout, zoomBy, frameAll, isFramed, flyToId } from "./js/camera.js"
+import { startCamera, layoutChanged, zoomBy, frameAll, isFramed, flyToId } from "./js/camera.js"
+import { fitCards } from "./js/layout.js"
 import { startSound, soundOn, setSound, sfx } from "./js/sound.js"
 import { sparkle } from "./js/fx.js"
 import { neighbourhood, downstream, upstream, edgesAt, findByName } from "./js/model.js"
@@ -14,7 +14,7 @@ import { PanelButton, Side } from "./panel.rx"
 import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, travelBy } from "./live.rx"
 import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
 import { Tip } from "./tip.rx"
-import { board, model, selected, focus, hidden, diff, diffView, allEdges, select, setLayout, setDiffView, setAllEdges, showTrace } from "./state.rx"
+import { board, model, selected, focus, hidden, diff, diffView, allEdges, level, showLevel, hover, setDiffView, setAllEdges, showTrace } from "./state.rx"
 
 export default component App() {
   source miniOn := !compactNow()
@@ -59,14 +59,13 @@ export default component App() {
   }
 
   // the camera and the minimap are JS; they start once the world is on the page
-  effect () { return startCamera() }
   effect () { return startMinimap() }
-  // after each layout, the edges are drawn on the boxes the board was laid out at
-  effect () { return onLayout(() => { setLayout({ boxes: measureAnchors(), w: boardSize().w, h: boardSize().h }) }) }
+  effect () { return startCamera({ board: () => board, model: () => model, level: l => { showLevel(l) }, drag: () => { hover(null) } }) }
   effect (board, hidden, diffView) { layoutChanged() }
   // whole modes key off classes on <body>
   effect (focus != null) { bodyClass("focus", $0) }
   effect (board.flat) { bodyClass("flat", $0) }
+  effect (level) { bodyClass(`lv${$0}`, true); return () => { bodyClass(`lv${$0}`, false) } }
   effect (diff) { bodyClass("diff", $0) }
   effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
   effect (miniOn) { bodyClass("mini-off", !$0) }

@@ -1,14 +1,7 @@
-// The map's model of a graph (model.js): indexes, traces and the board tree the views draw.
+// The map's model of a graph (model.js): indexes, traces, search and tips.
 export type Model = any
 export type Trace = { ids: string[]; edges: number[] }
-export type Chip = { id: string; key: string; kk: string; shape: string; fam: string; name: string; badges: string[]; site: boolean; async: boolean; question: boolean; io: boolean; trust: boolean; chgAsync: boolean; chgQuestion: boolean; chgKind: boolean; chgIo: boolean; status: string; mark: string; aria: string }
-export type Notifier = { id: string; label: string }
-export type Head = { type: string; text: string; aria: string; read: Chip | null; notifiers: Notifier[]; boundary: boolean; lead: string; none: string; b: string; chip: Chip }
-export type Frame = { id: string; key: string; kind: string; status: string; ctl: boolean; head: Head; named: Chip[][]; sites: Chip[][]; compGrids: Frame[][]; view: Frame[]; mounts: Frame[]; module: { index: number; path: string } | null; extra: Frame[] }
-export type WorldGroup = { file: string; chips: Chip[] }
-export type Board = { world: WorldGroup[]; levels: Frame[][]; stats: string; flat: boolean }
 export pure fn buildModel(g: any): Model
-export pure fn boardTree(m: Model): Board
 export pure fn graphOf(m: Model): any
 export pure fn nodeOf(m: Model, id: string): any
 export pure fn regionOf(m: Model, id: string): any
