@@ -1,0 +1,30 @@
+FAIL S-ai-feed Frames
+FAIL S-ai-feed Variant: the send rejects — the guesses revert, the catch reports
+FAIL S-ai-grid Frames
+FAIL S-ai-wizard Frames
+FAIL S-ai-wizard Variant: the submit resolves
+FAIL S-ai2-settings Frames
+FAIL S-ai2-tracker Frames
+FAIL S-app-cart Frames
+FAIL S-app-notes Frames
+FAIL S-app-shop Frames
+FAIL S-app-todo Frames
+FAIL S-app-todos Frames
+FAIL S-app-users Frames
+FAIL S-server-1 Frames
+FAIL S-surface-5 Frames
+FAIL examples/ai/feed.rx
+FAIL examples/ai/grid.rx
+FAIL examples/ai/wizard.rx
+FAIL examples/ai2/settings/form.rx
+FAIL examples/ai2/settings/main.rx
+FAIL examples/ai2/settings/ui.rx
+FAIL examples/ai2/tracker/main.rx
+FAIL examples/ai2/tracker/ui.rx
+FAIL examples/cart.rx
+FAIL examples/notes/main.rx
+FAIL examples/notes/ui.rx
+FAIL examples/shop/main.rx
+FAIL examples/todo.rx
+FAIL examples/todos.rx
+FAIL examples/users.rx

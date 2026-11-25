@@ -10,6 +10,7 @@ import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
+import { pureGlobal } from "../src/pure-globals.ts";
 import type { Shape } from "../src/parse.ts";
 
 export class CompileError extends Error { name = "CompileError"; }
@@ -68,17 +69,24 @@ function deps(e: unknown, self: string, out = new Set<string>()): Set<string> {
 // ---------------------------------------------------------------- the module
 export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): string { return compileModules(singleModule(p), opts).files.get("main.mjs")!; }
 
+function relative(from: string, to: string): string {
+  const dir = from.split("/").slice(0, -1), parts = to.split("/");
+  let common = 0;
+  while (common < dir.length && dir[common] === parts[common]) common++;
+  return ("../".repeat(dir.length - common) || "./") + parts.slice(common).join("/");
+}
+
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
-  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, jsSpecifier: opts.jsSpecifier });
+  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, bySource: opts.bySource, jsSpecifier: opts.jsSpecifier });
   const files = new Map<string, string>();
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p.decls);
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
-    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from "./${out(d)}";`).join("\n")}${deps.length ? "\n" : ""}`;
+    const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from ${J(opts.bySource ? relative(path, d) : `./${out(d)}`)};`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
     else {
       const exported = p.decls.filter(d => (d as { exported?: boolean }).exported && "name" in d && d.k !== "typedecl").map(d => (d as { name: string }).name);
@@ -102,7 +110,7 @@ class Gen {
   private sfSeq = 0;
   private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
   private realImport(from: string, name: string) {
-    return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
+    return this.localJS(from) || ((!from.startsWith(".") || (this.mods?.bySource && from !== "./api")) && !BUILTINS.has(name) && name !== "log");
   }
   private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
     return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.kind !== "import" && x.name === name) : undefined;
@@ -159,7 +167,7 @@ class Gen {
     return f;
   }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
-  private mods?: { set: ModuleSet; out: (path: string) => string; jsSpecifier?: (file: string, from: string) => string };
+  private mods?: { set: ModuleSet; out: (path: string) => string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string };
   constructor(u: Usage, mods?: Gen["mods"]) { this.u = u; this.mods = mods; }
   private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
@@ -235,7 +243,8 @@ class Gen {
     // MO-1: each .rx dependency instantiated (once per app), its exports bound by name
     for (const d of decls) if (d.k === "import" && d.resolved) {
       const iv = `__i${this.modIndex(d.resolved)}`;
-      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${J(this.mods!.out(d.resolved))}, ${this.depVar(d.resolved)});`);
+      const dep = this.depVar(d.resolved);
+      if (!out.some(l => l.includes(`const ${iv} =`))) out.push(`${pad}const ${iv} = __rt.module(${this.mods!.bySource ? dep : J(this.mods!.out(d.resolved))}, ${dep});`);
       for (const { name, alias } of d.names) {
         if (this.mods!.set.programs.get(d.resolved)?.decls.some(x => x.k === "typedecl" && x.name === name) || this.mods!.set.signatures?.get(d.resolved)?.exports.get(name)?.kind === "type") continue;   // a type binds nothing
         const ib = this.importBind(d.resolved, name, alias); env.vars.set(alias, ib); out.push(`${pad}const ${ib.js} = ${iv}[${J(name)}];`);
@@ -479,7 +488,6 @@ class Gen {
         return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
       }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
-      case "as": return go(e.e);                                                    // 07 §3: a type assertion, erased
       case "member": return `${go(e.o)}?.${e.p}`;
       case "index": return `${go(e.o)}?.[${go(e.i)}]`;
       case "stylemap": return this.classMap(e.css, e.line);                                  // 07 CSS-5
@@ -514,6 +522,7 @@ class Gen {
     if (ctx.effect && /^\$\d+$/.test(name)) return `$p[${name.slice(1)}]`;
     const b = env.lookup(name);
     if (!b) {
+      if (pureGlobal(name)) return name;
       if (BUILTINS.has(name)) return `__B.${name}`;
       if (ctx.dyn) return name === "log" ? "__B.log" : ctx.imp ? `__rt.dget(${J(name)})` : `__rt.dget(${J(name)}, true)`;
       if (name === "log" && ctx.imp) return "__B.log";

@@ -28,7 +28,7 @@
 
 use reactivescript::app::{self, read_disk};
 use reactivescript::check::check_modules;
-use reactivescript::emit::{compile_modules, compile_into, lower_view, Target};
+use reactivescript::emit::{compile_linked, compile_into, lower_view, Target};
 use reactivescript::parse::parse_stmts;
 use reactivescript::project::{project_modules, unverified, PRELUDE};
 use reactivescript::modules::{load_modules, load_modules_recovering};
@@ -121,7 +121,7 @@ fn lower_one(r: &Value) -> Value {
     }
     // a handler row that does not parse runs nothing (ref/compile/run.ts)
     let extra: Vec<_> = r["extra"].as_array().map(|xs| xs.iter().map(|x| parse_stmts(x.as_str().unwrap()).unwrap_or_default()).collect()).unwrap_or_default();
-    let out = match compile_modules(&set, &extra) {
+    let out = match compile_linked(&set, &extra, r["product"].as_bool().unwrap_or(false)) {
         Ok(o) => o,
         Err(e) => return json!({ "compileError": e.0 }),
     };

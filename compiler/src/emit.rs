@@ -1376,7 +1376,6 @@ impl<'p> Gen<'p> {
                 rtc("preOr", vec![call(id(p), vec![]), thunk(i)])
             }
             ExprKind::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
-            ExprKind::As { e: x, .. } => self.expr(x, env, &sub)?,
             // RG-4b: Solid's live view
             ExprKind::Omit { e: x, keys } => rtc("omit", std::iter::once(self.expr(x, env, &sub)).chain(keys.iter().map(|k| Ok(str(k.clone())))).collect::<Result<Vec<_>, _>>()?),
             ExprKind::Await { e: x, stream, .. } => {
@@ -1540,6 +1539,7 @@ impl<'p> Gen<'p> {
             return Ok(E::Index(Box::new(id("$p")), Box::new(E::Num(name[1..].parse::<f64>().unwrap())), false));
         }
         let Some(b) = self.lookup(env, name) else {
+            if crate::check::pure_global(name, None) { return Ok(id(name)); }
             if builtin(name) {
                 return Ok(dot(id("__B"), name));
             }

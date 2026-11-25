@@ -1,6 +1,7 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { classMap } from "./style.ts";
+import { actionInput } from "../compile/action-input.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
@@ -11,6 +12,7 @@ export { RuleError, CheckError };
 import { makeErrorClass, isA, PANIC, wireCopy, wireFailure } from "./failure.ts";
 import { singleModule, type ModuleSet } from "./modules.ts";
 import { primRx, isPrims } from "./prims.ts";
+import { pureGlobal, pureGlobalValue } from "./pure-globals.ts";
 /** 12 SF-1d: Solid's server-function wrappers (\`GET\`, \`live\`, …) where there is no network: the function as it is (SF-7b). */
 const LOCAL_WRAPPERS: Record<string, unknown> = { GET: (f: unknown) => f, live: (f: unknown) => f, broadcast: (f: unknown) => f, withMeta: (f: unknown) => f };
 export class ErrVal { err: unknown; constructor(err: unknown) { this.err = err; } }
@@ -166,6 +168,11 @@ export class Runtime {
   private pendingFlush: (() => unknown)[] = [];                 // EF-8: onFlush callbacks; one run after the flush that registered them
   private pendingSettled: { f: () => unknown; change: number | null }[] = [];   // EF-7: onSettled callbacks, by the change their run belongs to (null: the next instant opened)
   private pendingGuesses: { node: Node; path: string[]; value: unknown }[] = []; private pendingRefresh: Node[] = []; private pendingAffects: Node[] = [];
+  private inputStores = new WeakSet<object>();
+  private storeRead(value: unknown): unknown {
+    if (isObj(value) && (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)))) this.inputStores.add(value);
+    return value;
+  }
   program: Program;
 
   /** 09 MO-1: each imported module's region, instantiated once, dependencies first; its state is app state. */
@@ -789,7 +796,7 @@ export class Runtime {
       case "id": {
         if (env?.has(e.name)) return env.get(e.name);
         const b = region.lookup(e.name);
-        if (!b) { if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
+        if (!b) { if (pureGlobal(e.name)) return pureGlobalValue(e.name); if (e.name in BUILTINS) return BUILTINS[e.name]; throw new RuleError("SCOPE", `unbound ${e.name}`); }
         if ("constant" in b) return b.constant;
         if ("fn" in b) {
           if (this.isInstantiating(b.fn)) throw new RuleError("E-9", `instantiating fn ${b.fn.name} must be bound: x = ${b.fn.name}(…)`);
@@ -798,12 +805,12 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
-        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); const input = actionInput(args, v => this.inputStores.has(v)); a.params.forEach((p, i) => en.set(p, input[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return b.kind === "source" || b.keyBy ? this.storeRead(v) : v; }   // R-f-7: a snapshot of an error throws it
       }
       case "as": return this.ev(e.e, region, env);                     // 07 §3: erased
-      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); return v[e.p]; }
-      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); return v[String(i)]; }
+      case "member": { const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[e.p]; } this.track(v, e.p); const child = v[e.p]; return this.inputStores.has(v) ? this.storeRead(child) : child; }
+      case "index": { const i = this.ev(e.i, region, env); if (isAbsent(i)) return i; const v = this.ev(e.o, region, env); if (isAbsent(v)) return v; if (!isObj(v)) { if (e.opt || v == null) return undefined; return (v as any)?.[String(i)]; } this.track(v, String(i)); const child = v[String(i)]; return this.inputStores.has(v) ? this.storeRead(child) : child; }
       case "tpl": { let out = ""; for (const part of e.parts) { if (typeof part === "string") { out += part; continue; } const v = this.ev(part, region, env); if (isAbsent(v)) return v; out += fmt(v); } return out; }
       case "pre": {                                                    // C-2 (DV-5, Solid's): the value before the most recent change
         const b = region.lookup(e.name);
@@ -889,7 +896,6 @@ export class Runtime {
       case "arr": { const items: unknown[] = []; let bad: unknown; for (const i of e.items) { if (i.k === "spread") { const v = this.ev(i.e, region, env); if (isAbsent(v)) bad ??= v; else items.push(...(v as unknown[])); } else { const v = this.ev(i, region, env); if (isAbsent(v)) bad ??= v; items.push(v); } } return bad ?? items; }
       case "spread": throw new RuleError("SYNTAX", "spread outside an array literal");
       case "omit": { const v = this.ev(e.e, region, env); if (isAbsent(v)) return v; const o: Record<string, unknown> = {}; if (isObj(v)) for (const k of Object.keys(v)) if (!e.keys.includes(k)) { this.track(v, k); o[k] = v[k]; } return o; }   // RG-4b: an object rest
-      case "as": return this.ev(e.e, region, env);
       case "rec": { const o: Record<PropertyKey, unknown> = {}; let bad: unknown; for (const f of e.fields) { if ("spread" in f) { const v = this.ev(f.spread, region, env); if (isAbsent(v)) bad ??= v; else if (isObj(v)) { for (const k of Object.keys(v)) { this.track(v, k); o[k] = v[k]; } } continue; } const k = "computed" in f ? this.ev(f.computed, region, env) : f.key; const v = this.ev(f.v, region, env); if (isAbsent(k)) bad ??= k; else if ("computed" in f) Object.defineProperty(o, k as PropertyKey, { value: v, enumerable: true, configurable: true, writable: true }); else o[f.key] = v; if (isAbsent(v)) bad ??= v; } return bad ?? o; }
       case "draft": {                                                  // ST-3: a copy of the seed, written only along `d`, is the value
         const seed = this.ev(e.seed, region, env); if (isAbsent(seed)) return seed;

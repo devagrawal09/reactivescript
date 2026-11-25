@@ -1,7 +1,7 @@
 # S-fail-5 — a typed error boundary wrapped by an inner catch-all is dead
 
 Rules: R-f-4. The catch-all takes `NotFound` first, so the typed fallback
-never shows. The model marks the typed region `shadowed` by the inner one.
+never shows.
 
 ## Program
 

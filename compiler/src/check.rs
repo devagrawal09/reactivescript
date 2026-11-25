@@ -42,6 +42,11 @@ impl Diagnostic {
 }
 
 const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
+pub(crate) fn pure_global(name: &str, member: Option<&str>) -> bool {
+    static GLOBALS: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> = std::sync::OnceLock::new();
+    GLOBALS.get_or_init(|| serde_json::from_str(include_str!("../../spec/pure-globals.json")).expect("pure globals"))
+        .get(name).is_some_and(|ms| member.is_none_or(|m| ms.iter().any(|x| x == m)))
+}
 /// EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one.
 fn returns_closure(f: &Expr) -> bool {
     fn in_stmts(ss: &[Stmt]) -> bool {
@@ -2037,6 +2042,9 @@ impl<'a> Checker<'a> {
         let ExprKind::Call { args, .. } = &call.k else { return };
         let params = self.syms[f].params.clone().unwrap_or_default();
         let fname = self.syms[f].name.clone();
+        let hint = if matches!(self.syms[f].fn_decl, Some(Decl::Fn { decls, .. }) if !decls.is_empty()) && !params.iter().any(|p| p.r#ref) {
+            " If you only need a value calculation, inline the equation in an arrow fn: `fn size(xs) { n = xs.length; n }` → `fn size(xs) => xs.length`."
+        } else { "" };
         for (i, p) in params.iter().enumerate() {
             let Some(a) = args.get(i) else { continue };
             if p.r#ref {
@@ -2049,7 +2057,7 @@ impl<'a> Checker<'a> {
                 self.err(
                     "SNAPSHOT_ARGUMENT",
                     "E-10",
-                    format!("{}(…): the argument for value parameter {} reads {} and would be snapshotted — declare the parameter `ref`, or pass peek(…)", fname, p.name, h),
+                    format!("{}(…): the argument for value parameter {} reads {} and would be snapshotted — declare the parameter `ref`, or pass peek(…).{hint}", fname, p.name, h),
                 );
             }
         }
@@ -2101,7 +2109,11 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
-        self.err("UNBOUND", "SCOPE", format!("{} is not declared here (a component sees its declaration site, not its caller — RG-7a)", name));
+        if pure_global(name, None) {
+            self.err("UNBOUND", "SV-7a", format!("{name} is a prelude namespace: use an allowed member directly, for example `Math.round(x)`"));
+        } else {
+            self.err("UNBOUND", "SCOPE", format!("{name} is not declared here (a component sees its declaration site, not its caller — RG-7a); for a host global, wrap it in a JS function and import that function"));
+        }
         None
     }
     /// 12 SF-3/SF-5: what a name may be on this side.
@@ -2305,11 +2317,16 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, p, .. } => {
-                if let ExprKind::Id(_) = &o.k {
-                    self.expr(o, env, ctx, Some(p));
-                } else {
-                    self.expr(o, env, ctx, None);
+                if let ExprKind::Id(n) = &o.k {
+                    if self.lookup(env, n).is_none() && pure_global(n, None) {
+                        if !pure_global(n, Some(p)) {
+                            self.err("UNBOUND", "SV-7a", format!("{n}.{p} is not in the pure prelude; wrap it in a JS function and import that function"));
+                        }
+                        return;
+                    }
                 }
+                let path = field.map(|f| format!("{p}.{f}"));
+                self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(p)));
             }
             ExprKind::Index { o, i, .. } => {
                 self.expr(o, env, ctx, None);
@@ -2330,6 +2347,10 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Call { f, args } => {
+                if matches!(&f.k, ExprKind::Id(n) if self.lookup(env, n).is_none() && pure_global(n, Some("()"))) {
+                    for a in args { self.expr(a, env, ctx, None); }
+                    return;
+                }
                 let mut callee = &**f;
                 while let ExprKind::As { e, .. } = &callee.k { callee = e; }
                 if let ExprKind::Id(fname) = &callee.k {
@@ -2483,9 +2504,9 @@ impl<'a> Checker<'a> {
             match f.code {
                 Code::StaleCapture => {
                     let v = f.via.clone().unwrap_or_default();
-                    self.err("STALE_CAPTURE", "AC-1g", format!("{n} := … after an `await` writes {v}, which is not the server's: {n} is the server's answer, and after the `await` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (`{n} := rs => …`, finding rows there by id). A row passed in, or read from a source before the `await` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (`refresh`)"))
+                    self.err("STALE_CAPTURE", "AC-1g", format!("{n} := … after an `await` writes {v}, which is not the server's: use the server's answer, plain arguments, or the current value in `{n} := rs => …`. If you need a row's id, call `save(row.id)` in the handler and declare `action save(id: string)`, using the actual id type; `let id = row.id` inside the action still reads the displayed row. Find the current row by id in the updater, or `refresh` if the server's answer doesn't say where it is now"))
                 }
-                Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
+                Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (AC-3); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
                 Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`guess`, AC-3) and let the answer replace the guess")),
             }
@@ -2922,7 +2943,7 @@ impl<'a> Checker<'a> {
     }
 
     /// R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead.
-    fn dead_typed(&mut self, m: &Markup, classes: &[String], id: usize) {
+    fn dead_typed(&mut self, m: &Markup, classes: &[String]) {
         let Some(inner) = self.covering_catch_all(match &m.kind {
             MarkupKind::Errored { body, .. } => body,
             _ => return,
@@ -2932,8 +2953,6 @@ impl<'a> Checker<'a> {
         let inner_line = inner.line.unwrap_or(line);
         self.line = line as i64;
         self.err("DEAD_TYPED_BOUNDARY", "R-f-4", format!("errored fallback(e: {cls}) at line {line} is dead: the inner catch-all at line {inner_line} catches {cls} first — put the typed boundary inside the catch-all"));
-        if let Some(&by) = self.boundaries.get(&(inner as *const Markup)) {
-        }
     }
     /// The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure.
     fn covering_catch_all<'b>(&self, ms: &'b [Markup]) -> Option<&'b Markup> {
@@ -3093,8 +3112,7 @@ impl<'a> Checker<'a> {
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
                     if let Some(cs) = classes.clone().filter(|cs| !cs.is_empty()) {
-                        let rid = self.regions[b].id;
-                        self.dead_typed(m, &cs, rid);
+                        self.dead_typed(m, &cs);
                     }
                 }
             }
@@ -4433,7 +4451,7 @@ impl<'a> Checker<'a> {
                             self.err(
                                 "UNCAUGHT_ACTION_FAILURE",
                                 "R-f-6",
-                                format!("action {} in <{}> reads props.{}, which can fail with {} here (line {}), and does not catch it", tname, atag, field, cl, aline),
+                                format!("action {} in <{}> reads props.{}, which can fail with {} here (line {}). A surrounding errored region catches render reads, not action snapshots — catch the read in the action, or pass a plain value from the handler", tname, atag, field, cl, aline),
                             );
                         }
                         continue;

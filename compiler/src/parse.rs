@@ -269,6 +269,7 @@ re!(JS_APIS, r"\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|creat
 re!(JS_FUNCTION, r"^(export\s+)?(default\s+)?(async\s+)?function\b");
 re!(JS_LOCAL, r"^(const|let|var)\b");
 re!(JS_RETURN, r"^return\b");
+re!(FOR_NAME, r"\bfor\s+[A-Za-z_$]");
 re!(NAME_BEFORE, r"([A-Za-z_$][A-Za-z0-9_$.]*)\s*$");
 re!(ARROW_BEFORE, r"=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$");
 re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
@@ -276,6 +277,9 @@ re!(OP_ASSIGN, r"^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*/%])=)");
 /// What a parse failure at `i` most likely meant, when the line reads like JavaScript, React or Solid: its code and the
 /// text appended to the message. `ref/src/parse.ts` `hint` is the same function.
 pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
+    if msg == "action parameter default" {
+        return Some(("ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call".into()));
+    }
     let i = i.min(src.len());
     let rest = &src[i..];
     let at = if !rest.is_empty() && !rest.split('\n').next().unwrap_or("").trim().is_empty() { i as i64 } else { src[..i].trim_end().len() as i64 - 1 };
@@ -302,6 +306,12 @@ pub fn hint(src: &str, i: usize, msg: &str) -> Option<(&'static str, String)> {
     }
     if let Some(c) = JS_APIS.captures(line) {
         return Some(("JS_API", format!("`{}` is not .rx: state is `source x := …`, a value computed from others is `x = …`, a side effect is `effect (x) {{ … }}`", &c[1])));
+    }
+    if msg == "expression" && rest.starts_with('<') && before.contains('?') {
+        return Some(("JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`".into()));
+    }
+    if msg == "in" && rest.trim_start().starts_with(',') && FOR_NAME.is_match(line) {
+        return Some(("FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`".into()));
     }
     None
 }
@@ -1174,6 +1184,7 @@ fn parse_decl_at(c: &mut Cursor) -> R<Decl> {
         c.expect("(")?;
         c.ws(true);
         let (params, ptypes) = params_typed(c)?;
+        if c.starts_with("=") { return c.fail("action parameter default"); }
         c.expect(")")?;
         c.ws(true);
         let body = parse_block(c)?;
@@ -1865,15 +1876,6 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
             c.expect(")")?;
             e = Expr::new(ExprKind::Call { f: Box::new(e), args }, Span::new(start, c.i));
         } else {
-            let save = c.i;
-            c.ws(false); // 07 §3: `e as T`, same line only (a newline is the next statement)
-            if c.keyword("as") {
-                c.ws(false);
-                let ty = parse_type(c, false, false)?;
-                e = Expr::new(ExprKind::As { e: Box::new(e), ty }, Span::new(start, c.i));
-                continue;
-            }
-            c.i = save;
             return Ok(e);
         }
     }

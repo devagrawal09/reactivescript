@@ -5,6 +5,10 @@ don't need them to follow it.
 
 ## Rule zero: don't track requests yourself
 
+Pure calculations can use the [fixed JS prelude](../spec/pure-globals.json)
+directly, for example `Math.round(n)` and `Object.keys(record)`. Clocks,
+randomness, browser APIs and timers still belong in imported JS.
+
 Don't write sequence numbers, request ids, "latest token" checks, `if (stillCurrent)` guards, cancellation flags,
 or lists of pending requests. In .rx those are bugs waiting to happen, and they are never needed. The language
 already knows which question is current and which change a write belongs to. If you're reaching for a counter, you
@@ -29,6 +33,32 @@ let t = text
 onFlush(() => { text := "" })
 addTodo(t)
 ```
+
+### Which flight is holding this write?
+
+Start with the run that wrote the value, not the component that displays
+it. Include its other writes, what their readers compute, and every
+question the run opens that a display is waiting for (H-2). Two changes
+can join: a new reader pass triggered by one change consumes a derivation
+of the other's held value, or both write the same held slot (H-2, H-3,
+H-3a). Merely having two outstanding requests doesn't join them.
+
+For example, a move waits for `moveCard`, writes the returned card and
+undo entry, and does `refresh activity`. If a reader awaits that refreshed
+activity, the undo entry can stay held after `moveCard` resolves and the
+action reports `run end`. The activity flight lands, then the frame with
+the card and undo entry commits. A timer polling presence or chat in a
+separate run can still land independently, provided its readers don't
+join the move's change. But a new badge pass computing from both the held
+history and the fresh presence may join them; separate components alone
+are not a guarantee.
+
+When debugging, compare the action end, the pending readers and flights,
+and the write's `held`/`released` in the trace. Keep reads in the UI that
+needs them. Use a separate run for independent UI state and `deferred`
+when it's acceptable for an already loaded answer to lag (H-1). Don't
+split the card and undo entry into separate writes just to make the button
+appear faster.
 
 ## 1. Reading from the server: an equation
 
@@ -79,10 +109,30 @@ client's own state: a plain source the action's `catch` writes, shown beside the
   `found(await fetchUser(id), id)` with `fn found(it, id) => it == null ? throw NotFound(id) : it`.
 - Retry is `refresh x`. It is quiet (AC-4): the failure stays on screen until the new answer replaces it (H-12).
 
+An `errored` region does not watch equations just because they are in scope.
+Equations are lazy (E-3, E-8): if `shown` is false, `if shown { … }` skips
+the body, and no `details` read there can trip the boundary. If the region
+should report missing details even when their view is hidden, read them
+first, inside the region:
+
+```rx
+errored fallback(e) { <p>{e.message}</p> } {
+  loading fallback { <p>Loading…</p> } {
+    if details && shown { <p>{details.title}</p> }
+  }
+}
+```
+
+This also demands the question while `shown` is false. If hiding the pane
+should avoid the request, keep `shown` first. The MCP live model's
+`failedUntripped` means the inspector saw an error but no instrumented
+boundary currently reports that same error. It doesn't prove why no
+boundary tripped, and inspecting a lazy equation can evaluate it.
+
 ## 3. Writing to the server: an action
 
 ```rx
-export source profile: Profile = await loadProfile()   // a source with a question: it can take a guess
+export source profile: Profile = await loadProfile()   // a question source: the server answer can replace the guess
 export source saveError: string := ""
 
 export action save(next: Profile) {
@@ -121,6 +171,9 @@ by what the screen should do:
 
 To guess a value a component gets as a prop, guess its own equation of it: `shown = props.title`, then
 `guess shown := t` in the action. A prop itself is read-only (O-4), and the guess shows wherever the child reads `shown`.
+
+A writable `source x := seed` can take a guess too. Its plain writes land when the action commits; if nothing
+writes it, the guess ends and the previous value shows again. No question or `refresh` is needed (AC-3).
 
 ### Guesses go on the answer
 
@@ -232,6 +285,23 @@ errors and guesses of the last visit then show on the next.
 
 ## 4. Things that look like bugs and aren't
 
+### Progress and independent row saves
+
+One action groups its writes across its awaits. If a batch should commit
+all at once, keep it in one action. If rows should settle separately, run
+one action per row. Launch the row actions in separate runs, not by
+calling them all synchronously from one handler (that can join their
+changes). For a bulk control, an imported JS dispatcher can schedule each
+row callback in a separate task.
+
+For progress on a single long operation, keep a separate progress source.
+Publish progress from independent callbacks, or use `onFlush` to schedule
+a separate write at a known milestone. Don't write progress into the
+answer the operation already holds. A reader that derives from both
+progress and the held answer can join the changes; render progress on its
+own if it must stay responsive. The final result still belongs in the
+action that awaited it.
+
 - **A plain write in an action doesn't show until the server answers.** That's the hold. Use `guess` or
   `onFlush` (the table above). Don't move the code into a plain handler to escape it.
 - **A declined row guess stays until another action's re-ask lands.** While an action's `refresh` of the list is
@@ -276,7 +346,78 @@ a value; an effect is for sending a value somewhere else (a parent's `on…` han
   a page belongs in a component that stays (pass it down, report changes up with an `on…` handler).
 - **Order**: two effects that fire in the same change run in no promised order (EF-6).
 
-## 7. Forms
+## 7. Polling, a log, and a sound per message
+
+A timer is a JS primitive (MO-10), declared once:
+
+```rx
+export pure fn createTicker(ms: number): ref number
+```
+
+`tick = createTicker(2000)` is an instantiation. It is a number that moves. Nothing else about time is in the language.
+
+**Poll every n seconds.** An effect on the tick calls an action. The action does the fetch. The effect does not.
+
+```rx
+tick = createTicker(2000)
+action poll() {
+  try { status := await loadStatus() }
+  catch (e) { status := e.message }
+}
+effect (tick) { poll() }
+```
+
+**Re-ask a question without a dummy argument.** A question re-asks when its inputs change (ST-5). Passing the tick into `whoIsHere(id, tick)` so the call changes is a dummy. `refresh` re-runs an `await` equation for the same inputs, quietly (AC-4): the last answer stays up.
+
+```rx
+tick = createTicker(5000)
+here = await whoIsHere(boardId)
+effect (tick) { refresh here }
+```
+
+**An append-only log with a cursor.** The log is a keyed source. This example
+assumes the server returns all rows newer than the cursor, with a stable `seq`
+and `id` on each row. Merge by id and sort by server sequence so overlapping
+responses don't duplicate or reorder messages. Advance the cursor only forward.
+
+```rx
+source log: Message[] key id := []
+source cursor := 0
+action poll() {
+  try {
+    let r = await messagesSince(boardId, cursor)
+    log := old => [...old.filter(m => !r.messages.some(n => n.id == m.id)), ...r.messages]
+      .sort((a, b) => a.seq - b.seq)
+    cursor := prev => prev > r.cursor ? prev : r.cursor
+  } catch (e) { err := e.message }
+}
+effect (tick) { poll() }
+```
+
+**A sound, or any other effect, for each message in a burst.** Several messages handled in one turn are one change (W-3): the functional writes compose, and an effect runs once, after that change has settled (EF-2). `onFlush` and `onSettled` also run once for the change, not once per updater. Leave a record in the state as you reduce, and play the new records from an effect on the counter. The effect runs after the commit, against the store that is on screen.
+
+In the `.rx` module:
+
+```rx
+import { fresh, reduce, play } from "./live"
+source live := fresh()
+action dispatch(m) {
+  live := s => reduce(s, m)
+}
+effect (live.fxSeq) { play(live) }
+```
+
+In the JS module, `fresh` returns `{ fxSeq: 0, fx: [] }`. `reduce` applies the
+message and appends `{ seq: ++s.fxSeq, message: m }` to `s.fx` in the same write.
+`play` walks the committed records in sequence order and plays only those
+after its last-played sequence. Keep that cursor per consumer, not in a JS
+singleton shared by multiple instances. For a long-lived queue, drop records
+only after they have been consumed.
+
+In `live.d.rx`, declare the reducer as `export fn reduce(s: LiveState, m: Message): void`.
+`reduce` mutates the draft it is given and nothing else. Declare it `fn`, not `pure fn`: a pure function must not mutate, and this one does. `fn` is io, so call it from the action, which is imperative. A `pure fn` here would be a lie so the call would type-check from reactive scope. It does not need to.
+
+## 8. Forms
 
 A draft seeded once from loaded data is a source in the form's component, seeded with `peek`:
 `source name := peek(props.initial.name)`. It belongs to the user from then on; a save never resets it.

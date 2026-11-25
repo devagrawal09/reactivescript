@@ -97,6 +97,42 @@ export default component App() {
 }
 ```
 
+### JSX_TERNARY
+
+`c ? a : b` is an expression, and markup is not an expression. A branch of elements is `{if c { … } else { … }}`.
+
+```rx before
+export default component App() {
+  source c := true
+  <p>{c ? <span/> : ""}</p>
+}
+```
+
+```rx after
+export default component App() {
+  source c := true
+  <p>{if c { <span/> } else { <span></span> }}</p>
+}
+```
+
+### FOR_INDEX
+
+`for` binds one name. The index is `xs.indexOf(x)` in the body, or map the list to pairs first.
+
+```rx before
+export default component App() {
+  source xs := [1]
+  {for x, i in xs { <p>{x}</p> }}
+}
+```
+
+```rx after
+export default component App() {
+  source xs := [1]
+  {for x in xs { <p>{x} {xs.indexOf(x)}</p> }}
+}
+```
+
 ### ASSIGNMENT
 
 A source is written with `:=` as a statement, in a handler or an action (W-1). There is no `=`, `+=` or `++` on state.
@@ -249,6 +285,12 @@ by then it may have changed (a rename accepted), be somewhere else (an earlier m
 action still holds, so the screen loses the edit or shows the row twice. When the answer doesn't say where a row is now
 (a move answers only where it went), re-ask the answers it left and joined with `refresh`.
 
+Even `let id = entry.id` inside the action is still a projection of the row under AC-1g. If the id
+identifies what the user asked for, pass just that primitive from the handler: change
+`finish(entry)` to `finish(entry.id)` and `action finish(entry: Entry)` to `action finish(id: string)`
+(or `number`, if that's the id type). Use `id` to find the current row inside the functional write;
+don't carry the displayed row or its fields into the answer.
+
 ```rx before
 type Card = { id: number; title: string }
 export default component App() {
@@ -296,8 +338,9 @@ export default component App() {
 
 ### SNAPSHOT_ARGUMENT
 
-A `fn` that declares state (an effect, a source) reads its value parameters once. Declare the parameter `ref` to pass
-the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10).
+A block `fn` with declarations (including equations) reads its value parameters once. Declare the parameter `ref`
+to pass the reactive value itself, or pass `peek(…)` to say a snapshot is meant (E-10). For a value-only calculation,
+inline the equation: `fn size(xs) { n = xs.length; n }` becomes `fn size(xs) => xs.length`.
 
 ```rx before
 export default component App() {
@@ -785,15 +828,14 @@ Import `Card`, not `fetch`.
 
 ### DEAD_TYPED_BOUNDARY
 
-A typed `errored fallback(e: X)` wraps a catch-all `errored fallback(e)`, so the catch-all takes `X` first and the
-typed fallback never shows (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
-`shadowed` by the inner one, which is what the map draws.
+A typed `errored fallback(e: X)` wraps a catch-all with a static fallback. The catch-all takes `X` first and its static
+fallback cannot fail into the typed region (R-f-4). Put the typed boundary inside the catch-all.
 
 ```rx before
 error NotFound
 export default component App() {
   errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    errored fallback(e) { <p>{e.message}</p> } { <p>x</p> }
+    errored fallback { <p>failed</p> } { <p>x</p> }
   }
 }
 ```
@@ -1000,6 +1042,11 @@ export default component App() {
 
 The name is not declared where it is read. A component sees its declaration site, not its caller (RG-7a): pass the
 value as a prop, provide it in a context, or import it.
+
+JavaScript globals are not in scope (SV-7a). For example, put `export const Number = globalThis.Number` in
+`js-globals.js` and write `import pure { Number } from "./js-globals.js"` in `.rx`
+to convert values in reactive scope. For `Math`, prefer exporting the operation you
+need, e.g. `export const floor = Math.floor`, then `import pure { floor } from "./js-globals.js"`.
 
 ```rx before
 component Row(props) { <p>{caption}</p> }
@@ -1349,3 +1396,8 @@ An equation's value is a promise or a stream, which Solid would consume as a val
 
 A server function's result or parameter is not data: a function or a class instance does not cross the wire (SF). Return
 plain data.
+### ACTION_PARAMETER_DEFAULT
+
+An action takes one argument per parameter (AC-1f). Change
+`action save(operation: Intent = "edit") { … }` to
+`action save(operation: Intent) { … }` and call `save("edit")`.

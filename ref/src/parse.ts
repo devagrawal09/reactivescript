@@ -9,6 +9,7 @@ const JS_APIS = /\b(useState|useReducer|useMemo|useCallback|useEffect|useRef|cre
  *  `src/parse.rs` `hint` is the same function. */
 export function hint(src: string, i: number, msg: string): [string, string] | null {
   const rest = src.slice(i);
+  if (msg === "action parameter default") return ["ACTION_PARAMETER_DEFAULT", "an action takes one argument per parameter (AC-1f); remove the default and pass the value at the call"];
   const at = rest.length && !/^\s*$/.test(rest.split("\n")[0]) ? i : src.slice(0, i).trimEnd().length - 1;
   const p = Math.max(0, at);
   const lineStart = (k: number) => src.slice(0, k).lastIndexOf("\n") + 1;
@@ -29,6 +30,10 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   const api = JS_APIS.exec(line);
   if (api)
     return ["JS_API", `\`${api[1]}\` is not .rx: state is \`source x := …\`, a value computed from others is \`x = …\`, a side effect is \`effect (x) { … }\``];
+  if (msg === "expression" && rest.startsWith("<") && before.includes("?"))
+    return ["JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`"];
+  if (msg === "in" && /^\s*,/.test(rest) && /\bfor\s+[A-Za-z_$]/.test(line))
+    return ["FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`"];
   return null;
 }
 let viewAt = 0;
@@ -362,7 +367,7 @@ function parseDecl(c: Cursor): Decl {
   if (c.keyword("action")) {
     c.ws(); const name = c.ident() ?? c.fail("action name"); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = [];
-    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+    while (!c.startsWith(")")) { params.push(c.ident() ?? c.fail("param")); ptypes.push(optType(c)); c.ws(); if (c.startsWith("=")) c.fail("action parameter default"); if (!c.eat(",")) break; c.ws(); }
     c.expect(")"); c.ws();
     return { k: "action", name, params, ptypes, body: parseBlock(c), line };
   }
@@ -635,11 +640,7 @@ function parsePostfix(c: Cursor): Expr {
       c.i++; c.ws(); const args: Expr[] = [];
       while (!c.startsWith(")")) { args.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
       c.expect(")"); e = { k: "call", f: e, args };
-    } else {
-      const save = c.i; c.ws(false);                                  // 07 §3: `e as T`, same line only (a newline is the next statement)
-      if (c.keyword("as")) { c.ws(false); const type = parseType(c); e = { k: "as", e, type }; continue; }
-      c.i = save; return e;
-    }
+    } else return e;
   }
 }
 /** A quoted string or template's cooked escape (07 §3). */

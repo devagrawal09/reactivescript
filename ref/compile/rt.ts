@@ -5,6 +5,7 @@
 // for tests. Views are JSX that Solid's compiler lowers onto that renderer (compile/jsx.ts); the browser and the server
 // runtimes are rt-web.ts and rt-server.ts.
 import { primsSolid } from "./prims-solid.ts";
+import { actionInput } from "./action-input.ts";
 import { getObserver } from "@solidjs/signals";
 import { Show, For, Loading, Errored } from "solid-js";
 import {
@@ -255,7 +256,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
-      return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
+      return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a, $TARGET))); p.catch(e => { app.asyncError = e; }); return p; };
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
@@ -326,6 +327,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     // ---- failures (R-f) ----
     errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    /** 11 CP-4b: a dev build's keyed creating call (rt-web.ts names its nodes); here, the call alone. */
+    key: <T,>(_k: string, f: () => T): T => f(),
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -334,6 +337,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     // ---- views: compiled JSX (compile/jsx.ts) calls the renderer; these are the two helpers it calls on __rt ----
     /** `{e}`: a view is inserted as it is; any other value is formatted (the frame's text). */
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    DevLoading: Loading, DevErrored: Errored, // only the browser runtime reports boundary state
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
