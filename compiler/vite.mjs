@@ -139,6 +139,8 @@ export default function rx() {
       // second plan for the same bytes and file version.
       if (last?.stamp === stamp && last.source === source) return [];
       saves.set(file, { stamp, source });
+      const entries = new Set();
+      const dependencies = new Set();
       for (const [entry, old] of programs) {
         if (!old.graph.absModules.includes(file)) continue;
         const { target, moduleName, spa, dev } = old.build;
@@ -167,11 +169,19 @@ export default function rx() {
         };
         programs.set(entry, { graph, revision: update.to, update, build: next });
         hub?.send("rx:hmr:plan", update);
-        // A dependency save can change checker-driven lowering in an importer, too.
-        for (const [f, m] of Object.entries(next.out.modules)) {
-          if (f === entry || f === file || m.code !== old.build.out.modules[f]?.code)
-            for (const node of hub?.modules(f) ?? []) if (node.id && /\.rx(?:\?|$)/.test(node.id)) selected.add(node);
+        // Vite reloads if any selected dependency has a dead-end importer
+        // (e.g. a former parent left in the graph by an earlier structural edit).
+        // Invalidate factory transforms, but propagate only from RX entries.
+        for (const f of new Set([file, ...changed])) {
+          for (const node of hub?.modules(f) ?? []) if (node.type === "js" && node.id && /\.rx(?:\?|$)/.test(node.id)) dependencies.add(node);
         }
+        for (const node of hub?.modules(entry) ?? []) if (node.id?.endsWith(".rx") && node.isSelfAccepting) entries.add(node);
+      }
+      if (entries.size) {
+        for (const entry of entries) dependencies.delete(entry);
+        hub.invalidate(dependencies);
+        for (const node of dependencies) selected.delete(node);
+        for (const node of entries) selected.add(node);
       }
       return [...selected];
     },

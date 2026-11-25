@@ -68,6 +68,11 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
       const hub = {
         send: (event, data) => server.environments.client.hot.send({ type: "custom", event, data }),
         modules: file => server.environments.client.moduleGraph.getModulesByFile(file),
+        invalidate: modules => {
+          const graph = server.environments.client.moduleGraph;
+          const seen = new Set(), timestamp = Date.now();
+          for (const mod of modules) graph.invalidateModule(mod, seen, timestamp, true);
+        },
       };
       hmr.set(root, hub);
       let app;
