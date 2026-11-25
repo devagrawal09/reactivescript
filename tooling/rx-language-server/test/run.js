@@ -25,7 +25,7 @@ fs.symlinkSync(path.join(repo, "compiler"), path.join(nm, "@reactivescript/compi
 const usersTs = [
   'import { pure, ref } from "@reactivescript/js";',
   "export const initials = pure((name: string) => name.slice(0, 1));",
-  "export const createUpper = pure(ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase()));",
+  "export const createUpper = ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase());",
   "export function greet(name: string) { return `hi ${name}`; }",
   "",
 ].join("\n");

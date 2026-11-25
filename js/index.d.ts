@@ -1,6 +1,6 @@
 // @reactivescript/js: the helpers a .ts module wraps its exports in, so `rx-dts` generates their .d.rx facts
-// (spec/09 MO-11). Each helper is `<F>(…, fn: F) => F`: inference flows through it, and at runtime it is the
-// identity. They nest in any order, each at most once:
+// (spec/09 MO-11). Inference flows through each helper, and at runtime it is the identity.
+// Helpers nest, each at most once; ref and instantiates already imply pure:
 //
 //   export const fetchUser = pure(rejects([NotFound], async (id: number) => …))
 //
@@ -10,6 +10,9 @@
 
 /** What a helper wraps: any function. */
 type AnyFn = (...args: never) => unknown;
+declare const purity: unique symbol;
+type Mark<F, Why extends string> = F & { readonly [purity]: Why };
+type NoPurity = { readonly [purity]?: never };
 
 /** Any function, to read parameters and result. */
 type Fn = (...args: any[]) => any;
@@ -54,7 +57,7 @@ export type RefSpec<F extends AnyFn> = F extends Fn ? {
 export type ErrorClass = abstract new (...args: any[]) => Error;
 
 /** `pure(fn)` generates `export pure fn`: safe to call in reactive scope (R-io-4; unchecked, CN-5). */
-export declare function pure<F extends AnyFn>(fn: F): F;
+export declare function pure<F extends AnyFn>(fn: F & NoPurity): Mark<F, "remove pure(…): ref/instantiates already imply pure (and pure is written only once)">;
 
 /**
  * `rejects([A, B], fn)` generates `rejects(A | B)` (R-f-8): `fn` rejects only with these error classes.
@@ -65,15 +68,15 @@ export declare function rejects<F extends AnyFn>(errors: readonly ErrorClass[], 
 /**
  * `ref({ args: [0], result: true }, fn)` generates `ref` parameters and a `ref` result (MO-10a/b).
  * `result` may also list the accessor elements of a returned tuple (`[0]`) or properties of a returned
- * object (`["value"]`). The spec is a literal.
+ * object (`["value"]`). The spec is a literal. Implies `pure`.
  */
-export declare function ref<F extends AnyFn>(spec: NoInfer<RefSpec<F>>, fn: F): F;
+export declare function ref<F extends AnyFn>(spec: NoInfer<RefSpec<F>>, fn: F & NoPurity): Mark<F, "ref already implies pure; remove pure(…)">;
 
 /**
  * `instantiates(fn)` generates `instantiates` (MO-10a): the call makes nodes in the caller's owner. Write it
- * only where no `ref` is present; a `ref` already implies it.
+ * only where no `ref` is present; a `ref` already implies it. Implies `pure`.
  */
-export declare function instantiates<F extends AnyFn>(fn: F): F;
+export declare function instantiates<F extends AnyFn>(fn: F & NoPurity): Mark<F, "instantiates already implies pure; remove pure(…)">;
 
 /** `server(fn)` generates `export server fn` (12 SF-5). Not with `client`. */
 export declare function server<F extends AnyFn>(fn: F): F;

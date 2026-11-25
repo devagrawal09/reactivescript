@@ -672,6 +672,13 @@ function generate(ts, program, T, { inPackage, isLib }) {
       const later = [kinds.get("server"), kinds.get("client")].sort((x, y) => y.pos - x.pos)[0];
       fail(later, `\`server(…)\` and \`client(…)\` both wrap ${name}: a fn runs on the server or on the client, not both (12 SF-5); keep one`);
     }
+    const implicit = kinds.has("ref") ? "ref" : kinds.has("instantiates") ? "instantiates" : null;
+    if (implicit && kinds.has("pure")) {
+      fail(kinds.get("pure"), `\`${implicit}(…)\` already makes ${name} pure: remove the \`pure(…)\` wrapper`);
+    }
+    if (kinds.has("ref") && kinds.has("instantiates")) {
+      fail(kinds.get("instantiates"), `\`ref(…)\` already makes ${name} instantiating: remove the \`instantiates(…)\` wrapper`);
+    }
     const impl = cur;
     const shape = impl && implShape(impl);
     if (!shape) {
@@ -738,7 +745,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
     }
 
     const rows = errored ? DEFAULT : {
-      brands: [...kinds.keys()].filter(k => FACT[k]).map(k => FACT[k]).sort(), rejects: [...rejects].sort(), refParams, refParts,
+      brands: [...kinds.keys(), ...(implicit ? ["pure"] : [])].filter(k => FACT[k]).map(k => FACT[k]).sort(), rejects: [...rejects].sort(), refParams, refParts,
     };
     const refShown = new Set(errored ? [] : refParams);
     const params = shape.params.map((p, i) => {

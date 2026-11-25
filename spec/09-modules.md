@@ -354,7 +354,7 @@ export class NotFound extends Error {}
 export type User = { id: number; name: string }
 export const fetchUser = pure(rejects([NotFound], async (id: number) => (await get(id)) as User))
 export async function saveUser(u: User) { … }                   // no helper: io, rejects(Error)
-export const createDebounced = pure(ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …))
+export const createDebounced = ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …)
 export const fields = ["name", "email"] as const
 ```
 
@@ -403,9 +403,12 @@ export const fields: readonly ["name", "email"]
   | `server(fn)`, `client(fn)` | `server fn`, `client fn` (12 SF-5) |
 
   Helpers compose by nesting, in any order, each at most once:
-  `pure(rejects([NotFound], fn))`. The call is the whole initializer of an
+  `pure(rejects([NotFound], fn))`. `ref` and `instantiates` imply `pure`;
+  do not combine either with `pure`, or with each other. TypeScript
+  rejects redundant wrappers and the generator reports `DECLARATION_HELPER`
+  if checking was bypassed. The call is the whole initializer of an
   exported `const` (or of a `const` exported by name), or an
-  `export default`. Each helper's type is `fn`'s, so TypeScript infers
+  `export default`. Each helper preserves `fn`'s signature, so TypeScript infers
   through it, and its arguments are checked against `fn`: `rejects` takes
   error classes, and `ref`'s indices and keys must name accessors. At
   run time each helper returns `fn` itself through one internal hook,

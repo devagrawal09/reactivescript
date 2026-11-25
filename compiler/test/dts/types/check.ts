@@ -10,11 +10,13 @@ class NotFound extends Error {}
 class NotErr {}
 
 export const fetchUser = pure(rejects([NotFound, Gone, TypeError], async (id: number) => ({ id })));
-export const createToggle = rx.pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial)));
+export const createToggle = ref({ result: [0] }, (initial: boolean) => createSignal(initial));
 export const createDebounced = ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => source);
 export const box = ref({ result: ["value"] }, () => ({ value: () => 1, set(v: number) { void v; } }));
 export const listen = instantiates(server(client((el: EventTarget) => el)));
 export const identity = pure(<T,>(x: T) => x);
+export const redundantRef = rx.pure(client(ref({ result: true }, () => () => 1))); // error: ref already implies pure
+export const redundantInstantiates = instantiates(server(pure(() => 1))); // error: ref/instantiates already imply pure
 
 const p: Promise<{ id: number }> = fetchUser(1);
 const [read, write]: [Accessor<boolean>, (v: boolean) => void] = createToggle(true);
@@ -33,7 +35,7 @@ export const wrongKey = ref({ result: ["set"] }, () => ({ value: () => 1, set(v:
 export const badReturn: (x: number) => string = pure((x: number) => x); // error: not assignable to type 'string'
 export const unannotated = pure((x) => x);
 unannotated(1); // error: not assignable to parameter of type 'never'
-export const notAFunction = pure(42); // error: not assignable to parameter of type 'AnyFn'
+export const notAFunction = pure(42); // error: not assignable to parameter of type 'AnyFn
 export const defaulted: (x?: number) => number = pure((x = 1) => x);
 export const widened: () => number = pure(() => 1);
 let widenedResult = widened(); widenedResult = 2; void widenedResult;

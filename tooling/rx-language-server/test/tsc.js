@@ -123,7 +123,7 @@ const usersTs = [
   "export class NotFound extends Error {}",
   "export const initials = pure((name: string) => name.slice(0, 1));",
   "export const loadUser = pure(rejects([NotFound], async (id: number): Promise<User> => { if (id < 0) throw new NotFound(); return { name: 'Ada', age: 36 }; }));",
-  "export const createUpper = pure(ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase()));",
+  "export const createUpper = ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase());",
   "export const save = rejects([NotFound], async (user: User): Promise<void> => { void user; });",
   "export function greet(name: string) { return `hi ${name}`; }",
   "",

@@ -16,10 +16,10 @@ export type User = { id: number; name: string }
 
 export const fetchUser = pure(rejects([NotFound], async (id: number) => { … }))
 export async function saveUser(u: User) { … }                       // no helper: io
-export const createToggle = pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial)))
-export const createDebounced = pure(ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …))
-export const createMediaQuery = pure(ref({ result: true }, (query: string) => …))
-export const createEventListener = pure(instantiates((target: EventTarget, type: string, handler: (e: Event) => void) => { … }))
+export const createToggle = ref({ result: [0] }, (initial: boolean) => createSignal(initial))
+export const createDebounced = ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …)
+export const createMediaQuery = ref({ result: true }, (query: string) => …)
+export const createEventListener = instantiates((target: EventTarget, type: string, handler: (e: Event) => void) => { … })
 ```
 
 | helper | what .rx gets |
@@ -31,7 +31,8 @@ export const createEventListener = pure(instantiates((target: EventTarget, type:
 | `instantiates(fn)` | the call makes state and runs once. Implied by any `ref`, so write it only without one |
 | `server(fn)` / `client(fn)` | runs on that side only (`server`/`client` JS) |
 
-Helpers nest, in any order, each once: `pure(rejects([NotFound], fn))`. Write the call as the value of an
+Helpers nest, in any order, each once: `pure(rejects([NotFound], fn))`. `ref` and `instantiates` already
+imply `pure`; adding the `pure` wrapper is a type error. Write the call as the value of an
 exported `const`. A helper anywhere else, a `ref` spec or `rejects` list that isn't written out literally, or a
 `ref` index that isn't an accessor is `DECLARATION_HELPER`, reported in the `.ts` (TypeScript catches most of these
 first). At run time a helper is the identity function, so a production bundle pays one call per export.
@@ -73,7 +74,7 @@ You need one in three cases:
 - **A package:** one that ships a `.d.rx` needs nothing. The compiler resolves the import the way a bundler does
   (`exports`, `module`, `main`) and reads the `.d.rx` beside that file (`dist/index.jsx` → `dist/index.d.rx`). For
   one that ships none, re-export what you use from a local `.ts` with its helpers
-  (`export const createMediaQuery = pure(ref({ result: true }, lib.createMediaQuery))`), or declare it in a `.d.rx`.
+  (`export const createMediaQuery = ref({ result: true }, lib.createMediaQuery)`), or declare it in a `.d.rx`.
 - **Overriding one export of a `.ts`** whose source you can't change: a line in `media.d.rx` replaces that export's
   generated line, types included. Every export it doesn't mention keeps its generated line.
 

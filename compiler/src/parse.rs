@@ -546,9 +546,9 @@ impl JsDecl {
     /// MO-11c: the helpers a generated line's rows say the `.ts` states (`pure`, `rejects`, `ref`, `instantiates`, `server`,
     /// `client`); a fact without one is defaulted.
     pub fn helpers(&self) -> Vec<&'static str> {
-        let JsDecl::Fn { pure, rejects, refs, shape, inst_written, side, .. } = self else { return vec![] };
+        let JsDecl::Fn { pure, rejects, refs, shape, inst_written, instantiates, side, .. } = self else { return vec![] };
         let mut out = vec![];
-        if *pure {
+        if *pure && !instantiates {
             out.push("pure");
         }
         if rejects.is_some() {
