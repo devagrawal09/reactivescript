@@ -1,4 +1,4 @@
-import { save, NotFound, Conflict } from "./coverage-api"
+import { save, load, purge, NotFound, Conflict } from "./coverage-api"
 import pure { fetchTitle } from "./coverage-api"
 
 source page: number := 1
@@ -19,4 +19,11 @@ export component Users() {
       <h2>{label}</h2>
     }
   }
+}
+
+action reload() {
+  try {
+    await load(page)
+    await purge()
+  } catch (e) {}
 }

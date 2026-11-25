@@ -4,7 +4,7 @@ import { dirname, resolve, sep } from "node:path";
 import { plain, project } from "./project.mjs";
 import { liveText, queryDiff, queryGraph } from "./query.mjs";
 import { ACT_METHODS, LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
-import { rebase, summary, uncovered } from "./coverage.mjs";
+import { rebase, summary, uncovered, untyped, untypedText } from "./coverage.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
@@ -25,7 +25,7 @@ const tools = [
     { key: str, direction: { type: "string", enum: ["down", "up"], default: "down" }, depth: integer(0) }, ["key"]),
   tool("boundary", "List loading and errored boundaries, or show what can notify one.", { key: str }),
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
-  tool("coverage", "Show covered/total reactive paths by kind for the program or one module.", { module: str }),
+  tool("coverage", "Show covered/total reactive paths by kind for the program or one module, the ignored count, and untyped failures.", { module: str }),
   tool("uncovered", "List at most 50 uncovered reactive paths in priority order.",
     { module: str, kind: { type: "string", enum: ["node", "edge", "loading", "errored", "guess", "action"] } }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
@@ -135,8 +135,11 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
           if (file?.rxCoverage !== 1) throw new Error(`${path}: expected rxCoverage: 1`);
           const current = rebase(file, graph);
           if (name === "coverage") {
-            const data = summary(current, p);
-            answer = { data, text: Object.entries(data).map(([kind, x]) => `${kind} ${x.covered}/${x.total}`).join("\n") };
+            const { ignored, untyped: _, ...kinds } = summary(current, p);
+            const failures = untyped(current, p).map(u => ({ callee: u.callee, file: u.file, line: u.line ?? null, actions: u.actions, text: untypedText(u) }));
+            const data = { ...kinds, ignored, untyped: { count: failures.length, list: failures } };
+            answer = { data, text: [...Object.entries(kinds).map(([kind, x]) => `${kind} ${x.covered}/${x.total}`), `ignored ${ignored}`,
+              `untyped failures ${failures.length}`, ...failures.map(u => `  ${u.text}`)].join("\n") };
           } else {
             const data = uncovered(current, { ...p, limit: 50 })
               .map(x => ({ id: x.id, file: x.module, line: x.line, label: x.label }));

@@ -509,6 +509,13 @@ in the dev entry and use `collectBrowserCoverage(page, file)` from `@reactivescr
 To run the executable scenarios over `examples/`, use `node scenarios.mjs --coverage file.json`
 from `tooling/rx-map`.
 
+A path you mean to leave uncovered takes a comment with a reason, on its line or alone on the line above:
+`// rx-coverage-ignore: set once at boot`, or `// rx-coverage-ignore errored: a 404 can't reach this page` to
+ignore only that kind of path there. Ignored paths are out of the percentage and listed with their reason; a comment
+without a reason, or one that matches no path, is a warning. An action's awaited JS call that declares no rejections
+can only fail with an untyped `Error`: the report lists it under "Untyped failures" (not a path) with where to
+declare it.
+
 Pass a CoverageFile as `pageHTML(graph, { coverage })`; click `coverage N%` to toggle the layer.
 Add `?coverage=live` to collect coverage from the map's live feed. Pass a TraceFile as
 `pageHTML(graph, { trace })` to inspect a failing test's recorded flushes, runs, boundaries,
