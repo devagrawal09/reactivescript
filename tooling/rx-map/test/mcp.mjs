@@ -120,6 +120,13 @@ test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout:
   put("main.rx", "source broken :=\n");
   assert.match(await c.text("check"), /^main\.rx:\d+:\d+\s+error/);
   assert.equal((await c.call("overview")).isError, true);
+  // One broken dependency must not hide an independent checker error
+  // in the same entry's graph.
+  put("dep.rx", "export source count := 1\nsource broken :=\n");
+  put("main.rx", 'import { count } from "./dep.rx"\nresult = count + missing\n');
+  const batch = await c.text("check");
+  assert.match(batch, /dep\.rx:.*error PARSE/);
+  assert.match(batch, /main\.rx:.*error UNBOUND/);
 });
 
 test("HTTP and MCP live tools select the newest page, correlate replies, and report disconnects", { timeout: 10000 }, async t => {

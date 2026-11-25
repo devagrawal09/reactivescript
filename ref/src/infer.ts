@@ -99,7 +99,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         }
         default:
           for (const v of Object.values(x as object)) {
-            if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) read(y as Expr); else if ("v" in y) read((y as { v: Expr }).v); else if ("spread" in y) read((y as { spread: Expr }).spread); } });
+            if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) read((y as { computed: Expr }).computed); if ("k" in y) read(y as Expr); else if ("v" in y) read((y as { v: Expr }).v); else if ("spread" in y) read((y as { spread: Expr }).spread); } });
             else if (v && typeof v === "object" && "k" in (v as object)) read(v as Expr);
           }
       }
@@ -116,7 +116,7 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
         case "fn": case "serverfn": case "draft": case "pending": case "latest": case "lit": case "pre": case "peek": case "stylemap": case "await": return out;
         default:
           for (const v of Object.values(x as object)) {
-            if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("k" in y) deps(y as Expr, out); else if ("v" in y) deps((y as { v: Expr }).v, out); else if ("spread" in y) deps((y as { spread: Expr }).spread, out); } });
+            if (Array.isArray(v)) v.forEach(y => { if (y && typeof y === "object") { if ("computed" in y) deps((y as { computed: Expr }).computed, out); if ("k" in y) deps(y as Expr, out); else if ("v" in y) deps((y as { v: Expr }).v, out); else if ("spread" in y) deps((y as { spread: Expr }).spread, out); } });
             else if (v && typeof v === "object" && "k" in (v as object)) deps(v as Expr, out);
           }
           return out;
@@ -175,4 +175,3 @@ export function runFindings(stmts: Stmt[], action: boolean, bound: string[] = []
   walk(stmts, { written: new Map(), held: new Set(), dead: false, taint: taint0, epoch: 0 }, new Set(bound), new Map(), new Set());
   return out;
 }
-

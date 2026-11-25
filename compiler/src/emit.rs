@@ -1416,6 +1416,7 @@ impl<'p> Gen<'p> {
                 rtc("preOr", vec![call(id(p), vec![]), thunk(i)])
             }
             ExprKind::Peek(x) => rtc("untrack", vec![thunk(self.expr(x, env, &sub)?)]),
+            ExprKind::As { e: x, .. } => self.expr(x, env, &sub)?,
             // RG-4b: Solid's live view
             ExprKind::Omit { e: x, keys } => rtc("omit", std::iter::once(self.expr(x, env, &sub)).chain(keys.iter().map(|k| Ok(str(k.clone())))).collect::<Result<Vec<_>, _>>()?),
             ExprKind::Await { e: x, stream, .. } => {
@@ -1531,6 +1532,7 @@ impl<'p> Gen<'p> {
                     ps.push(match f {
                         crate::ast::Field::Spread(x) => Prop::Spread(self.expr(x, env, &sub)?),
                         crate::ast::Field::Kv { key, v } => Prop::Kv(Key::Str(key.clone()), self.expr(v, env, &sub)?),
+                        crate::ast::Field::Computed { key, v } => Prop::Kv(Key::Computed(Box::new(self.expr(key, env, &sub)?)), self.expr(v, env, &sub)?),
                     });
                 }
                 E::Obj(ps)

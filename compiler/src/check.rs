@@ -398,7 +398,7 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
         Node::E(e) => match &e.k {
             ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
             ExprKind::Bin { l, r, .. } => out.extend([Node::E(l), Node::E(r)]),
-            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => out.push(Node::E(e)),
+            ExprKind::Un { e, .. } | ExprKind::As { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => out.push(Node::E(e)),
             ExprKind::Pre { init, .. } => out.extend(init.iter().map(|x| Node::E(x))),
             ExprKind::Await { e, init, .. } => {
                 out.push(Node::E(e));
@@ -413,10 +413,12 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
                 out.extend(args.iter().map(Node::E));
             }
             ExprKind::Arr(items) => out.extend(items.iter().map(Node::E)),
-            ExprKind::Rec(fields) => out.extend(fields.iter().map(|f| match f {
-                Field::Kv { v, .. } => Node::E(v),
-                Field::Spread(e) => Node::E(e),
-            })),
+            ExprKind::Rec(fields) => for f in fields {
+                match f {
+                    Field::Kv { v, .. } | Field::Spread(v) => out.push(Node::E(v)),
+                    Field::Computed { key, v } => out.extend([Node::E(key), Node::E(v)]),
+                }
+            },
             ExprKind::Fn { body, stmts, .. } => {
                 out.push(Node::E(body));
                 if let Some(s) = stmts {
@@ -483,7 +485,7 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
                 go(i, out);
             }
         }
-        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => go(x, out),
+        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::As { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => go(x, out),
         ExprKind::Bin { l, r, .. } => {
             go(l, out);
             go(r, out);
@@ -520,6 +522,7 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
             for f in fields {
                 match f {
                     Field::Kv { v, .. } => go(v, out),
+                    Field::Computed { key, v } => { go(key, out); go(v, out); }
                     Field::Spread(x) => go(x, out),
                 }
             }
@@ -1478,7 +1481,7 @@ impl<'a> Checker<'a> {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
         for ImportName { name, alias } in names {
-            let Some(x) = decls.iter().find(|y| y.name() == name) else {
+            let Some(x) = decls.iter().find(|y| y.name() == name && y.exported()) else {
                 self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
                 s.io = true;
@@ -2065,6 +2068,10 @@ impl<'a> Checker<'a> {
         if ctx.imperative && (name == "log" || DOLLAR_PARAM.is_match(name)) {
             return None;
         }
+        if matches!(name, "Number" | "Math") {
+            self.err("UNBOUND", "SV-7a", format!("{name} is not a global in .rx: in js-globals.js write `export const {name} = globalThis.{name}`, then here write `import {{ {name} }} from \"./js-globals.js\"`"));
+            return None;
+        }
         self.err("UNBOUND", "SCOPE", format!("{} is not declared here (a component sees its declaration site, not its caller — RG-7a)", name));
         None
     }
@@ -2203,7 +2210,7 @@ impl<'a> Checker<'a> {
                 self.expr(x, env, ctx, None);
                 self.model.probe = save;
             }
-            ExprKind::Un { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => self.expr(x, env, ctx, None),
+            ExprKind::Un { e: x, .. } | ExprKind::As { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => self.expr(x, env, ctx, None),
             ExprKind::Await { e: inner, init, .. } => {
                 if ctx.imperative && !self.stmt_awaits.contains(&(e as *const Expr)) {
                     let sh = show(e);
@@ -2288,12 +2295,15 @@ impl<'a> Checker<'a> {
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.expr(v, env, ctx, None),
+                        Field::Computed { key, v } => { self.expr(key, env, ctx, None); self.expr(v, env, ctx, None); }
                         Field::Spread(x) => self.expr(x, env, ctx, None),
                     }
                 }
             }
             ExprKind::Call { f, args } => {
-                if let ExprKind::Id(fname) = &f.k {
+                let mut callee = &**f;
+                while let ExprKind::As { e, .. } = &callee.k { callee = e; }
+                if let ExprKind::Id(fname) = &callee.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited".into());
@@ -2446,7 +2456,7 @@ impl<'a> Checker<'a> {
                     let v = f.via.clone().unwrap_or_default();
                     self.err("STALE_CAPTURE", "AC-1g", format!("{n} := … after an `await` writes {v}, which is not the server's: {n} is the server's answer, and after the `await` it takes only what the server answered, plain arguments (an id, a title, an index) and its own value at the write (`{n} := rs => …`, finding rows there by id). A row passed in, or read from a source before the `await` or after it, is what the screen showed, and may be stale by now (a rename accepted, a reload, an earlier write declined, a write another action holds) — when the answer alone doesn't say where a row is now, re-ask the answers it left and joined (`refresh`)"))
                 }
-                Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (a source with a question, ST-5c); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
+                Code::HeldWrite => self.err("HELD_WRITE", "AC-1c", format!("{n} := … comes before an `await` in a body that is an action because it writes and awaits (AC-1b), so it is held until the body ends (AC-1): for state that shows while the work runs, `guess {n} := …` (AC-3); for a reset that lands now, `onFlush(() => {{ {n} := … }})` (EF-8); to hold it on purpose, declare the action (`action name() {{ … }}`); or write it after the `await`")),
                 Code::StaleOwnRead => self.err("STALE_OWN_READ", "AC-1d", format!("{n} is read after this change wrote it: the read sees the committed value, not the write (W-4) — keep the value you wrote in a local (`let v = …; {n} := v`) and read that, or write functionally (`{n} := v => …`, W-6)")),
                 Code::StaleWriteBack => self.err("STALE_WRITE_BACK", "AC-1e", format!("{n} := … after an `await` is computed from {n} as it was read before that `await`: whatever changed {n} in between (another action, a reload) is overwritten — write functionally (`{n} := v => …`, W-6), which applies to {n} as it stands at the write, or guess it (`guess`, AC-3) and let the answer replace the guess")),
             }
@@ -3855,12 +3865,14 @@ impl<'a> Checker<'a> {
         fn root(x: &Expr) -> &Expr {
             match &x.k {
                 ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => root(o),
+                ExprKind::As { e, .. } => root(e),
                 _ => x,
             }
         }
         let error = || -> IndexSet<String> { ["Error".to_string()].into_iter().collect() };
         match &e.k {
             ExprKind::Lit(_) | ExprKind::Tpl(_) | ExprKind::Arr(_) | ExprKind::Rec(_) | ExprKind::Bin { .. } | ExprKind::Un { .. } => IndexSet::new(),
+            ExprKind::As { e, .. } => self.rejects(e, env, seen),
             ExprKind::If { t, f, .. } => {
                 let mut a = self.rejects(t, env, seen);
                 a.extend(self.rejects(f, env, seen));

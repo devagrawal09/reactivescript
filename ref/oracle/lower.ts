@@ -500,7 +500,8 @@ export class Oracle {
         return BIN[e.op](l, r);
       }
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
-      case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else o[f.key] = this.ev(f.v, scope, env); } return o; }
+      case "as": return this.ev(e.e, scope, env);
+      case "rec": { const o: Record<string, unknown> = {}; for (const f of e.fields) { if ("spread" in f) Object.assign(o, this.ev(f.spread, scope, env)); else if ("computed" in f) Object.defineProperty(o, this.ev(f.computed, scope, env) as PropertyKey, { value: this.ev(f.v, scope, env), enumerable: true, configurable: true, writable: true }); else o[f.key] = this.ev(f.v, scope, env); } return o; }
       case "fn": if (e.stmts && inferredAction(e.stmts)) return this.lowerAction(e.params, e.stmts, scope, env);   // AC-1b
         return (...args: unknown[]) => { const en = new Map(env); e.params.forEach((p, i) => en.set(p, args[i])); return e.stmts ? this.runStmts(e.stmts, scope, en) : this.ev(e.body, scope, en); };
       case "stylemap": return classMap(e.css);                      // 07 CSS-5
