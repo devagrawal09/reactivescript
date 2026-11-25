@@ -308,7 +308,10 @@ here = await whoIsHere(boardId)
 effect (tick) { refresh here }
 ```
 
-**An append-only log with a cursor.** The log is a keyed source. The cursor is a source. Each poll appends with a functional write (W-6), so two polls in one turn compose. The server's id wins over an optimistic row with the same id.
+**An append-only log with a cursor.** The log is a keyed source. This example
+assumes the server returns all rows newer than the cursor, with a stable `seq`
+and `id` on each row. Merge by id and sort by server sequence so overlapping
+responses don't duplicate or reorder messages. Advance the cursor only forward.
 
 ```rx
 source log: Message[] key id := []
@@ -317,7 +320,8 @@ action poll() {
   try {
     let r = await messagesSince(boardId, cursor)
     log := old => [...old.filter(m => !r.messages.some(n => n.id == m.id)), ...r.messages]
-    cursor := r.cursor
+      .sort((a, b) => a.seq - b.seq)
+    cursor := prev => prev > r.cursor ? prev : r.cursor
   } catch (e) { err := e.message }
 }
 effect (tick) { poll() }
@@ -325,15 +329,25 @@ effect (tick) { poll() }
 
 **A sound, or any other effect, for each message in a burst.** Several messages handled in one turn are one change (W-3): the functional writes compose, and an effect runs once, after that change has settled (EF-2). `onFlush` and `onSettled` also run once for the change, not once per updater. Leave a record in the state as you reduce, and play the new records from an effect on the counter. The effect runs after the commit, against the store that is on screen.
 
-```rx
-export fn reduce(s: any, m: any): void
+In the `.rx` module:
 
+```rx
+import { fresh, reduce, play } from "./live"
+source live := fresh()
 action dispatch(m) {
   live := s => reduce(s, m)
 }
 effect (live.fxSeq) { play(live) }
 ```
 
+In the JS module, `fresh` returns `{ fxSeq: 0, fx: [] }`. `reduce` applies the
+message and appends `{ seq: ++s.fxSeq, message: m }` to `s.fx` in the same write.
+`play` walks the committed records in sequence order and plays only those
+after its last-played sequence. Keep that cursor per consumer, not in a JS
+singleton shared by multiple instances. For a long-lived queue, drop records
+only after they have been consumed.
+
+In `live.d.rx`, declare the reducer as `export fn reduce(s: LiveState, m: Message): void`.
 `reduce` mutates the draft it is given and nothing else. Declare it `fn`, not `pure fn`: a pure function must not mutate, and this one does. `fn` is io, so call it from the action, which is imperative. A `pure fn` here would be a lie so the call would type-check from reactive scope. It does not need to.
 
 ## 8. Forms
