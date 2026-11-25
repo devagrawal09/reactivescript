@@ -1231,6 +1231,34 @@ the await, `await viewport() -> 0` (SV-7b).
 The browser's HTML parser rewrites some nestings (a `<tr>` outside a table, a `<div>` inside a `<p>`), so the page the
 server sends is not the tree the client builds and hydration fails (SV-7d). Nest the elements the way HTML allows.
 
+### STYLE_SCOPE
+
+A component's `<style>` scopes that component's view only (CSS-2). A second component in the same file is its own view: a class written in the first does not apply to the second, and the selector is pruned. Give the second component its own `<style>`, or pass a class map (`styles = <style>…</style>`, CSS-5).
+
+```rx before
+component Row() {
+  <li class="row">x</li>
+}
+export default component App() {
+  <style>
+    .row { color: red }
+  </style>
+  <Row />
+}
+```
+
+```rx after
+component Row() {
+  <style>
+    .row { color: red }
+  </style>
+  <li class="row">x</li>
+}
+export default component App() {
+  <Row />
+}
+```
+
 ### STYLE_PLACEMENT
 
 A view has one `<style>`, at the top level of the component's view: it scopes the whole view, branches and loops
