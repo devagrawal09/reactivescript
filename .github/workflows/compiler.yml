@@ -24,6 +24,7 @@ jobs:
         include:
           - { name: checker, flags: "" }
           - { name: lowering, flags: "--lower" }
+          - { name: dev lowering, flags: "--lower --dev" }
     name: parity (${{ matrix.name }})
     steps:
       - uses: actions/checkout@v5

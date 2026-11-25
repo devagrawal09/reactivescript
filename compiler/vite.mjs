@@ -13,12 +13,17 @@
 // changes. The crate's output imports its dependencies as `./x.rx?rx-dep`, and a dependency is served from the build
 // of a program that contains it. A module several programs share is one module: its instance is keyed by its factory
 // (11 CP-4b `module`), not by its place in a program.
+//
+// Dev (Solid's `dev`, the client): each source's and equation's creating calls run under its key (11 CP-4b `key`), so
+// the devtools see `rx:<key>` names; a key's module is relative to the project root. If the project has
+// `@reactivescript/map`, a program's entry also registers the program's map (`@reactivescript/map/live`), drawn from the
+// resolved model, for the devtools' Map view. Builds that are not dev, and the server's, are as before.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const { app } = createRequire(import.meta.url)("./index.js");
+const { app, model } = createRequire(import.meta.url)("./index.js");
 const DEP = "rx-dep";
 // the page each code points to: the package's copy (scripts/guide.mjs), else the repository's
 const GUIDE = [path.join(path.dirname(fileURLToPath(import.meta.url)), "guide/diagnostics.md"), path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/diagnostics.md")].find(existsSync)
@@ -34,6 +39,9 @@ const mtime = file => { try { return statSync(file).mtimeMs; } catch { return -1
 const isDep = moduleId => new URLSearchParams(moduleId.split("?")[1] ?? "").has(DEP);
 // `import __m0 from "./catalog.rx";` → `"./catalog.rx?rx-dep"` (one line each: the module's map is by line, CP-1c)
 const tagDeps = code => code.replace(/^(import \w+ from ")(\.{1,2}\/[^"?]*\.rx)(";?)$/gm, `$1$2?${DEP}$3`);
+
+/** A source map (JSON text) for code that now starts `lines` lines later: each line is a `;` in `mappings`. */
+const shiftMap = (map, lines) => { const m = JSON.parse(map); m.mappings = ";".repeat(lines) + m.mappings; return JSON.stringify(m); };
 
 const RX_IMPORT = /^import\b[^"']*?\bfrom\s+(["'])(\.{1,2}\/[^"'?]*\.rx)\1/gm;
 /** The `.rx` files under `root` from which `file` is reached by imports: first those no other `.rx` file imports. */
@@ -58,32 +66,42 @@ function entriesOf(file, root) {
   return [...seen].sort().sort((a, b) => top(b) - top(a));
 }
 
+/** Dev: the lines a program's entry starts with when the project has `@reactivescript/map` — its map, registered for the
+ *  devtools — or "" when it does not. The hook passes the resolved model to the optional integration. */
+function liveMap(entry, root) {
+  let req;
+  try { req = createRequire(path.join(root, "package.json")); req.resolve("@reactivescript/map/live"); } catch { return ""; }
+  const modules = JSON.parse(model([entry], root));
+  return `import { registerModel as __rxMap } from "@reactivescript/map/live";\n__rxMap(${JSON.stringify(modules)}, { hot: import.meta.hot });\n`;
+}
+
 /** @returns {import("@solidjs/vite-plugin").Frontend} */
 export default function rx() {
-  const builds = new Map();   // entry\0target\0moduleName\0spa → { entry, target, moduleName, spa, out, stamps }
+  const builds = new Map();   // entry\0target\0moduleName\0spa\0dev → { entry, target, moduleName, spa, dev, out, stamps }
   const fresh = b => [...b.stamps].every(([f, t]) => mtime(f) === t);
-  function build(entry, target, moduleName, spa) {
-    const key = `${entry}\0${target}\0${moduleName}\0${spa}`;
+  /** `dev`: the project root, for a dev build (keys relative to it); null otherwise. */
+  function build(entry, target, moduleName, spa, dev = null) {
+    const key = `${entry}\0${target}\0${moduleName}\0${spa}\0${dev ?? ""}`;
     const prior = builds.get(key);
     if (prior && fresh(prior)) return prior;
-    const out = JSON.parse(app(entry, target, moduleName, spa));
+    const out = JSON.parse(dev === null ? app(entry, target, moduleName, spa) : app(entry, target, moduleName, spa, true, dev));
     if (out.modules) out.modules = Object.fromEntries(Object.entries(out.modules).map(([p, m]) => [path.resolve(p), m]));
-    const files = out.modules ? Object.keys(out.modules) : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
-    const b = { entry, target, moduleName, spa, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
+    const files = out.modules ? [...Object.keys(out.modules), ...(out.declarations ?? [])] : out.diagnostics ? [...new Set([entry, ...out.diagnostics.map(d => d.file)])] : [entry];
+    const b = { entry, target, moduleName, spa, dev, out, stamps: new Map(files.map(f => [f, mtime(f)])) };
     builds.set(key, b);
     return b;
   }
-  const built = (file, target, moduleName, spa) =>
-    [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.out.modules?.[file]);
+  const built = (file, target, moduleName, spa, dev) =>
+    [...builds.values()].filter(b => b.target === target && b.moduleName === moduleName && b.spa === spa && b.dev === dev && b.out.modules?.[file]);
   /** A dependency: from a build of a program that has it, rebuilt if that program changed. */
-  function containing(file, target, moduleName, spa, root) {
-    const has = built(file, target, moduleName, spa);
+  function containing(file, target, moduleName, spa, root, dev) {
+    const has = built(file, target, moduleName, spa, dev);
     const b = has.find(fresh) ?? has[0];
-    if (b) return build(b.entry, target, moduleName, spa);
+    if (b) return build(b.entry, target, moduleName, spa, dev);
     // the entry's compile was skipped (Vitest's `fsModuleCache` served it), so find the program from the files
     let failed;
     for (const entry of entriesOf(file, root)) {
-      const found = build(entry, target, moduleName, spa);
+      const found = build(entry, target, moduleName, spa, dev);
       if (found.out.modules?.[file]) return found;
       if (!failed && found.out.diagnostics) failed = found;   // the program holds it but does not compile: report why
     }
@@ -98,13 +116,19 @@ export default function rx() {
       // 08 CN-3d: a client-only build (no SSR, nothing hydrates) has nothing to show on a first load nothing holds
       const spa = target === "dom" && solid.hydratable === false;
       const dep = isDep(moduleId);
-      const { out } = dep ? containing(file, target, moduleName, spa, path.resolve(root ?? process.cwd())) : build(file, target, moduleName, spa);
+      const base = path.resolve(root ?? process.cwd());
+      const dev = solid.dev === true && target === "dom" ? base : null;
+      const { out, stamps } = dep ? containing(file, target, moduleName, spa, base, dev) : build(file, target, moduleName, spa, dev);
       if (out.diagnostics) throw new Error(report(out.diagnostics));
       if (out.error) throw new Error(out.error);
       const m = out.modules[file];
-      for (const p of Object.keys(out.modules)) if (p !== file) addWatchFile(p);
+      for (const p of stamps.keys()) if (p !== file) addWatchFile(p);
+      // dev: a program's entry registers its map, when the project has @reactivescript/map; the lines go first, and the
+      // module's map is shifted by them
+      const live = dev !== null && !dep ? liveMap(file, base) : "";
+      const map = live && m.map ? shiftMap(m.map, live.split("\n").length - 1) : m.map;
       // CSS-4: each module links its own stylesheet, so a module several programs share links it once
-      return { code: tagDeps(m.code), map: m.map, css: m.css ?? "" };
+      return { code: live + tagDeps(m.code), map, css: m.css ?? "" };
     },
   };
 }

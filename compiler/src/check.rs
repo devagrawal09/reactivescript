@@ -9,7 +9,7 @@
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
-use crate::model::{ModelBuilder, ModelSymbol};
+use crate::model::{decl_keys, module_key, ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{js_trim, JsDecl, Part, Shape as FShape};
 use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
@@ -252,6 +252,8 @@ struct Sym<'a> {
     arity: Option<usize>,
     /// RG-4b: the props of `component C()`, which declares none — C's name: reading them is UNBOUND
     no_props: Option<String>,
+    /// CP-6: a source's or an equation's identity (model.rs `decl_keys`)
+    key: Option<String>,
 }
 impl<'a> Sym<'a> {
     fn new(kind: SymKind, name: &str, region: RId, line: i64) -> Self {
@@ -289,6 +291,7 @@ impl<'a> Sym<'a> {
             reader: false,
             arity: None,
             no_props: None,
+            key: None,
         }
     }
 }
@@ -360,6 +363,13 @@ fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, o
 /// 07 §4: a spread attribute (`{...e}`) passes every field: "*"
 fn field_of(name: &str) -> String {
     if name == "..." { "*".into() } else { name.to_string() }
+}
+fn index_field(e: &Expr) -> String {
+    match &e.k {
+        ExprKind::Lit(Lit::Str(s)) => s.clone(),
+        ExprKind::Lit(Lit::Num(n)) => if *n == 0.0 { "0".into() } else { dragonbox_ecma::Buffer::new().format(*n).into() },
+        _ => "*".into(),
+    }
 }
 
 /// an argument as a message shows it: `x={…}`, or `{...…}` for a spread
@@ -862,6 +872,8 @@ pub struct Opts<'a> {
     /// CN-3d: a client-only build (no SSR): a first load nothing holds shows nothing, so every reader that can have
     /// no value yet needs a `loading` region above it, as a client question's reader does (SV-7b).
     pub spa: bool,
+    /// the project root a key's module is relative to (`decl_keys`); None: the path as the loader has it
+    pub root: Option<&'a str>,
 }
 
 pub struct Checker<'a> {
@@ -909,6 +921,8 @@ pub struct Checker<'a> {
     reader_f: Vec<(RId, &'a Expr, i64, Fails)>,
     arg_r: Vec<(usize, String)>,
     arg_f: Vec<(usize, String, Fails)>,
+    keys: HashMap<*const Decl, String>,
+    boundaries: HashMap<*const Markup, usize>,
 }
 
 pub struct CheckResult {
@@ -931,13 +945,32 @@ pub struct Checked {
     pub sigs: IndexMap<String, ModSig>,
     pub models: IndexMap<String, serde_json::Value>,
 }
+
+/// AST sites and the matching resolved region IDs. Only the dev emitter consumes these.
+pub fn boundary_regions(set: &ModuleSet) -> HashMap<*const Markup, usize> {
+    let mut sigs = set.signatures.clone();
+    let mut sites = HashMap::new();
+    for path in &set.order {
+        let p = &set.programs[path];
+        let mut c = Checker::new(Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa: false, root: None });
+        c.run(p);
+        let sig = c.signature(p);
+        sites.extend(c.boundaries);
+        sigs.insert(path.clone(), sig);
+    }
+    sites
+}
 /// CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only.
 pub fn check_modules(set: &ModuleSet, spa: bool) -> Checked {
+    check_modules_in(set, spa, None)
+}
+/// `check_modules`, each symbol's key naming its module relative to `root` (the project root).
+pub fn check_modules_in(set: &ModuleSet, spa: bool, root: Option<&str>) -> Checked {
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
     for path in &set.order {
-        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa });
+        let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, root });
         diags.extend(r.diags);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
@@ -986,6 +1019,8 @@ impl<'a> Checker<'a> {
             reader_f: vec![],
             arg_r: vec![],
             arg_f: vec![],
+            keys: HashMap::new(),
+            boundaries: HashMap::new(),
         }
     }
 
@@ -1062,11 +1097,13 @@ impl<'a> Checker<'a> {
                 question: if s.kind == SymKind::Source { Some(s.question) } else { None },
                 io: s.io,
                 from: s.imported.clone(),
+                key: s.key.clone(),
             }
         })
     }
 
     pub fn run(&mut self, p: &'a Program) {
+        self.keys = decl_keys(p, &module_key(self.opts.file.as_deref().unwrap_or("main.rx"), self.opts.root));
         let r = self.region(None, "program", false, None);
         let root = self.env(None, r);
         self.root_env = Some(root);
@@ -1325,6 +1362,9 @@ impl<'a> Checker<'a> {
                     }
                 }
                 _ => {}
+            }
+            if matches!(sym.kind, SymKind::Source | SymKind::Eq | SymKind::Action) {
+                sym.key = self.keys.get(&(d as *const Decl)).cloned();
             }
             let comp_region = sym.comp_region;
             let s = self.bind(env, name, sym);
@@ -2329,11 +2369,7 @@ impl<'a> Checker<'a> {
                 self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(p)));
             }
             ExprKind::Index { o, i, .. } => {
-                let part = match &i.k {
-                    ExprKind::Lit(Lit::Str(s)) => s.clone(),
-                    ExprKind::Lit(Lit::Num(n)) => if *n == 0.0 { "0".into() } else { n.to_string() },
-                    _ => "*".into(),
-                };
+                let part = index_field(i);
                 let path = field.map(|f| format!("{part}.{f}"));
                 self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(&part)));
                 self.expr(i, env, ctx, None);
@@ -2568,9 +2604,13 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     let mut tsym = None;
+                    let field = target.path.iter().map(|p| match p {
+                        PathSeg::Name(n) => n.clone(),
+                        PathSeg::Expr(e) => index_field(e),
+                    }).collect::<Vec<_>>().join(".");
                     if target.is_ctx() {
                         if let Some(c) = self.ctx_of(&target.name, env) {
-                            self.model.write(Some(c), op, !target.path.is_empty());
+                            self.model.write(Some(c), op, !target.path.is_empty(), Some(&field));
                             let info = self.syms[c].ctx.clone().unwrap();
                             self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone() });
                             if !info.source {
@@ -2579,7 +2619,7 @@ impl<'a> Checker<'a> {
                         }
                     } else {
                         tsym = self.resolve(&target.name, env, ctx);
-                        self.model.write(tsym, op, !target.path.is_empty());
+                        self.model.write(tsym, op, !target.path.is_empty(), Some(&field));
                         if let Some(t) = tsym {
                             let k = self.syms[t].kind;
                             // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
@@ -2633,7 +2673,7 @@ impl<'a> Checker<'a> {
                     }
                     let t = self.resolve(name, env, ctx);
                     if is_refresh {
-                        self.model.write(t, "refresh", false);
+                        self.model.write(t, "refresh", false, None);
                         if let Some(t) = t {
                             let k = self.syms[t].kind;
                             if !(k == SymKind::Eq || (k == SymKind::Source && self.syms[t].question)) {
@@ -2641,7 +2681,7 @@ impl<'a> Checker<'a> {
                             }
                         }
                     } else {
-                        self.model.write(t, "affects", false);
+                        self.model.write(t, "affects", false, None);
                         if let Some(t) = t {
                             if !self.syms[t].kind.reactive() {
                                 self.err("INVALID_AFFECTS_TARGET", "AC-5", format!("{} is not reactive", name));
@@ -2949,7 +2989,7 @@ impl<'a> Checker<'a> {
     }
 
     /// R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead.
-    fn dead_typed(&mut self, m: &Markup, classes: &[String]) {
+    fn dead_typed(&mut self, m: &Markup, classes: &[String], id: usize) {
         let Some(inner) = self.covering_catch_all(match &m.kind {
             MarkupKind::Errored { body, .. } => body,
             _ => return,
@@ -2959,6 +2999,9 @@ impl<'a> Checker<'a> {
         let inner_line = inner.line.unwrap_or(line);
         self.line = line as i64;
         self.err("DEAD_TYPED_BOUNDARY", "R-f-4", format!("errored fallback(e: {cls}) at line {line} is dead: the inner catch-all at line {inner_line} catches {cls} first — put the typed boundary inside the catch-all"));
+        if let Some(&by) = self.boundaries.get(&(inner as *const Markup)) {
+            self.model.shadow(id, by);
+        }
     }
     /// The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure.
     fn covering_catch_all<'b>(&self, ms: &'b [Markup]) -> Option<&'b Markup> {
@@ -2996,6 +3039,7 @@ impl<'a> Checker<'a> {
 
     // ---- views ----
     fn markup(&mut self, ms: &'a [Markup], env: EId, view_root: bool) {
+        use crate::model::{outline_block, outline_hidden, OutlinePart::*};
         let mut styles = 0;
         for m in ms {
             if let Some(l) = m.line {
@@ -3003,7 +3047,7 @@ impl<'a> Checker<'a> {
             }
             let region = self.reg(env);
             match &m.kind {
-                MarkupKind::Text(_) => {}
+                MarkupKind::Text(text) => self.model.outline(region, Text(text.clone()), None),
                 MarkupKind::Style(_) => {
                     if !view_root {
                         self.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there".into());
@@ -3015,10 +3059,14 @@ impl<'a> Checker<'a> {
                     }
                 }
                 MarkupKind::Read(e) => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("{…}".into()), |c| c.expr(e, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e, env, line: self.line });
                 }
                 MarkupKind::El { tag, attrs, children } => {
+                    let hidden = outline_hidden(tag);
+                    let block = outline_block(tag);
+                    if block || tag == "br" { self.model.outline(region, Br, m.line); }
                     if is_upper_tag(tag) {
                         let s = self.lookup(env, tag);
                         let is_comp = s.is_some_and(|s| self.syms[s].kind == SymKind::Comp);
@@ -3026,6 +3074,7 @@ impl<'a> Checker<'a> {
                             self.err("UNKNOWN_COMPONENT", "RG-4a", format!("<{}> is not a component declared here", tag));
                         }
                         for a in attrs {
+                            self.model.view_attr(region, &a.name, &a.e.k, self.line as usize);
                             let h = is_handler(&a.name);
                             let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                             self.comp(if h { "handler" } else { "prop" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
@@ -3035,6 +3084,7 @@ impl<'a> Checker<'a> {
                             self.apps.push(AppRec { comp: cr, site: region, line: self.line, tag: tag.clone(), args: attrs.iter().filter(|a| !is_handler(&a.name)).map(|a| (field_of(&a.name), &a.e, env)).collect(), passed: attrs.iter().map(|a| (field_of(&a.name), &a.e, env)).collect() });
                             let kids = self.region(Some(region), "children", false, Some(tag.clone()));
                             self.regions[kids].kids = Some((cr, region));
+                            self.model.outline(region, Region(self.regions[kids].id), m.line);
                             let kenv = self.env(Some(env), kids);
                             self.markup(children, kenv, false);
                         } else {
@@ -3043,6 +3093,7 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     for a in attrs {
+                        if !hidden { self.model.view_attr(region, &a.name, &a.e.k, self.line as usize); }
                         let h = is_handler(&a.name);
                         let c2 = if h { Ctx::imperative() } else { Ctx::reactive() };
                         self.comp(if h { "handler" } else { "reader" }, env, None, Some(format!("{} {}", tag, a.name)), |c| c.expr(&a.e, env, c2, None));
@@ -3052,19 +3103,26 @@ impl<'a> Checker<'a> {
                             self.handlers.push(HandlerRec { attrs, kids: children, h: &a.e, env, region, line: self.line, what: format!("<{}> {}", tag, a.name) });
                         }
                     }
+                    self.model.hide_outline += usize::from(hidden);
                     self.markup(children, env, false);
+                    self.model.hide_outline -= usize::from(hidden);
+                    if block { self.model.outline(region, Br, None); }
                 }
                 MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("if".into()), |cc| cc.expr(c, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e: c, env, line: self.line });
                     let r = self.region(Some(region), "then", false, None);
+                    self.model.outline(region, Region(self.regions[r].id), m.line);
                     let e1 = self.env(Some(env), r);
                     self.block(t_decls, t, e1, Ctx::reactive());
                     let r = self.region(Some(region), "else", false, None);
+                    if !f.is_empty() || !f_decls.is_empty() { self.model.outline(region, Region(self.regions[r].id), m.line); }
                     let e2 = self.env(Some(env), r);
                     self.block(f_decls, f, e2, Ctx::reactive());
                 }
                 MarkupKind::Mfor { name, xs, decls, body } => {
+                    self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                     self.comp("reader", env, None, Some("for".into()), |c| c.expr(xs, env, Ctx::reactive(), None));
                     self.readers.push(ReaderRec { region, e: xs, env, line: self.line });
                     let src = if let ExprKind::Id(n) = &xs.k { self.lookup(env, n) } else { None };
@@ -3072,6 +3130,7 @@ impl<'a> Checker<'a> {
                         self.err("UNSTABLE_LIST_IDENTITY", "ST-4b", format!("for {} in …: the rows are rebuilt as fresh records on every change — declare a key (`x key id = …`)", name));
                     }
                     let r = self.region(Some(region), "for", false, None);
+                    self.model.outline(region, Region(self.regions[r].id), m.line);
                     let inner = self.env(Some(env), r);
                     let s = self.new_sym(Sym::new(SymKind::Value, name, r, self.line));
                     self.envs[inner].vars.insert(name.clone(), s);
@@ -3079,11 +3138,14 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Loading { on, fallback, decls, body } => {
                     if let Some(on) = on {
+                        self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                         self.comp("reader", env, None, Some("loading on".into()), |c| c.expr(on, env, Ctx::reactive(), None));
                         self.readers.push(ReaderRec { region, e: on, env, line: self.line });
                     }
                     self.markup(fallback, env, false);
                     let b = self.region(Some(region), "loading", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
+                    self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].provides.insert(HOLD.into());
                     if let Some(on) = on {
                         self.load_ons.push(ReaderRec { region: b, e: on, env, line: self.line });
@@ -3093,10 +3155,12 @@ impl<'a> Checker<'a> {
                 }
                 MarkupKind::Portal { to, decls, body } => {
                     if let Some(to) = to {
+                        self.model.outline(region, Site(self.model.computations.len()), Some(self.line as usize));
                         self.comp("reader", env, None, Some("portal to".into()), |c| c.expr(to, env, Ctx::reactive(), None));
                         self.readers.push(ReaderRec { region, e: to, env, line: self.line });
                     }
                     let b = self.region(Some(region), "portal", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
                     self.regions[b].provides.insert(HOLD.into());
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
@@ -3114,11 +3178,14 @@ impl<'a> Checker<'a> {
                         }
                     }
                     let b = self.region(Some(region), "errored", false, None);
+                    self.model.outline(region, Region(self.regions[b].id), m.line);
+                    self.boundaries.insert(m as *const Markup, self.regions[b].id);
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
                     if let Some(cs) = classes.clone().filter(|cs| !cs.is_empty()) {
-                        self.dead_typed(m, &cs);
+                        let rid = self.regions[b].id;
+                        self.dead_typed(m, &cs, rid);
                     }
                 }
             }

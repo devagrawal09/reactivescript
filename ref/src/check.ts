@@ -8,7 +8,7 @@ import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
-import { ModelBuilder, type Model, type RegionKind, type CompKind } from "./model.ts";
+import { ModelBuilder, declKeys, moduleKey, outlineBlock, outlineHidden, type Model, type RegionKind, type CompKind, type OutlinePart } from "./model.ts";
 import { inferredAction, runFindings, scalarType, triggerText, type RunOpts } from "./infer.ts";
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);   // the scenario prelude; all pure
@@ -92,6 +92,7 @@ type Sym = {
   fnTail?: Expr; fnEnv?: Env;          // a fn: its result, for what an `await` of a call to it rejects with
   rejects?: Set<string>;               // an import: what its promises reject with (R-f-8)
   imported?: string;                   // a source imported from an .rx module: read-only here (MO-2)
+  key?: string;                        // CP-6: a source's or an equation's identity (model.ts declKeys)
   ctx?: { key: string; source: boolean; dflt: boolean; contract: { rows: Set<string>; fails: Set<string> } | null };
   side?: "server" | "client";          // 12 SF-5: JS that runs on one side only
   ioVia?: string;                      // 12 SF-1: a server fn that is io — the call in its body that makes it so
@@ -205,21 +206,23 @@ export type ExportSig =
   | { kind: "context"; key: string; source: boolean; dflt: boolean; rows: string[]; fails: string[]; type?: string }
   | { kind: "type" };                                                                   // `export type T`: importable, binds no value (MO-6c)   // an exported context: its written type is the contract (RG-7e)
 export type ModSig = { file: string; exports: Map<string, ExportSig> };
-type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]> };
+type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; root?: string };   // root: the project root a key's module is relative to
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}): { diags: Diagnostic[]; sig: ModSig; model: Model } { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx") }; }
+export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries }; }
 /** CN-4b / MO-3: check every module of a program, dependencies first, each against its imports' signatures only. */
-export function checkModules(set: ModuleSet): { diags: Diagnostic[]; sigs: Map<string, ModSig>; models: Map<string, Model> } {
+export function checkModules(set: ModuleSet, opts: { root?: string } = {}) {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); }
-  return { diags, sigs, models };
+  const boundaries = new Map<Markup, number>();
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); }
+  return { diags, sigs, models, boundaries };
 }
 
 class Checker {
   diags: Diagnostic[] = [];
   model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
+  boundaries = new Map<Markup, number>();
   private opts: Opts;
   private rootEnv: Env | null = null;
   constructor(opts: Opts = {}) { this.opts = opts; }
@@ -253,7 +256,9 @@ class Checker {
   /** CP-6: a symbol bound in `env`, recorded for the model. */
   private bind(env: Env, name: string, sym: Sym) { env.vars.set(name, sym); this.model.sym(sym); }
 
+  private keys = new Map<Decl, string>();
   run(p: Program) {
+    this.keys = declKeys(p, moduleKey(this.opts.file ?? "main.rx", this.opts.root));
     const root = new Env(null, this.region(null, "program")); this.rootEnv = root;
     if (p.legacyView) { this.line = p.view[0]?.line ?? 1; this.err("TOP_LEVEL_MARKUP", "MO-1c", "markup at a module's top level: a module is declarations; the app's view is a component — `export default component App() { … }`"); }
     this.block(p.decls, p.view, root, { scope: "reactive" });
@@ -540,6 +545,7 @@ class Checker {
       if (d.k === "eq") sym.eqDecl = d;
       if (d.k === "eq") { sym.mapsRecords = !d.key && mapsIntoRecords(d.e); if (d.e.k === "id") { const t = env.lookup(d.e.name); if (t?.io) sym.io = true; } this.foreignPart(sym, d.e, env); }
       if (d.k === "eq") { const sf = unwrapServer(d.e); if (sf) { sym.kind = "server"; sym.params = sf.params.map(name => ({ name, ref: false })); this.serverExprs.set(sf, sym); } }   // SF-1d: a wrapped server fn is one, its rows the function's
+      if (sym.kind === "source" || sym.kind === "eq" || sym.kind === "action") sym.key = this.keys.get(d);
       this.bind(env, d.name, sym);
     }
     this.serverIo(decls, env);
@@ -1027,12 +1033,13 @@ class Checker {
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
           }
           let target: Sym | undefined;
+          const field = s.target.path.map(p => typeof p === "string" ? p : p.k === "lit" && (typeof p.v === "number" || typeof p.v === "string") ? String(p.v) : "*").join(".") || undefined;
           if (s.target.ctx) {
             const c = this.ctxOf(s.target.name, env);
-            if (c) { this.model.write(c, s.k, s.target.path.length > 0); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "O-4", `context ${s.target.name} is read beneath its provision: call an action it provides that writes it`); }
+            if (c) { this.model.write(c, s.k, s.target.path.length > 0, field); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "O-4", `context ${s.target.name} is read beneath its provision: call an action it provides that writes it`); }
           }
           else {
-            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0);
+            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0, field);
             const guessable = s.k === "optimistic" && target?.kind === "eq" && !!target.eqDecl && !target.param && !target.imported;   // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
             if (guessable && target!.eqDecl!.deferred) this.err("GUESS_ON_DEFERRED", "AC-3", `${s.target.name} is deferred: its value is a lagging copy (V-16), so nothing would confirm a guess on it — guess the equation it lags`);
             else if (guessable) {}
@@ -1164,59 +1171,81 @@ class Checker {
   // ---- views ----
   private markup(ms: Markup[], env: Env, viewRoot = false) {
     let styles = 0;
+    const put = (part: OutlinePart) => this.model.outline(env.region.id, part);
+    const site = () => put({ site: this.model.computations.length, line: this.line });
     for (const m of ms) {
       if (m.line) this.line = m.line;
       switch (m.k) {
-        case "text": break;
+        case "text": put({ text: m.s }); break;
         case "style":                                                                         // 07 §6b CSS-1
           if (!viewRoot) this.err("STYLE_PLACEMENT", "CSS-1", "a <style> is written at the top level of a component's view (or the program's): it scopes that whole view, branches and loops included — move it there");
           else if (++styles > 1) this.err("STYLE_PLACEMENT", "CSS-1", "a second <style> in one view: a view has one stylesheet");
           break;
-        case "read": this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
+        case "read": site(); this.comp("reader", env, { at: "{…}" }, () => this.expr(m.e, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.e, env, line: this.line }); break;
         case "el": {
+          const block = outlineBlock(m.tag);
+          if (block || m.tag === "br") put({ br: true, line: m.line });
+          const attr = (a: typeof m.attrs[number]) => {
+            if (outlineHidden(m.tag)) return;
+            if (a.e.k === "lit") this.model.viewAttr(env.region.id, a.name, a.e.v, this.line);
+            else site();
+          };
           if (/^[A-Z]/.test(m.tag)) {
             const s = env.lookup(m.tag);
             if (!s || s.kind !== "comp") { this.err("UNKNOWN_COMPONENT", "RG-4a", `<${m.tag}> is not a component declared here`); }
-            for (const a of m.attrs) this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" }));   // R-2: an argument is read where the component reads it
+            for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "prop", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); } // R-2
             if (s?.kind === "comp") {
               s.compRegion!.appSites.push(env.region);
               this.apps.push({ comp: s.compRegion!, site: env.region, line: this.line, tag: m.tag, args: m.attrs.filter(a => !isHandler(a.name)).map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })), passed: m.attrs.map(a => ({ field: a.name === "..." ? "*" : a.name, e: a.e, env })) });   // a spread is every field: "*"   // R-2: passing is not reading — checked where the component reads it
               const kids = this.region(env.region, "children", { provParent: s.compRegion!, name: m.tag });              // RG-4c: children are named by the caller, owned where the component reads them
               kids.kids = { comp: s.compRegion!, site: env.region };
+              put({ region: kids.id, line: m.line });
               this.markup(m.children, new Env(env, kids));
             } else this.markup(m.children, env);
             break;
           }
-          for (const a of m.attrs) { this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          for (const a of m.attrs) { attr(a); this.comp(isHandler(a.name) ? "handler" : "reader", env, { at: `${m.tag} ${a.name}` }, () => this.expr(a.e, env, { scope: isHandler(a.name) ? "imperative" : "reactive" })); if (!isHandler(a.name)) this.readers.push({ region: env.region, e: a.e, env, line: this.line }); else this.handlers.push({ attrs: m.attrs, kids: m.children, h: a.e, env, region: env.region, line: this.line, what: `<${m.tag}> ${a.name}` }); }
+          const hidden = Number(outlineHidden(m.tag));
+          this.model.hideOutline += hidden;
           this.markup(m.children, env);
+          this.model.hideOutline -= hidden;
+          if (block) put({ br: true });
           break;
         }
         case "mif": {
+          site();
           this.comp("reader", env, { at: "if" }, () => this.expr(m.c, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.c, env, line: this.line });
-          this.block(m.tDecls, m.t, new Env(env, this.region(env.region, "then")), { scope: "reactive" });
-          this.block(m.fDecls, m.f, new Env(env, this.region(env.region, "else")), { scope: "reactive" });
+          const t = this.region(env.region, "then"); put({ region: t.id, line: m.line });
+          this.block(m.tDecls, m.t, new Env(env, t), { scope: "reactive" });
+          const f = this.region(env.region, "else"); if (m.f.length || m.fDecls.length) put({ region: f.id, line: m.line });
+          this.block(m.fDecls, m.f, new Env(env, f), { scope: "reactive" });
           break;
         }
         case "mfor": {
+          site();
           this.comp("reader", env, { at: "for" }, () => this.expr(m.xs, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.xs, env, line: this.line });
           const src = m.xs.k === "id" ? env.lookup(m.xs.name) : undefined;
           if ((src?.mapsRecords) || mapsIntoRecords(m.xs)) this.err("UNSTABLE_LIST_IDENTITY", "ST-4b", `for ${m.name} in …: the rows are rebuilt as fresh records on every change — declare a key (\`x key id = …\`)`);
           const r = this.region(env.region, "for"); const inner = new Env(env, r);
+          put({ region: r.id, line: m.line });
           inner.vars.set(m.name, { kind: "value", name: m.name, region: r, line: this.line });   // RG-2b: the row binding is a constant
           this.block(m.decls, m.body, inner, { scope: "reactive" });
           break;
         }
         case "loading": {
-          if (m.on) { const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
+          if (m.on) { site(); const on = m.on; this.comp("reader", env, { at: "loading on" }, () => this.expr(on, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.on, env, line: this.line }); }
           this.markup(m.fallback, env);
           const body = this.region(env.region, "loading"); body.provides.add(HOLD);                       // SV-7b: what holds a client question on the server
+          this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           if (m.on) this.loadOns.push({ region: body, e: m.on, env, line: this.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           break;
         }
         case "portal": {                                                                      // RG-8: a region owned here, rendered elsewhere
-          if (m.to) { const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
+          if (m.to) { site(); const to = m.to; this.comp("reader", env, { at: "portal to" }, () => this.expr(to, env, { scope: "reactive" })); this.readers.push({ region: env.region, e: m.to, env, line: this.line }); }
           const body = this.region(env.region, "portal"); body.provides.add(HOLD);                       // PT-3: the server renders nothing for it — a client question inside is held by it
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
           this.later.push(() => this.contentCheck(m.body, env, ["body"]));                     // its place is the end of the document
           break;
@@ -1226,8 +1255,10 @@ class Checker {
           this.markup(m.fallback, f);
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
           const body = this.region(env.region, "errored"); body.catches = catchOf(m.classes);                 // R-f-4: the boundary discharges its classes for its content
+          this.boundaries.set(m, body.id);
+          put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
-          if (m.classes?.length) this.deadTyped(m);
+          if (m.classes?.length) this.deadTyped(m, body.id);
           break;
         }
       }
@@ -1235,13 +1266,15 @@ class Checker {
   }
 
   /** R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead. */
-  private deadTyped(m: Extract<Markup, { k: "errored" }>) {
+  private deadTyped(m: Extract<Markup, { k: "errored" }>, id: number) {
     const inner = this.coveringCatchAll(m.body);
     if (!inner) return;
     const line = m.line ?? this.line;
     const cls = m.classes!.join(" | ");
     this.line = line;
     this.err("DEAD_TYPED_BOUNDARY", "R-f-4", `errored fallback(e: ${cls}) at line ${line} is dead: the inner catch-all at line ${inner.line ?? line} catches ${cls} first — put the typed boundary inside the catch-all`);
+    const by = this.boundaries.get(inner);
+    if (by !== undefined) this.model.shadow(id, by);
   }
   /** The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure. */
   private coveringCatchAll(ms: Markup[]): Extract<Markup, { k: "errored" }> | null {

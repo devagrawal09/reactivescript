@@ -3,16 +3,20 @@
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
+import { actionInput } from "./action-input.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
-import { actionInput } from "./action-input.ts";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, NotReadyError, getOwner, runWithOwner, sharedConfig, omit,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, createRoot, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV, OBSERVE,
 } from "solid-js";
-import { getContext, setContext, $TARGET } from "@solidjs/signals";
+import { getContext, setContext, $REFRESH, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
+
+// Inlined at each use by runtime/build.mjs. The raw reference runtime retains its test API.
+const RX_INSTRUMENT = !!DEV;
+const RX_HARNESS = true;
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -33,6 +37,115 @@ const sameInput = (a: unknown, b: unknown): boolean => {
   return ka.length === kb.length && ka.every(k => Object.prototype.hasOwnProperty.call(b, k) && sameInput((a as any)[k], (b as any)[k]));
 };
 export { flush };
+
+// ---------------------------------------------------------------- identity (11 CP-4b `key`, dev builds)
+/** The key of the declaration whose nodes are being created (`__rt.key`), or null: each Solid primitive a helper creates
+ *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
+ *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
+let rxKey: string | null = null;
+let instanceId = 0;
+let rxInstance: string | undefined;
+type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
+  instance?: string; ownerPath?: string[];
+  source?: boolean;
+};
+type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+const dev = globalThis as typeof globalThis & {
+  __RX_NODES__?: Map<string, Set<Inspect>>;
+  __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
+  __RX_TRACE__?: (event: DevEvent) => void;
+};
+const trace = (e: DevEvent) => { if (RX_INSTRUMENT) try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
+let runId = 0;
+let currentRun: number | undefined;
+let currentAction: string | undefined, callbackOrigin: string | undefined;
+function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
+  let set = map.get(k);
+  if (!set) map.set(k, set = new Set());
+  const entries = set;
+  entries.add(value);
+  if (getOwner()) onCleanup(() => { entries.delete(value); if (!entries.size) map.delete(k); removed?.(); });
+}
+const nm: <T>(o: T) => T = RX_INSTRUMENT ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}~i${rxInstance}` }) as typeof o : o => o;
+const pathOfKey = (k: string) => {
+  const path = OBSERVE?.ownerPath?.(getOwner());
+  const scope = k.split("|").at(-2);
+  return path?.length ? path : scope ? [`<${scope}>`] : undefined;
+};
+/** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
+ *  production build keeps no names, so there it is the call alone. */
+const key: <T>(k: string, f: () => T) => T = RX_INSTRUMENT
+  ? (k, f) => {
+      const instance = String(++instanceId);
+      const ownerPath = pathOfKey(k);
+      const was = rxKey, wasInstance = rxInstance;
+      rxKey = k; rxInstance = instance;
+      try {
+        const out = f();
+        const get = Array.isArray(out) ? out[0] : out;
+        if (typeof get === "function") {
+          // Capture only the accessor, not a value at declaration. Hoisted awaits share this key; the
+          // declared accessor registers last, and multiple mounted instances have separate lifetimes.
+          const writer: Writer | undefined = Array.isArray(out) ? out[1] : undefined;
+          const inspect: Inspect = format => runWithOwner(null, () => untrack(() => {
+            try {
+              const shown = get();
+              const value = format(shown);
+              const pending = isPending(() => readWhole(get()));
+              let held = false;
+              if (writer && pending) {
+                try {
+                  const proposal = latest(() => latestWhole(get()));
+                  held = !sameInput(latestWhole(shown), proposal);
+                } catch { /* no ahead value to compare */ }
+              }
+              return { value, pending, held };
+            } catch (e) {
+              if (e instanceof NotReadyError) return { pending: true };
+              // Solid's unowned reads surface the status wrapper, whereas the
+              // boundary gets its cause. Keep the declared error class.
+              const status = e as Error & { source?: unknown };
+              return { error: status?.constructor?.name === "StatusError" && status.source ? status.cause : e };
+            }
+          }, false));
+          // The bridge keeps handles only for the lifetime of this declaration.
+          Object.assign(inspect, { node: (get as any)[$REFRESH] });
+          const nodes = dev.__RX_NODES__ ??= new Map();
+          Object.assign(inspect, { instance, ownerPath, source: !!writer });
+          remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
+          trace({ type: "node", key: k, instance });
+          if (writer) {
+            const { set, path, guess } = writer;
+            const written = () => trace({ type: "write", key: k, instance, run: currentRun, origin: callbackOrigin });
+            writer.set = v => { if (callbackOrigin) written(); set(v); if (!callbackOrigin) written(); };
+            writer.path = (p, v) => { if (callbackOrigin) written(); path(p, v); if (!callbackOrigin) written(); };
+            writer.guess = (v, p) => { if (callbackOrigin) written(); guess(v, p); };
+          }
+        }
+        return out;
+      } finally { rxKey = was; rxInstance = wasInstance; }
+    }
+  : (_k, f) => f();
+
+// Solid's boundary doesn't accept a name, and the fallback record only arrives when Loading hides.
+// Use the fallback's render effect and disposal: Solid builds it separately, and disposes it on recovery.
+function traceBoundary(region: string, state: "fallback" | "error") {
+  if (!RX_INSTRUMENT) return (_error?: Acc) => {};
+  const current: BoundaryState = { state: "ok" };
+  const change = () => trace({ type: "boundary", region });
+  remember(dev.__RX_BOUNDARIES__ ??= new Map(), region, current, change);
+  change();
+  return (error?: Acc) => {
+    // Its own ownerless root, disposed with the fallback: an effect owned by the fallback would take a hydration id
+    // the (non-dev) server never gave out, and the dev client's fallback would miss its keys (ssr/run.ts RX_DEV=1).
+    const dispose = runWithOwner(null, () => createRoot(d => {
+      createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; change(); });
+      return d;
+    }));
+    onCleanup(() => { dispose(); current.state = "ok"; delete current.error; change(); });
+  };
+}
 export type Acc = () => unknown;
 export type Writer = { set: (v: unknown) => void; path: (keys: (string | number)[], v: unknown) => void; guess: (v: unknown, keys?: (string | number)[]) => void };
 export type Entry = { get?: Acc; w?: Writer; value?: unknown };
@@ -123,7 +236,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const hoistedOf = new WeakMap<Acc, Acc[]>();
   const log: string[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
-  const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
+  const harnessErrors = RX_HARNESS ? new Map<string, unknown>() : undefined;
   type Ctx = { name: string; ctx: ReturnType<typeof createContext<Entry | undefined>>; dflt: (() => unknown) | null; owner: ReturnType<typeof getOwner>; dv: Entry | null };
   // During hydration Solid runs a compute under `subFetch` to learn its inputs, with `fetch` and `Promise` mocked, and keeps
   // the server's answer (SV-3b). A flight asked there is that trace, not a question: it is not registered.
@@ -151,10 +264,10 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** MO-8: a class `api.d.rx` declares as an error: the real module's, or (in the harness) a stand-in `C(message)`. */
-    jsError: (name: string) => jsErrors.get(name) ?? (jsErrors.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), jsErrors.get(name)),
+    ...(RX_HARNESS ? { jsError: (name: string) => harnessErrors!.get(name) ?? (harnessErrors!.set(name, (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`)), harnessErrors!.get(name)) } : {}),
     api: (name: string) => {
       if (!opts.api) {
-        if (opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+        if (RX_HARNESS && opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
         throw new Error(`MISSING_TEST_API: cannot bind ${name} from "./api"; pass createApp({ api }) or provide a local JS module`);
       }
       return opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); });
@@ -175,26 +288,31 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     source(name: string, init: unknown, guessed = false): [Acc, Writer] {
       void name;
       if (typeof init === "object" && init !== null) {
-        const [store, setStore] = createStore(init as any); const [get, set] = createSignal<unknown>(store);
+        const [store, setStore] = createStore(init as any, nm(undefined)); const [get, set] = createSignal<unknown>(store, nm(undefined));
         const w: Writer = {
           set: v => { if (typeof v === "function") { setStore(v as any); set(store); } else if (typeof v === "object" && v !== null) { setStore(() => v as any); set(store); } else set(v); },
           path: pathWrite(setStore),
           guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); },
         };
         if (guessed) {                                                    // createOptimisticStore(() => truth) over createStore(v)
-          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {});
+          const [view, setView] = (createOptimisticStore as any)(() => get(), Array.isArray(init) ? [] : {}, nm(undefined));
           const acc = () => view; storeAccs.add(acc);
           return [acc, { ...w, guess: guessInto(setView) }];
         }
         return [get, w];
       }
-      const [get, set] = createSignal(init);
+      const [get, set] = createSignal(init, nm(undefined));
       if (guessed) {                                                      // createOptimistic(() => truth()) over createSignal(v)
-        const [view, setGuess] = createOptimistic(() => get());
+        const [view, setGuess] = createOptimistic(() => get(), nm(undefined));
         return [view as Acc, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: setGuess as any }];
       }
       return [get, { set: set as (v: unknown) => void, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("a guess on a := source that the compiler did not mark as guessed"); } }];
     },
+    ...(RX_INSTRUMENT || RX_HARNESS ? {
+      sourceDev(name: string, init: Acc, guessed = false): [Acc, Writer] {
+        return app.source(name, untrack(init), guessed);
+      },
+    } : {}),
     /** `source x = e` (ST-5): createSignal(fn); with a guess written to it, a createOptimistic layer over that truth (AC-3);
      *  written or probed by path, createStore(fn, {}) whose derive writes its draft. */
     question(name: string, compute: (prev: unknown) => unknown, opts: { loadingValue?: unknown } | undefined, mode: { optimistic: boolean; structured: boolean; derived?: boolean; record?: boolean; plain?: boolean }, key?: string): [Acc, Writer] {
@@ -202,43 +320,43 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       const derive = (draft: any) => { const r = fn(draft); if (r instanceof Flight || r instanceof Promise) return (async () => landDraft(draft, r instanceof Flight ? await r.first : await r, key))(); return landDraft(draft, r, key); };
       const seed = () => key && !mode.record ? [] : {};
       if (mode.optimistic && mode.structured && mode.plain && !mode.derived) {   // AC-3 with plain writes too: createOptimisticStore(() => truth) over createStore(fn) — writes go to the truth, guesses to the layer
-        const [truth, setTruth] = (createStore as any)(derive, seed(), key ? { key } : undefined);
+        const [truth, setTruth] = (createStore as any)(derive, seed(), nm(key ? { key } : undefined));
         const tacc = () => truth; storeAccs.add(tacc);
-        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), key ? { key } : undefined);
+        const [view, setView] = (createOptimisticStore as any)(() => truth, seed(), nm(key ? { key } : undefined));
         const get = () => view; storeAccs.add(get); truthOf.set(get, tacc);   // AC-4: `refresh x` re-asks the truth
         return [get, { set: v => setTruth((d: any) => typeof v === "function" ? (v as (x: unknown) => unknown)(d) : v), path: pathWrite(setTruth), guess: guessInto(setView) }];
       }
       if (mode.optimistic && mode.structured) {                        // AC-3 path targets: createOptimisticStore(fn, seed) — the derive writes its draft; the setter guesses per key
-        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), key ? { key } : undefined);
+        const [store, setStore] = (createOptimisticStore as any)(derive, seed(), nm(key ? { key } : undefined));
         const get = () => store; storeAccs.add(get);
         const plain = () => { throw new Error("a plain write to an equation"); };
         return [get, { set: plain, path: plain, guess: guessInto(setStore) }];
       }
       if (mode.optimistic && mode.derived) {                             // AC-3 over an equation: createOptimistic(fn), whose setter only guesses
         const plain = () => { throw new Error("a plain write to an equation"); };
-        const [get, setGuess] = createOptimistic(fn as any, opts as any);
+        const [get, setGuess] = createOptimistic(fn as any, nm(opts) as any);
         return [get as Acc, { set: plain, path: plain, guess: setGuess as any }];
       }
       if (mode.optimistic) {
-        const [truth, setTruth] = createSignal(fn as any, opts as any);
-        const [get, setGuess] = createOptimistic(() => truth());
+        const [truth, setTruth] = createSignal(fn as any, nm(opts) as any);
+        const [get, setGuess] = createOptimistic(() => truth(), nm(undefined));
         truthOf.set(get as Acc, truth as Acc);                            // AC-4: `refresh x` re-asks the truth, not the guess layer over it
         return [get, { set: setTruth as any, path: () => { throw new Error("optimistic path writes are not lowered yet"); }, guess: setGuess as any }];
       }
       if (mode.structured) {
-        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {});
+        const [store, setStore] = (createStore as any)(async (draft: Record<string, unknown>) => { const r = fn(draft); const v = r instanceof Flight ? await r.first : await r; if (v && typeof v === "object") { for (const k of Object.keys(draft)) if (!(k in (v as object))) delete draft[k]; Object.assign(draft, v); } }, {}, nm(undefined));
         const get = () => store; storeAccs.add(get);
         return [get, { set: () => { throw new Error("a root write to a derived store is not lowered yet"); }, path: (keys, v) => setStore((d: any) => { let o = d; for (const k of keys.slice(0, -1)) o = o[k]; o[keys[keys.length - 1]] = v; }), guess: () => { throw new Error("optimistic over a structured question source is not lowered yet"); } }];
       }
-      const [get, set] = createSignal(fn as any, opts as any);
+      const [get, set] = createSignal(fn as any, nm(opts) as any);
       return [get, { set: set as any, path: () => { throw new Error("a path write to an atomic source"); }, guess: () => { throw new Error("GUESS_NO_QUESTION"); } }];
     },
-    memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, opts as any) as Acc,
-    deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, opts as any) as Acc,
+    memo: (name: string | null, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createMemo(named(name, fn) as any, nm(opts) as any) as Acc,
+    deferred: (name: string, fn: (prev: unknown) => unknown, opts?: { loadingValue?: unknown }): Acc => createDeferred(named(name, fn) as any, nm(opts) as any) as Acc,
     /** `x key k = e` (ST-4): a keyed projection. */
-    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, { key } as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
+    keyed: (name: string, key: string, fn: () => unknown, record = false): Acc => { const src = createMemo(named(name, () => fn()) as any, nm(undefined)); const p = createProjection(() => (src as Acc)() as any, (record ? {} : []) as any, nm({ key }) as any); const acc = () => p; truthOf.set(acc, src as Acc); return acc; },   // AC-4: `refresh rows` re-asks the memo under the projection   // the answer is a memo (sync, or the tail await's); the projection reconciles it by key
     /** `x = draft(pre x -> seed) { … }` (ST-3). */
-    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any); return () => p; },
+    draft: (seed: unknown, body: (d: any) => void): Acc => { const p = createProjection(body as any, seed as any, nm(undefined)); return () => p; },
     /** `pre y` of another node (C-2): a companion memo carrying (current, previous), owned where `y` is declared. */
     pre: (get: Acc): Acc => { const m = createMemo((st: any) => ({ cur: get(), prev: st ? st.cur : undefined })); return () => (m() as { prev: unknown }).prev; },
     firstPaint: (f: () => unknown) => ({ loadingValue: untrack(f) }),
@@ -249,9 +367,42 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; } } as any);
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
-    action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>) {
+    action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
+      if (RX_INSTRUMENT && key) {
+        const ownerPath = OBSERVE?.ownerPath?.(getOwner());
+        const run = action(function* (id: number, ...a: unknown[]) {
+          const iter = gen(...a);
+          const step = (method: "next" | "throw" | "return") => (value: unknown) => {
+            const previous = currentRun, previousAction = currentAction;
+            currentRun = id;
+            currentAction = callbackOrigin ?? `${key} #${id}`;
+            try { return iter[method](value); } finally { currentRun = previous; currentAction = previousAction; }
+          };
+          return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
+        } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
+        return (...a: unknown[]) => {
+          a = untrack(() => actionInput(a, $TARGET));
+          const id = ++runId;
+          trace({ type: "run", key, id, ownerPath, state: "start", args: a });
+          const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
+          try {
+            const p = run(id, ...a);
+            p.then(() => trace({ type: "run", key, id, ownerPath, state: "end" }), e => { app.asyncError = e; fail(e); });
+            return p;
+          } catch (e) { fail(e); throw e; }
+        };
+      }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a, $TARGET))); p.catch(e => { app.asyncError = e; }); return p; };
+    },
+    traceCallback<T extends (...args: any[]) => any>(fn: T): T {
+      const origin = currentAction ?? callbackOrigin;
+      if (!RX_INSTRUMENT || !origin) return fn;
+      return function (this: unknown, ...args: unknown[]) {
+        const previous = callbackOrigin;
+        callbackOrigin = origin;
+        try { return fn.apply(this, args); } finally { callbackOrigin = previous; }
+      } as T;
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
     /** `x = await f() catch (e: C) => alt` (R-f-4): a matching rejection lands `alt` as the answer; others reject on. */
@@ -325,6 +476,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -332,14 +484,28 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "dom") does the rest ----
     show: (v: unknown) => isView(v) ? v : fmt(v),
+    DevLoading(props: { region: string; on?: unknown; fallback: any; children: any }) {
+      if (!RX_INSTRUMENT) return Loading(props);
+      const show = traceBoundary(props.region, "fallback");
+      const wrapped = { get fallback() { show(); return props.fallback; }, get children() { return props.children; } };
+      if ("on" in props) Object.defineProperty(wrapped, "on", { get: () => props.on });
+      return Loading(wrapped);
+    },
+    DevErrored(props: { region: string; fallback: (err: Acc, reset: () => void) => any; children: any }) {
+      if (!RX_INSTRUMENT) return Errored(props);
+      const show = traceBoundary(props.region, "error");
+      return Errored({ fallback: (err, reset) => { show(err); return props.fallback(err, reset); }, get children() { return props.children; } });
+    },
     /** `errored fallback(e: A | B)`: a failure of another class passes to the boundary above (R-f-4) — the fallback hands it out
      *  and a memo throws it there (a rethrow from the fallback itself did not recover until solidjs/solid#4277: ref/oracle/repros/dv7-rethrow.mjs). */
-    TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
+    TypedErrored(props: { region?: string; classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const classes = props.classes;
+      const region = RX_INSTRUMENT && props.region;
+      const show = region ? traceBoundary(region, "error") : undefined;
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => {
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
-          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
+          return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => { show?.(err); return props.fallback(err); })) : new Forward(err()));
         },
         get children() { return props.children; },
       });

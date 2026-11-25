@@ -12,6 +12,7 @@ import { provideRequestEvent } from "@solidjs/web/storage";
 import { Show, For, Loading, Errored, createComponent, createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, untrack, latest, isPending, deep, NotReadyError, getOwner, runWithOwner, getNextChildId, runInServerComponentScope, omit } from "solid-js";
 import { escape, renderToStream, markSafeError, generateHydrationScript } from "@solidjs/web";
 import { $TARGET } from "@solidjs/signals";
+const RX_HARNESS = true;
 
 // 05 H-9 / Solid D-23: `isPending(fn)` judges the reads fn makes, never its return value, so `pending? x` over a structured
 // value (a store, a keyed projection) reads its keys — Solid's "whole-store questions are asked through reads"
@@ -93,7 +94,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
   const log: string[] = [];
   const declared: unknown[] = [];
   let currentEq: string | null = null; let serverSeq = 0; let classSeq = 0;
-  const jsErrors = new Map<string, unknown>();   // MO-8: one class per declared JS error, per app
+  const harnessErrors = RX_HARNESS ? new Map<string, unknown>() : undefined;
   const flight = (key: string) => { let f = flights.get(key); if (!f) { f = new Flight(key); flights.set(key, f); } if (currentEq) lastKey.set(currentEq, key); return f; };
   const named = <T extends (...a: any[]) => unknown>(name: string | null, fn: T): T => (name ? ((...a: unknown[]) => { const was = currentEq; currentEq = name; try { return fn(...a); } finally { currentEq = was; } }) as T : fn);
   const ro = (get: Acc): [Acc, Writer] => [get, { set: onServer("a write"), path: onServer("a write"), guess: onServer("a write") }];
@@ -118,11 +119,11 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
       log: (...a: unknown[]) => { log.push(`log(${a.map(fmt).join(", ")})`); },
     } as Record<string, any>,
     /** MO-8: a class a `.d.rx` declares — a failure the server sends as it is (SV-5). */
-    jsError(name: string) { if (jsErrors.has(name)) return jsErrors.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); jsErrors.set(name, C); return C; },
+    ...(RX_HARNESS ? { jsError(name: string) { if (harnessErrors!.has(name)) return harnessErrors!.get(name); const C = (opts.api?.[name] as unknown) ?? errorClass(name, ["message"], (m?: unknown) => m ?? name, `${name}#${classSeq++}`); declared.push(C); harnessErrors!.set(name, C); return C; } } : {}),
     /** A JS function's promise: a rejection with a declared class is marked safe to send; any other is redacted (SV-5). */
     api: (name: string) => {
       if (!opts.api) {
-        if (opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
+        if (RX_HARNESS && opts.scenarioFlights) return (...a: unknown[]) => flight(`${name}:${a.map(fmt).join(",")}`);
         throw new Error(`MISSING_TEST_API: cannot bind ${name} from "./api"; pass createApp({ api }) or provide a local JS module`);
       }
       const f = opts.api[name] ?? (() => { throw new Error(`./api has no ${name}`); });
@@ -133,7 +134,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     reg(name: string, e: Entry) { let l = registry.get(name); if (!l) registry.set(name, (l = [])); l.push(e); },
     dget(name: string) { const e = app.lookup(name); return e.get ? app.snapshot(e.get) : e.value; },
-    lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (jsErrors.has(name)) return { value: jsErrors.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
+    lookup(name: string): Entry { const l = registry.get(name); if (!l?.length) { if (RX_HARNESS && harnessErrors!.has(name)) return { value: harnessErrors!.get(name) }; throw new Error(`unbound ${name}`); } return l[l.length - 1]; },   // a server function's request has its module's error classes, not the page's registry
 
     // ---- declarations: the same primitives, from the server build. Writes do not happen on the server (SV-2). ----
     source(name: string, init: unknown, guessed = false): [Acc, Writer] {   // guessed: the client's optimistic layer over the writable (AC-3), so the owner trees (and hydration keys) match
@@ -230,6 +231,8 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    /** 11 CP-4b: a dev build's keyed creating call (rt-web.ts names its nodes); here, the call alone. */
+    key: <T,>(_k: string, f: () => T): T => f(),
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => a === b,
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -237,6 +240,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
 
     // ---- views: compiled JSX (compile/jsx.ts, generate "ssr", hydratable) does the rest ----
     show: (v: unknown) => isView(v) ? v : escape(fmt(v)),
+    DevLoading: Loading, DevErrored: Errored, // there is no live map on the server
     /** A failure of another class passes to the boundary above (R-f-4): on the server, a rethrow from the fallback. The
      *  client's unwrapping memo has no counterpart here: its id is reserved. */
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {

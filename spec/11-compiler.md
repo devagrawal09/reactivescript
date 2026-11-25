@@ -148,6 +148,7 @@ record argued each way; this is the decision.
   | `show(v)`, `scopedClass(v, hash)` | `{e}` (a value formatted, a view inserted), a dynamic class with the view's scope (CSS-2) | — |
   | `TypedErrored`, `Portal` | `errored fallback(e: A)` (R-f-4), `portal` (RG-8) | `Errored`, `Portal` |
   | `B` | the language's built-in functions (`len`, `str`, `map`, `filter`, `sum`, `every`, `indexOf`) and `log` | — |
+  | `key(k, f)` | dev builds only: a source's or an equation's creating calls, `__rt.key("<key>", () => …)`, its key CP-6f's (decision 11) | the `name` option, `rx:` + key, on each node a helper creates under it; the server build, and Solid's production build, run `f()` alone |
 
   The app itself: `mount(view, hydrating)` in the client build, `stream(view,
   sink)` in the server's.
@@ -212,6 +213,15 @@ spellings again. Compile-time only; nothing of it reaches run time.
 - **CP-6e (not a format).** No one outside the crate depends on it: it is
   not a stable IR and not a commitment to a second front end (issue #1).
   Ids are indices within one module's model.
+- **CP-6f (keys).** Each source and equation symbol carries a `key`,
+  `<module>|<scope>|<name>[#n]`: the module's POSIX path relative to the
+  project root (Vite's `root`, the cwd for `rxc`), the enclosing
+  component's name (empty at module level), the name, and `#n` on the
+  n+1th declaration of that scope and name in the module, in source order
+  (two `if` branches). `ref/src/model.ts` `declKeys` and `model.rs`
+  `decl_keys` compute it from the AST, and `ref/crate.ts` diffs it with the
+  rest of the model. A dev build names the declaration's Solid nodes by it
+  (CP-4b `key`, decision 11).
 
 ## CP-7 — The crate today
 
@@ -379,3 +389,17 @@ TY-1c), so every position has to cross between `.rx` and the projection.
    of decision 7 would serve the same requests, but one binary per
    platform; this build answers only `serve.rs`'s requests, so it is not
    decision 7's missing WebAssembly fallback for compiling.
+11. **Dev builds name nodes by key** (CP-4b `key`, CP-6f, 2026-11-24,
+   taken by default — veto here). With the dev flag (`rxc app --dev`,
+   `rxc compile --dev`, the Node-API `app(…, dev, root)`, and Vite's dev
+   client), each source's and equation's creating calls, its hoisted
+   awaits and catches included, run under `__rt.key`, and the client
+   runtime names every Solid node it creates there `rx:` + key, so the
+   devtools can tie a node to its declaration. Without the flag the output
+   is byte for byte what it was. In a dev build Vite also registers the
+   program's map (`@reactivescript/map/live`) from its entry when the
+   project has `@reactivescript/map`. A declared JS primitive's instance
+   (MO-10) is not keyed: its nodes are the library's.
+
+   The runtime’s development export contains the instrumentation and the
+   reference harness API; production exports leave them out.

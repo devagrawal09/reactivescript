@@ -29,16 +29,18 @@ cargo build --release
 target/release/rxc check ../examples/todo.rx     # diagnostics
 target/release/rxc check --json ../examples/todo.rx   # … with ranges, for an editor or an agent (CP-8d)
 target/release/rxc project ../examples/todo.rx   # the TSX projection, with mappings onto .rx (CP-8c)
-target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON
+target/release/rxc model ../examples/todo.rx     # the resolved model, as JSON (keys relative to the cwd, CP-6f)
 target/release/rxc serve                         # a language server's requests, a JSON line each (CP-8e)
 cargo build --lib --release --target wasm32-unknown-unknown   # … the same requests as WebAssembly (src/wasm.rs), what the server loads
 target/release/rxc compile ../examples/todo.rx --out out   # modules (dom; --target ssr|universal), source maps onto .rx, style.css
 target/release/rxc app ../examples/todo.rx       # the same as JSON, imports by .rx path: what the Vite front end gets
+target/release/rxc app ../examples/todo.rx --dev # a dev build: creating calls under __rt.key (CP-4b; --root dir, else the cwd); also compile
 target/release/rxc check --spa ../examples/todo.rx   # a client-only build: a first load nothing holds is an error (08 CN-3d); also compile, app
 npm --prefix ../ref run crate                    # CP-5: the crate against ref/ on every program
 npm --prefix ../ref run crate -- --project       # … and the TSX projection, text for text, every mapping checked
 RX_CRATE=1 npm --prefix ../ref run types         # the types scenarios, on the crate's projection
 npm --prefix ../ref run crate -- --lower         # … and the lowered JavaScript, for every target, and its source maps
+npm --prefix ../ref run crate -- --lower --dev   # … the same for dev builds
 RX_CRATE=1 npm --prefix ../ref run compiled      # the scenarios, run on the crate's output
 RX_CRATE=1 npm --prefix ../ref run ssr           # … served and hydrated from the crate's output
 ```

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 
-const { app } = createRequire(import.meta.url)("../index.js");
+const { app, model } = createRequire(import.meta.url)("../index.js");
 const examples = fileURLToPath(new URL("../../examples/", import.meta.url));
 let fail = 0;
 // the last: a client-only build (08 CN-3d), as the Vite front end asks for one
@@ -66,4 +66,18 @@ try {
     rmSync(api);
   }
 } finally { rmSync(dir, { recursive: true }); }
+// a dev build runs each source's and equation's creating calls under its key (spec/11 CP-4b `key`), named from `root`;
+// a build that is not dev has none, and the model gives the same keys
+const repo = path.resolve(examples, "..");
+const users = path.join(examples, "users.rx");
+const devCode = Object.values(JSON.parse(app(users, "dom", null, false, true, repo)).modules ?? {}).map(m => m.code).join("\n");
+const prodCode = Object.values(JSON.parse(app(users, "dom")).modules ?? {}).map(m => m.code).join("\n");
+const keys = JSON.parse(model([users], repo)).flatMap(m => m.symbols.flatMap(s => s.key ? [s.key] : []));
+const devOk = devCode.includes('__rt.key("examples/users.rx|Row|isEditing", () =>')
+  && devCode.includes("__rt.DevLoading") && devCode.includes("__rt.DevErrored")
+  && !/__rt\.(key\(|DevLoading|DevErrored)|examples\/users\.rx\|\|rename/.test(prodCode)
+  && keys.includes("examples/users.rx|Row|isEditing") && keys.includes("examples/users.rx||rename")
+  && keys.every(k => devCode.includes(JSON.stringify(k)));
+if (!devOk) fail++;
+console.log(`${devOk ? "✓" : "✗"} a dev build keys sources, equations and actions (${keys.length} keys) and instruments boundaries`);
 process.exit(fail ? 1 : 0);

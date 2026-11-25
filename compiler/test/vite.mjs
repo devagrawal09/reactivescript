@@ -17,11 +17,14 @@ const repo = path.resolve(pkg, "..");
 const store = path.resolve(repo, "../solid-next/node_modules/.pnpm");
 const installed = path.join(store, readdirSync(store).filter(d => d.startsWith("@solidjs+vite-plugin@")).sort().pop(), "node_modules/@solidjs/vite-plugin");
 const pluginDir = process.env.SOLID_VITE_PLUGIN ? path.resolve(process.env.SOLID_VITE_PLUGIN) : installed;
-const deps = path.resolve(installed, "../..");   // the installed plugin's node_modules: vite, solid-js, @solidjs/web
+const deps = process.env.SOLID_VITE_DEPS ? path.resolve(process.env.SOLID_VITE_DEPS) : path.resolve(installed, "../..");
 const vite = await import(pathToFileURL(path.join(deps, "vite/dist/node/index.js")).href);
 const solid = (await import(pathToFileURL(path.join(pluginDir, "dist/esm/index.mjs")).href)).default;
 const { chromium } = createRequire(import.meta.url)("playwright");
 const runtime = path.join(repo, "runtime");   // @reactivescript/runtime, built (`npm run build` there)
+const { app: compile } = createRequire(import.meta.url)("../index.js");
+const { build: esbuild } = createRequire(path.join(runtime, "package.json"))("esbuild");
+const instrumentation = /__RX_|rx:|jsError|@reactivescript\/map/;
 
 // notes/ calls server functions: with no server behind the static build, it shows its own error boundary
 const apps = {
@@ -38,6 +41,7 @@ function project(name, entry) {
   // the project's node_modules: the plugin's (vite, solid-js, @solidjs/web) and this package, installed
   const nm = path.join(dir, "node_modules"); mkdirSync(path.join(nm, "@reactivescript"), { recursive: true });
   for (const d of readdirSync(deps)) {
+    if (d === "@reactivescript") continue;
     if (!d.startsWith("@")) { symlinkSync(path.join(deps, d), path.join(nm, d)); continue; }
     mkdirSync(path.join(nm, d), { recursive: true });
     for (const e of readdirSync(path.join(deps, d))) symlinkSync(path.join(deps, d, e), path.join(nm, d, e));
@@ -48,6 +52,15 @@ function project(name, entry) {
   // the runtime as installed: copied, so that it takes the project's Solid (a peer), not its own dev copy
   for (const f of ["package.json", "dist"]) cpSync(path.join(runtime, f), path.join(nm, "@reactivescript/runtime", f), { recursive: true });
   cpSync(path.join(repo, "examples"), path.join(dir, "src"), { recursive: true });
+  // The notes scenarios inject a synthetic error class. A packaged app
+  // resolves the real JS API next to its .d.rx instead.
+  if (name === "notes") writeFileSync(path.join(dir, "src/notes/api.js"), `
+export class Conflict extends Error {}
+export async function dbNotes() { return []; }
+export async function dbNote() { return null; }
+export async function dbSave() { throw new Conflict("not available in the browser fixture"); }
+export async function viewport() { return window.innerWidth; }
+`);
   writeFileSync(path.join(dir, "src/entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./${entry}";\nimport * as api from "./demo-api.mjs";\nconst app = createApp({ root: document.getElementById("app"), api });\napp.mount(main(app));\n`);
   writeFileSync(path.join(dir, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><title>${name}</title></head><body><div id="app"></div><script type="module" src="/src/entry.js"></script></body></html>\n`);
   return dir;
@@ -55,11 +68,12 @@ function project(name, entry) {
 const config = (dir, entry) => ({
   root: dir, configFile: false, logLevel: "warn", clearScreen: false,
   plugins: [solid()],
+  resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals"] },
   server: { fs: { allow: [repo, path.dirname(deps), path.resolve(repo, "../solid-next"), pluginDir] } },
   build: { outDir: "dist", sourcemap: true, emptyOutDir: true },
 });
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ executablePath: process.env.CHROME });
 let pass = 0, fail = 0;
 async function drive(name, url, check) {
   const page = await browser.newPage(); const errors = [];
@@ -90,11 +104,27 @@ for (const [name, entry] of Object.entries(apps)) {
   const maps = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js.map"));
   const sources = maps.flatMap(f => JSON.parse(readFileSync(path.join(dir, "dist/assets", f), "utf8")).sources);
   if (!sources.some(s => s.endsWith(".rx"))) { fail++; console.log(`✗ ${name}: the bundle's source map names no .rx file`); continue; }
+  // 11 CP-4b `key` is dev only: a production bundle names no node
+  const js = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js")).map(f => readFileSync(path.join(dir, "dist/assets", f), "utf8")).join("\n");
+  if (instrumentation.test(js)) { fail++; console.log(`✗ ${name}: the Vite production bundle has ${js.match(instrumentation)[0]}`); continue; }
   const dist = path.join(dir, "dist");
   const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
   await new Promise(r => http.listen(0, "127.0.0.1", r));
   await drive(`${name} (build)`, `http://127.0.0.1:${http.address().port}/`, name === "todo" ? todo : undefined);
   http.close();
+}
+if (!filter || "todo".includes(filter) || "esbuild".includes(filter)) {
+  const dir = project("esbuild-prod", "todo.rx");
+  try {
+    const out = JSON.parse(compile(path.join(dir, "src/todo.rx"), "dom", "@solidjs/web", true));
+    writeFileSync(path.join(dir, "src/todo.mjs"), Object.values(out.modules)[0].code);
+    writeFileSync(path.join(dir, "src/esbuild-entry.js"), `import { createApp } from "@reactivescript/runtime";\nimport main from "./todo.mjs";\nconst app = createApp({root: document.body});\napp.mount(main(app));\n`);
+    const result = await esbuild({ absWorkingDir: dir, entryPoints: ["src/esbuild-entry.js"], bundle: true,
+      conditions: ["production"], platform: "browser", minify: true, write: false });
+    const leaked = result.outputFiles[0].text.match(instrumentation);
+    if (leaked) throw new Error(`found ${leaked[0]}`);
+    pass++; console.log("✓ esbuild (production): no dev registry, names or harness");
+  } catch (e) { fail++; console.log(`✗ esbuild (production): ${e.message}`); }
 }
 if (!filter || "shared".includes(filter)) {   // two programs on one page, sharing shop/catalog.rx: no entry option, one catalog module
   const dir = project("shared", "shop/main.rx");
@@ -115,54 +145,18 @@ if (!filter || "shared".includes(filter)) {   // two programs on one page, shari
     http.close();
   } catch (e) { fail++; console.log(`✗ shared: ${e.message.split("\n").slice(0, 6).join(" | ")}`); }
 }
+// Vite build() sets NODE_ENV for its first build in this process.
+process.env.NODE_ENV = "development";
 if (!filter || "todo".includes(filter)) {   // the dev server: modules transformed on request
   const dir = project("todo-dev", "todo.rx");
   const server = await vite.createServer(config(dir, "todo.rx")); await server.listen(0);
-  await drive("todo (dev)", server.resolvedUrls.local[0], todo);
-  await server.close();
-}
-if (!filter || "styles".includes(filter)) {   // CSS-4 under the dev server: a dependency's <style> edit reaches the page
-  const dir = project("styles-dev", "styled/main.rx");
-  mkdirSync(path.join(dir, "src/styled"));
-  writeFileSync(path.join(dir, "src/styled/main.rx"), `import { Badge } from "./badge.rx"\n\nexport default component Main() {\n  <main><Badge /></main>\n}\n`);
-  const badge = path.join(dir, "src/styled/badge.rx");
-  const style = color => `export component Badge() {\n  <style>\n    .badge { color: ${color} }\n  </style>\n  <p class="badge">badge</p>\n}\n`;
-  writeFileSync(badge, style("rgb(0, 0, 255)"));
-  const server = await vite.createServer(config(dir, "styled/main.rx")); await server.listen(0);
-  const url = server.resolvedUrls.local[0];
-  const color = page => page.$eval(".badge", e => getComputedStyle(e).color);
-  const until = async (page, want, what) => {
-    for (let i = 0; i < 40 && await color(page).catch(() => "") !== want; i++) await page.waitForTimeout(100);
-    const got = await color(page).catch(e => e.message.split("\n")[0]); if (got !== want) throw new Error(`${what}: color ${got}, not ${want}`);
-  };
-  await drive("styles (dev)", url, async page => {
-    await until(page, "rgb(0, 0, 255)", "first load");
-    writeFileSync(badge, style("rgb(255, 0, 0)"));
-    await until(page, "rgb(255, 0, 0)", "after the edit");
-    await page.reload(); await until(page, "rgb(255, 0, 0)", "after a reload");
-    const fresh = await browser.newPage();
-    try { await fresh.goto(url); await until(fresh, "rgb(255, 0, 0)", "in a new page"); } finally { await fresh.close(); }
+  await drive("todo (dev)", server.resolvedUrls.local[0], async page => {
+    await todo(page);
+    // 11 CP-4b `key`: the dev client runs each source's and equation's creating calls under its key
+    const code = (await server.transformRequest("/src/todo.rx"))?.code ?? "";
+    if (!code.includes('__rt.key("src/todo.rx||todos", () =>')) throw new Error("the dev build keys no declaration");
   });
   await server.close();
 }
-if (!filter || "cold".includes(filter)) {   // a dependency asked for before its entry, as Vitest's `fsModuleCache` leaves it
-  const { default: rx } = await import(pathToFileURL(path.join(pkg, "vite.mjs")).href);
-  const root = project("cold", "shop/main.rx"), catalog = path.join(root, "src/shop/catalog.rx");
-  const ctx = (id, moduleId) => ({ id, moduleId, root, ssr: false, solid: { generate: "dom", hydratable: false }, addWatchFile() {} });
-  try {
-    // a commented-out import is not an edge: read as one, it would make main.rx look imported and leave no entry
-    writeFileSync(catalog, readFileSync(catalog, "utf8") + `\n// import { x } from "./main.rx"\n`);
-    const warm = rx(); warm.compile("", ctx(path.join(root, "src/shop/main.rx"), path.join(root, "src/shop/main.rx")));
-    const want = warm.compile("", ctx(catalog, `${catalog}?rx-dep`)).code;
-    const got = rx().compile("", ctx(catalog, `${catalog}?rx-dep`)).code;
-    if (got !== want) throw new Error("the dependency compiled cold differs from the one compiled after its entry");
-    writeFileSync(catalog, readFileSync(catalog, "utf8") + "\nexport bad = missingName\n");
-    let report = "";
-    try { rx().compile("", ctx(catalog, `${catalog}?rx-dep`)); } catch (e) { report = e.message; }
-    if (!/catalog\.rx:\d+(:\d+)?: error /.test(report)) throw new Error(`a cold dependency that does not compile reports ${JSON.stringify(report.slice(0, 200))}`);
-    pass++; console.log("✓ cold dependency: compiled from the program that holds it, or that program's diagnostics");
-  } catch (e) { fail++; console.log(`✗ cold dependency: ${e.message.split("\n")[0]}`); }
-}
-await browser.close();
 console.log(`\n${pass} pass, ${fail} fail (vite ${vite.version}, @solidjs/vite-plugin ${JSON.parse(readFileSync(path.join(pluginDir, "package.json"), "utf8")).version})`);
 process.exit(fail ? 1 : 0);

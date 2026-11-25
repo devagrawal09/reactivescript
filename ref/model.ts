@@ -8,7 +8,7 @@ import { checkModules } from "./src/check.ts";
 let bad = 0;
 for (const f of process.argv.slice(2)) {
   const set = loadModules(resolve(f), p => statSync(p, { throwIfNoEntry: false })?.isFile() ? readFileSync(p, "utf8") : undefined);
-  const { diags, models } = checkModules(set);
+  const { diags, models } = checkModules(set, { root: process.cwd() });   // a symbol's key names its module from the cwd, as `file` does
   for (const d of diags) { bad++; console.error(`${d.file ?? f}:${d.line}: error ${d.code} [${d.rule}] ${d.msg}`); }
   const rel = (p: string) => p.replace(process.cwd() + "/", "");
   console.log(JSON.stringify(set.order.map(p => ({ ...models.get(p)!, file: rel(p) })), null, 1).replace(/\n\s+(?=[^\s{\[])/g, " ").replace(/\n\s+([}\]])/g, " $1"));

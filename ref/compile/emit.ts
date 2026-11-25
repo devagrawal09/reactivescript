@@ -10,6 +10,8 @@ import { inferredAction } from "../src/infer.ts";
 import { transform } from "@solidjs/compiler";
 import { unwrapServer } from "../src/check.ts";
 import { isPrims } from "../src/prims.ts";
+import { declKeys, moduleKey } from "../src/model.ts";
+import { checkModules } from "../src/check.ts";
 import { pureGlobal } from "../src/pure-globals.ts";
 import type { Shape } from "../src/parse.ts";
 
@@ -78,13 +80,18 @@ function relative(from: string, to: string): string {
 
 /** 09 MO-1: one ES module per `.rx` module. A dependency's module is a factory over the app (`__rt.module` runs it once per app,
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
+/** `dev`: each source's and equation's creating calls run under its key (`__rt.key(k, () => …)`, model.ts declKeys), so
+ *  the runtime names their Solid nodes; `root` is the project root the key's module is relative to. */
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
   const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, bySource: opts.bySource, jsSpecifier: opts.jsSpecifier });
+  if (opts.dev) g.boundaries = checkModules(set, opts).boundaries;
   const files = new Map<string, string>();
   for (const path of set.order) {
     const p = set.programs.get(path)!; g.beginModule(path, p.decls);
+    g.keys = opts.dev ? declKeys(p, moduleKey(path, opts.root)) : new Map();
+    g.devModule = opts.dev ? moduleKey(path, opts.root) : "";
     const deps = [...new Set(p.decls.flatMap(d => d.k === "import" && d.resolved ? [d.resolved] : []))];
     const head = `// compiled by ReactiveScript ref/compile from ${path.split("/").pop()} — do not edit\n${deps.map(d => `import ${g.depVar(d)} from ${J(opts.bySource ? relative(path, d) : `./${out(d)}`)};`).join("\n")}${deps.length ? "\n" : ""}`;
     if (path === set.entry) { const body = g.block(p.decls, p.view, new Env(null), 2, undefined, true); files.set(out(path), `${head}${g.top.join("\n")}${g.top.length ? "\n" : ""}export default function main(__rt) {\n  const __B = __rt.B;\n  return () => {\n${body}\n  };\n}\n`); }
@@ -108,6 +115,12 @@ class Gen {
   serverNames = new Map<string, string>();              // a module-level server fn → its hoisted function
   private modDecls: Decl[] = [];
   private sfSeq = 0;
+  keys = new Map<Decl, string>();                       // dev: each declaration's key (model.ts declKeys); empty otherwise
+  boundaries = new Map<Markup, number>();
+  devModule = "";
+  private boundary(m: Markup) { const id = this.boundaries.get(m); return id === undefined ? "" : ` region={${J(`${this.devModule}|${id}`)}}`; }
+  /** dev: a keyed declaration's creating call, run under its key. */
+  private under(key: string | undefined, call: string): string { return key ? `__rt.key(${J(key)}, () => ${call})` : call; }
   private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
   private realImport(from: string, name: string) {
     return this.localJS(from) || ((!from.startsWith(".") || (this.mods?.bySource && from !== "./api")) && !BUILTINS.has(name) && name !== "log");
@@ -280,7 +293,7 @@ class Gen {
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
-    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}}${this.keys.has(d) ? `, ${J(this.keys.get(d))}` : ""});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
@@ -315,33 +328,33 @@ class Gen {
       const entry = b?.kind === "src" ? `{ get: ${b.js}, w: ${b.w} }` : `{ get: __rt.memo(null, () => ${this.expr(d.e, env, { imp: false })}) }`;
       return `${hoisted}${pad}__rt.provide(${this.ref(d.name, env, { imp: false })}, ${entry});`;
     }
-    const b = env.vars.get((d as { name: string }).name)!;
-    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad), this.hoistCatches(d.name, d.e, env, pad)].filter(Boolean).join("\n") : "";
+    const b = env.vars.get((d as { name: string }).name)!; const key = this.keys.get(d);
+    const hoist = d.k === "source" && d.question ? this.hoist(d.name, d.init, env, pad, true, key) : d.k === "eq" && d.e.k !== "draft" ? [this.hoist(d.name, d.e, env, pad, true, key), this.hoistCatches(d.name, d.e, env, pad, key)].filter(Boolean).join("\n") : "";
     if (hoist) return hoist + "\n" + this.value1(d, env, ind, b);
     return this.value1(d, env, ind, b);
   }
   /** 07 §3 / R-1: each `await` that is not the equation's result is its own async memo, asked only while the conditions that
    *  reach it hold (E-11, ref/src/awaits.ts); the equation reads it where the `await` was. */
   private hoisted = new Map<Expr, string>(); private hoistSeq = 0;
-  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true): string {
+  private hoist(name: string | null, e: Expr, env: Env, pad: string, tail = true, key?: string): string {
     return nonTailAwaits(e, tail).map(h => {
       const v = `a$${name ?? ""}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
       const body0 = this.expr(h.node.e, env, { imp: false, tail: true }); const body = h.node.stream ? body0 : `__rt.awaited(${body0})`;
       this.hoisted.set(h.node, v);
       const lv = h.node.init ? `__rt.firstPaint(() => ${this.expr(h.node.init, env, { imp: false })})` : "undefined";
-      return `${pad}const ${v} = __rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.clientQuestion(${lv})` : lv});${name ? `\n${pad}__rt.hoisted(${J(name)}, ${v});` : ""}`;
+      return `${pad}const ${v} = ${this.under(key, `__rt.memo(${J(name)}, () => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.clientCall(h.node.e, env) ? `__rt.clientQuestion(${lv})` : lv})`)};${name ? `\n${pad}__rt.hoisted(${J(name)}, ${v});` : ""}`;
     }).join("\n");
   }
   /** R-f-4: each catch inside an equation gets one boundary, made once beside it (awaits.ts `innerCatches`). */
   private hoistedCatch = new Map<Expr, string>();
-  private hoistCatches(name: string, e: Expr, env: Env, pad: string): string {
+  private hoistCatches(name: string, e: Expr, env: Env, pad: string, key?: string): string {
     return innerCatches(e).map(h => {
       const v = `c$${name}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
       const c = h.node; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
       const body = this.expr(c.e, env, { imp: false });
-      const out = `${pad}const ${v} = __rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});`;
+      const out = `${pad}const ${v} = ${this.under(key, `__rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })})`)};`;
       this.hoistedCatch.set(c, v);
       return out;
     }).join("\n");
@@ -352,35 +365,40 @@ class Gen {
   private value1(d: Decl, env: Env, ind: number, b: Bind): string {
     const pad = " ".repeat(ind * 2);
     const prev = b.prev ? `\n${pad}const ${b.prev} = __rt.pre(${b.js});` : "";
+    const k = (call: string) => this.under(this.keys.get(d), call);
     if (d.k === "source") {
-      if (!d.question) return `${pad}const [${b.js}, ${b.w}] = __rt.source(${J(d.name)}, __rt.untrack(() => ${this.expr(d.init, env, { imp: false })})${this.u.optimistic.has(d.name) ? ", true" : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      if (!d.question) {
+        const init = `() => ${this.expr(d.init, env, { imp: false })}`;
+        const keyed = this.keys.has(d);
+        return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.${keyed ? "sourceDev" : "source"}(${J(d.name)}, ${keyed ? init : `__rt.untrack(${init})`}${this.u.optimistic.has(d.name) ? ", true" : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      }
       const lv = this.loadingValue(d.init, env);
       const mode = `{ optimistic: ${this.u.optimistic.has(d.name)}, structured: ${this.u.paths.has(d.name)}, record: ${d.init.k === "rec"}, plain: ${this.u.plain.has(d.name)} }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.question(${J(d.name)}, (__prev) => ${this.expr(d.init, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     if (d.k !== "eq") throw new CompileError("unreachable");
     if (this.guessedEq(d)) {                                                                   // AC-3 over an equation: createOptimistic(fn) / createOptimisticStore(fn, seed) — derived, its setter only guesses
       const lv = this.loadingValue(d.e, env);
       const mode = `{ optimistic: true, structured: ${this.u.paths.has(d.name) || !!d.key}, derived: true, record: ${d.e.k === "rec"} }`;
-      return `${pad}const [${b.js}, ${b.w}] = __rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
+      return `${pad}const [${b.js}, ${b.w}] = ${k(`__rt.question(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${lv}, ${mode}${d.key ? `, ${J(d.key)}` : ""})`)};\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js}, w: ${b.w} });${prev}`;
     }
     const reg = `\n${pad}__rt.reg(${J(d.name)}, { get: ${b.js} });${prev}`;
     if (d.e.k === "draft") {                                                                   // ST-3
       const seed = d.e.seed; if (seed.k !== "pre" || seed.name !== d.name || !seed.init) throw new CompileError("a draft's seed must be `pre self -> seed`");
       const inner = new Env(env); inner.vars.set("d", { kind: "val", js: "v$d" });
-      return `${pad}const ${b.js} = __rt.draft(__rt.untrack(() => ${this.expr(seed.init, env, { imp: false })}), (v$d) => {\n${this.draftBody(d.e.body, inner, ind + 1)}\n${pad}});${reg}`;
+      return `${pad}const ${b.js} = ${k(`__rt.draft(__rt.untrack(() => ${this.expr(seed.init, env, { imp: false })}), (v$d) => {\n${this.draftBody(d.e.body, inner, ind + 1)}\n${pad}})`)};${reg}`;
     }
-    if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn") return `${pad}const ${b.js} = ${this.instantiate(d.e, env)};${reg}`;   // RG-6
+    if (d.e.k === "call" && d.e.f.k === "id" && env.lookup(d.e.f.name)?.kind === "ifn") return `${pad}const ${b.js} = ${k(this.instantiate(d.e, env))};${reg}`;   // RG-6
     const fx = this.foreign(d, env, b, pad); if (fx !== null) return `${fx}${reg}`;
-    if (d.key) return `${pad}const ${b.js} = __rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })}, ${d.e.k === "rec"});${reg}`;
+    if (d.key) return `${pad}const ${b.js} = ${k(`__rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })}, ${d.e.k === "rec"})`)};${reg}`;
     if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
       const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
       const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const m = `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)})`, a = `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`;
       const body = c.e.k === "await" ? `__rt.settle(${x}, ${m}, ${a})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
-      return `${pad}const i$${d.name} = __rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)});\n${pad}const ${b.js} = __rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })});${reg}`;
+      return `${pad}const i$${d.name} = ${k(`__rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)})`)};\n${pad}const ${b.js} = ${k(`__rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })})`)};${reg}`;
     }
     const fn = d.deferred ? "deferred" : "memo";
-    return `${pad}const ${b.js} = __rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)});${reg}`;
+    return `${pad}const ${b.js} = ${k(`__rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)})`)};${reg}`;
   }
   /** SV-7b: a call into `client` JS — awaited, a client question: Solid's `ssrSource: "client"`, never asked on the server. */
   private clientCall(e: Expr, env: Env): boolean { const f = e.k === "catch" ? e.e : e; return f.k === "call" && f.f.k === "id" && !!env.lookup(f.f.name)?.client; }
@@ -422,7 +440,10 @@ class Gen {
    *  and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to its value. */
   private foreign(d: Extract<Decl, { k: "eq" }>, env: Env, b: Bind, pad: string): string | null {
     const e = d.e;
-    const part = (r: string, p: Shape) => p === "ref" ? r : `() => ${r}`;
+    const part = (r: string, p: Shape) => p === "ref"
+      ? this.keys.has(d) ? `__rt.memo(null, () => ${r}())` : r
+      : `() => ${r}`;
+    const keyed = (expr: string) => this.under(this.keys.get(d), expr);
     if (e.k === "call" && e.f.k === "id") {
       const f = env.lookup(e.f.name); if (f?.kind !== "jfn") return null;
       const args = e.args.map((a, i) => {
@@ -432,13 +453,13 @@ class Gen {
       });
       const r = b.inst!; const sh = f.shape!;
       const whole = typeof sh === "string" ? part(r, sh) : `__rt.memo(null, () => ${"items" in sh ? `[${sh.items.map((p, i) => p === "ref" ? `${r}[${i}]()` : `${r}[${i}]`).join(", ")}]` : `({ ${sh.fields.map(([k, p]) => `${J(k)}: ${p === "ref" ? `${r}[${J(k)}]()` : `${r}[${J(k)}]`}`).join(", ")} })`})`;
-      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${whole};`;
+      return `${pad}const ${r} = ${f.js}(${args.join(", ")});\n${pad}const ${b.js} = ${keyed(whole)};`;
     }
     if ((e.k === "index" && e.i.k === "lit") || e.k === "member") {
       const ob = e.o.k === "id" ? env.lookup(e.o.name) : undefined; const sh = ob?.shape; if (!ob?.inst || !sh || typeof sh !== "object") return null;
       const key = e.k === "index" ? (e.i as { v: any }).v : e.p;
       const p = "items" in sh ? sh.items[key] : sh.fields.find(f => f[0] === key)?.[1]; if (!p) return null;
-      return `${pad}const ${b.js} = ${part(`${ob.inst}[${J(key)}]`, p)};`;
+      return `${pad}const ${b.js} = ${keyed(part(`${ob.inst}[${J(key)}]`, p))};`;
     }
     return null;
   }
@@ -498,13 +519,14 @@ class Gen {
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
-      case "as": return go(e.e);
+      case "as": return go(e.e);                                                    // 07 §3: erased
       case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${"computed" in f ? `[${go(f.computed)}]` : J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
-        if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()
-        if (e.stmts) { const async = this.hasAwait(e.stmts); return `${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`; }
-        return `(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`;
+        const wrap = (fn: string) => ctx.imp && this.devModule ? `__rt.traceCallback(${fn})` : fn;
+        if (e.stmts && inferredAction(e.stmts)) return wrap(`(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`);
+        if (e.stmts) { const async = this.hasAwait(e.stmts); return wrap(`${async ? "async " : ""}(${ps}) => {\n${this.stmts(e.stmts, inner, { imp: true, async, dyn: ctx.dyn, effect: ctx.effect }, 0)}\n}`); }
+        return wrap(`(${ps}) => ${this.expr(e.body, inner, { imp: ctx.imp, dyn: ctx.dyn, effect: ctx.effect })}`);
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
@@ -622,7 +644,8 @@ class Gen {
       }
       case "loading": {
         const on = m.on ? ` on={${this.expr(m.on, env, re)}}` : "";
-        return `<Loading${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</Loading>`;
+        const region = this.boundary(m), tag = region ? "__rt.DevLoading" : "Loading";
+        return `<${tag}${region}${on} fallback={${this.markup(m.fallback, env, ind + 1)}}>${this.region(m.decls, m.body, env, ind + 1)}</${tag}>`;
       }
       case "portal": {                                                                          // RG-8: Solid's Portal (the web's, or the test renderer's)
         const to = m.to ? ` mount={${this.expr(m.to, env, re)}}` : "";
@@ -632,7 +655,9 @@ class Gen {
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
         const fallback = `fallback={(${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)}}`;
         const body = this.region(m.decls, m.body, env, ind + 1);
-        return m.classes ? `<__rt.TypedErrored classes={${this.classes(m.classes, env)}} ${fallback}>${body}</__rt.TypedErrored>` : `<Errored ${fallback}>${body}</Errored>`;   // R-f-4: a typed boundary passes other classes up
+        const region = this.boundary(m), tag = m.classes ? "__rt.TypedErrored" : region ? "__rt.DevErrored" : "Errored";
+        const classes = m.classes ? ` classes={${this.classes(m.classes, env)}}` : "";
+        return `<${tag}${region}${classes} ${fallback}>${body}</${tag}>`; // R-f-4: a typed boundary passes other classes up
       }
     }
   }

@@ -18,7 +18,9 @@ if (crate) execFileSync("cargo", ["build", "--release", "--quiet"], { cwd: fileU
 /** Throws CompileError when the program is not compiled; the caller has run the checker. */
 export function build(sc: Scenario, src: string, handlers: string[]): Built {
   if (!crate) {
-    const out = compileModules(moduleSet(sc, src), { extraStmts: handlers.map(h => { try { return parseStmts(h); } catch { return []; } }) });
+    // RX_DEV=1: the dev compile (keys, boundary regions: `__rt.DevLoading`/`DevErrored`), as a Vite dev build makes it;
+    // the SSR runner then hydrates a dev client against a non-dev server (review 1, finding 12)
+    const out = compileModules(moduleSet(sc, src), { extraStmts: handlers.map(h => { try { return parseStmts(h); } catch { return []; } }), dev: process.env.RX_DEV === "1" });
     return { entry: out.entry, css: out.css, views: t => lowerViews(out.files, t) };
   }
   const files: Record<string, string> = {};
