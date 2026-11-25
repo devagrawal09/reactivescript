@@ -612,6 +612,50 @@ function parsePostfix(c: Cursor): Expr {
     }
   }
 }
+/** A quoted string or template's cooked escape (07 §3). */
+function stringEscape(c: Cursor): string {
+  c.i++; // backslash
+  if (c.eof()) c.fail("unterminated string escape");
+  const ch = c.peek(); c.i++;
+  const hex = (count: number) => {
+    const digits = c.src.slice(c.i, c.i + count);
+    if (digits.length !== count || !/^[0-9a-f]+$/i.test(digits)) c.fail("expected hex digits in string escape");
+    c.i += count;
+    return parseInt(digits, 16);
+  };
+  switch (ch) {
+    case "n": return "\n";
+    case "r": return "\r";
+    case "t": return "\t";
+    case "b": return "\b";
+    case "f": return "\f";
+    case "v": return "\v";
+    case "\r": c.eat("\n"); return "";
+    case "\n": case "\u2028": case "\u2029": return "";
+    case "x": return String.fromCharCode(hex(2));
+    case "u": {
+      let cp: number;
+      if (c.eat("{")) {
+        const digits = /^[0-9a-f]+/i.exec(c.src.slice(c.i))?.[0];
+        if (!digits) c.fail("expected hex digits in string escape");
+        c.i += digits.length; c.expect("}");
+        cp = parseInt(digits, 16);
+      } else {
+        cp = hex(4);
+        if (cp >= 0xd800 && cp <= 0xdbff && c.eat("\\u")) {
+          const low = hex(4);
+          if (low < 0xdc00 || low > 0xdfff) c.fail("invalid Unicode scalar in string escape");
+          cp = 0x10000 + ((cp - 0xd800) << 10) + low - 0xdc00;
+        }
+      }
+      if (cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) c.fail("invalid Unicode scalar in string escape");
+      return String.fromCodePoint(cp);
+    }
+    case "0": if (!/^[0-9]$/.test(c.peek())) return "\0";
+  }
+  if (/^[0-9]$/.test(ch)) c.fail("legacy numeric string escape");
+  return ch;
+}
 function parsePrimary(c: Cursor): Expr {
   c.ws();
   if (/^<style\b/.test(c.src.slice(c.i))) {                           // 07 CSS-5: a stylesheet as a value — its class map
@@ -631,14 +675,18 @@ function parsePrimary(c: Cursor): Expr {
     c.i++; const parts: (string | Expr)[] = []; let s = "";
     while (!c.eof() && c.peek() !== "`") {
       if (c.startsWith("${")) { c.i += 2; if (s) parts.push(s); s = ""; c.ws(); parts.push(parseExpr(c)); c.ws(); c.expect("}"); continue; }
-      if (c.peek() === "\\") c.i++;
-      s += c.peek(); c.i++;
+      if (c.peek() === "\\") s += stringEscape(c);
+      else if (c.eat("\r")) { c.eat("\n"); s += "\n"; }
+      else { s += c.peek(); c.i++; }
     }
     c.expect("`"); if (s || !parts.length) parts.push(s); return { k: "tpl", parts };
   }
   if (ch === '"' || ch === "'") {
     c.i++; let s = "";
-    while (!c.eof() && c.peek() !== ch) { if (c.peek() === "\\") { c.i++; } s += c.peek(); c.i++; }
+    while (!c.eof() && c.peek() !== ch) {
+      if (c.peek() === "\\") s += stringEscape(c);
+      else { s += c.peek(); c.i++; }
+    }
     c.expect(ch); return { k: "lit", v: s };
   }
   const num = /^\d[\d_]*(\.\d+)?/.exec(c.src.slice(c.i));

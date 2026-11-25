@@ -1794,6 +1794,56 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
         }
     }
 }
+/// A quoted string or template's cooked escape (07 §3).
+fn string_escape(c: &mut Cursor, out: &mut String) -> R<()> {
+    fn hex(c: &mut Cursor, count: usize) -> R<u32> {
+        let Some(digits) = c.rest().get(..count).filter(|s| s.bytes().all(|b| b.is_ascii_hexdigit())) else {
+            return c.fail("expected hex digits in string escape");
+        };
+        c.i += count;
+        Ok(u32::from_str_radix(digits, 16).unwrap())
+    }
+    c.bump(); // backslash
+    if c.eof() { return c.fail("unterminated string escape"); }
+    let ch = c.peek();
+    c.bump();
+    out.push(match ch {
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        'b' => '\x08',
+        'f' => '\x0c',
+        'v' => '\x0b',
+        '\r' => { c.eat("\n"); return Ok(()); }
+        '\n' | '\u{2028}' | '\u{2029}' => return Ok(()),
+        'x' => char::from_u32(hex(c, 2)?).unwrap(),
+        'u' => {
+            let cp = if c.eat("{") {
+                let start = c.i;
+                while c.peek().is_ascii_hexdigit() { c.bump(); }
+                if c.i == start { return c.fail("expected hex digits in string escape"); }
+                let digits = &c.src[start..c.i];
+                c.expect("}")?;
+                let digits = digits.trim_start_matches('0');
+                if digits.is_empty() { 0 } else { u32::from_str_radix(digits, 16).unwrap_or(u32::MAX) }
+            } else {
+                let high = hex(c, 4)?;
+                if (0xd800..=0xdbff).contains(&high) && c.eat("\\u") {
+                    let low = hex(c, 4)?;
+                    if !(0xdc00..=0xdfff).contains(&low) { return c.fail("invalid Unicode scalar in string escape"); }
+                    0x10000 + ((high - 0xd800) << 10) + low - 0xdc00
+                } else { high }
+            };
+            let Some(scalar) = char::from_u32(cp) else { return c.fail("invalid Unicode scalar in string escape"); };
+            scalar
+        }
+        '0' if !c.peek().is_ascii_digit() => '\0',
+        '0'..='9' => return c.fail("legacy numeric string escape"),
+        _ => ch,
+    });
+    Ok(())
+}
+
 fn parse_primary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
     let start = c.i;
@@ -1841,12 +1891,14 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
                 continue;
             }
             if c.peek() == '\\' {
+                string_escape(c, &mut s)?;
+            } else if c.eat("\r") {
+                c.eat("\n");
+                s.push('\n');
+            } else {
+                s.push(c.peek());
                 c.bump();
             }
-            if !c.eof() {
-                s.push(c.peek());
-            }
-            c.bump();
         }
         c.expect("`")?;
         if !s.is_empty() || parts.is_empty() {
@@ -1859,12 +1911,11 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         let mut s = String::new();
         while !c.eof() && c.peek() != ch {
             if c.peek() == '\\' {
+                string_escape(c, &mut s)?;
+            } else {
+                s.push(c.peek());
                 c.bump();
             }
-            if !c.eof() {
-                s.push(c.peek());
-            }
-            c.bump();
         }
         c.expect(&ch.to_string())?;
         return Ok(ex(start, ExprKind::Lit(Lit::Str(s)), c));
