@@ -9,7 +9,7 @@ import { sparkle } from "./js/fx.js"
 import { flyToId } from "./js/camera.js"
 import { drawMiniView } from "./js/minimap.js"
 import { graphOf, nodeOf, regionOf, isRegion, inEdges, outEdges, label, lineOf, moduleLine, controlInfo, coverCount, hasKey, idsOfKey, downstream, upstream, summaryTrace } from "./js/model.js"
-import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop } from "./js/panel.js"
+import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop, declPlain } from "./js/panel.js"
 import { model, selected, diffView, showTrace, mark } from "./state.rx"
 import { tab, open, tabs, firstTab, pick, openTab, closePanel, togglePanel } from "./ui.rx"
 import { present } from "./js/livestate.js"
@@ -103,7 +103,7 @@ component NodePanel(props: { id: string }) {
   meta = kindMeta(kk)
   o = outEdges(model, props.id)
   i = inEdges(model, props.id)
-  abs = G.absModules != null ? G.absModules[n.mod] : null
+  abs = present(G.absModules) && present(G.absModules[n.mod]) ? G.absModules[n.mod] : null
   code = lineOf(model, n)
   sections = [
     { title: "Reads", list: i.filter(e => e.type == "read"), dir: "in" },
@@ -137,8 +137,9 @@ component NodePanel(props: { id: string }) {
   {if n.async { <div class="hint" style={{ "margin-top": "4px" }}>· <Gi /> can be pending: a reader under no <code>loading</code> holds its instant</div> }}
   {if n.io { <div class="hint" style={{ "margin-top": "4px" }}>· <Gio /> <b>io</b>: touches the world (R-io)</div> }}
   {if n.world { <div class="hint" style={{ "margin-top": "4px" }}>· trust point: the checker sees only its declared signature</div> }}
-  {if n.decl != null {
-    <div class="hint" style={{ "margin-top": "4px" }}>· declared {n.decl.origin == "written" ? "in a written .d.rx" : n.decl.origin == "helper" ? `by helpers (${n.decl.helpers.join(", ")})` : "by default (no helper)"}: <code>{n.decl.from}</code></div>
+  // (a name that is no JS import has no `decl` at all: strict `!=` would let `undefined` through)
+  {if present(n.decl) {
+    <div class="hint" style={{ "margin-top": "4px" }}>· declared {n.decl.origin == "written" ? "in a written .d.rx" : n.decl.origin == "helper" ? `by helpers (${n.decl.helpers.join(", ")})` : declPlain(n.decl.line) ? "from its TS declaration (no helper applies)" : "by default (no helper)"}: <code>{n.decl.from}</code></div>
     <pre class="code" innerHTML={hl(n.decl.line)}></pre>
   }}
   {if n.kind == "action" { <div class="hint" style={{ "margin-top": "4px" }}>· writes are held until the action returns; guesses show now</div> }}
@@ -164,7 +165,7 @@ component NodePanel(props: { id: string }) {
 component RegionPanel(props: { id: string }) {
   r = regionOf(model, props.id)
   info = controlInfo(model, r)
-  abs = G.absModules != null ? G.absModules[r.mod] : null
+  abs = present(G.absModules) && present(G.absModules[r.mod]) ? G.absModules[r.mod] : null
   notifiers = inEdges(model, props.id).filter(e => e.type == "notifies")
   sites = coverCount(model, props.id)
   boundary = r.kind == "loading" || r.kind == "errored"
@@ -176,7 +177,7 @@ component RegionPanel(props: { id: string }) {
   <div class="hint" innerHTML={ctlWhat(r.kind)}></div>
   {if isLive() && boundary { <BoundaryNow id={props.id} /> }}
   <CoveragePaths target={r.key ?? ""} />
-  {if info.line != null {
+  {if present(info.line) {
     <div class="hint mono" style={{ "margin-top": "6px" }}>
       {G.modules[r.mod]}:{info.line}{" "}
       {if abs != null { <>· <a href={`vscode://file/${abs}:${info.line}`}>open in editor</a></> }}
@@ -253,6 +254,8 @@ component Guide() {
   <p class="hint">All of this is static: it is what the program <i>can</i> do, from <code>rxc model</code>, with nothing running.</p>
   {if isLive() {
     <p class="hint"><b>Live.</b> This map is attached to the running app (a dev build). When a flush changes a source or an equation, a pulse runs along the edges from its cause, its token rings white and its newest value rolls in beside its name, and under "Live value" when it is selected. An <span style={{ color: "var(--pending)" }}>amber orbit</span> means a request for it is in the air, until it lands or a newer one replaces it. The header counts the flushes that changed something.</p>
+    <p class="hint"><b>Failures.</b> A name whose question failed turns <span style={{ color: "var(--fail)" }}>rose</span> with its error. When a <i>re-ask</i> fails and no errored boundary shows a fallback for it, the app keeps showing the last answer: the token keeps that value, dimmed, marked <span style={{ color: "var(--fail)" }}>re-ask failed</span>. The <b>Calls</b> tab lists every ask and run; a rejection that a later re-ask of the same question covered up before any boundary showed it is marked <b>swallowed by re-ask</b> (and a toast says so once). Repeats of one call (a poll) collapse into one row, <b>×N</b>.</p>
+    <p class="hint"><b>Coverage.</b> On the dev server, when the project has a test run in <code>.rx-coverage/</code>, a <b>Coverage</b> button in the header loads the newest run and shows the layer: paths no test observed are dimmed, each module counts covered / total, and a name's panel lists its paths. Click it again to hide the layer. To record a run, add <code>@reactivescript/map/coverage/vitest</code> to Vitest's <code>setupFiles</code> and run the tests: each run writes a file in <code>.rx-coverage/</code>. After the app reloads the map asks again, and loads a newer run if the layer is on.</p>
     <p class="hint"><b>Time.</b> The timeline at the bottom has a tick per flush, in the colour of what caused it, with amber spans for requests in the air. Drag it or use the arrow keys to travel back: the app shows that moment and the values roll back. <b>LIVE</b> returns. When a module is saved, the <b>Reload</b> tab shows the plan (kept, reset, re-run, added, removed) before it is applied.</p>
   }}
 }

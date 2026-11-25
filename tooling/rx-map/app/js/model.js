@@ -119,7 +119,7 @@ export function chipView(M, n) {
     status, mark: status ? STATUS[status] : "",
     // a JS import's declaration: where its rows come from (09 MO-11), the line itself on hover
     decl: n.decl ? { tag: declTag(n), origin: n.decl.origin,
-      title: `${n.decl.line}\n${n.decl.origin === "written" ? "written in" : "generated from"} ${n.decl.from}${n.decl.origin === "helper" ? ` · ${n.decl.helpers.join(", ")}` : n.decl.origin === "default" ? " · no helper: the default" : ""}` } : null,
+      title: `${n.decl.line}\n${n.decl.origin === "written" ? "written in" : "generated from"} ${n.decl.from}${n.decl.origin === "helper" ? ` · ${n.decl.helpers.join(", ")}` : n.decl.origin === "default" ? (/^export (error|const|type) /.test(n.decl.line) ? " · no helper applies" : " · no helper: the default") : ""}` } : null,
     aria: `${meta.label ?? n.kind} ${name}${status ? `, ${status}` : ""}${n.decl ? `, declared ${n.decl.origin === "written" ? "in a .d.rx" : n.decl.origin === "helper" ? "by helpers" : "by default"}` : ""}`,
   };
 }

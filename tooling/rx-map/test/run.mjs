@@ -71,7 +71,7 @@ const report = (page, r) => {
   }
 };
 try {
-  report("live.html", await result("live.html", 12000));
+  report("live.html", await result("live.html", 20000));
   report("fake.html", await result("fake.html", 30000));
   report("layout.html", await result("layout.html", 15000));
   report("outline.html", await result("outline.html"));

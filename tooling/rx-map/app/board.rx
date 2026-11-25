@@ -9,7 +9,7 @@ import { sfx } from "./js/sound.js"
 import { pointerAt, placeTipAt } from "./js/tip.js"
 import { lvView, plainValue } from "./js/values.js"
 import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
-import { live } from "./live.rx"
+import { live, fails } from "./live.rx"
 import { coverage, showCoverage } from "./coverage.rx"
 import { holeText, cardCounts, noteCardWaves, nameParts } from "./js/layout.js"
 
@@ -73,10 +73,13 @@ export component Token(props: { c: any; extra: string }) {
   mark = live.hmr.marks[k]
   hasValue = present(v) && present(v.preview)
   failed = present(v) && present(v.error)
+  // a failed re-ask while the app still shows the last value: that value, dimmed, with a rose mark
+  fv = fails[k]
+  stale = present(fv) && fv.stale
   <span class={["chip", `k-${c.kk}`, `s-${c.shape}`, c.site && "site", c.async && "async", c.io && "io", c.trust && "trust",
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
       (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur", holeId == c.id && "xhl",
-      failed && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
+      failed && "failed", stale && "reask-failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
       present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact", uncovered && "cov-uncovered"]}
     style={{ ...c.style, display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
     data-id={c.id} data-level={c.level} role="button" tabIndex={overview ? -1 : 0} aria-label={c.aria}>
@@ -90,8 +93,8 @@ export component Token(props: { c: any; extra: string }) {
     {if c.question { <span class={["g", "gq", c.chgQuestion && "chg"]} title="re-asks a standing question until written">?</span> }}
     {for b in c.badges { <span class="b">{b}</span> }}
     {if present(c.decl) { <span class={["b", "dt", `dt-${c.decl.origin}`]} title={c.decl.title}>{c.decl.tag}</span> }}
-    {if hasValue { <ValueBadge v={v} /> }}
-    {if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
+    {if hasValue { <ValueBadge v={v} fail="" /> }}
+    {if stale { <ValueBadge v={fv.badge} fail={fv.error} /> } else if failed { <span class="lverr" innerHTML={lverrHTML(v.error)}></span> }}
     {if present(held) { <span class="hm" innerHTML={heldHTML(held)}></span> }}
     {if live.inexact[k] == true { <span class="inx" title="the app can't show this value exactly at this point in time">can't rewind</span> }}
     {if present(mark) { <span class="pb" innerHTML={planIconHTML(mark)}></span> }}
@@ -100,10 +103,12 @@ export component Token(props: { c: any; extra: string }) {
 
 // a token's live value: a list reads as a count and its first items; a change rolls the old text out (up, or down
 // when travelling back), each wave a beat after the one it reads
-component ValueBadge(props: { v: any }) {
+// `fail`: a failed re-ask's error ("" for a value): the last value, dimmed, marked "re-ask failed"
+component ValueBadge(props: { v: any; fail: string }) {
   { v } = props
   lv = lvView(v.preview)
-  <span class={["lv", lv.list && "list", v.anim]} data-value={v.preview} data-old={plainValue(v.old)} style={{ "--pd": `${v.delay}ms` }}>
+  <span class={["lv", lv.list && "list", v.anim, props.fail != "" && "stale"]} data-value={v.preview} data-old={plainValue(v.old)} style={{ "--pd": `${v.delay}ms` }}
+    title={props.fail != "" ? `failed re-ask · showing last value: ${v.preview}\n${props.fail}` : undefined}>
     <span class="lvv">
       {if lv.list {
         <b class="lc">{lv.count}</b>
@@ -115,6 +120,7 @@ component ValueBadge(props: { v: any }) {
         {lv.text}
       }}
     </span>
+    {if props.fail != "" { <span class="lvx"><span style={{ display: "contents" }} innerHTML={icon("warn")}></span>re-ask failed</span> }}
   </span>
 }
 
@@ -194,7 +200,7 @@ export component Edges() {
 export component Board() {
   <div id="board" style={board.style}
     onMouseOver={(ev) => { if (!isPanning()) { let id = closestId(ev, "[data-id]"); if (id != "" && id != hoverId) { if (within(ev, ".chip")) { sfx("hover") } hover(id) } } }}
-    onMouseMove={(ev) => { pointerAt(ev) }}
+    onMouseMove={(ev) => { pointerAt(ev); if (hoverId != null && !isPanning() && closestId(ev, "[data-id]") == "") { hover(null) } }}
     onMouseOut={(ev) => { if (leftId(ev) != "") { hover(null) } }}
     onFocusIn={(ev) => { let id = closestId(ev, "[data-id]"); if (id != "") { ensureVisibleId(id); hover(id); placeTipAt(id) } }}
     onFocusOut={() => { hover(null) }}

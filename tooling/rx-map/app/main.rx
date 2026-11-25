@@ -11,12 +11,13 @@ import { startMinimap } from "./js/minimap.js"
 import { within, targetValue, targetChecked, onKey, typing, focusEl, blurActive, nextFrame, focusIsBodyOr } from "./js/dom.js"
 import { Board } from "./board.rx"
 import { PanelButton, Side } from "./panel.rx"
-import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, travelBy } from "./live.rx"
+import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud, SwallowToast, travelBy } from "./live.rx"
 import { openTab, pick, closePanel, open, query, hits, hitAt, setQuery, searchGo } from "./ui.rx"
 import { Tip } from "./tip.rx"
+import { onPointerOffBoard } from "./js/tip.js"
 import { CoverageChip } from "./coverage.rx"
 import { TraceBadge } from "./trace.rx"
-import { board, model, selected, focus, hidden, diff, diffView, allEdges, level, showLevel, hover, setDiffView, setAllEdges, showTrace } from "./state.rx"
+import { board, model, selected, focus, hidden, diff, diffView, allEdges, level, showLevel, hover, hoverId, setDiffView, setAllEdges, showTrace } from "./state.rx"
 
 title = titleOf(model)
 
@@ -63,6 +64,8 @@ export default component App() {
   }
 
   // the camera and the minimap are JS; they start once the world is on the page
+  // a token's tooltip goes when the pointer goes onto the HUD or off the page (it must not stick over the panel)
+  effect () { return onPointerOffBoard(() => { if (hoverId != null) { hover(null) } }) }
   effect () { return startMinimap() }
   effect () { return startCamera({ board: () => board, model: () => model, level: l => { showLevel(l) }, drag: () => { hover(null) } }) }
   effect (board, hidden, diffView) { layoutChanged() }
@@ -132,6 +135,7 @@ export default component App() {
   </div>
   <Tip />
   <div id="toast" class="hud" role="status"></div>
+  <SwallowToast />
   <DevHud />
   <LiveBridge />
 }
