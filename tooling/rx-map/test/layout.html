@@ -46,7 +46,7 @@ try {
   doc.getElementById("all").click(); await sleep(150); w.draw();
   const rectsNow = [...M.layout.plates.values()];
   const inside = [];
-  const paths = [...doc.querySelectorAll("#edges path")].filter(p => /Q/.test(p.getAttribute("d")));
+  const paths = [...doc.querySelectorAll("#edges path.trunk")];
   for (const p of paths) {
     const len = p.getTotalLength();
     for (let t = 8; t < len - 8; t += 12) {
