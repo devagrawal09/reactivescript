@@ -168,7 +168,9 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   A JS declaration may use TypeScript type parameters, as in `export pure
   fn identity<T>(value: T): T`, and private `type` or `interface`
   declarations for types used in the file. In a JS declaration,
-  `rejects(A, B)` names the same rejection row as `rejects(A | B)`.
+  `rejects(A, B)` names the same rejection row as `rejects(A | B)`, and
+  `rejects(nothing)` an empty one: a promise that never rejects, so its
+  `await` needs no catch or boundary (R-f-8). The function stays io.
   A value parameter may be optional, as in `export pure fn label(x?: string): string`,
   or a rest parameter, `...xs: string[]`.
   This affects its TypeScript call signature only; it supplies no default.
@@ -397,6 +399,7 @@ export const fields: readonly ["name", "email"]
   | --- | --- |
   | `pure(fn)` | `pure fn`: safe in reactive scope (R-io-4; unchecked, CN-5) |
   | `rejects([A, B], fn)` | `rejects(A \| B)` (R-f-8). The classes are values, each reaching `Error` |
+  | `rejects([], fn)` | `rejects(nothing)`: an io function whose promise never rejects |
   | `ref({ args: [i, …] }, fn)` | `ref` on those parameters: accessor arguments (MO-10a) |
   | `ref({ result: true \| [i, …] \| ["k", …] }, fn)` | a `ref T` result, or tuple parts, or properties (MO-10b) |
   | `instantiates(fn)` | `instantiates`, for a primitive with no `ref` (MO-10a) |
