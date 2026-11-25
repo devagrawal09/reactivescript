@@ -1785,6 +1785,56 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
         }
     }
 }
+/// A quoted string or template's cooked escape (07 §3).
+fn string_escape(c: &mut Cursor, out: &mut String) -> R<()> {
+    fn hex(c: &mut Cursor, count: usize) -> R<u32> {
+        let Some(digits) = c.rest().get(..count).filter(|s| s.bytes().all(|b| b.is_ascii_hexdigit())) else {
+            return c.fail("expected hex digits in string escape");
+        };
+        c.i += count;
+        Ok(u32::from_str_radix(digits, 16).unwrap())
+    }
+    c.bump(); // backslash
+    if c.eof() { return c.fail("unterminated string escape"); }
+    let ch = c.peek();
+    c.bump();
+    out.push(match ch {
+        'n' => '\n',
+        'r' => '\r',
+        't' => '\t',
+        'b' => '\x08',
+        'f' => '\x0c',
+        'v' => '\x0b',
+        '\r' => { c.eat("\n"); return Ok(()); }
+        '\n' | '\u{2028}' | '\u{2029}' => return Ok(()),
+        'x' => char::from_u32(hex(c, 2)?).unwrap(),
+        'u' => {
+            let cp = if c.eat("{") {
+                let start = c.i;
+                while c.peek().is_ascii_hexdigit() { c.bump(); }
+                if c.i == start { return c.fail("expected hex digits in string escape"); }
+                let digits = &c.src[start..c.i];
+                c.expect("}")?;
+                let digits = digits.trim_start_matches('0');
+                if digits.is_empty() { 0 } else { u32::from_str_radix(digits, 16).unwrap_or(u32::MAX) }
+            } else {
+                let high = hex(c, 4)?;
+                if (0xd800..=0xdbff).contains(&high) && c.eat("\\u") {
+                    let low = hex(c, 4)?;
+                    if !(0xdc00..=0xdfff).contains(&low) { return c.fail("invalid Unicode scalar in string escape"); }
+                    0x10000 + ((high - 0xd800) << 10) + low - 0xdc00
+                } else { high }
+            };
+            let Some(scalar) = char::from_u32(cp) else { return c.fail("invalid Unicode scalar in string escape"); };
+            scalar
+        }
+        '0' if !c.peek().is_ascii_digit() => '\0',
+        '0'..='9' => return c.fail("legacy numeric string escape"),
+        _ => ch,
+    });
+    Ok(())
+}
+
 fn parse_primary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
     let start = c.i;
@@ -1832,12 +1882,14 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
                 continue;
             }
             if c.peek() == '\\' {
+                string_escape(c, &mut s)?;
+            } else if c.eat("\r") {
+                c.eat("\n");
+                s.push('\n');
+            } else {
+                s.push(c.peek());
                 c.bump();
             }
-            if !c.eof() {
-                s.push(c.peek());
-            }
-            c.bump();
         }
         c.expect("`")?;
         if !s.is_empty() || parts.is_empty() {
@@ -1850,12 +1902,11 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
         let mut s = String::new();
         while !c.eof() && c.peek() != ch {
             if c.peek() == '\\' {
+                string_escape(c, &mut s)?;
+            } else {
+                s.push(c.peek());
                 c.bump();
             }
-            if !c.eof() {
-                s.push(c.peek());
-            }
-            c.bump();
         }
         c.expect(&ch.to_string())?;
         return Ok(ex(start, ExprKind::Lit(Lit::Str(s)), c));
@@ -1987,6 +2038,30 @@ enum Close {
     Tag(String),
 }
 
+/// Solid's trim_jsx_text, mirrored by ref/src/parse.ts. The text span covers the
+/// raw child; the AST carries its rendered value.
+pub(crate) fn jsx_text(s: &str) -> String {
+    let text = s.replace('\r', "");
+    let text = if text.contains('\n') {
+        text.split('\n').enumerate()
+            .map(|(i, l)| if i == 0 { l } else { l.trim_start_matches(char::is_whitespace) })
+            .filter(|l| !l.chars().all(char::is_whitespace))
+            .collect::<Vec<_>>().join(" ")
+    } else { text };
+    let mut s = String::new();
+    let mut whitespace = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !whitespace { s.push(' '); }
+            whitespace = true;
+        } else {
+            s.push(ch);
+            whitespace = false;
+        }
+    }
+    s
+}
+
 fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
     let mut out: Vec<Markup> = vec![];
     let in_element = matches!(close, Close::Tag(_));
@@ -1995,21 +2070,8 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         Close::Brace => Some("}".to_string()),
         Close::Tag(t) => Some(t.clone()),
     };
-    let mut broke = false;
     loop {
-        let start = c.i;
-        if in_element {
-            let mut s = String::new();
-            while !c.eof() && " \t\r\n".contains(c.peek()) {
-                s.push(c.peek());
-                c.bump();
-            }
-            broke = s.contains('\n');
-            let tag = close_text.as_deref().unwrap();
-            if !s.is_empty() && !broke && !c.starts_with(&format!("</{}>", tag)) && !out.is_empty() {
-                out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
-            }
-        } else {
+        if !in_element {
             c.ws(true);
         }
         if c.eof() {
@@ -2065,24 +2127,14 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         if matches!(close, Close::Top) && looks_like_decl(c) {
             return c.fail("declaration after markup: a block is declarations, then its view");
         }
-        let mut s = String::new();
         let s0 = c.i;
-        while !c.eof() && !"<{}\n".contains(c.peek()) {
-            s.push(c.peek());
+        let stops = if in_element { "<{}" } else { "<{}\n" };
+        while !c.eof() && !stops.contains(c.peek()) {
             c.bump();
         }
-        if c.peek() == '\n' || c.eof() {
-            s = s.trim_end_matches([' ', '\t', '\r']).to_string();
-        }
+        let s = &c.src[s0..c.i];
         if !in_element {
-            if js_trim(&s).is_empty() {
-                if c.peek() == '\n' {
-                    c.bump();
-                }
-                if c.i == start {
-                    // the reference loops here forever (a stray `}`); this ends it
-                    return c.fail("expected a declaration or markup");
-                }
+            if !s.is_empty() && js_trim(s).is_empty() {
                 continue;
             }
             if s.contains(":=") {
@@ -2090,16 +2142,12 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             }
             return c.fail("expected a declaration or markup");
         }
-        if broke && matches!(out.last(), Some(Markup { kind: MarkupKind::Text(_), .. })) {
-            out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
-        }
-        if !s.is_empty() {
-            let span = Span::new(s0, s0 + s.len());
-            out.push(Markup { kind: MarkupKind::Text(s), line: None, span });
-        }
-        if c.i == start {
-            // the reference loops here forever (a stray `}` in an element); this ends it
+        if c.i == s0 {
             return c.fail("expected a declaration or markup");
+        }
+        let s = jsx_text(s);
+        if !s.is_empty() {
+            out.push(Markup { kind: MarkupKind::Text(s), line: None, span: Span::new(s0, c.i) });
         }
     }
 }

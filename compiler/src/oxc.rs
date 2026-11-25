@@ -380,7 +380,6 @@ impl<'a> Build<'a> {
     fn children(&self, cs: &[Child]) -> ArenaVec<'a, JSXChild<'a>> {
         self.vec(cs.iter().map(|c| match c {
             Child::Expr(e) => JSXChild::new_expression_container(SPAN, JSXExpression::from(self.expr(e)), &self.b),
-            Child::Text(t) => JSXChild::new_text(SPAN, self.s(t), Some(self.s(t).into()), &self.b),
             Child::Jsx(Jsx::Frag(cs, line)) => self.on_line(*line, || {
                 let start = self.open();
                 let cs = self.children(cs);
