@@ -102,7 +102,7 @@ try {
   post({ v: 1, type: "timeline", head: 3, viewing: null, capacity: 2000, steps: [
     { seq: 1, at: 10, cause: K("nextPage").key, changes: [ch("page", "2")] },
     { seq: 2, at: 20, changes: [ch("users", "[…]"), ch("total", "2")] },
-    { seq: 3, at: 30, cause: K("search").key, changes: [ch("query", "\"ad\"")] },
+    { seq: 3, at: 30, cause: K("search").key, changes: [ch("query", "\"ad\""), ch("saveError", '"boom"', '"none"')] },
   ] });
   await sleep(50);
   const scrub = doc.getElementById("scrub");
@@ -118,6 +118,13 @@ try {
   const tlv = chip("total").querySelector(".lv");
   check("step back rolls the value back", tlv?.textContent === "0" && tlv.dataset.old === "2" && /down/.test(tlv.className), tlv?.outerHTML);
   check("step: viewing the past", doc.body.classList.contains("viewing") && /#1/.test(doc.getElementById("seqLabel").textContent), doc.getElementById("seqLabel").textContent);
+  check("viewing: the badge says where, the HUD says the app is read-only", /^viewing #1 of 3$/.test(badge()) && /read-only until you resume/.test(doc.getElementById("viewNote")?.textContent ?? ""), [badge(), doc.getElementById("viewNote")?.textContent]);
+  // page's first value came from outside the timeline's steps here only via seq 1; status first changes at seq 3 with a prev
+  check("viewing: before a key's first change, it shows that change's prev", chip("saveError").querySelector(".lv")?.dataset.value === '"none"', chip("saveError").querySelector(".lv")?.dataset.value);
+  check("viewing: the playhead sits on the viewed step", Math.abs(parseFloat(doc.getElementById("playhead").style.left) - 6) < 2, doc.getElementById("playhead").style.left);
+  post({ v: 1, type: "step", from: 1, to: 2, direction: "forward", changes: [ch("total", "2", "0")], inexact: [K("users").key] });
+  await sleep(50);
+  check("viewing: a step's inexact keys say they can't rewind", chip("users").classList.contains("inexact") && /can't rewind/.test(chip("users").querySelector(".inx")?.textContent ?? ""));
   post({ v: 1, type: "travel-denied", to: 0, reason: "evicted" });
   await sleep(40);
   check("travel-denied shows a toast", doc.getElementById("toast").classList.contains("on") && /evicted/.test(doc.getElementById("toast").textContent));

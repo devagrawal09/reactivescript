@@ -409,6 +409,14 @@
   @keyframes rx-rewind { 0% { opacity: 0 } 18%, 55% { opacity: 1 } 100% { opacity: 0 } }
   @keyframes rx-sweep { from { transform: translateX(-100%) } to { transform: translateX(300%) } }
   @keyframes rx-sweep-back { from { transform: translateX(300%) } to { transform: translateX(-100%) } }
+  body.viewing #canvas { filter: saturate(.3) sepia(.12) brightness(.92); transition: filter .4s }
+  #canvas { transition: filter .4s }
+  #viewNote { top: calc(var(--top-inset) + 8px); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; padding: 6px 8px 6px 12px; font-size: 12px; z-index: 13; white-space: nowrap; border-color: rgba(226, 232, 240, .45) }
+  #viewNote b { text-transform: uppercase; letter-spacing: .12em; font-size: 10px }
+  #viewNote svg.i { color: #e2e8f0 }
+  @media (max-height: 520px), (max-width: 900px) { #viewNote { top: calc(var(--top-inset) + 4px); padding: 2px 4px 2px 8px; font-size: 11px } }
+  .chip.inexact .tok { filter: grayscale(.6) }
+  .chip .inx { position: absolute; left: 50%; bottom: calc(100% + 4px); transform: translateX(-50%); font: 700 9px/1.4 ui-sans-serif, system-ui; letter-spacing: .1em; text-transform: uppercase; color: #e2e8f0; background: rgba(15, 17, 21, .9); border: 1px dashed rgba(226, 232, 240, .6); border-radius: 4px; padding: 0 5px; white-space: nowrap }
   body.viewing #canvas::after { content: ""; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 0 2px rgba(226, 232, 240, .28), inset 0 0 140px rgba(200, 210, 230, .12) }
   #scrub { flex: 0 1 640px; min-width: 0; margin: 0 auto; display: flex; gap: 10px; align-items: center }
   #scrub[hidden] { display: none }
@@ -2146,7 +2154,7 @@ function joinOpener() {
 }
 function liveBadge() {
   const b = document.getElementById("liveBadge");
-  if (b) b.textContent = connected ? `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}` : `disconnected · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
+  if (b) b.textContent = !connected ? `disconnected · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}` : tl.viewing != null ? `viewing #${tl.viewing} of ${tl.head}` : `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
 }
 const chipsOf = key => (keyIds.get(key) ?? []).map(id => anchors.get(id)).filter(el => el?.classList.contains("chip"));
 const liveRuns = new Map();
@@ -2186,6 +2194,7 @@ function onReset() {
   live.values.clear(); live.flying.clear(); liveRuns.clear(); live.flushes = 0; live.boundaries.clear(); paintBoundaries();
   Object.assign(tl, { steps: [], head: 0, viewing: null, flights: [], hmrs: [], target: null });
   document.body.classList.remove("viewing");
+  markInexact(null); document.getElementById("viewNote")?.remove();
   document.querySelectorAll("#board .chip.pulse, #board .chip.flying").forEach(c => c.classList.remove("pulse", "p2", "flying"));
   document.querySelectorAll("#board .chip .lv, #board .orb").forEach(s => s.remove());
   clearPlan(); hmr.plan = null;
@@ -2365,6 +2374,7 @@ function onTimeline(d) {
   tl.head = d.head ?? tl.steps.at(-1)?.seq ?? 0;
   tl.viewing = d.viewing ?? null;
   document.body.classList.toggle("viewing", tl.viewing != null);
+  viewingUI();
   // the values the timeline implies, without fanfare
   const counted = new Set();
   for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key) && typeof c.preview === "string" && (tl.viewing == null || s.seq <= tl.viewing)) {
@@ -2388,6 +2398,9 @@ function onStep(d) {
   document.body.classList.add("viewing");
   rewindFx(d.direction);
   applyChanges(d.changes ?? [], { dir: d.direction === "back" ? "down" : "up" });
+  reconcile(d.to, d.direction === "back" ? "down" : "up");
+  markInexact(d.inexact);
+  viewingUI();
   renderScrub();
 }
 function onResume(d) {
@@ -2396,7 +2409,61 @@ function onResume(d) {
   document.body.classList.remove("viewing");
   rewindFx("forward");
   applyChanges(d.changes ?? [], { dir: "up" });
+  reconcile(tl.head, "up");
+  markInexact(null);
+  viewingUI();
   renderScrub();
+}
+// What every key showed at `seq`, from the timeline: its last change at or before it, else (before its first recorded
+// change) that change's `prev` (TRACE §4b). A key whose first value came in the snapshot, not a flush, would otherwise
+// keep showing its later value while viewing earlier seqs.
+function valueAt(key, seq) {
+  let before, after;
+  for (const s of tl.steps) for (const c of s.changes ?? []) {
+    if (c?.key !== key) continue;
+    if (s.seq <= seq) { if (typeof c.preview === "string" || typeof c.error === "string") before = c; }
+    else if (!after) after = c;
+  }
+  if (before) return typeof before.preview === "string" ? { preview: before.full ?? before.preview } : { error: before.error };
+  if (after && typeof after.prev === "string") return { preview: after.prev };
+  return null;
+}
+function reconcile(seq, dir) {
+  const keys = new Set();
+  for (const s of tl.steps) for (const c of s.changes ?? []) if (c?.key && keyIds.has(c.key)) keys.add(c.key);
+  for (const k of keys) {
+    const want = valueAt(k, seq); if (!want) continue;
+    const v = live.values.get(k) ?? { count: 0 };
+    if (want.error) { if (v.error !== want.error) { v.error = want.error; live.values.set(k, v); paintState(k); } continue; }
+    if (v.preview === want.preview && !v.error) continue;
+    const prev = v.preview;
+    v.preview = want.preview; delete v.error; live.values.set(k, v);
+    for (const el of chipsOf(k)) setValue(el, want.preview, { dir, prev });
+    paintState(k);
+  }
+  liveValue();
+}
+// keys the app can't show exactly at the viewed seq (e.g. a store's guess): marked, so the value is not trusted
+function markInexact(keys) {
+  for (const el of board.querySelectorAll(".chip.inexact")) { el.classList.remove("inexact"); el.querySelector(":scope > .inx")?.remove(); }
+  for (const k of keys ?? []) for (const el of chipsOf(k)) {
+    el.classList.add("inexact");
+    const m = document.createElement("span"); m.className = "inx"; m.textContent = "can't rewind"; m.title = "the app can't show this value exactly at this point in time";
+    el.append(m);
+  }
+}
+// while viewing, the badge says where you are, and a note says the app is read-only until you resume
+function viewingUI() {
+  liveBadge();
+  let note = document.getElementById("viewNote");
+  if (tl.viewing == null) { note?.remove(); return; }
+  if (!note) {
+    note = document.createElement("div"); note.id = "viewNote"; note.className = "hud"; note.setAttribute("role", "status");
+    note.innerHTML = `${ICON.lock}<span><b>looking back</b> <span class="vn-seq mono"></span> · the app is read-only until you resume</span><button class="hbtn" id="vnResume">resume</button>`;
+    document.body.append(note);
+    note.querySelector("#vnResume").onclick = () => { SFX.toggle(); resume(); };
+  }
+  note.querySelector(".vn-seq").textContent = `#${tl.viewing} of ${tl.head}`;
 }
 function onDenied(d) {
   tl.target = null;
@@ -2467,7 +2534,9 @@ function renderScrub() {
   }
   c.globalAlpha = 1;
   // a tick per flush, in the colour of its cause; the past beyond the one shown dims
-  const iCur = tl.steps.findIndex(s => s.seq === cur);
+  // the step shown, or the nearest one before it (a seq outside the recorded steps must not leave the head behind)
+  let iCur = tl.steps.findLastIndex(s => s.seq <= cur);
+  if (iCur < 0) iCur = 0;
   const step = Math.max(1, Math.floor(n / Math.max(1, tW - 2 * padX)));
   for (let i = 0; i < n; i += step) {
     const s = tl.steps[i], x = seqX(i), big = s.changes?.length > 3;
@@ -2482,7 +2551,7 @@ function renderScrub() {
     const i = tl.steps.findIndex(s => s.seq >= h.seq); const x = i < 0 ? seqX(n - 1) : seqX(i);
     c.beginPath(); c.moveTo(x, 1); c.lineTo(x + 3.5, 4.5); c.lineTo(x, 8); c.lineTo(x - 3.5, 4.5); c.closePath(); c.fill();
   }
-  playhead.style.left = `${iCur >= 0 ? seqX(iCur) : seqX(n - 1)}px`;
+  playhead.style.left = `${seqX(iCur)}px`;
   const viewing = tl.viewing != null || tl.target != null;
   seqLabel.innerHTML = viewing ? `<small>viewing</small>#${esc(cur)} / ${esc(tl.head)}` : `<small>live</small>#${esc(tl.head)}`;
   document.getElementById("liveBtn").classList.toggle("on", !viewing);

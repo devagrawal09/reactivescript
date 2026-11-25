@@ -692,9 +692,8 @@ export function connectView(post) {
   return {
     send(data) {
       if (closed || data?.source !== SOURCE || data.v !== 1) return;
-      if (data.type === "hello") { ready = true; deliver(recorder.snapshot()); deliver(recorder.timeline()); }
-      else if (data.type === "snapshot?") deliver(recorder.snapshot());
-      else if (data.type === "travel" || data.type === "resume") deliver(message({ type: "travel-denied", to: data.to ?? recorder.timeline().head, reason: "unsupported" }));
+      if (data.type === "hello") ready = true;
+      receiveFromView(data, deliver);   // the same handling a mounted map's messages get (hello, snapshot?, travel, resume)
     },
     graph: () => mergeGraphs(graphs),
     close,
