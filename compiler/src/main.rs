@@ -127,7 +127,7 @@ fn lower_one(r: &Value) -> Value {
     let extra: Vec<_> = r["extra"].as_array().map(|xs| xs.iter().map(|x| parse_stmts(x.as_str().unwrap()).unwrap_or_default()).collect()).unwrap_or_default();
     // dev: each source's and equation's creating calls under its key, the module as the request names it
     let dev = r["dev"].as_bool().unwrap_or(false).then_some("");
-    let out = match compile_dev(&set, &extra, false, dev) {
+    let out = match compile_dev(&set, &extra, r["product"].as_bool().unwrap_or(false), dev) {
         Ok(o) => o,
         Err(e) => return json!({ "compileError": e.0 }),
     };

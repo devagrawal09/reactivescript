@@ -74,10 +74,10 @@ export function compile(p: Program, opts: { extraStmts?: Stmt[][] } = {}): strin
  *  the first time an importer instantiates — inside the mounted root, so its state is owned there); the entry's is `main`. */
 /** `dev`: each source's and equation's creating calls run under its key (`__rt.key(k, () => …)`, model.ts declKeys), so
  *  the runtime names their Solid nodes; `root` is the project root the key's module is relative to. */
-export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
+export function compileModules(set: ModuleSet, opts: { extraStmts?: Stmt[][]; dev?: boolean; root?: string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string } = {}): { files: Map<string, string>; entry: string; css: string } {
   // MO-9: a module known by its signature is compiled on its own; its module is beside it, `x.rx` → `x.mjs`
   const out = (path: string) => path === set.entry ? "main.mjs" : set.order.includes(path) ? `m${set.order.indexOf(path)}.mjs` : `${path.split("/").pop()!.replace(/\.rx$/, "")}.mjs`;
-  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, jsSpecifier: opts.jsSpecifier });
+  const g = new Gen(usage([...set.programs.values()], opts.extraStmts), { set, out, bySource: opts.bySource, jsSpecifier: opts.jsSpecifier });
   if (opts.dev) g.boundaries = checkModules(set, opts).boundaries;
   const files = new Map<string, string>();
   for (const path of set.order) {
@@ -115,7 +115,7 @@ class Gen {
   private under(key: string | undefined, call: string): string { return key ? `__rt.key(${J(key)}, () => ${call})` : call; }
   private localJS(from: string) { return this.mods?.set.jsFiles?.has(joinPath(this.file, from)); }
   private realImport(from: string, name: string) {
-    return from.startsWith(".") ? this.localJS(from) : !BUILTINS.has(name) && name !== "log";
+    return this.localJS(from) || ((!from.startsWith(".") || (this.mods?.bySource && from !== "./api")) && !BUILTINS.has(name) && name !== "log");
   }
   private jsDecl(d: Extract<Decl, { k: "import" }>, name: string) {
     return d.declared ? this.mods?.set.declarations?.get(d.declared)?.find(x => x.kind !== "import" && x.name === name) : undefined;
@@ -172,7 +172,7 @@ class Gen {
     return f;
   }
   private styleHash: string | null = null;   // CSS-2: the scope class of the view being emitted
-  private mods?: { set: ModuleSet; out: (path: string) => string; jsSpecifier?: (file: string, from: string) => string };
+  private mods?: { set: ModuleSet; out: (path: string) => string; bySource?: boolean; jsSpecifier?: (file: string, from: string) => string };
   constructor(u: Usage, mods?: Gen["mods"]) { this.u = u; this.mods = mods; }
   private modIndex(path: string) { const { order, signatures } = this.mods!.set; return [...order, ...(signatures?.keys() ?? [])].indexOf(path); }
   depVar(path: string) { return `__m${this.modIndex(path)}`; }
