@@ -457,9 +457,18 @@ async function failedReask() {
     await post(page, { type: "travel", to: failed.seq });
     await page.waitForFunction(n => globalThis.__T.msgs.some(m => m.type === "step" && m.to === n), failed.seq);
     const history = (await drain(page)).find(m => m.type === "step" && m.to === failed.seq);
-    assert.ok(history.inexact.includes(key));
-    assert.ok(history.recordedErrors.includes(key));
-    console.log("ok   refresh rejection shows the live fallback and is marked recorded-only when rewound");
+    // The app at that step: Solid's view pins values, not an error status (solid-asks.md #10), so the tripped boundary
+    // isn't replayed today. Either the DOM shows the fallback the page showed then, or the step says it can't.
+    const shownThen = await page.evaluate(() => globalThis.__T.html());
+    const replayed = /Retry in 5s/.test(shownThen);
+    const marked = history.inexact?.includes(key) && history.recordedErrors?.includes(key);
+    assert.ok(replayed || marked, `travel(${failed.seq}): no fallback in the DOM and not marked: ${JSON.stringify(history)}`);
+    if (!replayed) assert.ok(marked, "an error not replayed must be marked inexact and recorded");
+    console.log(`ok   refresh rejection shows the live fallback; rewound, ${replayed
+      ? "the app shows the fallback again"
+      : "the app shows the rows (Solid can't pin an error: solid-asks #10) and the step marks it inexact + recordedErrors"}`);
+    await post(page, { type: "resume" });
+    await waitIdle(page);
   } finally { await page.close(); }
 }
 
