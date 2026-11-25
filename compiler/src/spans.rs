@@ -232,7 +232,9 @@ impl Spans<'_> {
                 self.markups(children, at);
             }
             MarkupKind::Read(e) => self.expr(e, at),
-            MarkupKind::Text(t) if at.text(self.src) != t => self.bad(at, format!("the text {t:?} spans {:?}", at.text(self.src))),
+            MarkupKind::Text(t) if crate::parse::jsx_text(at.text(self.src)) != *t => {
+                self.bad(at, format!("the text {t:?} spans {:?}", at.text(self.src)))
+            }
             MarkupKind::Text(_) | MarkupKind::Style(_) => {}
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => {
                 self.expr(c, at);

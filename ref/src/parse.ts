@@ -721,13 +721,8 @@ function parsePrimary(c: Cursor): Expr {
 function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
   const out: Markup[] = [];
   const inElement = closeTag !== null && closeTag !== "}";
-  let broke = false;   // JSX whitespace (07: elements are JSX): whitespace that holds a line break is not text — except between two text runs, which it joins with one space
   for (;;) {
-    if (inElement) {
-      let s = ""; while (!c.eof() && " \t\r\n".includes(c.peek())) { s += c.peek(); c.i++; }
-      broke = s.includes("\n");
-      if (s && !broke && !c.startsWith(`</${closeTag}>`) && out.length) out.push({ k: "text", s: " " });   // same-line whitespace between nodes is a space
-    } else c.ws();
+    if (!inElement) c.ws();
     if (c.eof()) { if (closeTag !== null) c.fail(`expected </${closeTag}>`); return out; }
     if (closeTag !== null && closeTag !== "}" && c.startsWith(`</${closeTag}>`)) { c.i += closeTag.length + 3; return out; }   // `""` is a fragment's close tag
     if (closeTag === "}" && c.startsWith("}")) { c.i++; return out; }
@@ -741,17 +736,23 @@ function parseMarkup(c: Cursor, closeTag: string | null): Markup[] {
     }
     if (!inElement) { const ctl = parseControl(c); if (ctl) { out.push({ ...ctl, line }); continue; } }
     if (closeTag === null && looksLikeDecl(c)) c.fail("declaration after markup: a block is declarations, then its view");
-    // text up to < { } or newline; a line's trailing whitespace is not text (JSX)
+    // Normalize a whole JSX text child, not one line at a time.
+    const start = c.i;
     let s = "";
-    while (!c.eof() && !"<{}\n".includes(c.peek())) { s += c.peek(); c.i++; }
-    if (c.peek() === "\n" || c.eof()) s = s.replace(/[ \t\r]+$/, "");
+    while (!c.eof() && !(inElement ? "<{}" : "<{}\n").includes(c.peek())) { s += c.peek(); c.i++; }
     if (!inElement) {
       // outside an element, bare text is not markup: a block is declarations, then markup
-      if (s.trim() === "") { if (c.peek() === "\n") c.i++; continue; }
+      if (s.trim() === "" && c.i > start) continue;
       if (s.includes(":=")) c.fail("W-2: write in reactive scope (no statement position)");
       c.fail("expected a declaration or markup");
     }
-    if (broke && out.length && out[out.length - 1].k === "text") out.push({ k: "text", s: " " });   // text on two lines: one space between
+    if (c.i === start) c.fail("expected a declaration or markup");
+    // Solid's trim_jsx_text: drop CR, continuation indentation and empty lines,
+    // then collapse runs. A same-line space is text, even at an element edge.
+    s = s.replace(/\r/g, "");
+    if (s.includes("\n")) s = s.split("\n").map((l, i) => i ? l.replace(/^\p{White_Space}+/u, "") : l)
+      .filter(l => /\P{White_Space}/u.test(l)).join(" ");
+    s = s.replace(/\p{White_Space}+/gu, " ");
     if (s) out.push({ k: "text", s });
   }
 }
