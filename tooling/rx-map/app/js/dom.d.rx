@@ -11,3 +11,5 @@ export fn focusIsBodyOr(id: string): boolean
 export fn focusEl(id: string): void
 export fn blurActive(): void
 export fn nextFrame(f: () => void): () => void
+export fn after(ms: number, f: () => void): () => void
+export fn scrollToData(name: string, value: string): void

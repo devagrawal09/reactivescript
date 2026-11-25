@@ -288,6 +288,15 @@ timeline's. `window.__RX_FAKE_LIB__` is the embedded library (`createFakeHost`, 
 - v0.5 travel: while viewing, the badge says `viewing #n of m`, the world greys, and a note says the app is read-only
   until you resume. Before a key's first recorded change its value is that change's `prev`. A step's `inexact` keys
   are marked "can't rewind".
+- A **failed re-ask**: an `error` change for a key that had a value, while no tripped errored boundary covers it (the
+  caught-by rule), keeps that value on its token, dimmed, marked "re-ask failed"; tooltip and panel say "failed re-ask ·
+  showing last value: …". A change (or snapshot value) may carry `shown: <preview>`: the app still shows that preview,
+  and the map takes it as is. A first ask that fails, or one a boundary caught, is plainly failed. In **Calls**, a
+  rejected ask followed by a landed ask of the same key with no errored boundary tripped between is marked "swallowed
+  by re-ask" (and toasted once); repeats of one call (same question or action, same kind of cause, ok) collapse to "×N".
+- **Coverage on the dev server:** a live map (dock or pop-out) asks `GET /__rx/coverage?probe=1` (vite.mjs `rxMap()`)
+  at start and after the app reloads; when the project has a run in `.rx-coverage/`, a **Coverage** button loads the
+  newest (`GET /__rx/coverage`) and toggles the layer.
 
 **Moving around:** a mouse wheel zooms toward the pointer; a trackpad's two-finger scroll pans (shift + wheel: sideways); a pinch and ctrl / ⌘ + wheel zoom. `F` frames
 the whole map, or fits its width when the whole would be too small to read. `/` searches: ↑ / ↓ go through the

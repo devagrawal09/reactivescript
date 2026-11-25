@@ -79,8 +79,17 @@ export action openTab(t: string) {
 
 /** The Calls tab, filtered to one import's calls (its key; "" for all). */
 export source callFilter: string := ""
+/** A call shown from elsewhere (a toast): its row is marked and scrolled to; -1 for none. */
+export source callMark: number := -1
 export action showCalls(fnKey: string) {
   callFilter := fnKey
+  callMark := -1
+  openTab("calls")
+}
+/** The Calls tab at one call: filtered to its function, the row marked. */
+export action showCall(fnKey: string, id: number) {
+  callFilter := fnKey
+  callMark := id
   openTab("calls")
 }
 
