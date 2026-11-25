@@ -1,0 +1,22 @@
+import { save, NotFound, Conflict } from "./coverage-api"
+import pure { fetchTitle } from "./coverage-api"
+
+source page: number := 1
+source users = await fetchTitle(page) -> ""
+label = `${users}!`
+
+action rename(name: string) {
+  guess users := name
+  try {
+    await save(name)
+    users := name
+  } catch (e) {}
+}
+
+export component Users() {
+  errored fallback(e: NotFound | Conflict) { <p>{e.message}</p> } {
+    loading on(page) fallback { <p>Loading…</p> } {
+      <h2>{label}</h2>
+    }
+  }
+}

@@ -53,7 +53,7 @@ test("stdio JSON-RPC negotiation, notifications, catalog and errors", { timeout:
   assert.equal((await c.rpc("ping", [])).error.code, -32602);
   assert.equal((await c.rpc("bad")).error.code, -32601);
   const list = (await c.rpc("tools/list")).result.tools;
-  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "live_status", "tail", "record", "value", "state", "why", "pending"]);
+  assert.deepEqual(list.map(x => x.name), ["check", "overview", "find", "node", "reach", "boundary", "diff", "coverage", "uncovered", "live_status", "tail", "record", "value", "state", "why", "pending"]);
   assert.ok(list.every(t => t.annotations.readOnlyHint === (t.name !== "record")));
   assert.equal((await c.call("node")).isError, true);
   assert.equal((await c.call("reach", { key: "x", direction: "sideways" })).isError, true);

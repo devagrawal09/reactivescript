@@ -485,6 +485,35 @@ the last received sequence number to skip older records. Set `RXC` to the compil
 Times are in milliseconds on the page's clock. These tools don't execute actions or write state, but previews (including
 action arguments) can contain application data. Keep the Vite endpoint on a trusted dev network.
 
+## Coverage
+
+Reactive coverage counts behavior paths, not lines: changes, tracked edges, loading and error
+fallbacks, optimistic outcomes, and action outcomes. Add
+`test: { setupFiles: ["@reactivescript/map/coverage/vitest"] }` to your Vitest config, or use
+`rxCoverage()` from `@reactivescript/map/coverage` with `RX_COVERAGE=1`. Use a dev Solid build.
+Run files go in `.rx-coverage/` (override with `RX_COVERAGE_DIR`). The collector observes the
+whole app session, so run shared-page tests serially to attribute hits to individual tests.
+If a linked map package lives outside Vite's workspace, allow its real path with `server.fs.allow`
+and inline it with `test.server.deps.inline: ["@reactivescript/map"]`.
+
+```sh
+rx-map coverage report --entry src/main.rx --min 75
+rx-map coverage merge .rx-coverage/run-*.json -o .rx-coverage/coverage.json
+rx-map src/main.rx --coverage .rx-coverage/coverage.json
+rx-map trace .rx-coverage/traces/example.rxtrace.json -o replay.html
+```
+
+Failing tests print `rx trace: <path>`. Traces include application value previews. The MCP tools `coverage` and `uncovered` read the merged
+file, or the path in `RX_COVERAGE`. For Playwright, import `@reactivescript/map/coverage/browser`
+in the dev entry and use `collectBrowserCoverage(page, file)` from `@reactivescript/map/coverage`.
+To run the executable scenarios over `examples/`, use `node scenarios.mjs --coverage file.json`
+from `tooling/rx-map`.
+
+Pass a CoverageFile as `pageHTML(graph, { coverage })`; click `coverage N%` to toggle the layer.
+Add `?coverage=live` to collect coverage from the map's live feed. Pass a TraceFile as
+`pageHTML(graph, { trace })` to inspect a failing test's recorded flushes, runs, boundaries,
+and reverts; a recording cannot travel without the running app.
+
 ## Limits
 
 - `.rx` imports are folded into the symbol they name, so module state is drawn once, where it lives. JS imports are

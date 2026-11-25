@@ -535,6 +535,24 @@ body.viewing #liveBtn { color: var(--dim) }
 
 /* compact: the devtools dock (a short iframe) or a narrow window. The HUD shrinks to thin bars; the minimap and the
    fake host's HUD fold into buttons; the panel lays over the world instead of taking room from it */
+/* Coverage uses a hollow dot and fades the face, without tinting roles or fading diff marks and child tokens. */
+#coverageChip { flex: none; border-radius: 999px; font-variant-numeric: tabular-nums }
+.ps-coverage { margin-top: 6px; font-weight: 700; color: var(--text) }
+.cov-dot { display: inline-block; box-sizing: border-box; width: 8px; height: 8px; border: 1.5px solid var(--text);
+  border-radius: 50%; flex: none }
+.chip > .cov-dot { position: absolute; left: -4px; top: 50%; transform: translateY(-50%); background: #161a21 }
+.chip.cov-uncovered > :is(.tok, .sh, .ico, .n, .g, .b) { opacity: .42 }
+.frame.ctl.cov-uncovered { border-color: color-mix(in srgb, var(--fc) 24%, transparent) }
+.frame.cov-uncovered > .flabel > :is(.ctag, .notifiers) { opacity: .54 }
+.coverage-paths small, .trace-events small { display: block; margin-top: 2px; overflow-wrap: anywhere }
+#traceBadge { display: flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 42% }
+#traceBadge > :is(strong, .trace-error) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#traceBadge > strong { flex-shrink: 0; max-width: 56% }
+#traceBadge .trace-error { color: var(--fail); font-size: 11px }
+.trace-events { padding: 0 }
+.trace-events > li { display: grid; grid-template-columns: 5.5em minmax(0,1fr) auto; gap: 6px; align-items: baseline }
+#track.recorded, .call.recorded { cursor: default }
+
 @media (max-height: 520px), (max-width: 900px) {
   :root { --top-inset: 40px; --bottom-inset: 32px }
   header.hud { top: 4px; left: 4px; right: 4px; height: 32px; gap: 8px; padding: 0 8px }

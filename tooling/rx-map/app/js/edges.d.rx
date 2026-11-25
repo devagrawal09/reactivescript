@@ -1,2 +1,2 @@
 export pure fn caughtPairs(m: any, values: any, boundaries: any): any[]
-export pure fn edgeLayer(m: any, layout: any, level: number, focus: any, all: boolean, view: string, hidden: string[], caught: any[]): any
+export pure fn edgeLayer(m: any, layout: any, level: number, focus: any, all: boolean, view: string, hidden: string[], caught: any[], coverage: any): any

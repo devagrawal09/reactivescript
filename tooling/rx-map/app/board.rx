@@ -10,6 +10,7 @@ import { pointerAt, placeTipAt } from "./js/tip.js"
 import { lvView, plainValue } from "./js/values.js"
 import { present, isFlying, boundaryOf, lverrHTML, heldHTML, tripHTML, planIconHTML, incomingHTML } from "./js/livestate.js"
 import { live } from "./live.rx"
+import { coverage, showCoverage } from "./coverage.rx"
 import { holeText, cardCounts, noteCardWaves, nameParts } from "./js/layout.js"
 
 source recent: string[] := []
@@ -18,11 +19,13 @@ effect (live.fxSeq) { noteCardWaves(model, () => live, (keys) => { recent := key
 component ModuleCard(props: { m: any }) {
   c = props.m.card
   counts = cardCounts(model, props.m.index, live.values, live.held, live.flying, recent)
+  cov = coverage.modules[c.path]
   <div class={["psum", counts.some(v => v.k == "fly") && "busy", counts.some(v => v.k == "fail") && "failing"]}>
     <div class="ps-in">
       <div class="ps-name" title={c.name}>{for part in nameParts(c.name) { {part}<wbr /> }}</div><div class="ps-path" title={c.path}>{c.shortPath}</div>
       <div class="ps-bars">{for r in c.roles { <i style={{ width: r.width, background: r.color }}></i> }}</div>
       <div class="ps-counts">{for r in c.roles { <span><b style={{ color: r.color }}>{r.count}</b>{r.name}</span> }}</div>
+      {if showCoverage { <div class="ps-coverage mono" title="covered / total behaviour paths">{`coverage ${cov?.covered ?? 0}/${cov?.total ?? 0}`}</div> }}
       {if c.exports.length > 0 {
         <div class="ps-ex"><span class="micro">exports</span>
           {for n in c.exports { <span class="x" style={{ "--c": n.color }}>{n.name}</span> }}
@@ -64,6 +67,7 @@ export component Token(props: { c: any; extra: string }) {
   { c } = props
   // live: its value (and the badge's roll), a failure, a held write, a request in the air, its place in a reload plan
   k = present(c.key) ? c.key : ""
+  uncovered = showCoverage && coverage.targets[k]?.uncovered == true
   v = live.values[k]
   held = live.held[k]
   mark = live.hmr.marks[k]
@@ -73,7 +77,7 @@ export component Token(props: { c: any; extra: string }) {
       c.chgKind && "chg-kind", c.chgIo && "chg-io", c.status != "" && `d-${c.status}`, props.extra,
       (selected == c.id || marked == c.id) && "sel", lit[c.id] == true && "lit", hitSet[c.id] == true && "hit", hits[hitAt] == c.id && "cur", holeId == c.id && "xhl",
       failed && "failed", present(v) && v.pending && "pending-now", present(held) && "held", isFlying(live, k) && "flying",
-      present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact"]}
+      present(mark) && "plan", present(mark) && `p-${mark}`, live.inexact[k] == true && "inexact", uncovered && "cov-uncovered"]}
     style={{ ...c.style, display: props.extra != "compref" && hidden.includes(`k:${c.kk}`) ? "none" : undefined }}
     data-id={c.id} data-level={c.level} role="button" tabIndex={overview ? -1 : 0} aria-label={c.aria}>
     {if c.status != "" { <span class="d">{c.mark}</span> }}
@@ -81,6 +85,7 @@ export component Token(props: { c: any; extra: string }) {
     <span class="tok"></span>
     <span class="ico" innerHTML={props.extra == "cread" ? icon("eye") : roleIcon(c.kk)}></span>
     <span class="n">{c.name}</span>
+    {if uncovered { <span class="cov-dot" title="has uncovered paths" aria-label="has uncovered paths"></span> }}
     {if c.async { <span class={["g", "gp", c.chgAsync && "chg"]} title="can be pending" innerHTML={icon("hour")}></span> }}
     {if c.question { <span class={["g", "gq", c.chgQuestion && "chg"]} title="re-asks a standing question until written">?</span> }}
     {for b in c.badges { <span class="b">{b}</span> }}
@@ -117,6 +122,7 @@ component ValueBadge(props: { v: any }) {
 export component FrameBox(props: { f: any }) {
   { f } = props
   h = f.head
+  uncovered = showCoverage && coverage.targets[f.key]?.uncovered == true
   // live: a boundary showing its fallback is tripped (loading: amber stripes; errored: rose, with its error)
   b = boundaryOf(live, f.key, f.id)
   tripped = present(b) && (b.state == "fallback" || b.state == "error")
@@ -125,7 +131,7 @@ export component FrameBox(props: { f: any }) {
   modNo = f.module != null ? `${f.module.index}` : ""
   incoming = live.hmr.incoming[modNo]
   <div class={["frame", f.kind, f.ctl && "ctl", f.dead && "dead", f.module != null && "module", f.status != "" && `d-${f.status}`,
-      tripped && "tripped", tripped && `trip-${trip}`, modNo != "" && live.hmr.planned[modNo] == true && "planned"]}
+      tripped && "tripped", tripped && `trip-${trip}`, modNo != "" && live.hmr.planned[modNo] == true && "planned", uncovered && "cov-uncovered"]}
     data-mod={f.module != null ? `${f.module.index}` : undefined} data-region={f.id} style={f.style}>
     {if f.module != null {
       <div class="flabel" style={f.labelStyle}><span>module</span> <b class="pname">{f.module.path}</b></div>
@@ -136,6 +142,7 @@ export component FrameBox(props: { f: any }) {
         <span class={["ctag", lit[f.id] == true && "lit", selected == f.id && "sel"]} data-id={f.id} role="button" tabIndex={overview ? -1 : 0} aria-label={h.aria}>
           <span innerHTML={ctagHTML(f.kind)} style={{ display: "contents" }}></span>{h.text}
         </span>
+        {if uncovered { <span class="cov-dot" title="has uncovered paths" aria-label="has uncovered paths"></span> }}
         {if h.read != null { <Token c={h.read} extra="cread" /> }}
         {if f.dead {
           <span class="deadmark" title="an errored boundary inside catches every error first, so this one never shows its fallback">
@@ -166,7 +173,7 @@ export component FrameBox(props: { f: any }) {
 
 // ---- edges: drawn from what depends to what it depends on, so a read points at what it reads ----------------------
 caught = caughtPairs(model, live.values, live.boundaries)
-drawn = edgeLayer(model, board.L, level, focus, allEdges, diffView, hidden, caught)
+drawn = edgeLayer(model, board.L, level, focus, allEdges, diffView, hidden, caught, showCoverage ? coverage.edges : null)
 
 export component Edges() {
   <svg id="edges" width={board.L.width} height={board.L.height} viewBox={`0 0 ${board.L.width} ${board.L.height}`}>

@@ -1,0 +1,4 @@
+export error NotFound
+export error Conflict
+export pure fn fetchTitle(page: number): Promise<string> rejects(NotFound | Conflict)
+export fn save(name: string): Promise<void> rejects(NotFound | Conflict)

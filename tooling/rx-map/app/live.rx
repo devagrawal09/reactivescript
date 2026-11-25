@@ -7,7 +7,7 @@
 // queues the transient effects (rings, comets, orbs, sounds, toasts, the hmr apply, `snapshot?`) on `live.fx`; an
 // effect plays them after the commit. The views draw everything that stays from the store; the JS that reads the state
 // (the canvas, the track, `__RX_VIEW__`, the swap) gets the committed store from here.
-import { isLive, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
+import { isLive, isRecording, isPopout, fakeSeed, compactNow, bodyClass } from "./js/env.js"
 import { icon, keyName } from "./js/vocab.js"
 import { freshLive, prepare, reduce, playFx, planReason, heldText, boundaryOf, planView, present, callsView } from "./js/livestate.js"
 import { post, startLive, setCurrentGraph, popOut } from "./js/transport.js"
@@ -23,6 +23,7 @@ import { model, selected, select, swapGraph } from "./state.rx"
 import { pick, openFor, closeFor, callFilter, showCalls } from "./ui.rx"
 import { closestData, prevent } from "./js/panel.js"
 import { targetValue } from "./js/dom.js"
+import { observeCoverage, setCoverageGraph } from "./coverage.rx"
 
 // ---- the state --------------------------------------------------------------------------------------------------
 export source live: any := freshLive()
@@ -41,11 +42,13 @@ export action dispatch(raw: any) {
 // ---- time travel ------------------------------------------------------------------------------------------------
 /** Back to live. */
 export action resume() {
+  if (isRecording()) { return }
   dispatch({ type: "~target", seq: null })
   post({ type: "resume" })
 }
 /** Travel to a seq (dragging: the host hears at most every 70 ms; the last always). */
 export action travel(seq: number) {
+  if (isRecording()) { return }
   let k = travelKind(live.tl, seq)
   if (k == "resume") { resume() }
   else if (k == "go") {
@@ -55,6 +58,7 @@ export action travel(seq: number) {
 }
 /** `n` steps back (negative) or forward from the step shown; past the last, resume. */
 export action travelBy(n: number) {
+  if (isRecording()) { return }
   let s = seqBy(live.tl, n)
   if (s == -1) { resume() } else if (s >= 0) { travel(s) }
 }
@@ -74,7 +78,7 @@ action swapIn() {
 export component LiveBridge() {
   effect () {
     return startLive({
-      receive: (m) => { dispatch(m) },
+      receive: (m) => { observeCoverage(m); dispatch(m) },
       state: () => live,
       graph: (g) => { swapGraph(g) },
       connected: (ok) => { dispatch({ type: "~connected", ok: ok }) },
@@ -86,6 +90,7 @@ export component LiveBridge() {
   // a new graph (a module replacement, a pop-out's catch-up): what the map holds goes on the new tokens
   effect (model) {
     setCurrentGraph(graphOf($0))
+    setCoverageGraph(graphOf($0))
     let r = afterSwap($0, live, (changes) => { dispatch({ type: "~done", changes: changes }) })
     if (r != null) {
       if (r.id != "") { select(r.id) } else if (r.hadSel) { openFor("plan") }
@@ -110,13 +115,13 @@ badgeText = !live.connected ? `disconnected · ${flushes}`
   : `live · ${flushes}`
 
 export component LiveBadge() {
-  {if isLive() {
+  {if isLive() && !isRecording() {
     <span id="liveBadge" title="attached to the running app: the flushes that changed something">{badgeText}</span>
   }}
 }
 
 export component PopButton() {
-  {if isLive() && !isPopout() {
+  {if isLive() && !isPopout() && !isRecording() {
     <button id="popBtn" class="hbtn ic" title="pop out: this live map in its own window" aria-label="pop out"
       innerHTML={icon("popout")} onClick={() => { popOut() }}></button>
   }}
@@ -142,18 +147,23 @@ export component Scrub() {
   // the canvas (flights, ticks, module replacements) and the playhead are drawn by scrub.js from the committed live.tl
   effect () { return startScrub(() => { renderScrub(model, live.tl) }) }
   effect (live.tl.rev, model) { renderScrub($1, live.tl) }
-  effect () { return startTrack({ tl: () => live.tl, travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) }
+  effect () { if (!isRecording()) { return startTrack({ tl: () => live.tl, travel: (s) => { travel(s) }, travelBy: (n) => { travelBy(n) }, resume: () => { resume() } }) } }
 
-  <div id="scrub" hidden={!isLive()}>
-    <button class={["hbtn", isLive() && !viewingNow && live.tl.steps.length > 0 && "on"]} id="liveBtn" title="back to live"
-      onClick={() => { sfx("toggle"); if (viewingNow) { resume() } }}>LIVE</button>
-    <div id="track" role="slider" tabIndex={0} aria-label="timeline: drag or use the arrow keys to travel"
-      aria-valuemin={`${firstSeq}`} aria-valuemax={`${live.tl.head}`} aria-valuenow={`${shownSeq}`}>
+  <div id="scrub" hidden={!isLive()} data-steps={`${live.tl.steps.length}`}>
+    {if !isRecording() {
+      <button class={["hbtn", isLive() && !viewingNow && live.tl.steps.length > 0 && "on"]} id="liveBtn" title="back to live"
+        onClick={() => { sfx("toggle"); if (viewingNow) { resume() } }}>LIVE</button>
+    }}
+    <div id="track" class={[isRecording() && "recorded"]} role={isRecording() ? "img" : "slider"} tabIndex={isRecording() ? -1 : 0}
+      aria-label={isRecording() ? `recorded timeline: ${live.tl.steps.length} flushes` : "timeline: drag or use the arrow keys to travel"}
+      aria-valuemin={isRecording() ? undefined : `${firstSeq}`} aria-valuemax={isRecording() ? undefined : `${live.tl.head}`} aria-valuenow={isRecording() ? undefined : `${shownSeq}`}>
       <canvas id="trackc"></canvas><div id="playhead"></div>
     </div>
     <span id="seqLabel">
       {if !isLive() {
         {""}
+      } else if isRecording() {
+        <small>a recording: travel needs the app</small>{flushes}
       } else if live.tl.steps.length == 0 {
         <small>timeline</small>{"no flushes"}
       } else if viewingNow {
@@ -354,10 +364,10 @@ cv = callsView(live, callFilter)
 /** One call: when, which functions, who asked, how it ended, why. A click (not on a link) travels to its step. */
 component CallRow(props: { r: any }) {
   { r } = props
-  <li class={["call", `o-${r.outcome}`]} data-call={`${r.id}`} data-seq={`${r.seq}`} tabIndex={0}
-    title={r.seq >= 0 ? `travel to ${r.seqText}` : ""}
+  <li class={["call", `o-${r.outcome}`, isRecording() && "recorded"]} data-call={`${r.id}`} data-seq={`${r.seq}`} tabIndex={isRecording() ? -1 : 0}
+    title={!isRecording() && r.seq >= 0 ? `travel to ${r.seqText}` : ""}
     onClick={(ev) => { if (closestData(ev, "a", "key") == "" && closestData(ev, "a", "go") == "" && r.seq >= 0) { travel(r.seq) } }}
-    onKeyDown={(ev) => { if ((ev.key == "Enter" || ev.key == " ") && r.seq >= 0) { prevent(ev); travel(r.seq) } }}>
+    onKeyDown={(ev) => { if (!isRecording() && (ev.key == "Enter" || ev.key == " ") && r.seq >= 0) { prevent(ev); travel(r.seq) } }}>
     <div class="c-top">
       <span class="c-when mono">{r.when}</span>
       <span class="c-fns">
@@ -384,7 +394,7 @@ component CallRow(props: { r: any }) {
 /** The Calls tab (live): every call, newest first, filtered by function. */
 export component CallsPanel() {
   <h2>Calls</h2>
-  <p class="hint">Calls across the trust boundary, newest first: a question asking (its JS import runs), an action running. Click a row to travel to the step it landed in.</p>
+  <p class="hint">Calls across the trust boundary, newest first: a question asking (its JS import runs), an action running. {isRecording() ? "A recording cannot travel." : "Click a row to travel to the step it landed in."}</p>
   <div class="row calls-filter">
     <span class="micro">function</span>
     <select id="callFn" value={callFilter} onChange={(ev) => { showCalls(targetValue(ev)) }}>

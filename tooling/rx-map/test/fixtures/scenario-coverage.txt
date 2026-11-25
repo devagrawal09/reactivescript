@@ -1,0 +1,103 @@
+# RX's scenario coverage of examples/: node tooling/rx-map/scenarios.mjs --update
+# 15 table(s) pass, 0 fail, 0 skip, of 13 scenario(s) over examples/
+# pass S-ai-feed / Frames
+# pass S-ai-feed / Variant: the send rejects — the guesses revert, the catch reports
+# pass S-ai-grid / Frames
+# pass S-ai-wizard / Frames
+# pass S-ai-wizard / Variant: the submit resolves
+# pass S-ai2-search / Frames
+# pass S-ai2-settings / Frames
+# pass S-ai2-tracker / Frames
+# pass S-app-cart / Frames
+# pass S-app-notes / Frames
+# pass S-app-shop / Frames
+# pass S-app-signup / Frames
+# pass S-app-todo / Frames
+# pass S-app-todos / Frames
+# pass S-app-users / Frames
+
+Module                             node     edge   loading  errored  guess  action  all
+examples/ai/feed.rx                8/8      2/2    2/2      0/1      5/9    1/2     18/24
+examples/ai/grid.rx                11/12    6/9    1/1      0/1      0/0    1/1     19/24
+examples/ai/wizard.rx              10/10    5/5    0/0      0/0      0/0    1/1     16/16
+examples/ai2/search/detail.rx      2/2      1/1    0/0      0/0      0/0    2/2     5/5
+examples/ai2/search/search.rx      3/3      2/2    0/0      0/0      0/0    1/1     6/6
+examples/ai2/search/ui.rx          0/0      0/0    1/2      2/4      0/0    0/0     3/6
+examples/ai2/settings/form.rx      5/5      4/4    0/0      0/0      0/0    0/1     9/10
+examples/ai2/settings/main.rx      0/0      0/0    1/1      1/1      0/0    0/0     2/2
+examples/ai2/settings/settings.rx  2/2      0/0    0/0      0/0      2/3    2/2     6/7
+examples/ai2/settings/ui.rx        1/1      0/0    0/0      0/0      0/0    0/0     1/1
+examples/ai2/tracker/issues.rx     5/5      2/2    0/0      0/0      1/3    3/3     11/13
+examples/ai2/tracker/people.rx     1/1      0/0    0/0      0/0      0/0    1/1     2/2
+examples/ai2/tracker/ui.rx         1/1      0/0    2/2      2/2      0/0    0/0     5/5
+examples/cart.rx                   10/10    3/4    0/0      0/1      2/3    2/2     17/20
+examples/notes/data.rx             5/5      2/2    0/0      0/0      0/3    4/4     11/14
+examples/notes/main.rx             2/2      1/1    2/2      0/2      0/0    0/0     5/7
+examples/notes/ui.rx               3/4      2/3    0/0      0/0      0/0    0/0     5/7
+examples/shop/cart.rx              5/5      1/2    0/0      0/0      2/3    2/2     10/12
+examples/shop/catalog.rx           3/3      1/1    0/0      0/0      0/0    1/1     5/5
+examples/shop/main.rx              1/1      1/1    0/0      0/0      0/0    0/0     2/2
+examples/shop/ui.rx                1/1      0/0    0/0      0/1      0/0    0/0     1/2
+examples/signup.rx                 12/12    6/9    0/0      0/2      0/0    1/1     19/24
+examples/todo.rx                   7/8      4/4    0/0      0/0      0/0    3/3     14/15
+examples/todos.rx                  9/12     8/8    1/1      0/1      3/12   3/4     24/38
+examples/users.rx                  7/8      5/5    1/1      0/1      2/6    3/3     18/24
+Program total                      114/121  56/65  11/12    5/17     17/42  31/34   234/291
+
+examples/ai/feed.rx:72                no test makes errored (e) show its fallback
+examples/ai/grid.rx:20                no test makes errored (e) show its fallback
+examples/ai2/search/ui.rx:27          no test makes errored (e) show its fallback
+examples/ai2/search/ui.rx:63          no test makes errored (e: NotFound) show its fallback
+examples/cart.rx:60                   no test makes errored (e) show its fallback
+examples/notes/main.rx:22             no test makes errored (e) show its fallback
+examples/notes/main.rx:26             no test makes errored (e: NotFound) show its fallback
+examples/shop/ui.rx:19                no test makes errored (e) show its fallback
+examples/signup.rx:43                 no test makes errored (e) show its fallback
+examples/signup.rx:56                 no test makes errored (e) show its fallback
+examples/todos.rx:106                 no test makes errored (e) show its fallback
+examples/users.rx:49                  no test makes errored (e) show its fallback
+examples/ai/feed.rx:16                no test makes pick succeed
+examples/ai2/settings/form.rx:18      no test makes pickTheme succeed
+examples/todos.rx:78                  no test makes clearDone succeed
+examples/ai/feed.rx:31                no test sees send's guess on draftText superseded
+examples/ai/feed.rx:31                no test sees send's guess on messages superseded
+examples/ai/feed.rx:31                no test sees send's guess on sending confirmed
+examples/ai/feed.rx:31                no test sees send's guess on sending superseded
+examples/ai2/settings/settings.rx:28  no test sees save's guess on settings superseded
+examples/ai2/tracker/issues.rx:42     no test sees assignToMe's guess on issues confirmed
+examples/ai2/tracker/issues.rx:42     no test sees assignToMe's guess on issues superseded
+examples/cart.rx:33                   no test sees placeOrder's guess on cart superseded
+examples/notes/data.rx:35             no test sees save's guess on notes confirmed
+examples/notes/data.rx:35             no test sees save's guess on notes reverted
+examples/notes/data.rx:35             no test sees save's guess on notes superseded
+examples/shop/cart.rx:25              no test sees placeOrder's guess on cart superseded
+examples/todos.rx:44                  no test sees add's guess on adding confirmed
+examples/todos.rx:44                  no test sees add's guess on adding superseded
+examples/todos.rx:54                  no test sees toggle's guess on todos reverted
+examples/todos.rx:54                  no test sees toggle's guess on todos superseded
+examples/todos.rx:66                  no test sees remove's guess on todos reverted
+examples/todos.rx:66                  no test sees remove's guess on todos superseded
+examples/todos.rx:78                  no test sees clearDone's guess on todos confirmed
+examples/todos.rx:78                  no test sees clearDone's guess on todos reverted
+examples/todos.rx:78                  no test sees clearDone's guess on todos superseded
+examples/users.rx:18                  no test sees rename's guess on editing reverted
+examples/users.rx:18                  no test sees rename's guess on editing superseded
+examples/users.rx:18                  no test sees rename's guess on users reverted
+examples/users.rx:18                  no test sees rename's guess on users superseded
+examples/ai2/search/ui.rx:29          no test shows loading
+examples/ai/grid.rx:37                no test changes total
+examples/notes/ui.rx:33               no test changes body
+examples/todo.rx:10                   no test changes filters
+examples/todos.rx:32                  no test changes filters
+examples/todos.rx:33                  no test changes draft
+examples/todos.rx:34                  no test changes nextId
+examples/users.rx:13                  no test changes saveError
+examples/ai/grid.rx:36                no test carries a change from data to rows
+examples/ai/grid.rx:37                no test carries a change from data to total
+examples/ai/grid.rx:38                no test carries a change from total to pages
+examples/cart.rx:19                   no test carries a change from products to subtotal
+examples/notes/ui.rx:35               no test carries a change from body to dirty
+examples/shop/cart.rx:15              no test carries a change from products to subtotal
+examples/signup.rx:20                 no test carries a change from checking to valid
+examples/signup.rx:20                 no test carries a change from emailError to valid
+examples/signup.rx:20                 no test carries a change from usernameError to valid
