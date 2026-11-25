@@ -230,7 +230,11 @@ selected = draft(pre selected -> {}) { d[id] := true; d[prevId] := false }
   all 76 eval .rx apps and the repository's examples it fires on those 3
   runs only (S-infer-6).
 - **AC-1f (Calls pass the parameters).** [taken by default 2026-11-14] A
-  call of an action declared in the module passes one argument per
+  call captures its argument data before the action starts. Arrays and
+  plain records, including nested store values, retain the contents seen
+  at the call (W-4); subsequent writes cannot change that input. Functions
+  and opaque JS objects retain identity.
+  A call of an action declared in the module passes one argument per
   parameter; any other count is `ARGUMENT_COUNT` (static). The parameters
   are the action's whole input: a missing one is `undefined` in the body
   and an extra one is dropped, silently either way. An action imported from

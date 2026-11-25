@@ -3,6 +3,7 @@
 // This is the compiler's back half, run as an interpreter: every form maps to the primitive
 // its rule names (ST-1, ST-4c, ST-6c, AC-3 …). Unsupported shapes throw `Unsupported`.
 import { classMap } from "../src/style.ts";
+import { actionInput } from "../src/action-input.ts";
 import { inferredAction } from "../src/infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "../src/ast.ts";
 import { createRenderer } from "@solidjs/universal";
@@ -583,7 +584,7 @@ export class Oracle {
       env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
       const r = yield* self.block(body, scope, env); return r ? r.value : undefined;
     });
-    return (...args: unknown[]) => { const p = run(...args); p.catch(e => { self.asyncError = e; }); return p; };
+    return (...args: unknown[]) => { const p = run(...untrack(() => actionInput(args))); p.catch(e => { self.asyncError = e; }); return p; };
   }
   /** 12 SF-7b: a server function as the client sees it — a call is a flight. The body runs in place (its generator driven by
    *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and

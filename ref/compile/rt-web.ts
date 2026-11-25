@@ -3,6 +3,7 @@
 // compiler lowers (compile/jsx.ts, generate "dom", hydratable); what remains here is the reactive lowering, which must
 // create the same owners in the same order as rt-server.ts so each takes the same hydration id on both sides.
 import { primsSolid } from "./prims-solid.ts";
+import { actionInput } from "../src/action-input.ts";
 import { Portal as WebPortal } from "@solidjs/web";
 import { getObserver } from "solid-js";
 import {
@@ -432,6 +433,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
         } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
         return (...a: unknown[]) => {
+          a = untrack(() => actionInput(a));
           const id = ++runId;
           trace({ type: "run", key, id, ownerPath, state: "start", args: a });
           const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
@@ -443,7 +445,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         };
       }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
-      return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
+      return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a))); p.catch(e => { app.asyncError = e; }); return p; };
     },
     traceCallback<T extends (...args: any[]) => any>(fn: T): T {
       const origin = currentAction ?? callbackOrigin;
