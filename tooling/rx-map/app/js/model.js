@@ -345,3 +345,21 @@ export function boardTree(M) {
     flat: G.nodes.length > 900,
   };
 }
+
+/** Search: the drawn chips whose name contains `q` (lower case), names first (exact, then prefix, then anywhere), in
+ *  reading order. A chip is drawn unless its kind is hidden (`hidden` has `k:<kind>`). */
+export function searchHits(M, q, hidden) {
+  const off = new Set((hidden ?? []).filter(k => k.startsWith("k:")).map(k => k.slice(2)));
+  const drawn = n => n.kind === "comp" || !off.has(kindOf(n));
+  const score = n => (n.name.toLowerCase() === q ? 0 : n.name.toLowerCase().startsWith(q) ? 1 : 2) + (n.site ? 3 : 0);
+  const found = M.G.nodes.filter(n => drawn(n) && n.name?.toLowerCase().includes(q) && onBoard(M, n));
+  found.sort((a, b) => score(a) - score(b) || a.mod - b.mod || a.line - b.line);
+  return [...new Set(found.map(n => n.id))];
+}
+// whether a node has a token on the board: world imports are drawn in the world row; the rest in a region's rows or
+// as a component's or a control header's token
+function onBoard(M, n) {
+  if (n.world && !n.from) return true;
+  if (n.kind === "comp") return M.compRegion.has(n.id) || !!M.regions.get(n.region) || !!M.regions.get(`${n.mod}:r0`);
+  return !!(M.regions.get(n.region) ?? M.regions.get(`${n.mod}:r0`));
+}

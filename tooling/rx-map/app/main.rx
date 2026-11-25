@@ -1,12 +1,15 @@
 // rx-map: a .rx program drawn from the checker's resolved model, as a world of plates and tokens under a HUD.
 // The entry: the world, the HUD around it, and the bridges to the JS that moves the camera and measures the board.
 import { icon } from "./js/vocab.js"
-import { pageTitle, bodyClass, isLive } from "./js/env.js"
+import { pageTitle, bodyClass } from "./js/env.js"
 import { measureAnchors, boardSize } from "./js/geometry.js"
 import { startCamera, layoutChanged, onLayout, zoomBy, frameAll } from "./js/camera.js"
 import { startMinimap } from "./js/minimap.js"
 import { within, targetValue, targetChecked } from "./js/dom.js"
 import { Board } from "./board.rx"
+import { PanelButton, Side } from "./panel.rx"
+import { LiveBridge, LiveBadge, PopButton, Scrub, ViewNote, DevHud } from "./live.rx"
+import { openTab, pick } from "./ui.rx"
 import { board, selected, focus, hidden, diff, diffView, allEdges, select, setLayout, setDiffView, setAllEdges } from "./state.rx"
 
 export default component App() {
@@ -25,7 +28,7 @@ export default component App() {
   effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
   effect (miniOn) { bodyClass("mini-off", !$0) }
 
-  <div id="canvas" onClick={(ev) => { if (!within(ev, "#board [data-id], .nref") && selected != null) { select(null) } }}>
+  <div id="canvas" onClick={(ev) => { if (!within(ev, "#board [data-id], .nref") && selected != null) { pick(null, false) } }}>
     <div id="world">
       <div id="floor"></div>
       <Board />
@@ -34,9 +37,10 @@ export default component App() {
   <div id="rewind"></div>
   <header class="hud">
     <h1><span class="logo"></span>RX·MAP <small class="mono">{pageTitle()}</small></h1>
+    <LiveBadge />
     <span id="qwrap"><input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount" /><span id="qcount" class="mono" aria-live="polite"></span></span>
     <label><input type="checkbox" id="all" checked={allEdges} onChange={(ev) => { setAllEdges(targetChecked(ev)) }} /> all edges</label>
-    <button id="hiddenBtn" hidden={hidden.length == 0} title="open the legend to show them again">{hidden.length} hidden</button>
+    <button id="hiddenBtn" hidden={hidden.length == 0} title="open the legend to show them again" onClick={() => { openTab("legend") }}>{hidden.length} hidden</button>
     <span id="diffbar">
       <select id="view" value={diffView} onChange={(ev) => { setDiffView(targetValue(ev)) }}>
         <option value="both">before + after</option><option value="before">before</option><option value="after">after</option>
@@ -44,14 +48,16 @@ export default component App() {
     </span>
     <span class="spacer"></span>
     <span class="stats" id="stats">{board.stats}</span>
-    <span id="panelBtns"></span>
+    <PopButton />
+    <span id="panelBtns"><PanelButton /></span>
+    <ViewNote />
   </header>
-  <aside id="side" class="hud closed"><div id="ptabs" role="tablist"></div><div id="panel" role="tabpanel"></div></aside>
+  <Side />
   <div id="mini" class="hud" aria-hidden="true"><div class="micro"><span>Map</span><span id="miniInfo"></span></div><canvas id="minic"></canvas></div>
   <div id="bar" class="hud">
     <button class="hbtn ic" id="miniBtn" title="minimap" aria-label="minimap" aria-pressed={miniOn ? "true" : "false"} innerHTML={icon("map")}
       onClick={() => { miniOn := !miniOn }}></button>
-    <div id="scrub" hidden={!isLive()}></div>
+    <Scrub />
     <span class="spacer"></span>
     <div id="dock">
       <button class={["hbtn", "ic", allEdges && "on"]} id="edgesBtn" title="all edges" aria-label="all edges" aria-pressed={allEdges ? "true" : "false"} innerHTML={icon("edges")}
@@ -65,4 +71,6 @@ export default component App() {
   </div>
   <div id="tip" class="hud" role="tooltip"></div>
   <div id="toast" class="hud" role="status"></div>
+  <DevHud />
+  <LiveBridge />
 }

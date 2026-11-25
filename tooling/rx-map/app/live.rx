@@ -1,0 +1,21 @@
+// Live mode (phase 3: filled in by the live work): the host link, the live badge, the timeline, the pop-out button,
+// the fake host's HUD.
+import { isLive } from "./js/env.js"
+export component LiveBridge() {
+  <></>
+}
+export component LiveBadge() {
+  <></>
+}
+export component PopButton() {
+  <></>
+}
+export component Scrub() {
+  <div id="scrub" hidden={!isLive()}></div>
+}
+export component ViewNote() {
+  <></>
+}
+export component DevHud() {
+  <></>
+}

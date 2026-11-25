@@ -1,0 +1,7 @@
+// The side panel and its header button (phase 2: filled in by the panel work).
+export component PanelButton() {
+  <button id="panelBtn" aria-controls="side">guide · legend</button>
+}
+export component Side() {
+  <aside id="side" class="hud closed"><div id="ptabs" role="tablist"></div><div id="panel" role="tabpanel"></div></aside>
+}

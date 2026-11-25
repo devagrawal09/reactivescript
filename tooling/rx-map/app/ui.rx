@@ -1,0 +1,67 @@
+// The HUD's own state: the side panel (open, which tab, the tab to give back when a selection is cleared) and search.
+// Selecting from anywhere goes through `pick` here, which opens the panel on the selected name.
+import { isDiff, loadJSON } from "./js/env.js"
+import { flyToId } from "./js/camera.js"
+import { sfx } from "./js/sound.js"
+import { toSet } from "./js/util.js"
+import { searchHits } from "./js/model.js"
+import { model, hidden, selected, select } from "./state.rx"
+
+// ---- the side panel -------------------------------------------------------------------------------------------
+// tabs: "changes" (a diff), "help", "legend", "plan" (a module replacement's), "node" (the selected name)
+export panelKey = isDiff() ? "rx-map:panel:diff" : "rx-map:panel"
+saved = loadJSON(panelKey, null)
+export source tab: string := peek(saved) != null && peek(saved).tab != null ? peek(saved).tab : isDiff() ? "changes" : "help"
+export source open: boolean := peek(saved) != null ? peek(saved).open == true : isDiff()
+// the tab and openness a selection took over, given back when it is cleared
+export source before: { tab: string; open: boolean } | null := null
+
+// ---- select -----------------------------------------------------------------------------------------------------
+/** Select a name or region (or clear with null); `scroll` flies the camera to it. */
+export action pick(id: string | null, scroll: boolean) {
+  if (id == null) {
+    if (selected != null) { sfx("deselect") }
+    if (selected != null && tab == "node") {
+      tab := before != null ? before.tab : isDiff() ? "changes" : "help"
+      open := before != null ? before.open : false
+      before := null
+    }
+    select(null)
+  } else {
+    if (selected == null && tab != "node" && tab != "plan") { before := { tab: tab, open: open } }
+    select(id)
+    sfx("select")
+    tab := "node"
+    open := true
+    if (scroll) { flyToId(id, "select") }
+  }
+}
+
+// ---- search: every match lights; ↑ / ↓ go from one to the next, Enter selects -------------------------------------
+export source query: string := ""
+q = query.trim().toLowerCase()
+export hits = q == "" ? [] : searchHits(model, q, hidden)
+export hitSet = toSet(hits)
+export source hitAt: number := 0
+export action setQuery(text: string) {
+  query := text
+  hitAt := 0
+}
+export action searchGo(i: number) {
+  if (hits.length > 0) {
+    let n = (i + hits.length) % hits.length
+    hitAt := n
+    flyToId(hits[n], "search")
+  }
+}
+
+// ---- the panel's tabs --------------------------------------------------------------------------------------------
+/** Open the panel on a tab (not "node": that is `pick`'s); a selection is cleared first, keeping the tab given. */
+export action openTab(t: string) {
+  if (selected != null) {
+    before := null
+    select(null)
+  }
+  tab := t
+  open := true
+}

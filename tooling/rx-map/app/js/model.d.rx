@@ -31,3 +31,4 @@ export pure fn neighbourhood(m: Model, id: string, view: string): Trace
 export pure fn downstream(m: Model, id: string, view: string): Trace
 export pure fn upstream(m: Model, id: string, view: string): Trace
 export pure fn summaryTrace(m: Model, i: number): any
+export pure fn searchHits(m: Model, q: string, hidden: string[]): string[]
