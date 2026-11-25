@@ -126,19 +126,17 @@ their plate with a cast shadow, and edges run on the plate surface.
   cluster with its own rows; clusters face the plates that use them.
 - **Edges between plates** leave the token straight up (or down) to just outside its plate, run in bundles through the
   gutters between bands and the gaps between plates (each bundle in its own lane), and enter the target from below.
-- **One layout, three detail levels.** Every plate, frame, token, view-text strip and gutter is placed once per graph,
-  sized for the richest level, and never moves with zoom: changing level only changes what is drawn inside the same
-  boxes (a 200 ms cross-fade; instant under reduced motion). Fit and the minimap use the same extent at every level.
-  - **Overview** (below 37 %): each plate shows its card — name, path, role bar, counts, exports — scaled to fill the
+- **One layout, two levels.** Every plate, frame, token, view-text strip and gutter is placed once per graph and never
+  moves with zoom: changing level only changes what is drawn inside the same boxes (a 200 ms cross-fade; instant under
+  reduced motion). Fit and the minimap use the same extent at both levels.
+  - **Overview** (below 50 %): each plate shows its card — name, path, role bar, counts, exports — scaled to fill the
     same box, and the bundles between modules. Live: a flush touching the module pulses its card; the card counts its
     names changing now, failed (rose), held and in the air (amber, with a breathing outline while a request is out).
-  - **Structure** (37 %–77 %): frames and their tags, the named tokens, the edges between named things, drawn big (the
-    module label too). Where view sites go, only a quiet "n view sites".
-  - **Detail** (from 77 %): everything — view sites, view text, value and line badges, at their own, smaller scale.
+  - **Detail** (from 50 %): everything — frames and their tags, names, view sites, view text, value and line badges.
 
-  Each level's things are drawn at that level's scale inside the same boxes (`METRICS.zoom`: names, tags and headers
-  2.4×, view sites and view text 1.2×), and a level comes in only once its own text reads at 11 px on screen; going back
-  down waits 5 % lower, so a zoom resting at a threshold doesn't flicker. Double-click a module's card to fly into it.
+  The detail level is drawn at one scale (`METRICS.zoom`, 1.85×) inside its boxes, so its smallest text (view sites and
+  view text) reads at 11 px on screen right where it comes in; going back to the overview waits until below 45 %, so a
+  zoom resting at the threshold doesn't flicker. Double-click a module's card to fly into it.
 - **`layout.mjs`** is the layout as a pure module (no DOM), shared with the page (build.mjs embeds it) and anything else
   that draws the map:
 
@@ -148,7 +146,7 @@ their plate with a cast shadow, and edges run on the plate surface.
   const L = layoutWorld(A, { aspect: 16 / 9 });  // { width, height, plates, rows, frames, tokens, clusters, strips,
                                                  //   reserved, worldGroups, gaps }, every box { x, y, w, h } in board px
   const routes = planTrunks(["3>0"], L);         // bundles between plates, through the gutters, in lanes
-  levelFor(cam.s, level);                        // the detail level for a zoom, with hysteresis
+  levelFor(cam.s, level);                        // 1 overview or 2 detail for a zoom, with hysteresis
   ```
 
   Sizes come from a fixed monospace metric (`METRICS`), so the layout doesn't wait on fonts; `size` overrides a token's.

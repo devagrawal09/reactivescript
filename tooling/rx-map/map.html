@@ -131,13 +131,7 @@
   body.lv1 .psum, body.lv1 .wsum { opacity: 1 }
   body.lv1 #board .frame.module > :not(.psum), body.lv1 #board .worldrow > :not(.wsum) { opacity: 0; pointer-events: none }
   #board .frame.module > :not(.psum), #board .worldrow > :not(.wsum) { transition: opacity .2s ease }
-  /* level 2, structure: no view sites, no view text, no value badges; where they go, a faint reserved area */
-  .resv { position: absolute; display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity .2s ease }
-  .resv span { font: italic 11px/1 ui-sans-serif, system-ui; color: rgba(200, 210, 230, .32); letter-spacing: .04em }
-  body.lv2 .resv { opacity: 1 }
-  #board .chip.site, #board .ostrip, #board .chip .lv, #board .chip .lverr, #board .flabel .cread { transition: opacity .2s ease, transform .2s cubic-bezier(.2, .9, .3, 1.25) }
-  body.lv2 #board .chip.site, body.lv2 #board .ostrip, body.lv2 #board .chip .lv, body.lv2 #board .chip .lverr, body.lv2 #board .flabel .cread { opacity: 0; pointer-events: none }
-  @media (prefers-reduced-motion: reduce) { .psum, .wsum, .resv, #board .frame.module > *, #board .worldrow > *, #board .chip.site, #board .ostrip, #board .chip .lv, #board .chip .lverr { transition: none !important } }
+  @media (prefers-reduced-motion: reduce) { .psum, .wsum, #board .frame.module > *, #board .worldrow > *, #board .chip.site, #board .ostrip, #board .chip .lv, #board .chip .lverr { transition: none !important } }
 
   .frame.module.planned { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), 0 10px 0 -1px #0a0d13, 0 10px 0 0 rgba(140, 170, 240, .14), 0 40px 70px -22px rgba(0, 0, 0, .85), 0 0 0 2px rgba(226, 232, 240, .35), 0 0 40px rgba(226, 232, 240, .12) }
   .frame.module.hmr { animation: rx-plate 1.15s cubic-bezier(.3, .7, .2, 1) both }
@@ -927,7 +921,7 @@ function textWidth(t, font) { measureCtx.font = font; return measureCtx.measureT
 
 // a box from the layout, placed inside the element for `parent` (a frame's box, or the board), drawn at zoom `k` (its
 // level's scale: the box is the same, what's in it is bigger or smaller)
-const KN = () => RXL.METRICS.zoom.named, KS = () => RXL.METRICS.zoom.site;
+const KN = () => RXL.METRICS.zoom, KS = KN;   // one scale for everything the detail level draws
 function put(el, b, parent, k = 1) {
   el.style.left = `${(b.x - (parent?.x ?? 0)) / k}px`; el.style.top = `${(b.y - (parent?.y ?? 0)) / k}px`;
   el.style.width = `${b.w / k}px`; el.style.height = `${b.h / k}px`;
@@ -1038,16 +1032,6 @@ function render() {
     d.firstChild.style.zoom = String(KN());
     el.insertBefore(d, el.children[1] ?? null);
   }
-  // areas the detail level fills: empty at the structure level, but for a quiet "n view sites" where the sites go
-  for (const v of L.reserved) {
-    if (v.kind !== "sites") continue;
-    const fb = L.frames.get(v.region), el = regionEls.get(v.region); if (!fb || !el) continue;
-    const n = [...L.tokens.values()].filter(t => t.role === "site" && t.region === v.region && t.x >= v.x && t.y >= v.y && t.y < v.y + v.h).length;
-    if (!n) continue;
-    const d = put(document.createElement("div"), v, fb); d.className = `resv resv-${v.kind}`;
-    d.innerHTML = `<span></span>`; d.firstChild.textContent = `${n} view site${n === 1 ? "" : "s"}`; d.firstChild.style.zoom = String(KN());
-    el.append(d);
-  }
   // tokens: names and view sites, in their places
   for (const [id, t] of L.tokens) {
     if (t.role !== "named" && t.role !== "site") continue;
@@ -1092,17 +1076,15 @@ function fitCards() {
 
 // ---- detail levels: what is drawn, not where ----------------------------------------------------------------------
 // 1 overview: each plate is its card (name, role bar, counts, exports), bundles between plates
-// 2 structure: frames and their tags, the named tokens, the edges between them; where view sites and view text will be,
-//   faint reserved areas
-// 3 detail: and the view sites, view text, value and line badges
-let level = 3, pinnedAt = null;   // a level set from outside (tests, tools) holds until the zoom changes
+// 2 detail: everything — frames and their tags, names, view sites, view text, value and line badges
+let level = 2, pinnedAt = null;   // a level set from outside (tests, tools) holds until the zoom changes
 function pinLevel(l) { pinnedAt = cam.s; setLevel(l); }
 function setLevel(l) {
   if (l === level) return;
   level = l;
-  document.body.classList.remove("lv1", "lv2", "lv3");
+  document.body.classList.remove("lv1", "lv2");
   document.body.classList.add(`lv${l}`);
-  zoomPct.title = ["", "overview", "structure", "detail"][l];
+  zoomPct.title = ["", "overview", "detail"][l];
   if (l === 1 && L) fitCards();   // card heights can change after fonts load or live counts arrive
   redraw();
 }
@@ -1196,8 +1178,6 @@ function draw() {
   const view = DIFF ? document.getElementById("view").value : "both";
   list = list.filter(e => !(view === "before" && e.status === "added") && !(view === "after" && e.status === "removed"));
   list = list.filter(e => !hidden.has(`e:${edgeKey(e)}`));
-  // the structure level draws only what's between named things: its view sites aren't shown
-  if (level === 2) list = list.filter(e => !nodes.get(e.from)?.site && !nodes.get(e.to)?.site);
   const markers = new Set();
   const paths = [], glows = [], trunks = new Map();
   const line = (d, s, { glow, marker = true, width = s.w, opacity, cls = "" } = {}) => {
@@ -1845,7 +1825,7 @@ function select(id, scroll) {
   const el = anchors.get(id);
   el?.classList.add("sel");
   const [ids, edges] = neighbourhood(id);
-  if (scroll) flyToEl(el, level === 3 ? undefined : .8);
+  if (scroll) flyToEl(el, level === 2 ? undefined : RXL.LEVELS.up[1] + .1);
   setFocus(ids, edges);
   sparkle(edges);
   SFX.select();
@@ -1887,7 +1867,7 @@ board.addEventListener("dblclick", ev => {
   }
   const m = ev.target.closest(".frame.module"), p = m && L.plates.get(+m.dataset.mod);
   if (!p) return;
-  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, RXL.LEVELS.up[2] + .02, 1.2);
+  const fr = freeRect(), s = clamp(Math.min(fr.w / p.w, fr.h / Math.min(p.h, 900)) * .92, RXL.LEVELS.up[1] + .02, 1.2);
   flyTo(p.x + p.w / 2, p.y + Math.min(p.h, fr.h / s) / 2, s);
 });
 // search: every match lights; ↑ / ↓ go from one to the next, Enter selects it and opens it in the panel
@@ -2951,7 +2931,7 @@ function startFake(seed) {
 window.__RX_MAP__ = { get layout() { return L; }, get analysis() { return A; }, get BW() { return BW; }, get BH() { return BH; }, get cam() { return cam; }, get level() { return level; }, setLevel: pinLevel };
 // ---- go ------------------------------------------------------------------------------------------------------------
 readInsets();
-document.body.classList.add("lv3");
+document.body.classList.add("lv2");
 document.body.classList.toggle("mini-off", compact());
 document.getElementById("miniBtn").setAttribute("aria-pressed", String(!compact()));
 loadGraph(G0);

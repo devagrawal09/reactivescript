@@ -66,11 +66,9 @@ for (const [name, g] of Object.entries(graphs)) {
   });
   test(`${name}: deterministic, and independent of the detail level`, () => {
     assert.equal(json(lay(g)), json(L));
-    // nothing in the layout takes a level: every level draws into these same boxes. The levels only differ in
-    // which tokens they show (`level`), and every token has a box whatever that is.
-    for (const t of L.tokens.values()) assert.ok(t.level === 2 || t.level === 3, `${t.id} level ${t.level}`);
-    const sites = [...L.tokens.values()].filter(t => t.role === "site");
-    assert.ok(sites.every(t => t.level === 3));
+    // nothing in the layout takes a level: both levels draw into these same boxes, and every token is the detail
+    // level's (the overview draws module cards over the plates)
+    for (const t of L.tokens.values()) assert.equal(t.level, 2, `${t.id} level ${t.level}`);
   });
   test(`${name}: plates keep their size; areas for view sites and view text are reserved`, () => {
     for (const r of L.reserved) assert.ok(inside(r, L.frames.get(r.region)), r.region);
@@ -85,28 +83,19 @@ test("the aspect is the only option that moves things; zoom isn't an input", () 
   for (const [k, p] of a.plates) assert.deepEqual([p.w, p.h], [b.plates.get(k).w, b.plates.get(k).h]);
 });
 
-test("levelFor: a level comes in once its text reads at 11px; hysteresis on the way down", () => {
+test("levelFor: the detail level comes in once its text reads at 11px, near half zoom; hysteresis on the way down", () => {
   const { up, down } = LEVELS;
-  const Z = METRICS.zoom;
-  assert.ok(Math.min(METRICS.nameFont, METRICS.tagFont) * Z.named * up[1] >= 11, "names and tags read at 11px when L2 comes in");
-  assert.ok(Math.min(METRICS.siteFont, METRICS.stripFont) * Z.site * up[2] >= 11, "view sites and view text read at 11px when L3 comes in");
-  // three levels that each get a real stretch of zoom
-  assert.ok(up[1] <= .4 && up[2] >= .7 && up[2] - up[1] >= .3, JSON.stringify(LEVELS));
-  assert.ok(down[2] < up[1] && down[3] < up[2] && up[1] < up[2] && down[2] < down[3]);
-  assert.equal(levelFor(.1, 3), 1);
-  assert.equal(levelFor(1.2, 1), 3);
-  // where only the structure level holds from either side: above 1→2, below 3→2
-  const mid = (up[1] + Math.min(up[2], down[3])) / 2;
-  assert.equal(levelFor(mid, 3), 2);
-  assert.equal(levelFor(mid, 1), 2);
-  // inside a band, the level holds
-  const b2 = (down[2] + up[1]) / 2, b3 = (down[3] + up[2]) / 2;
-  assert.equal(levelFor(b2, 2), 2); assert.equal(levelFor(b2, 1), 1);
-  assert.equal(levelFor(b3, 3), 3); assert.equal(levelFor(b3, 2), 2);
-  // up and down through the thresholds: one change each way
+  assert.deepEqual(Object.keys(up), ["1"]); assert.deepEqual(Object.keys(down), ["2"]);
+  assert.ok(Math.min(METRICS.nameFont, METRICS.tagFont, METRICS.siteFont, METRICS.stripFont) * METRICS.zoom * up[1] >= 11, "detail text reads at 11px when it comes in");
+  assert.ok(up[1] >= .45 && up[1] <= .55, `the switch near the middle of the zoom range: ${up[1]}`);
+  assert.ok(down[2] < up[1]);
+  assert.equal(levelFor(.1, 2), 1);
+  assert.equal(levelFor(1.2, 1), 2);
+  const b = (down[2] + up[1]) / 2;   // inside the band, the level holds
+  assert.equal(levelFor(b, 2), 2); assert.equal(levelFor(b, 1), 1);
   let l = 1;
-  const seq = [.3, b2, up[1] + .01, b2, b3, up[2] + .01, b3, down[3] - .01, b2, down[2] - .01].map(s => (l = levelFor(s, l)));
-  assert.deepEqual(seq, [1, 1, 2, 2, 2, 3, 3, 2, 2, 1]);
+  const seq = [.3, b, up[1] + .01, b, down[2] - .01, b].map(s => (l = levelFor(s, l)));
+  assert.deepEqual(seq, [1, 1, 2, 2, 1, 1]);
   assert.deepEqual(levelThresholds({ minText: 11 }), LEVELS);
 });
 
@@ -133,9 +122,8 @@ test("view text reads like the screen: text holes and human-text attributes, no 
   for (const [id, f] of L.frames) if (f.kind !== "children" && f.kind !== "imported") assert.equal(L.strips.has(id), !!A.stripParts(A.regions.get(id)), id);
 });
 
-test("each level's things are sized at its scale: names bigger than view sites, plate labels at the names' scale", () => {
+test("the detail level is sized at one scale: tokens and plate labels at METRICS.zoom", () => {
   const A = analyze(graphs.tracker), L = layoutWorld(A);
-  const h = role => Math.min(...[...L.tokens.values()].filter(t => t.role === role).map(t => t.h));
-  assert.ok(h("named") >= 2 * h("site") * .9, `${h("named")} vs ${h("site")}`);
-  for (const f of L.frames.values()) if (f.kind === "program") assert.ok(f.label.h >= 18 * METRICS.zoom.named - .5);
+  for (const t of L.tokens.values()) if (t.role === "named" || t.role === "site") assert.ok(t.h >= (t.role === "site" ? METRICS.siteH : METRICS.namedH) * METRICS.zoom - .5, t.id);
+  for (const f of L.frames.values()) if (f.kind === "program") assert.ok(f.label.h >= 18 * METRICS.zoom - .5);
 });
