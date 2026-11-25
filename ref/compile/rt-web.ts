@@ -45,6 +45,7 @@ let rxKey: string | null = null;
 type Carry = { value: unknown; keepAnswer?: boolean; instance?: string };
 let consumedCarry: { replaces?: string; carryStatus: string } | undefined;
 type CarryGroup = { entries: Carry[]; used: number };
+type DeferredCarries = Map<string, { path: string; value: Carry }>;
 let instanceId = 0;
 let rxInstance: string | undefined;
 type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
@@ -71,14 +72,17 @@ function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: ()
   if (getOwner()) onCleanup(() => { entries.delete(value); if (!entries.size) map.delete(k); removed?.(); });
 }
 const nm: <T>(o: T) => T = RX_INSTRUMENT ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}~i${rxInstance}` }) as typeof o : o => o;
+const pathOfKey = (k: string) => {
+  const path = OBSERVE?.ownerPath?.(getOwner());
+  const scope = k.split("|").at(-2);
+  return path?.length ? path : scope ? [`<${scope}>`] : undefined;
+};
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
-const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>) => T = RX_INSTRUMENT
-  ? (k, f, own) => {
+const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>, reads?: Set<Inspect>) => T = RX_INSTRUMENT
+  ? (k, f, own, reads) => {
       const instance = String(++instanceId);
-      const path = OBSERVE?.ownerPath?.(getOwner());
-      const scope = k.split("|").at(-2);
-      const ownerPath = path?.length ? path : scope ? [`<${scope}>`] : undefined;
+      const ownerPath = pathOfKey(k);
       const was = rxKey, wasInstance = rxInstance, previousCarry = consumedCarry;
       rxKey = k; rxInstance = instance;
       consumedCarry = undefined;
@@ -115,6 +119,10 @@ const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>) => T = RX
           const nodes = dev.__RX_NODES__ ??= new Map();
           Object.assign(inspect, { instance, ownerPath, source: !!writer, ...consumedCarry });
           if (own && writer) remember(own, k, inspect);
+          if (reads) {
+            reads.add(inspect);
+            if (getOwner()) onCleanup(() => { reads.delete(inspect); });
+          }
           remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
           trace({ type: "node", key: k, instance });
           if (writer) {
@@ -233,10 +241,26 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
   const storeAccs = new WeakSet<object>();
   const modules = new Map<unknown, Record<string, unknown>>();
   const sources = RX_INSTRUMENT ? new Map<string, Set<Inspect>>() : undefined;
+  const reads = RX_INSTRUMENT ? new Set<Inspect>() : undefined;
   let carries: Map<string, CarryGroup> | undefined;
+  let deferred: DeferredCarries | undefined;
+  let deferredUntil: ReturnType<typeof setTimeout> | undefined;
+  const inputEvents = ["pointerdown", "keydown", "input", "click"];
+  const clearDeferred = () => {
+    if (!deferred) return;
+    deferred = undefined;
+    clearTimeout(deferredUntil);
+    for (const type of inputEvents) opts.root?.removeEventListener?.(type, clearDeferred, true);
+  };
   const takeCarry = () => {
-    const group = rxKey === null ? undefined : carries?.get(rxKey);
-    return group?.entries[group.used++];
+    if (rxKey === null) return;
+    const group = carries?.get(rxKey);
+    if (group) return group.entries[group.used++];
+    const seed = deferred?.get(rxKey);
+    if (!seed || pathOfKey(rxKey)?.join("/") !== seed.path) return;
+    deferred!.delete(rxKey);
+    if (!deferred!.size) clearDeferred();
+    return seed.value;
   };
   // Only a Vite hot boundary enables persistent module owners. Do not change
   // production or non-HMR hydration's owner order.
@@ -502,7 +526,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     // ---- failures (R-f) ----
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity: the same on both sides (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
-    key: RX_INSTRUMENT ? <T>(k: string, f: () => T) => key(k, f, sources) : key,
+    key: RX_INSTRUMENT ? <T>(k: string, f: () => T) => key(k, f, sources, reads) : key,
     throw: (e: unknown): never => { throw e; },
     eq: (a: unknown, b: unknown) => raw(a) === raw(b),
     untrack, omit, latest: (f: () => unknown) => latest(() => latestWhole(f())), isPending: (f: () => unknown) => isPending(() => readWhole(f())),
@@ -551,6 +575,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         if (moduleOwner !== undefined || sharedConfig.hydrating) return;
         moduleOwner = getOwner();
         if (moduleOwner) onCleanup(() => {
+          clearDeferred();
           for (const m of [...persistent.values()].reverse()) m.dispose();
           persistent.clear();
           moduleOwner = undefined;
@@ -558,11 +583,20 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       },
       sources,
       begin(carry: Map<string, CarryGroup>, modules: Set<string>) {
+        clearDeferred();
         carries = carry;
         for (const [path, m] of [...persistent].reverse()) if (modules.has(path)) {
           persistent.delete(path);
           m.dispose();
         }
+      },
+      defer(seeds: DeferredCarries) {
+        // Without a pending read the branch is absent, not waiting to mount.
+        if (!seeds.size || ![...reads!].some(read => read(() => undefined).pending)) return;
+        deferred = seeds;
+        // Never restore a stale draft on a later user-driven remount.
+        for (const type of inputEvents) opts.root?.addEventListener?.(type, clearDeferred, true);
+        deferredUntil = setTimeout(clearDeferred, 3000);
       },
       end() { carries = undefined; },
     },

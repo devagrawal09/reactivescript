@@ -419,6 +419,8 @@ async function realHmr() {
   const original = readFileSync(filename, "utf8");
   const dep = join(app, "src/components/ShelfInfo.rx");
   const originalDep = readFileSync(dep, "utf8");
+  const previewFile = join(app, "src/components/DraftPreview.rx");
+  const originalPreview = readFileSync(previewFile, "utf8");
   const rows = join(app, "src/components/Book.rx");
   const originalRows = readFileSync(rows, "utf8");
   let text = original.replace('  source filter:', `  source counter: number := 0
@@ -558,6 +560,28 @@ async function realHmr() {
     await state("fresh", '"new"', "new");
     assert.equal(depEdit.plan.reasons["src/components/ShelfInfo.rx|ShelfInfo|label"], "expr-changed");
     console.log("ok   HMR dependency edit: replacement code reaches the mounted importer");
+    text = 'import { DraftDialog } from "./components/DraftDialog.rx"\n' + text
+      .replace("  source filter:", "  source showDraft := false\n  source filter:")
+      .replace('<h1>New shelf</h1>', `<h1>New shelf</h1>
+    <button type="button" onClick={() => { showDraft := true }}>Open draft</button>
+    {if showDraft {
+      {loading fallback { <p>Preparing draft…</p> } {
+        ready = await loadAnswer("ready") catch (e) => ""
+        {if ready == "ready" { <DraftDialog /> }}
+      }}
+    }}`);
+    await saveRx(page, filename, text);
+    await page.getByRole("button", { name: "Open draft" }).click();
+    const draft = page.getByRole("textbox", { name: "Draft text" });
+    const typed = 'food,"Coffee, beans",12,USD';
+    await draft.fill(typed);
+    const edited = await saveRx(page, previewFile, originalPreview.replace("Preview:", "Updated:"));
+    const draftKey = "src/components/DraftDialog.rx|DraftDialog|text";
+    assert.equal(edited.plan.reasons[draftKey], "unchanged");
+    await page.getByTestId("draft-preview").getByText(`Updated: ${typed}`, { exact: true }).waitFor({ timeout: 5000 });
+    assert.equal(await draft.inputValue(), typed);
+    assert.equal((await values())[draftKey], JSON.stringify(typed));
+    console.log("ok   HMR child edit preserves parent draft after async remount");
     await edit("scope-changed: move to module scope resets", s => s.replace('  source fresh: string := "new"\n', "")
       .replace("export default component App()", 'source fresh: string := "new"\n\nexport default component App()'),
       { fresh: "scope-changed" }, async ({ plan }) => {
@@ -578,6 +602,7 @@ async function realHmr() {
     await page?.close();
     writeFileSync(filename, original);
     writeFileSync(dep, originalDep);
+    writeFileSync(previewFile, originalPreview);
     writeFileSync(rows, originalRows);
   }
 }

@@ -1,5 +1,5 @@
 import { createMemo, createSignal, flush, getOwner, onCleanup, untrack } from "solid-js";
-import { planHmr, prepareCarry, finishCarry } from "./hmr.mjs";
+import { planHmr, prepareCarry, finishCarry, deferredCarry } from "./hmr.mjs";
 
 const entries = new Map();
 let localId = 0;
@@ -63,7 +63,11 @@ export function hotEntry(payload, factory, hot, observer) {
           for (const { runtime, carry } of frames) runtime.begin(carry, changedModules);
           state.replace({ factory: next.factory });
           commit();
-          return new Set(frames.flatMap(frame => finishCarry(frame, frame.runtime.sources)));
+          return new Set(frames.flatMap(frame => {
+            const { runtime } = frame;
+            runtime.defer(deferredCarry(frame, runtime.sources));
+            return finishCarry(frame, runtime.sources);
+          }));
         } finally {
           for (const { runtime } of frames) runtime.end();
         }

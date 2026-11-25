@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { planHmr, prepareCarry, finishCarry } from "../hmr.mjs";
+import { planHmr, prepareCarry, finishCarry, deferredCarry } from "../hmr.mjs";
 
 const file = "main.rx", key = `${file}|Row|value`;
 const graph = sites => ({
@@ -29,4 +29,16 @@ test("repeated sources at ambiguous or edited sites are not paired", () => {
     assert.equal(frame.carry.size, 0);
     assert.deepEqual([...frame.fallback], [key]);
   }
+});
+
+test("only an absent, unconsumed singleton can be deferred", () => {
+  const g = graph(["row"]);
+  const frame = prepareCarry(g, g, planHmr(g, g), readers(3), new Set([file]));
+  assert.deepEqual(deferredCarry(frame, new Map()).get(key), {
+    path: "<App>/<Row>", value: { value: 3, keepAnswer: undefined, instance: undefined },
+  });
+  assert.equal(deferredCarry(frame, readers(0)).size, 0);
+  frame.carry.get(key).used++;
+  assert.equal(deferredCarry(frame, new Map()).size, 0);
+  assert.equal(deferredCarry(prepareCarry(g, g, planHmr(g, g), readers(3, 7), new Set([file])), new Map()).size, 0);
 });

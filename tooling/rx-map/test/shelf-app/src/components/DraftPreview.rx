@@ -1,0 +1,3 @@
+export component DraftPreview(props: { text: string }) {
+  <p data-testid="draft-preview">Preview: {props.text}</p>
+}
