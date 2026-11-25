@@ -79,12 +79,12 @@ export function boardView(M) {
     const h = comp ? { type: "comp", chip: chip(comp, L.tokens.get(comp.id)) }
       : info ? { type: "ctl", text: info.text, aria: `${r.kind} ${info.text}${info.line ? `, line ${info.line}` : ""}`,
         read: info.site ? { ...chip(info.site, null), name: A.readsOf(info.site) || "—", badges: [] } : null,
-        boundary, notifiers: boundary ? (A.inc.get(r.id) ?? []).filter(e => e.type === "notifies").map(e => ({ id: e.from, label: label(M, e.from) })) : [],
+        arms: info.arms ?? [], boundary, notifiers: boundary ? (A.inc.get(r.id) ?? []).filter(e => e.type === "notifies").map(e => ({ id: e.from, label: label(M, e.from) })) : [],
         lead: r.kind === "loading" ? "pending from" : "can fail from",
         none: r.kind === "loading" ? "nothing read below can be pending" : "nothing read below awaits" }
       : { type: "plain", text: FRAME[r.kind] ?? r.kind, b: (r.kind === "children" || r.kind === "imported") && r.name ? `<${r.name} />` : "" };
     if (comp) h.chip.style = {};
-    frames.set(f.id, { id: r.id, key: r.key ?? "", kind: r.kind, ctl: !!info, dead: !!r.deadTyped,
+    frames.set(f.id, { id: r.id, key: r.key ?? "", kind: r.kind, ctl: !!info,
       status: r.status && r.status !== "same" ? r.status : "", head: h,
       module: program ? { index: r.mod, path: G.modules[r.mod], card: cardView(M, r.mod) } : null,
       style: placed(program ? L.plates.get(r.mod) : f, L.frames.get(f.parent)),

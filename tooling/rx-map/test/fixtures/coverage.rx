@@ -14,7 +14,11 @@ action rename(name: string) {
 }
 
 export component Users() {
-  errored fallback(e: NotFound | Conflict) { <p>{e.message}</p> } {
+  errored fallback(e) {
+    NotFound => { <p>{e.message}</p> }
+    Conflict => { <p>{e.message}</p> }
+    _ => { <p>Unexpected error</p> }
+  } {
     loading on(page) fallback { <p>Loading…</p> } {
       <h2>{label}</h2>
     }

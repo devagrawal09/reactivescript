@@ -102,7 +102,7 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
   }
   const modLevel = memo(m => { let l = 0; for (const d of modDeps.get(m) ?? []) l = Math.max(l, modLevel(d) + 1); return l; });
   const firstLine = r => Math.min(...r.nodes.map(n => n.line), ...r.kids.map(firstLine), 1e9);
-  const empty = r => r.kind !== "component" && !r.nodes.length && r.kids.every(empty) && r.kind !== "children";
+  const empty = r => r.kind !== "component" && !r.arms?.length && !r.nodes.length && r.kids.every(empty) && r.kind !== "children";
   const lineOf = n => ((n.status === "removed" ? G.linesBefore : G.lines)?.[n.file]?.[n.line] ?? "").trim();
   const ctlInfo = new Map();
   const controlInfo = r => {
@@ -118,7 +118,7 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
     let info = { text: CTL[r.kind] ?? r.kind, line: null, site: null };
     if (r.head) info = { text: r.head.text, line: r.head.line, site: null };
     else {
-      let bound = L;
+      let bound = Math.min(L, r.arms?.[0]?.line ?? Infinity);
       const below = rr => { for (const k of rr.kids ?? []) { const h = CTL[k.kind] && controlInfo(k); if (h?.line) bound = Math.min(bound, h.line - 1); else below(k); } };
       below(r);
       if (pat && bound < 1e9) for (let i = bound; i >= Math.max(1, bound - 40); i--) {
@@ -126,6 +126,7 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
         if (m) { info = { text: pat[1](m), line: i, site: null }; break; }
       }
     }
+    if (r.arms) info.arms = r.arms;
     const kw = { then: "if", for: "for", loading: "loading on" }[r.kind];
     if (kw && info.line) info.site = regions.get(r.parent)?.nodes.find(n => n.site && n.name === kw && n.line === info.line) ?? null;
     ctlInfo.set(r.id, info);
@@ -137,8 +138,8 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
   const covered = (r, kind, acc = { sites: new Set(), seen: new Set() }) => {
     for (const n of r.nodes) if (n.site && REACTIVE.has(n.kind)) acc.sites.add(n.id);
     for (const k of r.kids) {
-      const typed = k.kind === "errored" && /\(\s*\w+\s*:/.test(controlInfo(k).text);
-      if (k.kind === "component" || (k.kind === kind && !typed)) continue;
+      const canPass = k.kind === "errored" && k.arms && !k.arms.some(a => a.cls === "_" || a.cls === "Panic");
+      if (k.kind === "component" || (k.kind === kind && !canPass)) continue;
       if ((k.kind === "children" || k.kind === "imported") && k.name)
         for (const c of G.nodes) if (c.kind === "comp" && c.name === k.name) {
           const cr = regions.get(compRegion.get(c.id));

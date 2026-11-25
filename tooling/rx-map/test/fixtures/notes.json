@@ -273,7 +273,22 @@
       "async": false,
       "world": false,
       "base": "examples/notes/data.rx||save",
-      "key": "examples/notes/data.rx||save"
+      "key": "examples/notes/data.rx||save",
+      "catches": [
+        {
+          "classes": null,
+          "arms": [
+            {
+              "cls": "Conflict",
+              "line": 43
+            },
+            {
+              "cls": "_",
+              "line": 44
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "1:s3",
@@ -938,7 +953,7 @@
       "kind": "reader",
       "site": true,
       "name": "if",
-      "line": 28,
+      "line": 31,
       "region": "2:r12",
       "base": "examples/notes/main.rx|/component:App/errored/else/errored/loading|reader:if",
       "sig": "current",
@@ -951,7 +966,7 @@
       "kind": "prop",
       "site": true,
       "name": "NoteEditor note",
-      "line": 28,
+      "line": 31,
       "region": "2:r13",
       "base": "examples/notes/main.rx|/component:App/errored/else/errored/loading/then|prop:NoteEditor note",
       "sig": "current",
@@ -1444,7 +1459,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 28
+      "line": 31
     },
     {
       "from": "2:c15",
@@ -1459,7 +1474,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 28
+      "line": 31
     },
     {
       "from": "2:r9",
@@ -1676,7 +1691,21 @@
       "kind": "errored",
       "name": null,
       "parent": "2:r10",
-      "key": "examples/notes/main.rx|/component:App/errored/else/errored"
+      "key": "examples/notes/main.rx|/component:App/errored/else/errored",
+      "head": {
+        "line": 26,
+        "text": "errored (e)"
+      },
+      "arms": [
+        {
+          "cls": "NotFound",
+          "line": 27
+        },
+        {
+          "cls": "_",
+          "line": 28
+        }
+      ]
     },
     {
       "id": "2:r12",
@@ -1754,17 +1783,14 @@
       "36": "  saveError := \"\"",
       "37": "  guess notes := ns => ns.map(n => n.id == id ? { ...n, title: title, body: body } : n)",
       "38": "  try {",
-      "39": "    try {",
-      "40": "      let saved = await saveNote(id, title, body)",
-      "41": "      notes := ns => ns.map(n => n.id == id ? saved : n)",
-      "42": "      refresh current",
-      "43": "    } catch (e: Conflict) {",
-      "44": "      saveError := `someone else saved first: ${e.message}`",
-      "45": "    }",
-      "46": "  } catch (e) {",
-      "47": "    saveError := e.message",
-      "48": "  }",
-      "49": "}"
+      "39": "    let saved = await saveNote(id, title, body)",
+      "40": "    notes := ns => ns.map(n => n.id == id ? saved : n)",
+      "41": "    refresh current",
+      "42": "  } catch (e) {",
+      "43": "    Conflict => { saveError := `someone else saved first: ${e.message}` }",
+      "44": "    _ => { saveError := e.message }",
+      "45": "  }",
+      "46": "}"
     },
     "examples/notes/ui.rx": {
       "1": "// ui.rx — the pieces of view. Each component's stylesheet scopes only its own view (07 §6b).",
@@ -1834,15 +1860,18 @@
       "23": "      {if route.page == \"list\" {",
       "24": "        {loading on(query) fallback { <p>searching…</p> } { <NoteList notes={notes} /> }}",
       "25": "      } else {",
-      "26": "        {errored fallback(e: NotFound) { <p>{e.message}</p> } {",
-      "27": "          {loading fallback { <p>opening…</p> } {",
-      "28": "            {if current { <NoteEditor note={current} /> }}",
-      "29": "          }}",
-      "30": "        }}",
-      "31": "      }}",
-      "32": "    }}",
-      "33": "  </main>",
-      "34": "}"
+      "26": "        {errored fallback(e) {",
+      "27": "          NotFound => { <p>{e.message}</p> }",
+      "28": "          _ => { {throw e} }",
+      "29": "        } {",
+      "30": "          {loading fallback { <p>opening…</p> } {",
+      "31": "            {if current { <NoteEditor note={current} /> }}",
+      "32": "          }}",
+      "33": "        }}",
+      "34": "      }}",
+      "35": "    }}",
+      "36": "  </main>",
+      "37": "}"
     }
   },
   "title": "main.rx"

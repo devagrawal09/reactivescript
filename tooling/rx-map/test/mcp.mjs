@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, traceSummary } from "../live-protocol.mjs";
 import { rxMap } from "../vite.mjs";
+import { createMcp } from "../mcp.mjs";
 
 const repo = fileURLToPath(new URL("../../..", import.meta.url));
 const cli = fileURLToPath(new URL("../rx-map.mjs", import.meta.url));
@@ -99,6 +100,27 @@ test("static queries and resources on notes", { timeout: 10000 }, async t => {
     const data = JSON.parse(r.text);
     assert.equal(Array.isArray(data) ? data[0].file : data.modules[0], "examples/notes/data.rx");
   }
+});
+
+test("MCP lists catch arms and the selected live boundary arm", async () => {
+  const graph = JSON.parse(readFileSync(new URL("./fixtures/notes.json", import.meta.url)));
+  const boundary = graph.regions.find(r => r.arms);
+  const action = graph.nodes.find(n => n.catches);
+  const receive = createMcp({
+    getProject: () => ({ load: () => ({ graph }) }),
+    live: async () => ({ region: boundary.key, state: "error", error: "Other: missing", arm: "NotFound", history: [] }),
+  });
+  const call = async (name, key, format = "json") => {
+    const { result } = await receive({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { key, format } } });
+    assert.ok(!result.isError, result.content[0].text);
+    return format === "json" ? JSON.parse(result.content[0].text) : result.content[0].text;
+  };
+  assert.deepEqual((await call("node", action.key)).catches, action.catches);
+  assert.match(await call("node", action.key, "text"), /catch.*Conflict \(L43\).*_ \(L44\)/);
+  const selected = await call("boundary", boundary.key);
+  assert.deepEqual(selected.arms, boundary.arms);
+  assert.equal(selected.arm, "NotFound");
+  assert.match(await call("boundary", boundary.key, "text"), /selected arm: NotFound/);
 });
 
 test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout: 10000 }, async t => {

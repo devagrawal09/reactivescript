@@ -9,8 +9,11 @@ source c: number := 3
 
 source title = await fetchTitle(a + b + c) -> ""   // rx-coverage-ignore edge: its inputs are boot constants
 export component View() {
-  // rx-coverage-ignore errored: a 404 can't reach this page
-  errored fallback(e: NotFound | Conflict) { <p>{e.message}</p> } {
+  errored fallback(e) {
+    // rx-coverage-ignore errored: a 404 can't reach this page
+    NotFound => { <p>{e.message}</p> }
+    Conflict => { <p>{e.message}</p> } // rx-coverage-ignore errored: these inputs cannot conflict
+  } {
     <p>{title}</p>
   }
 }

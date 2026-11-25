@@ -26,7 +26,7 @@ const counts = g => Object.fromEntries(Object.entries(summary(rebase(merge(), g)
   .map(([k, v]) => [k, v.total]));
 const ids = g => universe(g).map(p => p.id);
 
-test("universe covers tracked dependencies, each typed class and each optimistic outcome", () => {
+test("universe covers tracked dependencies, each live arm and each optimistic outcome", () => {
   assert.deepEqual(counts(fixture("tracker")), { node: 28, edge: 17, loading: 5, errored: 7, guess: 0, action: 9, all: 66 });
   assert.deepEqual(counts(fixture("users")), { node: 8, edge: 5, loading: 1, errored: 1, guess: 6, action: 3, all: 24 });
   const g = graph(), paths = universe(g);
@@ -36,11 +36,12 @@ test("universe covers tracked dependencies, each typed class and each optimistic
   assert.match(g.nodes.find(n => n.name === "save").decl.line, /rejects\(NotFound \| Conflict\)/);
   assert.ok(g.edges.some(e => e.type === "write" && e.op === "optimistic"));
   assert.deepEqual(paths.find(p => p.id === `errored:${region("errored")}:NotFound`),
-    { id: `errored:${region("errored")}:NotFound`, kind: "errored", module, line: 17,
-      label: "errored (e: NotFound) shows its fallback", target: region("errored") });
+    { id: `errored:${region("errored")}:NotFound`, kind: "errored", module, line: 18,
+      label: "errored (e) shows its NotFound fallback", target: region("errored") });
   const dead = structuredClone(g);
-  dead.regions.find(r => r.kind === "errored").deadTyped = true;
-  assert.equal(counts(dead).errored, 0);
+  const arms = dead.regions.find(r => r.kind === "errored").arms;
+  assert.deepEqual(arms.at(-1), { cls: "_", line: 20, dead: true });
+  assert.ok(!ids(dead).includes(`errored:${region("errored")}:_`));
   const read = dead.edges.find(e => e.type === "read" && e.mode === "tracked");
   read.probe = "pending";
   assert.equal(counts(dead).edge, 1);
@@ -115,11 +116,22 @@ test("snapshot, first previous value, release, and reset", () => {
   assert.deepEqual(c.result().hits[`guess:${pair}:confirmed`], { n: 1, by: [] });
   assert.equal(c.result().hits[`edge:${page}->${users}`].n, 1);
   assert.equal(c.result().hits[`node:${page}`].n, 1);
-  const single = structuredClone(graph());
-  single.regions.find(r => r.kind === "errored").head.text = "errored (e: NotFound)";
-  const observer = createCollector({ graphs: [single], tool: "test" });
-  observer.feed({ type: "boundary", region: region("errored"), state: "error" });
-  assert.equal(observer.result().hits[`errored:${region("errored")}:NotFound`].n, 1);
+});
+
+test("boundary state names the selected arm, with an error-preview fallback for old traces", () => {
+  const region = "app||errored";
+  const arms = [{ cls: "Conflict", line: 3 }, { cls: "Offline", line: 4 }, { cls: "_", line: 5 }];
+  const graph = { modules: ["app.rx"], nodes: [], edges: [], regions: [{ mod: 0, id: "b", key: region, kind: "errored", arms }] };
+  const c = createCollector({ graphs: [graph] });
+  const error = (error, extra) => ({ region, state: "error", error, ...extra });
+  c.feed({ type: "snapshot", boundaries: [error("Offline: lost", { arm: "Conflict" })] });
+  c.feed({ type: "boundary", ...error("Offline: lost") });
+  c.feed({ type: "boundary", ...error("Panic: unexpected") });
+  assert.deepEqual(Object.keys(c.result().hits).sort(), ["Conflict", "Offline", "_"].map(a => `errored:${region}:${a}`));
+  arms[2].dead = true;
+  const noDefault = createCollector({ graphs: [graph] });
+  noDefault.feed({ type: "boundary", ...error("Conflict: derived", { arm: "_" }) });
+  assert.deepEqual(noDefault.result().hits, {});
 });
 
 test("store settle diagnostics distinguish confirmed, superseded, and rejected runs", () => {
@@ -162,7 +174,7 @@ test("merge laws, deterministic attribution cap, stale report, and rebase", () =
 test("report uses reviewer wording and filters the uncovered list", () => {
   const file = rebase(merge(), graph()), text = report(file);
   for (const line of [
-    /fixtures\/coverage.rx:17 +no test makes errored \(e: NotFound\) show its fallback/,
+    /fixtures\/coverage.rx:18 +no test makes errored \(e\) show its NotFound fallback/,
     /fixtures\/coverage.rx:5 +no test changes users/,
     /fixtures\/coverage.rx:5 +no test carries a change from page to users/,
     /fixtures\/coverage.rx:18 +no test shows loading on\(page\)/,
@@ -221,19 +233,29 @@ test("an action's own catches fold into its outcomes", () => {
   assert.deepEqual(rejected(g), [`action:${rename}:rejected:Conflict`]);
   node.catches = [{ classes: ["NotFound"] }, { classes: ["Conflict"] }];
   assert.deepEqual(rejected(g), []);
-  node.catches = [{ classes: ["NotFound"] }, { classes: null }, { classes: ["NotFound", "Conflict"] }];
+  node.catches = [
+    { classes: ["NotFound"], arms: [{ cls: "NotFound", line: 11 }] },
+    { classes: null },
+    { classes: null, arms: [{ cls: "NotFound", line: 15 }, { cls: "Conflict", line: 16 }, { cls: "_", line: 17 }] },
+    { classes: null, arms: [{ cls: "_", line: 21, dead: true }] },
+  ];
   const catchIds = ids(g).filter(id => id.startsWith(`action:${rename}:caught:`));
-  assert.deepEqual(catchIds, [`action:${rename}:caught:Conflict:1`, `action:${rename}:caught:NotFound:0`, `action:${rename}:caught:NotFound:1`]);
+  assert.deepEqual(catchIds, [`action:${rename}:caught:Conflict:1`, `action:${rename}:caught:NotFound:0`,
+    `action:${rename}:caught:NotFound:1`, `action:${rename}:caught:_:1`]);
   const c = createCollector({ graphs: [g] });
   c.feed({ type: "run", state: "start", id: 1, key: rename });
   c.feed({ type: "caught", key: rename, id: 1, site: 1, class: "NotFound", at: 1 });
+  c.feed({ type: "caught", key: rename, id: 1, site: 1, class: "_", at: 2 });
+  c.feed({ type: "caught", key: rename, id: 1, site: 2, class: "_", at: 3 });
   c.feed({ type: "run", state: "end", id: 1, key: rename });
   assert.equal(c.result().hits[catchIds[2]]?.n, 1);
   assert.equal(c.result().hits[catchIds[1]], undefined);
+  assert.equal(c.result().hits[catchIds[3]]?.n, 1);
+  assert.equal(c.result().hits[`action:${rename}:caught:_:2`], undefined);
   assert.equal(c.result().hits[`action:${rename}:ok`]?.n, 1);
   delete node.catches;   // a model without the field (an older rxc): v0.2's paths
   assert.deepEqual(rejected(g), [`action:${rename}:rejected:Conflict`, `action:${rename}:rejected:NotFound`]);
-  // a typed catch doesn't take the deliberate `Error`; only a catch-all does
+  // A class arm for NotFound doesn't take the deliberate `Error`.
   const reload = g.nodes.find(n => n.name === "reload");
   reload.catches = [{ classes: ["NotFound"] }];
   assert.ok(ids(g).includes(`action:${key("reload")}:rejected:Error`));
@@ -244,7 +266,7 @@ test("rx-coverage-ignore: a reason, an optional kind, warnings for the rest", ()
   assert.deepEqual(ignored(file).map(p => [p.line, p.kind, p.ignored]), [
     [3, "node", "set once at boot"],
     [10, "edge", "its inputs are boot constants"], [10, "edge", "its inputs are boot constants"], [10, "edge", "its inputs are boot constants"],
-    [13, "errored", "a 404 can't reach this page"], [13, "errored", "a 404 can't reach this page"],
+    [15, "errored", "a 404 can't reach this page"], [16, "errored", "these inputs cannot conflict"],
   ]);
   // the kind selector: line 10's node (title) is not ignored, its edges are
   assert.deepEqual(uncovered(file).map(p => [p.line, p.kind]), [[5, "node"], [7, "node"], [10, "node"]]);
@@ -257,7 +279,7 @@ test("rx-coverage-ignore: a reason, an optional kind, warnings for the rest", ()
   ]);
   const text = report(file);
   assert.match(text, /Ignored \(not in the percentage\):\nfixtures\/coverage-ignore.rx:3 +a changes — ignored \(set once at boot\)/);
-  assert.match(text, /fixtures\/coverage-ignore.rx:13 +errored \(e: NotFound\) shows its fallback — ignored \(a 404 can't reach this page\)/);
+  assert.match(text, /fixtures\/coverage-ignore.rx:15 +errored \(e\) shows its NotFound fallback — ignored \(a 404 can't reach this page\)/);
   assert.match(text, /warning: fixtures\/coverage-ignore.rx:6 +rx-coverage-ignore needs a reason/);
   const json = JSON.parse(report(file, { json: true }));
   assert.equal(json.ignored.length, 6);

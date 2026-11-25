@@ -55,9 +55,7 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
     for (const r of m.regions) {
       regions.push({ id: `${mi}:r${r.id}`, mod: mi, kind: r.kind, name: r.name ?? null,
         parent: r.parent == null ? null : `${mi}:r${r.parent}`,
-        ...(r.shadowed != null ? { shadowed: `${mi}:r${r.shadowed}` } : {}),
-        // a typed `errored (e: X)` an inner catch-all already catches for (the model says so): it never shows
-        ...(r.deadTyped || r.dead_typed ? { deadTyped: true } : {}),
+        ...(r.arms ? { arms: r.arms.map(a => ({ ...a })) } : {}),
         ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: `${mi}:c${p.site}` }
           : "region" in p ? { ...p, region: `${mi}:r${p.region}` } : { ...p }) } : {}) });
       for (const p of r.outline ?? []) if (p.line != null) keepLine(mi, p.line);
@@ -132,7 +130,9 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
         if (n && c.kind === "question") n.async = true;
         if (n && (c.kind === "keyed" || c.kind === "deferred")) { n.async = n.async || c.calls.length > 0; n.flavor = c.kind; }
         // an action's own catches (the model's `catches`): the classes each handles, null for a catch-all
-        if (n && c.kind === "action" && c.catches?.length) n.catches = c.catches.map(x => ({ classes: x.classes ?? null }));
+        if (n && c.kind === "action" && c.catches?.length) n.catches = c.catches.map(x => ({
+          classes: x.classes ?? null, ...(x.arms ? { arms: x.arms.map(a => ({ ...a })) } : {}),
+        }));
       }
       compOwner.set(c.id, owner);
       for (const r of c.reads) {
@@ -188,9 +188,9 @@ export const CONTROL = {
 
 /**
  * Gives each `if` / `else` / `for` / `loading` / `errored` region its own header: `head = { line, text }`, e.g.
- * `errored (e: NotFound)`. The model has no line for a region, so it is read off the source: the nearest header line
+ * `errored (e)`. The model has no line for a region, so it is read off the source: the nearest header line
  * above the region's first line. Nested constructs are placed first, and a region's search starts above the headers of
- * the constructs inside it, so an outer `errored (e)` is not labelled with an inner `errored (e: NotFound)`.
+ * the constructs inside it, so an outer boundary is not labelled with an inner boundary's head.
  */
 export function controlHeads(graph, sourceOf) {
   const kids = new Map(), own = new Map();
@@ -204,7 +204,7 @@ export function controlHeads(graph, sourceOf) {
   const head = r => {
     if (headMemo.has(r.id)) return headMemo.get(r.id);
     headMemo.set(r.id, null);
-    let bound = first(r);
+    let bound = Math.min(first(r), r.arms?.[0]?.line ?? Infinity);
     const below = rr => { for (const k of kids.get(rr.id) ?? []) { const h = CONTROL[k.kind] && head(k); if (h?.line) bound = Math.min(bound, h.line - 1); else below(k); } };
     below(r);
     const pat = CONTROL[r.kind], ls = sourceOf(r.mod);

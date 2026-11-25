@@ -15,8 +15,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks }); };
 try {
   const graph = await (await fetch("/test/fixtures/tracker.json")).json();
-  // a typed boundary the model says is dead (until the compiler says so, a hand-set flag)
-  graph.regions.find(r => r.id === "5:r6").deadTyped = true;
   const f = document.createElement("iframe");
   f.srcdoc = pageHTML(graph, { live: true });
   document.body.append(f);
@@ -100,15 +98,17 @@ try {
   }
   check("overview: every card sits inside its plate", !spill.length, spill);
   check("overview: every card has the same parts (name, path, role bar, counts)", modules.every(([, c]) => c.querySelector(".ps-name") && c.querySelector(".ps-path") && c.querySelector(".ps-bars i") && c.querySelector(".ps-counts span")));
-  // a dead typed boundary is marked
-  const dead = M.region("5:r6");
-  check("a typed boundary an inner catch-all shadows is marked dead", dead?.classList.contains("dead") && /dead/.test(dead.querySelector(":scope > .flabel .deadmark")?.textContent ?? ""));
+  const boundary = M.region("5:r6");
+  const arms = () => [...boundary.querySelectorAll(":scope > .flabel .arm-list > span")].map(e => e.textContent);
+  check("a boundary lists its arms in order", arms().join(" ") === "NotFound NotFoundHere", arms());
   // live: a failure caught by a boundary gets an arrow from the failing name to it; the overview's card counts it
   const detail = graph.nodes.find(n => n.name === "detail" && n.mod === 0 && !n.site), rv = w.__RX_VIEW__;
   rv.receive({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [{ key: detail.key, name: "detail", error: "NotFound" }] });
-  rv.receive({ source: "rx-map", v: 1, type: "boundary", region: graph.regions.find(r => r.id === "5:r5").key, state: "fallback", error: "NotFound" });
+  rv.receive({ source: "rx-map", v: 1, type: "boundary", region: graph.regions.find(r => r.id === "5:r6").key, state: "error", error: "NotFound", arm: "NotFoundHere" });
   rv.receive({ source: "rx-map", v: 1, type: "flight", key: graph.nodes.find(n => n.name === "stats" && n.mod === 0 && !n.site).key, state: "start", at: 2 });
   M.setLevel(2); await sleep(120); await M.draw();
+  check("the reported arm is highlighted even if its name differs from the preview",
+    boundary.querySelector(".selected-arm")?.textContent === "NotFoundHere");
   check("a caught failure: an arrow from the failing name to the boundary showing its fallback", doc.querySelectorAll("#edges path.caught").length >= 1, doc.querySelectorAll("#edges path.caught").length);
   M.setLevel(1); await sleep(120);
   const card = M.module(0).querySelector(".psum");

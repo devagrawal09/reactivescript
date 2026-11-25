@@ -44,7 +44,7 @@ test("test/fixtures/scenario-coverage.txt is what the scenarios give (node scena
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
-test("a typed action catch is covered by the compiled runtime and live bridge", t => {
+test("an action catch arm is covered by the compiled runtime and live bridge", t => {
   const dir = mkdtempSync(join(tmpdir(), "rx-scenarios-"));
   try {
     const out = join(dir, "coverage.json");

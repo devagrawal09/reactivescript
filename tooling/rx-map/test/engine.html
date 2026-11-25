@@ -227,9 +227,10 @@ try {
   // does. A first rejected answer is not a Solid value change.
   const extra = { ...graph, regions: [...graph.regions, {
     ...errored, id: `${errored.mod}:r900`, key: `${errored.key}/errored`, parent: errored.id,
+    arms: [{ cls: "NotFound", line: 49 }],
   }] };
   register(extra, { hot });
-  const typed = extra.regions.at(-1);
+  const dispatch = extra.regions.at(-1);
   const NotFound = class NotFound extends Error {};
   let rejectQuestion, answerRows, releaseWrite, change;
   const update = () => {};
@@ -245,7 +246,7 @@ try {
       return () => `${mod.status()} ${mod.rows().length} ${mod.rows()[0]?.name ?? ""}`;
     } }),
       rt.DevErrored({ region: ref(errored), fallback: () => "wrong boundary", get children() {
-        return rt.TypedErrored({ region: ref(typed), classes: [NotFound], fallback: e => e().message, get children() {
+        return rt.ArmsErrored({ region: ref(dispatch), names: ["NotFound"], classes: [NotFound], arms: [e => e().message], get children() {
           return rt.DevLoading({ region: ref(loading), fallback: "waiting", get children() { return () => mod.question(); } });
         } });
       } })];
@@ -258,8 +259,9 @@ try {
   check("timeline filters changes and compacts arrays", filteredTimeline.steps.some(s =>
     s.changes.some(c => c.preview?.startsWith("Array(1)"))) &&
     filteredTimeline.steps.every(s => s.changes.every(c => c.key === store && c.full === undefined)));
-  check("module question rejection is keyed with its typed error", ask("tail").result.some(r => r.changes?.some(c => c.key === K("query") && c.error === "NotFound: missing issue" && !("preview" in c))));
-  check("the typed boundary reports the error, not its enclosing boundary", ask("state").result.boundaries.some(b => b.region === typed.key && b.error === "NotFound: missing issue") &&
+  check("module question rejection is keyed with its error class", ask("tail").result.some(r => r.changes?.some(c => c.key === K("query") && c.error === "NotFound: missing issue" && !("preview" in c))));
+  check("the boundary reports the error and selected arm, not its enclosing boundary", ask("state").result.boundaries.some(b =>
+    b.region === dispatch.key && b.error === "NotFound: missing issue" && b.arm === "NotFound") &&
     ask("state", { key: errored.key }).result.state === "ok", ask("state").result.boundaries);
   const write = change();
   await sleep(20);

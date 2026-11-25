@@ -106,7 +106,7 @@ export const CTL_WHAT = {
   else: "The other branch of the if above it.",
   for: "One row per item, matched by identity: each row is created and disposed with its item (RG-2).",
   loading: "A boundary: shows its fallback while a reader inside is pending (H-5). <code>on(k)</code> re-arms it when <code>k</code> changes (H-6); otherwise it shows the old content while new data loads.",
-  errored: "A boundary: shows its fallback when a reader inside fails (R-f-5). A typed <code>fallback(e: C)</code> catches only that class.",
+  errored: "A boundary: shows its fallback when a reader inside fails (R-f-5). Ordered error arms take the first match; <code>_</code> takes the rest.",
 };
 export const NOUN = { source: "source", eq: "equation", action: "action", fn: "function", server: "server function", import: "JS import" };
 export const SAMPLE = { source: "count", asource: "user", eq: "total", aeq: "results", props: "props", reader: "{ total }", action: "save", handler: "onClick", effect: "effect", apply: "apply",

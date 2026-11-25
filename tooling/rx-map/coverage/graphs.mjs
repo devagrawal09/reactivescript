@@ -20,7 +20,7 @@ export function mergeTraceGraphs(graphs) {
     }
     const ref = id => local.get(id) ?? id;
     for (const r of g.regions) if (added.has(r.id)) out.regions.push({ ...r, id: ref(r.id), mod: modules[r.mod],
-      parent: ref(r.parent), ...(r.shadowed ? { shadowed: ref(r.shadowed) } : {}),
+      parent: ref(r.parent),
       ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: ref(p.site) }
         : "region" in p ? { ...p, region: ref(p.region) } : p) } : {}) });
     for (const n of g.nodes) if (added.has(n.id)) out.nodes.push({ ...n, id: ref(n.id), mod: modules[n.mod], region: ref(n.region) });

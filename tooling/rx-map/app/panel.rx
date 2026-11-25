@@ -142,6 +142,13 @@ component NodePanel(props: { id: string }) {
     <pre class="code" innerHTML={hl(n.decl.line)}></pre>
   }}
   {if n.kind == "action" { <div class="hint" style={{ "margin-top": "4px" }}>· writes are held until the action returns; guesses show now</div> }}
+  {for c in n.catches ?? [] {
+    {if c.arms != null {
+      <div class="hint">catch · <span class="arm-list">{for a in c.arms { <span title={`${a.cls} · L${a.line}`}>{a.cls}</span> }}</span></div>
+    } else {
+      <div class="hint">catch-all</div>
+    }}
+  }}
   <PlanReason nodeKey={n.key} tip={false} />
   {if isLive() && hasKey(model, n.key) && !liveKinds.includes(n.kind) {
     <h3>Live value</h3>
@@ -196,9 +203,9 @@ component RegionPanel(props: { id: string }) {
       <p class="hint">Nothing read below it can be {r.kind == "loading" ? "pending" : "rejected"}.</p>
     }}
     {if r.kind == "errored" {
-      <p class="hint">Every <code>await</code> can reject, so these are the async names read below it. The model does not say yet which error classes each one can fail with, so a typed fallback's class is not checked here.</p>
+      <p class="hint">Every <code>await</code> can reject, so these are the async names read below it. This list does not match each rejection against the arms.</p>
     }}
-    <p class="hint">{sites} reader{sites == 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested {r.kind} boundary report to that one instead{r.kind == "errored" ? ", except a typed one: what it does not catch fails through to here" : ""}.</p>
+    <p class="hint">{sites} reader{sites == 1 ? "" : "s"} report to it, including those in components rendered inside it. Readers under a nested {r.kind} boundary report to that one instead{r.kind == "errored" ? ", except that unmatched errors pass through" : ""}.</p>
   }}
 }
 

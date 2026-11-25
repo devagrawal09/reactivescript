@@ -54,7 +54,7 @@ function viewState() {
     snapshot: { source: "rx-map", v: 1, type: "snapshot",
       values: Object.entries(S.values).filter(([, v]) => v.preview !== undefined).map(([key, v]) => ({ key, preview: v.preview })),
       flights: Object.keys(S.flying).map(key => ({ key, since: tl.flights.findLast(f => f.key === key && f.end == null)?.start ?? 0 })),
-      boundaries: Object.entries(S.boundaries).map(([region, b]) => ({ region, state: b.state, ...(b.error ? { error: b.error } : {}) })) },
+      boundaries: Object.entries(S.boundaries).map(([region, b]) => ({ region, state: b.state, ...(b.error ? { error: b.error } : {}), ...(b.arm != null ? { arm: b.arm } : {}) })) },
   };
 }
 
