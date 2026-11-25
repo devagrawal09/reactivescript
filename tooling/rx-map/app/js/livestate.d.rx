@@ -13,7 +13,8 @@ export pure fn boundaryOf(live: any, key: string, id: string): any
 export type PlanItem = { key: string; name: string; reason: string }
 export type PlanGroup = { group: string; title: string; icon: string; what: string; items: PlanItem[] }
 export type PlanMove = { from: string; to: string; reason: string }
-export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string }
+export type PlanItem = { key: string; name: string }
+export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string; uncarried: PlanItem[]; fallback: string }
 export pure fn lverrHTML(err: string): string
 export pure fn heldHTML(h: any): string
 export pure fn tripHTML(kind: string, error: string | null): string

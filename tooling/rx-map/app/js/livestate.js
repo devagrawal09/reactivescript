@@ -339,6 +339,9 @@ function onHmr(s, d, M) {
   if (d.phase === "apply") { h.phase = "apply"; emit(s, { k: "apply" }); }
   else if (d.phase === "done") {
     h.phase = "done";
+    // v0.7: the keys whose state could not be carried (the host fell back to a refresh for them)
+    h.fallback = d.fallback ?? null;
+    h.uncarried = Array.isArray(d.uncarried) ? [...d.uncarried] : [];
     if (h.swapped) { applyChanges(s, d.known ?? [], d.waves, {}); emit(s, { k: "wave", w: d.waves }); }
     else h.pendingDone = d.changes ?? [];
   } else if (d.phase === "failed") {
@@ -460,9 +463,11 @@ export function planView(hmr) {
   const phase = hmr?.phase ?? "";
   return {
     groups, moved, phase,
+    // v0.7: what the host could not carry over (a refresh fallback re-initialised it)
+    uncarried: (hmr?.uncarried ?? []).map(k => ({ key: k, name: keyName(k) })), fallback: hmr?.fallback ?? "",
     phaseName: ({ plan: "plan", apply: "applying", done: "done", failed: "failed" })[phase] ?? phase,
     modules: (hmr?.plan?.modules ?? []).join(", "),
-    text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : "Applied: the map now shows the new graph.",
+    text: phase === "plan" ? "An edit was saved. This is what will happen when it is applied; the tokens on the map are marked." : phase === "failed" ? `It failed: ${hmr.error ?? ""}` : phase === "apply" ? "Applying: kept state stays pinned, reset state flips, derived values re-run." : (hmr?.uncarried?.length ? "Applied, with a refresh fallback: the map now shows the new graph; the names below lost their state." : "Applied: the map now shows the new graph."),
   };
 }
 /** `x != null` as JS means it (RX's `!=` is strict: a missing key's `undefined` is not `null`). */
