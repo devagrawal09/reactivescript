@@ -44,7 +44,7 @@ the screen keeps `A`; `latest id` shows `b` and `pending? product` shows
 ## Rejected variants
 
 ```rx
--- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- runtime: ASYNC_OUTSIDE_LOADING_BOUNDARY
 export default component App() {
   source id := "a"
   product = await fetch("p:" + id)

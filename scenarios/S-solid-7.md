@@ -39,7 +39,7 @@ export default component App() {
 ## Rejected variants
 
 ```rx
--- warn: ASYNC_OUTSIDE_LOADING_BOUNDARY
+-- runtime: ASYNC_OUTSIDE_LOADING_BOUNDARY
 export default component App() {
   user = await fetch("user")
 

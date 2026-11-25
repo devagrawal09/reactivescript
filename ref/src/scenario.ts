@@ -4,7 +4,7 @@ import { Runtime, RuleError, CheckError } from "./runtime.ts";
 
 type Row = { instant: number; action: string; frame: string; effects: string[] };
 type Table = { title: string; program: string | null; rows: Row[] };
-type Rejected = { rule: string; program: string; handlers: string[]; warn: boolean; types?: boolean };   // types: refused by the type layer (TY, types/run.ts)
+type Rejected = { rule: string; program: string; handlers: string[]; runtime?: boolean; types?: boolean };
 export type Divergence = { table: string; instant: number; frame: string; effects?: string[]; runner: "oracle" | "server" | "hydrated"; ruled?: true };   // effects: the effect log Solid gives at that instant, when it differs too   // what Solid 2.0 shows where the spec rules otherwise (the client's, or the server render's)
 export type Scenario = { name: string; program: string; tables: Table[]; rejected: Rejected[]; divergences: Divergence[];
   entry: string; modules: Map<string, string>;
@@ -83,8 +83,8 @@ export function parseScenario(name: string, md: string, baseDir = "."): Scenario
     else if (s.title.startsWith("Rejected")) {
       for (const m of s.body.matchAll(/```[^\n]*\n([\s\S]*?)```/g)) {
         const [first, ...rest] = m[1].split("\n");
-        const r = /--\s*(reject|warn|types):\s*([\w-]+)/.exec(first);
-        if (r) rejected.push({ rule: r[2], warn: r[1] === "warn", types: r[1] === "types", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
+        const r = /--\s*(reject|runtime|types):\s*([\w-]+)/.exec(first);
+        if (r) rejected.push({ rule: r[2], runtime: r[1] === "runtime", types: r[1] === "types", program: rest.filter(l => !l.trim().startsWith("--")).join("\n"),
           handlers: rest.map(l => /--\s*handler:\s*(.*)/.exec(l)?.[1]).filter((x): x is string => !!x) });
       }
     }
@@ -140,12 +140,12 @@ export function runScenario(sc: Scenario): Result {
   }
   for (const rj of sc.rejected) {
     if (rj.types) continue;                                              // TY: the type layer's, over the projection (types/run.ts)
-    if (rj.warn) {
+    if (rj.runtime) {
       try {
         const rt = new Runtime(moduleSet(sc, rj.program)); rt.step([]);
         const hit = rt.diagnostics.find(d => d.startsWith(rj.rule));
-        if (hit) lines.push(`  ✓ warn(${rj.rule}): ${hit}`); else { ok = false; lines.push(`  ✗ warn(${rj.rule}): no diagnostic (got: ${rt.diagnostics.join(" | ") || "none"})`); }
-      } catch (e) { ok = false; lines.push(`  ✗ warn(${rj.rule}): ${(e as Error).message}`); }
+        if (hit) lines.push(`  ✓ runtime(${rj.rule}): ${hit}`); else { ok = false; lines.push(`  ✗ runtime(${rj.rule}): no diagnostic (got: ${rt.diagnostics.join(" | ") || "none"})`); }
+      } catch (e) { ok = false; lines.push(`  ✗ runtime(${rj.rule}): ${(e as Error).message}`); }
       continue;
     }
     try {

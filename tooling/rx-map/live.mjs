@@ -711,6 +711,10 @@ function getRecorder() {
       });
       return;
     }
+    if (event.type === "caught") {
+      send({ type: "caught", key: event.key, id: event.id, site: event.site, class: event.class, at: performance.now() });
+      return;
+    }
     const { type, key, id, state, args, error, ownerPath } = event;
     const at = performance.now();
     const msg = { type, key, id, state, at, ownerPath };

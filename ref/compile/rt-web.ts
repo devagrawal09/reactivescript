@@ -55,7 +55,7 @@ type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unkno
   source?: boolean;
 };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
-type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown } | { type: "caught"; key: string; id: number; site: number; class: string };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
@@ -421,6 +421,16 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
       let last: unknown[] | null = null;
       createEffect((() => inputs().map(latestWhole)) as any, { effect: (vals: unknown[]) => { if (last && last.length === vals.length && vals.every((v, i) => sameInput(v, last![i]))) return; last = vals; return run(vals); }, error: () => { last = null; } } as any);
     },
+    ...(RX_INSTRUMENT ? {
+      actionCaught(key: string, site: number, error: unknown, names: string[], classes: unknown[]) {
+        // Same short circuit as isA, including Panic and restoring the class of wire errors.
+        const panic = classes.indexOf(PANIC);
+        const i = panic >= 0 ? panic : classes.findIndex(c => isA(error, [c]));
+        if (i < 0) return false;
+        if (currentRun !== undefined) trace({ type: "caught", key, id: currentRun, site, class: names[i] });
+        return true;
+      },
+    } : {}),
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
       if (RX_INSTRUMENT && key) {

@@ -27,7 +27,7 @@ class Env {
   /** The declaring frame of `n` (for companion `pre` memos). */
   frame(n: string): Env | undefined { return this.vars.has(n) ? this : this.parent?.frame(n); }
 }
-type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean };
+type Ctx = { imp: boolean; gen?: boolean; async?: boolean; tail?: boolean; self?: string; effect?: boolean; dyn?: boolean; actionTrace?: { key: string; next: number } };
 
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"]);
 const isHandler = (a: string) => /^on[A-Z:]/.test(a);
@@ -293,7 +293,11 @@ class Gen {
     for (const d of decls) if (d.k === "context") out.push(`${pad}const ${mg(d.name)} = __rt.context(${J(d.name)}, ${d.dflt ? `() => ${this.expr(d.dflt, env, { imp: false })}` : "null"});   // RG-7: the declaration is the context's identity\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
     for (const d of decls) if (d.k === "fn") out.push(this.fn(d, env, ind));
     for (const d of decls) if (d.k === "component") out.push(this.component(d, env, ind));
-    for (const d of decls) if (d.k === "action") out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true }, ind + 1)}\n${pad}}${this.keys.has(d) ? `, ${J(this.keys.get(d))}` : ""});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    for (const d of decls) if (d.k === "action") {
+      const key = this.keys.get(d);
+      const actionTrace = key ? { key, next: 0 } : undefined;
+      out.push(`${pad}const ${mg(d.name)} = __rt.action(function* (${d.params.map(mg).join(", ")}) {\n${this.stmts(d.body, this.params(env, d.params), { imp: true, gen: true, actionTrace }, ind + 1)}\n${pad}}${key ? `, ${J(key)}` : ""});\n${pad}__rt.reg(${J(d.name)}, { value: ${mg(d.name)} });`);
+    }
     for (const d of decls) if (d.k === "eq" && unwrapServer(d.e)) { const f = this.serverWrapped(d.name, d.e); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-1d: a wrapped server fn, at module level`); }
     for (const d of decls) if (d.k === "server") { const f = this.serverHoist(d); out.push(`${pad}const ${mg(d.name)} = __rt.serverRef(${J(d.name)}, ${f});   // 12 SF-7a: the call site's (question or request); the function is module-level`); }
     // values in dependency order (E-7: equations are unordered in the source; C-1 makes this a DAG)
@@ -556,6 +560,11 @@ class Gen {
   }
   /** R-f-4: error class names → a JS array of their values; `undefined`: every failure. */
   private classes(names: string[] | undefined, env: Env): string { return names ? `[${names.map(n => n === "Error" ? "Error" : n === "Panic" ? "__rt.PANIC" : this.ref(n, env, { imp: false })).join(", ")}]` : "undefined"; }
+  private catchMatch(ctx: Ctx, names: string[] | undefined, error: string, env: Env): string {
+    const values = this.classes(names, env);
+    const t = ctx.actionTrace;
+    return t && names ? `__rt.actionCaught(${J(t.key)}, ${t.next++}, ${error}, ${J(names)}, ${values})` : `__rt.isA(${error}, ${values})`;
+  }
   private hasAwait(ss: unknown): boolean { const s = JSON.stringify(ss); return s.includes('"k":"await"'); }
 
   // ---- imperative scope ----
@@ -569,7 +578,7 @@ class Gen {
         const v = s.k === "let" ? mg(s.name) : null; const set = (x: string) => `${pad}  ${v ? `${v} = ` : ""}${x};`;
         const h = new Env(env); if (c.name) h.vars.set(c.name, { kind: "val", js: mg(c.name) });
         const ev = c.name ? mg(c.name) : "__e";
-        out.push(`${v ? `${pad}let ${v};\n` : ""}${pad}try {\n${set(e(c.e))}\n${pad}} catch (${ev}) {\n${pad}  if (!__rt.isA(${ev}, ${this.classes(c.classes, env)})) throw ${ev};\n${set(this.expr(c.alt, h, { ...ctx, tail: false }))}\n${pad}}`);
+        out.push(`${v ? `${pad}let ${v};\n` : ""}${pad}try {\n${set(e(c.e))}\n${pad}} catch (${ev}) {\n${pad}  if (!${this.catchMatch(ctx, c.classes, ev, env)}) throw ${ev};\n${set(this.expr(c.alt, h, { ...ctx, tail: false }))}\n${pad}}`);
         if (v) env.vars.set(s.name, { kind: "val", js: v });
         return;
       }
@@ -593,8 +602,10 @@ class Gen {
         case "action": out.push(`${pad}__rt.action(function* () {\n${this.stmts(s.body, env, { imp: true, gen: true, dyn: ctx.dyn }, ind + 1)}\n${pad}})();`); break;
         case "sif": out.push(`${pad}if (${e(s.c)}) {\n${this.stmts(s.t, env, ctx, ind + 1)}\n${pad}} else {\n${this.stmts(s.f, env, ctx, ind + 1)}\n${pad}}`); break;
         case "try": {
+          const v = s.catchName ? mg(s.catchName) : "__e";
+          const match = s.catchClasses ? this.catchMatch(ctx, s.catchClasses, v, env) : null;
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;
-          if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: mg(s.catchName) }); const v = s.catchName ? mg(s.catchName) : "__e"; t += ` catch (${v}) {\n${s.catchClasses ? `${pad}  if (!__rt.isA(${v}, ${this.classes(s.catchClasses, env)})) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
+          if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: v }); t += ` catch (${v}) {\n${match ? `${pad}  if (!${match}) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
           if (s.fin) t += ` finally {\n${this.stmts(s.fin, env, ctx, ind + 1)}\n${pad}}`;
           out.push(t); break;
         }

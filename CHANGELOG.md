@@ -10,14 +10,11 @@
   single exports instead of hiding the rest. Type-only exports erase from the runtime import. `export const` is a
   `.d.rx` form.
 
-**Deprecated**
-
-- `import pure` / `fails(…)` / `server` / `client` on an import of a `.ts` module: a warning
-  (`IMPORT_ROW_DEPRECATED`) naming the helper to write in the `.ts`. **It becomes an error in the next minor.**
-  Package imports with no `.ts` beside them are unaffected.
-
 **Breaking**
 
+- `import pure` / `fails(…)` / `server` / `client` on a local TypeScript import fails with `IMPORT_ROW_ON_TS`,
+  naming the helper to write in the TS module. Package imports without a sibling TS module are unaffected.
+- `ref` and `instantiates` already imply `pure`. Remove the `pure(…)` wrapper around either helper.
 - An import of a name a `.ts` module does not export is `NOT_EXPORTED`. A `.ts` module that no generator can read,
   such as native `rxc` without `@reactivescript/compiler`'s `rx-dts` and TypeScript, is `DECLARATION_UNAVAILABLE`.
 

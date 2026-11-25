@@ -152,7 +152,7 @@ export type JsDecl = (
 export function helpersOf(d: JsDecl): string[] {
   if (d.kind !== "fn") return [];
   const out: string[] = [];
-  if (d.pure) out.push("pure");
+  if (d.pure && !d.instantiates) out.push("pure");
   if (d.rejects) out.push("rejects");
   if (d.refs?.some(x => x) || shapeHasRef(d.shape)) out.push("ref");
   if (d.instWritten) out.push("instantiates");

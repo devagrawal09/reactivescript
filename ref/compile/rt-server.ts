@@ -228,6 +228,7 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
 
+    ...(RX_HARNESS ? { actionCaught: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => isA(error, classes) } : {}),
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
     isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,

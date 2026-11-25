@@ -541,9 +541,16 @@ function* checkOne(makeHost, graph, label, seed, push) {
     const badB = bounds.filter(b => typeof b.region !== "string" || !STATES.has(b.state) || (b.error !== undefined && b.state !== "error"));
     push(badB.length === 0, "boundary messages well formed", label, badB.length ? JSON.stringify(badB[0]) : bounds.length ? undefined : "none seen");
 
+    const caughtBad = [];
+    const typedCatches = new Map(graph.nodes.filter(n => n.kind === "action").map(n => [n.key, (n.catches ?? []).filter(c => c.classes !== null)]));
     for (const box of everything) {
       const open = new Map();
       for (const m of box) {
+        if (m.type === "caught") {
+          if (open.get(m.id) !== m.key || !Number.isInteger(m.site) ||
+              !typedCatches.get(m.key)?.[m.site]?.classes.includes(m.class) || !Number.isFinite(m.at)) caughtBad.push(m);
+          continue;
+        }
         if (m.type !== "run") continue;
         if (!allKeys.has(m.key)) { bad.push(`run of unknown ${m.key}`); continue; }
         if (m.state === "start") { if (open.has(m.id)) bad.push(`run ${m.id} started twice`); open.set(m.id, m.key); }
@@ -553,6 +560,8 @@ function* checkOne(makeHost, graph, label, seed, push) {
     }
     const runs = every.filter(m => m.type === "run");
     push(!bad.some(b => b.startsWith("run")), "runs pair start with end or error", label, bad.filter(b => b.startsWith("run")).slice(0, 3).join("; ") || (runs.length ? undefined : "none seen"));
+    push(caughtBad.length === 0, "caught records name a typed catch in an active run", label,
+      caughtBad.length ? JSON.stringify(caughtBad[0]) : every.some(m => m.type === "caught") ? undefined : "none seen");
 
     const heldBad = [];
     for (const box of everything) {

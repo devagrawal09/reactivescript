@@ -42,8 +42,9 @@ export default component App() {
 - `## Variant: …` tables replay the base table up to the first listed
   instant, then override; with their own program fence, prefix rows only
   drive state.
-- `## Rejected variants`: fences starting `-- reject: RULE` (or `-- warn:
-  CODE`), optional `-- handler: stmts` lines; `-- types: CODE` is refused
+- `## Rejected variants`: fences starting `-- reject: RULE`, optional
+  `-- handler: stmts` lines; `-- runtime: CODE` tests runtime attribution only;
+  `-- types: CODE` is refused
   by the type layer (TypeScript's `TSnnnn`, or a rule it states as a type,
   such as `WIRE_VALUE`) and checked by `npm run -s types` only.
 - `## Divergences`: `- oracle "<table>" instant N: \`frame\` — why` records

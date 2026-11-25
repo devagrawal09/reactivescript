@@ -390,13 +390,12 @@ test("MO-11 through $RXC: rxc runs $RX_DTS; node shows each import's declaration
   put("users.ts", users + "export const score = [pure((n: number) => n)][0];\n");
   utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 2000));
   assert.match(await c.text("check"), /^users\.ts:6:\d+\s+DECLARATION_HELPER/m);
-  // 09 MO-11e: `import pure` on logVisit's defaulted io still narrows it: "ok", then the warning apart
+  // 09 MO-11e: `import pure` on a TS module is an error with the helper fix.
   put("users.ts", users);
   put("main.rx", 'import pure { logVisit } from "./users"\nexport default component App() {\n  action go() { try { await logVisit("x") } catch (e) {} }\n  <p>x</p>\n}\n');
   utimesSync(join(root, "users.ts"), new Date(), new Date(Date.now() + 3000));
-  const warned = await c.text("check");
-  assert.match(warned, /^ok\nwarnings:\nmain\.rx:1:\d+ IMPORT_ROW_DEPRECATED `pure` on the import narrows logVisit's defaulted rows, .*`export const logVisit = pure\(…\)`/);
-  assert.deepEqual((await c.json("check")).map(d => [d.severity, d.code]), [["warning", "IMPORT_ROW_DEPRECATED"]]);
+  assert.match(await c.text("check"), /^main\.rx:1:\d+ IMPORT_ROW_ON_TS .*`export const logVisit = pure\(…\)`/);
+  assert.deepEqual((await c.json("check")).map(d => [d.severity, d.code]), [["error", "IMPORT_ROW_ON_TS"]]);
   put("main.rx", 'import { remove } from "./users"\nexport default component App() { <p>x</p> }\n');
   assert.match(await c.text("check"), /^main\.rx:1:\d+\s+NOT_EXPORTED/m);
 });

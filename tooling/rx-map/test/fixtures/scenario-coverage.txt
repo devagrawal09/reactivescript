@@ -31,7 +31,7 @@ examples/ai2/tracker/issues.rx     5/5      2/2    0/0      0/0      1/3    3/3 
 examples/ai2/tracker/people.rx     1/1      0/0    0/0      0/0      0/0    1/1     2/2
 examples/ai2/tracker/ui.rx         1/1      0/0    2/2      2/2      0/0    0/0     5/5
 examples/cart.rx                   10/10    3/4    0/0      0/1      2/3    2/2     17/20
-examples/notes/data.rx             5/5      2/2    0/0      0/0      0/3    4/4     11/14
+examples/notes/data.rx             5/5      2/2    0/0      0/0      0/3    5/5     12/15
 examples/notes/main.rx             2/2      1/1    2/2      0/2      0/0    0/0     5/7
 examples/notes/ui.rx               3/4      2/3    0/0      0/0      0/0    0/0     5/7
 examples/shop/cart.rx              5/5      1/2    0/0      0/0      2/3    2/2     10/12
@@ -42,7 +42,7 @@ examples/signup.rx                 12/12    6/9    0/0      0/2      0/0    1/1 
 examples/todo.rx                   7/8      4/4    0/0      0/0      0/0    3/3     14/15
 examples/todos.rx                  9/12     8/8    1/1      0/1      3/12   3/4     24/38
 examples/users.rx                  7/8      5/5    1/1      0/1      2/6    3/3     18/24
-Program total                      114/121  56/65  11/12    5/17     17/42  31/34   234/291
+Program total                      114/121  56/65  11/12    5/17     17/42  32/35   235/292
 
 examples/ai/feed.rx:72                no test makes errored (e) show its fallback
 examples/ai/grid.rx:20                no test makes errored (e) show its fallback

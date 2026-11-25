@@ -9,9 +9,9 @@ import { pure, rejects, ref, instantiates, server } from "@reactivescript/js";
 
 export class NotFound extends Error {}
 export const fetchUser = pure(rejects([NotFound], async (id: number) => (await get(`/u/${id}`)) as User));
-export const createToggle = pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial)));
-export const createDebounced = pure(ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …));
-export const listen = pure(instantiates((el: EventTarget, type: string, h: (e: Event) => void) => …));
+export const createToggle = ref({ result: [0] }, (initial: boolean) => createSignal(initial));
+export const createDebounced = ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …);
+export const listen = instantiates((el: EventTarget, type: string, h: (e: Event) => void) => …);
 export const getSecret = server(async () => …);
 ```
 

@@ -56,7 +56,7 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
   }
   if (sc.program) add(`${sc.name} Program`, sc.entry, read(sc.program));
   for (const t of sc.tables) if (t.program) add(`${sc.name} ${t.title}`, sc.entry, read(t.program));
-  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : r.warn ? "warn" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program)));
+  sc.rejected.forEach((r, i) => add(`${sc.name} ${r.types ? "types" : "reject"}(${r.rule}) #${i}`, sc.entry, read(r.program)));
 }
 const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith(".rx") && !e.name.endsWith(".d.rx") ? [join(d, e.name)] : []);
 for (const f of walk(join(root, "examples")).sort()) add(`examples/${f.slice(join(root, "examples").length + 1)}`, f, disk, lowerMode ? [] : undefined);
@@ -71,7 +71,7 @@ if (!lowerMode && !projectMode) {
 // module's type (MO-8e); and a TS module no generator answers for (MO-11d).
 {
   const files = new Map([
-    ["src/main.rx", `import pure { load, Book } from "./api"
+    ["src/main.rx", `import { load, Book } from "./api"
 import { Shelf, shelves } from "./shelf"
 export default component App() {
   book: Book = load()
@@ -85,8 +85,7 @@ export default component App() {
   add("MO-11 generated, merged, and a type import from a TS module", "src/main.rx", withDeclarations(p => files.get(p), files), lowerMode ? [] : undefined);
   add("MO-11d no generator", "src/main.rx", p => files.get(p), lowerMode ? [] : undefined);
 }
-// MO-11c/e: a TS module that states its facts with @reactivescript/js helpers; the import narrows the defaulted ones
-// (IMPORT_ROW_DEPRECATED, a warning: the program compiles) and not the stated one.
+// MO-11c/e: a TS module states facts with @reactivescript/js helpers, not via import rows.
 if (!lowerMode && !projectMode) {
   const files = new Map([
     ["src/main.rx", `import { fetchUser, NotFound } from "./api"
@@ -138,7 +137,6 @@ function refOf(r: Req) {
     order: set.order,
     asts: Object.fromEntries(set.order.map(p => [p, set.programs.get(p)])),
     diags: checked.diags,
-    warnings: checked.warnings,
     sigs: Object.fromEntries(set.order.map(p => [p, printSignature(checked.sigs.get(p)!)])),
     models: Object.fromEntries(checked.models),
   });

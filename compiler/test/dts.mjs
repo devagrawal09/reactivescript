@@ -481,11 +481,11 @@ export const i = client((x = 1, ...rest: string[]) => x + rest.length);
     "export error E1",
     "export pure fn a(n: number): string",
     "export fn b(id: number): Promise<{ id: number; }> rejects(E1)",
-    "export fn c(ref p: string): number",
-    "export fn d(): ref number",
-    "export fn e(initial: boolean): [ref boolean, (v: boolean) => void]",
-    "export fn f(): { value: ref string; set: (v: string) => void }",
-    "export fn g(t: EventTarget, type: string): void instantiates",
+    "export pure fn c(ref p: string): number",
+    "export pure fn d(): ref number",
+    "export pure fn e(initial: boolean): [ref boolean, (v: boolean) => void]",
+    "export pure fn f(): { value: ref string; set: (v: string) => void }",
+    "export pure fn g(t: EventTarget, type: string): void instantiates",
     "export server fn h(): Promise<string>",
     "export client fn i(x?: number, ...rest: string[]): number",
   ]);
@@ -497,9 +497,9 @@ export class NotFound extends Error {}
 export class Offline extends Error {}
 export const a = pure(server(rejects([NotFound, Offline], async (id: number): Promise<number> => id)));
 export const b = rejects([NotFound], pure(async () => 1));
-export const c = instantiates(pure(ref({ args: [0], result: true }, (src: Accessor<number>) => src)));
-export const d = ((pure((instantiates(() => {})))));
-export const e = client(pure(ref({ result: [0] }, (initial: boolean) => createSignal(initial))));
+export const c = ref({ args: [0], result: true }, (src: Accessor<number>) => src);
+export const d = ((instantiates(() => {})));
+export const e = client(ref({ result: [0] }, (initial: boolean) => createSignal(initial)));
 export const f = pure(<T extends object>(value: T) => value);
 `);
   assert.deepEqual(r.errors, []);
@@ -520,7 +520,7 @@ test("helpers: an implementation given by name takes its parameters from its sig
 declare function impl(a: number, b?: string): boolean;
 function source(s: Accessor<string>, ms: number) { void ms; return s; }
 export const a = pure(impl);
-export const b = pure(ref({ args: [0], result: true }, source));
+export const b = ref({ args: [0], result: true }, source);
 `);
   assert.deepEqual(r.errors, []);
   assert.deepEqual(rows(r), [
@@ -564,13 +564,25 @@ export const a = rejects([Gone, errs.Moved], async () => 1);
 
 test("helpers: a re-exported helper const is read at its original", { skip }, () => {
   const files = project({
-    "a.ts": HELPERS_HEADER + "export const f = pure(ref({ args: [0] }, (s: Accessor<number>) => s()));\n",
+    "a.ts": HELPERS_HEADER + "export const f = ref({ args: [0] }, (s: Accessor<number>) => s());\n",
     "m.ts": 'export { f as g } from "./a";\n',
   });
   const r = createDeclarations({ ts, read: f => files[f] }).record("/p/src/m");
   assert.deepEqual(r.errors, []);
   assert.deepEqual(rows(r), ["export pure fn g(ref s: number): number"]);
   assert.ok(r.files.includes("/p/src/a.ts"));
+});
+
+test("helpers: implicit purity cannot be restated, even if TS checking is bypassed", { skip }, () => {
+  const { r } = genH(`
+export const a = pure(ref({ result: true }, () => () => 1));
+export const b = instantiates(server(pure(() => 2)));
+`);
+  assert.equal(r.errors.length, 2);
+  for (const error of r.errors) {
+    assert.equal(error.code, "DECLARATION_HELPER");
+    assert.match(error.message, /remove the `pure\(…\)` wrapper/);
+  }
 });
 
 test("helpers: misuse is DECLARATION_HELPER at the call, and the line falls back to the default", { skip }, () => {
@@ -610,7 +622,7 @@ export { notConst, inner };
     "export const wrapped: string",
     "export const notFn: any",
     "export fn notConst(): number",
-    "export fn inner(): () => number",
+    "export fn inner(): any",
   ]);
 });
 
@@ -833,4 +845,3 @@ test("the CLI: text, --json, --record with its cache, and null", { skip }, () =>
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
-

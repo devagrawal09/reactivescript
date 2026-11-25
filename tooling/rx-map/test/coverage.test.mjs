@@ -221,6 +221,16 @@ test("an action's own catches fold into its outcomes", () => {
   assert.deepEqual(rejected(g), [`action:${rename}:rejected:Conflict`]);
   node.catches = [{ classes: ["NotFound"] }, { classes: ["Conflict"] }];
   assert.deepEqual(rejected(g), []);
+  node.catches = [{ classes: ["NotFound"] }, { classes: null }, { classes: ["NotFound", "Conflict"] }];
+  const catchIds = ids(g).filter(id => id.startsWith(`action:${rename}:caught:`));
+  assert.deepEqual(catchIds, [`action:${rename}:caught:Conflict:1`, `action:${rename}:caught:NotFound:0`, `action:${rename}:caught:NotFound:1`]);
+  const c = createCollector({ graphs: [g] });
+  c.feed({ type: "run", state: "start", id: 1, key: rename });
+  c.feed({ type: "caught", key: rename, id: 1, site: 1, class: "NotFound", at: 1 });
+  c.feed({ type: "run", state: "end", id: 1, key: rename });
+  assert.equal(c.result().hits[catchIds[2]]?.n, 1);
+  assert.equal(c.result().hits[catchIds[1]], undefined);
+  assert.equal(c.result().hits[`action:${rename}:ok`]?.n, 1);
   delete node.catches;   // a model without the field (an older rxc): v0.2's paths
   assert.deepEqual(rejected(g), [`action:${rename}:rejected:Conflict`, `action:${rename}:rejected:NotFound`]);
   // a typed catch doesn't take the deliberate `Error`; only a catch-all does

@@ -27,9 +27,8 @@ included, so saving the `.ts` refreshes the `.rx`'s diagnostics. The
 projection (the virtual code) is remade when the `.rx` changes: a helper added
 in the `.ts` reaches hover and TypeScript's errors at the `.rx`'s next edit.
 Through `RXC`, `rxc` runs `rx-dts` itself (MO-11d) and none of this is cached.
-A warning is shown as one (severity Warning): `IMPORT_ROW_DEPRECATED` (MO-11e),
-an `import pure` / `fails` / `server` / `client` that narrows a fact the `.ts`
-does not state, with the helper that states it.
+`IMPORT_ROW_ON_TS` (MO-11e) reports rows on a local TS import and names the
+helper to write instead.
 
 The project needs a `tsconfig.json` with Solid's JSX (`"jsx": "preserve"`,
 `"jsxImportSource": "@solidjs/web"`) and Solid in its `node_modules`.
@@ -70,9 +69,7 @@ module in the program (parse errors, else the checker's, with their rules),
 and exits non-zero if there are any errors. A module that does not parse has no
 projection, so TypeScript alone would pass it. Then the generator's
 (`DECLARATION_HELPER`, at the helper call in the `.ts` a `.rx` imports).
-Warnings (`- warning IMPORT_ROW_DEPRECATED: …`) are printed with them and
-counted apart (`Found 1 ReactiveScript warning.`); alone, they exit 0. Under `--watch` only
-TypeScript's errors are reported.
+Under `--watch` only TypeScript's errors are reported.
 
 ## Editors
 
@@ -137,9 +134,9 @@ definition across modules, references, completion while typing (in code and in
 markup), a parse error, a TypeScript type error and a crate diagnostic, each
 placed on the `.rx`; and a `.ts` with no `.d.rx` (MO-11): a `Ref` hovering as
 its `T`, a rename in the `.ts` reaching the `.rx` unedited, a misplaced helper
-on the `.ts`, `IMPORT_ROW_DEPRECATED` as a Warning. `test/tsc.js` runs `rx-tsc`
+on the `.ts`, and an `IMPORT_ROW_ON_TS` error. `test/tsc.js` runs `rx-tsc`
 on the same copy, with the MO-11 cases: helpers, a type import, an error class
 caught, a `ref` read as `T`, a TypeScript error against the `.ts`'s types,
-`DECLARATION_HELPER`, `NOT_EXPORTED`, and `IMPORT_ROW_DEPRECATED` printed with
-exit 0. Both link `js/` and `compiler/` into the copy's
+`DECLARATION_HELPER`, `NOT_EXPORTED`, and `IMPORT_ROW_ON_TS` printed with
+exit 1. Both link `js/` and `compiler/` into the copy's
 `node_modules/@reactivescript/`.

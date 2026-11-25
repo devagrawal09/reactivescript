@@ -64,18 +64,19 @@ try {
     const api = path.join(dir, `api.${ext}`);
     writeFileSync(api, 'export function load() { return "loaded"; }\n');
     const compiled = JSON.parse(app(entry, "dom", null, true, undefined, undefined, undefined, declare));
+    if (ext === "ts") {
+      const ok = compiled.diagnostics?.some(d => d.code === "IMPORT_ROW_ON_TS" && d.msg.includes("export const load = pure(…)")) && !compiled.modules;
+      if (!ok) fail++;
+      console.log(`${ok ? "✓" : "✗"} ./api.ts: import rows fail with a helper fix`);
+      rmSync(api);
+      continue;
+    }
     const code = compiled.modules?.[entry]?.code ?? "";
     const ok = /import \{ load as w\$load \} from "\.\/api"/.test(code)
       && /import \{ save as w\$save \} from "\.\/server"/.test(code)
       && !/__rt\.api|w\$Volume|v\$Volume|\.\/types/.test(code);
     if (!ok) fail++;
     console.log(`${ok ? "✓" : "✗"} ./api.${ext} stays real, and .d.rx types bind no values${ok ? "" : `: ${code || JSON.stringify(compiled)}`}`);
-    // 09 MO-11e: `import pure` on a TS module's defaulted fact compiles, with a warning beside the modules; a JS module's
-    // (R-io-4) has none
-    const warned = (compiled.warnings ?? []).map(w => `${w.severity} ${w.code}`);
-    const wok = JSON.stringify(warned) === JSON.stringify(ext === "ts" ? ["warning IMPORT_ROW_DEPRECATED"] : []) && !compiled.diagnostics;
-    if (!wok) fail++;
-    console.log(`${wok ? "✓" : "✗"} ./api.${ext}: ${ext === "ts" ? "`import pure` on a defaulted fact warns (IMPORT_ROW_DEPRECATED) and compiles" : "no warning"}${wok ? "" : `: ${JSON.stringify(warned)}`}`);
     rmSync(api);
   }
 } finally { rmSync(dir, { recursive: true }); }
