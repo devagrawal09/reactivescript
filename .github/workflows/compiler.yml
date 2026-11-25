@@ -10,12 +10,40 @@ name: compiler
 on:
   push:
     branches: [main]
-    paths: ["compiler/**", ".github/workflows/compiler.yml"]
+    paths: ["compiler/**", "ref/**", "spec/**", "scenarios/**", "examples/**", "tooling/rx-map/test/fixtures/**", ".github/workflows/compiler.yml"]
   pull_request:
-    paths: ["compiler/**", ".github/workflows/compiler.yml"]
+    paths: ["compiler/**", "ref/**", "spec/**", "scenarios/**", "examples/**", "tooling/rx-map/test/fixtures/**", ".github/workflows/compiler.yml"]
   workflow_dispatch:
 
 jobs:
+  parity:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: checker, flags: "" }
+          - { name: lowering, flags: "--lower" }
+          - { name: dev lowering, flags: "--lower --dev" }
+    name: parity (${{ matrix.name }})
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+      - run: sh ref/scripts/solid-next.sh
+      - run: npm ci --prefix ref
+      - run: npm --prefix ref run crate -- ${{ matrix.flags }}
+
   build:
     strategy:
       fail-fast: false
