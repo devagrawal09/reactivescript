@@ -435,8 +435,9 @@ export const fields: readonly ["name", "email"]
   module declares the exports it names, each whole (its rows and, in the
   type layer, its written types, TY-4b). Every other export keeps its
   generated line: a written file no longer hides what it does not
-  mention. A written line for a name the module does not export is
-  `NOT_EXPORTED`. Its type imports (MO-8e) and private types serve its own
+  mention. A written value line (`fn`, `error`, `const`) for a name the module does
+  not export is `NOT_EXPORTED`; a written `export type` the module lacks is
+  the declaration's own type, as in any `.d.rx` (it binds no value). Its type imports (MO-8e) and private types serve its own
   lines, and it may name the generated `export type`s. Per fact, a
   written line beats a brand, a brand beats the import, and the import
   beats the default. On a *defaulted* fact (a generated line that no
