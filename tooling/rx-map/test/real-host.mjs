@@ -12,7 +12,7 @@
 // $CHROME or Playwright's headless shell.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -37,7 +37,9 @@ let chromium;
 try { ({ chromium } = require("playwright")); } catch { die("no playwright: put its node_modules on NODE_PATH"); }
 const args = process.argv.slice(2);
 const shots = args.includes("--shots") ? resolve(args[args.indexOf("--shots") + 1]) : null;
+let ownApp = null; // the app dir this run made (removed at exit); an APP given from outside is left alone
 const app = process.env.APP ? resolve(process.env.APP) : setUpApp(resolve(process.env.SOLID_VIEW));
+process.on("exit", () => { if (ownApp) try { rmSync(ownApp, { recursive: true, force: true }); } catch {} });
 const chrome = process.env.CHROME ?? (() => {
   const base = join(homedir(), ".cache/ms-playwright");
   const dir = existsSync(base) && readdirSync(base).filter(d => d.startsWith("chromium_headless_shell")).sort().pop();
@@ -70,30 +72,38 @@ function setUpApp(solidView) {
   };
   const workspace = `minimumReleaseAgeExclude:\n  - solid-js\n  - '@solidjs/*'\n  - '@reactivescript/*'\noverrides:\n`
     + ["solid-js", "@solidjs/signals", "@solidjs/web"].map(n => `  '${n}': ${pkg.dependencies[n]}\n`).join("");
-  const dir = join(tmpdir(), `rx-real-host-${createHash("sha1").update(repo + pkgs).digest("hex").slice(0, 10)}`);
+  // One app per run (this process), removed at the end. Runs used to share one dir per repository: a second run from
+  // the same worktree re-copied the app under the first, its HMR checks wrote .rx files that the first run's Vite then
+  // pushed into pages mid-travel, and both re-forced one dep cache (extra flushes, "replacement failed", travels to
+  // another DOM). The install is offline from pnpm's store.
+  const dir = join(tmpdir(), `rx-real-host-${createHash("sha1").update(repo + pkgs).digest("hex").slice(0, 10)}-${process.pid}`);
+  rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   cpSync(join(here, "shelf-app"), dir, { recursive: true, force: true });
-  const manifest = JSON.stringify(pkg, null, 2) + "\n";
-  const fresh = !existsSync(join(dir, "node_modules/.bin/vite")) || !existsSync(join(dir, "package.json"))
-    || readFileSync(join(dir, "package.json"), "utf8") !== manifest;
-  writeFileSync(join(dir, "package.json"), manifest);
+  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   writeFileSync(join(dir, "pnpm-workspace.yaml"), workspace);
-  if (fresh) {
-    console.log(`installing the shelf app in ${dir}`);
-    const r = spawnSync("pnpm", ["install", "--prefer-offline"], { cwd: dir, stdio: ["ignore", "inherit", "inherit"] });
-    if (r.status !== 0) die(`pnpm install failed in ${dir}`);
-  }
+  const r = spawnSync("pnpm", ["install", "--prefer-offline", "--reporter=silent"], { cwd: dir, stdio: ["ignore", "inherit", "inherit"] });
+  if (r.status !== 0) die(`pnpm install failed in ${dir}`);
+  ownApp = dir;
   return dir;
 }
 
 // ---- the dev server ------------------------------------------------------------------------------------------------
-const port = 3190 + Math.floor(Math.random() * 400);
-const vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], {
-  cwd: app, env: { ...process.env, RX_MCP_ACT: "1" }, stdio: ["ignore", "pipe", "pipe"],
-});
-let viteLog = "";
-vite.stdout.on("data", d => (viteLog += d));
-vite.stderr.on("data", d => (viteLog += d));
+// a free port: another run (or app) may hold the first one tried
+let port, vite, viteLog = "";
+for (let attempt = 0; ; attempt++) {
+  port = 3190 + Math.floor(Math.random() * 2000);
+  viteLog = "";
+  vite = spawn(join(app, "node_modules/.bin/vite"), ["--port", String(port), "--strictPort", "--force"], {
+    cwd: app, env: { ...process.env, RX_MCP_ACT: "1" }, stdio: ["ignore", "pipe", "pipe"],
+  });
+  vite.stdout.on("data", d => (viteLog += d));
+  vite.stderr.on("data", d => (viteLog += d));
+  for (let i = 0; i < 300 && !viteLog.includes("Local:") && vite.exitCode === null; i++) await new Promise(r => setTimeout(r, 100));
+  if (viteLog.includes("Local:")) break;
+  vite.kill();
+  if (attempt >= 4 || !/already in use/i.test(viteLog)) { console.error(`vite did not start (exit ${vite.exitCode}) on port ${port}:\n${viteLog}`); process.exit(1); }
+}
 const origin = `http://localhost:${port}`;
 async function mcp(name, args = {}) {
   const res = await fetch(`${origin}/__rx/mcp`, { method: "POST", headers: { "content-type": "application/json" },
@@ -101,10 +111,6 @@ async function mcp(name, args = {}) {
   const { result, error } = await res.json();
   assert.ok(result && !result.isError, error?.message ?? result?.content[0].text);
   return JSON.parse(result.content[0].text);
-}
-for (let i = 0; !viteLog.includes("Local:"); i++) {
-  if (i > 300 || vite.exitCode !== null) { console.error(`vite did not start (exit ${vite.exitCode}) on port ${port}:\n${viteLog}`); process.exit(1); }
-  await new Promise(r => setTimeout(r, 100));
 }
 
 const browser = await chromium.launch({ executablePath: chrome, args: ["--no-sandbox"] });
@@ -779,8 +785,11 @@ async function roundThree() {
   const early = await drain(page);
   check("(c) travel while an action runs is not denied", !early.some(m => m.type === "travel-denied"), early.map(m => `${m.type}${m.reason ? ` ${m.reason}` : ""}`));
   await settle();
-  await sleep(300);
-  const later = (await drain(page)).filter(m => m.type === "step");
+  // the queued travel goes once the hold has landed (polled every 50 ms): wait for its step, not a fixed time
+  const later = [];
+  for (let i = 0; i < 60 && !later.length; i++) { later.push(...(await drain(page)).filter(m => m.type === "step")); if (!later.length) await sleep(50); }
+  await sleep(150);
+  later.push(...(await drain(page)).filter(m => m.type === "step"));
   check(`(c) …and once it has landed, the app shows the last target, #${seen[1]}`, later.length === 1 && later[0].to === seen[1]
     && unlessInexact(panel(await html()), later[0]) === unlessInexact(panel(dom[seen[1]]), later[0]), later.map(m => m.to));
   await post(page, { type: "resume" });
