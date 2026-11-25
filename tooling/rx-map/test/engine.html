@@ -17,13 +17,24 @@
 <style>html, body { margin: 0; height: 100%; background: #000 } #host { position: fixed; inset: 0 }</style>
 <div id="host"></div>
 <pre id="result" hidden></pre>
+<pre id="early" hidden></pre>
+<script>
+  // Before the module runs: a module or script that fails to load (or throws outside the harness's try) stops the page
+  // before it writes #result; say why in #early for run.mjs. A last timer reports how far it got if time runs out.
+  const early = what => { const el = document.getElementById("early"); el.textContent += (el.textContent ? "\n" : "") + what; };
+  addEventListener("error", e => early(e.target && e.target !== window
+    ? `failed to load ${e.target.src || e.target.href || e.target.tagName}` : `error: ${e.message} at ${e.filename}:${e.lineno}`), true);
+  addEventListener("unhandledrejection", e => early(`unhandled rejection: ${e.reason?.stack ?? e.reason}`));
+  setTimeout(() => { if (!document.getElementById("result").textContent)
+    early(`still running after 7.5 s of virtual time; last check: ${globalThis.__lastCheck ?? "none"}`); }, 7500);
+</script>
 <script type="module">
 import { createSignal, createMemo, createEffect, createRoot, createStore, untrack, flush, OBSERVE } from "solid-js";
 import { register } from "../live.mjs";
 import { createApp } from "/runtime/rt-web.ts";
 
 const checks = [];
-const check = (what, ok, got) => checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) });
+const check = (what, ok, got) => { globalThis.__lastCheck = what; checks.push({ what, ok: !!ok, ...(ok ? {} : { got }) }); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const done = () => { document.getElementById("result").textContent = JSON.stringify({ ok: checks.every(c => c.ok), checks, messages }); };
 const messages = [];
