@@ -65,7 +65,6 @@ export default component App() {
   // whole modes key off classes on <body>
   effect (focus != null) { bodyClass("focus", $0) }
   effect (board.flat) { bodyClass("flat", $0) }
-  effect (level) { bodyClass(`lv${$0}`, true); return () => { bodyClass(`lv${$0}`, false) } }
   effect (diff) { bodyClass("diff", $0) }
   effect (diffView) { bodyClass("v-before", $0 == "before"); bodyClass("v-after", $0 == "after") }
   effect (miniOn) { bodyClass("mini-off", !$0) }

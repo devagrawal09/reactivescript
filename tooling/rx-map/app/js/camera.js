@@ -9,6 +9,8 @@ let cam = initialCam();
 let level = detailLevel(), pinnedAt = null, readBoard, readModel, publishLevel, onDragStart;
 function setLevel(l) {
   if (level === l) return;
+  // the stylesheet keys each level off <body>: switch it now, with the camera, not a commit later
+  document.body.classList.remove(`lv${level}`); document.body.classList.add(`lv${l}`);
   level = l;
   publishLevel(l);
   zoomPct.title = l === overviewLevel() ? "overview" : "detail";
@@ -126,7 +128,8 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
   if (!cam.ready) return;
   const fr = freeRect();
   inertia = null;
-  if (reducedMotion() || !dur) { setCamAt(bx, by, s, fr.cx, fr.cy); fly = null; camChanged(); return; }
+  // no flight: the camera (and with it the level) is there now, not on the next frame, as zoomAt does
+  if (reducedMotion() || !dur) { setCamAt(bx, by, s, fr.cx, fr.cy); fly = null; camDirty = false; applyCam(); return; }
   fly = { t0: performance.now(), dur, s0: cam.s, s1: s, b0: toBoard(fr.cx, fr.cy), b1: [bx, by], tx: fr.cx, ty: fr.cy };
   kick();
 }
