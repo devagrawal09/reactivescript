@@ -13,8 +13,13 @@ export pure fn boundaryOf(live: any, key: string, id: string): any
 export type PlanItem = { key: string; name: string; reason: string }
 export type PlanGroup = { group: string; title: string; icon: string; what: string; items: PlanItem[] }
 export type PlanMove = { from: string; to: string; reason: string }
-export type PlanItem = { key: string; name: string }
-export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string; uncarried: PlanItem[]; fallback: string }
+export type PlanView = { groups: PlanGroup[]; moved: PlanMove[]; phase: string; phaseName: string; modules: string; text: string; uncarried: PlanItem[]; reseeded: PlanItem[]; fallback: string }
+export type CallFn = { key: string; name: string }
+export type CallRow = { id: number; kind: string; key: string; name: string; fns: CallFn[]; when: string; args: string; cause: string; inferred: boolean; dur: string; outcome: string; badge: string; error: string; seq: number; seqText: string }
+export type CallFnCount = { key: string; name: string; n: number }
+export type CallsView = { rows: CallRow[]; fns: CallFnCount[]; total: number }
+/** The Calls tab's rows (newest first; `fnKey` "" for all) and the imports that have calls. */
+export pure fn callsView(live: any, fnKey: string): CallsView
 export pure fn lverrHTML(err: string): string
 export pure fn heldHTML(h: any): string
 export pure fn tripHTML(kind: string, error: string | null): string

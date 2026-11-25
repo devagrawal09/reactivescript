@@ -305,7 +305,16 @@ What it shows:
 - **A reload:** on `plan`, the **Reload** tab lists what is kept, reset, re-run, added, removed and moved, with
   reasons, and the tokens are marked (added ones wait as ghosts on their plate). On `apply` the plate lifts, kept
   tokens glint, reset ones flip, re-run ones spin, removed ones sink; then the new graph is swapped in and each token
-  slides to its new place.
+  slides to its new place. After `done` the plan is checked against what came back: a name the plan called kept that
+  came back changed is listed as **reseeded**, and names the host couldn't carry come first, under **Not carried**.
+- **Calls** (a tab in live mode): every call across the trust boundary, newest first. The bridge doesn't see a JS call
+  itself; it sees what makes it, and the graph's `call` edges say which JS imports that is: a question asking (a
+  flight: started, then landed, rejected with its error, or dropped as stale) or an action run (its arguments, then
+  ended or failed). Each row has the time, the function, who called it (links to both tokens), the arguments or the
+  inputs that re-asked it (`re-asked: page 1→2`, from the flight's `cause`, TRACE-CONTRACT v0.9), the duration, the
+  outcome, and the cause: the interaction, the input change, a first ask, or the action running at the time (marked
+  *inferred* when it is a guess). Filter by function; click a row to travel to the step it landed in. A JS import's
+  panel lists its last calls.
 
 The page is a ReactiveScript program, `app/` (`app/README.md`: its modules, and the JS modules that do the camera,
 geometry, effects, sound and the live reducer). `page.mjs` is generated from it: `npm run build` compiles `app/main.rx`
@@ -337,7 +346,8 @@ harness.
 `runConformanceAsync` for one whose calls take time (a real app in a browser: `makeHost` and the host's calls may
 return promises). The suite's arbiter is what the app shows (TRACE-CONTRACT §5): `makeHost` may return
 `shown(keys)`, compared after every travel and resume with the replay of the host's messages; it also checks the
-v0.3–v0.7 messages (snapshot, boundary, run, held/released, revert, error states, travel-pending, HMR `uncarried`).
+v0.3–v0.9 messages (snapshot, boundary, run, held/released, revert, error states, travel-pending, HMR `uncarried`,
+flight `cause` and a rejected ask's `error`).
 `test/conformance.test.mjs` runs broken hosts (one shows the wrong state, one loses work done while viewing, one
 reports a snapshot it doesn't show, others send malformed messages) and checks each fails. `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
 Chromium and checks the DOM under travel, read-only viewing, `inexact` and first-change `prev`. `npm test` runs it

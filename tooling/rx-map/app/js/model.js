@@ -19,6 +19,8 @@ export function buildModel(g) {
   return M;
 }
 export const graphOf = M => M.G;
+/** The page title of a model's graph: its title, else its modules' file names (build.mjs computes it the same way). */
+export const titleOf = M => M.G.title ?? (M.G.modules ?? []).map(m => m.split("/").pop()).join(", ");
 export const nodeOf = (M, id) => M.nodes.get(id) ?? null;
 export const regionOf = (M, id) => M.regions.get(id) ?? null;
 export const isRegion = (M, id) => M.regions.has(id);

@@ -12,7 +12,8 @@ import { graphOf, nodeOf, regionOf, isRegion, inEdges, outEdges, label, lineOf, 
 import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop } from "./js/panel.js"
 import { model, selected, diffView, showTrace, mark } from "./state.rx"
 import { tab, open, tabs, firstTab, pick, openTab, closePanel, togglePanel } from "./ui.rx"
-import { LiveValue, BoundaryNow, PlanPanel, PlanReason, hasPlan } from "./live.rx"
+import { present } from "./js/livestate.js"
+import { LiveValue, BoundaryNow, PlanPanel, PlanReason, hasPlan, CallsPanel, ImportCalls } from "./live.rx"
 import { Legend, Sample, Gi, Gio, Ga } from "./legend.rx"
 
 G = graphOf(model)
@@ -65,6 +66,8 @@ export component Side() {
         {if isRegion(model, selected) { <RegionPanel id={selected} /> } else if nodeOf(model, selected) != null { <NodePanel id={selected} /> }}
       } else if shown == "plan" {
         <PlanPanel />
+      } else if shown == "calls" {
+        <CallsPanel />
       } else if shown == "legend" {
         <Legend />
       } else if shown == "changes" {
@@ -136,6 +139,7 @@ component NodePanel(props: { id: string }) {
     <h3>Live value</h3>
     <div id="liveval"><LiveValue id={props.id} /></div>
   }}
+  {if isLive() && n.world && present(n.key) { <ImportCalls nodeKey={n.key} /> }}
   <div class="row">
     <button data-trace="down">what it affects</button>
     <button data-trace="up">what it depends on</button>

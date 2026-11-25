@@ -268,6 +268,7 @@ function endPointer(ev) {
 function pointerLeave() { cam.trx = 0; cam.try = 0; kick(); }
 function click(ev) { if (suppressClick) { ev.stopPropagation(); ev.preventDefault(); suppressClick = false; } }
 let padUntil = 0;
+const WHEEL_STEP = 1.13;   // a mouse wheel notch's zoom (6 notches: ×2.1)
 function wheelKind(ev, now = performance.now()) {
   if (ev.ctrlKey || ev.metaKey) return "zoom";
   if (ev.shiftKey) return "sideways";
@@ -281,7 +282,12 @@ function wheel(ev) {
   const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
   const kind = wheelKind(ev);
   if (kind === "zoom") {
-    zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0018)));
+    // a pinch (ctrl + small pixel deltas): proportional, as the fingers move. A mouse wheel: one gentle step per
+    // notch, whatever deltaY / deltaMode the device sends (100, 120, 3 lines, an accelerated 500…): ×WHEEL_STEP.
+    const pinch = ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50;
+    const f = pinch ? Math.exp(-ev.deltaY * .01) : ev.deltaY === 0 ? 1 : ev.deltaY < 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+    const cap = pinch ? 1.25 : WHEEL_STEP;
+    zoomAt(ev.clientX, ev.clientY, Math.min(cap, Math.max(1 / cap, f)));
     return;
   }
   fly = null; inertia = null;
