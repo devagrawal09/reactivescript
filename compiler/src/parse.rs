@@ -2047,6 +2047,30 @@ enum Close {
     Tag(String),
 }
 
+/// Solid's trim_jsx_text, mirrored by ref/src/parse.ts. The text span covers the
+/// raw child; the AST carries its rendered value.
+pub(crate) fn jsx_text(s: &str) -> String {
+    let text = s.replace('\r', "");
+    let text = if text.contains('\n') {
+        text.split('\n').enumerate()
+            .map(|(i, l)| if i == 0 { l } else { l.trim_start_matches(char::is_whitespace) })
+            .filter(|l| !l.chars().all(char::is_whitespace))
+            .collect::<Vec<_>>().join(" ")
+    } else { text };
+    let mut s = String::new();
+    let mut whitespace = false;
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            if !whitespace { s.push(' '); }
+            whitespace = true;
+        } else {
+            s.push(ch);
+            whitespace = false;
+        }
+    }
+    s
+}
+
 fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
     let mut out: Vec<Markup> = vec![];
     let in_element = matches!(close, Close::Tag(_));
@@ -2055,21 +2079,8 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         Close::Brace => Some("}".to_string()),
         Close::Tag(t) => Some(t.clone()),
     };
-    let mut broke = false;
     loop {
-        let start = c.i;
-        if in_element {
-            let mut s = String::new();
-            while !c.eof() && " \t\r\n".contains(c.peek()) {
-                s.push(c.peek());
-                c.bump();
-            }
-            broke = s.contains('\n');
-            let tag = close_text.as_deref().unwrap();
-            if !s.is_empty() && !broke && !c.starts_with(&format!("</{}>", tag)) && !out.is_empty() {
-                out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
-            }
-        } else {
+        if !in_element {
             c.ws(true);
         }
         if c.eof() {
@@ -2125,24 +2136,14 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
         if matches!(close, Close::Top) && looks_like_decl(c) {
             return c.fail("declaration after markup: a block is declarations, then its view");
         }
-        let mut s = String::new();
         let s0 = c.i;
-        while !c.eof() && !"<{}\n".contains(c.peek()) {
-            s.push(c.peek());
+        let stops = if in_element { "<{}" } else { "<{}\n" };
+        while !c.eof() && !stops.contains(c.peek()) {
             c.bump();
         }
-        if c.peek() == '\n' || c.eof() {
-            s = s.trim_end_matches([' ', '\t', '\r']).to_string();
-        }
+        let s = &c.src[s0..c.i];
         if !in_element {
-            if js_trim(&s).is_empty() {
-                if c.peek() == '\n' {
-                    c.bump();
-                }
-                if c.i == start {
-                    // the reference loops here forever (a stray `}`); this ends it
-                    return c.fail("expected a declaration or markup");
-                }
+            if !s.is_empty() && js_trim(s).is_empty() {
                 continue;
             }
             if s.contains(":=") {
@@ -2150,16 +2151,12 @@ fn parse_markup(c: &mut Cursor, close: Close) -> R<Vec<Markup>> {
             }
             return c.fail("expected a declaration or markup");
         }
-        if broke && matches!(out.last(), Some(Markup { kind: MarkupKind::Text(_), .. })) {
-            out.push(Markup { kind: MarkupKind::Text(" ".into()), line: None, span: Span::NONE });
-        }
-        if !s.is_empty() {
-            let span = Span::new(s0, s0 + s.len());
-            out.push(Markup { kind: MarkupKind::Text(s), line: None, span });
-        }
-        if c.i == start {
-            // the reference loops here forever (a stray `}` in an element); this ends it
+        if c.i == s0 {
             return c.fail("expected a declaration or markup");
+        }
+        let s = jsx_text(s);
+        if !s.is_empty() {
+            out.push(Markup { kind: MarkupKind::Text(s), line: None, span: Span::new(s0, c.i) });
         }
     }
 }
