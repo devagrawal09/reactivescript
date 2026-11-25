@@ -11,6 +11,8 @@ import { planHmr, keyParts } from "./hmr.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
+const probeOwners = new WeakSet();
+const probeNode = node => !!node && (probeOwners.has(node._owner) || probeOwners.has(node._parent));
 const message = msg => ({ source: SOURCE, v: 1, ...msg });
 const graphs = [];
 const mounts = new Set();
@@ -225,7 +227,8 @@ function getRecorder() {
   const carrierOnly = new Array(capacity), rewrites = new Array(capacity), carrierKeys = new Array(capacity);
   // Does this Solid's view read a list's unnoded keys (mapArray rows) through the pinned container (solid-view
   // 980f5b4c5)? Probed once, at the first travel; until then, and on an older Solid, wholesale rewrites are inexact.
-  let listsThroughPin = null, probing = false;
+  let listsThroughPin = null, guessedListsThroughPin = null, probing = false;
+  let probingGuess = false;
   // A private list, prepended once and read through mapArray, then shown under a view at its first frame: with the
   // fix the view shows "a", without it the present "b". Synchronous, outside any flush (travel is called from a
   // message handler); its flushes are not history.
@@ -260,6 +263,57 @@ function getRecorder() {
       off?.();
       try { dispose?.(); s.flush(); } catch {}
       probing = false;
+    }
+  }
+  // 49b25a45c also rewinds a list an optimistic layer guessed over across an
+  // await. Probe that separately: the plain-list fix shipped first.
+  async function probeGuessedListPins(openView) {
+    const s = engine[0];
+    if (!s?.createOptimisticStore || !s.action) return false;
+    let dispose, off, shown;
+    const pins = new Map();
+    try {
+      let guess, write, release;
+      const gate = new Promise(resolve => { release = resolve; });
+      s.createRoot(d => {
+        dispose = d;
+        probeOwners.add(s.getOwner());
+        const [truth, setTruth] = s.createStore([{ id: "a" }]);
+        const [slot] = s.createSignal(truth);
+        const [list, setList] = s.createOptimisticStore(() => slot(), []);
+        const rows = s.mapArray(() => list, row => () => (typeof row === "function" ? row() : row).id);
+        s.createRenderEffect(() => rows().map(f => f()).join(","), v => { shown = v; });
+        write = () => setTruth(r => [{ id: "b" }, ...r]);
+        guess = s.action(function* () {
+          setList(r => r.filter(x => x.id !== "b"));
+          yield gate;
+          setTruth(r => r.filter(x => x.id !== "b"));
+        });
+      });
+      s.flush();
+      write();
+      s.flush();
+      if (shown !== "b,a") return false;
+      off = s.OBSERVE.records.subscribe("flush", (_e, live) => {
+        for (const c of live?.changes ?? [])
+          if (probeNode(c.node) && !pins.has(c.node)) pins.set(c.node, c.prev);
+      }, { bodies: true });
+      const done = guess();
+      s.flush();
+      const guessed = shown === "a";
+      release();
+      await done;
+      s.flush();
+      if (!guessed || shown !== "a" || !pins.size) return false;
+      const v = openView();
+      try {
+        v.show(pins);
+        return shown === "b,a";
+      } finally { v.resume(); }
+    } catch { return false; }
+    finally {
+      off?.();
+      try { dispose?.(); s.flush(); } catch {}
     }
   }
   const base = new Map(); // previews as of just before the oldest step kept
@@ -682,7 +736,7 @@ function getRecorder() {
     // A Solid whose view reads a list's rows through the pinned container rewinds a list rewritten wholesale, except
     // one an optimistic layer guessed over after n (a guess held across an await, then landed): its rows still read
     // wrong or `undefined` under the view (solid-view 980f5b4c5; reported).
-    if (listsThroughPin && guessedAfter.size) {
+    if (listsThroughPin && !guessedListsThroughPin && guessedAfter.size) {
       const rewritten = new Set();
       for (let s = oldest(); s <= flushes; s++) for (const k of rewrites[(s - 1) % capacity] ?? []) rewritten.add(k);
       for (const k of guessedAfter) if (rewritten.has(k)) roots.add(k);
@@ -742,7 +796,7 @@ function getRecorder() {
   // A question in the air or an action still running is a hold that has not landed: opening a view now, its landing
   // would come beneath the view and could not be told apart from what the view shows. Moving between seqs once
   // viewing is fine (the app is read-only, and what lands stays beneath).
-  const holding = () => !!landing || (!view && (flightKeys().size > 0 || runs.size > 0 || held.size > 0
+  const holding = () => !!landing || probingGuess || (!view && (flightKeys().size > 0 || runs.size > 0 || held.size > 0
     || [...writes].some(key => inspect(key, () => undefined)?.held)));
   // Travel asked for while holding waits (TRACE-CONTRACT v0.6 `travel-pending`): the newest target wins, and goes
   // when the hold has landed. `resume` drops it.
@@ -775,6 +829,19 @@ function getRecorder() {
           listsThroughPin = probeListPins(openView);
           // dev-only, for tests and tools: not part of the trace protocol
           (globalThis.__RX__ ??= {}).travel = { listsThroughPin };
+        }
+        if (listsThroughPin && guessedListsThroughPin === null && guessesNamed
+          && rewrites.flat().some(k => carrierKeys.some(keys => keys?.includes(k)))) {
+          queued = to;
+          publish({ type: "travel-pending", to });
+          probingGuess = true;
+          void probeGuessedListPins(openView).then(supported => {
+            probingGuess = false;
+            guessedListsThroughPin = supported;
+            globalThis.__RX__.travel.guessedListsThroughPin = supported;
+            tryQueued();
+          });
+          return;
         }
         const v = openView();
         view = v; // set after openView: its own flush of what was staged is live history
@@ -1030,7 +1097,8 @@ function listen(post, dirty, replacingOrigin) {
   const onFlush = (event, live) => {
     const hmr = (live?.changes ?? []).map(c => hmrFlights.get(c.node)).find(Boolean);
     const roots = new Map();
-    const changes = (event.changes ?? []).map((c, i) => {
+    const changes = (event.changes ?? []).flatMap((c, i) => {
+      if (probeNode(live?.changes?.[i]?.node)) return [];
       const out = { name: c.nodeName, key: keyOf(c.nodeName) };
       const body = live?.changes?.[i];
       if (out.key) {
@@ -1055,7 +1123,7 @@ function listen(post, dirty, replacingOrigin) {
     const raw = [];
     for (let i = 0; i < (live?.changes?.length ?? 0); i++) {
       const body = live.changes[i];
-      if (!body?.node || solid.OBSERVE.isExcluded?.(body.node)) continue;
+      if (!body?.node || probeNode(body.node) || solid.OBSERVE.isExcluded?.(body.node)) continue;
       raw.push({ node: body.node, name: event.changes[i]?.nodeName, prev: body.prev, value: body.value });
     }
     post({ source: SOURCE, type: "flush", at: event.at, changes, raw, ...(hmr ? { origin: hmr } : {}) });
