@@ -9,7 +9,7 @@ import { sparkle } from "./js/fx.js"
 import { flyToId } from "./js/camera.js"
 import { drawMiniView } from "./js/minimap.js"
 import { graphOf, nodeOf, regionOf, isRegion, inEdges, outEdges, label, lineOf, moduleLine, controlInfo, coverCount, hasKey, idsOfKey, downstream, upstream, summaryTrace } from "./js/model.js"
-import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, guideCode, prevent, panelTop } from "./js/panel.js"
+import { kindMeta, famName, famColor, shapeOf, ctlWhat, edgeWhat, edgeChange, diffFacts, closestData, eventKey, prevent, panelTop } from "./js/panel.js"
 import { model, selected, diffView, showTrace, mark } from "./state.rx"
 import { tab, open, tabs, firstTab, pick, openTab, closePanel, togglePanel } from "./ui.rx"
 import { LiveValue, BoundaryNow, PlanPanel, PlanReason, hasPlan } from "./live.rx"
@@ -230,7 +230,7 @@ component Guide() {
     <Sample kk="import" cls="" name="fetch" d="" gp={false} gq={false} chg={false} />
     <Sample kk="comp" cls="" name="Card" d="" gp={false} gq={false} chg={false} />
   </div>
-  <pre class="code" innerHTML={hl(guideCode())}></pre>
+  <pre class="code" innerHTML={hl("source count := 0                    // a well: state\ntotal = count * 2                    // always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // one change")}></pre>
   <p class="hint"><b>Marks are properties</b>, on any role: <Gi /> and stripes can be pending, <b>?</b> re-asks a standing question, <Gio /> touches the world, a dashed border is a trust point. In a diff, an outer ring and a corner badge say added, changed or removed.</p>
   <p class="hint"><b>Everything points up.</b> A thing sits below what it depends on: modules below the modules they import, components below the components they render, equations below what they read, actions below what they write, handlers below the actions they call. Each row inside a frame is one step deeper.</p>
   <p class="hint"><b>Move around.</b> Drag to pan, wheel or pinch to zoom toward the pointer, double-click a token to fly to it, <code>F</code> or <code>Esc</code> frames everything. The minimap shows where you are.</p>

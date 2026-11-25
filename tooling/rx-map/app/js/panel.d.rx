@@ -19,4 +19,3 @@ export pure fn closestData(ev: any, sel: string, name: string): string
 export pure fn eventKey(ev: any): string
 export fn prevent(ev: any): void
 export fn panelTop(): void
-export pure fn guideCode(): string

@@ -52,7 +52,6 @@ export function diffFacts(G, n) {
 }
 
 /** The Guide's four-line sample (here: a .rx string literal drops its escapes, so it can't hold the line breaks). */
-export const guideCode = () => `source count := 0                    // a well: state\ntotal = count * 2                    // always true\nresults = await search(query)        // can be pending\naction save() { count := count + 1 } // one change`;
 
 // ---- events ------------------------------------------------------------------------------------------------------
 /** A data attribute of the closest element matching `sel` to an event's target, "" when none. */

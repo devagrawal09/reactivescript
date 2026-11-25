@@ -120,7 +120,7 @@ export component ViewNote() {
   {if live.tl.viewing != null {
     <div id="viewNote" class="hud" role="status">
       <span style={{ display: "contents" }} innerHTML={icon("lock")}></span>
-      <span><b>looking back</b> <span class="vn-seq mono">#{live.tl.viewing} of {live.tl.head}</span><span class="vn-long">{" · the app is read-only until you resume"}</span><span class="vn-short">{" · read-only"}</span></span>
+      <span><b>looking back</b> <span class="vn-seq mono">#{live.tl.viewing} of {live.tl.head}</span><span class="vn-long"> · the app is read-only until you resume</span><span class="vn-short"> · read-only</span></span>
       <button class="hbtn" id="vnResume" onClick={() => { sfx("toggle"); resume() }}>resume</button>
     </div>
   }}
