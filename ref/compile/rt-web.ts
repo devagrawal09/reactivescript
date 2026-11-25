@@ -134,8 +134,13 @@ function traceBoundary(region: string, state: "fallback" | "error") {
   remember(dev.__RX_BOUNDARIES__ ??= new Map(), region, current, change);
   change();
   return (error?: Acc) => {
-    createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; change(); });
-    onCleanup(() => { current.state = "ok"; delete current.error; change(); });
+    // Its own ownerless root, disposed with the fallback: an effect owned by the fallback would take a hydration id
+    // the (non-dev) server never gave out, and the dev client's fallback would miss its keys (ssr/run.ts RX_DEV=1).
+    const dispose = runWithOwner(null, () => createRoot(d => {
+      createRenderEffect(() => error?.(), e => { current.state = state; current.error = e; change(); });
+      return d;
+    }));
+    onCleanup(() => { dispose(); current.state = "ok"; delete current.error; change(); });
   };
 }
 export type Acc = () => unknown;

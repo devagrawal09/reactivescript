@@ -1,0 +1,65 @@
+# The map and its live bridge (tooling/rx-map/): the whole `npm test`, including the real-host suite (time travel, HMR,
+# read-only viewing, per-instance values) against a running .rx app in headless Chromium. That suite needs a Solid
+# with openView, built from the commit pinned in tooling/rx-map/solid-view.json; under CI it fails rather than skips
+# when that build is missing (review 1, finding 5).
+name: rx-map
+
+on:
+  push:
+    branches: [main]
+    paths: ["tooling/rx-map/**", "ref/compile/rt-web.ts", "ref/compile/emit.ts", "runtime/**", "compiler/**", ".github/workflows/rx-map.yml"]
+  pull_request:
+    paths: ["tooling/rx-map/**", "ref/compile/rt-web.ts", "ref/compile/emit.ts", "runtime/**", "compiler/**", ".github/workflows/rx-map.yml"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: compiler
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - name: The compiler (rxc and the Node-API build the Vite front end loads)
+        working-directory: compiler
+        run: |
+          npm ci
+          npx napi build --platform --release --features node --manifest-path ./Cargo.toml -- --lib
+          cargo build --release --bin rxc
+      - name: The runtime
+        working-directory: runtime
+        run: |
+          npm ci
+          npm run build
+      - name: Solid with openView, at the pinned commit
+        run: |
+          repo=$(node -p 'require("./tooling/rx-map/solid-view.json").repo')
+          commit=$(node -p 'require("./tooling/rx-map/solid-view.json").commit')
+          branch=$(node -p 'require("./tooling/rx-map/solid-view.json").branch')
+          git clone --filter=blob:none --branch "$branch" "https://github.com/$repo" "$RUNNER_TEMP/solid-view"
+          git -C "$RUNNER_TEMP/solid-view" checkout "$commit"
+          cd "$RUNNER_TEMP/solid-view"
+          pnpm install --frozen-lockfile
+          for p in signals solid web; do (cd "packages/$p" && pnpm run build); done
+      - name: Playwright's Chromium
+        working-directory: tooling/rx-map
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: npm test (the real-host suite is required here)
+        working-directory: tooling/rx-map
+        env:
+          SOLID_VIEW: ${{ runner.temp }}/solid-view
+          SOLID_PACKAGES: ${{ runner.temp }}/solid-view/packages
+          RXC: ${{ github.workspace }}/compiler/target/release/rxc
+        run: npm test

@@ -10,7 +10,21 @@ import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE } from "./live-prot
 
 const SOURCE = "rx-map";
 const RX = "rx:";
+// ---- what this Solid supports -------------------------------------------------------------------------------------
+// The bridge reads a few engine internals the attribution records don't carry yet (rx-vision/solid-asks.md lists them
+// with the record each should become). Each read is feature-detected: the first time one is missing, the feature it
+// serves is marked unsupported here (`globalThis.__RX__.solid`), said once in the console, and the bridge goes on
+// without it. `true` = seen working, `false` = unsupported on this Solid, absent = not exercised yet.
+const support = {};
+function supports(feature, ok, what) {
+  if (support[feature] !== undefined) return support[feature];
+  support[feature] = !!ok;
+  (globalThis.__RX__ ??= {}).solid = support;
+  if (!ok) console.info(`[rx-map] ${what}: unsupported on this Solid (rx-vision/solid-asks.md)`);
+  return support[feature];
+}
 const probeOwners = new WeakSet();
+// Probe nodes are found by their owner (`_owner`/`_parent`, solid-asks #4); without it the list probes don't run.
 const probeNode = node => !!node && (probeOwners.has(node._owner) || probeOwners.has(node._parent));
 const message = msg => ({ source: SOURCE, v: 1, ...msg });
 const graphs = [];
@@ -112,6 +126,8 @@ export function attach(listener) {
       receiveFromView(msg, deliver);
     },
     detach() { recorder.listeners.delete(deliver); },
+    /** What the app displays now: `{ [key]: {preview} | {error} }` (TRACE-CONTRACT §5). */
+    shown(keys) { return recorder.shown(keys); },
   };
 }
 
@@ -505,6 +521,7 @@ function getRecorder() {
     const step = { seq: ++flushes, at, changes, ...(origin ? { origin } : {}) };
     steps[i] = step;
     raws[i] = raw;
+    if (flushes % 100 === 0) sweepDisposed();
     internals[i] = internal;
     // A store guess shows through the store's guess carrier (`<store>.$guess`). Solid with the store-guess record
     // (f9ee22ade) also lists the property and presence nodes it moved, which travel pins like any other; an older
@@ -621,6 +638,7 @@ function getRecorder() {
       return;
     }
     if (event.type === "dispose") {
+      queueSweep();
       const id = identity(event);
       runtimeNodes.delete(id);
       last.delete(id);
@@ -809,6 +827,30 @@ function getRecorder() {
     }
     return [...out].sort();
   }
+  // The ring keeps, per step, the engine nodes it changed: a disposed component's nodes (and the values they showed)
+  // would stay reachable for up to `capacity` steps. openView skips disposed nodes, so their entries go; the steps'
+  // keyed previews stay (finding 12). Without a readable disposed flag (solid-asks #2) nothing is swept.
+  const isDisposed = node => typeof node?._flags === "number" && (node._flags & (1 << 6)) !== 0;
+  function sweepDisposed() {
+    if (support.disposed === false) return;
+    for (let s = oldest(); s <= flushes; s++) {
+      const i = (s - 1) % capacity, list = raws[i];
+      if (list?.some(c => isDisposed(c.node))) raws[i] = list.filter(c => !isDisposed(c.node));
+    }
+  }
+  let sweepQueued = false;
+  const queueSweep = () => {
+    if (sweepQueued) return;
+    sweepQueued = true;
+    setTimeout(() => { sweepQueued = false; sweepDisposed(); }, 0);
+  };
+  // dev only, for tests: engine nodes the ring still holds, and how many of them are disposed
+  const retained = () => {
+    const nodes = new Set();
+    for (let s = oldest(); s <= flushes; s++) for (const c of raws[(s - 1) % capacity] ?? []) nodes.add(c.node);
+    return { nodes: nodes.size, disposed: [...nodes].filter(isDisposed).length };
+  };
+  (globalThis.__RX__ ??= {}).retained = retained;
   function pinsFor(n) {
     const pins = new Map();
     for (let s = flushes; s > n; s--) for (const c of raws[(s - 1) % capacity]) {
@@ -855,14 +897,24 @@ function getRecorder() {
     || [...writes.values()].some(({ key, instance }) => inspect(key, () => undefined, instance)?.held)));
   // Travel asked for while holding waits (TRACE-CONTRACT v0.6 `travel-pending`): the newest target wins, and goes
   // when the hold has landed. `resume` drops it.
-  let queued = null, queueTimer = 0;
+  // It waits PENDING_MS at most (an app that polls may always have a question in the air), then is denied "pending"
+  // with the keys it still waits on, so the view can say what.
+  const PENDING_MS = 3000;
+  let queued = null, queueTimer = 0, queuedSince = 0;
+  const waitingOn = () => [...new Set([...flightKeys().keys(), ...[...runs.values()].map(r => r.key), ...held.keys(),
+    ...[...writes.values()].filter(({ key, instance }) => inspect(key, () => undefined, instance)?.held).map(w => w.key)])].sort();
   function tryQueued() {
     if (queued === null || queueTimer) return;
     // never from inside a flush or an action body: openView throws there
     queueTimer = setTimeout(() => {
       queueTimer = 0;
       if (queued === null) return;
-      if (holding()) return void setTimeout(tryQueued, 50);
+      if (holding()) {
+        if (performance.now() - queuedSince < PENDING_MS) return void setTimeout(tryQueued, 50);
+        const to = queued;
+        queued = null;
+        return publish({ type: "travel-denied", to, reason: "pending", keys: waitingOn() });
+      }
       const to = queued;
       queued = null;
       travel(to);
@@ -870,6 +922,7 @@ function getRecorder() {
   }
   function travel(to) {
     if (holding()) {
+      if (queued === null) queuedSince = performance.now();
       queued = to; // checked when it goes: the seq may be recorded by then
       publish({ type: "travel-pending", to });
       return tryQueued();
@@ -877,7 +930,8 @@ function getRecorder() {
     queued = null;
     if (!Number.isInteger(to) || to < oldest() || to > flushes) return deny(to, "evicted");
     const openView = engine[1]?.openView;
-    if (typeof openView !== "function") return deny(to, "unsupported");
+    // solid-asks #7: openView (solidjs/solid#5089)
+    if (!supports("openView", typeof openView === "function", "time travel (openView)")) return deny(to, "unsupported");
     try {
       if (!view) {
         if (listsThroughPin === null) {
@@ -1080,7 +1134,18 @@ function getRecorder() {
       default: throw new Error("unknown live method; use status, tail, state, value, why, or pending");
     }
   }
-  return recording = { listeners, traces, query, snapshot, timeline, travel, resume, hmr, replaceModule };
+  // What the app displays now for each key (its newest live instance): TRACE-CONTRACT §5's arbiter for this host.
+  function shown(keys) {
+    const out = {};
+    for (const key of keys ?? [...(globalThis.__RX_NODES__?.keys() ?? [])]) {
+      const read = inspect(key);
+      if (!read) continue;
+      if (read.error != null) out[key] = { error: errorPreview(read.error) };
+      else if (read.value?.preview !== undefined) out[key] = { preview: read.value.preview };
+    }
+    return out;
+  }
+  return recording = { listeners, traces, query, snapshot, timeline, travel, resume, hmr, replaceModule, shown };
 }
 
 // ---- read-only while viewing ----------------------------------------------------------------------------------------
@@ -1199,6 +1264,8 @@ function listen(post, dirty, replacingOrigin) {
     if (!key || !node) return;
     observeNode(event.nodeName, node);
     dirty(key);
+    // solid-asks #1: a flight's start (`_x._inFlight`, read off a computation that just ran)
+    if (typeof node._fn === "function" && !supports("flightStart", "_x" in node, "flight starts (amber orbits, pending travel)")) return;
     const flight = node._x?._inFlight;
     if (flight && announced.get(node) !== flight) {
       const hmr = replacingOrigin();
@@ -1213,7 +1280,9 @@ function listen(post, dirty, replacingOrigin) {
         // Nor does it cover a node disposed while asking (a component a route or a view remounted): its answer lands
         // nowhere, and an open flight would hold travel forever. (`_flags` bit 6 is REACTIVE_DISPOSED.)
         setTimeout(() => {
-          if (announced.get(node) !== flight || !(node._flags & (1 << 6))) return;
+          // solid-asks #2: disposed (`_flags` bit 6, REACTIVE_DISPOSED)
+          if (announced.get(node) !== flight || !supports("disposed", typeof node._flags === "number", "ending flights of disposed nodes")
+            || !(node._flags & (1 << 6))) return;
           announced.delete(node);
           post({ type: "flight", key, instance, state: "abandon" }, event.nodeId);
         }, 0);
@@ -1259,6 +1328,8 @@ function listen(post, dirty, replacingOrigin) {
 // for attribution's own store paths. Older engines can only give the leaf.
 function storePath(node, leaf) {
   const parts = [leaf];
+  // solid-asks #3: the leaf's parents (`_host`, `pk`, `u`)
+  if (!supports("storePath", node && "_host" in node, "store paths beyond the leaf")) return leaf;
   for (let t = node?._host; t?.pk != null && parts.length < 128; t = t.u) parts.push(String(t.pk));
   return parts.reverse().join(".");
 }

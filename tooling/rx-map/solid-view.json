@@ -1,0 +1,6 @@
+{
+  "//": "The Solid build the real-host travel/HMR suite runs against (README: Supported Solid builds). openView (solidjs/solid#5089) on the pin in ref/SOLID_NEXT, plus the local openView fixes. CI checks this commit out; the branch must be pushed to the repo below for CI to find it.",
+  "repo": "devagrawal09/solid",
+  "branch": "rx/view-on-30e7805",
+  "commit": "49b25a45c"
+}

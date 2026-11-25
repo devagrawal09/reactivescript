@@ -48,7 +48,8 @@ export async function revert(_opId: string): Promise<void> {
 export type Shelf = { name: string; count: number };
 // `nope` is not a shelf: its panel shows the error.
 export async function loadShelf(id: string): Promise<Shelf> {
-  await delay(120);
+  // `slow` answers after 5 s: a question still in the air when travel is asked for (the travel wait is bounded at 3 s)
+  await delay(id === 'slow' ? 5000 : 120);
   if (id === 'nope') throw new Error('NotFound "nope"');
   return { name: `Shelf ${id}`, count: id.length };
 }
