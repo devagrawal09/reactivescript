@@ -38,6 +38,7 @@ module.exports = grammar(tsx, {
     [$.side, $.server_fn_expression],
     [$.primary_expression, $.draft_expression],
     [$.primary_expression, $._property_name, $.draft_expression],
+    [$.arrow_function, $._error_class],
   ]),
 
   rules: {
@@ -293,15 +294,18 @@ module.exports = grammar(tsx, {
     errored_block: $ => seq(
       'errored',
       'fallback',
-      optional(seq(
-        '(',
-        field('parameter', $._binding_name),
-        optional(seq(':', field('type', $._error_classes))),
-        ')',
-      )),
-      field('fallback', $.view_block),
+      choice(
+        seq($._arm_parameter, field('fallback', choice($.markup_error_arms, $.view_block))),
+        seq(optional($._legacy_catch_parameter), field('fallback', $.view_block)),
+      ),
       field('body', $.view_block),
     ),
+
+    _arm_parameter: $ => seq('(', field('parameter', $._binding_name), ')'),
+    _legacy_catch_parameter: $ => seq('(', field('parameter', $._binding_name), ':', field('type', $._error_classes), ')'),
+    markup_error_arms: $ => seq('{', repeat1(seq($.markup_error_arm, optional(';'))), '}'),
+    markup_error_arm: $ => seq($._arm_head, field('body', $.view_block)),
+    _arm_head: $ => seq(field('class', choice('_', $._error_class)), '=>'),
 
     portal_block: $ => seq(
       'portal',
@@ -435,19 +439,27 @@ module.exports = grammar(tsx, {
     // TC39's throw expression: `c ? a : throw NotFound(id)`
     throw_expression: $ => prec.left('unary_void', seq('throw', field('argument', $.expression))),
 
-    // `e catch (x: A | B) => alt`, looser than every operator; a chain folds left, `(a catch => b) catch => c`
+    // Looser than every operator; a chain folds left, `(a catch => b) catch => c`.
     catch_expression: $ => prec.left('catch', seq(
       field('value', $.expression),
       'catch',
-      optional(seq(
-        '(',
-        field('parameter', $._binding_name),
-        optional(seq(':', field('type', $._error_classes))),
-        ')',
-      )),
-      '=>',
-      field('alternative', $.expression),
+      choice(
+        seq($._arm_parameter, choice(field('arms', $.expression_error_arms), seq('=>', field('alternative', $.expression)))),
+        seq(optional($._legacy_catch_parameter), '=>', field('alternative', $.expression)),
+      ),
     )),
+
+    catch_clause: $ => seq(
+      'catch',
+      choice(
+        seq($._arm_parameter, field('body', choice($.statement_error_arms, $.statement_block))),
+        seq(optional(seq('(', field('parameter', $._binding_name), field('type', $.type_annotation), ')')), field('body', $.statement_block)),
+      ),
+    ),
+    statement_error_arms: $ => prec.dynamic(1, seq('{', repeat1(seq($.statement_error_arm, optional(';'))), '}')),
+    statement_error_arm: $ => seq($._arm_head, field('body', $.statement_block)),
+    expression_error_arms: $ => seq('{', repeat1(seq($.expression_error_arm, optional(';'))), '}'),
+    expression_error_arm: $ => seq($._arm_head, '{', field('body', $.expression), '}'),
 
     // `draft(e) { d[id] := true }`
     draft_expression: $ => seq(

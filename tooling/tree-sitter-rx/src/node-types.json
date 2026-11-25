@@ -1298,6 +1298,10 @@
           {
             "type": "statement_block",
             "named": true
+          },
+          {
+            "type": "statement_error_arms",
+            "named": true
           }
         ]
       },
@@ -1306,15 +1310,7 @@
         "required": false,
         "types": [
           {
-            "type": "array_pattern",
-            "named": true
-          },
-          {
             "type": "identifier",
-            "named": true
-          },
-          {
-            "type": "object_pattern",
             "named": true
           }
         ]
@@ -1337,10 +1333,20 @@
     "fields": {
       "alternative": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "arms": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "expression_error_arms",
             "named": true
           }
         ]
@@ -2212,6 +2218,10 @@
         "required": true,
         "types": [
           {
+            "type": "markup_error_arms",
+            "named": true
+          },
+          {
             "type": "view_block",
             "named": true
           }
@@ -2310,6 +2320,51 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "expression_error_arm",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
+            "named": true
+          }
+        ]
+      },
+      "class": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_",
+            "named": false
+          },
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "expression_error_arms",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression_error_arm",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -4323,6 +4378,51 @@
     }
   },
   {
+    "type": "markup_error_arm",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "view_block",
+            "named": true
+          }
+        ]
+      },
+      "class": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_",
+            "named": false
+          },
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "markup_error_arms",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "markup_error_arm",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "member_expression",
     "named": true,
     "fields": {
@@ -5956,6 +6056,51 @@
     }
   },
   {
+    "type": "statement_error_arm",
+    "named": true,
+    "fields": {
+      "body": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "statement_block",
+            "named": true
+          }
+        ]
+      },
+      "class": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_",
+            "named": false
+          },
+          {
+            "type": "type_identifier",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "statement_error_arms",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "statement_error_arm",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "string",
     "named": true,
     "fields": {},
@@ -7127,6 +7272,10 @@
   },
   {
     "type": "^",
+    "named": false
+  },
+  {
+    "type": "_",
     "named": false
   },
   {

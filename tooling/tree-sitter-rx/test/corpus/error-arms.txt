@@ -1,0 +1,116 @@
+==================
+Ordered statement and await error arms
+==================
+
+action save() {
+  try { await sync() } catch (e) {
+    Offline => { log(e.message) };
+    _ => { throw e }
+  } finally { finish() }
+  let status = await sync() catch (e) { Offline => { e.message } _ => { null } }
+}
+
+---
+
+(program
+  (action_declaration
+    (identifier)
+    (formal_parameters)
+    (statement_block
+      (try_statement
+        (statement_block
+          (expression_statement
+            (await_expression
+              (call_expression
+                (identifier)
+                (arguments)))))
+        (catch_clause
+          (identifier)
+          (statement_error_arms
+            (statement_error_arm
+              (type_identifier)
+              (statement_block
+                (expression_statement
+                  (call_expression
+                    (identifier)
+                    (arguments
+                      (member_expression
+                        (identifier)
+                        (property_identifier)))))))
+            (statement_error_arm
+              (statement_block
+                (expression_statement
+                  (throw_expression
+                    (identifier)))))))
+        (finally_clause
+          (statement_block
+            (expression_statement
+              (call_expression
+                (identifier)
+                (arguments))))))
+      (lexical_declaration
+        (variable_declarator
+          (identifier)
+          (catch_expression
+            (await_expression
+              (call_expression
+                (identifier)
+                (arguments)))
+            (identifier)
+            (expression_error_arms
+              (expression_error_arm
+                (type_identifier)
+                (member_expression
+                  (identifier)
+                  (property_identifier)))
+              (expression_error_arm
+                (null)))))))))
+
+==================
+Errored markup arms
+==================
+
+export default component App() {
+  errored fallback(e) {
+    RateLimited => { <b>{e.retryAfter}</b> }
+    _ => { <p>{e.message}</p> }
+  } { <Inbox/> }
+}
+
+---
+
+(program
+  (export_statement
+    (component_declaration
+      (identifier)
+      (formal_parameters)
+      (view_block
+        (errored_block
+          (identifier)
+          (markup_error_arms
+            (markup_error_arm
+              (type_identifier)
+              (view_block
+                (jsx_element
+                  (jsx_opening_element
+                    (identifier))
+                  (jsx_expression
+                    (member_expression
+                      (identifier)
+                      (property_identifier)))
+                  (jsx_closing_element
+                    (identifier)))))
+            (markup_error_arm
+              (view_block
+                (jsx_element
+                  (jsx_opening_element
+                    (identifier))
+                  (jsx_expression
+                    (member_expression
+                      (identifier)
+                      (property_identifier)))
+                  (jsx_closing_element
+                    (identifier))))))
+          (view_block
+            (jsx_self_closing_element
+              (identifier))))))))
