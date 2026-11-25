@@ -657,7 +657,8 @@ impl<'p> Gen<'p> {
             if instantiated.insert(iv.clone()) {
                 // MO-1b: once per app. A bundler's module is one factory function wherever it is imported from, so by source the
                 // factory is its own key: a module shared by two programs gets the same key in both (11 CP-7).
-                out.push(konst(iv.clone(), rtc("module", vec![id(self.dep_var(r)), id(self.dep_var(r))])));
+                let key = if self.by_source { id(self.dep_var(r)) } else { str(self.out(r)) };
+                out.push(konst(iv.clone(), rtc("module", vec![key, id(self.dep_var(r))])));
             }
             for n in names {
                 let is_type = self.set.programs.get(r).is_some_and(|p| p.decls.iter().any(|x| matches!(x, Decl::TypeDecl { name, .. } if *name == n.name)))
