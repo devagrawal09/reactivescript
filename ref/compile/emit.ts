@@ -489,7 +489,8 @@ class Gen {
         return `${go(e.f)}(${e.args.map(go).join(", ")})`;
       }
       case "arr": return `[${e.items.map(i => i.k === "spread" ? `...${go(i.e)}` : go(i)).join(", ")}]`;
-      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${J(f.key)}: ${go(f.v)}`).join(", ")} })`;
+      case "as": return go(e.e);
+      case "rec": return `({ ${e.fields.map(f => "spread" in f ? `...${go(f.spread)}` : `${"computed" in f ? `[${go(f.computed)}]` : J(f.key)}: ${go(f.v)}`).join(", ")} })`;
       case "fn": {
         const inner = this.params(env, e.params); const ps = e.params.map(mg).join(", ");
         if (e.stmts && inferredAction(e.stmts)) return `(${ps}) => __rt.action(function* () {\n${this.stmts(e.stmts, inner, { imp: true, gen: true, dyn: ctx.dyn, effect: ctx.effect }, 1)}\n})()`;   // AC-1b: an inferred action lowers as `action { … }` does, to Solid's action()

@@ -395,7 +395,7 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
         Node::E(e) => match &e.k {
             ExprKind::Lit(_) | ExprKind::Id(_) | ExprKind::Use(_) | ExprKind::StyleMap { .. } => {}
             ExprKind::Bin { l, r, .. } => out.extend([Node::E(l), Node::E(r)]),
-            ExprKind::Un { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => out.push(Node::E(e)),
+            ExprKind::Un { e, .. } | ExprKind::As { e, .. } | ExprKind::Peek(e) | ExprKind::Latest(e) | ExprKind::Pending(e) | ExprKind::Spread(e) | ExprKind::Omit { e, .. } | ExprKind::Throw(e) => out.push(Node::E(e)),
             ExprKind::Pre { init, .. } => out.extend(init.iter().map(|x| Node::E(x))),
             ExprKind::Await { e, init, .. } => {
                 out.push(Node::E(e));
@@ -410,10 +410,12 @@ pub(crate) fn children<'a>(n: Node<'a>, paths: bool) -> Vec<Node<'a>> {
                 out.extend(args.iter().map(Node::E));
             }
             ExprKind::Arr(items) => out.extend(items.iter().map(Node::E)),
-            ExprKind::Rec(fields) => out.extend(fields.iter().map(|f| match f {
-                Field::Kv { v, .. } => Node::E(v),
-                Field::Spread(e) => Node::E(e),
-            })),
+            ExprKind::Rec(fields) => for f in fields {
+                match f {
+                    Field::Kv { v, .. } | Field::Spread(v) => out.push(Node::E(v)),
+                    Field::Computed { key, v } => out.extend([Node::E(key), Node::E(v)]),
+                }
+            },
             ExprKind::Fn { body, stmts, .. } => {
                 out.push(Node::E(body));
                 if let Some(s) = stmts {
@@ -480,7 +482,7 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
                 go(i, out);
             }
         }
-        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => go(x, out),
+        ExprKind::Latest(x) | ExprKind::Pending(x) | ExprKind::Un { e: x, .. } | ExprKind::As { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => go(x, out),
         ExprKind::Bin { l, r, .. } => {
             go(l, out);
             go(r, out);
@@ -517,6 +519,7 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
             for f in fields {
                 match f {
                     Field::Kv { v, .. } => go(v, out),
+                    Field::Computed { key, v } => { go(key, out); go(v, out); }
                     Field::Spread(x) => go(x, out),
                 }
             }
@@ -2170,7 +2173,7 @@ impl<'a> Checker<'a> {
                 self.expr(x, env, ctx, None);
                 self.model.probe = save;
             }
-            ExprKind::Un { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => self.expr(x, env, ctx, None),
+            ExprKind::Un { e: x, .. } | ExprKind::As { e: x, .. } | ExprKind::Spread(x) | ExprKind::Omit { e: x, .. } => self.expr(x, env, ctx, None),
             ExprKind::Await { e: inner, init, .. } => {
                 if ctx.imperative && !self.stmt_awaits.contains(&(e as *const Expr)) {
                     let sh = show(e);
@@ -2255,12 +2258,15 @@ impl<'a> Checker<'a> {
                 for f in fields {
                     match f {
                         Field::Kv { v, .. } => self.expr(v, env, ctx, None),
+                        Field::Computed { key, v } => { self.expr(key, env, ctx, None); self.expr(v, env, ctx, None); }
                         Field::Spread(x) => self.expr(x, env, ctx, None),
                     }
                 }
             }
             ExprKind::Call { f, args } => {
-                if let ExprKind::Id(fname) = &f.k {
+                let mut callee = &**f;
+                while let ExprKind::As { e, .. } = &callee.k { callee = e; }
+                if let ExprKind::Id(fname) = &callee.k {
                     if fname == "until" && self.lookup(env, "until").is_none() {
                         if !ctx.imperative {
                             self.err("IO_IN_REACTIVE", "AC-6", "until(…) waits for the world to confirm a condition: it is called from imperative scope (an action or a handler), and awaited".into());
@@ -3820,12 +3826,14 @@ impl<'a> Checker<'a> {
         fn root(x: &Expr) -> &Expr {
             match &x.k {
                 ExprKind::Member { o, .. } | ExprKind::Index { o, .. } => root(o),
+                ExprKind::As { e, .. } => root(e),
                 _ => x,
             }
         }
         let error = || -> IndexSet<String> { ["Error".to_string()].into_iter().collect() };
         match &e.k {
             ExprKind::Lit(_) | ExprKind::Tpl(_) | ExprKind::Arr(_) | ExprKind::Rec(_) | ExprKind::Bin { .. } | ExprKind::Un { .. } => IndexSet::new(),
+            ExprKind::As { e, .. } => self.rejects(e, env, seen),
             ExprKind::If { t, f, .. } => {
                 let mut a = self.rejects(t, env, seen);
                 a.extend(self.rejects(f, env, seen));

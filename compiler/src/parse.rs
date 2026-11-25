@@ -512,8 +512,8 @@ fn type_params(c: &mut Cursor) -> R<Option<String>> {
             let quote = c.peek();
             c.bump();
             while !c.eof() && c.peek() != quote {
-                if c.eat("\\") { c.bump(); }
-                else { c.bump(); }
+                c.eat("\\");
+                c.bump();
             }
             if c.eof() { return c.fail("unterminated string in type parameters"); }
             c.bump();
@@ -1610,6 +1610,12 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
     let start = l.span.start as usize;
     loop {
         c.ws(false);
+        if lvl == 4 && c.keyword("as") {
+            c.ws(true);
+            let ty = assertion_type(c)?;
+            l = ex(start, ExprKind::As { e: Box::new(l), ty }, c);
+            continue;
+        }
         let op = LEVELS[lvl].iter().find(|o| c.starts_with(o) && !(**o == "-" && c.peek_at(1) == '>'));
         let Some(op) = op else { return Ok(l) };
         c.i += op.len();
@@ -1622,6 +1628,43 @@ fn parse_bin(c: &mut Cursor, lvl: usize) -> R<Expr> {
         };
         l = Expr::new(ExprKind::Bin { op: op.to_string(), l: Box::new(l), r: Box::new(r) }, Span::new(start, c.i));
     }
+}
+/// A type assertion ends at the surrounding expression's delimiter, not at a nested type delimiter.
+fn assertion_type(c: &mut Cursor) -> R<String> {
+    let start = c.i;
+    let mut end = start;
+    let mut stack = vec![];
+    while !c.eof() {
+        let ch = c.peek();
+        if stack.is_empty() && (",\n;:)=]}?+*/%!<>-".contains(ch) || c.starts_with("&&") || c.starts_with("||") || matches!(c.peek_ident().as_deref(), Some("as" | "catch"))) {
+            if ch != '<' { break; }
+            if type_params(c).is_err() { break; }
+            end = c.i;
+            continue;
+        }
+        if c.ident().is_some() { end = c.i; continue; }
+        if !stack.is_empty() && c.eat("=>") { end = c.i; continue; }
+        if matches!(ch, '\'' | '"' | '`') {
+            c.bump();
+            while !c.eof() && c.peek() != ch { c.eat("\\"); c.bump(); }
+            if c.eof() { return c.fail("unterminated string in type assertion"); }
+            c.bump();
+        } else {
+            match ch {
+                '(' => stack.push(')'),
+                '[' => stack.push(']'),
+                '{' => stack.push('}'),
+                '<' => stack.push('>'),
+                _ if stack.last() == Some(&ch) => { stack.pop(); }
+                _ => {}
+            }
+            c.bump();
+        }
+        if !ch.is_whitespace() { end = c.i; }
+    }
+    if end == start || !stack.is_empty() { return c.fail("type after `as`"); }
+    c.i = end;
+    Ok(c.src[start..end].to_string())
 }
 fn parse_unary(c: &mut Cursor) -> R<Expr> {
     c.ws(true);
@@ -1682,6 +1725,9 @@ fn parse_postfix(c: &mut Cursor) -> R<Expr> {
     let mut e = parse_primary(c)?;
     let start = e.span.start as usize;
     loop {
+        let save = c.i;
+        c.ws(true);
+        if !c.starts_with(".") && !c.starts_with("?.") { c.i = save; }
         if c.eat("?.") {
             if c.peek() == '[' {
                 c.bump();
@@ -1841,6 +1887,18 @@ fn parse_primary(c: &mut Cursor) -> R<Expr> {
                 if !c.eat(",") {
                     break;
                 }
+                c.ws(true);
+                continue;
+            }
+            if c.eat("[") {
+                let key = parse_expr(c)?;
+                c.ws(true);
+                c.expect("]")?;
+                c.ws(true);
+                c.expect(":")?;
+                fields.push(Field::Computed { key, v: parse_expr(c)? });
+                c.ws(true);
+                if !c.eat(",") { break; }
                 c.ws(true);
                 continue;
             }
