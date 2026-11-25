@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runConformance } from "../conformance.mjs";
+import { runConformance, runConformanceAsync } from "../conformance.mjs";
 import { createFakeHost } from "../fake.mjs";
 import { planHmr } from "../hmr.mjs";
 
@@ -270,6 +270,25 @@ function makeBroken(graph, opts) {
   if (passed.length) {
     for (const r of bad.filter(r => !r.ok)) console.log(`     broken: ${r.check}: ${r.detail ?? ""}`);
   }
+}
+
+// The async runner (a host whose calls take time, e.g. a real app in a browser) reports what the sync one does, and
+// a rejected call lands on the check that made it.
+{
+  const later = v => new Promise(r => setTimeout(() => r(v), 0));
+  const slow = (g, o) => {
+    const h = createFakeHost(g, o);
+    return later({ ...h, post: m => later(h.post(m)), act: k => later(h.act(k)), tick: n => later(h.tick(n)),
+      editModule: (m, x) => later(h.editModule(m, x)), dispose: () => later(h.dispose()) });
+  };
+  const sync = runConformance((g, o) => createFakeHost(g, o), fixtures, { seed: 1 });
+  const async = await runConformanceAsync(slow, fixtures, { seed: 1 });
+  check("async runner matches the sync runner", JSON.stringify(async) === JSON.stringify(sync),
+    async.filter((r, i) => JSON.stringify(r) !== JSON.stringify(sync[i])).slice(0, 2).map(r => JSON.stringify(r)).join("; "));
+  const rejecting = (g, o) => { const h = createFakeHost(g, o); return { ...h, editModule: () => Promise.reject(new Error("no hmr here")) }; };
+  const r = await runConformanceAsync(rejecting, fixtures.slice(0, 1), { seed: 1 });
+  check("async runner: a rejected call fails its check", r.some(x => !x.ok && x.check === "hmr partition" && x.detail === "no hmr here")
+    && r.filter(x => x.check === "travel matches replay").every(x => x.ok), JSON.stringify(r.filter(x => !x.ok)));
 }
 
 if (failed) {

@@ -172,11 +172,11 @@ The exports:
 | `./graph` | `buildGraph(model, { root })` turns `rxc model`'s JSON into the graph; `addKeys(graph)` |
 | `./diff` | `diffGraphs(before, after)`, `reach(graph, id)` |
 | `./page` | `pageHTML(graph, { live })`: the whole page as a string. It works in Node and in the browser |
-| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose |
+| `./live` | browser only: `register(graph, { hot }?)`, `mount(el)`, which returns the dispose; `attach(listener)`, a view without the page (`{ post, detach }`) |
 | `./vite` | `rxMap()`: Vite dev server plugin for the live channel |
 | `./mcp` | `serveMcp(options?)`: read-only stdio MCP server |
 
-The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message has `source: "rx-map"` and `v: 1`
+The live page speaks the trace protocol (`TRACE-CONTRACT` v0.3): every message has `source: "rx-map"` and `v: 1`
 (a message without `v` is read as v1; another `v`, an unknown `type` and a key the map doesn't have are ignored).
 
 - From the host: `flush` (with optional `origin`, `cause`, `order`), `flight`, `reset`, `timeline`, `step`, `resume`,
@@ -188,6 +188,18 @@ The live page speaks the trace protocol (`TRACE-CONTRACT` v0.1): every message h
 - `snapshot` (`{ values: [{key, preview}], flights: [{key, since}], boundaries: [{region, state, error?}] }`, the
   coming v0.3): what the app shows right now, applied quietly. `region` is a region key (or id). A boundary in
   `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error.
+
+**Time travel (real host):** with a Solid that has `openView` (`solid-js/attribution`, solidjs/solid#5089), the
+timeline travels the running app, DOM included. The recorder keeps a ring of 2000 steps (one per flush; set
+`globalThis.__RX_TIMELINE_CAPACITY__` before the entry runs to change it); beside each step, the engine nodes the flush
+changed and what each showed before. `travel(n)` opens a view and pins every node changed after `n` at what it showed
+before its first change after `n`; sync derivations, render effects, `if`/`for` structure and the DOM re-derive from
+the pins. While viewing, the app keeps running beneath and nothing it does shows: no `flush` is sent. `resume` lands
+all of it as one new step, sends `resume` (changes from the viewed seq to the new head), then that step as a `flush`.
+`step`/`resume` changes come from the recorded previews, so they are exact for every key the timeline has seen.
+Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
+is running or a resume is still landing, `unsupported` when Solid has no `openView`. The page stays clickable while
+viewing; a click writes beneath the view and shows at resume. Store guesses do not rewind yet (see Limits).
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It starts from what this
 map holds and gets every host message through it; its travel, resume and select go to this map's host. Closing either
@@ -218,6 +230,13 @@ messages, `test/fake.html`, which drives the in-page fake host and checks the pa
 conformance suite in the browser, and `test/engine.html`) in headless Chromium; `--shots <dir>` also
 saves a screenshot. Set `SOLID_PACKAGES` to a Solid checkout's `packages` dir with built dists for the engine
 harness.
+
+`./conformance` has `runConformance(makeHost, graphs)` for a host whose calls return at once (the fake) and
+`runConformanceAsync` for one whose calls take time (a real app in a browser: `makeHost` and the host's calls may
+return promises). `test/real-host.mjs` runs the async suite against the real host in the shelf app in headless
+Chromium and checks the DOM under travel: `APP=<dir> node test/real-host.mjs [--shots <dir>]`, with Playwright on
+`NODE_PATH`. The app is the shelf template with a deterministic fake server and `?cap=N` setting the ring's capacity,
+linked to this package and to a Solid build with `openView`; it is not part of `npm test`.
 
 ## MCP: let an agent inspect your app
 
@@ -295,5 +314,11 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
 - Edges into a `for` row are drawn once per site, not per row.
 - Live mode lights names, not rows: every row of a `for` shares its nodes' key, so a change in any row lights the one
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
-  visible in current state but isn't a Solid flush change. Real time travel and HMR plans are not implemented yet;
-  reopening the map still shows the same session's timeline and flush count.
+  visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
+  shows the same session's timeline and flush count.
+- Time travel: a store guess (`guess books := …`, `guess books[i].read := …`) is recorded by Solid on the store's guess
+  carrier (`books.$guess`), not on the property nodes it changed, and its confirmed landing changes nothing shown, so
+  no record names those nodes: travelling to a seq before a confirmed store guess shows the list as it is after it.
+  A name whose first value never came in a flush has no value in the timeline before its first change, so the map
+  can't roll it back past that change (the app itself is shown right). All of a resume's buffered work is one step.
+  The rest are Solid's `openView` limits (08-dev-diagnostics, "Views and time travel").
