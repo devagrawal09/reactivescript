@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const here = new URL(".", import.meta.url);
 let html = readFileSync(new URL("map.html", here), "utf8");
-for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "/*__FAKELIB__*/null", "<!--__TITLE__-->"])
+for (const p of ["/*__GRAPH__*/null", "/*__LIVE__*/false", "/*__FAKE__*/null", "/*__FAKELIB__*/null", "/*__LAYOUTLIB__*/null", "<!--__TITLE__-->"])
   if (!html.includes(p)) throw new Error(`map.html lost its ${p} placeholder`);
 
 // The fake host (fake.mjs and the planner it uses, hmr.mjs) goes into the page as one closure, so a page can run it
@@ -22,6 +22,11 @@ fakeSrc = fakeSrc.slice(0, cli);
 const lib = `(() => {\n// ---- hmr.mjs\n${strip(hmrSrc)}\n// ---- fake.mjs\n${strip(fakeSrc)}\nreturn { createFakeHost, planHmr, preview };\n})()`;
 if (/<\/script|<!--|<script/i.test(lib)) throw new Error("fake.mjs / hmr.mjs contain text that would end the page's script");
 html = html.replace("/*__FAKELIB__*/null", () => lib);
+// The layout (layout.mjs) the same way: the page and the RX map share one module
+const layoutSrc = readFileSync(new URL("layout.mjs", here), "utf8");
+const layoutLib = `(() => {\n// ---- layout.mjs\n${strip(layoutSrc)}\nreturn { analyze, layoutWorld, planTrunks, channels, orderBands, tokenSize, levelFor, levelThresholds, LEVELS, METRICS, kindOf, CTL, ORDER, SHAPE };\n})()`;
+if (/<\/script|<!--|<script/i.test(layoutLib)) throw new Error("layout.mjs contains text that would end the page's script");
+html = html.replace("/*__LAYOUTLIB__*/null", () => layoutLib);
 
 const out = `// Generated from map.html by build.mjs (\`npm run build\`). Edit map.html, not this file.
 const HTML = ${JSON.stringify(html)};

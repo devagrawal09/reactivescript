@@ -275,25 +275,33 @@ function makeBroken(graph, opts) {
 // First-change prev (§4b): a key first changed at seq 3 had its `prev` at seqs 1-2. A host that replays without that
 // rule (the key absent before its first change) fails the travel checks; one that follows it passes.
 {
-  const [k1, k2] = users.nodes.filter(n => n.key && n.kind === "source").map(n => n.key);
-  const scripted = firstPrev => () => {
+  const [k1, k2, k3] = users.nodes.filter(n => n.key && n.kind === "source").map(n => n.key);
+  const ERR = "\u0000error\u0000";
+  // `errors`: k3 shows an error at seq 2 and a value from seq 4; `errorState`: the host keeps the error as k3's state
+  const scripted = (firstPrev, { errors = false, errorState = true } = {}) => () => {
     const subs = new Set(), steps = [];
     let viewing = null;
     const emit = m => { for (const f of subs) f({ source: "rx-map", v: 1, ...m }); };
     const valuesAt = n => {
       const m = new Map(), seen = new Set();
       if (firstPrev) for (const s of steps) for (const c of s.changes) if (!seen.has(c.key)) { seen.add(c.key); if (c.prev !== undefined) m.set(c.key, c.prev); }
-      for (const s of steps) if (s.seq <= n) for (const c of s.changes) m.set(c.key, c.preview);
+      for (const s of steps) if (s.seq <= n) for (const c of s.changes) {
+        const v = c.error !== undefined ? (errorState ? ERR + c.error : undefined) : c.preview;
+        if (v === undefined) m.delete(c.key); else m.set(c.key, v);
+      }
       return m;
     };
+    const side = (v, value, error) => v === undefined ? {} : v.startsWith(ERR) ? { [error]: v.slice(ERR.length) } : { [value]: v };
     const diff = (a, b) => [...new Set([...a.keys(), ...b.keys()])].filter(k => a.get(k) !== b.get(k))
-      .map(k => ({ key: k, name: k, ...(a.has(k) ? { prev: a.get(k) } : {}), ...(b.has(k) ? { preview: b.get(k) } : {}) }));
+      .map(k => ({ key: k, name: k, ...side(a.get(k), "prev", "prevError"), ...side(b.get(k), "preview", "error") }));
     return {
       subscribe: f => (subs.add(f), () => subs.delete(f)),
       act() {
         const seq = steps.length + 1;
         const changes = [{ key: k1, name: "a", prev: String(seq - 1), preview: String(seq) }];
         if (seq === 3) changes.push({ key: k2, name: "b", prev: "\"before\"", preview: "\"after\"" });
+        if (errors && seq === 2) changes.push({ key: k3, name: "c", error: "NotFound" });
+        if (errors && seq === 4) changes.push({ key: k3, name: "c", preview: "1" });
         steps.push({ seq, at: seq, changes });
         if (viewing == null) emit({ type: "flush", seq, at: seq, changes });
       },
@@ -319,6 +327,9 @@ function makeBroken(graph, opts) {
   const okOf = r => travelChecks.map(c => r.find(x => x.check === c && x.graph)?.ok);
   check("a host following first-change prev passes the travel checks", okOf(runConformance(scripted(true), [users])).every(Boolean));
   check("a host ignoring it fails them", !okOf(runConformance(scripted(false), [users]))[1]);
+  // v0.6: an error is a shown state; step/resume changes carry `error`/`prevError` for it
+  check("a host keeping errors as states passes the travel checks", okOf(runConformance(scripted(true, { errors: true }), [users])).every(Boolean));
+  check("a host dropping them fails", !okOf(runConformance(scripted(true, { errors: true, errorState: false }), [users])).every(Boolean));
 }
 
 // The async runner (a host whose calls take time, e.g. a real app in a browser) reports what the sync one does, and

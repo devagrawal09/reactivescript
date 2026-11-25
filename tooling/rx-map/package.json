@@ -28,6 +28,7 @@
     },
     "./fake": "./fake.mjs",
     "./hmr": "./hmr.mjs",
+    "./layout": "./layout.mjs",
     "./conformance": "./conformance.mjs",
     "./package.json": "./package.json"
   },
@@ -43,6 +44,7 @@
     "vite.mjs",
     "fake.mjs",
     "hmr.mjs",
+    "layout.mjs",
     "conformance.mjs",
     "rx-map.mjs",
     "README.md",
@@ -60,6 +62,6 @@
   "scripts": {
     "build": "node build.mjs",
     "prepack": "node build.mjs",
-    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
+    "test": "node build.mjs --check && node --test test/mcp.mjs test/graph.test.mjs test/layout.test.mjs && node test/conformance.test.mjs && node test/run.mjs && node test/real-host.mjs"
   }
 }

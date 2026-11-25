@@ -38,6 +38,8 @@ export function buildGraph(model, { root = process.cwd(), source = f => readFile
       regions.push({ id: `${mi}:r${r.id}`, mod: mi, kind: r.kind, name: r.name ?? null,
         parent: r.parent == null ? null : `${mi}:r${r.parent}`,
         ...(r.shadowed != null ? { shadowed: `${mi}:r${r.shadowed}` } : {}),
+        // a typed `errored (e: X)` an inner catch-all already catches for (the model says so): it never shows
+        ...(r.deadTyped || r.dead_typed ? { deadTyped: true } : {}),
         ...(r.outline ? { outline: r.outline.map(p => "site" in p ? { ...p, site: `${mi}:c${p.site}` }
           : "region" in p ? { ...p, region: `${mi}:r${p.region}` } : { ...p }) } : {}) });
       for (const p of r.outline ?? []) if (p.line != null) keepLine(mi, p.line);
