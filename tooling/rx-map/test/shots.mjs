@@ -79,7 +79,7 @@ const live = { live: true };
 const tracker = JSON.parse(readFileSync(new URL("fixtures/tracker.json", import.meta.url), "utf8"));
 // null: frame everything; else the first module's plate at that zoom
 const zoomTo = s => async page => {
-  await page.waitForFunction(() => window.__RX_MAP__?.layout?.plates, null, { timeout: 30000 });
+  await page.waitForFunction(() => window.__RX_MAP__?.layout?.plates, null, { timeout: 60000 });
   await page.evaluate(s => {
     const M = window.__RX_MAP__;
     if (s == null) return M.frameAll(0);
@@ -87,6 +87,12 @@ const zoomTo = s => async page => {
     M.flyTo(p.x + p.w / 2, p.y + Math.min(p.h, 700) / 2, s, 0);
   }, s);
   await page.waitForTimeout(1200);
+  // under load a level's cross-fade can start late (frames come slowly; nothing is stuck): wait until what the level
+  // shows has faded in, so a shot never catches the overview's cards still at opacity 0
+  await page.waitForFunction(() => {
+    const sel = document.body.classList.contains("lv1") ? "#board .psum" : "#board .frame.module > .flabel";
+    return [...document.querySelectorAll(sel)].every(e => getComputedStyle(e).opacity === "1");
+  }, null, { timeout: 60000 });
 };
 const scenarios = [
   { name: "static", caption: "users.rx with no live host" },
@@ -207,9 +213,9 @@ async function capture(scenario, viewport, variant, render, filename, skip) {
       // A partial render is still useful for comparison. Label it, rather than silently passing it off as the scenario.
     }
     // Chromium can miss the first compositor frame on a large board.
-    await target.screenshot({ path, timeout: 30000 }).catch(error => {
+    await target.screenshot({ path, timeout: 60000 }).catch(error => {
       if (!error.message.includes("Unable to capture screenshot")) throw error;
-      return target.screenshot({ path, timeout: 30000 });
+      return target.screenshot({ path, timeout: 60000 });
     });
     record.captured = true;
   } catch (error) {
