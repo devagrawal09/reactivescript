@@ -51,6 +51,16 @@ export function finishCarry({ carry, fallback, expected }, sources) {
   return [...fallback];
 }
 
+// An entry replaced above Loading can have no new owner at its first flush.
+// Only a wholly absent singleton can be matched later without guessing order.
+export function deferredCarry({ carry, expected }, sources) {
+  return new Map([...carry].flatMap(([key, group]) => {
+    const [path] = expected.get(key);
+    return group.entries.length === 1 && !group.used && path && !sources.has(key)
+      ? [[key, { path, value: group.entries[0] }]] : [];
+  }));
+}
+
 /** Source lines for a node: `lines[file]`, keys are 1-based line numbers (strings after JSON). */
 function lineMap(graph, node) {
   if (!graph?.lines || !node) return null;
