@@ -87,6 +87,31 @@ fn a_generated_declaration_binds_and_erases() {
 }
 
 #[test]
+fn rejects_nothing_is_an_empty_row_on_an_io_fn() {
+    // R-f-8: `rejects([], fn)` prints `rejects(nothing)`; absent is `Error` for a JS fn
+    let gen = "export fn ping(page: string): Promise<void> rejects(nothing)\nexport fn loud(page: string): Promise<void>\n";
+    let ds = parse_declarations_in(gen, true).unwrap();
+    match &ds[0] {
+        JsDecl::Fn { pure, rejects, .. } => {
+            assert!(!pure);
+            assert_eq!(rejects.as_deref(), Some(&[][..] as &[String]));
+        }
+        d => panic!("{d:?}"),
+    }
+    assert_eq!(ds[0].helpers(), ["rejects"]);
+    let rec = record("api.ts", gen);
+    let quiet = "import { ping } from \"./api\"\nexport default component App() {\n  source s := \"\"\n  action go() { await ping(\"a\"); s := \"ok\" }\n  <p>{s}</p>\n}\n";
+    assert_eq!(codes(&[("main.rx", quiet), ("api.ts", API_TS), ("rx-dts:api", &rec)]), Vec::<String>::new());
+    let loud = quiet.replace("ping", "loud");
+    assert_eq!(codes(&[("main.rx", &loud), ("api.ts", API_TS), ("rx-dts:api", &rec)]), ["UNCAUGHT_ACTION_FAILURE"]);
+    let reactive = "import { ping } from \"./api\"\nexport default component App() {\n  x = await ping(\"a\")\n  <p>{x}</p>\n}\n";
+    assert_eq!(codes(&[("main.rx", reactive), ("api.ts", API_TS), ("rx-dts:api", &rec)]), ["IO_IN_REACTIVE"]);
+    // written by hand, too
+    let written = parse_declarations("export fn ping(): Promise<void> rejects(nothing)\n").unwrap();
+    assert!(matches!(&written[0], JsDecl::Fn { rejects: Some(r), .. } if r.is_empty()));
+}
+
+#[test]
 fn import_rows_are_not_allowed_on_ts() {
     let rec = record("api.ts", GEN);
     let with = |main: &str| diags(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &rec)]);

@@ -62,6 +62,7 @@ export declare function pure<F extends AnyFn>(fn: F & NoPurity): Mark<F, "remove
 /**
  * `rejects([A, B], fn)` generates `rejects(A | B)` (R-f-8): `fn` rejects only with these error classes.
  * The list is an array literal of classes, each reaching `Error`. Without it, a generated fn rejects `Error`.
+ * An empty list, `rejects([], fn)`, generates `rejects(nothing)`: `fn` stays io, and its promise never rejects.
  */
 export declare function rejects<F extends AnyFn>(errors: readonly ErrorClass[], fn: F): F;
 

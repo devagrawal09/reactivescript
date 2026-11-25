@@ -840,7 +840,9 @@ pub fn parse_declarations_in(src: &str, generated: bool) -> R<Vec<JsDecl>> {
         if c.keyword("rejects") {
             c.ws(true);
             c.expect("(")?;
-            rejects = Some(parse_class_list(&mut c, true)?.unwrap_or_else(|| vec!["Error".to_string()]));
+            c.ws(true);
+            // R-f-8: `rejects(nothing)`, a promise that never rejects (absent is `Error`)
+            rejects = Some(if c.keyword("nothing") { vec![] } else { parse_class_list(&mut c, true)?.unwrap_or_else(|| vec!["Error".to_string()]) });
             c.ws(true);
             c.expect(")")?;
         }

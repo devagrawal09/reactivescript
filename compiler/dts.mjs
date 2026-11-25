@@ -364,7 +364,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
       const split = n => { n = strip(n); if (ts.isUnionTypeNode(n)) n.types.forEach(split); else members.push(n); };
       split(rejectsNode);
       for (const m of members) {
-        if (m.kind === ts.SyntaxKind.NeverKeyword) { fail(m, `\`Rejects<…, never>\` names no rejection: drop \`Rejects\` (a generated fn rejects \`Error\`) or name the error classes`); continue; }
+        if (m.kind === ts.SyntaxKind.NeverKeyword) continue;   // `Rejects<P, never>`: `rejects(nothing)`, as `rejects([], fn)`
         const type = checker.getTypeFromTypeNode(m);
         const chain = (ts.isTypeReferenceNode(m) || ts.isExpressionWithTypeArguments(m)) ? errorClass(type.symbol) : null;
         if (!chain) { fail(m, `\`Rejects<…, ${collapse(m.getText())}>\`: ${collapse(m.getText())} is not an error class; each member must be a class whose base chain reaches \`Error\` (R-f-1)`); continue; }
@@ -406,6 +406,7 @@ function generate(ts, program, T, { inPackage, isLib }) {
     let line = `export ${where}${b.has("Pure") ? "pure " : ""}fn ${name}${display.typeParams}(${display.params.join(", ")})`;
     if (display.ret) line += `: ${display.ret}`;
     if (rows.rejects.length) line += ` rejects(${rows.rejects.join(" | ")})`;
+    else if (b.has("Rejects")) line += " rejects(nothing)";   // `rejects([], fn)`: io, and its promise never rejects (R-f-8)
     if (b.has("Instantiates") && !anyRef) line += " instantiates";
     return line;
   }
@@ -599,7 +600,6 @@ function generate(ts, program, T, { inPackage, isLib }) {
   function readRejects(arg, fail, out) {
     const list = unwrapLiteral(arg);
     if (!list || !ts.isArrayLiteralExpression(list)) return fail(arg, "`rejects` takes an array literal of error classes, as written: `rejects([NotFound, Offline], fn)`");
-    if (!list.elements.length) return fail(list, "`rejects([], …)` names no rejection: drop `rejects` (a generated fn rejects `Error`) or name the error classes");
     for (const el of list.elements) {
       const text = collapse(el.getText());
       const id = ts.isIdentifier(el) ? el : ts.isPropertyAccessExpression(el) ? el.name : null;

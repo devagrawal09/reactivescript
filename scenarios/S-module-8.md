@@ -41,12 +41,17 @@ export declare function fetchUser(id: number): Pure<Rejects<Promise<User>, NotFo
 export declare function saveUser(id: number, name: string): Promise<User>;
 export declare function logVisit(page: string): Rejects<Promise<void>, Offline>;
 export declare const limit: number;
+export declare function ping(page: string): Rejects<Promise<void>, never>;
+export declare function pingLoud(page: string): Promise<void>;
+export declare function pingWritten(page: string): Promise<void>;
 ```
 
 ```rx
 -- module: ./api.d.rx
 // one export of ./api.d.ts, written: the rest are generated from it (MO-11e)
 export fn saveUser(id: number, name: string): Promise<User> rejects(Offline)
+// a promise that never rejects, written (a `.ts`'s `rejects([], …)`)
+export fn pingWritten(page: string): Promise<void> rejects(nothing)
 // a type of its own, which ./api.d.ts does not export: it binds no value, so it adds a type only (MO-11e)
 export type Rename = { id: number; name: string }
 ```
@@ -74,6 +79,9 @@ export pure fn fetchUser(id: number): Promise<User> rejects(NotFound | Offline)
 export fn saveUser(id: number, name: string): Promise<User> rejects(Offline)   // written
 export fn logVisit(page: string): Promise<void> rejects(Offline)
 export const limit: number
+export fn ping(page: string): Promise<void> rejects(nothing)
+export fn pingLoud(page: string): Promise<void>
+export fn pingWritten(page: string): Promise<void> rejects(nothing)   // written
 ```
 
 ## Program
@@ -133,7 +141,63 @@ Instant 3: the written `rejects(Offline)` is `saveUser`'s row, and the action ca
 Instant 5: `logVisit`'s flight lands. Instant 6: the primitive follows the accessor it was given.
 Instant 8: a `NotFound` is an answer of `null`; instant 10: an `Offline` reaches the typed boundary.
 
+## Variant: `rejects([], fn)` — io, and its promise never rejects
+
+```rx
+import { ping, pingWritten } from "./api"
+export default component App() {
+  source status := ""
+  action send() {
+    await ping("home")
+    await pingWritten("home")
+    status := "sent"
+  }
+
+  <p>{status}</p>
+}
+```
+
+| instant | action                           | frame  |
+| ------- | -------------------------------- | ------ |
+| 0       | mount                            | ``     |
+| 1       | handler `send()`                 | ``     |
+| 2       | resolve "ping:home" null         | ``     |
+| 3       | resolve "pingWritten:home" null  | `sent` |
+
+R-f-8, MO-11c: `ping`'s `Rejects<…, never>` (a `.ts`'s `rejects([], …)`) generates
+`rejects(nothing)`: an empty rejection row, so the awaits need no catch. `pingWritten`'s written
+line says the same. `ping` stays io (no `pure`): it is called from an action.
+
 ## Rejected variants
+
+```rx
+-- reject: UNCAUGHT_ACTION_FAILURE
+import { pingLoud } from "./api"
+export default component App() {
+  source status := ""
+  action send() {
+    await pingLoud("home")
+    status := "sent"
+  }
+
+  <p>{status}</p>
+}
+```
+
+R-f-8, R-f-6: with no `rejects` stated, a function's promise rejects `Error` (the default), and
+the action does not catch it.
+
+```rx
+-- reject: IO_IN_REACTIVE
+import { ping } from "./api"
+export default component App() {
+  seen = await ping("home")
+
+  <p>{seen}</p>
+}
+```
+
+R-io-4: `rejects([], …)` states no rejection, not purity: `ping` is io.
 
 ```rx
 -- reject: IMPORT_ROW_ON_TS
