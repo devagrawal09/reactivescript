@@ -60,4 +60,3 @@ export const eventKey = ev => ev?.key ?? "";
 export function prevent(ev) { ev?.preventDefault?.(); }
 /** Scroll the panel back to the top (a new tab or a new name). */
 export function panelTop() { const p = document.getElementById("panel"); if (p) p.scrollTop = 0; }
-
