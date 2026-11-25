@@ -1445,7 +1445,7 @@ impl<'a> Checker<'a> {
             self.err("IMPORT_ROW_MISMATCH", "MO-8", format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", from, file));
         }
         for ImportName { name, alias } in names {
-            let Some(x) = decls.iter().find(|y| y.name() == name) else {
+            let Some(x) = decls.iter().find(|y| y.name() == name && y.exported()) else {
                 self.err("NOT_EXPORTED", "MO-8", format!("{} declares no export {} (declare it, or it is not {}'s)", file, name, from));
                 let mut s = Sym::new(SymKind::Import, alias, region, line);
                 s.io = true;

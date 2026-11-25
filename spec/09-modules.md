@@ -164,6 +164,10 @@ export component Save(props: { v: unrendered action go catches(nothing) })
   `rejects(…)` defaults to `Error`. In every `.d.rx` — written for a JS
   module or printed for an `.rx` one — `pure fn` is pure, `fn` is io, and
   `action` is an action.
+  A JS declaration may use TypeScript type parameters, as in `export pure
+  fn identity<T>(value: T): T`, and private `type` or `interface`
+  declarations for types used in the file. In a JS declaration,
+  `rejects(A, B)` names the same rejection row as `rejects(A | B)`.
 - **MO-8b.** With a declaration file, the file is the row, as a signature is
   for an `.rx` import (MO-4a): an import that names an undeclared export is
   `NOT_EXPORTED`; `pure` on the import must agree (`IMPORT_ROW_MISMATCH`

@@ -229,14 +229,14 @@ fn declaration_file(decls: &[JsDecl]) -> String {
     decls
         .iter()
         .map(|d| match d {
-            JsDecl::Type { text, .. } => format!("export {text}"),
+            JsDecl::Type { text, exported, .. } => format!("{}{text}", if *exported { "export " } else { "" }),
             JsDecl::Error { name, .. } => format!("export declare class {name}$ extends Error {{}}\nexport declare const {name}: (message?: string) => {name}$;\nexport type {name} = {name}$;"),
-            JsDecl::Fn { name, params, ptypes, ret, .. } => {
+            JsDecl::Fn { name, params, generics, ptypes, ret, .. } => {
                 let ps = params.iter().enumerate().map(|(i, n)| match ptypes.get(i).and_then(|t| t.as_ref()) {
                     Some(t) => format!("{n}: {t}"),
                     None => n.clone(),
                 });
-                format!("export declare function {name}({}): {};", ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
+                format!("export declare function {name}{}({}): {};", generics.as_deref().unwrap_or(""), ps.collect::<Vec<_>>().join(", "), ret.as_deref().unwrap_or("any"))
             }
         })
         .collect::<Vec<_>>()
@@ -527,16 +527,18 @@ impl Proj<'_> {
     fn import_decl(&mut self, d: &Decl, ind: &str) {
         let Decl::Import { names, from, line, resolved, declared, .. } = d else { return };
         let sp = d.span();
+        let is_prelude = |n: &ImportName| from == "./prelude" && builtin(&n.name);
         for n in names {
-            if builtin(&n.name) {
-                // the prelude's own (`import { log } from "./prelude"`)
+            if is_prelude(n) {
                 self.declared.remove(&n.alias);
+            } else {
+                self.declared.insert(n.alias.clone());
             }
         }
-        for n in names.iter().filter(|n| builtin(&n.name)) {
+        for n in names.iter().filter(|n| is_prelude(n)) {
             self.used.insert(n.name.clone());
         }
-        let rest: Vec<&ImportName> = names.iter().filter(|n| !builtin(&n.name)).collect();
+        let rest: Vec<&ImportName> = names.iter().filter(|n| !is_prelude(n)).collect();
         if rest.is_empty() {
             return;
         }

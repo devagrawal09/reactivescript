@@ -245,12 +245,15 @@ fn opt_type(c: &mut Cursor, brace_stops: bool) -> R<Option<String>> {
 }
 /// R-f: `A | B` — error class names. `Error` (or TS's `unknown`/`any`) is every failure: `None`.
 fn parse_classes(c: &mut Cursor) -> R<Option<Vec<String>>> {
+    parse_class_list(c, false)
+}
+fn parse_class_list(c: &mut Cursor, commas: bool) -> R<Option<Vec<String>>> {
     let mut out = vec![];
     loop {
         c.ws(true);
         out.push(c.ident_or("error class")?);
         c.ws(false);
-        if c.peek() == '|' && c.peek_at(1) != '|' {
+        if (c.peek() == '|' && c.peek_at(1) != '|') || (commas && c.peek() == ',') {
             c.bump();
             continue;
         }
@@ -481,35 +484,62 @@ fn shape_of(t: &str) -> Shape {
 pub enum JsDecl {
     /// ret: the type text with `ref` taken out (for TY); MO-10: refs (ref parameters), shape (what the result is),
     /// instantiates (written, or inferred from a ref on either side)
-    Fn { name: String, pure: bool, params: Vec<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
+    Fn { name: String, pure: bool, params: Vec<String>, generics: Option<String>, rejects: Option<Vec<String>>, line: usize, side: Option<Side>, ptypes: Vec<Option<String>>, ret: Option<String>, refs: Vec<bool>, shape: Shape, instantiates: bool },
     Error { name: String, line: usize },
-    Type { name: String, line: usize, text: String },
+    Type { name: String, line: usize, text: String, exported: bool },
 }
 impl JsDecl {
+    pub fn exported(&self) -> bool {
+        !matches!(self, Self::Type { exported: false, .. })
+    }
     pub fn name(&self) -> &str {
         match self {
             JsDecl::Fn { name, .. } | JsDecl::Error { name, .. } | JsDecl::Type { name, .. } => name,
         }
     }
 }
+fn type_params(c: &mut Cursor) -> R<Option<String>> {
+    let start = c.i;
+    if !c.eat("<") { return Ok(None); }
+    let mut depth = 1;
+    while !c.eof() {
+        if c.eat("=>") { continue; }
+        if c.eat("<") { depth += 1; }
+        else if c.eat(">") {
+            depth -= 1;
+            if depth == 0 { return Ok(Some(c.src[start..c.i].to_string())); }
+        } else if matches!(c.peek(), '\'' | '"' | '`') {
+            let quote = c.peek();
+            c.bump();
+            while !c.eof() && c.peek() != quote {
+                if c.eat("\\") { c.bump(); }
+                else { c.bump(); }
+            }
+            if c.eof() { return c.fail("unterminated string in type parameters"); }
+            c.bump();
+        } else { c.bump(); }
+    }
+    c.fail("expected '>' to end type parameters")
+}
 pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
     let mut c = Cursor::new(src);
     let mut out = vec![];
     loop {
         c.ws(true);
+        if c.eat(";") { continue; }
         if c.eof() {
             return Ok(out);
         }
         let line = c.line();
-        if !c.keyword("export") {
-            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
-        }
+        let exported = c.keyword("export");
         c.ws(true);
-        if c.starts_with("type") || c.starts_with("interface") {
+        if matches!(c.peek_ident().as_deref(), Some("type" | "interface")) {
             let t0 = c.i;
             let _ = c.keyword("type") || c.keyword("interface");
             c.ws(true);
             let name = c.ident_or("type name")?;
+            c.ws(true);
+            type_params(&mut c)?;
             c.ws(true);
             if c.eat("=") {
                 c.ws(true);
@@ -529,8 +559,11 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
                     }
                 }
             }
-            out.push(JsDecl::Type { name, line, text: c.src[t0..c.i].to_string() });
+            out.push(JsDecl::Type { name, line, text: c.src[t0..c.i].to_string(), exported });
             continue;
+        }
+        if !exported {
+            return c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
         }
         if c.keyword("error") {
             c.ws(true);
@@ -553,6 +586,8 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         }
         c.ws(true);
         let name = c.ident_or("fn name")?;
+        c.ws(true);
+        let generics = type_params(&mut c)?;
         c.ws(true);
         c.expect("(")?;
         c.ws(true);
@@ -615,7 +650,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         if c.keyword("rejects") {
             c.ws(true);
             c.expect("(")?;
-            rejects = Some(parse_classes(&mut c)?.unwrap_or_else(|| vec!["Error".to_string()]));
+            rejects = Some(parse_class_list(&mut c, true)?.unwrap_or_else(|| vec!["Error".to_string()]));
             c.ws(true);
             c.expect(")")?;
         }
@@ -623,7 +658,7 @@ pub fn parse_declarations(src: &str) -> R<Vec<JsDecl>> {
         let written = c.keyword("instantiates");
         let instantiates = written || refs.iter().any(|x| *x) || shape.as_ref().is_some_and(|s| s.has_ref()); // MO-10a
         let shape = shape.unwrap_or(Shape::Part(Part::Value));
-        out.push(JsDecl::Fn { name, pure, params, rejects, line, side, ptypes, ret, refs, shape, instantiates });
+        out.push(JsDecl::Fn { name, pure, params, generics, rejects, line, side, ptypes, ret, refs, shape, instantiates });
     }
 }
 
