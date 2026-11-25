@@ -222,10 +222,21 @@ button. The program's own work (timers, answers landing) goes on beneath and doe
 its value is that change's `prev`, which the host fills from Solid's record), so they are exact for every key the
 timeline has seen. Store guesses (`guess books := …`, `guess books[i].read := …`) rewind too: Solid's flush record
 lists the property and presence nodes a guess changed beside the store's `$guess` carrier, and travel pins them like
-any other node. On an older Solid whose record names only the carrier, `step.inexact` lists the keys travel can't show
-exactly at that seq: a store guessed after it and every name that reads it.
-Denied: `evicted` for a seq never recorded or out of the ring, `pending` while a question is in the air, an action
-is running or a resume is still landing, `unsupported` when Solid has no `openView`.
+any other node. `step.inexact` lists the keys travel can't show exactly at that seq, and every name that reads them: a
+list rewritten wholesale after it (`undo := u => [x, ...u]`: Solid records only its length, and under a view a list's
+items come from the store's backing), and, on an older Solid whose record names only a guess's carrier, a store
+guessed after it.
+
+Per instance: a component-scoped name outlives its instances (a component remounted per route). The timeline shows
+the instance alive at each seq: when an instance is made or disposed, answers, or fails, the recorder compares the
+newest live instance's state with the timeline's and records the difference (its value, its error, or none yet), so a
+disposed instance's last value or error is never shown for a later seq. An error is a state (TRACE-CONTRACT v0.6):
+`step`/`resume` changes carry `error`/`prevError` for it.
+
+Travel asked for while a question is in the air, an action is running, a write is held or a resume is still landing
+waits: the host answers `travel-pending` and travels to the newest target asked for once that has landed (a drag ends
+where it was let go); `resume` drops it. Denied: `evicted` for a seq never recorded or out of the ring,
+`unsupported` when Solid has no `openView`.
 
 **Pop-out:** the window button in the header opens the same live map in a window of its own. It attaches to the app
 page's bridge itself (`__RX__.connect`, from `./live`), so it keeps streaming when the dock leaves the Map tab, says
@@ -383,6 +394,8 @@ action arguments) can contain application data. Keep the Vite endpoint on a trus
   chip. The current value for a shared key is from its most recently mounted instance. A question's first answer is
   visible in current state but isn't a Solid flush change. HMR plans are not implemented yet; reopening the map still
   shows the same session's timeline and flush count.
+- Time travel: a list rewritten wholesale doesn't rewind (marked `inexact`, above); a component a view remounts (it
+  pins a route back) starts over: its own async state asks again rather than showing its history.
 - Time travel: on a Solid whose flush record names only a store guess's carrier (`books.$guess`, before solid-view
   f9ee22ade), travelling to a seq before a confirmed store guess shows the list as it is after it (`step.inexact`
   says so). A store's first-change `prev` isn't known (its records are per property), so a store has no value before

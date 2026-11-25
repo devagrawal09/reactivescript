@@ -1,0 +1,13 @@
+import pure { loadShelf } from "../server"
+
+export component ShelfInfo(props: { id: string }) {
+  info = await loadShelf(props.id)
+  label = `${info.name} (${info.count})`
+  <section class="shelf-info">
+    {errored fallback(e) { <p class="error" data-testid="shelf-error">Shelf {props.id}: {e.message}</p> } {
+      {loading fallback { <p>Loading shelf…</p> } {
+        <p data-testid="shelf">{label}</p>
+      }}
+    }}
+  </section>
+}

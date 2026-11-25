@@ -2,7 +2,7 @@
 // and returns a readable result list. The fake must pass; the real host must pass before it replaces the fake.
 // Pure ESM, no dependencies.
 
-const KNOWN = new Set(["flush", "flight", "reset", "timeline", "step", "resume", "travel-denied", "hmr"]);
+const KNOWN = new Set(["flush", "flight", "reset", "timeline", "step", "resume", "travel-denied", "travel-pending", "hmr"]);
 const REASONS = new Set(["unchanged", "init-changed", "type-changed", "kind-changed", "scope-changed", "expr-changed", "upstream-changed", "new", "gone", "renamed", "reindexed"]);
 const PLAN_KINDS = new Set(["source", "eq", "effect", "action"]);
 
@@ -87,6 +87,11 @@ export function partitionErrors(plan, oldGraph, newGraph) {
   return errors;
 }
 
+// A key's state: its preview, or its error (v0.6: an error is a shown state, not an absence).
+const ERR = "\u0000error\u0000";
+const stateOf = c => c.error !== undefined ? ERR + c.error : c.preview;
+const prevStateOf = c => c.prevError !== undefined ? ERR + c.prevError : c.prev;
+
 function reconstruct(steps, n) {
   // Before a key's first change, its value is that change's `prev` (§4b).
   const m = new Map(), seen = new Set();
@@ -100,8 +105,8 @@ function reconstruct(steps, n) {
     for (const c of s.changes ?? []) {
       // keyed nodes only: a change with no key is shown in the flush but is no state travel restores (§1, §2 step)
       if (c.key == null) continue;
-      if (c.preview === undefined) m.delete(c.key);
-      else m.set(c.key, c.preview);
+      if (stateOf(c) === undefined) m.delete(c.key);
+      else m.set(c.key, stateOf(c));
     }
   }
   return m;
@@ -111,8 +116,8 @@ function applyChanges(map, changes) {
   const next = new Map(map);
   for (const c of changes ?? []) {
     if (c.key == null) continue;
-    if (c.preview === undefined) next.delete(c.key);
-    else next.set(c.key, c.preview);
+    if (stateOf(c) === undefined) next.delete(c.key);
+    else next.set(c.key, stateOf(c));
   }
   return next;
 }
@@ -277,7 +282,8 @@ function* checkOne(makeHost, graph, label, seed, push) {
     return box;
   };
 
-  // Pending: an action that opens a flight must deny travel until it lands.
+  // Pending: travel asked for while a flight is open never shows a step before it lands. A v0.5 host denies it
+  // (`pending`); a v0.6 host answers `travel-pending` and travels once the flight has landed (§4b).
   try {
     const pHost = yield makeHost(graph, hostOpts);
     const pMsgs = collect(pHost);
@@ -285,10 +291,21 @@ function* checkOne(makeHost, graph, label, seed, push) {
     const opened = pMsgs.some(m => m.type === "flight" && m.state === "start");
     const nPending = pMsgs.length;
     yield pHost.post({ type: "travel", to: 1 });
-    const pendingReply = pMsgs.slice(nPending).find(m => m.type === "step" || m.type === "travel-denied");
+    const pendingReply = pMsgs.slice(nPending).find(m => m.type === "step" || m.type === "travel-denied" || m.type === "travel-pending");
     if (opened) {
-      const ok = pendingReply?.type === "travel-denied" && pendingReply.reason === "pending";
-      push(ok, "travel pending while a flight is open", label, ok ? undefined : `got ${pendingReply?.type ?? "nothing"} ${pendingReply?.reason ?? ""}`);
+      let ok = pendingReply?.type === "travel-denied" && pendingReply.reason === "pending";
+      let detail = `got ${pendingReply?.type ?? "nothing"} ${pendingReply?.reason ?? ""}`;
+      if (pendingReply?.type === "travel-pending") {
+        const nWait = pMsgs.length;
+        for (let i = 0; i < 6; i++) yield pHost.tick(4);
+        const after = pMsgs.slice(nWait);
+        const landed = after.findIndex(m => m.type === "flight" && m.state !== "start");
+        const step = after.findIndex(m => m.type === "step" || m.type === "travel-denied");
+        ok = step >= 0 && (after[step].type === "travel-denied" ? after[step].reason === "evicted" : after[step].to === 1)
+          && (landed < 0 || landed < step);
+        detail = step < 0 ? "travel-pending, then no step after the flight landed" : `travel-pending, then ${after[step].type} ${after[step].to ?? ""}`;
+      }
+      push(ok, "travel pending while a flight is open", label, ok ? undefined : detail);
     } else push(true, "travel pending while a flight is open", label, "no flight opened");
     yield pHost.dispose?.();
   } catch (e) {
@@ -338,7 +355,7 @@ function* checkOne(makeHost, graph, label, seed, push) {
         for (const c of step.changes) {
           const prev = atFrom.has(c.key) ? atFrom.get(c.key) : undefined;
           const next = atTo.has(c.key) ? atTo.get(c.key) : undefined;
-          if ((c.prev ?? undefined) !== prev || (c.preview ?? undefined) !== next) {
+          if ((prevStateOf(c) ?? undefined) !== prev || (stateOf(c) ?? undefined) !== next) {
             exact = false;
             exactDetail = `${c.key} prev/preview`;
             break;
