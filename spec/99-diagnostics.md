@@ -11,7 +11,7 @@ Bins:
 - **U — Unwritable.** The grammar has no position for the program. Parse or
   scope error. Cites the rule that removes the position.
 - **S — Static.** A query over the static graph (inputs, regions, lanes).
-  Compile error or warning.
+  Compile error. RX has no warning tier.
 - **R — Runtime.** Timing, data-dependent, or cross-module-dynamic. Stays in
   the runtime's attribution engine unchanged.
 - **S/R** — static within a module, runtime across component boundaries where
@@ -128,7 +128,7 @@ named.
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S  | MO-6a; MO-8e for a type import in a `.d.rx` | S-module-1, S-module-6 |
 | `TYPE_IMPORT`                     | S   | MO-8e: a `.d.rx` imported a value, not a type | S-module-6 |
 | `DECLARATION_HELPER`              | S   | MO-11c: a helper from `@reactivescript/js` the generator cannot read as a fact (misplaced, not a literal, duplicate) | S-module-8 |
-| `IMPORT_ROW_DEPRECATED`           | S (warning) | MO-11e: `pure`/`fails`/`server`/`client` at an import of a TS module; an error in the next minor | S-module-8 |
+| `IMPORT_ROW_ON_TS`                | S   | MO-11e: `pure`/`fails`/`server`/`client` at a local TS import | S-module-8 |
 | `DECLARATION_UNAVAILABLE`         | S   | MO-11d: an import of a TS module that no generator could declare | S-module-8 |
 | `NOT_A_CONTEXT`, `CONTEXT_AS_VALUE` | S | RG-7a | S-context-1 |
 | `SOURCE_CONTEXT`, `WRITE_TO_NON_SOURCE` (O-4) | S | O-4: a context is read beneath its provision; `context x: source T` withdrawn (RG-7c, 2026-10-31) | S-context-1 |

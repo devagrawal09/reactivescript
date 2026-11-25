@@ -16,16 +16,14 @@ const tsc = require.resolve("typescript/lib/tsc");
 process.on("exit", code => {
   const watching = process.argv.includes("--watch") || process.argv.includes("-w");
   if (watching) return;
-  let errors = 0, warnings = 0;
+  let errors = 0;
   const codes = new Set();
   for (const { file, result } of analyses()) {
     for (const d of result.diagnostics ?? []) {
-      // a warning (09 MO-11e's IMPORT_ROW_DEPRECATED) is printed and never fails the run
-      const severity = d.severity === "warning" ? "warning" : "error";
-      if (severity === "warning") warnings++; else errors++;
+      errors++;
       codes.add(d.code);
       const where = d.range ? `${d.range.start.line}:${d.range.start.column + 1}` : "1:1";
-      process.stdout.write(`${path.relative(process.cwd(), file)}:${where} - ${severity} ${d.code}: ${d.message} (${d.rule})\n`);
+      process.stdout.write(`${path.relative(process.cwd(), file)}:${where} - error ${d.code}: ${d.message} (${d.rule})\n`);
     }
   }
   // the declarations generated from TS modules (09 MO-11): a misplaced helper is reported in the `.ts`, at the call
@@ -34,11 +32,10 @@ process.on("exit", code => {
     codes.add(e.code);
     process.stdout.write(`${path.relative(process.cwd(), e.file)}:${e.line}:${e.column + 1} - error ${e.code}: ${e.message} (${e.rule})\n`);
   }
-  if (errors || warnings) {
-    const count = (n, what) => `${n} ReactiveScript ${what}${n === 1 ? "" : "s"}`;
-    process.stdout.write(`\nFound ${[errors && count(errors, "error"), warnings && count(warnings, "warning")].filter(Boolean).join(" and ")}.\n`);
+  if (errors) {
+    process.stdout.write(`\nFound ${errors} ReactiveScript error${errors === 1 ? "" : "s"}.\n`);
     for (const c of codes) process.stdout.write(`${c}: why, and the fix — ${guideUrl(c)}\n`);
-    if (errors && !code) process.exitCode = 1;
+    if (!code) process.exitCode = 1;
   }
 });
 

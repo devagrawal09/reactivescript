@@ -154,9 +154,8 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       const native = frontend ? undefined : nativeCompiler();
       const out = frontend ? frontend.check() : JSON.parse(native?.app ? native.app(entry, "dom", null, spa, null, null, null, declare)
         : compiler(root, ["app", entry, ...(spa ? ["--spa"] : [])]));
-      // errors, then warnings (`severity: "warning"`, 09 MO-11e), which a program that compiles carries beside its modules
       builds.set(entry, out.diagnostics?.length ? out.diagnostics : out.error
-        ? [{ file: entry, code: "BUILD", message: out.error }] : out.warnings ?? []);
+        ? [{ file: entry, code: "BUILD", message: out.error }] : []);
     }
     return builds.get(entry);
   }
@@ -171,7 +170,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         let saved;
         let fresh = false;
         try {
-          const diagnostics = buildDiagnostics(s, entry).filter(d => d.severity !== "warning");   // a warning never fails a build
+          const diagnostics = buildDiagnostics(s, entry);
           if (diagnostics.length) throw Object.assign(new Error(diagnostics.map(d => d.msg ?? d.message).join("\n")), { diagnostics });
           const model = frontends.get(entry)?.model() ?? modelOf([entry], root, true);
           const texts = new Map(model.map(m => {
@@ -202,7 +201,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       if (failures.length && !modules.size) throw failures[0];
       if (failures.length) {
         let count;
-        try { count = check().filter(d => d.severity === "error").length; } catch {}
+        try { count = check().length; } catch {}
         count ||= failures.reduce((n, e) => n + (e.diagnostics?.length || 1), 0);
         const changed = [...new Set(stale.flatMap(x => x.changed))].sort().join(", ") || "(unknown)";
         const at = stale.map(x => x.at).sort()[0];
@@ -236,7 +235,7 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       for (const d of diagnostics) {
         const diag = { file: isAbsolute(d.file) ? where(root, d.file) : d.file,
           line: d.range?.start?.line ?? d.line ?? 1, column: (d.range?.start?.column ?? 0) + 1,
-          severity: d.severity ?? "error", code: d.code, message: plain(d.message ?? d.msg) };
+          severity: "error", code: d.code, message: plain(d.message ?? d.msg) };
         if (diag.code === "ASYNC_OUTSIDE_LOADING_BOUNDARY" && /a reader of …/.test(diag.message)) {
           try {
             const line = readFileSync(resolve(root, diag.file), "utf8").split(/\r?\n/)[diag.line - 1];
@@ -255,8 +254,8 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
         try { output = run(root, process.execPath, [tsc, "--noEmit", "--pretty", "false"]); }
         catch (e) { output = e.stdout || e.stderr; if (!output) throw e; }
         for (const text of plain(output).split(/\r?\n/)) {
-          const match = text.match(/^(.*)\((\d+),(\d+)\): (error|warning) (TS\d+): (.*)$/)
-            ?? text.match(/^(.*):(\d+):(\d+) - (error|warning) ([A-Z][A-Z_0-9]+): (.*)$/);
+          const match = text.match(/^(.*)\((\d+),(\d+)\): (error) (TS\d+): (.*)$/)
+            ?? text.match(/^(.*):(\d+):(\d+) - (error) ([A-Z][A-Z_0-9]+): (.*)$/);
           if (!match) continue;
           const [, file, line, column, severity, code, message] = match;
           const rel = isAbsolute(file) ? where(root, file) : file;

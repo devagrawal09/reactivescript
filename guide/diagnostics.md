@@ -1274,11 +1274,11 @@ Write `export const load = pure(rejects([NotFound], fetchItem))`, with `class No
 `args` name accessor parameters by index; its `result` is `true` (the result is an accessor), tuple indices, or
 property names.
 
-### IMPORT_ROW_DEPRECATED
+### IMPORT_ROW_ON_TS
 
-A warning: `import pure`, `fails(…)`, `server` or `client` on an import of a `.ts` module states at the import what the
-`.ts` should state (MO-11e). It still compiles; in the next minor it is an error. Move it into the `.ts` with the
-helper the warning names, then import plainly:
+`import pure`, `fails(…)`, `server` or `client` on a local TS import states at the import what the
+TS module must state (MO-11e). Move it into the TS module with the helper the error names, then import plainly.
+If the declaration already gives that fact, just remove the row:
 
 ```ts
 // api.ts
@@ -1286,7 +1286,7 @@ import { pure, rejects } from "@reactivescript/js"
 export const fetchUser = pure(rejects([NotFound], async (id: number) => …))
 ```
 
-`import { fetchUser } from "./api"`. A package with no `.ts` beside it keeps `import pure` (no warning).
+`import { fetchUser } from "./api"`. A package with no TS module beside it keeps `import pure`.
 
 ### DECLARATION_UNAVAILABLE
 

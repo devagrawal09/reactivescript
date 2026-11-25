@@ -39,7 +39,7 @@ export declare class Offline extends Error {}
 export type User = { id: number; name: string };
 export declare function fetchUser(id: number): Pure<Rejects<Promise<User>, NotFound | Offline>>;
 export declare function saveUser(id: number, name: string): Promise<User>;
-export declare function logVisit(page: string): Promise<void>;
+export declare function logVisit(page: string): Rejects<Promise<void>, Offline>;
 export declare const limit: number;
 ```
 
@@ -72,7 +72,7 @@ export error Offline
 export type User
 export pure fn fetchUser(id: number): Promise<User> rejects(NotFound | Offline)
 export fn saveUser(id: number, name: string): Promise<User> rejects(Offline)   // written
-export fn logVisit(page: string): Promise<void>
+export fn logVisit(page: string): Promise<void> rejects(Offline)
 export const limit: number
 ```
 
@@ -80,7 +80,7 @@ export const limit: number
 
 ```rx
 import { fetchUser, saveUser, NotFound, Offline, User, Rename } from "./api"
-import { logVisit } from "./api" fails Offline
+import { logVisit } from "./api"
 import { createShout } from "./prims"
 export default component App() {
   source id := 1
@@ -107,10 +107,8 @@ export default component App() {
 
 `fetchUser` is pure (`Pure`, a `.ts`'s `pure(…)`), so it is awaited in reactive scope, and it
 rejects with the two classes `Rejects` names (a `.ts`'s `rejects([NotFound, Offline], …)`). `User` is a type: it binds nothing and is not in the
-emitted import (MO-8d). `logVisit` states nothing, so its rows are the default, and the import may
-still narrow them as R-io-4 and R-f-8 allow for an undeclared JS import: `fails Offline`. That
-compiles with the warning `IMPORT_ROW_DEPRECATED` (MO-11e), which names the fact's statement in
-the module (`rejects([Offline], …)`); in the next minor it is an error. `saveUser`'s
+emitted import (MO-8d). `logVisit` declares its rejection as `Offline` in the module
+(`rejects([Offline], …)` in a `.ts`). `saveUser`'s
 rows are its written line's. `createShout` takes `greeting` as an accessor (`Ref` on the
 parameter; a `.ts`'s `ref({ args: [0], result: true }, …)`) and hands one back: it instantiates
 (MO-10a).
@@ -138,7 +136,7 @@ Instant 8: a `NotFound` is an answer of `null`; instant 10: an `Offline` reaches
 ## Rejected variants
 
 ```rx
--- reject: IMPORT_ROW_MISMATCH
+-- reject: IMPORT_ROW_ON_TS
 import pure { saveUser } from "./api"
 
 export default component App() {
@@ -149,7 +147,7 @@ export default component App() {
 MO-11e: `saveUser`'s line is written, and it is io; `pure` on the import cannot lower it.
 
 ```rx
--- reject: IMPORT_ROW_MISMATCH
+-- reject: IMPORT_ROW_ON_TS
 import { fetchUser } from "./api" fails NotFound
 
 export default component App() {
@@ -206,7 +204,7 @@ export default component App() {
 MO-11c: `Pure` marks a function's return type; on a parameter it is not a fact the generator can read.
 
 ```rx
--- warn: IMPORT_ROW_DEPRECATED
+-- reject: IMPORT_ROW_ON_TS
 import pure { logVisit } from "./api"
 export default component App() {
   seen = await logVisit("home")
@@ -215,8 +213,8 @@ export default component App() {
 }
 ```
 
-MO-11e: `logVisit`'s io is defaulted, so `import pure` still narrows it, and the program compiles,
-with a warning that gives the fix: in `api.d.ts`'s place, a `.ts` with `export const logVisit =
+MO-11e: `import pure` is forbidden on a local TS module. The diagnostic gives the fix:
+in `api.d.ts`'s place, a `.ts` with `export const logVisit =
 pure(…)`, imported without `pure`.
 
 ```rx

@@ -87,7 +87,6 @@ fn conform_one(entry: &str, files: &HashMap<String, String>) -> Value {
         "order": set.order,
         "asts": asts,
         "diags": checked.diags.iter().map(|d| d.to_json()).collect::<Vec<_>>(),
-        "warnings": checked.warnings.iter().map(|d| d.to_json_warning()).collect::<Vec<_>>(),
         "sigs": sigs,
         "models": models,
     })
@@ -290,9 +289,6 @@ fn main() {
             for d in &checked.diags {
                 eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(file), d.line, d.code, d.rule, d.msg);
             }
-            for d in &checked.warnings {
-                eprintln!("{}:{}: warning {} [{}] {}", d.file.as_deref().unwrap_or(file), d.line, d.code, d.rule, d.msg);
-            }
             if !checked.diags.is_empty() {
                 std::process::exit(1);
             }
@@ -368,17 +364,6 @@ fn main() {
                         found.push(serve::diagnostic_json(&set, d));
                     } else {
                         eprintln!("{}:{}: error {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
-                    }
-                }
-                // warnings are printed and never fail the check
-                for d in &checked.warnings {
-                    if set.parse_errors.iter().any(|e| e.2 == d.file) { continue; }
-                    if as_json {
-                        let mut j = serve::diagnostic_json(&set, d);
-                        j["severity"] = json!("warning");
-                        found.push(j);
-                    } else {
-                        eprintln!("{}:{}: warning {} [{}] {}", d.file.as_deref().unwrap_or(f), d.line, d.code, d.rule, d.msg);
                     }
                 }
                 if cmd == "model" {

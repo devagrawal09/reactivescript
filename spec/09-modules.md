@@ -443,17 +443,12 @@ export const fields: readonly ["name", "email"]
   mention. A written value line (`fn`, `error`, `const`) for a name the module does
   not export is `NOT_EXPORTED`; a written `export type` the module lacks is
   the declaration's own type, as in any `.d.rx` (it binds no value). Its type imports (MO-8e) and private types serve its own
-  lines, and it may name the generated `export type`s. Per fact, a
-  written line beats a helper, a helper beats the import, and the import
-  beats the default. On a *defaulted* fact (a generated line that no
-  helper set) the words R-io-4 and R-f-8 allow at the import still narrow
-  it, unchecked: `import pure`, `fails(…)`, `server`/`client`. This is
-  **deprecated** (ruled 2026-11-25). It compiles with the warning
-  `IMPORT_ROW_DEPRECATED`, which names the helper to write instead, and it
-  becomes an error in the next minor. On a fact set by a helper or a
-  written line, these words are `IMPORT_ROW_MISMATCH` (MO-8b). A package
-  import with no TS module keeps R-io-4's narrowing, with no warning, until
-  package declarations are generated.
+  lines, and it may name the generated `export type`s. A written line
+  beats a helper; a helper beats the default. The row forms `import pure`,
+  `fails(…)`, `server` and `client` on a local TS import are
+  `IMPORT_ROW_ON_TS`, even if the declaration already agrees. The error
+  names the helper to write or says to remove rows already stated. A package
+  import with no sibling TS module retains MO-10c and R-io-4/R-f-8.
 - **MO-11f (Tooling).** The resolved model gives each JS-import name its
   effective line, the file it came from, and its origin: `written`,
   `helper` (with the helpers) or `default`. The MCP's `node` shows it, and
@@ -471,7 +466,7 @@ export const fields: readonly ["name", "email"]
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module; MO-8e for a type import in a `.d.rx`; MO-11b/e for a TS module |
 | `TYPE_IMPORT` | S | MO-8e: a declaration file imported a value |
 | `DECLARATION_HELPER` | S | MO-11c: a helper the generator cannot read as a fact |
-| `IMPORT_ROW_DEPRECATED` | S (warning) | MO-11e: `pure`/`fails`/`server`/`client` at an import of a TS module |
+| `IMPORT_ROW_ON_TS` | S | MO-11e: `pure`/`fails`/`server`/`client` at a local TS import |
 | `DECLARATION_UNAVAILABLE` | S | MO-11d: a TS module no generator could declare |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 

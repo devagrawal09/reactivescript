@@ -123,7 +123,7 @@ function rxDiagnostics() {
               start: { line: d.range.start.line - 1, character: d.range.start.column },
               end: { line: d.range.end.line - 1, character: d.range.end.column },
             },
-            severity: d.severity === "warning" ? 2 : 1,   // a warning (MO-11e's IMPORT_ROW_DEPRECATED) is shown as one
+            severity: 1,
             source: "rx",
             code: d.code,
             codeDescription: { href: guideUrl(d.code) },

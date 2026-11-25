@@ -182,8 +182,7 @@ export class Runtime {
     const program = set.programs.get(set.entry)!;
     this.program = program;
     this.root = new Region(null, this, null);
-    const { diags, warnings } = checkModules(set); if (diags.length) throw new CheckError(diags);
-    for (const w of warnings) this.diagnostics.push(`${w.code}: ${w.msg}`);   // a static warning (MO-11e) never refuses the program   // 08: the checker runs first; every static diagnostic is an error
+    const { diags } = checkModules(set); if (diags.length) throw new CheckError(diags);
     for (const path of set.order) { if (path === set.entry) continue; const r = new Region(this.root, this, null); this.modules.set(path, r); this.declare(set.programs.get(path)!.decls, r); }
     this.declare(program.decls, this.root);
     this.view = this.instantiate(program.view, this.root);

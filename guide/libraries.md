@@ -83,9 +83,9 @@ imported from another module (`import { Card } from "./server"`). `rejects(Offli
 `rejects(Offline | Stopped)` declare the same row. What wins, per fact: a `.d.rx` line, then a helper, then the
 default.
 
-`import pure { f } from "./api"` on a `.ts` module still compiles, with the warning `IMPORT_ROW_DEPRECATED`. It
-becomes an error in the next minor. Write `export const f = pure(…)` in `api.ts` instead. On a plain-JS package with no
-`.ts` beside it, `import pure` is still how you say it.
+`import pure { f } from "./api"` on a local TS module fails with `IMPORT_ROW_ON_TS`.
+Write `export const f = pure(…)` in `api.ts` instead, then import it without `pure`. The error also names the helper
+for `fails`, `server` or `client`. On a plain-JS package with no TS module beside it, `import pure` is still available.
 
 ## Use it
 

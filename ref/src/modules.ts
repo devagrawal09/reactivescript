@@ -3,6 +3,7 @@
 import { parseProgram, parseDeclarations, ParseError, type JsDecl } from "./parse.ts";
 import type { Program } from "./ast.ts";
 import type { Diagnostic } from "./errors.ts";
+import { importRowOnTs } from "./check.ts";
 import type { ModSig } from "./check.ts";
 import { parseSignature, SignatureError } from "./signature.ts";
 
@@ -176,12 +177,20 @@ export function loadModules(entry: string, read: (path: string) => string | unde
       const pkgDts = d.k === "import" && !isRx(d.from) && !d.from.startsWith(".") && !d.from.startsWith("/") ? packageDeclaration(path, d.from, read) : undefined;   // MO-10c
       if (d.k === "import" && !isRx(d.from) && (d.from.startsWith(".") || pkgDts)) {             // MO-8: a JS module with a declaration file beside it
         const dts = pkgDts ?? joinPath(path, d.from.replace(/\.(m?js|ts)$/, "") + ".d.rx");
+        const stem = dts.slice(0, -".d.rx".length);
         if (pkgDts) loadDeclaration(dts);
-        else if (!loadJsDeclaration(dts.slice(0, -".d.rx".length))) {                                        // MO-11d: a TS module, and no generator
-          const ts = tsModule(dts.slice(0, -".d.rx".length))!;
+        else if (!loadJsDeclaration(stem)) {                                        // MO-11d: a TS module, and no generator
+          const ts = tsModule(stem)!;
           diags.push({ code: "DECLARATION_UNAVAILABLE", rule: "MO-11d", line: d.line, file: path, msg: `${d.from} is the TS module ${base(ts)}, whose declaration is generated (MO-11d), and no generator answered: ${UNAVAILABLE_FIX}` });
         }
         const ds = declarations.get(dts);
+        const ts = !pkgDts && (d.pure || d.fails || d.side) ? tsModule(stem) : undefined;
+        if (ts) for (const { name } of d.names) {
+          const decl = ds?.find(x => x.kind !== "import" && x.name === name);
+          if (decl?.kind === "type" || decl?.kind === "error") continue;
+          const msg = importRowOnTs(name, base(ts), d.pure, d.fails, d.side, decl);
+          if (msg) diags.push({ code: "IMPORT_ROW_ON_TS", rule: "MO-11e", line: d.line, file: path, msg });
+        }
         if (ds) { d.declared = dts; d.declaredErrors = ds.filter(x => x.kind === "error").map(x => x.name); d.declaredPure = ds.filter(x => x.kind === "fn" && x.pure).map(x => x.name); d.declaredSide = Object.fromEntries(ds.flatMap(x => x.kind === "fn" && x.side ? [[x.name, x.side]] : [])); }
         continue;
       }

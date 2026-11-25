@@ -221,7 +221,7 @@ impl Loader<'_> {
         };
         self.state.insert(path.to_string(), State::Busy);
         for d in p.decls.iter_mut() {
-            let Decl::Import { from, line, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
+            let Decl::Import { from, line, names, pure, fails, side, resolved, declared, declared_errors, declared_pure, declared_side, .. } = d else { continue };
             if !is_rx(from) && from.starts_with('.') {
                 let stem = join_path(path, from);
                 let exts = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".cjs", ".cts", ".json"];
@@ -238,13 +238,13 @@ impl Loader<'_> {
                 // MO-8: a JS module with a declaration file beside it
                 let is_pkg = pkg_dts.is_some();
                 let dts = pkg_dts.unwrap_or_else(|| join_path(path, &(replace_js_ext(from) + ".d.rx")));
+                let stem = dts.strip_suffix(".d.rx").unwrap_or(&dts);
                 if is_pkg {
                     self.load_declaration(&dts)?;
                 } else {
-                    let stem = dts.strip_suffix(".d.rx").unwrap_or(&dts).to_string();
-                    if !self.load_js_declaration(&stem)? {
+                    if !self.load_js_declaration(stem)? {
                         // MO-11d: a TS module, and no generator
-                        let ts = self.ts_module(&stem).unwrap_or_default();
+                        let ts = self.ts_module(stem).unwrap_or_default();
                         self.diags.push(Diagnostic {
                             code: "DECLARATION_UNAVAILABLE".into(),
                             rule: "MO-11d".into(),
@@ -252,6 +252,17 @@ impl Loader<'_> {
                             file: Some(path.to_string()),
                             msg: format!("{} is the TS module {}, whose declaration is generated (MO-11d), and no generator answered: {}", from, base(&ts), UNAVAILABLE_FIX),
                         });
+                    }
+                }
+                if !is_pkg && (*pure || fails.is_some() || side.is_some()) {
+                    if let Some(ts) = self.ts_module(stem) {
+                        for name in names {
+                            let decl = self.declarations.get(&dts).and_then(|ds| ds.iter().find(|x| x.name() == name.name));
+                            if matches!(decl, Some(JsDecl::Type { .. } | JsDecl::Error { .. })) { continue; }
+                            if let Some(msg) = crate::check::import_row_on_ts(&name.name, base(&ts), *pure, fails.as_deref(), *side, decl) {
+                                self.diags.push(Diagnostic { code: "IMPORT_ROW_ON_TS".into(), rule: "MO-11e".into(), line: *line as i64, file: Some(path.to_string()), msg });
+                            }
+                        }
                     }
                 }
                 if let Some(ds) = self.declarations.get(&dts) {

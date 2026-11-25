@@ -1,5 +1,5 @@
 //! 09 MO-11: a TS module's declaration, generated (`rx-dts`) and read through the host's `read` at `rx-dts:<stem>` —
-//! the parser's generated forms, the loader's merge with a written `.d.rx`, the checker's narrowing on a defaulted fact,
+//! the parser's generated forms, the loader's merge with a written `.d.rx`, rejection of import-site rows on TS,
 //! the model's `decl`, and the projection's TypeScript types (13 TY-4b, TY-4d). Records are written by hand here; the
 //! generator itself is `compiler/dts.mjs` (`test/dts.mjs`), and `ref/crate.ts` diffs real records against `ref/`.
 
@@ -15,18 +15,13 @@ fn record(from: &str, text: &str) -> String {
 }
 /// `(code, rule, file, line)` of each diagnostic of the program `main.rx` over `files`.
 fn diags(files: &[(&str, &str)]) -> Vec<(String, String, String, i64)> {
-    checked(files).0
+    checked(files).into_iter().map(|d| (d.code, d.rule, d.file.unwrap_or_else(|| "main.rx".into()), d.line)).collect()
 }
-/// The diagnostics, then the warnings (`(code, rule, file, line)`, and the warnings' messages).
-fn checked(files: &[(&str, &str)]) -> (Vec<(String, String, String, i64)>, Vec<(String, String, String, i64, String)>) {
+fn checked(files: &[(&str, &str)]) -> Vec<reactivescript::check::Diagnostic> {
     let m: HashMap<String, String> = files.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
     let read = |p: &str| m.get(p).cloned();
     let set = load_modules("main.rx", &read).expect("loads");
-    let c = check_modules(&set, false);
-    (
-        c.diags.into_iter().map(|d| (d.code, d.rule, d.file.unwrap_or_else(|| "main.rx".into()), d.line)).collect(),
-        c.warnings.into_iter().map(|d| (d.code, d.rule, d.file.unwrap_or_else(|| "main.rx".into()), d.line, d.msg)).collect(),
-    )
+    check_modules(&set, false).diags
 }
 fn codes(files: &[(&str, &str)]) -> Vec<String> {
     diags(files).into_iter().map(|d| d.0).collect()
@@ -57,7 +52,7 @@ fn generated_forms_parse() {
     }
     assert_eq!(ds[2].helpers(), ["pure", "rejects"]);
     assert_eq!(ds[5].helpers(), ["client"]);
-    assert_eq!(ds[7].helpers(), ["pure", "ref"]);
+    assert_eq!(ds[7].helpers(), ["ref"]);
     assert!(ds[3].helpers().is_empty());
     assert_eq!(ds[2].src(), "export pure fn fetchUser(id: number): Promise<User> rejects(NotFound)");
 }
@@ -92,19 +87,20 @@ fn a_generated_declaration_binds_and_erases() {
 }
 
 #[test]
-fn the_import_narrows_only_a_defaulted_fact() {
+fn import_rows_are_not_allowed_on_ts() {
     let rec = record("api.ts", GEN);
     let with = |main: &str| diags(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &rec)]);
     let ok = "import pure { saveUser } from \"./api\"\nexport default component App() {\n  x = await saveUser(1)\n  errored fallback(e) { <p>{e.message}</p> } { <p>{x}</p> }\n}\n";
-    assert_eq!(with(ok), vec![], "`import pure` narrows a defaulted io fact");
+    let expected = vec![("IMPORT_ROW_ON_TS".into(), "MO-11e".into(), "main.rx".into(), 1)];
+    assert_eq!(with(ok), expected);
     let fails_default = "import { logVisit } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() {\n  action go() { try { await logVisit(\"x\") } catch (e: NotFound) {} }\n  <p>x</p>\n}\n";
-    assert_eq!(with(fails_default), vec![], "`fails` narrows a defaulted rejection");
+    assert_eq!(with(fails_default), expected);
     let fails_helper = "import { fetchUser } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() { <p>x</p> }\n";
-    assert_eq!(with(fails_helper), vec![("IMPORT_ROW_MISMATCH".into(), "MO-11e".into(), "main.rx".into(), 1)]);
+    assert_eq!(with(fails_helper), expected);
     let side_helper = "import server { viewport } from \"./api\"\nexport default component App() { <p>x</p> }\n";
-    assert_eq!(with(side_helper).into_iter().map(|d| d.0).collect::<Vec<_>>(), ["IMPORT_ROW_MISMATCH"]);
+    assert_eq!(with(side_helper), expected);
     let side_default = "import client { saveUser } from \"./api\"\nexport default component App() { <p>x</p> }\n";
-    assert_eq!(with(side_default), vec![]);
+    assert_eq!(with(side_default), expected);
     let missing = "import { deleteUser } from \"./api\"\nexport default component App() { <p>x</p> }\n";
     assert_eq!(with(missing), vec![("NOT_EXPORTED".into(), "MO-11b".into(), "main.rx".into(), 1)]);
 }
@@ -175,7 +171,7 @@ fn the_model_and_the_projection_read_the_generated_lines() {
     assert_eq!(decl("fetchUser"), json!({ "line": "export pure fn fetchUser(id: number): Promise<User> rejects(NotFound)", "from": "api.ts", "origin": "helper", "helpers": ["pure", "rejects"] }));
     assert_eq!(decl("saveUser"), json!({ "line": "export fn saveUser(u: User): Promise<void> rejects(Error)", "from": "api.d.rx", "origin": "written", "helpers": [] }));
     assert_eq!(decl("NotFound")["origin"], "default");
-    assert_eq!(decl("createDebounced")["helpers"], json!(["pure", "ref"]));
+    assert_eq!(decl("createDebounced")["helpers"], json!(["ref"]));
     let p = project_modules(&set);
     let code = &p.iter().find(|f| f.path == "main.rx.tsx").unwrap().code;
     assert!(code.contains("import type { User as __T___D_api_d_rx_User } from \"./api\";"), "{code}");
@@ -188,38 +184,19 @@ fn the_model_and_the_projection_read_the_generated_lines() {
 }
 
 #[test]
-fn narrowing_a_defaulted_fact_of_a_ts_module_is_deprecated() {
+fn forbidden_import_rows_name_the_fix() {
     let rec = record("api.ts", &format!("{GEN}export error Offline\n"));
-    let warns = |main: &str, extra: &[(&str, &str)]| {
-        let mut fs = vec![("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", rec.as_str())];
-        fs.extend_from_slice(extra);
-        let (d, w) = checked(&fs);
-        assert_eq!(d, vec![], "a warning never refuses the program");
-        w
+    let errors = |main: &str| {
+        checked(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &rec)])
+            .into_iter().map(|d| { assert_eq!(d.code, "IMPORT_ROW_ON_TS"); d.msg }).collect::<Vec<_>>()
     };
-    // `import pure` on a defaulted io fact: today's narrowing, and the helper that states it
-    let w = warns("import pure { saveUser } from \"./api\"\nexport default component App() {\n  x = await saveUser(1)\n  errored fallback(e) { <p>{e.message}</p> } { <p>{x}</p> }\n}\n", &[]);
-    assert_eq!(w.len(), 1);
-    assert_eq!((w[0].0.as_str(), w[0].1.as_str(), w[0].2.as_str(), w[0].3), ("IMPORT_ROW_DEPRECATED", "MO-11e", "main.rx", 1));
-    assert_eq!(w[0].4, "`pure` on the import narrows saveUser's defaulted rows, which is deprecated: in api.ts, `export const saveUser = pure(…)` (`pure` from \"@reactivescript/js\"), then import it without `pure` — this is an error in the next minor");
-    // `fails A | B`: `rejects([A, B], …)`; one warning per name
-    let w = warns("import { logVisit, saveUser } from \"./api\" fails NotFound | Offline\nimport { NotFound, Offline } from \"./api\"\nexport default component App() { <p>x</p> }\n", &[]);
-    let w: Vec<&str> = w.iter().map(|x| x.4.as_str()).collect();
-    assert_eq!(w.len(), 2, "{w:?}");
-    assert!(w[0].starts_with("`fails NotFound | Offline` on the import narrows logVisit's") && w[0].contains("`export const logVisit = rejects([NotFound, Offline], …)` (`rejects` from"), "{}", w[0]);
-    assert!(w[1].contains("export const saveUser = rejects([NotFound, Offline], …)"), "{}", w[1]);
-    // the words together: nested helpers in one suggestion; a helper the .ts already states is not repeated
-    let w = warns("import server pure { saveUser } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() { <p>x</p> }\n", &[]);
-    assert!(w[0].4.contains("`export const saveUser = pure(rejects([NotFound], server(…)))` (`pure`, `rejects`, `server` from") && w[0].4.contains("without `pure`, `fails NotFound` and `server`"), "{}", w[0].4);
-    let w = warns("import pure { fetchUser } from \"./api\"\nexport default component App() { <p>x</p> }\n", &[]);
-    assert_eq!(w, vec![], "fetchUser is pure by its helper: nothing narrowed");
-    // `client` on a defaulted side; `default`'s export is `export default …`
-    let w = warns("import client { default as d } from \"./api\"\nexport default component App() { <p>x</p> }\n", &[]);
-    assert!(w[0].4.contains("`export default client(…)`"), "{}", w[0].4);
-    // a written line is not defaulted: unchanged (IMPORT_ROW_MISMATCH where it disagrees), no warning
-    let w = warns("import { saveUser } from \"./api\"\nexport default component App() { action a() { try { await saveUser(1) } catch (e) {} } <p>x</p> }\n", &[("api.d.rx", "export fn saveUser(u: User): Promise<void>\n")]);
-    assert_eq!(w, vec![]);
-    // a JS module with no TS module (R-io-4), and a package: no warning
-    let (d, w) = checked(&[("main.rx", "import pure { f } from \"./util\"\nexport default component App() { <p>{f()}</p> }\n"), ("util.js", "export const f = () => 1;\n")]);
-    assert_eq!((d, w), (vec![], vec![]));
+    let d = errors("import server pure { saveUser } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() { <p>x</p> }\n");
+    assert_eq!(d.len(), 1);
+    assert!(d[0].contains("`export const saveUser = pure(rejects([NotFound], server(…)))`"));
+    let d = errors("import pure { fetchUser } from \"./api\"\nexport default component App() { <p>x</p> }\n");
+    assert!(d[0].contains("remove `pure` from the import; use fetchUser's declared rows"));
+    let d = errors("import client { default as d } from \"./api\"\nexport default component App() { <p>x</p> }\n");
+    assert!(d[0].contains("`export default client(…)`"));
+    let main = "import pure { f } from \"./util\"\nimport pure { f as g } from \"pkg\"\nexport default component App() { <p>{f()}{g()}</p> }\n";
+    assert!(diags(&[("main.rx", main), ("util.js", "export const f = () => 1;\n")]).is_empty());
 }

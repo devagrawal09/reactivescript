@@ -160,7 +160,7 @@ const hoverText = h => !h ? "" : typeof h.contents === "string" ? h.contents : A
   // 09 MO-11e: `import pure` on a defaulted fact of the .ts compiles, and the editor shows the deprecation as a warning
   const narrowed = await server.openTextDocument(path.join(ws, "narrow.rx"), "reactivescript");
   const dg6 = await server.sendDocumentDiagnosticRequest(narrowed.uri);
-  check("`import pure` on a defaulted fact is IMPORT_ROW_DEPRECATED, a Warning (severity 2), naming `pure(…)`", (dg6.items ?? []).length === 1 && dg6.items[0].code === "IMPORT_ROW_DEPRECATED" && dg6.items[0].severity === 2 && dg6.items[0].range.start.line === 0 && dg6.items[0].message.includes("`export const greet = pure(…)`"), dg6.items);
+  check("`import pure` on TS is IMPORT_ROW_ON_TS, naming `pure(…)`", (dg6.items ?? []).length === 1 && dg6.items[0].code === "IMPORT_ROW_ON_TS" && dg6.items[0].severity === 1 && dg6.items[0].range.start.line === 0 && dg6.items[0].message.includes("`export const greet = pure(…)`"), dg6.items);
 
   await server.shutdown();
   console.log(`\n${pass} pass, ${fail} fail`);

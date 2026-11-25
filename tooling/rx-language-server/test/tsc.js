@@ -11,9 +11,12 @@ const repo = path.resolve(__dirname, "../../..");
 const ws = path.join(__dirname, "../.test/tsc");
 fs.rmSync(ws, { recursive: true, force: true });
 fs.mkdirSync(ws, { recursive: true });
-for (const f of fs.readdirSync(path.join(repo, "examples/shop"))) fs.copyFileSync(path.join(repo, "examples/shop", f), path.join(ws, f));
+for (const f of fs.readdirSync(path.join(repo, "examples/shop"))) {
+  const src = fs.readFileSync(path.join(repo, "examples/shop", f), "utf8");
+  fs.writeFileSync(path.join(ws, f), src.replace(/^import pure (.* from "\.\/api")$/gm, "import $1"));
+}
 // the injected API's types, its `pure` stated as a .d.ts can state it (the brand type; a .ts states it with `pure(…)`), so
-// the shop's `import pure` restates it and is no narrowing (09 MO-11e)
+// this fixture provides an actual TS module where the examples use the injected JS API (09 MO-11e)
 fs.writeFileSync(path.join(ws, "api.d.ts"), [
   'import type { Pure } from "@reactivescript/js";',
   "export declare function checkout(items: { id: number; qty: number }[], coupon: string): Pure<Promise<{ id: number }>>;",
@@ -168,7 +171,7 @@ check("a misplaced helper is DECLARATION_HELPER, at the call in the .ts", mispla
 
 // 09 MO-11e: `import pure` on a defaulted fact of the .ts still narrows it; rx-tsc prints the warning and passes
 const narrowed = tsModule({ file: "main.rx", text: () => usersRx.replace('import { initials,', 'import pure { greet } from "./users"\nimport { initials,').replace("first = initials(name)", "first = initials(greet(name))") });
-check("`import pure` on a defaulted fact: warning IMPORT_ROW_DEPRECATED naming `pure(…)`, exit 0", narrowed.status === 0 && /^main\.rx:1:\d+ - warning IMPORT_ROW_DEPRECATED: .*`export const greet = pure\(…\)`.*\(MO-11e\)$/m.test(narrowed.out) && /Found 1 ReactiveScript warning\./.test(narrowed.out) && !/ - error /.test(narrowed.out), narrowed);
+check("`import pure` on TS: IMPORT_ROW_ON_TS naming `pure(…)`, exit 1", narrowed.status === 1 && /^main\.rx:1:\d+ - error IMPORT_ROW_ON_TS: .*`export const greet = pure\(…\)`.*\(MO-11e\)$/m.test(narrowed.out) && /Found 1 ReactiveScript error\./.test(narrowed.out), narrowed);
 
 const missing = tsModule({ file: "main.rx", text: () => usersRx.replace("save, NotFound", "save, remove, NotFound") });
 check("an import of a name the .ts lacks is NOT_EXPORTED, on the .rx", missing.status !== 0 && /^main\.rx:1:\d+ - error NOT_EXPORTED/m.test(missing.out), missing);

@@ -39,33 +39,31 @@ impl Diagnostic {
         }
         serde_json::Value::Object(m)
     }
-    /// A warning's JSON: an error's, with `severity: "warning"` (an error has no `severity`, so its JSON is unchanged).
-    pub fn to_json_warning(&self) -> serde_json::Value {
-        let mut j = self.to_json();
-        j["severity"] = "warning".into();
-        j
-    }
 }
 
-/// MO-11e: IMPORT_ROW_DEPRECATED's message for the words on an import that narrow a TS module's defaulted facts (`pure`,
-/// `fails A | B`, `server`/`client`), naming the helpers that state them in the `.ts`, nested in one initializer; `None`
-/// when nothing is narrowed.
-pub(crate) fn deprecated_narrowing(name: &str, ts_file: &str, pure: bool, fails: Option<&[String]>, side: Option<Side>) -> Option<String> {
+/// MO-11e: move import rows into the TS export, or just remove them if the declaration already supplies those facts.
+pub(crate) fn import_row_on_ts(name: &str, ts_file: &str, pure: bool, fails: Option<&[String]>, side: Option<Side>, d: Option<&JsDecl>) -> Option<String> {
     let mut open: Vec<String> = vec![];
     let mut words: Vec<String> = vec![];
     if pure {
-        open.push("pure(".into());
+        if !matches!(d, Some(JsDecl::Fn { pure: true, .. } | JsDecl::Fn { instantiates: true, .. })) {
+            open.push("pure(".into());
+        }
         words.push("`pure`".into());
     }
     if let Some(cs) = fails {
-        open.push(format!("rejects([{}], ", cs.join(", ")));
+        if !matches!(d, Some(JsDecl::Fn { rejects: Some(_), .. })) {
+            open.push(format!("rejects([{}], ", cs.join(", ")));
+        }
         words.push(format!("`fails {}`", cs.join(" | ")));
     }
     if let Some(s) = side {
-        open.push(format!("{}(", s.as_str()));
+        if !matches!(d, Some(JsDecl::Fn { side: Some(_), .. })) {
+            open.push(format!("{}(", s.as_str()));
+        }
         words.push(format!("`{}`", s.as_str()));
     }
-    if open.is_empty() {
+    if words.is_empty() {
         return None;
     }
     let helpers = format!("{}…{}", open.concat(), ")".repeat(open.len()));
@@ -75,11 +73,10 @@ pub(crate) fn deprecated_narrowing(name: &str, ts_file: &str, pure: bool, fails:
         1 => words[0].clone(),
         n => format!("{} and {}", words[..n - 1].join(", "), words[n - 1]),
     };
-    Some(format!(
-        "{said} on the import {} {name}'s defaulted rows, which is deprecated: in {ts_file}, `{export}` (`{}` from \"@reactivescript/js\"), then import it without {said} — this is an error in the next minor",
-        if words.len() == 1 { "narrows" } else { "narrow" },
-        names.join("`, `")
-    ))
+    let fix = if open.is_empty() { format!("remove {said} from the import; use {name}'s declared rows") } else {
+        format!("in {ts_file}, `{export}` (`{}` from \"@reactivescript/js\"), then import it without {said}", names.join("`, `"))
+    };
+    Some(format!("TypeScript imports take their rows from the declaration, not {said} on the import: {fix}"))
 }
 
 const BUILTINS: &[&str] = &["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "indexOf"];
@@ -926,8 +923,6 @@ pub struct Checker<'a> {
     /// MO-10d: CN-3e asks what may hold, where a foreign reader counts (R-8 asks what may be absent, where it does not)
     holds_mode: Cell<bool>,
     pub diags: Vec<Diagnostic>,
-    /// Warnings: reported, never refusing the program (MO-11e's IMPORT_ROW_DEPRECATED).
-    pub warnings: Vec<Diagnostic>,
     pub model: ModelBuilder,
     opts: Opts<'a>,
     root_env: Option<EId>,
@@ -973,7 +968,6 @@ pub struct Checker<'a> {
 
 pub struct CheckResult {
     pub diags: Vec<Diagnostic>,
-    pub warnings: Vec<Diagnostic>,
     pub sig: ModSig,
     pub model: serde_json::Value,
 }
@@ -984,13 +978,12 @@ pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
     c.run(p);
     let sig = c.signature(p);
     let model = c.build_model(&file);
-    CheckResult { diags: c.diags, warnings: c.warnings, sig, model }
+    CheckResult { diags: c.diags, sig, model }
 }
 
 pub struct Checked {
     pub diags: Vec<Diagnostic>,
     /// Warnings never refuse the program: a host prints them and goes on.
-    pub warnings: Vec<Diagnostic>,
     pub sigs: IndexMap<String, ModSig>,
     pub models: IndexMap<String, serde_json::Value>,
 }
@@ -1018,15 +1011,13 @@ pub fn check_modules_in(set: &ModuleSet, spa: bool, root: Option<&str>) -> Check
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
-    let mut warnings = vec![];
     for path in &set.order {
         let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, root });
         diags.extend(r.diags);
-        warnings.extend(r.warnings);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
     }
-    Checked { diags, warnings, sigs, models }
+    Checked { diags, sigs, models }
 }
 
 impl<'a> Checker<'a> {
@@ -1034,7 +1025,6 @@ impl<'a> Checker<'a> {
         Checker {
             holds_mode: Cell::new(false),
             diags: vec![],
-            warnings: vec![],
             model: ModelBuilder::default(),
             opts,
             root_env: None,
@@ -1080,12 +1070,6 @@ impl<'a> Checker<'a> {
         let line = self.line;
         if !self.diags.iter().any(|d| d.code == code && d.line == line && d.msg == msg) {
             self.diags.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
-        }
-    }
-    fn warn(&mut self, code: &str, rule: &str, msg: String) {
-        let line = self.line;
-        if !self.warnings.iter().any(|d| d.code == code && d.line == line && d.msg == msg) {
-            self.warnings.push(Diagnostic { code: code.into(), rule: rule.into(), line, msg, file: self.opts.file.clone() });
         }
     }
     fn region(&mut self, parent: Option<RId>, kind: &'static str, component: bool, name: Option<String>) -> RId {
@@ -1660,35 +1644,17 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 JsDecl::Fn { pure: xpure, side: xside, rejects, params: xparams, refs, shape, instantiates, .. } => {
-                    // MO-11e: per fact, a written line beats a helper beats the import beats the default; the import may narrow
-                    // only a defaulted fact
+                    // The loader already diagnoses import rows on TS modules (MO-11e).
                     if fails.is_some() && ts.is_some() && !gen {
                         self.err("IMPORT_ROW_MISMATCH", rule, format!("{}'s rows are declared in {}: `fails` on the import cannot restate them", name, file));
-                    }
-                    if let (true, true, Some(r)) = (fails.is_some(), gen, rejects) {
-                        self.err("IMPORT_ROW_MISMATCH", rule, format!("{} rejects with {} by its `rejects` helper in {}; `fails` on the import cannot restate it", name, r.join(" | "), ts_file));
                     }
                     if *pure && !xpure && !gen {
                         self.err("IMPORT_ROW_MISMATCH", rule, format!("{} is declared io in {} (`export fn`, not `export pure fn`); `pure` on the import cannot lower it", name, file));
                     }
                     if let Some(sd) = side {
-                        if *xside != Some(*sd) && (!gen || xside.is_some()) {
-                            let msg = if gen {
-                                let xs = xside.unwrap();
-                                format!("{} is `{}` by its `{}` helper in {}; `{}` on the import cannot restate it", name, xs.as_str(), xs.as_str(), ts_file, sd.as_str())
-                            } else {
-                                format!("{} is declared {} in {}; `{}` on the import cannot restate it", name, xside.map(|x| format!("`{}`", x.as_str())).unwrap_or_else(|| "for both sides".into()), file, sd.as_str())
-                            };
+                        if *xside != Some(*sd) && !gen {
+                            let msg = format!("{} is declared {} in {}; `{}` on the import cannot restate it", name, xside.map(|x| format!("`{}`", x.as_str())).unwrap_or_else(|| "for both sides".into()), file, sd.as_str());
                             self.err("IMPORT_ROW_MISMATCH", if ts.is_some() { rule } else { "SF-5" }, msg);
-                        }
-                    }
-                    if gen {
-                        // MO-11e: narrowing a defaulted fact of a TS module at the import still works, and is deprecated
-                        let narrow_pure = *pure && !xpure;
-                        let narrow_fails = fails.as_ref().filter(|_| rejects.is_none());
-                        let narrow_side = (*side).filter(|_| xside.is_none());
-                        if let Some(m) = deprecated_narrowing(name, &ts_file, narrow_pure, narrow_fails.map(|v| v.as_slice()), narrow_side) {
-                            self.warn("IMPORT_ROW_DEPRECATED", "MO-11e", m);
                         }
                     }
                     if *instantiates {

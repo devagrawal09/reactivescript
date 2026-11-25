@@ -26,7 +26,7 @@ const { chromium } = createRequire(import.meta.url)("playwright");
 const runtime = path.join(repo, "runtime");   // @reactivescript/runtime, built (`npm run build` there)
 const { app: compile } = createRequire(import.meta.url)("../index.js");
 const { build: esbuild } = createRequire(path.join(runtime, "package.json"))("esbuild");
-const instrumentation = /__RX_|rx:|MISSING_TEST_API|jsError|@reactivescript\/map/;
+const instrumentation = /__RX_|rx:|MISSING_TEST_API|jsError|actionCaught|@reactivescript\/map/;
 
 // notes/ calls server functions: with no server behind the static build, it shows its own error boundary
 const apps = {
@@ -159,11 +159,10 @@ export const fetchUser = pure(rejects([NotFound], async (id: number): Promise<Us
   if (id === 2) throw new NotFound("no user 2");
   return { id, name: "Ann" };
 }));
-export function greeting(name: string) { return "hi " + name; }
+export const greeting = pure((name: string) => "hi " + name);
 `);
   // \`User\` is a type: it must not reach the emitted import (MO-8d), or the bundler finds no such export in api.ts.
-  // \`fetchUser\` is pure by its helper (awaited in an equation), and its NotFound is caught at the await. \`greeting\`
-  // states nothing, so \`import pure\` still narrows it, with the warning IMPORT_ROW_DEPRECATED (MO-11e): the build succeeds.
+  // Both functions state purity in the TS module. Adding a row to its import fails with the helper fix.
   writeFileSync(path.join(src, "main.rx"), `import { fetchUser, NotFound, User } from "./api"
 import pure { greeting } from "./api"
 export default component Main() {
@@ -178,12 +177,12 @@ export default component Main() {
 }
 `);
   try {
-    const said = [], warn = console.warn;
-    console.warn = (...a) => { said.push(a.join(" ")); };
-    try { await vite.build(config(dir, "dts/main.rx")); } finally { console.warn = warn; }
-    const warned = said.join("\n").split("\n").filter(l => /: warning IMPORT_ROW_DEPRECATED \[MO-11e\] .*greeting/.test(l));
-    if (warned.length !== 1) throw new Error(`the warning, once: ${JSON.stringify(said).slice(0, 600)}`);
-    if (!warned[0].includes("`export const greeting = pure(…)`")) throw new Error(`the fix: ${warned[0]}`);
+    const file = path.join(src, "main.rx");
+    const source = readFileSync(file, "utf8");
+    const rejected = await vite.build(config(dir, "dts/main.rx")).then(() => "", e => e.message);
+    if (!/error IMPORT_ROW_ON_TS \[MO-11e\].*remove `pure`/.test(rejected)) throw new Error(`expected import row error: ${rejected}`);
+    writeFileSync(file, source.replace("import pure { greeting }", "import { greeting }"));
+    await vite.build(config(dir, "dts/main.rx"));
     const dist = path.join(dir, "dist");
     const http = createServer((req, res) => { const f = path.join(dist, req.url === "/" ? "index.html" : req.url.split("?")[0]); if (!existsSync(f)) { res.statusCode = 404; return res.end(); } res.setHeader("content-type", f.endsWith(".js") ? "text/javascript" : f.endsWith(".css") ? "text/css" : "text/html"); res.end(readFileSync(f)); });
     await new Promise(r => http.listen(0, "127.0.0.1", r));
