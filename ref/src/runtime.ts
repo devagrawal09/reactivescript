@@ -1,7 +1,6 @@
 // Reference runtime: spec/02-core §4 (instants), 03 (regions), 04 (rows), 05 (holds: two versions of state).
 // Pull-based settle with push invalidation; dependencies per (object identity, key) — ST-2.
 import { classMap } from "./style.ts";
-import { actionInput } from "./action-input.ts";
 import { inferredAction } from "./infer.ts";
 import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
 type FnDecl = Extract<Decl, { k: "fn" }>; type CompDecl = Extract<Decl, { k: "component" }>; type ActionDecl = Extract<Decl, { k: "action" }>; type ServerDecl = Extract<Decl, { k: "server" }>;
@@ -800,7 +799,7 @@ export class Runtime {
           return (...args: unknown[]) => { const en = new Map<string, unknown>(); f.params.forEach((p, i) => en.set(p.name, args[i])); return this.evalExpr(f.tail, home, en); };   // lexical: the declaration's names, not the caller's locals
         }
         if ("comp" in b) throw new RuleError("RG-4a", `component ${b.comp.name} applied outside a view`);
-        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); const captured = actionInput(args); a.params.forEach((p, i) => en.set(p, captured[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
+        if ("action" in b) { const a = b.action, home = b.home; return Object.assign((...args: unknown[]) => { const en = new Map<string, unknown>(); if (env?.has("log")) en.set("log", env.get("log")); a.params.forEach((p, i) => en.set(p, args[i])); this.startRun(a.body, home, en, true); }, { io: true }); }   // AC-1: an action is io; its body is lexical (its declaration's names)
         { const v = this.readNode(b); if (!this.demandMode && this.currentRun && v instanceof ErrVal) throw v.err; return v; }   // R-f-7: a snapshot of an error throws it
       }
       case "as": return this.ev(e.e, region, env);                     // 07 §3: erased

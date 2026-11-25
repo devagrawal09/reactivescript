@@ -584,7 +584,7 @@ export class Oracle {
       env.set("log", (...a: unknown[]) => { self.log.push(`log(${a.map(fmt).join(", ")})`); });
       const r = yield* self.block(body, scope, env); return r ? r.value : undefined;
     });
-    return (...args: unknown[]) => { const p = run(...untrack(() => actionInput(args))); p.catch(e => { self.asyncError = e; }); return p; };
+    return (...args: unknown[]) => { const p = run(...untrack(() => actionInput(args, $TARGET))); p.catch(e => { self.asyncError = e; }); return p; };
   }
   /** 12 SF-7b: a server function as the client sees it — a call is a flight. The body runs in place (its generator driven by
    *  promises, not by an action: it is no change of the client's), behind a wire that copies arguments and result (SF-6a) and

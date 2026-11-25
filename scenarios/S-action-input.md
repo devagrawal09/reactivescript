@@ -23,5 +23,6 @@ export default component App() {
 | instant | action | frame |
 | --- | --- | --- |
 | 0 | mount | `2:` |
-| 1 | handler `bulk(selected, packet); onFlush(() => { selected := []; packet.nested[0] := [] })` | `0:` |
-| 2 | resolve `"ready"` `"ok"` | `0:a,b:c` |
+| 1 | handler `bulk(selected, packet)` | `2:` |
+| 2 | handler `selected := []; packet.nested[0] := []` | `0:` |
+| 3 | resolve `"ready"` `"ok"` | `0:a,b:c` |

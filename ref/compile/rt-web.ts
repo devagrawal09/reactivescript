@@ -433,7 +433,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
           return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
         } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
         return (...a: unknown[]) => {
-          a = untrack(() => actionInput(a));
+          a = untrack(() => actionInput(a, $TARGET));
           const id = ++runId;
           trace({ type: "run", key, id, ownerPath, state: "start", args: a });
           const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
@@ -445,7 +445,7 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         };
       }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
-      return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a))); p.catch(e => { app.asyncError = e; }); return p; };
+      return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a, $TARGET))); p.catch(e => { app.asyncError = e; }); return p; };
     },
     traceCallback<T extends (...args: any[]) => any>(fn: T): T {
       const origin = currentAction ?? callbackOrigin;
