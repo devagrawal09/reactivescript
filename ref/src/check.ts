@@ -267,6 +267,50 @@ class Checker {
     this.resolveTree();
     this.loadingOnOutside();
     this.guessWhileLoading();
+    this.styleScope(p);
+  }
+
+  /** CSS-2: a component's `<style>` scopes that view only. A class it writes that another component in the file uses, and this view does not, does not apply there. */
+  private styleScope(p: Program) {
+    const views: { name: string; css: string; line: number; classes: Set<string> }[] = [];
+    const addLit = (out: Set<string>, s: string) => { for (const c of s.split(/\s+/)) if (c) out.add(c); };
+    const classExpr = (e: Expr, out: Set<string>) => {
+      if (e.k === "lit" && typeof e.v === "string") addLit(out, e.v);
+      else if (e.k === "tpl") for (const part of e.parts) if (typeof part === "string") addLit(out, part);
+      else if (e.k === "if") { classExpr(e.t, out); classExpr(e.f, out); }
+    };
+    const elClasses = (ms: Markup[], out: Set<string>) => {
+      for (const m of ms) {
+        if (m.k === "el") { for (const a of m.attrs) if (a.name === "class") classExpr(a.e, out); elClasses(m.children, out); }
+        else if (m.k === "mif") { elClasses(m.t, out); elClasses(m.f, out); }
+        else if (m.k === "mfor") elClasses(m.body, out);
+        else if (m.k === "loading" || m.k === "errored") { elClasses(m.fallback, out); elClasses(m.body, out); }
+        else if (m.k === "portal") elClasses(m.body, out);
+      }
+    };
+    const styleClasses = (css: string) => {
+      const src = css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/:global\([^)]*\)/g, "");
+      return new Set([...src.matchAll(/\.([A-Za-z_][\w-]*)/g)].map(m => m[1]));
+    };
+    const comps = (ds: Decl[]) => {
+      for (const d of ds) {
+        if (d.k === "component") {
+          const st = d.view.find(m => m.k === "style");
+          const classes = new Set<string>(); elClasses(d.view, classes);
+          views.push({ name: d.name, css: st && st.k === "style" ? st.css : "", line: st?.line ?? d.line, classes });
+        }
+        if ("decls" in d && Array.isArray(d.decls)) comps(d.decls);
+      }
+    };
+    comps(p.decls);
+    for (const v of views) {
+      if (!v.css) continue;
+      const leaked = [...styleClasses(v.css)].filter(cls => !v.classes.has(cls) && views.some(o => o !== v && o.classes.has(cls))).sort();
+      if (!leaked.length) continue;
+      const who = views.filter(o => o !== v && leaked.some(c => o.classes.has(c))).map(o => o.name);
+      this.line = v.line;
+      this.err("STYLE_SCOPE", "CSS-2", `.${leaked.join("`, `.")} in this <style> matches an element of ${who.join(", ")}, which is its own view — these styles do not apply there. Give ${who.length === 1 ? who[0] : "that component"} its own <style>, or pass a class map (CSS-5)`);
+    }
   }
 
   // ---- AC-3a: a guess a click can make while its value loads a new question ----

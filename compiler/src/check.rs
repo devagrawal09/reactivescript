@@ -1109,6 +1109,72 @@ impl<'a> Checker<'a> {
         self.loading_on_outside();
         self.snapshot_guards();
         self.guess_while_loading();
+        self.style_scope(p);
+    }
+    /// CSS-2: a component's `<style>` scopes that view only. A class it writes that another component in the file uses, and this view does not, does not apply there.
+    fn style_scope(&mut self, p: &Program) {
+        fn add_lit(out: &mut std::collections::BTreeSet<String>, s: &str) {
+            for c in s.split_whitespace() {
+                if !c.is_empty() { out.insert(c.to_string()); }
+            }
+        }
+        fn class_expr(e: &Expr, out: &mut std::collections::BTreeSet<String>) {
+            match &e.k {
+                ExprKind::Lit(Lit::Str(s)) => add_lit(out, s),
+                ExprKind::Tpl(parts) => for p in parts { if let TplPart::Str(s) = p { add_lit(out, s); } }
+                ExprKind::If { t, f, .. } => { class_expr(t, out); class_expr(f, out); }
+                _ => {}
+            }
+        }
+        fn el_classes(ms: &[Markup], out: &mut std::collections::BTreeSet<String>) {
+            for m in ms {
+                match &m.kind {
+                    MarkupKind::El { attrs, children, .. } => {
+                        for a in attrs { if a.name == "class" { class_expr(&a.e, out); } }
+                        el_classes(children, out);
+                    }
+                    MarkupKind::Mif { t, f, .. } => { el_classes(t, out); el_classes(f, out); }
+                    MarkupKind::Mfor { body, .. } => el_classes(body, out),
+                    MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => { el_classes(fallback, out); el_classes(body, out); }
+                    MarkupKind::Portal { body, .. } => el_classes(body, out),
+                    _ => {}
+                }
+            }
+        }
+        fn style_classes(css: &str) -> std::collections::BTreeSet<String> {
+            let src = regex::Regex::new(r"/\*[\s\S]*?\*/").unwrap().replace_all(css, "");
+            let src = regex::Regex::new(r":global\([^)]*\)").unwrap().replace_all(&src, "");
+            regex::Regex::new(r"\.([A-Za-z_][\w-]*)").unwrap().captures_iter(&src).map(|m| m[1].to_string()).collect()
+        }
+        struct View { name: String, css: String, line: i64, classes: std::collections::BTreeSet<String> }
+        let mut views = vec![];
+        fn comps(ds: &[Decl], views: &mut Vec<View>) {
+            for d in ds {
+                if let Decl::Component { name, view, line, decls, .. } = d {
+                    let st = view.iter().find_map(|m| if let MarkupKind::Style(css) = &m.kind { Some((css.clone(), m.line.unwrap_or(*line) as i64)) } else { None });
+                    let mut classes = std::collections::BTreeSet::new();
+                    el_classes(view, &mut classes);
+                    views.push(View { name: name.clone(), css: st.as_ref().map(|s| s.0.clone()).unwrap_or_default(), line: st.map(|s| s.1).unwrap_or(*line as i64), classes });
+                    comps(decls, views);
+                } else if let Decl::Fn { decls, .. } = d {
+                    comps(decls, views);
+                }
+            }
+        }
+        comps(&p.decls, &mut views);
+        let owned: Vec<(usize, Vec<String>, Vec<String>)> = views.iter().enumerate().filter_map(|(i, v)| {
+            if v.css.is_empty() { return None; }
+            let leaked: Vec<String> = style_classes(&v.css).into_iter().filter(|cls| !v.classes.contains(cls) && views.iter().enumerate().any(|(j, o)| j != i && o.classes.contains(cls))).collect();
+            if leaked.is_empty() { return None; }
+            let who: Vec<String> = views.iter().enumerate().filter(|(j, o)| *j != i && leaked.iter().any(|c| o.classes.contains(c))).map(|(_, o)| o.name.clone()).collect();
+            Some((i, leaked, who))
+        }).collect();
+        for (i, leaked, who) in owned {
+            self.line = views[i].line;
+            let names = who.join(", ");
+            let one = if who.len() == 1 { who[0].clone() } else { "that component".into() };
+            self.err("STYLE_SCOPE", "CSS-2", format!(".{} in this <style> matches an element of {names}, which is its own view — these styles do not apply there. Give {one} its own <style>, or pass a class map (CSS-5)", leaked.join("`, `.")));
+        }
     }
     fn run_later(&mut self, job: Later<'a>) {
         match job {

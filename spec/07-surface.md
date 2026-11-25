@@ -326,7 +326,10 @@ component Card(props) {
   children the view passes to a component — carries the view's scope class.
   A component's body is its own view, with its own stylesheet or none.
   Children belong to the view that wrote them, wherever the component
-  places them.
+  places them. A class in one component's `<style>` that matches an
+  element of another component in the same file does not style it
+  (`STYLE_SCOPE`): that component is its own view. Give it its own
+  `<style>`, or pass a class map (CSS-5).
 - **CSS-3 (The stylesheet).** TSRX's engine, unchanged (`tsrx::style` in
   Solid's compiler; 11 CP-1d): selectors are scoped to the class
   (`tsrx-` and eight hex digits of the module, the style's position and its
