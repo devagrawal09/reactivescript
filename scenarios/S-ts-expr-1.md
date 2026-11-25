@@ -7,8 +7,8 @@ Rules exercised: 07 §3, E-7, TY-1a.
 ```rx
 fn show(n: number): number => n
 export default component App() {
-  record = { [key]: 4 }
   key = "value"
+  record = { [key]: 4 }
   value: unknown = record[key]
   first = ([show(value as number)]
     .map(n => n + 1))[0]
