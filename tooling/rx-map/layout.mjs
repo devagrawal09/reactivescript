@@ -587,14 +587,24 @@ export function planTrunks(pairs, L) {
   return plan;
 }
 
+/**
+ * The zoom thresholds between detail levels. A level comes in only once its text reads at `minText` px on screen or
+ * more: the structure level (2) when a name (`METRICS.nameFont`) does, the detail level (3) when a view site's text
+ * (`METRICS.siteFont`) does. Going back down waits `hysteresis` lower, so a zoom resting near a threshold doesn't flicker.
+ */
+export function levelThresholds({ minText = 11, hysteresis = .05, metrics = METRICS } = {}) {
+  const at = font => Math.ceil((minText / font) * 100) / 100;
+  const up = { 1: at(metrics.nameFont), 2: at(metrics.siteFont) };
+  return { up, down: { 2: +(up[1] - hysteresis).toFixed(2), 3: +(up[2] - hysteresis).toFixed(2) }, minText };
+}
+/** The thresholds the page uses: up 1→2 at .82, 2→3 at .88; down 3→2 below .83, 2→1 below .77. */
+export const LEVELS = levelThresholds();
 /** The detail level for a zoom, with hysteresis: `prev` is the current level. */
-export const LEVELS = { up: { 1: .36, 2: .66 }, down: { 2: .30, 3: .58 } };
-export function levelFor(s, prev = 3) {
+export function levelFor(s, prev = 3, LV = LEVELS) {
   let l = prev;
-  if (l === 1 && s >= LEVELS.up[1]) l = 2;
-  if (l === 2 && s >= LEVELS.up[2]) l = 3;
-  if (l === 3 && s < LEVELS.down[3]) l = 2;
-  if (l === 2 && s < LEVELS.down[2]) l = 1;
-  if (l === 1 && s >= LEVELS.up[2]) l = 3;
+  if (l === 1 && s >= LV.up[1]) l = 2;
+  if (l === 2 && s >= LV.up[2]) l = 3;
+  if (l === 3 && s < LV.down[3]) l = 2;
+  if (l === 2 && s < LV.down[2]) l = 1;
   return l;
 }

@@ -24,7 +24,7 @@ if (/<\/script|<!--|<script/i.test(lib)) throw new Error("fake.mjs / hmr.mjs con
 html = html.replace("/*__FAKELIB__*/null", () => lib);
 // The layout (layout.mjs) the same way: the page and the RX map share one module
 const layoutSrc = readFileSync(new URL("layout.mjs", here), "utf8");
-const layoutLib = `(() => {\n// ---- layout.mjs\n${strip(layoutSrc)}\nreturn { analyze, layoutWorld, planTrunks, channels, orderBands, tokenSize, levelFor, LEVELS, METRICS, kindOf, CTL, ORDER, SHAPE };\n})()`;
+const layoutLib = `(() => {\n// ---- layout.mjs\n${strip(layoutSrc)}\nreturn { analyze, layoutWorld, planTrunks, channels, orderBands, tokenSize, levelFor, levelThresholds, LEVELS, METRICS, kindOf, CTL, ORDER, SHAPE };\n})()`;
 if (/<\/script|<!--|<script/i.test(layoutLib)) throw new Error("layout.mjs contains text that would end the page's script");
 html = html.replace("/*__LAYOUTLIB__*/null", () => layoutLib);
 

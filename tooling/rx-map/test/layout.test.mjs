@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyze, layoutWorld, planTrunks, levelFor, LEVELS } from "../layout.mjs";
+import { analyze, layoutWorld, planTrunks, levelFor, levelThresholds, LEVELS, METRICS } from "../layout.mjs";
 import { mergeGraphs } from "../live.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -85,20 +85,23 @@ test("the aspect is the only option that moves things; zoom isn't an input", () 
   for (const [k, p] of a.plates) assert.deepEqual([p.w, p.h], [b.plates.get(k).w, b.plates.get(k).h]);
 });
 
-test("levelFor: thresholds with hysteresis", () => {
+test("levelFor: a level comes in once its text reads at 11px; hysteresis on the way down", () => {
+  const { up, down } = LEVELS;
+  assert.ok(METRICS.nameFont * up[1] >= 11 && METRICS.siteFont * up[2] >= 11, "names at L2, view sites at L3, 11px or more");
+  assert.ok(down[2] < up[1] && down[3] < up[2] && up[1] < up[2] && down[2] < down[3]);
   assert.equal(levelFor(.1, 3), 1);
-  assert.equal(levelFor(1, 1), 3);
-  assert.equal(levelFor(.5, 3), 2);
-  assert.equal(levelFor(.5, 1), 2);
+  assert.equal(levelFor(1.2, 1), 3);
+  // where only the structure level holds from either side: above 1→2, below 3→2
+  const mid = (up[1] + Math.min(up[2], down[3])) / 2;
+  assert.equal(levelFor(mid, 3), 2);
+  assert.equal(levelFor(mid, 1), 2);
   // inside a band, the level holds
-  assert.equal(levelFor(.33, 2), 2);
-  assert.equal(levelFor(.33, 1), 1);
-  assert.equal(levelFor(.62, 3), 3);
-  assert.equal(levelFor(.62, 2), 2);
-  assert.ok(LEVELS.down[2] < LEVELS.up[1] && LEVELS.down[3] < LEVELS.up[2]);
-  // stepping the zoom up and down through the thresholds changes level once each way
-  const seq = [];
+  const b2 = (down[2] + up[1]) / 2, b3 = (down[3] + up[2]) / 2;
+  assert.equal(levelFor(b2, 2), 2); assert.equal(levelFor(b2, 1), 1);
+  assert.equal(levelFor(b3, 3), 3); assert.equal(levelFor(b3, 2), 2);
+  // up and down through the thresholds: one change each way
   let l = 1;
-  for (const s of [.2, .3, .35, .37, .35, .31, .5, .65, .67, .6, .57, .4, .29]) { l = levelFor(s, l); seq.push(l); }
-  assert.deepEqual(seq, [1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 2, 2, 1]);
+  const seq = [.3, b2, up[1] + .01, b2, b3, up[2] + .01, b3, down[3] - .01, b2, down[2] - .01].map(s => (l = levelFor(s, l)));
+  assert.deepEqual(seq, [1, 1, 2, 2, 2, 3, 3, 2, 2, 1]);
+  assert.deepEqual(levelThresholds({ minText: 11 }), LEVELS);
 });
