@@ -2152,6 +2152,10 @@ impl<'a> Checker<'a> {
     /// E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted.
     fn snapshot_args(&mut self, call: &'a Expr, f: SId, env: EId) {
         let ExprKind::Call { args, .. } = &call.k else { return };
+        if args.iter().any(|a| matches!(a.k, ExprKind::Spread(_))) {
+            self.err("CALL_SPREAD", "E-10", "an instantiation needs each argument separately (including ref arguments); pass the arguments explicitly".into());
+            return;
+        }
         let params = self.syms[f].params.clone().unwrap_or_default();
         let fname = self.syms[f].name.clone();
         let hint = if matches!(self.syms[f].fn_decl, Some(Decl::Fn { decls, .. }) if !decls.is_empty()) && !params.iter().any(|p| p.r#ref) {
@@ -2413,9 +2417,13 @@ impl<'a> Checker<'a> {
                 }
                 self.expr(alt, ienv, ctx, None);
             }
-            ExprKind::Bin { l, r, .. } => {
+            ExprKind::Bin { op, l, r } => {
                 self.expr(l, env, ctx, None);
-                self.expr(r, env, ctx, None);
+                if op == "instanceof" {
+                    if !matches!(&r.k, ExprKind::Id(n) if n != "Panic" && self.lookup(env, n).map_or(n == "Error", |s| self.syms[s].kind == SymKind::ErrClass)) {
+                        self.err("NOT_AN_ERROR_CLASS", "R-f-1", "`instanceof` tests an error class: write `e instanceof Error` or name a declared or imported error class".into());
+                    }
+                } else { self.expr(r, env, ctx, None); }
             }
             ExprKind::If { c, t, f } => {
                 self.expr(c, env, ctx, None);
@@ -2533,7 +2541,9 @@ impl<'a> Checker<'a> {
                         self.err("COMPONENT_AS_VALUE", "RG-4a", format!("component {} called as a function: apply it in a view", fname));
                     }
                     if let (Some(SymKind::Action), Some(n)) = (kind, arity) {
-                        if args.len() != n {
+                        if args.iter().any(|a| matches!(a.k, ExprKind::Spread(_))) {
+                            self.err("CALL_SPREAD", "AC-1f", "a local action needs one explicit argument per parameter; pass the arguments separately".into());
+                        } else if args.len() != n {
                             let takes = match n {
                                 0 => "no arguments".to_string(),
                                 1 => "1 argument".to_string(),

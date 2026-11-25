@@ -18,6 +18,8 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   const name = /([A-Za-z_$][A-Za-z0-9_$.]*)\s*$/.exec(before)?.[1] ?? "x";
   if (msg.startsWith("W-2") && rest.startsWith(":=") && /=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\s*$/.test(before))
     return ["REACTIVE_WRITE_IN_OWNED_SCOPE", `an arrow that writes takes a braced body, \`() => { ${name} := … }\`: an expression-bodied arrow is a pure function (SC-3)`];
+  if (/^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*\/%])=|=(?![=>]))/.test(rest) && name.includes("."))
+    return ["ASSIGNMENT", "direct property assignment is not .rx: render DOM properties from state (e.g. `value={draft}`), or import a JS function for imperative DOM work; use `:=` only for RX source paths"];
   if (/^(\+\+|--|(\*\*|\|\||&&|\?\?|[-+*\/%])=|=(?![=>]))/.test(rest))
     return ["ASSIGNMENT", `a source is written with \`:=\`, as a statement in a handler or action: \`${name} := ${name} + 1\`, or \`${name} := v => v + 1\` (W-1, W-6); .rx has no \`=\`, \`+=\` or \`++\` on state`];
   if (/^(export\s+)?(default\s+)?(async\s+)?function\b/.test(line))
@@ -33,7 +35,7 @@ export function hint(src: string, i: number, msg: string): [string, string] | nu
   if (msg === "expression" && rest.startsWith("<") && before.includes("?"))
     return ["JSX_TERNARY", "markup is not an expression: write `{if c { <span/> } else { \"\" }}`, not `c ? <span/> : \"\"`"];
   if (msg === "in" && /^\s*,/.test(rest) && /\bfor\s+[A-Za-z_$]/.test(line))
-    return ["FOR_INDEX", "`for` binds one name: `for x in xs { … }`. The index is `xs.indexOf(x)` in the body, or map the list first: `rows = map(xs, (x, i) => ({ x, i }))`"];
+    return ["FOR_INDEX", "`for` binds one name: for records with stable IDs, write `rows key id = xs.map((x, i) => ({ id: x.id, x, i }))`, then `for row in rows { … }` using `row.x` and `row.i`"];
   return null;
 }
 let viewAt = 0;
@@ -121,7 +123,7 @@ function parseClasses(c: Cursor, commas = false): string[] | undefined {
   return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
 }
 
-const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal"]);
+const KEYWORDS = new Set(["source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined", "null", "provide", "context", "use", "import", "export", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal"]);
 
 export function parseProgram(src: string): Program {
   const c = new Cursor(src);
@@ -606,6 +608,9 @@ function parseBin(c: Cursor, lvl: number): Expr {
       c.ws(); l = { k: "as", e: l, ty: assertionType(c) };
       continue;
     }
+    if (lvl === 4 && c.keyword("instanceof")) {
+      c.ws(); l = { k: "bin", op: "instanceof", l, r: parseBin(c, lvl + 1) }; continue;
+    }
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();
@@ -666,7 +671,7 @@ function parsePostfix(c: Cursor): Expr {
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
     else if (c.peek() === "(") {
       c.i++; c.ws(); const args: Expr[] = [];
-      while (!c.startsWith(")")) { args.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
+      while (!c.startsWith(")")) { if (c.eat("...")) { c.ws(); args.push({ k: "spread", e: parseExpr(c) }); } else args.push(parseExpr(c)); c.ws(); if (!c.eat(",")) break; c.ws(); }
       c.expect(")"); e = { k: "call", f: e, args };
     } else return e;
   }
