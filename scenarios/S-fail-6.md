@@ -20,5 +20,5 @@ export default component App() {
 
 | instant | action | frame |
 | --- | --- | --- |
-| 0 | mount | `''` |
+| 0 | mount | |
 | 1 | handler `shown := true` | `missing` |
