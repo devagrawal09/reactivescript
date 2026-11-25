@@ -2329,7 +2329,13 @@ impl<'a> Checker<'a> {
                 self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(p)));
             }
             ExprKind::Index { o, i, .. } => {
-                self.expr(o, env, ctx, None);
+                let part = match &i.k {
+                    ExprKind::Lit(Lit::Str(s)) => s.clone(),
+                    ExprKind::Lit(Lit::Num(n)) => if *n == 0.0 { "0".into() } else { n.to_string() },
+                    _ => "*".into(),
+                };
+                let path = field.map(|f| format!("{part}.{f}"));
+                self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(&part)));
                 self.expr(i, env, ctx, None);
             }
             ExprKind::Arr(items) => {
