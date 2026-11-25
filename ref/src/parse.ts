@@ -106,9 +106,9 @@ function splitKey(type: string | undefined): { type?: string; key?: string } { c
 function optType(c: Cursor, braceStops = false): string | undefined { c.ws(false); if (c.peek() === ":" && c.peek(1) !== "=") { c.i++; c.ws(); return parseType(c, braceStops); } return undefined; }
 
 /** R-f: `A | B` — error class names. `Error` (or TS's `unknown`/`any`) is every failure: undefined. */
-function parseClasses(c: Cursor): string[] | undefined {
+function parseClasses(c: Cursor, commas = false): string[] | undefined {
   const out: string[] = [];
-  for (;;) { c.ws(); out.push(c.ident() ?? c.fail("error class")); c.ws(false); if (c.peek() === "|" && c.peek(1) !== "|") { c.i++; continue; } break; }
+  for (;;) { c.ws(); out.push(c.ident() ?? c.fail("error class")); c.ws(false); if ((c.peek() === "|" && c.peek(1) !== "|") || (commas && c.peek() === ",")) { c.i++; continue; } break; }
   return out.some(n => n === "Error" || n === "unknown" || n === "any") ? undefined : out;
 }
 
@@ -132,32 +132,49 @@ export function parseProgram(src: string): Program {
 /** MO-8: a declaration file (`api.d.rx`) for a JS module — what each export is, in rows: `export pure fn f(a) rejects(A | B)`,
  *  `export fn g(a)` (io: dirty is the default, R-io-4), `export error NotFound` (a JS class that is an error class), `export type T`. */
 export type JsDecl =
-  | { kind: "fn"; name: string; pure: boolean; params: string[]; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
+  | { kind: "fn"; name: string; pure: boolean; params: string[]; generics?: string; rejects?: string[]; line: number; side?: "server" | "client"; ptypes?: (string | undefined)[]; ret?: string; refs?: boolean[]; shape?: Shape; instantiates?: boolean }   // side: 12 SF-5; types: text, for TY (types/), `ref` taken out; MO-10: refs (ref parameters), shape (what its result is), instantiates (written, or inferred from a ref)
   | { kind: "error"; name: string; line: number }
-  | { kind: "type"; name: string; line: number; text?: string };
+  | { kind: "type"; name: string; line: number; text?: string; exported: boolean };
+function typeParams(c: Cursor): string | undefined {
+  const start = c.i;
+  if (!c.eat("<")) return;
+  let depth = 1;
+  while (!c.eof()) {
+    if (c.eat("=>")) continue;
+    if (c.eat("<")) depth++;
+    else if (c.eat(">")) { if (--depth === 0) return c.src.slice(start, c.i); }
+    else if (c.peek() === "'" || c.peek() === '"' || c.peek() === "`") {
+      const quote = c.peek(); c.i++;
+      while (!c.eof() && c.peek() !== quote) { if (c.eat("\\")) c.i++; c.i++; }
+      c.expect(quote);
+    } else c.i++;
+  }
+  c.fail("expected '>' to end type parameters");
+}
 export function parseDeclarations(src: string): JsDecl[] {
   const c = new Cursor(src); const out: JsDecl[] = [];
   for (;;) {
-    c.ws(); if (c.eof()) return out;
+    c.ws(); if (c.eat(";")) continue; if (c.eof()) return out;
     const line = c.line;
-    if (!c.keyword("export")) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
+    const exported = c.keyword("export");
     c.ws();
-    if (c.startsWith("type") || c.startsWith("interface")) { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i) }); continue; }
+    if (c.peekIdent() === "type" || c.peekIdent() === "interface") { const t0 = c.i; c.keyword("type") || c.keyword("interface"); c.ws(); const name = c.ident() ?? c.fail("type name"); c.ws(); typeParams(c); c.ws(); if (c.eat("=")) { c.ws(); parseType(c, false, true); } else if (c.startsWith("{")) { let depth = 0; do { if (c.peek() === "{") depth++; if (c.peek() === "}") depth--; c.i++; } while (!c.eof() && depth); } out.push({ kind: "type", name, line, text: c.src.slice(t0, c.i), exported }); continue; }
+    if (!exported) c.fail("a declaration file declares exports: `export pure fn …`, `export fn …`, `export error …`, `export type …`");
     if (c.keyword("error")) { c.ws(); const name = c.ident() ?? c.fail("error class name"); out.push({ kind: "error", name, line }); continue; }
     const side = c.keyword("server") ? "server" as const : c.keyword("client") ? "client" as const : undefined; c.ws();   // 12 SF-5: runs on one side only
     const pure = c.keyword("pure"); c.ws();
     if (!c.keyword("fn")) c.fail("fn");
-    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); c.expect("("); c.ws();
+    c.ws(); const name = c.ident() ?? c.fail("fn name"); c.ws(); const generics = typeParams(c); c.ws(); c.expect("("); c.ws();
     const params: string[] = []; const ptypes: (string | undefined)[] = []; const refs: boolean[] = [];
     while (!c.startsWith(")")) { const r = c.keyword("ref"); if (r) c.ws(); refs.push(r); params.push(c.ident() ?? c.fail("param")); c.ws(false); ptypes.push(c.peek() === ":" ? (c.i++, c.ws(), parseType(c, false, true)) : undefined); c.ws(); if (!c.eat(",")) break; c.ws(); }   // MO-10a: a ref parameter takes an accessor
     c.expect(")");
     const save = c.i; c.ws(false); let ret: string | undefined; let shape: Shape | undefined;
     if (c.peek() === ":" ) { c.i++; c.ws(); const t = c.src.slice(c.i).split("\n")[0]; const r = /\brejects\(|\binstantiates\b/.exec(t); const raw = (r ? t.slice(0, r.index) : t).replace(/\/\/.*$/, "").trim(); shape = raw ? shapeOf(raw) : undefined; ret = raw.replace(/\bref\s+/g, "") || undefined; c.i += r ? r.index : t.length; } else c.i = save;   // MO-10b: `ref T` is an accessor, read as T
     c.ws(false); let rejects: string[] | undefined;
-    if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c) ?? ["Error"]; c.ws(); c.expect(")"); }
+    if (c.keyword("rejects")) { c.ws(); c.expect("("); rejects = parseClasses(c, true) ?? ["Error"]; c.ws(); c.expect(")"); }
     c.ws(false); const written = c.keyword("instantiates");
     const instantiates = written || refs.some(x => x) || shapeHasRef(shape);   // MO-10a: inferred from a ref on either side
-    out.push({ kind: "fn", name, pure, params, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}) });
+    out.push({ kind: "fn", name, pure, params, generics, rejects, line, ptypes, ret, ...(side ? { side } : {}), ...(instantiates ? { refs, shape: shape ?? "value", instantiates } : {}) });
   }
 }
 
@@ -508,11 +525,38 @@ function parseBin(c: Cursor, lvl: number): Expr {
   let l = parseBin(c, lvl + 1);
   for (;;) {
     c.ws(false);
+    if (lvl === 4 && c.keyword("as")) {
+      c.ws(); l = { k: "as", e: l, ty: assertionType(c) };
+      continue;
+    }
     const op = LEVELS[lvl].find(o => c.startsWith(o) && !(o === "-" && c.peek(1) === ">"));
     if (!op) return l;
     c.i += op.length; c.ws();
     l = { k: "bin", op: OP_ALIAS[op] ?? op, l, r: parseBin(c, lvl + 1) };
   }
+}
+/** A type assertion ends at the surrounding expression's delimiter, not at a nested type delimiter. */
+function assertionType(c: Cursor): string {
+  const start = c.i; let end = start; const stack: string[] = [];
+  while (!c.eof()) {
+    const ch = c.peek();
+    if (!stack.length && (/[,\n;:)=\]}?+*/%!&<>-]/.test(ch) && !(ch === "&" && c.peek(1) !== "&") || c.startsWith("||") || c.peekIdent() === "as" || c.peekIdent() === "catch")) {
+      if (ch !== "<") break;
+      try { typeParams(c); end = c.i; continue; } catch (e) { if (!(e instanceof ParseError)) throw e; c.i = end; break; }
+    }
+    if (c.ident() !== null) { end = c.i; continue; }
+    if (c.startsWith("=>") && stack.length) { c.i += 2; end = c.i; continue; }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      c.i++; while (!c.eof() && c.peek() !== ch) { if (c.eat("\\")) c.i++; c.i++; } c.expect(ch);
+    } else {
+      if (ch === "(" || ch === "[" || ch === "{" || ch === "<") stack.push(({ "(": ")", "[": "]", "{": "}", "<": ">" })[ch]!);
+      else if (stack.at(-1) === ch) stack.pop();
+      c.i++;
+    }
+    if (!/\s/.test(ch)) end = c.i;
+  }
+  if (end === start || stack.length) c.fail("type after `as`");
+  c.i = end; return c.src.slice(start, end);
 }
 function parseUnary(c: Cursor): Expr {
   c.ws();
@@ -538,6 +582,8 @@ function parseUnary(c: Cursor): Expr {
 function parsePostfix(c: Cursor): Expr {
   let e = parsePrimary(c);
   for (;;) {
+    const save = c.i; c.ws();
+    if (!c.startsWith(".") && !c.startsWith("?.")) c.i = save;
     if (c.eat("?.")) { if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i, opt: true }; } else e = { k: "member", o: e, p: c.ident() ?? c.fail("member"), opt: true }; }
     else if (c.eat(".")) e = { k: "member", o: e, p: c.ident() ?? c.fail("member") };
     else if (c.peek() === "[") { c.i++; c.ws(); const i = parseExpr(c); c.ws(); c.expect("]"); e = { k: "index", o: e, i }; }
@@ -586,9 +632,13 @@ function parsePrimary(c: Cursor): Expr {
     c.expect("]"); return { k: "arr", items };
   }
   if (c.eat("{")) {
-    c.ws(); const fields: ({ key: string; v: Expr } | { spread: Expr })[] = [];
+    c.ws(); const fields: Extract<Expr, { k: "rec" }>["fields"] = [];
     while (!c.startsWith("}")) {
       if (c.eat("...")) { c.ws(); fields.push({ spread: parseExpr(c) }); c.ws(); if (!c.eat(",")) break; c.ws(); continue; }
+      if (c.eat("[")) {
+        const computed = parseExpr(c); c.ws(); c.expect("]"); c.ws(); c.expect(":");
+        fields.push({ computed, v: parseExpr(c) }); c.ws(); if (!c.eat(",")) break; c.ws(); continue;
+      }
       const key = c.ident() ?? (c.peek() === '"' || c.peek() === "'" ? String((parsePrimary(c) as { v: unknown }).v) : c.fail("field")); c.ws();
       if (c.eat(":")) { c.ws(); fields.push({ key, v: parseExpr(c) }); } else fields.push({ key, v: { k: "id", name: key } });
       c.ws(); if (!c.eat(",")) break; c.ws();

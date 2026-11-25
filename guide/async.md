@@ -82,7 +82,7 @@ client's own state: a plain source the action's `catch` writes, shown beside the
 ## 3. Writing to the server: an action
 
 ```rx
-export source profile: Profile = await loadProfile()   // a source with a question: it can take a guess
+export source profile: Profile = await loadProfile()   // a question source: the server answer can replace the guess
 export source saveError: string := ""
 
 export action save(next: Profile) {
@@ -121,6 +121,9 @@ by what the screen should do:
 
 To guess a value a component gets as a prop, guess its own equation of it: `shown = props.title`, then
 `guess shown := t` in the action. A prop itself is read-only (O-4), and the guess shows wherever the child reads `shown`.
+
+A writable `source x := seed` can take a guess too. Its plain writes land when the action commits; if nothing
+writes it, the guess ends and the previous value shows again. No question or `refresh` is needed (AC-3).
 
 ### Guesses go on the answer
 
