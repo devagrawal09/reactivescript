@@ -3,6 +3,7 @@ import { LIVE_METHODS, LIVE_PATH, LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_
 import { isEntry } from "./project.mjs";
 import { createMcp } from "./mcp.mjs";
 import { project } from "./project.mjs";
+import { allowCoverageSetup } from "./coverage.mjs";
 
 const noPage = "no page connected; open or reload the app in a browser with Vite HMR enabled";
 const send = (res, status, body) => {
@@ -26,6 +27,7 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
     name: "rx:live",
     apply(_config, env) { return env.command === "serve" && !env.isPreview; },
     config: () => ({ resolve: { dedupe: ["solid-js", "@solidjs/signals"] } }),
+    configResolved: allowCoverageSetup,
     configureServer(server) {
       const pages = new Map(), pending = new Map();
       const entries = new Map(), frontends = new Map();

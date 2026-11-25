@@ -10,6 +10,7 @@
 // `rxc` is found as $RXC, then compiler/target/{release,debug}/rxc in this repo, then `rxc` on PATH.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,7 @@ import { buildGraph } from "./graph.mjs";
 import { diffGraphs } from "./diff.mjs";
 import { pageHTML } from "./page.mjs";
 import { merge, rebase, report, summary } from "./coverage.mjs";
+import { project } from "./project.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -69,6 +71,19 @@ function readRecord(path, marker) {
   return file;
 }
 
+function coverageGraph(entries, root) {
+  // Match the dev build's generated TypeScript declarations. In particular,
+  // linked compiler installs can provide the Node API but no .bin/rx-dts.
+  if (!process.env.RXC) {
+    const require = createRequire(join(root, "package.json"));
+    let installed;
+    try { installed = require.resolve("@reactivescript/compiler"); }
+    catch (e) { if (e.code !== "MODULE_NOT_FOUND") throw e; }
+    if (installed) return project({ root, entries }).load().graph;
+  }
+  return graphOf(entries.map(e => resolve(root, e)), root);
+}
+
 function runCoverage() {
   const mode = args[1], files = [], entries = [];
   let out, module, kind, json = false, min;
@@ -98,7 +113,7 @@ function runCoverage() {
   });
   let file = merge(...paths.map(path => readRecord(path, "rxCoverage")));
   if (mode === "merge") return writeFileSync(out, JSON.stringify(file, null, 2) + "\n");
-  if (entries.length) file = rebase(file, graphOf(entries.map(e => resolve(e)), process.cwd()));
+  if (entries.length) file = rebase(file, coverageGraph(entries, process.cwd()));
   writeFileSync(1, report(file, { module, kind, json }) + "\n");
   const { covered, total } = summary(file).all;
   if (min !== undefined && (total ? covered / total * 100 : 100) < min) process.exitCode = 1;
