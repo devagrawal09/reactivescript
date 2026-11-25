@@ -355,8 +355,9 @@ when `SOLID_VIEW` points at a built Solid with `openView` (a checkout or its `pa
 (with `CI` set it fails instead: `.github/workflows/rx-map.yml` builds the Solid pinned in `solid-view.json`);
 it needs Playwright on `NODE_PATH`, pnpm, and this repository's compiler and runtime built. The app is
 `test/shelf-app` (the shelf template with a deterministic fake server; `?cap=N` sets the ring's capacity), copied to
-a temp dir and installed linked to this repository and to `SOLID_VIEW`; Vite runs with `--force`, so a rebuilt Solid
-is what the page runs, not a stale pre-bundle. When that Solid's record names the properties a store guess moved, every
+a temp dir of its own per run (removed at exit, so concurrent runs from one worktree don't edit each other's app) and
+installed from pnpm's store, linked to this repository and to `SOLID_VIEW`; Vite runs with `--force` on a free port, so
+a rebuilt Solid is what the page runs, not a stale pre-bundle. When that Solid's record names the properties a store guess moved, every
 recorded seq must show exactly; on an older one, seqs before a guess are reported, not asserted. `APP=<dir>` uses an
 installed copy instead; `--shots <dir>` saves screenshots.
 
