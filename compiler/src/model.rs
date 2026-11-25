@@ -136,6 +136,7 @@ pub struct Write {
     pub sym: usize,
     pub op: &'static str,
     pub path: bool,
+    pub field: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct ModelRegion {
@@ -278,10 +279,10 @@ impl ModelBuilder {
             c.reads.push(r);
         }
     }
-    pub fn write(&mut self, index: Option<usize>, op: &'static str, path: bool) {
+    pub fn write(&mut self, index: Option<usize>, op: &'static str, path: bool, field: Option<&str>) {
         let (Some(cur), Some(index)) = (self.cur, index) else { return };
         let Some(&id) = self.ids.get(&index) else { return };
-        let w = Write { sym: id, op, path };
+        let w = Write { sym: id, op, path, field: field.filter(|s| !s.is_empty()).map(String::from) };
         let c = &mut self.computations[cur];
         if !c.writes.contains(&w) {
             c.writes.push(w);
@@ -409,6 +410,9 @@ impl ModelBuilder {
                                 o.insert("op".into(), json!(w.op));
                                 if w.path {
                                     o.insert("path".into(), json!(true));
+                                }
+                                if let Some(field) = &w.field {
+                                    o.insert("field".into(), json!(field));
                                 }
                                 Value::Object(o)
                             })

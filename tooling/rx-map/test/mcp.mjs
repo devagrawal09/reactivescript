@@ -119,7 +119,10 @@ test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout:
   assert.equal((await c.call("diff", { ref: "not-a-ref" })).isError, true);
   put("main.rx", "source broken :=\n");
   assert.match(await c.text("check"), /^main\.rx:\d+:\d+\s+PARSE/);
-  assert.equal((await c.call("overview")).isError, true);
+  assert.match(await c.text("overview"), /^program has 1 error; answers from the last good build at .+; changed since: main\.rx/m);
+  const stale = await c.call("node", { key: "main.rx||result", format: "json" });
+  assert.equal(JSON.parse(stale.content[0].text).declaration.trim(), "result = count + 1");
+  assert.match(stale.content[1].text, /last good build/);
   // One broken dependency must not hide an independent checker error
   // in the same entry's graph.
   put("dep.rx", "export source count := 1\nsource broken :=\n");
@@ -127,6 +130,64 @@ test("entry discovery, mtime invalidation, diagnostics and Git diff", { timeout:
   const batch = await c.text("check");
   assert.match(batch, /dep\.rx:\d+:\d+ PARSE/);
   assert.match(batch, /main\.rx:\d+:\d+ UNBOUND/);
+  assert.match(await c.text("reach", { key: "dep.rx||count", depth: 1 }), /main\.rx\|\|result/);
+  put("dep.rx", "export source count := 1\n");
+  put("main.rx", 'import { count } from "./dep.rx"\nresult = count + 2\n');
+  assert.doesNotMatch(await c.text("overview"), /last good build/);
+  assert.match(await c.text("node", { key: "main.rx||result" }), /count \+ 2/);
+});
+
+test("field queries and search visibility through MCP", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-fields-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "live.rx"), `import pure { liveImport } from "./api"
+source ui := { hidden: false, count: 0 }
+action replace() { ui := { hidden: true, count: 1 } }
+hiddenReader = ui.hidden
+countReader = ui.count
+live = hiddenReader
+`);
+  const c = client(t, ["--root", root]);
+  const rootKey = "live.rx||ui", key = `${rootKey}.hidden`;
+  assert.equal((await c.json("find", { query: "live" }))[0].key, "live.rx||live");
+  assert.deepEqual((await c.json("find", { query: "live" })).map(n => n.key), ["live.rx||live"]);
+  assert.ok(!(await c.json("find", { query: "live" })).some(n => n.kind === "import"));
+  assert.ok((await c.json("find", { query: "live", imports: true })).some(n => n.kind === "import"));
+  assert.doesNotMatch(await c.text("overview"), /liveImport/);
+  assert.match(await c.text("overview", { imports: true }), /liveImport/);
+  assert.equal((await c.json("find", { query: key }))[0].key, key);
+  const field = await c.json("node", { key });
+  assert.deepEqual(field.readBy.map(r => r.key), ["live.rx||hiddenReader"]);
+  assert.deepEqual(field.writtenBy.map(w => w.key), ["live.rx||replace"]);
+  const overview = await c.json("node", { key: rootKey });
+  assert.deepEqual(overview.fields.map(f => f.field), ["count", "hidden"]);
+  assert.deepEqual((await c.json("reach", { key, depth: 2 })).map(n => n.key), ["live.rx||hiddenReader", "live.rx||live"]);
+  assert.deepEqual((await c.json("reach", { key, direction: "up", depth: 1 })).map(n => n.key), ["live.rx||replace"]);
+});
+
+test("nested MCP field queries distinguish sibling reads and writes", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-paths-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "state.rx");
+  writeFileSync(file, `source ui := { panel: { hidden: false, count: 0 } }
+action hide() { ui.panel.hidden := true }
+action bump() { ui.panel.count := 1 }
+hiddenReader = ui.panel.hidden
+countReader = ui.panel.count
+`);
+  const model = JSON.parse(execFileSync(RXC, ["model", file], { encoding: "utf8" }))[0];
+  // rx/integ's compiler predates nested edges. Still test its safe fallback.
+  const precise = process.env.RX_MAP_TEST_FIELD_PATHS === "1" || model.computations.some(c => c.writes.some(w => w.field));
+  const c = client(t, ["--root", root]);
+  const key = "state.rx||ui.panel.hidden";
+  const data = await c.json("node", { key });
+  assert.deepEqual(data.readBy.map(r => r.key), precise ? ["state.rx||hiddenReader"] : ["state.rx||hiddenReader", "state.rx||countReader"]);
+  assert.deepEqual(data.writtenBy.map(w => w.key), precise ? ["state.rx||hide"] : ["state.rx||hide", "state.rx||bump"]);
+  if (precise) {
+    assert.equal(data.writtenBy[0].field, "panel.hidden");
+    assert.deepEqual((await c.json("reach", { key, direction: "up" })).map(n => n.key), ["state.rx||hide"]);
+    assert.equal((await c.json("find", { query: key }))[0].key, key);
+  }
 });
 
 test("HTTP and MCP live tools select the newest page, correlate replies, and report disconnects", { timeout: 10000 }, async t => {
@@ -172,4 +233,29 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   assert.deepEqual(await c.json("live_status"), { pages: 1, flushes: 2, uptime: 15 });
   oldest.socket.emit("close");
   assert.equal((await fetch(url)).status, 503);
+});
+
+test("warm HTTP MCP keeps a last-good graph after watcher invalidation", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-warm-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "main.rx");
+  writeFileSync(file, "source count := 1\n");
+  const endpoints = new Map();
+  const server = createServer((req, res) => { const fn = endpoints.get(req.url); req.url = ""; void fn(req, res); });
+  const watcher = new EventEmitter();
+  rxMap().configureServer({ config: { root }, ws: new EventEmitter(), watcher, httpServer: server,
+    middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} });
+  globalThis[Symbol.for("reactivescript.vite.entries")].get(root)(file, true);
+  await new Promise(r => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const call = async name => (await (await fetch(`http://127.0.0.1:${server.address().port}/__rx/mcp`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: request(1, "tools/call", { name }),
+  })).json()).result;
+  assert.match((await call("overview")).content[0].text, /main\.rx\|\|count/);
+  writeFileSync(file, "source broken :=\n");
+  watcher.emit("all", "change", file);
+  const stale = (await call("overview")).content[0].text;
+  assert.match(stale, /^program has 1 error; answers from the last good build at .+; changed since: main\.rx/);
+  assert.match(stale, /main\.rx\|\|count/);
+  assert.match((await call("check")).content[0].text, /PARSE/);
 });

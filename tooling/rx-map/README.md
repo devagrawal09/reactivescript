@@ -334,6 +334,12 @@ Static tools: `check`, `overview`, `find`, `node`, `reach`, `boundary`, `diff`. 
 look up a key for `node` or `reach`. `boundary` lists its own keys. `diff` defaults to `HEAD`. The `rx://graph` and
 `rx://model` resources return JSON; any tool also accepts `format: "json"` for its structured answer.
 
+If a build breaks after a successful one, static queries reuse the last good model in this MCP session and say when it
+was built and which files changed. `check` reports current errors. Use keys like `src/state.rx||ui.hidden` with
+`node`, `find`, or `reach` to inspect a field. `node` on the whole store lists observed fields; whole-store accesses
+also count for field queries. `reach` defaults to downstream. `overview` and `find` hide JS imports unless you pass
+`imports: true`.
+
 To add the live tools, install this package in the app, import `rxMap` from `@reactivescript/map/vite`, and add `rxMap()`
 to the Vite `plugins` array. Start Vite and open the app. The compiler's dev entry must register the graph with
 `{ hot: import.meta.hot }`. No overlay needs to be open. The server tries `localhost:3000` and `localhost:5173` by

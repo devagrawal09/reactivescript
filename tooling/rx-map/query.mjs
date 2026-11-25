@@ -10,6 +10,13 @@ export const location = n => n?.file ? `  ${n.file}:${n.line ?? "?"}` : "";
 const describe = n => `${n.key}  ${n.kind}${location(n)}`;
 const result = (data, lines, empty) => ({ data, text: lines.join("\n") || empty });
 const append = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+// A parent/root access can affect its descendants and vice versa. An unknown
+// computed segment matches any single segment at that position.
+const overlaps = (a, b) => {
+  if (!a || !b) return true;
+  const as = a.split("."), bs = b.split(".");
+  return as.slice(0, bs.length).every((p, i) => p === "*" || bs[i] === "*" || p === bs[i]);
+};
 const quoteOutline = (region, nodes, incoming, site) => {
   const parts = region?.outline;
   if (!parts?.some(p => "text" in p)) return;
@@ -45,6 +52,13 @@ export function queryGraph(g, method, p) {
   const byKey = new Map(g.nodes.map(n => [n.key, n]));
   const inc = new Map(), out = new Map(), kids = new Map(), members = new Map();
   for (const e of g.edges) { append(inc, e.to, e); append(out, e.from, e); }
+  const readsBy = id => (out.get(id) ?? []).filter(e => e.type === "read");
+  const writesBy = id => (inc.get(id) ?? []).filter(e => e.type === "write");
+  const fields = n => [...new Set([...readsBy(n.id), ...writesBy(n.id)].flatMap(e => {
+    if (!e.field) return [];
+    const parts = e.field.split(".");
+    return parts.map((_, i) => parts.slice(0, i + 1).join("."));
+  }))].sort();
   for (const n of g.nodes) append(members, n.region, n);
   for (const r of g.regions) append(kids, r.parent, r);
   const componentRegion = n => n && g.regions.find(r => r.mod === n.mod && r.kind === "component" && r.name === n.name);
@@ -98,19 +112,39 @@ export function queryGraph(g, method, p) {
   const boundaries = g.regions.filter(isBoundary);
   if (method === "find") {
     const q = p.query.toLowerCase();
-    const found = g.nodes.filter(n => n.key.toLowerCase().includes(q) || n.name.toLowerCase().includes(q)).map(ref);
+    const rank = ({ name, key }) => {
+      name = name.toLowerCase(); key = key.toLowerCase();
+      const label = key.slice(key.lastIndexOf("|") + 1);
+      if (q === name || q === key) return 0;
+      if (name.startsWith(q) || label.startsWith(q)) return 1;
+      if (q.includes("|") && key.startsWith(q)) return 1;
+      if (name.includes(q) || label.includes(q)) return 2;
+      if (!q.includes("|") && key.startsWith(q)) return 3;
+      return key.includes(q) ? 4 : Infinity;
+    };
+    const candidates = g.nodes.filter(n => p.imports || n.kind !== "import").flatMap(n => [n, ...fields(n).map(field => ({
+      ...n, name: `${n.name}.${field}`, key: `${n.key}.${field}`, field, store: n.key,
+    }))]);
+    const ranked = candidates.map(n => ({ n, rank: rank(n) }));
+    // A bare search that hits a symbol needn't also list every node in a
+    // matching filename. An explicit filename still works as a module filter.
+    const named = !q.includes(".") && !q.includes("/") && ranked.some(x => x.rank < 3);
+    const found = ranked.filter(x => x.rank < (named ? 3 : Infinity) && (!x.n.field || x.rank < 3))
+      .sort((a, b) => a.rank - b.rank || Number(!!a.n.field) - Number(!!b.n.field))
+      .map(({ n }) => ({ ...ref(n), ...(n.field ? { field: n.field, store: n.store } : {}) }));
     return result(found, found.map(describe), "no matching nodes");
   }
   if (method === "overview") {
     const data = g.modules.map((file, mod) => {
-      const ns = g.nodes.filter(n => n.mod === mod), counts = {};
+      const all = g.nodes.filter(n => n.mod === mod), counts = {};
+      const ns = p.imports ? all : all.filter(n => n.kind !== "import");
       for (const n of ns) { const role = roles[n.kind] ?? "other"; counts[role] = (counts[role] ?? 0) + 1; }
-      return { file, counts, components: ns.filter(n => n.kind === "comp").map(ref),
+      return { file, counts, ...(!p.imports ? { importsHidden: all.length - ns.length } : {}), components: ns.filter(n => n.kind === "comp").map(ref),
         boundaries: boundaries.filter(r => r.mod === mod).map(regionRef),
         topLevel: ns.filter(n => !n.site && regions.get(n.region)?.kind === "program").map(ref) };
     });
     return result(data, data.flatMap(m => [
-      `${m.file}  ${Object.entries(m.counts).map(([k, v]) => `${k}=${v}`).join(" ")}`,
+      `${m.file}  ${Object.entries(m.counts).map(([k, v]) => `${k}=${v}`).join(" ")}${m.importsHidden ? `  (${m.importsHidden} JS imports hidden)` : ""}`,
       ...m.components.map(n => `  component ${describe(n)}`),
       ...m.boundaries.map(n => `  boundary ${describe(n)}`),
       ...m.topLevel.filter(n => n.kind !== "comp").map(n => `  top-level ${describe(n)}`),
@@ -128,19 +162,26 @@ export function queryGraph(g, method, p) {
     return result(data, [describe(data), ...data.notifiers.map(n => `  ${describe(n)} via ${describe(n.via)}`),
       ...(!data.notifiers.length ? ["  no known notifiers"] : []), ...(outline ? [`  view: ${outline}`] : [])]);
   }
-  const n = byKey.get(p.key);
+  const root = byKey.has(p.key) ? p.key : [...byKey.keys()].filter(k => p.key.startsWith(`${k}.`)).sort((a, b) => b.length - a.length)[0];
+  const n = byKey.get(root);
+  const field = root && root !== p.key ? p.key.slice(root.length + 1) : undefined;
   if (!n) throw unknownKey(p.key, [...byKey.keys()]);
   if (method === "node") {
     function linked(type, dir) {
       const incoming = dir === "in";
-      return ((incoming ? inc : out).get(n.id) ?? []).filter(e => e.type === type)
+      return ((incoming ? inc : out).get(n.id) ?? []).filter(e => e.type === type &&
+          (!field || ((type === "read" && !incoming || type === "write" && incoming) && overlaps(field, e.field))))
         .map(e => ({ ...ref(nodes.get(incoming ? e.from : e.to)), mode: e.mode, probe: e.probe, op: e.op, field: e.field, at: e.line }));
     }
-    const data = { ...ref(n), role: roles[n.kind] ?? "other",
+    const data = { ...ref(n), ...(field ? { key: p.key, field, store: root } : {}), role: roles[n.kind] ?? "other",
       marks: { pending: !!n.async, question: !!n.question, io: !!n.io, trust: !!n.world },
       declaration: g.lines[n.file]?.[n.line] ?? "", component: null, boundaries: [],
       reads: linked("read", "in"), writes: linked("write", "out"), calls: linked("call", "out"),
       readBy: linked("read", "out"), writtenBy: linked("write", "in") };
+    if (!field && ["source", "eq"].includes(n.kind)) data.fields = fields(n).map(field => ({
+      key: `${root}.${field}`, field,
+      readBy: data.readBy.filter(r => overlaps(field, r.field)), writtenBy: data.writtenBy.filter(w => overlaps(field, w.field)),
+    }));
     const sites = n.site ? [n] : data.readBy.map(r => byKey.get(r.key)).filter(x => x?.site);
     const outline = sites.map(s => quoteOutline(regions.get(s.region), nodes, inc, s.id)).find(Boolean);
     if (outline) data.outline = outline;
@@ -159,9 +200,10 @@ export function queryGraph(g, method, p) {
       ...data.boundaries.map(b => `  boundary ${describe(b)}`),
       ...Object.entries({ "read-by": data.readBy, "written-by": data.writtenBy, reads: data.reads, writes: data.writes, calls: data.calls })
         .flatMap(([k, list]) => list.map(x => `  ${k} ${describe(x)}${[x.mode, x.probe, x.op, x.field].filter(Boolean).map(v => `  ${v}`).join("")}`)),
+      ...(data.fields ?? []).map(f => `  field ${f.field}: read-by ${[...new Set(f.readBy.map(r => r.key))].join(", ") || "none"}; written-by ${[...new Set(f.writtenBy.map(w => w.key))].join(", ") || "none"}`),
     ]);
   }
-  const down = p.direction === "down";
+  const down = p.direction !== "up";
   const todo = [[n.id, !down || !["source", "eq", "props", "reader", "prop"].includes(n.kind), 0]];
   const seen = new Set(), found = new Map();
   if (!down) todo.push([n.id, false, 0]);
@@ -175,6 +217,13 @@ export function queryGraph(g, method, p) {
     }
     if (depth === p.depth) continue;
     for (const e of (down ? out : inc).get(id) ?? []) {
+      if (field && id === n.id) {
+        // An equation's inbound reads may contribute to any output field.
+        // The known target/source paths constrain only writes, passes and
+        // downstream reads at the starting node.
+        if (down && e.type !== "read") continue;
+        if ((down || e.type === "write" || e.type === "passes") && !overlaps(field, e.field)) continue;
+      }
       const data = e.type === "passes" || e.type === "renders" || (e.type === "read" && (e.mode === "tracked" || e.probe));
       const next = down ? e.to : e.from;
       if (down) {
@@ -186,7 +235,7 @@ export function queryGraph(g, method, p) {
     }
   }
   const data = [...found.values()];
-  return result(data, data.map(x => `${x.depth}  ${describe(x)}`), `no ${p.direction === "up" ? "upstream" : "downstream"} nodes`);
+  return result(data, data.map(x => `${x.depth}  ${describe(x)}`), `no ${down ? "downstream" : "upstream"} nodes`);
 }
 
 export function queryDiff(g) {

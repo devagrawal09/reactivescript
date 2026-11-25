@@ -106,6 +106,9 @@ effect (count) { log($0) }   // runs after `count` changes; `$0` is its value (a
   JS comes in through an import from a `.js` module.
 - Reading a source gives its value at the start of the run: after `x := v`, `x` still reads the old value. Keep the
   new value in a local (`let n = count + 1; count := n`).
+- For a burst of messages, write `state := old => reduce(old, message)` with a pure reducer. Updaters compose in
+  arrival order even when the handlers all read the same committed state (W-4, W-6). Use an effect to observe a
+  commit, or wait for the commit in a host test; an immediate read after dispatch is still a snapshot.
 - `await` is a statement: `await save(x)` or `let r = await load(x)`. A handler that writes and awaits is an action,
   with the rules in `async.md`.
 

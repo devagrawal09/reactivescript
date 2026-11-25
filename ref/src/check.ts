@@ -928,8 +928,11 @@ class Checker {
       case "bin": go(e.l); go(e.r); return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
-      case "member": if (e.o.k === "id") this.expr(e.o, env, ctx, e.p); else go(e.o); return;
-      case "index": go(e.o); go(e.i); return;
+      case "member": this.expr(e.o, env, ctx, field ? `${e.p}.${field}` : e.p); return;
+      case "index": {
+        const part = e.i.k === "lit" && (typeof e.i.v === "number" || typeof e.i.v === "string") ? String(e.i.v) : "*";
+        this.expr(e.o, env, ctx, field ? `${part}.${field}` : part); go(e.i); return;
+      }
       case "arr": e.items.forEach(go); return;
       case "rec": for (const f of e.fields) { if ("computed" in f) go(f.computed); go("spread" in f ? f.spread : f.v); } return;
       case "call": {
@@ -1023,12 +1026,13 @@ class Checker {
             s.target.path.forEach(p => typeof p !== "string" && this.expr(p, env, ctx)); this.expr(s.e, env, ctx); break;
           }
           let target: Sym | undefined;
+          const field = s.target.path.map(p => typeof p === "string" ? p : p.k === "lit" && (typeof p.v === "number" || typeof p.v === "string") ? String(p.v) : "*").join(".") || undefined;
           if (s.target.ctx) {
             const c = this.ctxOf(s.target.name, env);
-            if (c) { this.model.write(c, s.k, s.target.path.length > 0); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "O-4", `context ${s.target.name} is read beneath its provision: call an action it provides that writes it`); }
+            if (c) { this.model.write(c, s.k, s.target.path.length > 0, field); this.uses.push({ region: env.region, name: c.ctx!.key, line: this.line, display: s.target.name }); if (!c.ctx!.source) this.err("WRITE_TO_NON_SOURCE", "O-4", `context ${s.target.name} is read beneath its provision: call an action it provides that writes it`); }
           }
           else {
-            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0);
+            target = this.resolve(s.target.name, env, ctx); this.model.write(target, s.k, s.target.path.length > 0, field);
             const guessable = s.k === "optimistic" && target?.kind === "eq" && !!target.eqDecl && !target.param && !target.imported;   // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
             if (guessable && target!.eqDecl!.deferred) this.err("GUESS_ON_DEFERRED", "AC-3", `${s.target.name} is deferred: its value is a lagging copy (V-16), so nothing would confirm a guess on it — guess the equation it lags`);
             else if (guessable) {}
