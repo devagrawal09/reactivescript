@@ -79,24 +79,26 @@
   .frame.module.collapsed { padding-bottom: 18px }
   .frame.module.collapsed > :not(.flabel):not(.psum) { display: none !important }
   .frame.module.collapsed > .psum { display: block; margin-top: 4px }
-  body.far .frame.module > :not(.flabel):not(.psum), body.far .worldrow > .wgroups { visibility: hidden }
-  body.far .frame.module > .flabel { visibility: hidden }
-  .psum .ps-name { display: none; color: var(--text); font: 700 1.3em/1.15 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-  .psum .ps-path { display: none; color: var(--micro); font: .8em/1.2 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: .15em }
-  body.far .psum .ps-name, body.far .psum .ps-path { display: block }
+  /* the overview: each module a card, sized to what it says */
+  body.ov .frame.module { padding: 22px 26px 24px; border-radius: 16px; min-height: 0 }
+  body.ov .frame.module > :not(.psum) { display: none !important }
+  body.ov .frame.module > .psum { display: block; font-size: 18px }
+  .psum .ps-name { display: none; color: var(--text); font: 700 30px/1.15 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .psum .ps-path { display: none; color: var(--micro); font: 16px/1.3 ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px }
+  body.ov .psum .ps-name, body.ov .psum .ps-path { display: block }
   .wsum { display: none }
-  body.far .worldrow > .title { visibility: hidden }
-  body.far .worldrow > .wsum { display: flex; position: absolute; inset: 0; align-items: center; padding: 0 calc(18px * var(--inv, 1)); gap: .8em; font-size: calc(11px * var(--inv, 1)); color: var(--dim); pointer-events: none }
-  .wsum b { color: var(--text); font-size: 1.2em }
-  body.far .frame.module > .psum { display: flex; flex-direction: column; justify-content: center; position: absolute; inset: 0; padding: .9em 1em; font-size: var(--fs, 10px); pointer-events: none; overflow: hidden; justify-content: safe center }
-
+  body.ov .worldrow { padding: 18px 26px }
+  body.ov .worldrow > :not(.wsum) { display: none !important }
+  body.ov .worldrow > .wsum { display: flex; align-items: baseline; gap: 14px; font-size: 16px; color: var(--dim) }
+  .wsum b { color: var(--text); font-size: 1.35em }
   .psum .ps-bars { display: flex; height: .9em; border-radius: .45em; overflow: hidden; margin: .5em 0 .4em; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08) }
   .psum .ps-bars i { display: block; height: 100% }
   .psum .ps-counts { display: flex; flex-wrap: wrap; gap: .25em .9em }
   .psum .ps-counts span b { color: var(--text); font-weight: 700; margin-right: .25em }
   .psum .ps-ex { margin-top: .6em; display: flex; flex-wrap: wrap; gap: .3em .4em; align-items: center }
   .psum .ps-ex .micro { font-size: .8em; margin-right: .2em }
-  .psum .ps-ex span.x { font-family: ui-monospace, Menlo, monospace; color: var(--text); border: 1px solid var(--c); border-radius: 1em; padding: 0 .55em; background: color-mix(in srgb, var(--c) 14%, transparent) }
+  .psum .ps-ex span.x { font-family: ui-monospace, Menlo, monospace; color: var(--text); border: 1px solid var(--c); border-radius: 1em; padding: 0 .55em; background: color-mix(in srgb, var(--c) 14%, transparent); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+  .psum .ps-ex .micro { flex-basis: 100% }
   .psum .ps-live { margin-top: .5em; color: var(--fail); font-weight: 700 }
   .frame.module.planned { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), 0 10px 0 -1px #0a0d13, 0 10px 0 0 rgba(140, 170, 240, .14), 0 40px 70px -22px rgba(0, 0, 0, .85), 0 0 0 2px rgba(226, 232, 240, .35), 0 0 40px rgba(226, 232, 240, .12) }
   .frame.module.hmr { animation: rx-plate 1.15s cubic-bezier(.3, .7, .2, 1) both }
@@ -527,6 +529,9 @@
     body.fake #devhud.collapsed .dh-toggle { padding: 0 6px }
     body.fake #miniBtn { margin-right: 178px }
     #toast { top: 44px }
+    /* the overview in a short dock: slim cards (name, role bar, counts) */
+    body.ov .psum .ps-path, body.ov .psum .ps-ex { display: none !important }
+    body.ov .frame.module { padding: 16px 22px 16px }
     .hud::after { --k: rgba(160, 195, 255, .5) }
   }
   @keyframes rx-fade { 0% { opacity: 0 } 15% { opacity: 1 } 100% { opacity: 0 } }
@@ -1104,7 +1109,7 @@ function render() {
 // Modules stay top to bottom in dependency order (what a module needs sits above it, so every arrow points up), but the
 // modules at one depth share a band, side by side. Within a band they are ordered to cut edge crossings (barycenters of
 // their neighbours, swept down and up), and a band wraps into rows so the whole world has about the screen's shape.
-const LAY = { gapX: 90, gapY: 120, pad: 70 };
+const LAY = { gapX: 90, gapY: 120, pad: 70, ovGapX: 64, ovGapY: 120 };
 let layout = { rows: [], plates: new Map() };   // rows: [{ top, bottom, keys: [plate key] }]; plates: key → { l, t, r, b, row }
 const plateState = new Map();   // module → "closed" | "open": what the user chose
 const autoClosed = new Set();   // modules folded because the map is huge and they are far from the selection
@@ -1144,25 +1149,32 @@ function layoutPlates(animate = false) {
   // the world's shape: rows about as wide as the free screen is wide, relative to its height
   const fr = cam.ready ? freeRect() : { w: innerWidth, h: innerHeight - 120 };
   const aspect = clamp(fr.w / Math.max(200, fr.h), 1, 4);
-  for (const [mi, el] of moduleEls) el.style.width = `${plateWidth(mi)}px`;
+  for (const [mi, el] of moduleEls) el.style.width = `${ovMode ? cardWidth(mi) : plateWidth(mi)}px`;
+  const gapX = ovMode ? LAY.ovGapX : LAY.gapX, gapY = ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY;
+  // the overview's cards: alike in width within a band
+  if (ovMode) for (const band of bands) { const w = Math.max(...band.map(cardWidth)); for (const mi of band) moduleEls.get(mi).style.width = `${w}px`; }
   const sizes = new Map([...moduleEls].map(([mi, el]) => [mi, { w: el.offsetWidth, h: el.offsetHeight }]));
-  const area = [...sizes.values()].reduce((a, s) => a + (s.w + LAY.gapX) * (s.h + LAY.gapY), 0);
-  const maxRow = Math.max(...[...sizes.values()].map(s => s.w), Math.sqrt(area * aspect) * 1.05);
+  const area = [...sizes.values()].reduce((a, s) => a + (s.w + gapX) * (s.h + gapY), 0);
+  // plates: about the screen's shape overall; the overview's cards: a band stays one row unless it is much wider than
+  // the screen's shape allows for the bands' total height
+  const bandH = bands.reduce((a, b) => a + Math.max(...b.map(mi => sizes.get(mi).h)) + gapY, 0);
+  const maxRow = ovMode ? Math.max(...[...sizes.values()].map(s => s.w), aspect * bandH * 1.15, 3 * Math.max(...[...sizes.values()].map(s => s.w)) + 2 * gapX)
+    : Math.max(...[...sizes.values()].map(s => s.w), Math.sqrt(area * aspect) * 1.05);
   const rowsOf = () => {
     const rows = [];
     for (const band of bands) {
       let row = [], w = 0;
       for (const mi of band) {
         const sw = sizes.get(mi).w;
-        if (row.length && w + LAY.gapX + sw > maxRow) { rows.push(row); row = []; w = 0; }
-        w += (row.length ? LAY.gapX : 0) + sw; row.push(mi);
+        if (row.length && w + gapX + sw > maxRow) { rows.push(row); row = []; w = 0; }
+        w += (row.length ? gapX : 0) + sw; row.push(mi);
       }
       if (row.length) rows.push(row);
     }
     return rows;
   };
   const place = (rows = rowsOf()) => {
-    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + LAY.gapX * (r.length - 1);
+    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + gapX * (r.length - 1);
     const contentW = Math.max(...rows.map(widthOf), 400);
     let y = LAY.pad;
     layout = { rows: [], plates: new Map() };
@@ -1172,7 +1184,7 @@ function layoutPlates(animate = false) {
       worldEl.style.left = `${LAY.pad}px`; worldEl.style.top = `${y}px`;
       layout.plates.set("world", { l: LAY.pad, t: y, r: LAY.pad + contentW, b: y + h, row: 0 });
       layout.rows.push({ top: y, bottom: y + h, keys: ["world"] });
-      y += h + LAY.gapY;
+      y += h + gapY;
     }
     for (const r of rows) {
       let x = LAY.pad + (contentW - widthOf(r)) / 2;
@@ -1183,18 +1195,18 @@ function layoutPlates(animate = false) {
         const el = moduleEls.get(mi), s = sizes.get(mi);
         el.style.left = `${x}px`; el.style.top = `${y}px`;
         layout.plates.set(mi, { l: x, t: y, r: x + s.w, b: y + s.h, row: ri });
-        x += s.w + LAY.gapX;
+        x += s.w + gapX;
       }
-      y += h + LAY.gapY;
+      y += h + gapY;
     }
     board.style.width = `${contentW + 2 * LAY.pad}px`;
-    board.style.height = `${y - LAY.gapY + LAY.pad}px`;
+    board.style.height = `${y - gapY + LAY.pad}px`;
   };
   // a row narrower than the world gives its spare width to its plates, the tallest the most: a plate made wider puts
   // its clusters and regions side by side, and gets shorter
   const fixed = rowsOf();
-  {
-    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + LAY.gapX * (r.length - 1);
+  if (!ovMode) {
+    const widthOf = r => r.reduce((a, mi) => a + sizes.get(mi).w, 0) + gapX * (r.length - 1);
     const contentW = Math.max(...fixed.map(widthOf), 400);
     let grew = false;
     for (const r of fixed) {
@@ -1210,7 +1222,7 @@ function layoutPlates(animate = false) {
   place(fixed);
   // clusters face their consumers: a dense plate's clusters go in the order of the plates that use them
   let moved = false;
-  for (const [mi, el] of moduleEls) {
+  if (!ovMode) for (const [mi, el] of moduleEls) {
     const box = el.querySelector(":scope > .clusters"); if (!box) continue;
     const xOf = c => { const u = c.dataset.unit; if (u[0] === "m") { const p = layout.plates.get(+u.slice(1)); return p ? (p.l + p.r) / 2 : 1e6; } return u === "core" ? -1e6 : 1e6 - 1; };
     const cs = [...box.children], sorted = [...cs].sort((a, b) => xOf(a) - xOf(b));
@@ -1295,7 +1307,7 @@ function plateSummary(mi) {
     <div class="ps-live"></div>`;
   el.querySelectorAll(".ps-ex .x").forEach((x, i) => (x.textContent = ex[i].name));
   el.querySelector(".ps-name").textContent = modName(mi);
-  el.querySelector(".ps-path").textContent = G.modules[mi];
+  el.querySelector(".ps-path").textContent = midPath(G.modules[mi]); el.querySelector(".ps-path").title = G.modules[mi];
   return el;
 }
 function setCollapsed(mi, closed, { user = false } = {}) {
@@ -1312,6 +1324,17 @@ board.addEventListener("click", ev => {
   setCollapsed(mi, !moduleEls.get(mi).classList.contains("collapsed"), { user: true });
   SFX.toggle(); relayout();
 }, true);
+// in the overview, a click on a card reads that module: back to the plates, flying to it
+board.addEventListener("click", ev => {
+  if (!ovMode) return;
+  const p = ev.target.closest(".frame.module"); if (!p) return;
+  ev.stopPropagation();
+  setOverview(false, [ev.clientX, ev.clientY]);
+  const q = layout.plates.get(+p.dataset.mod); if (!q) return;
+  const fr = freeRect();
+  flyTo((q.l + q.r) / 2, q.t + Math.min(q.b - q.t, fr.h / .75) / 2 - 20, Math.max(.6, Math.min(1, fr.w / (q.r - q.l + 80))), 500);
+  SFX.select();
+}, true);
 // a collapsed plate stands in for its tokens; a click on it expands it
 board.addEventListener("click", ev => {
   const p = ev.target.closest(".frame.module.collapsed"); if (!p || ev.target.closest("[data-id], .pbtn")) return;
@@ -1319,7 +1342,7 @@ board.addEventListener("click", ev => {
 }, true);
 // On a huge map, a selection folds the modules it does not touch, and unfolds the ones it does; clearing it unfolds them
 function autoFold(ids) {
-  if (G.nodes.length < HUGE) return;
+  if (G.nodes.length < (window.__RX_HUGE__ ?? HUGE) || ovMode) return;
   const keep = new Set();
   for (const id of ids ?? []) { const n = nodes.get(id) ?? regions.get(id); if (n && !(n.world && !n.from)) keep.add(n.mod); }
   let changed = false;
@@ -1330,72 +1353,138 @@ function autoFold(ids) {
   }
   if (changed) relayout();
 }
-// Semantic zoom: far out, plates read as summary cards (same size: nothing moves); edges join plates, not tokens
-let far = false;
-function farCheck(settled) {
-  const f = cam.s < .42;
-  if (f !== far) { far = f; document.body.classList.toggle("far", f); redraw(); settled = true; }
-  // the cards' text is sized for the zoom once the camera settles (a style change per frame would cost every token)
-  if (f && settled) {
-    const inv = clamp(.95 / cam.s, 1, 7);
-    board.style.setProperty("--inv", inv.toFixed(2));
-    // each card's text as big as reads well at this zoom, but no bigger than its card can hold
-    for (const el of moduleEls.values()) {
-      const n = el.querySelector(":scope > .psum"); if (!n) continue;
-      n.style.setProperty("--fs", `${Math.max(6, Math.min(10 * inv, el.offsetHeight / 10, el.offsetWidth / 17)).toFixed(1)}px`);
-    }
-  }
+// ---- semantic zoom: the overview -----------------------------------------------------------------------------------
+// Far out, the world is redrawn as an architecture diagram: each module a card (its name, path, role bar, counts and
+// exports), cards sized to their content and alike within a band, the bands evenly spaced, and the modules' bundles
+// between them. Zooming out past OV_IN switches to it, zooming in past OV_OUT switches back; the module under the
+// pointer stays where it is across the switch.
+const OV_IN = .3, OV_OUT = 1.3;
+let ovMode = false, far = false, ovFocal = null;
+function setOverview(on, focal = ovFocal) {
+  if (on === ovMode || !moduleEls.size) return;
+  const fr = freeRect(), [sx, sy] = focal ?? [fr.cx, fr.cy], [bx, by] = toBoard(sx, sy);
+  let key = null, best = Infinity;
+  for (const [k, p] of layout.plates) { const dx = Math.max(p.l - bx, 0, bx - p.r), dy = Math.max(p.t - by, 0, by - p.b); const d = dx * dx + dy * dy; if (d < best) { best = d; key = k; } }
+  const p = layout.plates.get(key), u = p ? clamp((bx - p.l) / (p.r - p.l), 0, 1) : .5, v = p ? clamp((by - p.t) / (p.b - p.t), 0, 1) : .5;
+  const bw0 = BW;
+  ovMode = far = on;
+  document.body.classList.toggle("ov", on);
+  layoutPlates();
+  BW = board.offsetWidth; BH = board.offsetHeight;
+  const q = layout.plates.get(key);
+  const s = clamp(cam.s * bw0 / BW, .06, 2.6);
+  if (q) setCamAt(q.l + u * (q.r - q.l), q.t + v * (q.b - q.t), s, sx, sy); else setCamAt(BW / 2, BH / 2, s, fr.cx, fr.cy);
+  fly = null; inertia = null;
+  layoutChanged(); redraw();
+}
+function farCheck() {
+  if (fly || drag?.moved || pinch || !cam.ready) return;
+  if (!ovMode && cam.s < OV_IN) setOverview(true);
+  else if (ovMode && cam.s > OV_OUT) setOverview(false);
+}
+// a card's title on one line: the module's name; its path with the middle cut (src/…/ServerBadge.rx)
+const midPath = p => { const parts = String(p).split("/"); return p.length <= 30 || parts.length < 3 ? p : `${parts[0]}/…/${parts.at(-1)}`; };
+const measureCtx = document.createElement("canvas").getContext("2d");
+function textWidth(t, font) { measureCtx.font = font; return measureCtx.measureText(t).width; }
+function cardWidth(mi) {
+  const title = textWidth(modName(mi), "700 30px ui-monospace, Menlo, monospace");
+  const path = textWidth(midPath(G.modules[mi]), "16px ui-monospace, Menlo, monospace");
+  const ex = compact() ? 0 : moduleEls.get(mi)?.querySelectorAll(".psum .ps-ex .x").length ?? 0;
+  return clamp(Math.ceil(Math.max(title, path, 280, 200 + 32 * Math.min(ex, 12)) + 60), 340, 640);
 }
 
-// ---- edges between plates: through the gutters, bundled -----------------------------------------------------------
+// ---- edges between plates: planned through the gutters, in lanes, bundled ------------------------------------------
 const plateKeyOf = id => { const n = nodes.get(id); if (n) return n.world && !n.from ? "world" : n.mod; const r = regions.get(id); return r ? r.mod : null; };
 function channels(row) {
   const ps = row.keys.map(k => layout.plates.get(k)).sort((a, b) => a.l - b.l);
-  const xs = [ps[0].l - LAY.gapX / 2];
+  const g = ovMode ? LAY.ovGapX : LAY.gapX;
+  const xs = [ps[0].l - g / 2];
   for (let i = 1; i < ps.length; i++) xs.push((ps[i - 1].r + ps[i].l) / 2);
-  xs.push(ps.at(-1).r + LAY.gapX / 2);
+  xs.push(ps.at(-1).r + g / 2);
   return xs;
 }
-// from plate pa (below) up to plate pb: out of pa's top, along the gutters, through the gaps between plates in the rows
-// in between, into pb's bottom. Points; null when pa is not below pb.
-function trunk(ka, kb, lane = 0) {
-  const A = layout.plates.get(ka), B = layout.plates.get(kb);
-  if (!A || !B || A.row <= B.row) return null;
-  const o = lane * 6;
-  const xa = clamp((B.l + B.r) / 2 + o, A.l + 24, A.r - 24), xb = clamp((A.l + A.r) / 2 + o, B.l + 24, B.r - 24);
-  const g = i => (layout.rows[i - 1].bottom + layout.rows[i].top) / 2 + o * .5;
-  const pts = [[xa, A.t], [xa, g(A.row)]];
-  let x = xa;
-  for (let i = A.row - 1; i > B.row; i--) {
-    const c = channels(layout.rows[i]).reduce((best, cx) => (Math.abs(cx - xb) + Math.abs(cx - x) * .5 < Math.abs(best - xb) + Math.abs(best - x) * .5 ? cx : best)) + o;
-    pts.push([c, g(i + 1)], [c, g(i)]); x = c;
+// Every bundle (a pair of plates, the lower one depending on the upper one) gets: a port on the lower plate's top and
+// one on the upper plate's bottom, spread so bundles don't share them; the gaps it climbs through between the plates of
+// the rows in between; and a lane in each gutter and gap it uses, so parallel bundles run side by side, not on top of
+// each other, and none runs along a plate's border.
+function planTrunks(pairs) {
+  const plan = new Map();
+  const P = k => layout.plates.get(k), cx = p => (p.l + p.r) / 2;
+  // a key is `a>b`, or `a>b|kind` (bundles of one kind of edge each)
+  const ok = [...pairs].map(key => { const [a, b] = key.split("|")[0].split(">"); return { key, a, b }; }).filter(({ a, b }) => { const A = P(pk(a)), B = P(pk(b)); return A && B && A.row > B.row; });
+  // ports, spread along the edge by the other end's position
+  const outs = new Map(), ins = new Map();
+  for (const r of ok) { (outs.get(r.a) ?? outs.set(r.a, []).get(r.a)).push(r); (ins.get(r.b) ?? ins.set(r.b, []).get(r.b)).push(r); }
+  const spread = (p, list, end) => {
+    const xs = new Map(), sorted = [...list].sort((x, y) => cx(P(pk(x[end]))) - cx(P(pk(y[end]))) || (x.key < y.key ? -1 : 1));
+    const w = p.r - p.l, span = Math.min(w * .7, 22 * (sorted.length - 1)), x0 = cx(p) - span / 2;
+    sorted.forEach((r, i) => xs.set(r.key, sorted.length === 1 ? clamp(cx(P(pk(r[end]))), p.l + w * .25, p.r - w * .25) : x0 + (span * i) / (sorted.length - 1)));
+    return xs;
+  };
+  const outX = new Map([...outs].map(([a, l]) => [a, spread(P(pk(a)), l, "b")])), inX = new Map([...ins].map(([b, l]) => [b, spread(P(pk(b)), l, "a")]));
+  // abstract routes: the gutters crossed and the gaps climbed through
+  const routes = ok.map(({ key, a, b }) => {
+    const A = P(pk(a)), B = P(pk(b)), xa = outX.get(a).get(key), xb = inX.get(b).get(key);
+    const steps = []; let x = xa;
+    for (let i = A.row - 1; i > B.row; i--) {
+      const ch = channels(layout.rows[i]);
+      let c = 0, cost = Infinity;
+      ch.forEach((cxv, j) => { const k = Math.abs(cxv - xb) + Math.abs(cxv - x) * .6; if (k < cost) { cost = k; c = j; } });
+      steps.push({ row: i, ch: c, x: ch[c] }); x = ch[c];
+    }
+    return { key, a, b, A, B, xa, xb, steps };
+  });
+  // lanes: per gutter (between row i-1 and i) and per gap (row, channel), ordered by where the bundle is going
+  const lanes = new Map(), take = (slot, r) => (lanes.get(slot) ?? lanes.set(slot, []).get(slot)).push(r);
+  for (const r of routes) {
+    take(`g${r.A.row}`, r);
+    for (const s of r.steps) { take(`g${s.row}`, r); take(`c${s.row}:${s.ch}`, r); }
   }
-  pts.push([xb, g(B.row + 1)], [xb, B.b]);
-  return pts;
+  const laneOf = new Map();
+  for (const [slot, rs] of lanes) { rs.sort((p, q) => p.xb - q.xb || p.xa - q.xa); rs.forEach((r, i) => laneOf.set(`${slot}|${r.key}`, i - (rs.length - 1) / 2)); }
+  const gapY = ovMode ? (compact() ? LAY.ovGapY * .55 : LAY.ovGapY) : LAY.gapY, gapX = ovMode ? LAY.ovGapX : LAY.gapX;
+  const lg = slot => clamp(gapY * .7 / Math.max(1, lanes.get(slot).length), 4, 12), lc = slot => clamp(gapX * .6 / Math.max(1, lanes.get(slot).length), 4, 12);
+  const gy = (i, r) => (layout.rows[i - 1].bottom + layout.rows[i].top) / 2 + laneOf.get(`g${i}|${r.key}`) * lg(`g${i}`);
+  for (const r of routes) {
+    const pts = [[r.xa, r.A.t], [r.xa, gy(r.A.row, r)]];
+    for (const s of r.steps) {
+      const x = s.x + laneOf.get(`c${s.row}:${s.ch}|${r.key}`) * lc(`c${s.row}:${s.ch}`);
+      pts.push([x, gy(s.row + 1, r)], [x, gy(s.row, r)]);
+    }
+    pts.push([r.xb, pts.at(-1)[1]], [r.xb, r.B.b]);
+    plan.set(r.key, pts);
+  }
+  return plan;
 }
-function roundPath(pts, r = 16) {
+const pk = k => (k === "world" ? "world" : +k);
+function roundPath(pts, r = 14) {
+  pts = pts.filter((p, i) => !i || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > .5);
   let d = `M${pts[0][0]},${pts[0][1]}`;
   for (let i = 1; i < pts.length - 1; i++) {
     const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], [x2, y2] = pts[i + 1];
     const l1 = Math.hypot(x1 - x0, y1 - y0), l2 = Math.hypot(x2 - x1, y2 - y1);
-    if (l1 < 1 || l2 < 1) continue;
     const k = Math.min(r, l1 / 2, l2 / 2);
     d += ` L${x1 - (x1 - x0) / l1 * k},${y1 - (y1 - y0) / l1 * k} Q${x1},${y1} ${x1 + (x2 - x1) / l2 * k},${y1 + (y2 - y1) / l2 * k}`;
   }
   return d + ` L${pts.at(-1)[0]},${pts.at(-1)[1]}`;
 }
-// one edge's path, from what depends (fromId) to what it needs (toId): inside a plate a curve; between plates the stub
-// out of the token, the trunk, and the stub into the other token. `parts` says which pieces to draw.
-function routed(fromId, toId) {
+// one edge, from what depends (fromId) to what it needs (toId): a curve inside a plate; between plates, a stub out of
+// the token to its plate's port, the bundle, and a stub from the other port into the token
+function routed(fromId, toId, plan, kind = "") {
   const ka = plateKeyOf(fromId), kb = plateKeyOf(toId);
-  const A = !far && boxOf(anchors.get(fromId)), B = !far && boxOf(anchors.get(toId));
+  const A = !ovMode && boxOf(anchors.get(fromId)), B = !ovMode && boxOf(anchors.get(toId));
+  if (ka == null || kb == null) return null;
   if (ka === kb) return A && B ? { d: edgePath(A, B) } : null;
-  const t = trunk(ka, kb);
-  if (!t) return A && B ? { d: edgePath(A, B) } : null;
+  const key = `${ka}>${kb}${kind}`, t = plan?.get(key);
+  if (!t) {
+    if (A && B) return { d: edgePath(A, B) };
+    const PA = layout.plates.get(ka), PB = layout.plates.get(kb);
+    return PA && PB ? { d: edgePath({ ...PA, x: (PA.l + PA.r) / 2, y: (PA.t + PA.b) / 2 }, { ...PB, x: (PB.l + PB.r) / 2, y: (PB.t + PB.b) / 2 }) } : null;
+  }
   const [xa, ya] = t[0], [xb, yb] = t.at(-1);
-  const head = A && A.t > ya ? `M${A.x},${A.t} C${A.x},${A.t - 30} ${xa},${ya + 30} ${xa},${ya}` : "";
-  const tail = B && B.b < yb ? `M${xb},${yb} C${xb},${yb - 30} ${B.x},${B.b + 30} ${B.x},${B.b}` : "";
-  return { head, tail, trunk: roundPath(t), key: `${ka}>${kb}`, pts: t };
+  const head = A && A.t > ya + 4 ? `M${A.x},${A.t} C${A.x},${A.t - 30} ${xa},${ya + 30} ${xa},${ya}` : "";
+  const tail = B && B.b < yb - 4 ? `M${xb},${yb} C${xb},${yb - 30} ${B.x},${B.b + 30} ${B.x},${B.b}` : "";
+  return { head, tail, trunk: roundPath(t), key };
 }
 
 // ---- geometry on the board: layout boxes, untouched by the camera's transforms ------------------------------------
@@ -1452,22 +1541,27 @@ function draw() {
     else if (focus) glows.push(`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${width + 6}" stroke-linecap="round" opacity=".14"/>`);
     paths.push(`<path d="${d}" fill="none" stroke="${s.c}" stroke-width="${width}" ${s.d ? `stroke-dasharray="${s.d}"` : ""} ${marker ? `marker-end="url(#${id})"` : ""} opacity="${opacity ?? (glow ? 1 : focus ? .95 : .55)}"/>`);
   };
+  // drawn from what depends to what it depends on: a read points at what it reads
+  const ends = e => (e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to]);
+  const kindOfEdge = e => (far ? "" : `|${edgeKey(e)}`);
+  const pairs = new Set();
+  for (const e of list) { const [f, t] = ends(e), a = plateKeyOf(f), b = plateKeyOf(t); if (a != null && b != null && a !== b) pairs.add(`${a}>${b}${kindOfEdge(e)}`); }
+  const plan = planTrunks(pairs);
   for (const e of list) {
-    // drawn from what depends to what it depends on: a read points at what it reads
-    const [fromId, toId] = e.type === "read" || e.type === "notifies" ? [e.to, e.from] : [e.from, e.to];
+    const [fromId, toId] = ends(e);
     const s = edgeStyle(e); if (!s) continue;
-    const r = routed(fromId, toId); if (!r) continue;
+    const r = routed(fromId, toId, plan, kindOfEdge(e)); if (!r) continue;
     const glow = e.status && e.status !== "same" ? { added: "#22c55e", removed: "#ef4444", changed: "#e879f9" }[e.status] : null;
     if (r.d) { line(r.d, s, { glow }); continue; }
     // between plates: the stubs per edge, the trunk once per pair of plates and kind of edge (a bundle)
     if (r.head) line(r.head, s, { glow, marker: false });
     if (r.tail) line(r.tail, s, { glow });
-    const k = far ? r.key : `${r.key}|${edgeKey(e)}`, t = trunks.get(k);
+    const k = r.key, t = trunks.get(k);
     if (t) { t.n++; t.glow ||= glow; t.tail ||= !!r.tail; } else trunks.set(k, { d: r.trunk, s, n: 1, glow, tail: !!r.tail });
   }
   const bundle = far ? { c: "#9fb4d8", d: "", w: 2 } : null;   // in the overview a bundle is every kind of edge between two modules
   for (const t of trunks.values()) line(t.d, bundle ?? t.s, { glow: t.glow, marker: !t.tail, width: (bundle ?? t.s).w + Math.min(far ? 10 : 4, Math.log2(t.n) * (far ? 2.2 : 1.4)), opacity: t.glow ? 1 : focus ? .9 : far ? .45 : .5 });
-  svg.innerHTML = `<defs>${[...markers].map(c => `<marker id="m${c.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${c}"/></marker>`).join("")}</defs>${glows.join("")}${paths.join("")}`;
+  svg.innerHTML = `<defs>${[...markers].map(c => `<marker id="m${c.slice(1)}" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="${ovMode ? 18 : 12}" markerHeight="${ovMode ? 18 : 12}" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9 z" fill="${c}"/></marker>`).join("")}</defs>${glows.join("")}${paths.join("")}`;
 }
 let raf = 0; const redraw = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); };
 
@@ -1833,37 +1927,51 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
   fly = { t0: performance.now(), dur, s0: cam.s, s1: s, b0: toBoard(fr.cx, fr.cy), b1: [bx, by], tx: fr.cx, ty: fr.cy };
   kick();
 }
-function flyToEl(el, s) { const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
-function fitScale() { const fr = freeRect(), m = compact() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
+function flyToEl(el, s) {
+  if (ovMode && el && !el.closest(".worldrow")) { const mod = el.closest(".frame.module"); const p = mod && layout.plates.get(+mod.dataset.mod); setOverview(false, p ? toScreen((p.l + p.r) / 2, (p.t + p.b) / 2) : null); } const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
+// the largest zoom at which the whole board, tilted and in perspective, fits the free screen with a margin
+function fitScale() {
+  const fr = freeRect(), m = compact() ? 10 : 28, saved = { x: cam.x, y: cam.y, s: cam.s };
+  const fits = s => {
+    setCamAt(BW / 2, BH / 2, s, fr.cx, fr.cy);
+    return [[0, 0], [BW, 0], [0, BH], [BW, BH]].every(([x, y]) => { const [sx, sy] = toScreen(x, y); return sx >= fr.l + m && sx <= fr.r - m && sy >= fr.t + m && sy <= fr.b - m; });
+  };
+  let lo = .02, hi = 1.6;
+  for (let i = 0; i < 22; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; }
+  Object.assign(cam, saved);
+  return lo;
+}
 // Frame: the whole board when it can be read that way; a tall one is fitted to the width instead, staying where you are
 // (a whole 8-module app at 10% is a strip nobody can read)
-// Frame: the whole world when its plates can still be read as cards (semantic zoom); a world too big even for that is
-// fitted to the width, staying where you are
-const OVERVIEW = .13;
+// Frame: the whole world. When its plates would be too small to read, the overview (cards) is framed instead.
 function frameAll(dur = 600) {
-  const whole = fitScale(), fr = freeRect();
-  if (whole >= OVERVIEW) return flyTo(BW / 2, BH / 2, Math.min(whole, 1), dur);
-  const s = clamp((fr.w - (compact() ? 12 : 40)) / BW, .08, 1);
-  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
-  flyTo(BW / 2, y, s, dur);
+  if (!ovMode && fitScale() < OV_IN && moduleEls.size > 1) setOverview(true);
+  const fit = fitScale();
+  if (ovMode) return flyTo(BW / 2, BH / 2, Math.min(fit, OV_OUT - .1), dur);
+  flyTo(BW / 2, BH / 2, Math.min(fit, 1), dur);
 }
-const framed = () => { const fr = freeRect(); const [bx] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - Math.min(1, fitScale())) < .01 || Math.abs(cam.s - clamp((fr.w - (compact() ? 12 : 40)) / BW, .08, 1)) < .01); };
+const framed = () => { const fr = freeRect(); const [bx, by] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && Math.abs(by - BH / 2) < 4; };
 function home() {
   // a map that fits readably is framed whole; in a short dock, reading size from the first module down; otherwise the
-  // whole world as an overview of cards (zoom in to read the tokens)
+  // overview: every module as a card, framed (zoom in, or click a card, to read its tokens)
   const fr = freeRect(), fit = fitScale();
-  if (fit >= .55) setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy);
+  if (fit >= .55 || moduleEls.size < 2) setCamAt(BW / 2, BH / 2, Math.min(fit, 1), fr.cx, fr.cy);
   else if (compact()) {
-    const s = Math.min(clamp((fr.w - 12) / BW, .3, 1), Math.max(.62, fr.h / 520));
+    const s = Math.min(clamp((fr.w - 12) / BW, .35, 1), Math.max(.62, fr.h / 520));
     const row = layout.rows.find(r => !r.keys.includes("world")) ?? layout.rows[0];
     const k = row?.keys[0], p = k != null && layout.plates.get(k);
     if (p) setCamAt((p.l + p.r) / 2, p.t, s, fr.cx, fr.t + 8 + 8 * s);
     else setCamAt(BW / 2, 0, s, fr.cx, fr.t + 8);
-  } else if (fit >= OVERVIEW) setCamAt(BW / 2, BH / 2, fit, fr.cx, fr.cy);
-  else { const s = clamp((fr.w - 30) / BW, .08, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+  } else {
+    setOverview(true);
+    const f = fitScale();
+    if (f >= .3) setCamAt(BW / 2, BH / 2, Math.min(f, OV_OUT - .1), fr.cx, fr.cy);
+    else { const s = clamp((fr.w - 40) / BW, .3, 1); setCamAt(BW / 2, 0, s, fr.cx, fr.t + 6 + 30 * s); }
+  }
   camChanged();
 }
 function zoomAt(sx, sy, f) {
+  ovFocal = [sx, sy];
   const [bx, by] = toBoard(sx, sy);
   fly = null;
   setCamAt(bx, by, clamp(cam.s * f, .08, 2.6), sx, sy);
@@ -1963,7 +2071,7 @@ document.getElementById("frameBtn").innerHTML = ICON.frame;
 document.getElementById("zoomIn").onclick = () => { SFX.toggle(); const fr = freeRect(); zoomAtSmooth(fr.cx, fr.cy, 1.3); };
 document.getElementById("zoomOut").onclick = () => { SFX.toggle(); const fr = freeRect(); zoomAtSmooth(fr.cx, fr.cy, 1 / 1.3); };
 document.getElementById("frameBtn").onclick = () => { SFX.toggle(); frameAll(); };
-function zoomAtSmooth(sx, sy, f) { const [bx, by] = toBoard(sx, sy); flyTo(bx, by, clamp(cam.s * f, .08, 2.6), 260); }
+function zoomAtSmooth(sx, sy, f) { ovFocal = null; const [bx, by] = toBoard(sx, sy); flyTo(bx, by, clamp(cam.s * f, .08, 2.6), 260); }
 
 // minimap: the plates and tokens, drawn once per layout; the viewport's footprint on the plane, drawn per frame
 const minic = document.getElementById("minic"), mctx = minic.getContext("2d");
