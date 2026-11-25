@@ -491,7 +491,10 @@ class Proj {
       }
       case "draft": { const w = new W(); const saved = this.w; this.w = w; this.stmts(e.body, "  "); this.w = saved; return `__.draft(${go(e.seed)}, (d) => {\n${w.out.join("\n")}\n})`; }
       case "use": return `__.use(${e.name})`;
-      case "bin": return `(${go(e.l)} ${e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op} ${go(e.r)})`;
+      case "bin": {
+        const r = go(e.r);
+        return `(${go(e.l)} ${e.op === "==" ? "===" : e.op === "!=" ? "!==" : e.op} ${e.op === "instanceof" && r !== "Error" ? `(${r} as unknown as new () => ReturnType<typeof ${r}>)` : r})`;
+      }
       case "un": return `(${e.op}${go(e.e)})`;
     }
   }

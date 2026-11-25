@@ -861,6 +861,10 @@ class Checker {
 
   /** E-10: a reactive argument for a value parameter of an instantiating fn is snapshotted. */
   private snapshotArgs(call: Extract<Expr, { k: "call" }>, f: Sym, env: Env) {
+    if (call.args.some(a => a.k === "spread")) {
+      this.err("CALL_SPREAD", "E-10", "an instantiation needs each argument separately (including ref arguments); pass the arguments explicitly");
+      return;
+    }
     const hint = f.fnDecl?.decls.length && !f.params!.some(p => p.ref)
       ? " If you only need a value calculation, inline the equation in an arrow fn: `fn size(xs) { n = xs.length; n }` → `fn size(xs) => xs.length`."
       : "";
@@ -960,7 +964,13 @@ class Checker {
         const inner = new Env(env, env.region); if (e.name) inner.vars.set(e.name, { kind: "value", name: e.name, region: env.region, line: this.line });
         this.expr(e.alt, inner, ctx); return;
       }
-      case "bin": go(e.l); go(e.r); return;
+      case "bin":
+        go(e.l);
+        if (e.op === "instanceof") {
+          if (e.r.k !== "id" || e.r.name === "Panic" || (e.r.name === "Error" ? env.lookup("Error") && env.lookup("Error")?.kind !== "errclass" : env.lookup(e.r.name)?.kind !== "errclass"))
+            this.err("NOT_AN_ERROR_CLASS", "R-f-1", "`instanceof` tests an error class: write `e instanceof Error` or name a declared or imported error class");
+        } else go(e.r);
+        return;
       case "if": go(e.c); go(e.t); go(e.f); return;
       case "tpl": for (const p of e.parts) if (typeof p !== "string") go(p); return;
       case "member":
@@ -1004,7 +1014,10 @@ class Checker {
           if (s?.side === "client" && ctx.scope === "reactive" && !ctx.server && !this.awaitedCalls.has(e)) this.err("CLIENT_NOT_AWAITED", "SF-5b", `${name}(…) is \`client\` JS: in reactive scope it is awaited — a client question, asked once the browser has the page (SV-7b) — never called for its value now`);
           if (s?.kind === "fn" && s.instantiating) this.err("INSTANTIATION_NOT_BOUND", "E-9", `${name}(…) declares state: bind it, \`x = ${name}(…)\` (RG-6)`);
           if (s?.kind === "comp") this.err("COMPONENT_AS_VALUE", "RG-4a", `component ${name} called as a function: apply it in a view`);
-          if (s?.kind === "action" && s.arity !== undefined && e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
+          if (s?.kind === "action" && s.arity !== undefined) {
+            if (e.args.some(a => a.k === "spread")) this.err("CALL_SPREAD", "AC-1f", "a local action needs one explicit argument per parameter; pass the arguments separately");
+            else if (e.args.length !== s.arity) this.err("ARGUMENT_COUNT", "AC-1f", `${name} takes ${s.arity === 0 ? "no arguments" : s.arity === 1 ? "1 argument" : `${s.arity} arguments`} and is called with ${e.args.length}: an action's parameters are its whole input — pass each one, and nothing it does not declare`);
+          }
           this.model.call(s);
         }
         go(e.f); e.args.forEach(go); return;
