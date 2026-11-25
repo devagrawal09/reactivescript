@@ -230,6 +230,12 @@ test("HTTP and MCP live tools select the newest page, correlate replies, and rep
   newest.socket.emit("close");
   const trace = await c.json("record", { action: "stop" });
   assert.deepEqual(trace.records.map(r => [r.type, r.at]), [["flight", 0], ["flight", 150]]);
+  await c.json("record", { action: "start" });
+  ws.emit(LIVE_TRACE, { type: "flush", at: 300, changes: [{ key, instance: "1" }, { key, instance: "2" }] }, oldest);
+  ws.emit(LIVE_TRACE, { type: "revert", at: 305, key, instance: "2", reason: "superseded" }, oldest);
+  const filtered = await c.text("record", { action: "stop", key, instance: "2", kinds: ["revert"] });
+  assert.match(filtered, /instance 2.*revert superseded \(replaced by the answer, not a failure\)/);
+  assert.deepEqual((await c.json("tail", { key, instance: "2", kinds: ["flush"] })).at(-1).changes, [{ key, instance: "2" }]);
   assert.deepEqual(await c.json("live_status"), { pages: 1, flushes: 2, uptime: 15 });
   oldest.socket.emit("close");
   assert.equal((await fetch(url)).status, 503);
@@ -258,4 +264,57 @@ test("warm HTTP MCP keeps a last-good graph after watcher invalidation", { timeo
   assert.match(stale, /^program has 1 error; answers from the last good build at .+; changed since: main\.rx/);
   assert.match(stale, /main\.rx\|\|count/);
   assert.match((await call("check")).content[0].text, /PARSE/);
+});
+
+test("warm MCP check runs the Vite RX frontend without RXC and flags old transforms", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-frontend-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = join(root, "main.rx"), declaration = join(root, "adapter.d.rx");
+  writeFileSync(file, `import { trouble } from "./adapter"\nexport default component App() {\n  flag = trouble()\n  <p>{flag}</p>\n}\n`);
+  writeFileSync(declaration, "export pure fn trouble(): ref boolean\n");
+  writeFileSync(join(root, "adapter.ts"), "export const trouble = () => () => false;\n");
+  let frontend;
+  try { frontend = (await import("../../../compiler/vite.mjs")).default(); }
+  catch (e) { if (/native binding/.test(e.message)) return t.skip("Node-API compiler is not built"); throw e; }
+  const endpoints = new Map(), server = new EventEmitter();
+  rxMap().configureServer({ config: { root }, ws: new EventEmitter(), watcher: new EventEmitter(), httpServer: server,
+    middlewares: { use(path, fn) { endpoints.set(path, fn); } }, printUrls() {} });
+  t.after(() => server.emit("close"));
+  const ctx = { id: file, moduleId: file, root, solid: { generate: "dom", dev: true, hydratable: false }, addWatchFile() {} };
+  frontend.compile("", ctx);
+  const http = createServer((req, res) => { req.url = ""; void endpoints.get("/__rx/mcp")(req, res); });
+  await new Promise(r => http.listen(0, "127.0.0.1", r));
+  t.after(() => http.close());
+  const check = async () => (await (await fetch(`http://127.0.0.1:${http.address().port}`, { method: "POST",
+    headers: { "content-type": "application/json" }, body: request(1, "tools/call", { name: "check" }) })).json()).result.content[0].text;
+  assert.equal(await check(), "ok");
+  writeFileSync(declaration, "export pure fn trouble(): ref boolean\n// edited\n");
+  assert.match(await check(), /stale entry transform: main\.rx \(changed: adapter\.d\.rx\).*Touch main\.rx.*\nok$/);
+  frontend.compile("", ctx);
+  assert.equal(await check(), "ok");
+  writeFileSync(declaration, "export pure fn trouble(\n");
+  assert.match(await check(), /adapter\.d\.rx:\d+:\d+ [A-Z]+/);
+});
+
+test("reach follows the argument into its prop, not its sibling", { timeout: 10000 }, async t => {
+  const root = mkdtempSync(join(tmpdir(), "rx-map-props-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "main.rx"), `source left := 1
+source right := 2
+component Row(props: { left: number, right: number }) {
+  leftText = props.left + 1
+  rightText = props.right + 1
+  <p>{leftText} {rightText}</p>
+}
+export default component App() {
+  <Row left={left} right={right} />
+}
+`);
+  const c = client(t, ["--root", root]);
+  const down = (await c.json("reach", { key: "main.rx||left" })).map(r => r.key);
+  assert.ok(down.includes("main.rx|Row|leftText"));
+  assert.ok(!down.includes("main.rx|Row|rightText"));
+  const up = (await c.json("reach", { key: "main.rx|Row|rightText", direction: "up" })).map(r => r.key);
+  assert.ok(up.includes("main.rx||right"));
+  assert.ok(!up.includes("main.rx||left"));
 });

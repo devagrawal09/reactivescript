@@ -248,14 +248,62 @@ try {
     ask("state", { key: errored.key }).result.state === "ok", ask("state").result.boundaries);
   const write = change();
   await sleep(20);
-  check("a parked source retains its shown value and reports held", ask("value", { key: K("page") }).result.preview === "1" &&
-    ask("state").result.held.some(h => h.key === K("page")));
+  const parked = ask("state", { key: K("page") }).result;
+  check("a parked source retains its shown value and reports held", parked.preview === "1" &&
+    parked.held?.blockers.some(b => b.key === action && b.type === "action" && typeof b.since === "number"), parked);
   releaseWrite();
   await write;
   await sleep(20);
   check("the source releases when the write lands", !ask("state").result.held.length &&
     ask("tail").result.some(r => r.type === "released" && r.key === K("page")));
   disposeModule();
+  let changeSecond;
+  const disposeColumns = rt.mount(() => {
+    const [first] = rt.key(K("page"), () => rt.source("page", 10));
+    const [second, writer] = rt.key(K("page"), () => rt.source("page", 20));
+    changeSecond = () => writer.set(21);
+    return () => `${first()} ${second()}`;
+  });
+  const columns = ask("value", { key: K("page") }).result.instances;
+  check("repeated keys keep separate live instances", columns?.length === 2 && columns[0].instance !== columns[1].instance &&
+    columns.map(c => c.preview).join(",") === "10,20", columns);
+  changeSecond();
+  await sleep(10);
+  check("why selects the changed instance", columns?.length === 2 &&
+    ask("why", { key: K("page"), instance: columns[1].instance }).result.current?.preview === "21");
+  disposeColumns();
+  const foreign = "examples/users.rx||externalFlag", js = "examples/users.rx||adapter";
+  register({ ...extra, nodes: [...extra.nodes,
+    { ...nodeOf("page"), id: "externalFlag", key: foreign, name: "externalFlag" },
+    { ...nodeOf("page"), id: "adapter", key: js, name: "adapter", jsFrom: "./adapter" }],
+    edges: [...extra.edges, { type: "call", from: "externalFlag", to: "adapter" }] }, { hot });
+  const [flag, setFlag] = createSignal(false);
+  const disposeFlag = rt.mount(() => {
+    const value = rt.key(foreign, () => rt.memo(null, flag));
+    return () => value() ? "trouble" : "ready";
+  });
+  setFlag(true);
+  await sleep(10);
+  check("an external signal change has its JS call origin in the trace", ask("tail").result.some(r =>
+    r.changes?.some(c => c.key === foreign && c.preview === "true" && c.origin?.includes("JS call adapter from ./adapter"))));
+  disposeFlag();
+  const guard = K("shown"), failed = K("failedDetail"), guardRegion = `${errored.mod}:r901`;
+  register({ ...extra, regions: [...extra.regions,
+    { id: guardRegion, kind: "then", parent: errored.id, head: { text: "if shown" } }],
+    nodes: [...extra.nodes, { ...nodeOf("page"), id: "shown", name: "shown", key: guard },
+      { ...nodeOf("page"), id: "failedDetail", key: failed },
+      { ...nodeOf("page"), id: "guardedRead", key: K("guardedRead"), region: guardRegion }],
+    edges: [...extra.edges, { type: "read", mode: "tracked", from: "failedDetail", to: "guardedRead" }] }, { hot });
+  const disposeGuard = rt.mount(() => {
+    rt.key(guard, () => rt.source("shown", false));
+    rt.key(failed, () => () => { throw new NotFound("missing detail"); });
+    return rt.DevErrored({ region: ref(errored), fallback: () => "unexpected fallback", children: "guard closed" });
+  });
+  await sleep(10);
+  const failedWhy = ask("why", { key: failed }).result;
+  check("why explains a failed value whose boundary reader is guarded off",
+    (failedWhy.current ?? failedWhy).untripped?.guards.join() === "shown", failedWhy);
+  disposeGuard();
   closeMap();
   hotDispose();
   check("HMR disposal detaches the socket but keeps the session recorder", OBSERVE.records.observed("flush") && !handlers.has("rx:live:request"));

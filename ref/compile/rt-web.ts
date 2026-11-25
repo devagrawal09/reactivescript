@@ -8,7 +8,7 @@ import { getObserver } from "solid-js";
 import {
   createSignal, createMemo, createEffect, createOptimistic, createOptimisticStore, createStore, createProjection, createDeferred, createErrorBoundary, createContext,
   Show, For, Loading, Errored, createComponent,
-  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV,
+  flush, untrack, latest, isPending, action, refresh, affects, until, onSettled, onFlush, onCleanup, createRenderEffect, NotReadyError, getOwner, runWithOwner, sharedConfig, omit, DEV, OBSERVE,
 } from "solid-js";
 import { getContext, setContext, $REFRESH, $TARGET } from "@solidjs/signals";
 import { hydrate, render } from "@solidjs/web";
@@ -38,10 +38,14 @@ export { flush };
  *  while one is current is named `rx:` + key; with none, its options are as they were. Against Solid's production build
  *  (no `DEV`) both are the identity, and a bundler drops the names with them. */
 let rxKey: string | null = null;
-type Inspect = <T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean };
 type Carry = { value: unknown; used?: boolean; question?: boolean; keepAnswer?: boolean };
+let instanceId = 0;
+let rxInstance: string | undefined;
+type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unknown; pending?: boolean; held?: boolean }) & {
+  instance?: string; ownerPath?: string[];
+};
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
-type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string } | { type: "run"; key: string; id: number; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
@@ -51,6 +55,7 @@ const dev = globalThis as typeof globalThis & {
 const carry = () => rxKey === null ? undefined : dev.__RX_HMR__?.carry.get(rxKey);
 const trace = (e: DevEvent) => { try { dev.__RX_TRACE__?.(e); } catch { /* observation must not affect the app */ } };
 let runId = 0;
+let currentRun: number | undefined;
 function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
   let set = map.get(k);
   if (!set) map.set(k, set = new Set());
@@ -58,12 +63,17 @@ function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: ()
   entries.add(value);
   if (getOwner()) onCleanup(() => { entries.delete(value); if (!entries.size) map.delete(k); removed?.(); });
 }
-const nm: <T>(o: T) => T = DEV ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}` }) as typeof o : o => o;
+const nm: <T>(o: T) => T = DEV ? o => rxKey === null ? o : ({ ...(o ?? {}), name: `rx:${rxKey}~i${rxInstance}` }) as typeof o : o => o;
 /** `__rt.key(k, () => …)`: a dev build's creating call of a source or an equation, run under its key. Solid's
  *  production build keeps no names, so there it is the call alone. */
 const key: <T>(k: string, f: () => T) => T = DEV
   ? (k, f) => {
-      const was = rxKey; rxKey = k;
+      const instance = String(++instanceId);
+      const path = OBSERVE?.ownerPath?.(getOwner());
+      const scope = k.split("|").at(-2);
+      const ownerPath = path?.length ? path : scope ? [`<${scope}>`] : undefined;
+      const was = rxKey, wasInstance = rxInstance;
+      rxKey = k; rxInstance = instance;
       try {
         const out = f();
         const get = Array.isArray(out) ? out[0] : out;
@@ -95,16 +105,17 @@ const key: <T>(k: string, f: () => T) => T = DEV
           // The bridge keeps handles only for the lifetime of this declaration.
           Object.assign(inspect, { node: (get as any)[$REFRESH], hmrValue: () => inspect(latestWhole) });
           const nodes = dev.__RX_NODES__ ??= new Map();
-          remember(nodes, k, inspect, () => { if (!nodes.has(k)) trace({ type: "dispose", key: k }); });
-          trace({ type: "node", key: k });
+          Object.assign(inspect, { instance, ownerPath });
+          remember(nodes, k, inspect, () => trace({ type: "dispose", key: k, instance }));
+          trace({ type: "node", key: k, instance });
           if (writer) {
             const { set, path } = writer;
-            writer.set = v => { set(v); trace({ type: "write", key: k }); };
-            writer.path = (p, v) => { path(p, v); trace({ type: "write", key: k }); };
+            writer.set = v => { set(v); trace({ type: "write", key: k, instance, run: currentRun }); };
+            writer.path = (p, v) => { path(p, v); trace({ type: "write", key: k, instance, run: currentRun }); };
           }
         }
         return out;
-      } finally { rxKey = was; }
+      } finally { rxKey = was; rxInstance = wasInstance; }
     }
   : (_k, f) => f();
 
@@ -351,17 +362,29 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
     },
     /** `action f(…) { … }` (AC-1): a generator; a statement-level `await` is a hold-safe yield. */
     action(gen: (...a: unknown[]) => Generator<unknown, unknown, unknown>, key?: string) {
+      if (DEV && key) {
+        const ownerPath = OBSERVE?.ownerPath?.(getOwner());
+        const run = action(function* (id: number, ...a: unknown[]) {
+          const iter = gen(...a);
+          const step = (method: "next" | "throw" | "return") => (value: unknown) => {
+            const previous = currentRun;
+            currentRun = id;
+            try { return iter[method](value); } finally { currentRun = previous; }
+          };
+          return yield* { [Symbol.iterator]: () => ({ next: step("next"), throw: step("throw"), return: step("return") }) };
+        } as any) as (id: number, ...a: unknown[]) => Promise<unknown>;
+        return (...a: unknown[]) => {
+          const id = ++runId;
+          trace({ type: "run", key, id, ownerPath, state: "start", args: a });
+          const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
+          try {
+            const p = run(id, ...a);
+            p.then(() => trace({ type: "run", key, id, ownerPath, state: "end" }), e => { app.asyncError = e; fail(e); });
+            return p;
+          } catch (e) { fail(e); throw e; }
+        };
+      }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
-      if (DEV && key) return (...a: unknown[]) => {
-        const id = ++runId;
-        trace({ type: "run", key, id, state: "start", args: a });
-        const fail = (error: unknown) => { trace({ type: "run", key, id, state: "error", error }); };
-        try {
-          const p = run(...a);
-          p.then(() => trace({ type: "run", key, id, state: "end" }), e => { app.asyncError = e; fail(e); });
-          return p;
-        } catch (e) { fail(e); throw e; }
-      };
       return (...a: unknown[]) => { const p = run(...a); p.catch(e => { app.asyncError = e; }); return p; };
     },
     awaited: (v: unknown) => v instanceof Flight ? v.first : v,
