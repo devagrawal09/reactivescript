@@ -539,7 +539,6 @@ class Gen {
       }
       case "use": return `__rt.useGet(${this.ref(e.name, env, { imp: false, dyn: ctx.dyn })}, __o)`;
       case "bin": {
-        if (e.op === "instanceof") return `__rt.isA(${go(e.l)}, [${e.r.k === "id" && e.r.name === "Error" && !env.lookup("Error") ? "Error" : go(e.r)}])`;
         if (e.op === "==") return `__rt.eq(${go(e.l)}, ${go(e.r)})`;
         if (e.op === "!=") return `!__rt.eq(${go(e.l)}, ${go(e.r)})`;
         return `(${go(e.l)} ${e.op} ${go(e.r)})`;

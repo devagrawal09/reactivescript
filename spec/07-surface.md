@@ -125,7 +125,6 @@ Added:
 | `` `a ${e} b` `` | template literal | — |
 | `o?.k`, `xs.map(f)` | optional chaining, method calls | — |
 | `f(...xs)` | expand an iterable into positional arguments, as in JS. Instantiations and calls of local actions require explicit arguments (`CALL_SPREAD`). | E-10, AC-1f |
-| `e instanceof C` | test a declared or imported error class, or `Error`, with the same class matching as a typed catch. Use a typed catch to discharge a failure row. | R-f-1, R-f-4 |
 | `===` / `!==` | accepted as `==` / `!=` | E-6 |
 | `use name` | the nearest provision above (a unary form: `(use x) == y`) | RG-7 |
 | `type T = …` | a TS type declaration, kept as text | — |
@@ -134,6 +133,8 @@ Added:
 | `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `from` is contextual in an import and can be used as a name elsewhere.
+`new` expressions are not part of RX. An RX error is constructed by
+calling its declared name, as in `throw Missing(id)` (R-f-1).
 
 String and template literals cook JavaScript's escapes: control escapes
 (`\n`, `\t`, etc.), escaped delimiters and backslashes, `\xHH`, `\uHHHH`,
