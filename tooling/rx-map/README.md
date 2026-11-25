@@ -446,6 +446,12 @@ look up a key for `node` or `reach`. `boundary` lists its own keys. `diff` defau
 Live tools accept the same keys as `find`, including field paths. `tail` and `record stop` with `key` show only
 matching changes; pass `whole: true` to include the rest of a matching flush.
 
+An active `record` survives a reload of the same tab while Vite is running; `record stop` includes a reload marker.
+`trace(key?, run?, limit?)` groups observed RX action runs and direct imported JS calls with their result, timing,
+and linked writes and holds. `hmr(key?)` explains the latest observed replacement of live sources; `state` shows
+that explanation beside each matching instance. `timeline` accepts key and kind filters and defaults to compact
+array previews (`compact: false` restores the regular previews).
+
 The MCP endpoint cannot change the running page by default. Opt in with `rxMap({ mcp: { act: true } })` or start
 Vite with `RX_MCP_ACT=1`. The Vite `/__rx/mcp` endpoint then exposes `timeline(limit?)`, `travel(seq)`, and
 `resume()`. Only `travel` and `resume` act on the page; `timeline` reads retained steps. They target the newest

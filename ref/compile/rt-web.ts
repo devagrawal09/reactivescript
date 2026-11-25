@@ -55,7 +55,7 @@ type Inspect = (<T>(format: (value: unknown) => T) => { value?: T; error?: unkno
   source?: boolean;
 };
 type BoundaryState = { state: "ok" | "fallback" | "error"; error?: unknown };
-type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string } | { type: "run"; key: string; id: number; ownerPath?: string[]; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown } | { type: "caught"; key: string; id: number; site: number; class: string };
+type DevEvent = { type: "boundary"; region: string } | { type: "dispose" | "write" | "node"; key: string; instance?: string; run?: number; origin?: string; call?: number } | { type: "run" | "call"; key: string; id: number; ownerPath?: string[]; instance?: string; run?: number; origin?: string; state: "start" | "end" | "error"; args?: unknown[]; error?: unknown; result?: unknown } | { type: "caught"; key: string; id: number; site: number; class: string };
 const dev = globalThis as typeof globalThis & {
   __RX_NODES__?: Map<string, Set<Inspect>>;
   __RX_BOUNDARIES__?: Map<string, Set<BoundaryState>>;
@@ -65,6 +65,7 @@ const trace = (e: DevEvent) => { if (RX_INSTRUMENT) try { dev.__RX_TRACE__?.(e);
 let runId = 0;
 let currentRun: number | undefined;
 let currentAction: string | undefined, callbackOrigin: string | undefined;
+let callId = 0, currentCall: number | undefined;
 function remember<T>(map: Map<string, Set<T>>, k: string, value: T, removed?: () => void) {
   let set = map.get(k);
   if (!set) map.set(k, set = new Set());
@@ -128,7 +129,7 @@ const key: <T>(k: string, f: () => T, own?: Map<string, Set<Inspect>>, reads?: S
           trace({ type: "node", key: k, instance });
           if (writer) {
             const { set, path, guess } = writer;
-            const written = () => trace({ type: "write", key: k, instance, run: currentRun, origin: callbackOrigin });
+            const written = () => trace({ type: "write", key: k, instance, run: currentRun, origin: callbackOrigin, call: currentCall });
             writer.set = v => { if (callbackOrigin) written(); set(v); if (!callbackOrigin) written(); };
             writer.path = (p, v) => { if (callbackOrigin) written(); path(p, v); if (!callbackOrigin) written(); };
             writer.guess = (v, p) => { if (callbackOrigin) written(); guess(v, p); };
@@ -448,17 +449,33 @@ export function createApp(opts: { root: any; api?: Record<string, (...a: any[]) 
         return (...a: unknown[]) => {
           a = untrack(() => actionInput(a, $TARGET));
           const id = ++runId;
-          trace({ type: "run", key, id, ownerPath, state: "start", args: a });
+          trace({ type: "run", key, id, ownerPath, state: "start", args: a, origin: callbackOrigin ?? currentAction });
           const fail = (error: unknown) => { trace({ type: "run", key, id, ownerPath, state: "error", error }); };
           try {
             const p = run(id, ...a);
-            p.then(() => trace({ type: "run", key, id, ownerPath, state: "end" }), e => { app.asyncError = e; fail(e); });
+            p.then(result => trace({ type: "run", key, id, ownerPath, state: "end", result }), e => { app.asyncError = e; fail(e); });
             return p;
           } catch (e) { fail(e); throw e; }
         };
       }
       const run = action(gen as any) as (...a: unknown[]) => Promise<unknown>;
       return (...a: unknown[]) => { const p = run(...untrack(() => actionInput(a, $TARGET))); p.catch(e => { app.asyncError = e; }); return p; };
+    },
+    traceCall<T>(key: string, fn: (...args: any[]) => T, args: unknown[]): T {
+      if (!RX_INSTRUMENT || !dev.__RX_TRACE__) return fn(...args);
+      const id = ++callId, previous = currentCall;
+      const info = { type: "call" as const, key, id, instance: rxInstance, ownerPath: OBSERVE?.ownerPath?.(getOwner()), run: currentRun, origin: callbackOrigin ?? currentAction };
+      trace({ ...info, state: "start", args });
+      currentCall = id;
+      const end = (result: unknown) => trace({ ...info, state: "end", result });
+      const fail = (error: unknown) => trace({ ...info, state: "error", error });
+      try {
+        const result = fn(...args);
+        if (result instanceof Promise) void Promise.prototype.then.call(result, end, fail);
+        else end(result);
+        return result;
+      } catch (e) { fail(e); throw e; }
+      finally { currentCall = previous; }
     },
     traceCallback<T extends (...args: any[]) => any>(fn: T): T {
       const origin = currentAction ?? callbackOrigin;
