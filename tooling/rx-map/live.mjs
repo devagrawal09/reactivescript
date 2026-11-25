@@ -6,7 +6,7 @@
 //
 // The recorder belongs to the app session, not to a particular map iframe.
 import { pageHTML } from "./page.mjs";
-import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, matchesKey } from "./live-protocol.mjs";
+import { LIVE_READY, LIVE_REQUEST, LIVE_RESPONSE, LIVE_TRACE, matchesKey, traceSummary } from "./live-protocol.mjs";
 
 const SOURCE = "rx-map";
 const RX = "rx:";
@@ -27,6 +27,12 @@ const probeOwners = new WeakSet();
 // Probe nodes are found by their owner (`_owner`/`_parent`, solid-asks #4); without it the list probes don't run.
 const probeNode = node => !!node && (probeOwners.has(node._owner) || probeOwners.has(node._parent));
 const message = msg => ({ source: SOURCE, v: 1, ...msg });
+const documentId = globalThis.crypto?.randomUUID?.() ?? String(Math.random());
+let tabId = documentId;
+try {
+  tabId = sessionStorage.getItem("rx:trace-tab") ?? documentId;
+  sessionStorage.setItem("rx:trace-tab", tabId);
+} catch { /* storage can be disabled */ }
 const graphs = [];
 const mounts = new Set();
 const bridges = new Map();
@@ -46,6 +52,7 @@ const untracked = fn => {
 const errorPreview = error => untracked(() => preview(error, 200));
 function previews(value) {
   const out = { preview: preview(value) };
+  if (Array.isArray(value)) out.compact = `Array(${value.length}) ${preview(value.slice(0, 3))}${value.length > 3 ? " …" : ""}`;
   if (value !== null && typeof value === "object" && !(value instanceof Error)) {
     const full = preview(value, 2000, 4);
     if (full.length > out.preview.length) out.full = full;
@@ -182,7 +189,7 @@ function connect(hot) {
     }
     catch (e) { hot.send(LIVE_RESPONSE, { id, error: e.message }); }
   };
-  const ready = () => hot.send(LIVE_READY);
+  const ready = () => hot.send(LIVE_READY, { tab: tabId, document: documentId });
   bridges.set(hot, request);
   hot.on(LIVE_REQUEST, request);
   const trace = record => hot.send(LIVE_TRACE, record);
@@ -303,6 +310,7 @@ function getRecorder() {
   const latest = new Map(), last = new Map(), flights = new Map(), runs = new Map(), boundaries = new Map();
   const held = new Map(), writes = new Map(), dirty = new Set(), wroteSinceFlush = new Set();
   const callbackWrites = new Map();
+  let lastHmr;
   const start = performance.now();
   let seq = 0, flushes = 0;
   // Travel: the open view, the seq it shows, and a resume whose landing waits on async work.
@@ -405,6 +413,7 @@ function getRecorder() {
       queueReconcile();
       return;
     }
+    const sources = [];
     for (const [key, all] of instanceFrame(keys)) {
       const old = oldInstances.get(moved.get(key) ?? key) ?? [];
       const gone = old.filter(read => !all.includes(read));
@@ -414,11 +423,19 @@ function getRecorder() {
         // replacement when there is one candidate in this owner path.
         const candidates = gone.filter(r => JSON.stringify(r.ownerPath) === JSON.stringify(read.ownerPath));
         const from = read.replaces ?? (born.length === 1 && candidates.length === 1 ? candidates[0].instance : undefined);
-        if (!from) continue;
         const status = fallback.has(key) ? "reset" : read.carryStatus ?? (nodeByKey.get(key)?.question ? "re-asked" : "reset");
-        continuity.set(read, { from, to: read.instance, status });
+        const reason = fallback.get(key) ?? ({
+          "init-changed": "initializer changed", "scope-changed": "scope changed",
+          unchanged: status === "carried" ? "previous value restored" : "owner remounted; initializer replayed",
+        }[plan.reasons[key]] ?? plan.reasons[key] ?? "owner remounted; initializer replayed");
+        if (from) continuity.set(read, { from, to: read.instance, status });
+        if (read.source) sources.push({ key, instance: read.instance, from, status, reason });
+      }
+      if (nodeByKey.get(key)?.kind === "source") for (const read of all.filter(r => old.includes(r))) {
+        sources.push({ key, instance: read.instance, status: "carried", reason: "existing instance retained" });
       }
     }
+    lastHmr = { id, sources };
     const changed = new Set([...plan.reset, ...plan.rerun, ...plan.added]);
     hmr({ phase: "done", id, changes: changes.filter(c => changed.has(c.key)),
       ...(fallback.size ? { fallback: "refresh", uncarried: [...fallback.keys()].sort(), uncarriedReasons: Object.fromEntries(fallback) } : {}) });
@@ -511,12 +528,13 @@ function getRecorder() {
       if (now?.held) {
         const blockers = blockersFor(write), by = [...new Set(blockers.map(b => b.key))];
         if (!old || JSON.stringify(blockers) !== JSON.stringify(old.blockers)) {
-          const item = { key, instance, ownerPath: now.ownerPath, by, blockers, since: old?.since ?? at };
+          const item = { key, instance, ownerPath: now.ownerPath, by, blockers, since: old?.since ?? at, run: write.run, call: write.call };
           held.set(id, item);
           send({ type: "held", ...item, at });
         }
       } else {
-        if (held.delete(id)) send({ type: "released", key, instance, at });
+        if (held.delete(id)) send({ type: "released", key, instance, at, run: write.run, call: write.call });
+        if (write.shown) writes.delete(id);
       }
     }
   }
@@ -601,7 +619,10 @@ function getRecorder() {
         const callback = callbackWrites.get(id);
         const cause = callback ? `RX callback from ${callback}` : c.origin;
         const origin = hmrAnswers.get(c.key) ?? (js ? cause ? `${js} ← ${cause}` : js : cause);
-        return { ...c, ...(origin ? { origin } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}) };
+        const write = writes.get(id);
+        if (write) write.shown = true;
+        return { ...c, ...(origin ? { origin } : {}), ...locate(c.key), ...(prev !== undefined ? { prev } : {}),
+          ...(write?.run !== undefined ? { run: write.run } : {}), ...(write?.call !== undefined ? { call: write.call } : {}) };
       });
       for (const c of changes) callbackWrites.delete(identity(c));
       wroteSinceFlush.clear();
@@ -715,15 +736,16 @@ function getRecorder() {
       send({ type: "caught", key: event.key, id: event.id, site: event.site, class: event.class, at: performance.now() });
       return;
     }
-    const { type, key, id, state, args, error, ownerPath } = event;
+    const { type, key, id, state, args, error, ownerPath, instance, run, origin } = event;
     const at = performance.now();
-    const msg = { type, key, id, state, at, ownerPath };
+    const msg = { type, key, id, state, at, ownerPath, instance, run, origin };
     if (state === "start") {
       msg.args = untracked(() => preview(args));
-      runs.set(id, { key, id, ownerPath, since: at });
+      if (type === "run") runs.set(id, { key, id, ownerPath, since: at });
     } else {
-      runs.delete(id);
+      if (type === "run") runs.delete(id);
       if (state === "error") msg.error = errorPreview(error);
+      else msg.result = untracked(() => preview(event.result));
     }
     send(msg);
     queueReconcile();
@@ -744,6 +766,7 @@ function getRecorder() {
     const read = [...(globalThis.__RX_NODES__?.get(key) ?? [])].find(r => r.instance === now?.instance);
     if (now) return { key: field ? `${key}.${field}` : key, ...(field ? { root: key, field } : {}),
       instance: now.instance, continuity: read && continuity.get(read), ownerPath: now.ownerPath, ...now.value,
+      hmr: lastHmr?.sources.find(s => s.key === key && s.instance === now.instance),
       ...(now.error ? { error: errorPreview(now.error),
         ...(globalThis.__RX_BOUNDARIES__ && !tripsBoundary(now.error) ? { failedUntripped: true } : {}) } : {}),
       pending: !!(!now.error && (now.pending || (now.instance === undefined && flight))),
@@ -1117,7 +1140,7 @@ function getRecorder() {
       catch (e) { finish(undefined, e); }
     });
   }
-  function query(method, { key, keys = [], instance, since = 0, limit = 20, seq: to } = {}) {
+  function query(method, { key, keys = [], instance, since = 0, limit = 20, seq: to, kinds, compact = true, whole, run } = {}) {
     const requested = key;
     const knownKeys = new Set([...graphs.flatMap(g => g.nodes.map(n => n.key)), ...(globalThis.__RX_NODES__?.keys() ?? []), ...last.keys()]);
     let field;
@@ -1142,11 +1165,23 @@ function getRecorder() {
       instance ??= instances[0];
     }
     switch (method) {
+      case "hmr": return { ...lastHmr, sources: (lastHmr?.sources ?? []).filter(s => matchesKey(s, requested)) };
+      case "trace": return traceSummary(recent(), { key: requested, run, limit });
       case "travel": return control("travel", to);
       case "resume": return control("resume");
       case "timeline": {
         const frame = timeline();
-        return { ...frame, steps: frame.steps.slice(-limit) };
+        const matches = c => matchesKey(c, requested) && (instance === undefined || c.instance === instance);
+        const brief = ({ full, compact: array, prev, ...c }) => ({ ...c, ...(array ? { preview: array } : {}),
+          ...(prev === undefined ? {} : { prev: String(prev).slice(0, 80) }) });
+        const steps = !kinds || kinds.includes("flush") ? frame.steps.flatMap(step => {
+          const selected = step.changes.filter(matches);
+          if ((requested !== undefined || instance !== undefined) && !selected.length) return [];
+          const changes = whole ? step.changes : selected;
+          return [{ ...step, changes: compact ? changes.map(brief) : changes }];
+        }) : [];
+        const events = kinds ? recent().filter(r => r.type !== "flush" && kinds.includes(r.type) && matches(r)).slice(-limit) : undefined;
+        return { ...frame, steps: steps.slice(-limit), ...(events ? { events } : {}) };
       }
       case "status": return { flushes, uptime: performance.now() - start };
       case "tail": {

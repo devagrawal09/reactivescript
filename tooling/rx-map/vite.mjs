@@ -102,26 +102,47 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
       const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood, frontends });
       const capacity = 5000, ring = new Array(capacity);
       let seq = 0, mark, lastPage;
-      const records = (since, limit, filter, page, { key, instance, kinds, whole } = {}) => {
+      const matchesRecords = (data, filter, { key, instance, kinds, whole } = {}) => {
         const matches = r => matchesKey(r, key) && (instance === undefined || r.instance === instance);
+        if (data.type === "reload") return data;
+        if (kinds && !kinds.includes(data.type)) return;
+        if (data.type !== "flush") return matches(data) ? data : undefined;
+        const changes = data.changes.filter(c => c && (filter === "all" || c.key));
+        const matched = changes.filter(matches);
+        if (matched.length) return { ...data, changes: whole ? changes : matched };
+      };
+      const records = (since, limit, filter, page, params) => {
         const out = [];
         for (let i = seq; i > since && i > seq - capacity && out.length < limit; i--) {
           const { data, socket } = ring[(i - 1) % capacity];
           if (page && socket !== page) continue;
-          if (kinds && !kinds.includes(data.type)) continue;
-          if (data.type === "flush") {
-            const changes = data.changes.filter(c => c && (filter === "all" || c.key));
-            const matched = changes.filter(matches);
-            if (matched.length) out.push({ ...data, changes: whole ? changes : matched });
-          } else if (matches(data)) out.push(data);
+          const record = matchesRecords(data, filter, params);
+          if (record) out.push(record);
         }
         return out.reverse();
       };
       const ws = server.ws;
-      ws.on(LIVE_READY, (_data, client) => {
+      const pageIds = new WeakMap();
+      const save = (mark, data) => {
+        const at = Math.max(mark.lastAt, data.at + mark.offset);
+        mark.lastAt = at;
+        mark.buffer[mark.count++ % capacity] = { ...data, at };
+      };
+      ws.on(LIVE_READY, (data, client) => {
         const socket = client.socket;
         if (pages.has(socket)) return;
         pages.set(socket, client);
+        pageIds.set(socket, data);
+        if (mark?.tab && data?.tab === mark.tab && (!pages.has(mark.page) || data.document !== mark.document)) {
+          if (data.document !== mark.document) {
+            mark.offset = mark.lastAt;
+            save(mark, { type: "reload", at: 0, seq: ++seq });
+            // Keep the global sequence's ring filled, without replaying the marker as a page flush.
+            ring[(seq - 1) % capacity] = { socket, data: mark.buffer[(mark.count - 1) % capacity] };
+          }
+          mark.page = socket;
+          mark.document = data.document;
+        }
         lastPage = socket;
         socket.once("close", () => {
           pages.delete(socket);
@@ -135,7 +156,9 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
       ws.on(LIVE_TRACE, (record, client) => {
         if (!pages.has(client.socket) || !record || typeof record.type !== "string" || typeof record.at !== "number") return;
         if (record.type === "flush" && !Array.isArray(record.changes)) return;
-        ring[seq % capacity] = { socket: client.socket, data: { ...record, seq: ++seq } };
+        const data = { ...record, seq: ++seq };
+        ring[(seq - 1) % capacity] = { socket: client.socket, data };
+        if (mark?.page === client.socket) save(mark, data);
       });
       async function live(method, params = {}) {
         const client = [...pages.values()].at(-1);
@@ -149,16 +172,22 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
           if (params.action === "start") {
             if (!client) throw new Error(noPage);
             if (mark) throw new Error("recording already active");
-            mark = { since: seq, filter: params.filter ?? "semantic", page: client.socket };
+            const { tab, document } = pageIds.get(client.socket) ?? {};
+            mark = { id: randomUUID(), since: seq, filter: params.filter ?? "semantic", page: client.socket,
+              tab, document, buffer: new Array(capacity), offset: 0, count: 0, lastAt: 0 };
           } else if (params.action === "stop") {
             if (!mark) throw new Error("no active recording");
             const current = mark; mark = undefined;
-            const result = records(current.since, capacity, params.filter ?? current.filter, current.page, params);
+            const result = [];
+            for (let i = Math.max(0, current.count - capacity); i < current.count; i++) {
+              const record = matchesRecords(current.buffer[i % capacity], params.filter ?? current.filter, params);
+              if (record) result.push(record);
+            }
             const start = result[0]?.at ?? 0;
-            return { recording: false, truncated: seq - current.since > capacity,
+            return { recording: false, id: current.id, truncated: current.count > capacity,
               records: result.map(r => ({ ...r, at: Math.max(0, r.at - start) })) };
           } else if (params.action !== "status") throw new Error("use record start, stop or status");
-          return { recording: !!mark, since: mark?.since, filter: mark?.filter };
+          return { recording: !!mark, id: mark?.id, since: mark?.since, filter: mark?.filter };
         }
         if (!client) throw new Error(noPage);
         const id = randomUUID();

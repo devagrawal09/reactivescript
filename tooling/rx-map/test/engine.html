@@ -243,6 +243,10 @@ try {
   rejectQuestion(new NotFound("missing issue"));
   await sleep(20);
   check("module store question exposes the landed root value", ask("value", { key: store }).result.preview === '[{id: 1, name: "Ada"}]');
+  const filteredTimeline = ask("timeline", { key: store, kinds: ["flush"], limit: 4 }).result;
+  check("timeline filters changes and compacts arrays", filteredTimeline.steps.some(s =>
+    s.changes.some(c => c.preview?.startsWith("Array(1)"))) &&
+    filteredTimeline.steps.every(s => s.changes.every(c => c.key === store && c.full === undefined)));
   check("module question rejection is keyed with its typed error", ask("tail").result.some(r => r.changes?.some(c => c.key === K("query") && c.error === "NotFound: missing issue" && !("preview" in c))));
   check("the typed boundary reports the error, not its enclosing boundary", ask("state").result.boundaries.some(b => b.region === typed.key && b.error === "NotFound: missing issue") &&
     ask("state", { key: errored.key }).result.state === "ok", ask("state").result.boundaries);
@@ -256,6 +260,9 @@ try {
   await sleep(20);
   check("the source releases when the write lands", !ask("state").result.held.length &&
     ask("tail").result.some(r => r.type === "released" && r.key === K("page")));
+  const runTrace = ask("trace", { key: action, limit: 1 }).result[0];
+  check("trace groups the action's held, landed and released write", runTrace?.duration > 0 &&
+    ["held", "write", "released"].every(type => runTrace.writes.some(w => w.key === K("page") && w.type === type)), runTrace);
   disposeModule();
   let changeSecond;
   const disposeColumns = rt.mount(() => {
@@ -282,6 +289,9 @@ try {
     return () => String(get().total);
   });
   await fire();
+  await rt.traceCall(K("js-failure"), () => Promise.reject(new Error("offline")), [42]).catch(() => {});
+  const jsTrace = ask("trace", { key: K("js-failure") }).result[0];
+  check("trace includes a direct JS rejection, args and duration", jsTrace?.error === "Error: offline" && jsTrace.args === "[42]" && jsTrace.duration >= 0, jsTrace);
   callback();
   await sleep(20);
   const address = `${callbackKey}.total`;
