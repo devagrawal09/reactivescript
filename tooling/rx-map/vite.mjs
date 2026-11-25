@@ -31,6 +31,7 @@ export function rxMap() {
       const root = server.config.root;
       const hooks = globalThis[Symbol.for("reactivescript.vite.entries")] ??= new Map();
       let app;
+      const lastGood = new Map();
       let warm;
       const invalidate = () => {
         app = undefined;
@@ -42,10 +43,9 @@ export function rxMap() {
       hooks.set(root, register);
       server.httpServer?.once("close", () => { clearTimeout(warm); if (hooks.get(root) === register) hooks.delete(root); });
       server.watcher?.on("all", (event, file) => {
-        if (event === "unlink") entries.delete(file);
         if (file.endsWith(".rx") || file.endsWith(".ts") || file.endsWith("tsconfig.json")) invalidate();
       });
-      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true });
+      const getProject = () => app ??= project({ root, entries: [...entries.keys()], spa: [...entries.values()].some(Boolean), managed: true, lastGood });
       const capacity = 5000, ring = new Array(capacity);
       let seq = 0, mark, lastPage;
       const records = (since, limit, filter, page) => {

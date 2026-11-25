@@ -8,14 +8,14 @@ import { dirname, resolve, relative } from "node:path";
 /** Computations that are a named symbol's own body: they draw as that symbol, not as a separate site. */
 const OWNED = new Set(["seed", "memo", "question", "keyed", "deferred", "action", "fn", "server", "default"]);
 
-export function buildGraph(model, { root = process.cwd() } = {}) {
+export function buildGraph(model, { root = process.cwd(), source = f => readFileSync(f, "utf8") } = {}) {
   const files = model.map(m => resolve(root, m.file));
   const rel = f => relative(root, f) || f;
   const nodes = [], edges = [], regions = [], lines = {};
   const symNode = new Map();   // `${mi}:${symId}` → node id (after import folding)
   const byName = new Map();    // `${abs}:${name}` → node id, for import folding
 
-  const src = files.map(f => { try { return readFileSync(f, "utf8").split("\n"); } catch { return []; } });
+  const src = files.map(f => { try { return source(f).split("\n"); } catch { return []; } });
   // every line of every module: the map labels control flow (`if …`, `for …`, `loading on(…)`) from the source
   src.forEach((ls, mi) => { const m = (lines[rel(files[mi])] = {}); ls.forEach((t, i) => { if (t.trim()) m[i + 1] = t; }); });
   const keepLine = () => {};
@@ -112,7 +112,7 @@ export function buildGraph(model, { root = process.cwd() } = {}) {
       }
       for (const w of c.writes) {
         const to = symNode.get(`${mi}:${w.sym}`);
-        if (to) edges.push({ from: owner, to, type: "write", op: w.op, path: !!w.path, line: c.line });
+        if (to) edges.push({ from: owner, to, type: "write", op: w.op, path: !!w.path, ...(w.field ? { field: w.field } : {}), line: c.line });
       }
       for (const k of c.calls) {
         const to = symNode.get(`${mi}:${k}`);

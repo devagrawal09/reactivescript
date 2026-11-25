@@ -55,7 +55,7 @@ function discover(files) {
   return modules.filter(f => !imported.has(f));
 }
 
-export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false } = {}) {
+export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false, lastGood = new Map() } = {}) {
   root = resolve(root);
   entries = [...new Set(entries.map(f => resolve(root, f)))];
   const binary = rxc && /[\\/]/.test(rxc) ? resolve(rxc) : rxc || "rxc";
@@ -69,22 +69,30 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       throw new Error(`${plain(e.stderr?.trim() || e.message)}\nRun check for diagnostics or verify --entry and RXC.`);
     }
   };
-  function modelOf(files, cwd) {
-    if (!files.length) return [];
+  function nativeCompiler() {
     if (!rxc) {
       if (napi === undefined) {
         let id;
         try { id = require.resolve("@reactivescript/compiler"); }
         catch (e) { if (e.code !== "MODULE_NOT_FOUND") throw e; }
-        napi = id ? require(id).model ?? null : null;
+        napi = id ? require(id) : null;
       }
-      if (napi) return JSON.parse(napi(files, cwd));
+      return napi;
+    }
+  }
+  function modelOf(files, cwd, current = false) {
+    if (!files.length) return [];
+    const native = nativeCompiler();
+    if (native?.model) {
+      const model = JSON.parse(native.model(files, cwd));
+      if (!Array.isArray(model)) throw new Error(model.error ?? "compiler returned no model");
+      return model;
     }
     // The CLI prints one JSON array per entry. Merge shared dependencies once,
     // preserving each entry's dependency order.
     const modules = new Map();
     for (const f of files) {
-      for (const m of JSON.parse(compiler(cwd, ["model", f]))) modules.set(resolve(cwd, m.file), m);
+      for (const m of JSON.parse(compiler(cwd, ["model", ...(current && spa ? ["--spa"] : []), f]))) modules.set(resolve(cwd, m.file), m);
     }
     return [...modules.values()];
   }
@@ -105,30 +113,88 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
     if (!s.entries.length) throw new Error(s.hasPrograms
       ? "no entry found (imports may form a cycle); pass --entry to check a module"
       : `no .rx program found under ${root}; set --root or pass --entry`);
-    for (const f of s.entries) if (!statSync(f, { throwIfNoEntry: false })?.isFile()) {
-      throw new Error(`entry ${f} not found; check --root and --entry`);
-    }
     return s.entries;
+  }
+  function buildDiagnostics(s, entry) {
+    const builds = s.builds ??= new Map();
+    if (!builds.has(entry)) {
+      const native = nativeCompiler();
+      const out = JSON.parse(native?.app ? native.app(entry, "dom", null, spa)
+        : compiler(root, ["app", entry, ...(spa ? ["--spa"] : [])]));
+      builds.set(entry, out.diagnostics?.length ? out.diagnostics : out.error
+        ? [{ file: entry, code: "BUILD", message: out.error }] : []);
+    }
+    return builds.get(entry);
   }
   function load() {
     const s = snapshot();
     if (!s.graph) {
-      s.model = modelOf(requireEntries(s), root);
-      s.graph = buildGraph(structuredClone(s.model), { root });
+      if (!s.entries.length) requireEntries(s);
+      const modules = new Map(), stale = [], failures = [];
+      const files = s.files ?? scan(root);
+      const stamps = new Map(JSON.parse(stampOf(files, s.entries)));
+      for (const entry of s.entries) {
+        let saved;
+        let fresh = false;
+        try {
+          const model = modelOf([entry], root, true);
+          const diagnostics = buildDiagnostics(s, entry);
+          if (diagnostics.length) throw Object.assign(new Error(diagnostics.map(d => d.msg ?? d.message).join("\n")), { diagnostics });
+          const texts = new Map(model.map(m => {
+            const f = resolve(root, m.file);
+            let text; try { text = readFileSync(f, "utf8"); } catch { text = ""; }
+            return [f, text];
+          }));
+          saved = { model, texts, stamps: entryStamps(stamps, texts), at: new Date().toISOString() };
+          lastGood.set(entry, saved);
+          fresh = true;
+        } catch (e) {
+          failures.push(e);
+          saved = lastGood.get(entry);
+          if (!saved) continue;
+          const now = entryStamps(stamps, saved.texts);
+          const changed = [...new Set([...now.keys(), ...saved.stamps.keys()])]
+            .filter(f => now.get(f) !== saved.stamps.get(f)).map(f => where(root, f));
+          stale.push({ at: saved.at, changed });
+        }
+        for (const m of saved.model) {
+          const path = resolve(root, m.file);
+          const prev = modules.get(path);
+          if (!prev || fresh && !prev.fresh) modules.set(path, { model: m, text: saved.texts.get(path), fresh });
+        }
+      }
+      if (failures.length && !modules.size) throw failures[0];
+      if (failures.length) {
+        let count;
+        try { count = check().filter(d => d.severity === "error").length; } catch {}
+        count ||= failures.reduce((n, e) => n + (e.diagnostics?.length || 1), 0);
+        const changed = [...new Set(stale.flatMap(x => x.changed))].sort().join(", ") || "(unknown)";
+        const at = stale.map(x => x.at).sort()[0];
+        s.warning = `program has ${count} error${count === 1 ? "" : "s"}; ${at
+          ? `answers from the last good build at ${at}; changed since: ${changed}` : "answers omit entries with no good build"}`;
+      }
+      s.model = [...modules.values()].map(m => m.model);
+      s.graph = buildGraph(structuredClone(s.model), { root, source: path => modules.get(path)?.text ?? "" });
       // Imported modules outside the scanned tree must also invalidate the snapshot.
       if (!managed) s.stamp = stampOf(s.files, s.graph.absModules);
     }
     return s;
+  }
+  function entryStamps(stamps, texts) {
+    const out = new Map(stamps);
+    for (const file of texts.keys()) if (!out.has(file)) out.set(file, statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? null);
+    return out;
   }
   function check() {
     const s = snapshot();
     if (!s.diagnostics) {
       const data = JSON.parse(compiler(root, ["check", "--json", ...(spa ? ["--spa"] : []), ...requireEntries(s)], true));
       const unique = new Map();
-      for (const d of data.diagnostics) {
+      const diagnostics = data.diagnostics.length ? data.diagnostics : s.entries.flatMap(f => buildDiagnostics(s, f));
+      for (const d of diagnostics) {
         const diag = { file: isAbsolute(d.file) ? where(root, d.file) : d.file,
           line: d.range?.start?.line ?? d.line ?? 1, column: (d.range?.start?.column ?? 0) + 1,
-          severity: d.severity ?? "error", code: d.code, message: plain(d.message) };
+          severity: d.severity ?? "error", code: d.code, message: plain(d.message ?? d.msg) };
         if (diag.code === "ASYNC_OUTSIDE_LOADING_BOUNDARY" && /a reader of …/.test(diag.message)) {
           try {
             const line = readFileSync(resolve(root, diag.file), "utf8").split(/\r?\n/)[diag.line - 1];
@@ -176,7 +242,9 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       }).filter(f => statSync(f, { throwIfNoEntry: false })?.isFile());
       const before = buildGraph(modelOf(files, beforeRoot), { root: beforeRoot });
       before.label = `${ref} (${sha.slice(0, 7)})`;
-      return diffGraphs(before, { ...s.graph, label: "working tree" });
+      const graph = diffGraphs(before, { ...s.graph, label: s.warning ? "last good build" : "working tree" });
+      if (s.warning) graph.warning = s.warning;
+      return graph;
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

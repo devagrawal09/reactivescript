@@ -359,6 +359,13 @@ fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, o
 fn field_of(name: &str) -> String {
     if name == "..." { "*".into() } else { name.to_string() }
 }
+fn index_field(e: &Expr) -> String {
+    match &e.k {
+        ExprKind::Lit(Lit::Str(s)) => s.clone(),
+        ExprKind::Lit(Lit::Num(n)) => if *n == 0.0 { "0".into() } else { dragonbox_ecma::Buffer::new().format(*n).into() },
+        _ => "*".into(),
+    }
+}
 
 /// an argument as a message shows it: `x={…}`, or `{...…}` for a spread
 fn arg_show(field: &str) -> String {
@@ -2342,14 +2349,13 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Member { o, p, .. } => {
-                if let ExprKind::Id(_) = &o.k {
-                    self.expr(o, env, ctx, Some(p));
-                } else {
-                    self.expr(o, env, ctx, None);
-                }
+                let path = field.map(|f| format!("{p}.{f}"));
+                self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(p)));
             }
             ExprKind::Index { o, i, .. } => {
-                self.expr(o, env, ctx, None);
+                let part = index_field(i);
+                let path = field.map(|f| format!("{part}.{f}"));
+                self.expr(o, env, ctx, Some(path.as_deref().unwrap_or(&part)));
                 self.expr(i, env, ctx, None);
             }
             ExprKind::Arr(items) => {
@@ -2578,9 +2584,13 @@ impl<'a> Checker<'a> {
                         continue;
                     }
                     let mut tsym = None;
+                    let field = target.path.iter().map(|p| match p {
+                        PathSeg::Name(n) => n.clone(),
+                        PathSeg::Expr(e) => index_field(e),
+                    }).collect::<Vec<_>>().join(".");
                     if target.is_ctx() {
                         if let Some(c) = self.ctx_of(&target.name, env) {
-                            self.model.write(Some(c), op, !target.path.is_empty());
+                            self.model.write(Some(c), op, !target.path.is_empty(), Some(&field));
                             let info = self.syms[c].ctx.clone().unwrap();
                             self.uses.push(UseRec { region, name: info.key.clone(), line: self.line, display: target.name.clone() });
                             if !info.source {
@@ -2589,7 +2599,7 @@ impl<'a> Checker<'a> {
                         }
                     } else {
                         tsym = self.resolve(&target.name, env, ctx);
-                        self.model.write(tsym, op, !target.path.is_empty());
+                        self.model.write(tsym, op, !target.path.is_empty(), Some(&field));
                         if let Some(t) = tsym {
                             let k = self.syms[t].kind;
                             // AC-3: a guess may sit over an equation (Solid's createOptimistic(fn)); it is not a write of the truth
@@ -2643,7 +2653,7 @@ impl<'a> Checker<'a> {
                     }
                     let t = self.resolve(name, env, ctx);
                     if is_refresh {
-                        self.model.write(t, "refresh", false);
+                        self.model.write(t, "refresh", false, None);
                         if let Some(t) = t {
                             let k = self.syms[t].kind;
                             if !(k == SymKind::Eq || (k == SymKind::Source && self.syms[t].question)) {
@@ -2651,7 +2661,7 @@ impl<'a> Checker<'a> {
                             }
                         }
                     } else {
-                        self.model.write(t, "affects", false);
+                        self.model.write(t, "affects", false, None);
                         if let Some(t) = t {
                             if !self.syms[t].kind.reactive() {
                                 self.err("INVALID_AFFECTS_TARGET", "AC-5", format!("{} is not reactive", name));

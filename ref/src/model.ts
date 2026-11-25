@@ -22,7 +22,7 @@ import type { Decl, Markup, Program } from "./ast.ts";
 
 export type ReadMode = "tracked" | "snapshot" | "pre";
 export type Read = { sym: number; mode: ReadMode; field?: string; probe?: "latest" | "pending" };
-export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "affects"; path?: true };
+export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "affects"; path?: true; field?: string };
 export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
@@ -142,9 +142,10 @@ export class ModelBuilder {
     const r: Read = { sym: id, mode: pre ? "pre" : imperative || this.snap > 0 ? "snapshot" : "tracked", ...(field !== undefined ? { field } : {}), ...(this.probe ? { probe: this.probe } : {}) };
     if (!this.cur.reads.some(x => x.sym === r.sym && x.mode === r.mode && x.field === r.field && x.probe === r.probe)) this.cur.reads.push(r);
   }
-  write(s: SymLike | undefined, op: Write["op"], path = false) {
+  write(s: SymLike | undefined, op: Write["op"], path = false, field?: string) {
     const id = s && this.ids.get(s); if (!this.cur || id === undefined) return;
-    if (!this.cur.writes.some(x => x.sym === id && x.op === op && !!x.path === path)) this.cur.writes.push({ sym: id, op, ...(path ? { path: true as const } : {}) });
+    if (!this.cur.writes.some(x => x.sym === id && x.op === op && !!x.path === path && x.field === field))
+      this.cur.writes.push({ sym: id, op, ...(path ? { path: true as const } : {}), ...(field ? { field } : {}) });
   }
   call(s: SymLike | undefined) { const id = s && this.ids.get(s); if (!this.cur || id === undefined || !CALL_KINDS.has(s!.kind) || this.cur.calls.includes(id)) return; this.cur.calls.push(id); }
   build(file: string): Model {

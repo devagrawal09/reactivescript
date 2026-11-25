@@ -5,6 +5,7 @@ import { LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
+const imports = { type: "boolean", default: false };
 const tool = (name, description, properties = {}, required = []) => ({
   name, description, annotations: { readOnlyHint: true },
   inputSchema: { type: "object", properties: { ...properties, format: { type: "string", enum: ["text", "json"] } },
@@ -12,11 +13,11 @@ const tool = (name, description, properties = {}, required = []) => ({
 });
 const tools = [
   tool("check", "Check the program for compiler diagnostics."),
-  tool("overview", "List modules in dependency order, with roles, components, boundaries, and top-level keys."),
-  tool("find", "Find nodes by name or stable key (case-insensitive).", { query: { type: "string" } }, ["query"]),
-  tool("node", "Describe a node and its static relationships.", { key: str }, ["key"]),
+  tool("overview", "List modules in dependency order; omit JS imports unless imports is true.", { imports }),
+  tool("find", "Find nodes or field paths by name or stable key (case-insensitive).", { query: { type: "string" }, imports }, ["query"]),
+  tool("node", "Describe a node or key.field.path and its static relationships.", { key: str }, ["key"]),
   tool("reach", "Trace what a change can affect (down) or what can change a node (up).",
-    { key: str, direction: { type: "string", enum: ["down", "up"] }, depth: integer(0) }, ["key", "direction"]),
+    { key: str, direction: { type: "string", enum: ["down", "up"], default: "down" }, depth: integer(0) }, ["key"]),
   tool("boundary", "List loading and errored boundaries, or show what can notify one.", { key: str }),
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
   tool("live_status", "Show connected pages, flush count, and uptime."),
@@ -42,7 +43,8 @@ function validate({ name, inputSchema: s }, args) {
   for (const k of s.required) if (!Object.hasOwn(args, k)) throw new Error(`missing ${k}; see tools/list for ${name}`);
   for (const [k, v] of Object.entries(args)) {
     const p = Object.hasOwn(s.properties, k) && s.properties[k];
-    const valid = p && (p.type === "integer" ? Number.isSafeInteger(v) && v >= p.minimum && !(v > p.maximum)
+    const valid = p && (p.type === "boolean" ? typeof v === "boolean"
+      : p.type === "integer" ? Number.isSafeInteger(v) && v >= p.minimum && !(v > p.maximum)
       : typeof v === "string" && !(v.length < p.minLength || v.length > p.maxLength) && (!p.enum || p.enum.includes(v)));
     if (!valid) throw new Error(`invalid argument ${k}; see tools/list for ${name}`);
   }
@@ -78,6 +80,7 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
       validate(t, args);
       const { format, ...p } = args;
       let answer;
+      let warning;
       if (liveMethods.has(name)) {
         const method = liveMethods.get(name);
         const data = await live(method, p).catch(e => {
@@ -89,17 +92,21 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
         const data = projectFor().check();
         answer = { data, text: data.map(d => `${d.file}:${d.line}:${d.column} ${d.code} ${d.message}`).join("\n") || "ok" };
       } else if (name === "diff") {
-        try { answer = queryDiff(projectFor().diff(p.ref ?? "HEAD")); }
+        try { const graph = projectFor().diff(p.ref ?? "HEAD"); warning = graph.warning; answer = queryDiff(graph); }
         catch (e) { throw new Error(`${errorMessage(e)}\nUse an existing Git ref and check that both versions compile.`); }
       } else {
-        answer = queryGraph(projectFor().load().graph, name, p);
+        const { graph, warning: stale } = projectFor().load();
+        warning = stale;
+        answer = queryGraph(graph, name, p);
         if (name === "boundary" && p.key && (dev || getProject)) {
           answer.data.live = await live("boundary_history", { key: p.key, keys: answer.data.notifiers.map(n => n.key) })
             .catch(() => ({ observation: "unobserved" }));
           answer.text += `\n${liveText("boundary_history", answer.data.live)}`;
         }
       }
-      return { content: [textContent(format === "json" ? JSON.stringify(answer.data, null, 2) : answer.text)] };
+      return { content: format === "json"
+        ? [textContent(JSON.stringify(answer.data, null, 2)), ...(warning ? [textContent(warning)] : [])]
+        : [textContent(warning ? `${warning}\n${answer.text}` : answer.text)] };
     } catch (e) { return { isError: true, content: [textContent(errorMessage(e))] }; }
   };
   async function dispatch(method, params) {
