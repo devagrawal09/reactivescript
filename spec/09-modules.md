@@ -342,18 +342,19 @@ export component Search(props: { start: boolean, q: string }) {
 ## MO-11 — Declarations generated from TypeScript
 
 A JS module that TypeScript can read declares itself. Its `.d.rx` is
-**generated** from it. The facts TypeScript has no words for are written in
-the `.ts` as type-level *brands* from `@reactivescript/types`, a package
-that is types only. A written `.d.rx` beside it overrides single exports.
+**generated** from it. The facts TypeScript has no words for are stated in
+the `.ts` with *helpers* from `@reactivescript/js`: functions that wrap the
+implementation, cost nothing, and let TypeScript infer through them. A
+written `.d.rx` beside it overrides single exports.
 
 ```ts
 // api.ts: no api.d.rx
-import type { Pure, Rejects, Ref } from "@reactivescript/types"
+import { pure, rejects, ref } from "@reactivescript/js"
 export class NotFound extends Error {}
 export type User = { id: number; name: string }
-export async function fetchUser(id: number): Pure<Rejects<Promise<User>, NotFound>> { … }
-export async function saveUser(u: User): Promise<void> { … }          // no brand: io, rejects(Error)
-export function createDebounced(source: Ref<string>, ms: number): Pure<Ref<string>> { … }
+export const fetchUser = pure(rejects([NotFound], async (id: number) => (await get(id)) as User))
+export async function saveUser(u: User) { … }                   // no helper: io, rejects(Error)
+export const createDebounced = pure(ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => …))
 export const fields = ["name", "email"] as const
 ```
 
@@ -390,32 +391,33 @@ export const fields: readonly ["name", "email"]
 
   An import of a name the module does not export is `NOT_EXPORTED`, as
   under MO-8b.
-- **MO-11c (Brands).** A brand is a type alias from `@reactivescript/types`.
-  It erases, and TypeScript checks the code it annotates:
+- **MO-11c (Helpers).** A helper from `@reactivescript/js` states one fact:
 
   | in the `.ts` | the fact |
   | --- | --- |
-  | `f(…): Pure<R>` | `pure fn`: safe in reactive scope (R-io-4; unchecked, CN-5) |
-  | `f(…): Rejects<P, A \| B>` (`P` a promise) | `rejects(A \| B)` (R-f-8); each class's base chain reaches `Error` |
-  | `f(p: Ref<T>)` | `ref p`: an accessor argument (MO-10a) |
-  | `f(…): Ref<T>`, `[Ref<T>, …]`, `{ k: Ref<T> }` | a `ref T` result or part (MO-10b) |
-  | `f(…): Instantiates<R>` | `instantiates`, for a primitive with no `ref` (MO-10a) |
-  | `f(…): Server<R>`, `Client<R>` | `server fn`, `client fn` (12 SF-5) |
+  | `pure(fn)` | `pure fn`: safe in reactive scope (R-io-4; unchecked, CN-5) |
+  | `rejects([A, B], fn)` | `rejects(A \| B)` (R-f-8). The classes are values, each reaching `Error` |
+  | `ref({ args: [i, …] }, fn)` | `ref` on those parameters: accessor arguments (MO-10a) |
+  | `ref({ result: true \| [i, …] \| ["k", …] }, fn)` | a `ref T` result, or tuple parts, or properties (MO-10b) |
+  | `instantiates(fn)` | `instantiates`, for a primitive with no `ref` (MO-10a) |
+  | `server(fn)`, `client(fn)` | `server fn`, `client fn` (12 SF-5) |
 
-  A brand is read where it is written. It goes on the return type of the
-  export's call signature: `function f(…): Pure<R>`,
-  `const f = (…): Pure<R> => …`, or `const f: (…) => Pure<R>`. `Ref` also
-  goes on a parameter. `Pure`, `Rejects`, `Instantiates`, `Server` and
-  `Client` nest at the head of the return type in any order, each at most
-  once. `Ref` marks the result, a top-level element of a returned tuple,
-  or a property of a returned object type literal. The generator does not
-  follow an alias the program declares (`type P<T> = Pure<T>`). Every
-  overload of a function carries the same brands, or none.
-  `DECLARATION_BRAND`, at the brand in the `.ts`, refuses a brand anywhere
-  else, a duplicate one, `Server` with `Client`, a `Ref` on an optional,
-  rest or destructured parameter, a `Rejects` member that is not an
-  `Error` class, and overloads that disagree. There is no `Io` brand,
-  because io is the default.
+  Helpers compose by nesting, in any order, each at most once:
+  `pure(rejects([NotFound], fn))`. The call is the whole initializer of an
+  exported `const` (or of a `const` exported by name), or an
+  `export default`. Each helper's type is `fn`'s, so TypeScript infers
+  through it, and its arguments are checked against `fn`: `rejects` takes
+  error classes, and `ref`'s indices and keys must name accessors. At
+  run time each helper returns `fn` itself through one internal hook,
+  which later tools (dev checks, call recording) may fill without
+  changing what a program writes. The generator reads the calls as
+  written, and it reads only literals: a `rejects` list of classes and a
+  `ref` spec of numbers, strings and `true`. An export with no helper gets
+  the default (MO-11b). `DECLARATION_HELPER`, at the call in the `.ts`,
+  refuses a helper call anywhere else, a spec or list that is not a
+  literal, a `rejects` member that is not an `Error` class, a duplicate
+  helper, `server` with `client`, and an index or key that names no
+  accessor.
 - **MO-11d (The generator).** One generator (`compiler/dts.mjs`; `rx-dts
   file.ts` prints its text) reads the module with TypeScript's checker. It
   reads syntax and symbols, so the module need not type-check; TypeScript's
@@ -439,14 +441,19 @@ export const fields: readonly ["name", "email"]
   not export is `NOT_EXPORTED`; a written `export type` the module lacks is
   the declaration's own type, as in any `.d.rx` (it binds no value). Its type imports (MO-8e) and private types serve its own
   lines, and it may name the generated `export type`s. Per fact, a
-  written line beats a brand, a brand beats the import, and the import
+  written line beats a helper, a helper beats the import, and the import
   beats the default. On a *defaulted* fact (a generated line that no
-  brand set) the words R-io-4 and R-f-8 allow at the import still narrow
-  it, unchecked: `import pure`, `fails(…)`, `server`/`client`. On a
-  branded or written fact they are `IMPORT_ROW_MISMATCH` (MO-8b).
+  helper set) the words R-io-4 and R-f-8 allow at the import still narrow
+  it, unchecked: `import pure`, `fails(…)`, `server`/`client`. This is
+  **deprecated** (ruled 2026-11-25). It compiles with the warning
+  `IMPORT_ROW_DEPRECATED`, which names the helper to write instead, and it
+  becomes an error in the next minor. On a fact set by a helper or a
+  written line, these words are `IMPORT_ROW_MISMATCH` (MO-8b). A package
+  import with no TS module keeps R-io-4's narrowing, with no warning, until
+  package declarations are generated.
 - **MO-11f (Tooling).** The resolved model gives each JS-import name its
   effective line, the file it came from, and its origin: `written`,
-  `brand` (with the brands) or `default`. The MCP's `node` shows it, and
+  `helper` (with the helpers) or `default`. The MCP's `node` shows it, and
   the map marks each import outside the program with it.
 
 ---
@@ -460,7 +467,8 @@ export const fields: readonly ["name", "email"]
 | `MODULE_CYCLE` | S | MO-5 |
 | `NOT_EXPORTED`, `MODULE_NOT_FOUND` | S | MO-6a; MO-8b for a declared JS module; MO-8e for a type import in a `.d.rx`; MO-11b/e for a TS module |
 | `TYPE_IMPORT` | S | MO-8e: a declaration file imported a value |
-| `DECLARATION_BRAND` | S | MO-11c: a brand the generator cannot read as a fact |
+| `DECLARATION_HELPER` | S | MO-11c: a helper the generator cannot read as a fact |
+| `IMPORT_ROW_DEPRECATED` | S (warning) | MO-11e: `pure`/`fails`/`server`/`client` at an import of a TS module |
 | `DECLARATION_UNAVAILABLE` | S | MO-11d: a TS module no generator could declare |
 | `CONTEXT_NOT_FOUND` across modules | S | MO-7, RG-7b |
 
@@ -509,15 +517,19 @@ export const fields: readonly ["name", "email"]
 0. **Declarations are generated from TypeScript** (MO-11; ruled 2026-11-25,
    Dev). The rounds 3–4 testers' first blocker was the hand-written
    `.d.rx` that copied the TS types, hid every export it left out, and was
-   the only way to erase a type. RX-only facts are brands in the `.ts`. An
+   the only way to erase a type. RX-only facts are stated in the `.ts`. An
    unannotated export is the conservative R-io-4/R-f-8 default. A written
    `.d.rx` overrides single exports. This supersedes the 2026-11 note that
    kept the boundary hand-written and refused `export const`
-   (`decisions/ts-module-values-and-types.md`). Taken by default, veto
-   here: brands go on the return type, not on a function type, because a
-   `function` declaration has no type to wrap; no `Io` brand; import-site
-   narrowing stays on defaulted facts so that every existing `import pure`
-   from a `.ts` still compiles; packages are not generated yet.
+   (`decisions/ts-module-values-and-types.md`). Revised the same day
+   (slice 8b, Dev): facts are stated only with zero-cost helpers
+   (`pure(fn)`, `rejects([E], fn)`, …), so that TypeScript infers through
+   them, rather than with type brands on a written return type. The
+   package is `@reactivescript/js`, since it now carries runtime (identity
+   functions behind one hook). The brand types it still has are read by
+   the generator but are not taught. Import-site narrowing of a defaulted
+   fact is deprecated: a warning now, an error in the next minor. No `Io`
+   helper: io is the default. Packages are not generated yet.
 
 1. **Module state is a singleton per app** (MO-1b; ruled 2026-10-26), as module-level
    signals are in Solid.
