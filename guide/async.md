@@ -138,8 +138,10 @@ client's own state: a plain source the action's `catch` writes, shown beside the
   values. A handler that reads an answer its region doesn't show takes that answer's failure too, and no region can
   show it there: the read throws. When a write changes more than its own list, it re-asks the answers it can touch
   (section 3) instead of reading them.
-- `catch` follows an `await` and nothing else: `await fetchUser(id) catch (e: NotFound) => null` makes that rejection
-  the answer. Use it when a rejection means something the page shows as data (missing, empty), not to hide a failure.
+- A catch expression follows an `await` and nothing else. If `fetchUser` declares only `NotFound`,
+  `await fetchUser(id) catch (e) { NotFound => { null } }` makes that rejection the answer. Cover any other declared
+  rejections with their own arms or `_`. Use an arm to turn a rejection into data (missing, empty), not to hide a
+  failure. See [ordered error arms](../spec/ordered-error-arms.md).
 - A rule the user breaks (a field left empty) is a value, not a failure: `fn problem(s) => s.name == "" ? "Name is
   required" : ""`, shown next to the field.
 - An answer that means "missing" (`null`) is a failure you declare: `export error NotFound(id: number) => …`, and

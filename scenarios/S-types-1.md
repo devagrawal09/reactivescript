@@ -25,7 +25,7 @@ export default component App() {
   source id := 1
   source draft := ""
   source tags: string[] := []
-  user = await fetchUser(id) catch (e: NotFound) => null
+  user = await fetchUser(id) catch (e) { NotFound => { null } }
   initial = user == null ? "?" : user.name.slice(0, 1)
   fn shout(s: string): string => s.toUpperCase()
   action add(t: string) {
@@ -33,7 +33,7 @@ export default component App() {
       if (len(t) < 2) { throw TooShort(2) }
       tags := xs => [...xs, t]
       draft := ""
-    } catch (e: TooShort) { draft := `${e.message} (${e.min})` }
+    } catch (e) { TooShort => { draft := `${e.message} (${e.min})` } }
   }
 
   errored fallback(e) { <p>error: {e.message}</p> } {
@@ -109,7 +109,7 @@ is still Solid's `UNRECOGNIZED_INSERT_VALUE`, at run time.)
 -- types: TS18047
 import { fetchUser, NotFound } from "./api"
 export default component App() {
-  user = await fetchUser(1) catch (e: NotFound) => null
+  user = await fetchUser(1) catch (e) { NotFound => { null } }
 
   errored fallback(e) { <p>{e.message}</p> } { <p>{user.name}</p> }
 }
@@ -124,14 +124,14 @@ error TooShort(min: number) => `at least ${min}`
 export default component App() {
   source msg := ""
   action check(t: string) {
-    try { throw TooShort(2) } catch (e: TooShort) { msg := e.max }
+    try { throw TooShort(2) } catch (e) { TooShort => { msg := e.max } }
   }
 
   <p>{msg}</p>
 }
 ```
 
-A typed catch binds its classes (R-f-4); `TooShort` has no `max`.
+A class arm narrows its binding (R-f-4); `TooShort` has no `max`.
 
 ```rx
 -- types: TS2345

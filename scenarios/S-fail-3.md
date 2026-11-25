@@ -11,7 +11,7 @@ export default component App() {
   detail = await fetch("detail")
   parsed = raw == "bad" ? fail("corrupt input") : raw
 
-  errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
+  errored fallback(e) { Panic => { <p>crashed: {e.message}</p> } } {
     <div><p>{parsed}</p> {errored fallback(e) { <p>detail failed: {e.message}</p> } { <p>{detail}</p> }}</div>
   }
 }
@@ -44,7 +44,7 @@ export default component App() {
   source raw := "ok"
   detail = await fetch("detail")
 
-  errored fallback(e: Panic) { <p>crashed: {e.message}</p> } {
+  errored fallback(e) { Panic => { <p>crashed: {e.message}</p> } } {
     <div><p>{raw}</p> <p>{detail}</p></div>
   }
 }
@@ -52,5 +52,5 @@ export default component App() {
 
 R-f-10: a `Panic` boundary does not discharge the fetch's `Error`. With
 `fallback(e)` at the root this program is accepted, and a failing detail
-would take the whole page down; with `fallback(e: Panic)` the checker keeps
+would take the whole page down; with a sole `Panic` arm the checker keeps
 "the detail's failure stays in the detail" a compile-time fact.

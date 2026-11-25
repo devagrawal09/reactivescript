@@ -14,7 +14,7 @@ after hydration.
 | - | ----- | ---- | ------- |
 | 1 | `ref/src/runtime.ts` | An optimistic functional write over a question source that nothing on screen reads (the list was unmounted when the editor saved) applied the function to a stale value: `call of non-function`. | Fixed: the source is pulled first. |
 | 2 | `ref/compile/emit.ts` | A server body that calls a module-level value `fn` (`note(r)`, which drops the `owner` column) compiled to an unbound name: the hoisting (SF-7a) took imports, error classes and server fns, not fns. | Fixed: a value fn is declared again inside the extracted function. SF-3 already allowed it. |
-| 3 | the language | One `catch` per `try`, as in TypeScript: handling `Conflict` one way and every other failure another needs two nested `try`s (`data.rx`, `save`). | Ruled 2026-10-25: keep TypeScript's one clause per `try`; nest. |
+| 3 | the language | The original one-catch syntax needed two nested `try`s to handle `Conflict` differently from other failures. | `save` now uses one `catch` with `Conflict` and `_` arms. |
 | 4 | the rules | A client question with a first paint still fails with `Error` (R-f-8): `await viewport() -> 1024 catch (e) => 1024`. Right by R-f-5, a little repetitive. | As ruled. |
 | 5 | the harness | A flight key cannot contain a space (`resolve "k" v` splits on whitespace), so the test data avoids them. Frames join adjacent elements with no space (`backwidesave`): faithful, hard to read for a real app. | Harness only. |
 
@@ -23,7 +23,5 @@ written typed and with its `<tbody>`, which is what they ask for.
 
 ## Ruled
 
-Multiple typed `catch` clauses were considered and declined (2026-10-25):
-statements are TypeScript's (07 §5), one `catch` per `try`; a typed catch
-rethrows other classes (AC-7), so handling two kinds of failure differently
-nests two `try`s.
+There is one `catch` per `try` (07 §5). Use [ordered error arms](../../spec/ordered-error-arms.md)
+to handle different classes in that catch; the first match wins (AC-7).

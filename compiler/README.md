@@ -45,6 +45,11 @@ RX_CRATE=1 npm --prefix ../ref run compiled      # the scenarios, run on the cra
 RX_CRATE=1 npm --prefix ../ref run ssr           # … served and hydrated from the crate's output
 ```
 
+`rxc check` reports annotated catches and fallbacks as `LEGACY_TYPED_HANDLER`.
+Use `catch (e) { Conflict => { … } _ => { … } }` or
+`errored fallback(e) { Conflict => { … } _ => { … } } { … }`.
+See [ordered error arms](../spec/ordered-error-arms.md) for matching and row coverage.
+
 ## The npm package: `@reactivescript/compiler`
 
 The crate's Node-API build (`--features node`, `src/node.rs`) is the npm

@@ -27,13 +27,13 @@ import { fetchUser, saveUser, NotFound, Offline, User } from "./api"
 export default component App() {
   source id := 1
   source status := ""
-  user = await fetchUser(id) catch (e: NotFound) => null
+  user = await fetchUser(id) catch (e) { NotFound => { null } Offline => { throw e } }
   action rename(n) {
     try { await saveUser(id, n); status := "saved" }
-    catch (e: Offline) { status := "offline" }
+    catch (e) { Offline => { status := "offline" } }
   }
 
-  errored fallback(e: Offline) { <p>offline: {e.message}</p> } {
+  errored fallback(e) { Offline => { <p>offline: {e.message}</p> } } {
     <p>{user == null ? "no such user" : user.name} {status}</p>
   }
 }
@@ -59,7 +59,7 @@ catches the one class `saveUser` rejects with.
 Instant 3: the rejection is an `Offline` (the harness rejects with the
 class the declaration names), caught inside the action (AC-7). Instant 5: a
 `NotFound` is an answer of `null`. Instant 7: an `Offline` reaches the
-typed boundary.
+`Offline` fallback arm.
 
 ## Rejected variants
 
@@ -108,11 +108,11 @@ export default component App() {
 
 ```rx
 -- reject: UNHANDLED_FAILURE
-import { fetchUser, NotFound } from "./api"
+import { fetchUser, NotFound, Offline } from "./api"
 export default component App() {
-  user = await fetchUser(1) catch (e: NotFound) => null
+  user = await fetchUser(1) catch (e) { NotFound => { null } Offline => { throw e } }
 
-  errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>{user.name}</p> }
+  <p>{user == null ? "" : user.name}</p>
 }
 ```
 
@@ -120,11 +120,11 @@ export default component App() {
 here discharges `Offline`.
 
 ```rx
--- reject: UNCAUGHT_ACTION_FAILURE
+-- reject: MISSING_ERROR_ARMS
 import { saveUser, NotFound } from "./api"
 export default component App() {
   source status := ""
-  action save() { try { await saveUser(1, "x") } catch (e: NotFound) { status := "?" } }
+  action save() { try { await saveUser(1, "x") } catch (e) { NotFound => { status := "?" } } }
 
   <p>{status}</p>
 }

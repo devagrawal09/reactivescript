@@ -10,7 +10,7 @@ error Missing
 export default component App() {
   source shown := false
   details = throw Missing()
-  errored fallback(e: Missing) { <p>missing</p> } {
+  errored fallback(e) { Missing => { <p>missing</p> } } {
     if shown && details { <p>title</p> }
   }
 }

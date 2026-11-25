@@ -22,7 +22,7 @@ Modules: `theme.rx` (contexts only) ← `settings.rx` (server truth + actions),
   each module, the copies could drift apart. Either `import { type X }` should
   work, or `export type` should be refused. Accepting the export and refusing
   the import is the worst of both.
-- **`nameError = (valid && "") catch (e: NameRequired | NameTooLong) => e.message`.**
+- **The original draft caught `NameRequired` or `NameTooLong` on `(valid && "")`, not on an `await`.**
   The checker did not force this; the language lacks something. To show a
   failure as a message next to the field, I have to map the *success* to a
   sentinel (`valid && ""`) so that the `catch` arm can supply the message.

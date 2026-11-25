@@ -13,7 +13,7 @@ component Safe(props) {
   errored fallback(e) { <p>unavailable</p> } { {props.children} }
 }
 component Line(props) {
-  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
+  errored fallback(e) { Missing => { <p>-</p> } _ => { {throw e} } } { <p>{props.text}</p> }
 }
 component Panel(props) {
   <p>{props.body}</p>
@@ -32,7 +32,7 @@ export default component App() {
 Four readers of failing values, each discharged a different way: `{value}`
 is a child of `Safe`, so it is under `Safe`'s boundary — where `Safe` reads
 `props.children`, not where the caller writes them (RG-4c). `Line` takes
-`Missing` itself, with a typed boundary; the `Error` left over goes out through `Line`'s
+`Missing` itself, with an error arm; its default arm rethrows the remaining `Error` through `Line`'s
 application, which is inside a `Safe`. `Panel` catches nothing: its prop is
 discharged by the boundary around `<Panel>` at the caller. `other` catches
 every failure of its own flight into a value.
@@ -99,7 +99,7 @@ error Missing(key) => `missing ${key}`
 source key := "a"
 value = key == "" ? throw Missing(key) : await fetch("v:" + key)
 component Line(props) {
-  errored fallback(e: Missing) { <p>-</p> } { <p>{props.text}</p> }
+  errored fallback(e) { Missing => { <p>-</p> } _ => { {throw e} } } { <p>{props.text}</p> }
 }
 
 export default component App() {
@@ -107,7 +107,7 @@ export default component App() {
 }
 ```
 
-`Line` discharges `Missing`; the fetch's `Error` passes its boundary.
+`Line` discharges `Missing`; its default arm rethrows the fetch's `Error`.
 
 ```rx
 -- reject: UNCAUGHT_ACTION_FAILURE
@@ -127,16 +127,16 @@ R-f-6, R-f-7: the action's snapshot of `props.v` throws when the argument
 is an error — the boundary at the caller cannot catch inside an action.
 
 ```rx
--- reject: UNCAUGHT_ACTION_FAILURE
+-- reject: MISSING_ERROR_ARMS
 error Missing(key) => `missing ${key}`
 export default component App() {
   source status := ""
   action save() {
-    try { await fetch("save") } catch (e: Missing) { status := e.message }
+    try { await fetch("save") } catch (e) { Missing => { status := e.message } }
   }
 
   <p>{status}</p>
 }
 ```
 
-A typed catch discharges only its classes: the fetch fails with `Error`.
+The catch does not cover the fetch's declared `Error`.

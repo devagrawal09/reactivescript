@@ -47,11 +47,11 @@ Open, for a ruling:
    left in the agent's program as written.
 2. ~~**A failure as a message.**~~ Dropped: the brief asked the settings
    agent for validation *as declared error classes*, which forced
-   `(valid && "") catch (e: …) => e.message`. Validation is values
+   a catch on `(valid && "")`, which is no longer legal. Validation is values
    (`nameError = name == "" ? "required" : …`); failures are for what goes
-   wrong, and `x catch (e) => e.message` already shows one inline.
+   wrong, and `errored fallback(e)` shows one where the failed value is read.
 3. **A root catch-all hides a pane's leak** — ruled 2026-10-24: a boundary
-   may list `Panic` (R-f-10). `errored fallback(e: Panic)` at the root takes
+   may use a `Panic` arm (R-f-10). `errored fallback(e) { Panic => { … } }` at the root takes
    crashes and discharges no failure, so every pane must still handle its
    own (S-fail-3).
 4. Two agents wrote the optimistic value again after the `await` (the truth

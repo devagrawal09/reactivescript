@@ -17,8 +17,10 @@ export component HelpPage() {
     <input data-testid="query" value={latest query} onInput={e => { query := e.target.value }} />
     {if query != "" {
       <div data-testid="results">
-        {errored fallback(e) { <p>search failed: {e.message}</p> } {
-          errored fallback(e: TooShort) { <p>{e.message}</p> } {
+        {errored fallback(e) {
+          TooShort => { <p>{e.message}</p> }
+          _ => { <p>search failed: {e.message}</p> }
+        } {
             loading fallback { <p>searching…</p> } {
               <p>{pending? results ? "searching…" : ""}</p>
               <h2>{results.length} results for {latest query}</h2>
@@ -28,7 +30,6 @@ export component HelpPage() {
                 }}
               </ul>
             }
-          }
         }}
       </div>
     }}
@@ -38,11 +39,12 @@ export component HelpPage() {
       <div data-testid="item">
         {loading on(selected) fallback { <p>loading…</p> } {
           {for id in [selected] {
-            {errored fallback(e) { <p>failed: {e.message}</p><button data-testid="retry-item" onClick={() => { refresh item }}>retry</button> } {
-              {errored fallback(e: ItemNotFound) { <p>{e.message}</p> } {
+            {errored fallback(e) {
+              ItemNotFound => { <p>{e.message}</p> }
+              _ => { <p>failed: {e.message}</p><button data-testid="retry-item" onClick={() => { refresh item }}>retry</button> }
+            } {
                 <h3>{item.name}</h3>
                 <p>{item.blurb}</p>
-              }}
             }}
           }}
         }}

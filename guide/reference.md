@@ -90,9 +90,15 @@ Expr      ::= TypeScript's, without assignment, `this`, `function`, `new` on rea
 
 - A rejected `await` is an error value: it flows through every equation and prop that reads it (R-6).
 - Every reader of a value that can fail needs an `errored` region above it (UNHANDLED_FAILURE, R-f-5).
-  `errored fallback(e: NotFound) { … }` takes only that class (R-f-4).
+  `errored fallback(e) { NotFound => { <p>{e.message}</p> } _ => { <Retry /> } } { … }` picks a fallback by class.
 - `catch` follows an `await` only: `await f(x) catch (e) => alt` makes a matching rejection the answer
   (CATCH_NOT_ON_AWAIT, R-f-4). A handler or action that reads a value which can fail uses `try`/`catch`.
+- Use class arms in any of these handlers: `try { … } catch (e) { Conflict => { … } _ => { … } }`.
+  An `await` catch with arms uses a single expression per arm; a boundary uses markup; a statement catch uses
+  statements. The first match wins and narrows `e` for that body. Cover the declared error row; an open row needs
+  `_`, which can only appear once and last. A failure in a selected arm leaves the dispatch. Ordinary untyped
+  handlers remain the short form for a single catch-all. See [07 §3–5](../spec/07-surface.md) and
+  [ordered error arms](../spec/ordered-error-arms.md).
 - An error stays on screen until a new answer replaces it: `refresh x` (quiet) retries; changing an input asks a new
   question (H-12, D-41).
 - A value borrowed from another section (a list passed into a detail) carries that section's failures: put its

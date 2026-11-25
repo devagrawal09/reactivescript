@@ -122,20 +122,20 @@ export default component App() {
   source id := 1
   source status := ""
   source greeting := "hi"
-  user: User | null = await fetchUser(id) catch (e: NotFound) => null
+  user: User | null = await fetchUser(id) catch (e) { NotFound => { null } Offline => { throw e } }
   name = user == null ? "nobody" : user.name
   loud = createShout(greeting)
   draft: Rename = { id: id, name: name }
   action rename(n) {
     try { await saveUser(id, n); status := "saved" }
-    catch (e: Offline) { status := "offline" }
+    catch (e) { Offline => { status := "offline" } }
   }
   action visit() {
     try { await logVisit("profile"); status := "seen" }
-    catch (e: Offline) { status := "visit offline" }
+    catch (e) { Offline => { status := "visit offline" } }
   }
 
-  errored fallback(e: Offline) { <p>offline: {e.message}</p> } {
+  errored fallback(e) { Offline => { <p>offline: {e.message}</p> } } {
     <p>{name} {loud} {status}</p>
   }
 }
@@ -167,7 +167,7 @@ parameter; a `.ts`'s `ref({ args: [0], result: true }, …)`) and hands one back
 
 Instant 3: the written `rejects(Offline)` is `saveUser`'s row, and the action catches it.
 Instant 5: `logVisit`'s flight lands. Instant 6: the primitive follows the accessor it was given.
-Instant 8: a `NotFound` is an answer of `null`; instant 10: an `Offline` reaches the typed boundary.
+Instant 8: a `NotFound` is an answer of `null`; instant 10: an `Offline` reaches its fallback arm.
 
 ## Variant: `rejects([], fn)` — io, and its promise never rejects
 
@@ -330,9 +330,9 @@ pure(…)`, imported without `pure`.
 
 ```rx
 -- types: TS2345
-import { fetchUser, NotFound, User } from "./api"
+import { fetchUser, NotFound, Offline, User } from "./api"
 export default component App() {
-  user: User | null = await fetchUser("1") catch (e: NotFound) => null
+  user: User | null = await fetchUser("1") catch (e) { NotFound => { null } Offline => { throw e } }
 
   errored fallback(e) { <p>{e.message}</p> } { <p>{user == null ? "" : user.name}</p> }
 }
