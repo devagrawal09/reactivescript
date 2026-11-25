@@ -53,15 +53,21 @@ export function rxMap({ mcp: { act = process.env.RX_MCP_ACT === "1" } = {} } = {
         runtimeFiles = new Set(["web.js", "web.dev.js", "server.js", "server.dev.js"].map(name => join(dist, name)));
         server.watcher.add(dirname(dist));
       } catch { /* no local runtime package */ }
+      // A build writes all four files, but the watcher can deliver their events well apart (a rename's event is
+      // delayed, more so on a loaded machine): a short trailing debounce split one build into two reloads. Reload once
+      // every file of the batch has changed (after a short settle), or after a second of quiet for a partial build.
+      let batch = new Set();
       const runtimeChange = (event, file) => {
         if (!runtimeFiles.has(file) || !["add", "change", "unlink"].includes(event)) return;
+        batch.add(file);
         clearTimeout(runtimeTimer);
         runtimeTimer = setTimeout(() => {
           if (![...runtimeFiles].every(existsSync)) return; // an unlink is not a completed build
+          batch = new Set();
           for (const env of Object.values(server.environments)) for (const f of runtimeFiles)
             for (const mod of env.moduleGraph.getModulesByFile(f) ?? []) env.moduleGraph.invalidateModule(mod);
           server.environments.client.hot.send({ type: "full-reload", path: "*" });
-        }, 150);
+        }, batch.size === runtimeFiles.size ? 150 : 1000);
       };
       server.watcher.on("all", runtimeChange);
       // the builds this server runs on: a rebuild on disk is announced first by check and overview
