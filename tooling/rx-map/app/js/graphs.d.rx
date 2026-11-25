@@ -1,0 +1,3 @@
+// The graphs the map has drawn, by number (graphs.js).
+export fn putGraph(g: any): number
+export pure fn graphAt(n: number): any
