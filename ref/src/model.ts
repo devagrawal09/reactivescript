@@ -26,7 +26,7 @@ export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "aff
 export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
-export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; shadowed?: number };
+export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; shadowed?: number; deadTyped?: true };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
@@ -92,7 +92,7 @@ export class ModelBuilder {
   private clipped = new Set<number>();
   hideOutline = 0;
   /** R-f-4: a typed `errored` region whose children an inner catch-all wraps. `by` is that catch-all's region. */
-  shadow(id: number, by: number) { const r = this.regions.find(x => x.id === id); if (r) r.shadowed = by; }
+  shadow(id: number, by: number) { const r = this.regions.find(x => x.id === id); if (r) { r.deadTyped = true; r.shadowed = by; } }
   region(id: number, kind: RegionKind, parent: { id: number } | null, name?: string) {
     const outline: OutlinePart[] = [];
     this.outlines.set(id, outline);

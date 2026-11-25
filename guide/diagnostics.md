@@ -823,7 +823,7 @@ Import `Card`, not `fetch`.
 
 A typed `errored fallback(e: X)` wraps a catch-all `errored fallback(e)`, so the catch-all takes `X` first and the
 typed fallback never shows (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
-`shadowed` by the inner one, which is what the map draws.
+`deadTyped: true` and `shadowed` by the inner one, which is what the map draws.
 
 ```rx before
 error NotFound

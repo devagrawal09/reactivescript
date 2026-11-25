@@ -230,7 +230,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     every class. A typed boundary whose children are wrapped by an inner
     catch-all is dead: the catch-all takes those classes first, so the typed
     fallback never shows (`DEAD_TYPED_BOUNDARY`, bin S, both lines; the
-    model marks the typed region `shadowed` by the inner one, for the map).
+    model marks the typed region `deadTyped: true` and `shadowed` by the
+    inner one, for the map).
     Put the typed boundary inside the catch-all. At run time a failure of another class passes the boundary
     to the next one up — the boundary does not show its fallback for it, and
     re-decides when the failure it shows changes class (S-fail-1 instant 6).

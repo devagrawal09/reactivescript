@@ -323,6 +323,7 @@ impl ModelBuilder {
                     m.insert("name".into(), json!(n));
                 }
                 if let Some(by) = r.shadowed {
+                    m.insert("deadTyped".into(), json!(true));
                     m.insert("shadowed".into(), json!(by));
                 }
                 let mut outline = r.outline.as_slice();
