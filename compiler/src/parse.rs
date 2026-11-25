@@ -43,7 +43,7 @@ re!(LINE_COMMENT, r"//.*$");
 static KEYWORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         "source", "effect", "component", "ref", "await", "latest", "loading", "errored", "fallback", "on", "deferred", "action", "guess", "refresh", "affects", "if", "else", "pre", "peek", "fn", "let", "for", "in", "true", "false", "undefined",
-        "null", "provide", "context", "use", "import", "export", "from", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal",
+        "null", "provide", "context", "use", "import", "export", "pure", "return", "type", "interface", "try", "catch", "finally", "throw", "portal",
     ]
     .into_iter()
     .collect()

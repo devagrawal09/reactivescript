@@ -133,6 +133,8 @@ Added:
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
 | `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
+`from` is contextual in an import and can be used as a name elsewhere.
+
 String and template literals cook JavaScript's escapes: control escapes
 (`\n`, `\t`, etc.), escaped delimiters and backslashes, `\xHH`, `\uHHHH`,
 `\u{…}`, and backslash-newline continuations. A template's `\${` is text,
