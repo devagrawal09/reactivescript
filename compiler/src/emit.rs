@@ -1155,7 +1155,7 @@ impl<'p> Gen<'p> {
                         }
                     }
                 }
-                if let Some(fx) = self.foreign(e, env, &b)? {
+                if let Some(fx) = self.foreign(e, env, &b, rx_key.as_deref())? {
                     return fin(fx, self);
                 }
                 if let Some(sk) = key {
@@ -1300,7 +1300,7 @@ impl<'p> Gen<'p> {
     /// MO-10: `x = f(…)` over a declared primitive — called once (RG-6), a ref argument as an accessor, a value one
     /// untracked; and `y = x[i]` / `x.k` over its result. A `ref` part is bound to the accessor itself, any other part to
     /// its value.
-    fn foreign(&mut self, e: &Expr, env: Env, b: &Bind) -> R<Option<Vec<S>>> {
+    fn foreign(&mut self, e: &Expr, env: Env, b: &Bind, rx_key: Option<&str>) -> R<Option<Vec<S>>> {
         fn part(r: E, p: Part) -> E {
             if p == Part::Ref {
                 r
@@ -1340,7 +1340,7 @@ impl<'p> Gen<'p> {
                         vec![E::Null, thunk(E::Obj(fields.iter().map(|(k, p)| { let x = ix(&r, str(k.clone())); Prop::Kv(Key::Str(k.clone()), if *p == Part::Ref { call(x, vec![]) } else { x }) }).collect()))],
                     ),
                 };
-                Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), whole)]))
+                Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), Self::under(rx_key, whole))]))
             }
             ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
                 let ExprKind::Id(on) = &o.k else { return Ok(None) };
@@ -1360,7 +1360,7 @@ impl<'p> Gen<'p> {
                     },
                     _ => return Ok(None),
                 };
-                Ok(Some(vec![konst(b.js.clone(), part(ix(&inst, key), p))]))
+                Ok(Some(vec![konst(b.js.clone(), Self::under(rx_key, part(ix(&inst, key), p)))]))
             }
             _ => Ok(None),
         }
