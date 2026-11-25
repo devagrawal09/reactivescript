@@ -82,9 +82,10 @@ const zoomTo = s => async page => {
   await page.waitForFunction(() => window.__RX_MAP__?.layout?.plates, null, { timeout: 60000 });
   await page.evaluate(s => {
     const M = window.__RX_MAP__;
-    if (s == null) return M.frameAll(0);
+    // (an older page's hook has no frameAll / flyTo: they were page globals)
+    if (s == null) return (M.frameAll ?? window.frameAll)(0);
     const p = [...M.layout.plates].find(([k]) => k !== "world")?.[1];
-    M.flyTo(p.x + p.w / 2, p.y + Math.min(p.h, 700) / 2, s, 0);
+    (M.flyTo ?? window.flyTo)(p.x + p.w / 2, p.y + Math.min(p.h, 700) / 2, s, 0);
   }, s);
   await page.waitForTimeout(1200);
   // under load a level's cross-fade can start late (frames come slowly; nothing is stuck): wait until what the level
