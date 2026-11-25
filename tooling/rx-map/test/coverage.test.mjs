@@ -27,7 +27,7 @@ const counts = g => Object.fromEntries(Object.entries(summary(rebase(merge(), g)
 const ids = g => universe(g).map(p => p.id);
 
 test("universe covers tracked dependencies, each live arm and each optimistic outcome", () => {
-  assert.deepEqual(counts(fixture("tracker")), { node: 28, edge: 17, loading: 5, errored: 7, guess: 0, action: 9, all: 66 });
+  assert.deepEqual(counts(fixture("tracker")), { node: 28, edge: 17, loading: 5, errored: 8, guess: 0, action: 9, all: 67 });
   assert.deepEqual(counts(fixture("users")), { node: 8, edge: 5, loading: 1, errored: 1, guess: 6, action: 3, all: 24 });
   const g = graph(), paths = universe(g);
   assert.deepEqual(paths.map(x => x.id), paths.map(x => x.id).sort());
@@ -177,7 +177,7 @@ test("report uses reviewer wording and filters the uncovered list", () => {
     /fixtures\/coverage.rx:18 +no test makes errored \(e\) show its NotFound fallback/,
     /fixtures\/coverage.rx:5 +no test changes users/,
     /fixtures\/coverage.rx:5 +no test carries a change from page to users/,
-    /fixtures\/coverage.rx:18 +no test shows loading on\(page\)/,
+    /fixtures\/coverage.rx:22 +no test shows loading on\(page\)/,
     /fixtures\/coverage.rx:8 +no test sees rename's guess on users reverted/,
     /fixtures\/coverage.rx:8 +no test makes rename succeed/,
     /Program total +0\/3 +0\/2 +0\/1 +0\/2 +0\/3 +0\/2 +0\/13/,
@@ -266,7 +266,7 @@ test("rx-coverage-ignore: a reason, an optional kind, warnings for the rest", ()
   assert.deepEqual(ignored(file).map(p => [p.line, p.kind, p.ignored]), [
     [3, "node", "set once at boot"],
     [10, "edge", "its inputs are boot constants"], [10, "edge", "its inputs are boot constants"], [10, "edge", "its inputs are boot constants"],
-    [15, "errored", "a 404 can't reach this page"], [16, "errored", "these inputs cannot conflict"],
+    [14, "errored", "a 404 can't reach this page"], [15, "errored", "these inputs cannot conflict"],
   ]);
   // the kind selector: line 10's node (title) is not ignored, its edges are
   assert.deepEqual(uncovered(file).map(p => [p.line, p.kind]), [[5, "node"], [7, "node"], [10, "node"]]);
@@ -279,7 +279,7 @@ test("rx-coverage-ignore: a reason, an optional kind, warnings for the rest", ()
   ]);
   const text = report(file);
   assert.match(text, /Ignored \(not in the percentage\):\nfixtures\/coverage-ignore.rx:3 +a changes — ignored \(set once at boot\)/);
-  assert.match(text, /fixtures\/coverage-ignore.rx:15 +errored \(e\) shows its NotFound fallback — ignored \(a 404 can't reach this page\)/);
+  assert.match(text, /fixtures\/coverage-ignore.rx:14 +errored \(e\) shows its NotFound fallback — ignored \(a 404 can't reach this page\)/);
   assert.match(text, /warning: fixtures\/coverage-ignore.rx:6 +rx-coverage-ignore needs a reason/);
   const json = JSON.parse(report(file, { json: true }));
   assert.equal(json.ignored.length, 6);
@@ -307,7 +307,7 @@ test("MCP rebases file on its served graph, filters by module and kind, and caps
     assert.ok(!result.isError, result.content[0].text);
     return JSON.parse(result.content[0].text);
   };
-  assert.deepEqual((await call("coverage")).all, { covered: 1, total: 66 });
+  assert.deepEqual((await call("coverage")).all, { covered: 1, total: 67 });
   assert.equal((await call("coverage", { module: path.module })).node.covered, 1);
   const all = await call("uncovered");
   assert.equal(all.length, 50);

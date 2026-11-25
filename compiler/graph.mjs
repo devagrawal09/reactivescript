@@ -210,7 +210,8 @@ export function controlHeads(graph, sourceOf) {
     const pat = CONTROL[r.kind], ls = sourceOf(r.mod);
     let h = null;
     if (pat && bound < 1e9) for (let i = bound; i >= Math.max(1, bound - 40); i--) {
-      const m = ls[i - 1] && pat[0].exec(ls[i - 1]);
+      const text = ls[i - 1];
+      const m = text && !text.trimStart().startsWith("//") && pat[0].exec(text);
       if (m) { h = { line: i, text: pat[1](m) }; break; }
     }
     headMemo.set(r.id, h);

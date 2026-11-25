@@ -22,7 +22,7 @@ examples/ai/grid.rx                11/12    6/9    1/1      0/1      0/0    1/1 
 examples/ai/wizard.rx              10/10    5/5    0/0      0/0      0/0    1/1     16/16
 examples/ai2/search/detail.rx      2/2      1/1    0/0      0/0      0/0    2/2     5/5
 examples/ai2/search/search.rx      3/3      2/2    0/0      0/0      0/0    1/1     6/6
-examples/ai2/search/ui.rx          0/0      0/0    1/2      2/4      0/0    0/0     3/6
+examples/ai2/search/ui.rx          0/0      0/0    1/2      3/4      0/0    0/0     4/6
 examples/ai2/settings/form.rx      5/5      4/4    0/0      0/0      0/0    0/1     9/10
 examples/ai2/settings/main.rx      0/0      0/0    1/1      1/1      0/0    0/0     2/2
 examples/ai2/settings/settings.rx  2/2      0/0    0/0      0/0      2/3    2/2     6/7
@@ -31,8 +31,8 @@ examples/ai2/tracker/issues.rx     5/5      2/2    0/0      0/0      1/3    3/3 
 examples/ai2/tracker/people.rx     1/1      0/0    0/0      0/0      0/0    1/1     2/2
 examples/ai2/tracker/ui.rx         1/1      0/0    2/2      2/2      0/0    0/0     5/5
 examples/cart.rx                   10/10    3/4    0/0      0/1      2/3    2/2     17/20
-examples/notes/data.rx             5/5      2/2    0/0      0/0      0/3    5/5     12/15
-examples/notes/main.rx             2/2      1/1    2/2      0/2      0/0    0/0     5/7
+examples/notes/data.rx             5/5      2/2    0/0      0/0      0/3    5/6     12/16
+examples/notes/main.rx             2/2      1/1    2/2      0/3      0/0    0/0     5/8
 examples/notes/ui.rx               3/4      2/3    0/0      0/0      0/0    0/0     5/7
 examples/shop/cart.rx              5/5      1/2    0/0      0/0      2/3    2/2     10/12
 examples/shop/catalog.rx           3/3      1/1    0/0      0/0      0/0    1/1     5/5
@@ -42,15 +42,15 @@ examples/signup.rx                 12/12    6/9    0/0      0/2      0/0    1/1 
 examples/todo.rx                   7/8      4/4    0/0      0/0      0/0    3/3     14/15
 examples/todos.rx                  9/12     8/8    1/1      0/1      3/12   3/4     24/38
 examples/users.rx                  7/8      5/5    1/1      0/1      2/6    3/3     18/24
-Program total                      114/121  56/65  11/12    5/17     17/42  32/35   235/292
+Program total                      114/121  56/65  11/12    6/18     17/42  32/36   236/294
 
 examples/ai/feed.rx:72                no test makes errored (e) show its fallback
 examples/ai/grid.rx:20                no test makes errored (e) show its fallback
-examples/ai2/search/ui.rx:27          no test makes errored (e) show its fallback
-examples/ai2/search/ui.rx:63          no test makes errored (e: NotFound) show its fallback
+examples/ai2/search/ui.rx:29          no test makes errored (e) show its _ fallback
 examples/cart.rx:60                   no test makes errored (e) show its fallback
 examples/notes/main.rx:22             no test makes errored (e) show its fallback
-examples/notes/main.rx:26             no test makes errored (e: NotFound) show its fallback
+examples/notes/main.rx:27             no test makes errored (e) show its NotFound fallback
+examples/notes/main.rx:28             no test makes errored (e) show its _ fallback
 examples/shop/ui.rx:19                no test makes errored (e) show its fallback
 examples/signup.rx:43                 no test makes errored (e) show its fallback
 examples/signup.rx:56                 no test makes errored (e) show its fallback
@@ -58,6 +58,7 @@ examples/todos.rx:106                 no test makes errored (e) show its fallbac
 examples/users.rx:49                  no test makes errored (e) show its fallback
 examples/ai/feed.rx:16                no test makes pick succeed
 examples/ai2/settings/form.rx:18      no test makes pickTheme succeed
+examples/notes/data.rx:44             no test makes save's catch 1 take _
 examples/todos.rx:78                  no test makes clearDone succeed
 examples/ai/feed.rx:31                no test sees send's guess on draftText superseded
 examples/ai/feed.rx:31                no test sees send's guess on messages superseded
@@ -84,7 +85,7 @@ examples/users.rx:18                  no test sees rename's guess on editing rev
 examples/users.rx:18                  no test sees rename's guess on editing superseded
 examples/users.rx:18                  no test sees rename's guess on users reverted
 examples/users.rx:18                  no test sees rename's guess on users superseded
-examples/ai2/search/ui.rx:29          no test shows loading
+examples/ai2/search/ui.rx:31          no test shows loading
 examples/ai/grid.rx:37                no test changes total
 examples/notes/ui.rx:33               no test changes body
 examples/todo.rx:10                   no test changes filters

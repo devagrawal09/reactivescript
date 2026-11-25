@@ -122,7 +122,8 @@ export function analyze(graph, { diff = !!graph.diff } = {}) {
       const below = rr => { for (const k of rr.kids ?? []) { const h = CTL[k.kind] && controlInfo(k); if (h?.line) bound = Math.min(bound, h.line - 1); else below(k); } };
       below(r);
       if (pat && bound < 1e9) for (let i = bound; i >= Math.max(1, bound - 40); i--) {
-        const m = ls[i] && pat[0].exec(ls[i]);
+        const text = ls[i];
+        const m = text && !text.trimStart().startsWith("//") && pat[0].exec(text);
         if (m) { info = { text: pat[1](m), line: i, site: null }; break; }
       }
     }

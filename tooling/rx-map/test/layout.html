@@ -100,7 +100,7 @@ try {
   check("overview: every card has the same parts (name, path, role bar, counts)", modules.every(([, c]) => c.querySelector(".ps-name") && c.querySelector(".ps-path") && c.querySelector(".ps-bars i") && c.querySelector(".ps-counts span")));
   const boundary = M.region("5:r6");
   const arms = () => [...boundary.querySelectorAll(":scope > .flabel .arm-list > span")].map(e => e.textContent);
-  check("a boundary lists its arms in order", arms().join(" ") === "NotFound NotFoundHere", arms());
+  check("a boundary lists its arms in order", arms().join(" ") === "NotFound NotFoundHere ServerError", arms());
   // live: a failure caught by a boundary gets an arrow from the failing name to it; the overview's card counts it
   const detail = graph.nodes.find(n => n.name === "detail" && n.mod === 0 && !n.site), rv = w.__RX_VIEW__;
   rv.receive({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [{ key: detail.key, name: "detail", error: "NotFound" }] });

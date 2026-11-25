@@ -17,6 +17,14 @@
       "question": false,
       "async": false,
       "world": true,
+      "jsFrom": "./api",
+      "decl": {
+        "line": "export server pure fn dbNotes(q: string): Promise<NoteRow[]>",
+        "from": "examples/notes/api.d.rx",
+        "origin": "written",
+        "helpers": [],
+        "at": 4
+      },
       "base": "examples/notes/data.rx||dbNotes",
       "key": "examples/notes/data.rx||dbNotes"
     },
@@ -32,6 +40,14 @@
       "question": false,
       "async": false,
       "world": true,
+      "jsFrom": "./api",
+      "decl": {
+        "line": "export server pure fn dbNote(id: number): Promise<NoteRow | null>",
+        "from": "examples/notes/api.d.rx",
+        "origin": "written",
+        "helpers": [],
+        "at": 5
+      },
       "base": "examples/notes/data.rx||dbNote",
       "key": "examples/notes/data.rx||dbNote"
     },
@@ -47,6 +63,14 @@
       "question": false,
       "async": false,
       "world": true,
+      "jsFrom": "./api",
+      "decl": {
+        "line": "export server fn dbSave(id: number, title: string, body: string): Promise<NoteRow> rejects(Conflict)",
+        "from": "examples/notes/api.d.rx",
+        "origin": "written",
+        "helpers": [],
+        "at": 6
+      },
       "base": "examples/notes/data.rx||dbSave",
       "key": "examples/notes/data.rx||dbSave"
     },
@@ -62,6 +86,14 @@
       "question": false,
       "async": false,
       "world": false,
+      "jsFrom": "./api",
+      "decl": {
+        "line": "export error Conflict",
+        "from": "examples/notes/api.d.rx",
+        "origin": "written",
+        "helpers": [],
+        "at": 3
+      },
       "base": "examples/notes/data.rx||Conflict",
       "key": "examples/notes/data.rx||Conflict"
     },
@@ -152,6 +184,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||query",
       "base": "examples/notes/data.rx||query",
       "key": "examples/notes/data.rx||query"
     },
@@ -167,6 +200,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||route",
       "base": "examples/notes/data.rx||route",
       "key": "examples/notes/data.rx||route"
     },
@@ -182,6 +216,7 @@
       "question": true,
       "async": true,
       "world": false,
+      "rxKey": "examples/notes/data.rx||notes",
       "base": "examples/notes/data.rx||notes",
       "key": "examples/notes/data.rx||notes"
     },
@@ -197,6 +232,7 @@
       "question": false,
       "async": true,
       "world": false,
+      "rxKey": "examples/notes/data.rx||current",
       "base": "examples/notes/data.rx||current",
       "key": "examples/notes/data.rx||current"
     },
@@ -212,6 +248,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||saveError",
       "base": "examples/notes/data.rx||saveError",
       "key": "examples/notes/data.rx||saveError"
     },
@@ -227,6 +264,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||search",
       "base": "examples/notes/data.rx||search",
       "key": "examples/notes/data.rx||search"
     },
@@ -242,6 +280,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||open",
       "base": "examples/notes/data.rx||open",
       "key": "examples/notes/data.rx||open"
     },
@@ -257,6 +296,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/data.rx||back",
       "base": "examples/notes/data.rx||back",
       "key": "examples/notes/data.rx||back"
     },
@@ -272,8 +312,7 @@
       "question": false,
       "async": false,
       "world": false,
-      "base": "examples/notes/data.rx||save",
-      "key": "examples/notes/data.rx||save",
+      "rxKey": "examples/notes/data.rx||save",
       "catches": [
         {
           "classes": null,
@@ -288,7 +327,9 @@
             }
           ]
         }
-      ]
+      ],
+      "base": "examples/notes/data.rx||save",
+      "key": "examples/notes/data.rx||save"
     },
     {
       "id": "1:s3",
@@ -326,7 +367,7 @@
       "file": "examples/notes/ui.rx",
       "kind": "comp",
       "name": "NoteList",
-      "line": 14,
+      "line": 18,
       "region": "1:r0",
       "io": false,
       "question": false,
@@ -341,7 +382,7 @@
       "file": "examples/notes/ui.rx",
       "kind": "comp",
       "name": "NoteEditor",
-      "line": 29,
+      "line": 31,
       "region": "1:r0",
       "io": false,
       "question": false,
@@ -371,7 +412,7 @@
       "file": "examples/notes/ui.rx",
       "kind": "props",
       "name": "props",
-      "line": 14,
+      "line": 18,
       "region": "1:r2",
       "io": false,
       "question": false,
@@ -386,7 +427,7 @@
       "file": "examples/notes/ui.rx",
       "kind": "props",
       "name": "props",
-      "line": 29,
+      "line": 31,
       "region": "1:r3",
       "io": false,
       "question": false,
@@ -401,12 +442,13 @@
       "file": "examples/notes/ui.rx",
       "kind": "source",
       "name": "title",
-      "line": 30,
+      "line": 32,
       "region": "1:r3",
       "io": false,
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/ui.rx|NoteEditor|title",
       "base": "examples/notes/ui.rx|NoteEditor|title",
       "key": "examples/notes/ui.rx|NoteEditor|title"
     },
@@ -416,12 +458,13 @@
       "file": "examples/notes/ui.rx",
       "kind": "source",
       "name": "body",
-      "line": 31,
+      "line": 33,
       "region": "1:r3",
       "io": false,
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/ui.rx|NoteEditor|body",
       "base": "examples/notes/ui.rx|NoteEditor|body",
       "key": "examples/notes/ui.rx|NoteEditor|body"
     },
@@ -431,12 +474,13 @@
       "file": "examples/notes/ui.rx",
       "kind": "eq",
       "name": "problem",
-      "line": 32,
+      "line": 34,
       "region": "1:r3",
       "io": false,
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/ui.rx|NoteEditor|problem",
       "base": "examples/notes/ui.rx|NoteEditor|problem",
       "key": "examples/notes/ui.rx|NoteEditor|problem"
     },
@@ -446,12 +490,13 @@
       "file": "examples/notes/ui.rx",
       "kind": "eq",
       "name": "dirty",
-      "line": 33,
+      "line": 35,
       "region": "1:r3",
       "io": false,
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/ui.rx|NoteEditor|dirty",
       "base": "examples/notes/ui.rx|NoteEditor|dirty",
       "key": "examples/notes/ui.rx|NoteEditor|dirty"
     },
@@ -467,6 +512,14 @@
       "question": false,
       "async": false,
       "world": true,
+      "jsFrom": "./api",
+      "decl": {
+        "line": "export client pure fn viewport(): Promise<number>",
+        "from": "examples/notes/api.d.rx",
+        "origin": "written",
+        "helpers": [],
+        "at": 7
+      },
       "base": "examples/notes/main.rx||viewport",
       "key": "examples/notes/main.rx||viewport"
     },
@@ -512,6 +565,7 @@
       "question": false,
       "async": true,
       "world": false,
+      "rxKey": "examples/notes/main.rx|App|width",
       "base": "examples/notes/main.rx|App|width",
       "key": "examples/notes/main.rx|App|width"
     },
@@ -527,6 +581,7 @@
       "question": false,
       "async": false,
       "world": false,
+      "rxKey": "examples/notes/main.rx|App|layout",
       "base": "examples/notes/main.rx|App|layout",
       "key": "examples/notes/main.rx|App|layout"
     },
@@ -537,7 +592,7 @@
       "kind": "handler",
       "site": true,
       "name": "a onClick",
-      "line": 9,
+      "line": 13,
       "region": "1:r1",
       "base": "examples/notes/ui.rx|/component:Row|handler:a onClick",
       "sig": "props",
@@ -550,7 +605,7 @@
       "kind": "reader",
       "site": true,
       "name": "{…}",
-      "line": 9,
+      "line": 13,
       "region": "1:r1",
       "base": "examples/notes/ui.rx|/component:Row|reader:{…}",
       "sig": "props",
@@ -563,7 +618,7 @@
       "kind": "reader",
       "site": true,
       "name": "td class",
-      "line": 10,
+      "line": 14,
       "region": "1:r1",
       "base": "examples/notes/ui.rx|/component:Row|reader:td class",
       "sig": "",
@@ -576,7 +631,7 @@
       "kind": "reader",
       "site": true,
       "name": "{…}",
-      "line": 10,
+      "line": 14,
       "region": "1:r1",
       "base": "examples/notes/ui.rx|/component:Row|reader:{…}",
       "sig": "props",
@@ -589,7 +644,7 @@
       "kind": "reader",
       "site": true,
       "name": "if",
-      "line": 21,
+      "line": 23,
       "region": "1:r2",
       "base": "examples/notes/ui.rx|/component:NoteList|reader:if",
       "sig": "props",
@@ -602,7 +657,7 @@
       "kind": "reader",
       "site": true,
       "name": "p class",
-      "line": 22,
+      "line": 24,
       "region": "1:r4",
       "base": "examples/notes/ui.rx|/component:NoteList/then|reader:p class",
       "sig": "",
@@ -615,7 +670,7 @@
       "kind": "reader",
       "site": true,
       "name": "for",
-      "line": 24,
+      "line": 26,
       "region": "1:r5",
       "base": "examples/notes/ui.rx|/component:NoteList/else|reader:for",
       "sig": "props",
@@ -628,7 +683,7 @@
       "kind": "prop",
       "site": true,
       "name": "Row note",
-      "line": 24,
+      "line": 26,
       "region": "1:r6",
       "base": "examples/notes/ui.rx|/component:NoteList/else/for|prop:Row note",
       "sig": "",
@@ -641,7 +696,7 @@
       "kind": "reader",
       "site": true,
       "name": "input value",
-      "line": 40,
+      "line": 42,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|reader:input value",
       "sig": "title",
@@ -654,7 +709,7 @@
       "kind": "handler",
       "site": true,
       "name": "input onInput",
-      "line": 40,
+      "line": 42,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|handler:input onInput",
       "sig": "",
@@ -667,7 +722,7 @@
       "kind": "reader",
       "site": true,
       "name": "textarea value",
-      "line": 41,
+      "line": 43,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|reader:textarea value",
       "sig": "body",
@@ -680,7 +735,7 @@
       "kind": "handler",
       "site": true,
       "name": "textarea onInput",
-      "line": 41,
+      "line": 43,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|handler:textarea onInput",
       "sig": "",
@@ -693,7 +748,7 @@
       "kind": "reader",
       "site": true,
       "name": "if",
-      "line": 42,
+      "line": 44,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|reader:if",
       "sig": "problem",
@@ -706,7 +761,7 @@
       "kind": "reader",
       "site": true,
       "name": "p class",
-      "line": 42,
+      "line": 44,
       "region": "1:r8",
       "base": "examples/notes/ui.rx|/component:NoteEditor/then|reader:p class",
       "sig": "",
@@ -719,7 +774,7 @@
       "kind": "reader",
       "site": true,
       "name": "{…}",
-      "line": 42,
+      "line": 44,
       "region": "1:r8",
       "base": "examples/notes/ui.rx|/component:NoteEditor/then|reader:{…}",
       "sig": "problem",
@@ -732,7 +787,7 @@
       "kind": "reader",
       "site": true,
       "name": "if",
-      "line": 43,
+      "line": 45,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|reader:if",
       "sig": "saveError",
@@ -745,7 +800,7 @@
       "kind": "reader",
       "site": true,
       "name": "p class",
-      "line": 43,
+      "line": 45,
       "region": "1:r10",
       "base": "examples/notes/ui.rx|/component:NoteEditor/then#1|reader:p class",
       "sig": "",
@@ -758,7 +813,7 @@
       "kind": "reader",
       "site": true,
       "name": "{…}",
-      "line": 43,
+      "line": 45,
       "region": "1:r10",
       "base": "examples/notes/ui.rx|/component:NoteEditor/then#1|reader:{…}",
       "sig": "saveError",
@@ -771,7 +826,7 @@
       "kind": "reader",
       "site": true,
       "name": "button disabled",
-      "line": 44,
+      "line": 46,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|reader:button disabled",
       "sig": "dirty,problem",
@@ -784,7 +839,7 @@
       "kind": "handler",
       "site": true,
       "name": "button onClick",
-      "line": 44,
+      "line": 46,
       "region": "1:r3",
       "base": "examples/notes/ui.rx|/component:NoteEditor|handler:button onClick",
       "sig": "body,props,title",
@@ -940,7 +995,7 @@
       "kind": "reader",
       "site": true,
       "name": "{…}",
-      "line": 26,
+      "line": 27,
       "region": "2:r10",
       "base": "examples/notes/main.rx|/component:App/errored/else|reader:{…}",
       "sig": "",
@@ -948,6 +1003,19 @@
     },
     {
       "id": "2:c14",
+      "mod": 2,
+      "file": "examples/notes/main.rx",
+      "kind": "reader",
+      "site": true,
+      "name": "{…}",
+      "line": 28,
+      "region": "2:r10",
+      "base": "examples/notes/main.rx|/component:App/errored/else|reader:{…}",
+      "sig": "",
+      "key": "examples/notes/main.rx|/component:App/errored/else|reader:{…}#1"
+    },
+    {
+      "id": "2:c15",
       "mod": 2,
       "file": "examples/notes/main.rx",
       "kind": "reader",
@@ -960,7 +1028,7 @@
       "key": "examples/notes/main.rx|/component:App/errored/else/errored/loading|reader:if"
     },
     {
-      "id": "2:c15",
+      "id": "2:c16",
       "mod": 2,
       "file": "examples/notes/main.rx",
       "kind": "prop",
@@ -1125,14 +1193,14 @@
       "type": "read",
       "mode": "snapshot",
       "probe": null,
-      "field": "note",
-      "line": 9
+      "field": "note.id",
+      "line": 13
     },
     {
       "from": "1:c0",
       "to": "0:s15",
       "type": "call",
-      "line": 9
+      "line": 13
     },
     {
       "from": "1:s7",
@@ -1140,8 +1208,8 @@
       "type": "read",
       "mode": "tracked",
       "probe": null,
-      "field": "note",
-      "line": 9
+      "field": "note.title",
+      "line": 13
     },
     {
       "from": "1:s7",
@@ -1149,8 +1217,8 @@
       "type": "read",
       "mode": "tracked",
       "probe": null,
-      "field": "note",
-      "line": 10
+      "field": "note.updated",
+      "line": 14
     },
     {
       "from": "1:s8",
@@ -1159,7 +1227,7 @@
       "mode": "tracked",
       "probe": null,
       "field": "notes",
-      "line": 21
+      "line": 23
     },
     {
       "from": "1:s8",
@@ -1168,7 +1236,7 @@
       "mode": "tracked",
       "probe": null,
       "field": "notes",
-      "line": 24
+      "line": 26
     },
     {
       "from": "1:c7",
@@ -1182,8 +1250,8 @@
       "type": "read",
       "mode": "snapshot",
       "probe": null,
-      "field": "note",
-      "line": 30
+      "field": "note.title",
+      "line": 32
     },
     {
       "from": "1:s9",
@@ -1191,8 +1259,8 @@
       "type": "read",
       "mode": "snapshot",
       "probe": null,
-      "field": "note",
-      "line": 31
+      "field": "note.body",
+      "line": 33
     },
     {
       "from": "1:s10",
@@ -1201,7 +1269,7 @@
       "mode": "tracked",
       "probe": null,
       "field": "trim",
-      "line": 32
+      "line": 34
     },
     {
       "from": "1:s10",
@@ -1210,7 +1278,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 33
+      "line": 35
     },
     {
       "from": "1:s9",
@@ -1218,8 +1286,8 @@
       "type": "read",
       "mode": "tracked",
       "probe": null,
-      "field": "note",
-      "line": 33
+      "field": "note.title",
+      "line": 35
     },
     {
       "from": "1:s11",
@@ -1228,7 +1296,16 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 33
+      "line": 35
+    },
+    {
+      "from": "1:s9",
+      "to": "1:s13",
+      "type": "read",
+      "mode": "tracked",
+      "probe": null,
+      "field": "note.body",
+      "line": 35
     },
     {
       "from": "1:s10",
@@ -1237,7 +1314,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 40
+      "line": 42
     },
     {
       "from": "1:c13",
@@ -1245,7 +1322,7 @@
       "type": "write",
       "op": "write",
       "path": false,
-      "line": 40
+      "line": 42
     },
     {
       "from": "1:s11",
@@ -1254,7 +1331,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 41
+      "line": 43
     },
     {
       "from": "1:c15",
@@ -1262,7 +1339,7 @@
       "type": "write",
       "op": "write",
       "path": false,
-      "line": 41
+      "line": 43
     },
     {
       "from": "1:s12",
@@ -1271,7 +1348,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 42
+      "line": 44
     },
     {
       "from": "1:s12",
@@ -1280,7 +1357,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 42
+      "line": 44
     },
     {
       "from": "0:s13",
@@ -1289,7 +1366,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 43
+      "line": 45
     },
     {
       "from": "0:s13",
@@ -1298,7 +1375,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 43
+      "line": 45
     },
     {
       "from": "1:s13",
@@ -1307,7 +1384,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 44
+      "line": 46
     },
     {
       "from": "1:s12",
@@ -1316,7 +1393,7 @@
       "mode": "tracked",
       "probe": null,
       "field": null,
-      "line": 44
+      "line": 46
     },
     {
       "from": "1:s9",
@@ -1324,8 +1401,8 @@
       "type": "read",
       "mode": "snapshot",
       "probe": null,
-      "field": "note",
-      "line": 44
+      "field": "note.id",
+      "line": 46
     },
     {
       "from": "1:s10",
@@ -1334,7 +1411,7 @@
       "mode": "snapshot",
       "probe": null,
       "field": null,
-      "line": 44
+      "line": 46
     },
     {
       "from": "1:s11",
@@ -1343,13 +1420,13 @@
       "mode": "snapshot",
       "probe": null,
       "field": null,
-      "line": 44
+      "line": 46
     },
     {
       "from": "1:c23",
       "to": "0:s17",
       "type": "call",
-      "line": 44
+      "line": 46
     },
     {
       "from": "1:r7",
@@ -1454,7 +1531,7 @@
     },
     {
       "from": "0:s12",
-      "to": "2:c14",
+      "to": "2:c15",
       "type": "read",
       "mode": "tracked",
       "probe": null,
@@ -1462,14 +1539,14 @@
       "line": 31
     },
     {
-      "from": "2:c15",
+      "from": "2:c16",
       "to": "1:s9",
       "type": "passes",
       "field": "note"
     },
     {
       "from": "0:s12",
-      "to": "2:c15",
+      "to": "2:c16",
       "type": "read",
       "mode": "tracked",
       "probe": null,
@@ -1499,6 +1576,7 @@
       "kind": "program",
       "name": null,
       "parent": null,
+      "outline": [],
       "key": "examples/notes/data.rx|"
     },
     {
@@ -1507,6 +1585,7 @@
       "kind": "program",
       "name": null,
       "parent": null,
+      "outline": [],
       "key": "examples/notes/ui.rx|"
     },
     {
@@ -1515,6 +1594,23 @@
       "kind": "component",
       "name": "Row",
       "parent": "1:r0",
+      "outline": [
+        {
+          "site": "1:c0",
+          "line": 13
+        },
+        {
+          "site": "1:c1",
+          "line": 13
+        },
+        {
+          "br": true
+        },
+        {
+          "site": "1:c3",
+          "line": 14
+        }
+      ],
       "key": "examples/notes/ui.rx|/component:Row"
     },
     {
@@ -1523,6 +1619,20 @@
       "kind": "component",
       "name": "NoteList",
       "parent": "1:r0",
+      "outline": [
+        {
+          "site": "1:c4",
+          "line": 23
+        },
+        {
+          "region": "1:r4",
+          "line": 23
+        },
+        {
+          "region": "1:r5",
+          "line": 23
+        }
+      ],
       "key": "examples/notes/ui.rx|/component:NoteList"
     },
     {
@@ -1531,6 +1641,51 @@
       "kind": "component",
       "name": "NoteEditor",
       "parent": "1:r0",
+      "outline": [
+        {
+          "site": "1:c12",
+          "line": 42
+        },
+        {
+          "site": "1:c13",
+          "line": 42
+        },
+        {
+          "site": "1:c14",
+          "line": 43
+        },
+        {
+          "site": "1:c15",
+          "line": 43
+        },
+        {
+          "site": "1:c16",
+          "line": 44
+        },
+        {
+          "region": "1:r8",
+          "line": 44
+        },
+        {
+          "site": "1:c19",
+          "line": 45
+        },
+        {
+          "region": "1:r10",
+          "line": 45
+        },
+        {
+          "site": "1:c22",
+          "line": 46
+        },
+        {
+          "site": "1:c23",
+          "line": 46
+        },
+        {
+          "text": "save"
+        }
+      ],
       "key": "examples/notes/ui.rx|/component:NoteEditor"
     },
     {
@@ -1539,6 +1694,15 @@
       "kind": "then",
       "name": null,
       "parent": "1:r2",
+      "outline": [
+        {
+          "text": "no notes"
+        }
+      ],
+      "head": {
+        "line": 23,
+        "text": "if len(props.notes) == 0"
+      },
       "key": "examples/notes/ui.rx|/component:NoteList/then"
     },
     {
@@ -1547,6 +1711,20 @@
       "kind": "else",
       "name": null,
       "parent": "1:r2",
+      "outline": [
+        {
+          "site": "1:c6",
+          "line": 26
+        },
+        {
+          "region": "1:r6",
+          "line": 26
+        }
+      ],
+      "head": {
+        "line": 25,
+        "text": "else"
+      },
       "key": "examples/notes/ui.rx|/component:NoteList/else"
     },
     {
@@ -1555,6 +1733,20 @@
       "kind": "for",
       "name": null,
       "parent": "1:r5",
+      "outline": [
+        {
+          "site": "1:c7",
+          "line": 26
+        },
+        {
+          "region": "1:r7",
+          "line": 26
+        }
+      ],
+      "head": {
+        "line": 26,
+        "text": "for n in props.notes"
+      },
       "key": "examples/notes/ui.rx|/component:NoteList/else/for"
     },
     {
@@ -1563,6 +1755,7 @@
       "kind": "children",
       "name": "Row",
       "parent": "1:r6",
+      "outline": [],
       "key": "examples/notes/ui.rx|/component:NoteList/else/for/children:Row"
     },
     {
@@ -1571,6 +1764,16 @@
       "kind": "then",
       "name": null,
       "parent": "1:r3",
+      "outline": [
+        {
+          "site": "1:c18",
+          "line": 44
+        }
+      ],
+      "head": {
+        "line": 44,
+        "text": "if problem != \"\""
+      },
       "key": "examples/notes/ui.rx|/component:NoteEditor/then"
     },
     {
@@ -1579,6 +1782,7 @@
       "kind": "else",
       "name": null,
       "parent": "1:r3",
+      "outline": [],
       "key": "examples/notes/ui.rx|/component:NoteEditor/else"
     },
     {
@@ -1587,6 +1791,16 @@
       "kind": "then",
       "name": null,
       "parent": "1:r3",
+      "outline": [
+        {
+          "site": "1:c21",
+          "line": 45
+        }
+      ],
+      "head": {
+        "line": 45,
+        "text": "if saveError != \"\""
+      },
       "key": "examples/notes/ui.rx|/component:NoteEditor/then#1"
     },
     {
@@ -1595,6 +1809,7 @@
       "kind": "else",
       "name": null,
       "parent": "1:r3",
+      "outline": [],
       "key": "examples/notes/ui.rx|/component:NoteEditor/else#1"
     },
     {
@@ -1603,6 +1818,12 @@
       "kind": "program",
       "name": null,
       "parent": null,
+      "outline": [
+        {
+          "region": "2:r16",
+          "line": 7
+        }
+      ],
       "key": "examples/notes/main.rx|"
     },
     {
@@ -1611,6 +1832,7 @@
       "kind": "imported",
       "name": "NoteList",
       "parent": null,
+      "outline": [],
       "key": "examples/notes/main.rx|/imported:NoteList"
     },
     {
@@ -1619,6 +1841,7 @@
       "kind": "imported",
       "name": "NoteEditor",
       "parent": null,
+      "outline": [],
       "key": "examples/notes/main.rx|/imported:NoteEditor"
     },
     {
@@ -1627,6 +1850,58 @@
       "kind": "component",
       "name": "App",
       "parent": "2:r0",
+      "outline": [
+        {
+          "site": "2:c2",
+          "line": 16
+        },
+        {
+          "br": true,
+          "line": 17
+        },
+        {
+          "attr": "placeholder",
+          "text": "search",
+          "line": 18
+        },
+        {
+          "site": "2:c4",
+          "line": 18
+        },
+        {
+          "site": "2:c5",
+          "line": 18
+        },
+        {
+          "site": "2:c6",
+          "line": 19
+        },
+        {
+          "region": "2:r4",
+          "line": 19
+        },
+        {
+          "site": "2:c8",
+          "line": 20
+        },
+        {
+          "br": true
+        },
+        {
+          "text": "could not load: "
+        },
+        {
+          "site": "2:c9",
+          "line": 22
+        },
+        {
+          "br": true
+        },
+        {
+          "region": "2:r6",
+          "line": 22
+        }
+      ],
       "key": "examples/notes/main.rx|/component:App"
     },
     {
@@ -1635,6 +1910,19 @@
       "kind": "then",
       "name": null,
       "parent": "2:r3",
+      "outline": [
+        {
+          "site": "2:c7",
+          "line": 19
+        },
+        {
+          "text": "back"
+        }
+      ],
+      "head": {
+        "line": 19,
+        "text": "if route.page == \"note\""
+      },
       "key": "examples/notes/main.rx|/component:App/then"
     },
     {
@@ -1643,6 +1931,7 @@
       "kind": "else",
       "name": null,
       "parent": "2:r3",
+      "outline": [],
       "key": "examples/notes/main.rx|/component:App/else"
     },
     {
@@ -1651,6 +1940,24 @@
       "kind": "errored",
       "name": null,
       "parent": "2:r3",
+      "outline": [
+        {
+          "site": "2:c10",
+          "line": 23
+        },
+        {
+          "region": "2:r7",
+          "line": 23
+        },
+        {
+          "region": "2:r10",
+          "line": 23
+        }
+      ],
+      "head": {
+        "line": 22,
+        "text": "errored (e)"
+      },
       "key": "examples/notes/main.rx|/component:App/errored"
     },
     {
@@ -1659,6 +1966,30 @@
       "kind": "then",
       "name": null,
       "parent": "2:r6",
+      "outline": [
+        {
+          "site": "2:c11",
+          "line": 24
+        },
+        {
+          "br": true,
+          "line": 24
+        },
+        {
+          "text": "searching…"
+        },
+        {
+          "br": true
+        },
+        {
+          "region": "2:r8",
+          "line": 24
+        }
+      ],
+      "head": {
+        "line": 23,
+        "text": "if route.page == \"list\""
+      },
       "key": "examples/notes/main.rx|/component:App/errored/then"
     },
     {
@@ -1667,6 +1998,20 @@
       "kind": "loading",
       "name": null,
       "parent": "2:r7",
+      "outline": [
+        {
+          "site": "2:c12",
+          "line": 24
+        },
+        {
+          "region": "2:r9",
+          "line": 24
+        }
+      ],
+      "head": {
+        "line": 24,
+        "text": "loading on(query)"
+      },
       "key": "examples/notes/main.rx|/component:App/errored/then/loading"
     },
     {
@@ -1675,6 +2020,7 @@
       "kind": "children",
       "name": "NoteList",
       "parent": "2:r8",
+      "outline": [],
       "key": "examples/notes/main.rx|/component:App/errored/then/loading/children:NoteList"
     },
     {
@@ -1683,6 +2029,27 @@
       "kind": "else",
       "name": null,
       "parent": "2:r6",
+      "outline": [
+        {
+          "site": "2:c13",
+          "line": 27
+        },
+        {
+          "br": true
+        },
+        {
+          "site": "2:c14",
+          "line": 28
+        },
+        {
+          "region": "2:r11",
+          "line": 26
+        }
+      ],
+      "head": {
+        "line": 25,
+        "text": "else"
+      },
       "key": "examples/notes/main.rx|/component:App/errored/else"
     },
     {
@@ -1691,11 +2058,6 @@
       "kind": "errored",
       "name": null,
       "parent": "2:r10",
-      "key": "examples/notes/main.rx|/component:App/errored/else/errored",
-      "head": {
-        "line": 26,
-        "text": "errored (e)"
-      },
       "arms": [
         {
           "cls": "NotFound",
@@ -1705,7 +2067,24 @@
           "cls": "_",
           "line": 28
         }
-      ]
+      ],
+      "outline": [
+        {
+          "text": "opening…"
+        },
+        {
+          "br": true
+        },
+        {
+          "region": "2:r12",
+          "line": 30
+        }
+      ],
+      "head": {
+        "line": 26,
+        "text": "errored (e)"
+      },
+      "key": "examples/notes/main.rx|/component:App/errored/else/errored"
     },
     {
       "id": "2:r12",
@@ -1713,6 +2092,20 @@
       "kind": "loading",
       "name": null,
       "parent": "2:r11",
+      "outline": [
+        {
+          "site": "2:c15",
+          "line": 31
+        },
+        {
+          "region": "2:r13",
+          "line": 31
+        }
+      ],
+      "head": {
+        "line": 30,
+        "text": "loading"
+      },
       "key": "examples/notes/main.rx|/component:App/errored/else/errored/loading"
     },
     {
@@ -1721,6 +2114,20 @@
       "kind": "then",
       "name": null,
       "parent": "2:r12",
+      "outline": [
+        {
+          "site": "2:c16",
+          "line": 31
+        },
+        {
+          "region": "2:r14",
+          "line": 31
+        }
+      ],
+      "head": {
+        "line": 31,
+        "text": "if current"
+      },
       "key": "examples/notes/main.rx|/component:App/errored/else/errored/loading/then"
     },
     {
@@ -1729,6 +2136,7 @@
       "kind": "children",
       "name": "NoteEditor",
       "parent": "2:r13",
+      "outline": [],
       "key": "examples/notes/main.rx|/component:App/errored/else/errored/loading/then/children:NoteEditor"
     },
     {
@@ -1737,6 +2145,7 @@
       "kind": "else",
       "name": null,
       "parent": "2:r12",
+      "outline": [],
       "key": "examples/notes/main.rx|/component:App/errored/else/errored/loading/else"
     },
     {
@@ -1745,6 +2154,7 @@
       "kind": "children",
       "name": "App",
       "parent": "2:r0",
+      "outline": [],
       "key": "examples/notes/main.rx|/children:App"
     }
   ],
@@ -1798,43 +2208,45 @@
       "3": "import { open, save, saveError } from \"./data.rx\"",
       "5": "export error TitleRequired() => \"a note needs a title\"",
       "7": "component Row(props: { note: Note }) {",
-      "8": "  <tr>",
-      "9": "    <td><a onClick={() => { open(props.note.id) }}>{props.note.title}</a></td>",
-      "10": "    <td class=\"when\">{props.note.updated}</td>",
-      "11": "  </tr>",
-      "12": "}",
-      "14": "export component NoteList(props: { notes: Note[] }) {",
-      "15": "  <style>",
-      "16": "    table { border-collapse: collapse; width: 100% }",
-      "17": "    td { padding: 4px 8px }",
-      "18": "    .when { color: gray; text-align: right }",
-      "19": "    .empty { font-style: italic }",
-      "20": "  </style>",
-      "21": "  if len(props.notes) == 0 {",
-      "22": "    <p class=\"empty\">no notes</p>",
-      "23": "  } else {",
-      "24": "    <table><tbody>{for n in props.notes { <Row note={n} /> }}</tbody></table>",
-      "25": "  }",
-      "26": "}",
-      "28": "// The editor's drafts are its own: snapshots of the note it was opened with (E-4).",
-      "29": "export component NoteEditor(props: { note: Note }) {",
-      "30": "  source title := peek(props.note.title)",
-      "31": "  source body := peek(props.note.body)",
-      "32": "  problem = title.trim() == \"\" ? \"a note needs a title\" : \"\"",
-      "33": "  dirty = title != props.note.title || body != props.note.body",
-      "34": "  <style>",
-      "35": "    form { display: grid; gap: 8px }",
-      "36": "    .problem, .error { color: crimson }",
-      "37": "    button[disabled] { opacity: 0.5 }",
-      "38": "  </style>",
-      "39": "  <form>",
-      "40": "    <input value={title} onInput={e => { title := e.currentTarget.value }} />",
-      "41": "    <textarea value={body} onInput={e => { body := e.currentTarget.value }} />",
-      "42": "    {if problem != \"\" { <p class=\"problem\">{problem}</p> }}",
-      "43": "    {if saveError != \"\" { <p class=\"error\">{saveError}</p> }}",
-      "44": "    <button disabled={!dirty || problem != \"\"} onClick={() => { save(props.note.id, title, body) }}>save</button>",
-      "45": "  </form>",
-      "46": "}"
+      "8": "  <style>",
+      "9": "    td { padding: 4px 8px }",
+      "10": "    .when { color: gray; text-align: right }",
+      "11": "  </style>",
+      "12": "  <tr>",
+      "13": "    <td><a onClick={() => { open(props.note.id) }}>{props.note.title}</a></td>",
+      "14": "    <td class=\"when\">{props.note.updated}</td>",
+      "15": "  </tr>",
+      "16": "}",
+      "18": "export component NoteList(props: { notes: Note[] }) {",
+      "19": "  <style>",
+      "20": "    table { border-collapse: collapse; width: 100% }",
+      "21": "    .empty { font-style: italic }",
+      "22": "  </style>",
+      "23": "  if len(props.notes) == 0 {",
+      "24": "    <p class=\"empty\">no notes</p>",
+      "25": "  } else {",
+      "26": "    <table><tbody>{for n in props.notes { <Row note={n} /> }}</tbody></table>",
+      "27": "  }",
+      "28": "}",
+      "30": "// The editor's drafts are its own: snapshots of the note it was opened with (E-4).",
+      "31": "export component NoteEditor(props: { note: Note }) {",
+      "32": "  source title := peek(props.note.title)",
+      "33": "  source body := peek(props.note.body)",
+      "34": "  problem = title.trim() == \"\" ? \"a note needs a title\" : \"\"",
+      "35": "  dirty = title != props.note.title || body != props.note.body",
+      "36": "  <style>",
+      "37": "    form { display: grid; gap: 8px }",
+      "38": "    .problem, .error { color: crimson }",
+      "39": "    button[disabled] { opacity: 0.5 }",
+      "40": "  </style>",
+      "41": "  <form>",
+      "42": "    <input value={title} onInput={e => { title := e.currentTarget.value }} />",
+      "43": "    <textarea value={body} onInput={e => { body := e.currentTarget.value }} />",
+      "44": "    {if problem != \"\" { <p class=\"problem\">{problem}</p> }}",
+      "45": "    {if saveError != \"\" { <p class=\"error\">{saveError}</p> }}",
+      "46": "    <button disabled={!dirty || problem != \"\"} onClick={() => { save(props.note.id, title, body) }}>save</button>",
+      "47": "  </form>",
+      "48": "}"
     },
     "examples/notes/main.rx": {
       "1": "// main.rx — a small notes app: a searchable list, an editor, server functions behind both,",
