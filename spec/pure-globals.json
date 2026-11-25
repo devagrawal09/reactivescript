@@ -3,6 +3,6 @@
   "Number": ["()", "EPSILON", "MAX_SAFE_INTEGER", "MAX_VALUE", "MIN_SAFE_INTEGER", "MIN_VALUE", "NaN", "NEGATIVE_INFINITY", "POSITIVE_INFINITY", "isFinite", "isInteger", "isNaN", "isSafeInteger", "parseFloat", "parseInt"],
   "String": ["()", "fromCharCode", "fromCodePoint", "raw"],
   "Object": ["keys", "values", "entries", "fromEntries"],
-  "Array": ["isArray"],
+  "Array": ["from", "isArray"],
   "JSON": ["parse", "stringify"]
 }

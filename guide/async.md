@@ -36,6 +36,43 @@ addTodo(t)
 
 ### Which flight is holding this write?
 
+### Competing polls and progress
+
+Suppose a bulk edit updates `feed` and re-asks `summary`. The feed stays
+staged while a display waits on that summary (H-2). A poll that writes
+`feed` while that slot is held joins the edit, even if the poll was
+started by a different timer. A poll that only writes its own `presence`
+source can land independently. If that write triggers a badge that
+consumes both fresh presence and a derivation of the staged feed, the
+badge can join the two changes (H-3, H-3a). A pending request alone
+does not join them.
+
+For an upload, keep progress outside the held answer. For example, in
+the upload action schedule the status write, not the upload itself:
+
+```rx
+source uploadStatus := ""
+action send(file: File) {
+  onFlush(() => { uploadStatus := "Uploading…" })
+  try {
+    let attachment = await upload(file)
+    latestUpload := attachment
+    onFlush(() => { uploadStatus := "Uploaded" })
+  } catch (e) {
+    onFlush(() => { uploadStatus := e.message })
+  }
+}
+```
+
+Here `latestUpload` is the result source. Render `uploadStatus` in its
+own reader, not in one that consumes the held result. A host uploader's
+progress callbacks can likewise write that separate source in separate
+runs. `onFlush` starts a run; it doesn't exempt that run from the join
+rules. If progress must stage with the result, write it in the action
+instead.
+
+### Following the reads
+
 Start with the run that wrote the value, not the component that displays
 it. Include its other writes, what their readers compute, and every
 question the run opens that a display is waiting for (H-2). Two changes

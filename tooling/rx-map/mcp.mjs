@@ -10,7 +10,7 @@ const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
 const imports = { type: "boolean", default: false };
 const selection = { key: str, instance: str, whole: { type: "boolean", default: false }, kinds: { type: "array", minItems: 1, maxItems: 16,
-  items: { type: "string", enum: ["flush", "flight", "run", "boundary", "held", "released", "revert"] } } };
+  items: { type: "string", enum: ["flush", "flight", "run", "call", "boundary", "held", "released", "revert", "hmr", "reload", "caught"] } } };
 const tool = (name, description, properties = {}, required = []) => ({
   name, description, annotations: { readOnlyHint: true },
   inputSchema: { type: "object", properties: { ...properties, format: { type: "string", enum: ["text", "json"] } },
@@ -37,12 +37,14 @@ const tools = [
   tool("state", "Read live value, pending and error, optionally narrowed to one instance.", { key: str, instance: str }),
   tool("why", "Show current state, the last change, other keys in that flush, and related actions and reverts.", { key: str, instance: str }, ["key"]),
   tool("pending", "List nodes waiting for a request to finish."),
+  tool("trace", "Summarize recent action runs and direct JS calls, with observed writes and holds.", { key: str, run: integer(1), limit: { ...integer(1), maximum: 100 } }),
+  tool("hmr", "Explain the latest hot replacement per live source.", { key: str }),
 ];
 const resources = ["graph", "model"].map(name => ({ uri: `rx://${name}`, name, mimeType: "application/json" }));
 const acting = [
   { ...tool("travel", "Seek to a timeline step in the newest connected page.", { seq: integer(1) }, ["seq"]), annotations: { readOnlyHint: false } },
   { ...tool("resume", "Resume the newest connected page from time travel."), annotations: { readOnlyHint: false } },
-  tool("timeline", "Read the latest timeline steps and their changes.", { limit: { ...integer(1), maximum: 2000 } }),
+  tool("timeline", "Read timeline steps and optionally selected trace events.", { ...selection, compact: { type: "boolean", default: true }, limit: { ...integer(1), maximum: 2000 } }),
 ];
 const liveMethods = new Map(LIVE_METHODS.map(k => [k === "status" ? "live_status" : k, k]));
 const versions = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];

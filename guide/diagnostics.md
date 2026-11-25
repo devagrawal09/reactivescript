@@ -117,21 +117,33 @@ export default component App() {
 
 ### FOR_INDEX
 
-`for` binds one name. The index is `xs.indexOf(x)` in the body, or map the list to pairs first.
+`for` binds one name. Give the rows their index in a keyed equation first:
+`rows key id = xs.map((x, i) => ({ id: x.id, x, i }))`. Then use
+`for row in rows { … }` and read `row.x` and `row.i`. Use the item's stable
+key (e.g. `date` for a daily chart), not the index, to preserve row state
+on reorder. `xs.indexOf(x)` gives only the first match when values repeat.
 
 ```rx before
 export default component App() {
-  source xs := [1]
-  {for x, i in xs { <p>{x}</p> }}
+  source xs key id := [{ id: "a", text: "A" }]
+  {for x, i in xs { <p>{i}: {x.text}</p> }}
 }
 ```
 
 ```rx after
 export default component App() {
-  source xs := [1]
-  {for x in xs { <p>{x} {xs.indexOf(x)}</p> }}
+  source xs key id := [{ id: "a", text: "A" }]
+  rows key id = xs.map((x, i) => ({ id: x.id, x, i }))
+  {for row in rows { <p>{row.i}: {row.x.text}</p> }}
 }
 ```
+
+### CALL_SPREAD
+
+Ordinary calls can expand an iterable (`Math.max(...xs)`). For a local
+action or an instantiating function, pass each argument separately
+(`save(pair[0], pair[1])`). This makes the action's arity and an
+instantiation's `ref` arguments explicit (AC-1f, E-10).
 
 ### ASSIGNMENT
 

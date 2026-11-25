@@ -62,12 +62,13 @@ struct Bind {
     prev: Option<String>,
     /// `client` JS (12 SF-5b)
     client: bool,
+    js_import: bool,
     /// MO-10: a primitive's result (Jfn), or an instance's (with `inst`, the name of its raw result)
     shape: Option<FShape>,
     inst: Option<String>,
 }
 fn bind(kind: Kind, js: impl Into<String>) -> Bind {
-    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, shape: None, inst: None }
+    Bind { kind, js: js.into(), w: None, f: None, prev: None, client: false, js_import: false, shape: None, inst: None }
 }
 fn val(js: impl Into<String>) -> Bind {
     bind(Kind::Val, js)
@@ -703,6 +704,7 @@ impl<'p> Gen<'p> {
                             continue;
                         }
                         let mut b = val(mg(&n.alias));
+                        b.js_import = true;
                         b.client = *side == Some(crate::ast::Side::Client)
                             || declared_side.as_ref().is_some_and(|ds| ds.iter().any(|(k, s)| *k == n.name && *s == crate::ast::Side::Client));
                         self.set(env, &n.alias, b);
@@ -1359,7 +1361,9 @@ impl<'p> Gen<'p> {
                         vec![E::Null, thunk(E::Obj(fields.iter().map(|(k, p)| { let x = ix(&r, str(k.clone())); Prop::Kv(Key::Str(k.clone()), if *p == Part::Ref { call(x, vec![]) } else { x }) }).collect()))],
                     ),
                 };
-                Ok(Some(vec![konst(r.clone(), call(id(fb.js.clone()), out)), konst(b.js.clone(), Self::under(rx_key, whole))]))
+                let invoke = if self.dev_module.is_empty() { call(id(fb.js.clone()), out) }
+                    else { rtc("traceCall", vec![str(format!("{}||{fname}", self.dev_module)), id(fb.js.clone()), E::Arr(out)]) };
+                Ok(Some(vec![konst(r.clone(), invoke), konst(b.js.clone(), Self::under(rx_key, whole))]))
             }
             ExprKind::Index { o, .. } | ExprKind::Member { o, .. } => {
                 let ExprKind::Id(on) = &o.k else { return Ok(None) };
@@ -1531,7 +1535,17 @@ impl<'p> Gen<'p> {
                 let callee = if let ExprKind::Member { o, p, .. } = &f.k { E::Member(Box::new(self.expr(o, env, &sub)?), p.clone(), true) } else { self.expr(f, env, &sub)? };
                 let mut xs = vec![];
                 for a in args {
-                    xs.push(self.expr(a, env, &sub)?);
+                    xs.push(match &a.k {
+                        ExprKind::Spread(x) => E::Spread(Box::new(self.expr(x, env, &sub)?)),
+                        _ => self.expr(a, env, &sub)?,
+                    });
+                }
+                if !self.dev_module.is_empty() {
+                    if let ExprKind::Id(n) = &f.k {
+                        if self.lookup(env, n).is_some_and(|b| b.js_import) {
+                            return Ok(rtc("traceCall", vec![str(format!("{}||{n}", self.dev_module)), callee, E::Arr(xs)]));
+                        }
+                    }
                 }
                 call(callee, xs)
             }
@@ -1580,6 +1594,11 @@ impl<'p> Gen<'p> {
             }
             ExprKind::Use(n) => rtc("useGet", vec![self.reference(n, env, &Ctx { dynamic: ctx.dynamic, ..Ctx::default() })?, id("__o")]),
             ExprKind::Bin { op, l, r } => {
+                if op == "instanceof" {
+                    let l = self.expr(l, env, &sub)?;
+                    let r = if matches!(&r.k, ExprKind::Id(n) if n == "Error" && self.lookup(env, n).is_none()) { id("Error") } else { self.expr(r, env, &sub)? };
+                    return Ok(rtc("isA", vec![l, E::Arr(vec![r])]));
+                }
                 let l = self.expr(l, env, &sub)?;
                 let r = self.expr(r, env, &sub)?;
                 match op.as_str() {

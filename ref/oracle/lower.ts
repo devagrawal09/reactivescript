@@ -498,7 +498,8 @@ export class Oracle {
         if (e.op === "&&") return l ? this.ev(e.r, scope, env) : l;
         if (e.op === "||") return l ? l : this.ev(e.r, scope, env);
         if (e.op === "??") return l != null ? l : this.ev(e.r, scope, env);
-        const r = this.ev(e.r, scope, env); noFlight(r);
+        const r = e.op === "instanceof" && e.r.k === "id" && e.r.name === "Error" && !env?.has("Error") && !scope.lookup("Error") ? Error : this.ev(e.r, scope, env); noFlight(r);
+        if (e.op === "instanceof") return isA(l, [r]);
         return BIN[e.op](l, r);
       }
       case "arr": { const out: unknown[] = []; for (const i of e.items) { if (i.k === "spread") out.push(...(this.ev(i.e, scope, env) as unknown[])); else out.push(this.ev(i, scope, env)); } return out; }
@@ -512,7 +513,11 @@ export class Oracle {
         if (e.f.k === "id" && e.f.name === "until" && !env?.has("until") && !scope.lookup("until")) { const p = e.args[0]; if (p?.k !== "fn") throw new Error("UNTIL_PREDICATE"); return until(() => this.ev(p.body, scope, env)); }   // AC-6: Solid's until
         if (e.f.k === "id" && (e.f.name === "onSettled" || e.f.name === "onFlush") && !env?.has(e.f.name) && !scope.lookup(e.f.name)) { const cb = this.ev(e.args[0], scope, env) as () => void; return (e.f.name === "onSettled" ? onSettled : onFlush)(cb); }   // EF-7, EF-8: Solid's own
         if (e.f.k === "member") { self = this.ev(e.f.o, scope, env); f = self == null ? undefined : self[e.f.p]; } else f = this.ev(e.f, scope, env);
-        const args = e.args.map(a => this.ev(a, scope, env));
+        const args: unknown[] = [];
+        for (const a of e.args) {
+          if (a.k === "spread") args.push(...(this.ev(a.e, scope, env) as Iterable<unknown>));
+          else args.push(this.ev(a, scope, env));
+        }
         if (f === BUILTINS.fetch) { const fl = this.flight(String(args[0])); return process.env.ORACLE_PROMISES ? fl.first : fl; }
         if (typeof f !== "function") throw new Error("call of non-function");
         return f.apply(self, args);

@@ -267,6 +267,7 @@ export function liveText(method, data) {
   const boundary = r => `${r.region}  ${r.state}${r.error ? `: ${r.error}` : ""}`;
   const running = r => `${r.key}  running #${r.id}${since(r)}`;
   const event = r => {
+    if (r.type === "reload") return `${r.seq}  ${at(r.at)}  page reloaded`;
     const label = r.type === "boundary" ? `${boundary(r)}${r.origin ? ` ← ${r.origin}` : ""}`
       : r.type === "held" ? waiting(r)
       : `${who(r)}  ${[r.type, r.state, r.id === undefined ? "" : `#${r.id}`, r.args, r.error, r.reason,
@@ -276,6 +277,12 @@ export function liveText(method, data) {
   const change = r => `${r.error ? `${who(r)}  error: ${r.error}` : val(r)}  ${r.origin ?? "unknown origin"}`;
   if (data.instances) return data.instances.map(r => liveText(method, r)).join("\n");
   switch (method) {
+    case "trace": return data.map(b => [
+      `${b.type} ${who(b)} #${b.id}${b.instance === undefined && b.ownerPath?.length ? ` [${b.ownerPath.join(" › ")}]` : ""} ${b.args ?? "[]"} → ${b.error ? `rejected: ${b.error}` : b.result ?? "running"}${b.duration == null ? "" : ` (${at(b.duration)})`}${b.origin ? ` ← ${b.origin}` : ""}`,
+      ...b.calls.map(c => `  call ${c.key} #${c.id}`),
+      ...b.writes.map(w => `  ${w.type === "held" ? waiting({ ...w, since: w.at }) : `${w.type} ${who(w)}${w.preview === undefined ? "" : ` = ${w.preview}`}`} @ ${at(w.at)} (frame #${w.seq})`),
+    ].join("\n")).join("\n\n") || "no matching calls or runs";
+    case "hmr": return data.sources.map(s => `${who(s)}  ${s.status}: ${s.reason}`).join("\n") || "no observed source replacements";
     case "status": return `connected pages: ${data.pages}\nflushes: ${data.flushes}\nuptime: ${at(data.uptime)}`;
     case "tail": return data.flatMap(r => r.type === "flush" ? r.changes.map(c => `${r.seq}  ${at(r.at)}  ${change(c)}`) : event(r)).join("\n") || "no records";
     case "record": return data.records ? `${data.truncated ? "recording truncated\n" : ""}${liveText("tail", data.records)}`
@@ -285,7 +292,7 @@ export function liveText(method, data) {
     case "state":
       if (data.observation && !data.key) return data.observation;
       if (data.region) return data.observation ?? boundary(data);
-      if (data.key) return [value(data), ...(data.runs ?? []).map(running)].join("\n");
+      if (data.key) return [value(data), ...(data.hmr ? [`HMR ${data.hmr.status}: ${data.hmr.reason}`] : []), ...(data.runs ?? []).map(running)].join("\n");
       return [...data.values.map(value), ...data.boundaries.map(boundary), ...(data.held ?? []).map(waiting), ...data.runs.map(running), ...data.reverts.map(event)].join("\n") || "no live state";
     case "why": return [value(data.current ?? data), ...(data.seq ? [`${data.seq}  ${at(data.at)}  ${change(data)}`,
       ...(data.chain ?? []).map(c => `${"  ".repeat(c.depth)}← ${change(c)}`)] : ["no change recorded"]),
