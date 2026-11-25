@@ -285,6 +285,23 @@ errors and guesses of the last visit then show on the next.
 
 ## 4. Things that look like bugs and aren't
 
+### Progress and independent row saves
+
+One action groups its writes across its awaits. If a batch should commit
+all at once, keep it in one action. If rows should settle separately, run
+one action per row. Launch the row actions in separate runs, not by
+calling them all synchronously from one handler (that can join their
+changes). For a bulk control, an imported JS dispatcher can schedule each
+row callback in a separate task.
+
+For progress on a single long operation, keep a separate progress source.
+Publish progress from independent callbacks, or use `onFlush` to schedule
+a separate write at a known milestone. Don't write progress into the
+answer the operation already holds. A reader that derives from both
+progress and the held answer can join the changes; render progress on its
+own if it must stay responsive. The final result still belongs in the
+action that awaited it.
+
 - **A plain write in an action doesn't show until the server answers.** That's the hold. Use `guess` or
   `onFlush` (the table above). Don't move the code into a plain handler to escape it.
 - **A declined row guess stays until another action's re-ask lands.** While an action's `refresh` of the list is
