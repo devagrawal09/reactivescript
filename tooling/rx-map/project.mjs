@@ -58,7 +58,7 @@ function discover(files) {
   return modules.filter(f => !imported.has(f));
 }
 
-export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false, lastGood = new Map(), frontends = new Map() } = {}) {
+export function project({ root = process.cwd(), entries = [], rxc = process.env.RXC, spa = true, managed = false, lastGood = new Map(), frontends = new Map(), resolveImport } = {}) {
   root = resolve(root);
   entries = [...new Set(entries.map(f => resolve(root, f)))];
   const binary = rxc && /[\\/]/.test(rxc) ? resolve(rxc) : rxc || "rxc";
@@ -267,6 +267,54 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
     }
     return s.diagnostics;
   }
+  /** `check`, then what the dev server and the production build would do with it (Vite front end). `ran` names what ran. */
+  async function checkAll(force = false) {
+    const diagnostics = check(force);
+    if (!frontends.size) return { diagnostics, ran: [] };
+    const s = snapshot();
+    const out = [...diagnostics];
+    const has = d => out.some(x => x.file === d.file && x.line === d.line && x.code === d.code);
+    const ran = [];
+    const failed = new Set(diagnostics.map(d => d.file));
+    // dev: every import a served module makes, and every file it watches (Vite's import analysis requests both)
+    const served = [...frontends.values()].filter(f => f.served);
+    if (!served.length) ran.push("dev (compiled; no served imports from the front end)");
+    else if (!resolveImport) ran.push("dev (compiled; imports not resolved: no dev server)");
+    else {
+      ran.push("dev (served)");
+      const seen = new Set();
+      for (const frontend of served) for (const m of frontend.served()) {
+        const file = where(root, m.file);
+        for (const [spec, how] of [...m.imports.map(x => [x, "imports"]), ...m.watched.map(x => [x, "watches"])]) {
+          if (seen.has(`${m.file}\0${spec}`)) continue;
+          seen.add(`${m.file}\0${spec}`);
+          let id = null, why = "";
+          try { id = await resolveImport(spec, m.file); } catch (e) { why = `: ${plain(e.message).split("\n")[0]}`; }
+          if (id) continue;
+          const shown = isAbsolute(spec) ? where(root, spec) : spec;
+          const d = { file, line: 1, column: 1, severity: "error", code: "UNRESOLVED_IMPORT",
+            message: `dev: the served module ${how} ${JSON.stringify(shown)}, which Vite's import analysis cannot resolve${why}; the page fails to load` };
+          if (!has(d)) out.push(d);
+        }
+      }
+    }
+    // production: the compile each build target runs (not dev, not hot)
+    const targets = new Set();
+    for (const [entry, frontend] of frontends) {
+      if (!frontend.production || failed.has(where(root, entry))) continue;
+      for (const { target, out: built } of frontend.production()) {
+        targets.add(target);
+        const ds = built.diagnostics?.length ? built.diagnostics : built.error ? [{ file: entry, code: "BUILD", message: built.error }] : [];
+        for (const x of ds) {
+          const d = { file: isAbsolute(x.file) ? where(root, x.file) : x.file, line: x.range?.start?.line ?? x.line ?? 1,
+            column: (x.range?.start?.column ?? 0) + 1, severity: "error", code: x.code, message: `production (${target}): ${plain(x.message ?? x.msg)}` };
+          if (!has(d)) out.push(d);
+        }
+      }
+    }
+    ran.push(targets.size ? `production (${[...targets].join(", ")})` : "production: not run (the front end has no production compile)");
+    return { diagnostics: out, ran };
+  }
   function staleTransforms() {
     return [...frontends].flatMap(([entry, frontend]) => {
       const files = frontend.transformed?.();
@@ -301,5 +349,5 @@ export function project({ root = process.cwd(), entries = [], rxc = process.env.
       rmSync(scratch, { recursive: true, force: true });
     }
   }
-  return { load, check, diff, staleTransforms };
+  return { load, check, checkAll, diff, staleTransforms };
 }

@@ -18,7 +18,7 @@ export const getSecret = server(async () => …);
 | helper | generates |
 | --- | --- |
 | `pure(fn)` | `pure fn`: safe to call in reactive scope (R-io-4) |
-| `rejects([A, B], fn)` | `rejects(A \| B)` (R-f-8). An array literal of classes, each reaching `Error` |
+| `rejects([A, B], fn)` | `rejects(A \| B)` (R-f-8). An array literal of classes, each reaching `Error`; `rejects([], fn)` is `rejects(nothing)`, a promise that never rejects |
 | `ref({ args?, result? }, fn)` | `ref` parameters (indices) and a `ref` result: `true`, tuple indices or object keys (MO-10a/b). A literal |
 | `instantiates(fn)` | `instantiates`, where no `ref` is present (MO-10a) |
 | `server(fn)` / `client(fn)` | `server fn` / `client fn` (12 SF-5). Not both |

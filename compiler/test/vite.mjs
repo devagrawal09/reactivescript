@@ -207,6 +207,72 @@ if (!filter || "todo".includes(filter)) {   // the dev server: modules transform
   });
   await server.close();
 }
+if (!filter || "ts-graph".includes(filter)) {   // 09 MO-11: generated declarations are no module: never a runtime import
+  const dir = project("ts-graph", "tsg/main.rx");
+  const src = path.join(dir, "src/tsg"); mkdirSync(src);
+  symlinkSync(path.join(repo, "js"), path.join(dir, "node_modules/@reactivescript/js"), "dir");
+  writeFileSync(path.join(src, "model.ts"), `import { pure } from "@reactivescript/js";
+export type Item = { id: number; label: string };
+export const describe = pure((item: Item) => item.id + ": " + item.label);
+`);
+  writeFileSync(path.join(src, "server.ts"), `import { pure } from "@reactivescript/js";
+import type { Item } from "./model";
+export const load = pure(async (id: number): Promise<Item> => ({ id, label: "first" }));
+`);
+  writeFileSync(path.join(src, "browser.ts"), `import { pure } from "@reactivescript/js";
+export const shout = pure((s: string) => s.toUpperCase());
+`);
+  writeFileSync(path.join(src, "main.rx"), `import { describe, Item } from "./model"
+import { load } from "./server"
+import { shout } from "./browser"
+export default component Main() {
+  item: Item = await load(1)
+  <main>
+    {errored fallback(e) { <p>failed</p> } {
+      {loading fallback { <p>loading…</p> } {
+        <p>{shout(describe(item))}</p>
+      }}
+    }}
+  </main>
+}
+`);
+  const requested = [];
+  const seen = new Set(), problems = [];
+  const server = await vite.createServer({ ...config(dir, "tsg/main.rx"), plugins: [solid(), {
+    name: "record-requests", configureServer(s) { s.middlewares.use((req, _res, next) => { requested.push(req.url); next(); }); },
+  }] });
+  await server.listen(0);
+  try {
+    // what the browser does: transform the entry, then every URL import analysis put in its graph, transitively
+    const env = server.environments.client;
+    const walk = async url => {
+      if (seen.has(url)) return; seen.add(url);
+      if (/\.d\.rx(\?|$)/.test(url)) problems.push(`requested ${url}`);
+      let r;
+      try { r = await env.transformRequest(url); } catch (e) { problems.push(`${url}: ${e.message.split("\n")[0]}`); return; }
+      if (!r) { problems.push(`${url}: not served`); return; }
+      if (/\.d\.rx/.test(r.code)) problems.push(`${url} names a .d.rx: ${r.code.match(/.*\.d\.rx.*/)[0]}`);
+      const mod = await env.moduleGraph.getModuleByUrl(url);
+      for (const dep of mod?.importedModules ?? []) if (dep.url.includes("/src/")) await walk(dep.url);
+    };
+    await walk("/src/entry.js");
+    for (const id of [...env.moduleGraph.idToModuleMap.keys()]) if (/\.d\.rx(\?|$)/.test(id)) problems.push(`module graph has ${id}`);
+    await drive("ts-graph (dev): generated declarations are no import", server.resolvedUrls.local[0], async page => {
+      const t = await page.textContent("#app"); if (!t.includes("1: FIRST")) throw new Error(`rendered: ${t}`);
+    });
+    for (const u of requested) if (/\.d\.rx(\?|$)/.test(u)) problems.push(`the browser requested ${u}`);
+    if (problems.length) { fail++; console.log(`✗ ts-graph (dev): ${problems.join(" | ")}`); }
+    else { pass++; console.log(`✓ ts-graph (dev): ${seen.size} modules served, no .d.rx requested`); }
+  } finally { await server.close(); }
+  try {
+    process.env.NODE_ENV = "production";
+    await vite.build(config(dir, "tsg/main.rx"));
+    const js = readdirSync(path.join(dir, "dist/assets")).filter(f => f.endsWith(".js")).map(f => readFileSync(path.join(dir, "dist/assets", f), "utf8")).join("\n");
+    if (/\.d\.rx/.test(js)) throw new Error(`the bundle names ${js.match(/[\w./-]*\.d\.rx/)[0]}`);
+    pass++; console.log("✓ ts-graph (build): no .d.rx in the bundle");
+  } catch (e) { fail++; console.log(`✗ ts-graph (build): ${e.message.split("\n")[0]}`); }
+  finally { process.env.NODE_ENV = "development"; }
+}
 if (!filter || "hmr".includes(filter)) {
   const dir = project("hmr-without-map", "hot/main.rx");
   const src = path.join(dir, "src/hot");

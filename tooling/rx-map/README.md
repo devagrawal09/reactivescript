@@ -459,6 +459,22 @@ connected page and use the same host and limits as the map. `record` only change
 
 If a build breaks after a successful one, static queries reuse the last good model in this MCP session and say when it
 was built and which files changed. `check` reports current errors (`ok` when there are none).
+
+Under Vite (`/__rx/mcp`), `check` runs what the dev server serves and what the production build compiles, and its last
+line says which ran, e.g. `checked: dev (served), production (dom, ssr)`:
+
+- dev: the dev compile of each entry, then every import each served module makes and every file it watches, resolved
+  as Vite's import analysis resolves them. One that does not resolve is an `UNRESOLVED_IMPORT` error: the page would
+  fail to load it.
+- production: the non-dev compile for each target the app builds (the client's `dom`, and `ssr` when it hydrates). Its
+  errors say `production (<target>):`. This is the compile, not a whole Rolldown build.
+
+If one cannot run, the line says so (`dev (compiled; imports not resolved: no dev server)`).
+
+A dev server keeps running the compiler, runtime and map it loaded. If one of them is rebuilt on disk, every answer
+starts with `STALE: the dev server loaded @reactivescript/compiler built <t1>; the package on disk was rebuilt <t2> —
+restart the dev server`. `stale entry transform` means an entry's served code is no longer what its program compiles to.
+
 Use keys like `src/state.rx||ui.hidden` with
 `node`, `find`, or `reach` to inspect a field. `node` on the whole store lists observed fields; whole-store accesses
 also count for field queries. `reach` defaults to downstream. `overview` and `find` hide JS imports unless you pass

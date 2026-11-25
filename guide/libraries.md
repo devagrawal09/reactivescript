@@ -26,6 +26,7 @@ export const createEventListener = instantiates((target: EventTarget, type: stri
 | --- | --- |
 | `pure(fn)` | callable in reactive code (an equation, a loader), not only in actions and handlers |
 | `rejects([A, B], fn)` | its promise rejects with `A` or `B` only, so `catch (e: A)` and `errored fallback(e: B)` can be exhaustive. The classes themselves, not their names |
+| `rejects([], fn)` | its promise never rejects (it reports problems in its result), so an `await` of it needs no `catch`. It is still io |
 | `ref({ args: [0] }, fn)` | parameter 0 takes an accessor. You pass a plain value, and the compiler passes `() => value`, so the library follows it |
 | `ref({ result: true }, fn)` | the result is a *reader*: bound to a name, read without a call (`wide`, not `wide()`). `result: [0]` marks tuple element 0, `result: ["value"]` a property |
 | `instantiates(fn)` | the call makes state and runs once. Implied by any `ref`, so write it only without one |

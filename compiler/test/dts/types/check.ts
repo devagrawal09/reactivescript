@@ -13,6 +13,8 @@ export const fetchUser = pure(rejects([NotFound, Gone, TypeError], async (id: nu
 export const createToggle = ref({ result: [0] }, (initial: boolean) => createSignal(initial));
 export const createDebounced = ref({ args: [0], result: true }, (source: Accessor<string>, ms: number) => source);
 export const box = ref({ result: ["value"] }, () => ({ value: () => 1, set(v: number) { void v; } }));
+export const never = rejects([], async () => 1);
+export const neverServer = server(rejects([] as const, async () => 1));
 export const listen = instantiates(server(client((el: EventTarget) => el)));
 export const identity = pure(<T,>(x: T) => x);
 export const redundantRef = rx.pure(client(ref({ result: true }, () => () => 1))); // error: ref already implies pure
@@ -24,6 +26,7 @@ const s: string = createDebounced(() => "a", 10)();
 const n: number = box().value();
 const e: EventTarget = listen(new EventTarget());
 const str: string = identity("a");
+const q: Promise<number> = never(); void q; void neverServer;
 void p; void read; void write; void s; void n; void e; void str;
 
 export const wrongArg = ref({ args: [1] }, (source: Accessor<string>, ms: number) => source); // error: not assignable to type '0'
