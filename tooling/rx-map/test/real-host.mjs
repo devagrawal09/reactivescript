@@ -444,7 +444,7 @@ async function realHmr() {
   let text = 'import { Rates } from "./components/Rates.rx"\n' + original.replace('  source filter:', `  source counter: number := 0
   source answer: string = str(await loadAnswer("first"))
   doubled = counter * 2
-  source filter:`).replace("import pure { load }", "import pure { load, loadAnswer }")
+  source filter:`).replace("import { load }", "import { load, loadAnswer }")
     .replace("    <h1>Shelf</h1>", `    <h1>Shelf</h1>
     <Rates />
     <button type="button" data-testid="hmr-counter" onClick={() => { counter := c => c + 1 }}>{counter}</button>

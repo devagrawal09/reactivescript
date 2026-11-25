@@ -1,4 +1,4 @@
-import pure { loadShelf } from "../server"
+import { loadShelf } from "../server"
 
 export component ShelfInfo(props: { id: string }) {
   info = await loadShelf(props.id)

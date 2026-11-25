@@ -1,4 +1,4 @@
-import pure { load } from "./server"
+import { load } from "./server"
 import { save, newId, revert } from "./server"
 import { BookRow, Book } from "./components/Book.rx"
 import { ShelfInfo } from "./components/ShelfInfo.rx"
