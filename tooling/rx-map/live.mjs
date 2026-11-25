@@ -659,7 +659,8 @@ function getRecorder() {
   function boundaryState(ref, region) {
     const instances = [...(globalThis.__RX_BOUNDARIES__?.get(ref) ?? [])];
     const active = instances.findLast(b => b.state !== "ok");
-    return { region, state: active?.state ?? "ok", ...(active?.state === "error" ? { error: errorPreview(active.error) } : {}) };
+    return { region, state: active?.state ?? "ok", ...(active?.state === "error"
+      ? { error: errorPreview(active.error), ...(active.arm != null ? { arm: active.arm } : {}) } : {}) };
   }
   function allBoundaries() {
     const states = [], hiddenBy = [];
@@ -725,7 +726,7 @@ function getRecorder() {
         if (globalThis.__RX_TRACE__ !== trace) return;
         for (const b of allBoundaries()) {
           const prev = boundaries.get(b.region);
-          if ((prev?.state ?? "ok") === b.state && prev?.error === b.error) continue;
+          if ((prev?.state ?? "ok") === b.state && prev?.error === b.error && prev?.arm === b.arm) continue;
           boundaries.set(b.region, b);
           send({ type: "boundary", ...b, at: performance.now() });
         }

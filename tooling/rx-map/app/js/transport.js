@@ -56,7 +56,7 @@ function viewState() {
       values: Object.entries(S.values).filter(([, v]) => v.preview !== undefined || typeof v.error === "string")
         .map(([key, v]) => (typeof v.error === "string" ? { key, error: v.error, ...(v.last !== undefined ? { preview: v.last } : {}), ...(v.appShows ? { shown: v.last } : {}) } : { key, preview: v.preview })),
       flights: Object.keys(S.flying).map(key => ({ key, since: tl.flights.findLast(f => f.key === key && f.end == null)?.start ?? 0 })),
-      boundaries: Object.entries(S.boundaries).map(([region, b]) => ({ region, state: b.state, ...(b.error ? { error: b.error } : {}) })) },
+      boundaries: Object.entries(S.boundaries).map(([region, b]) => ({ region, state: b.state, ...(b.error ? { error: b.error } : {}), ...(b.arm != null ? { arm: b.arm } : {}) })) },
   };
 }
 

@@ -9,7 +9,7 @@
 use crate::ast::*;
 use crate::content::{misnested, misnested_inside, Shape, P_CLOSERS, P_SCOPE};
 use crate::infer::{inferred_action, run_findings, scalar_type, trigger_text, Code, RunOpts};
-use crate::model::{decl_keys, module_key, ModelBuilder, ModelSymbol};
+use crate::model::{decl_keys, module_key, ModelArm, ModelBuilder, ModelSymbol};
 use crate::modules::ModuleSet;
 use crate::parse::{js_trim, JsDecl, Part, Shape as FShape};
 use crate::signature::{Catch, CompSig, ExportSig, ModSig, Own, PropSig, SigParam, HOLD};
@@ -91,7 +91,7 @@ fn returns_closure(f: &Expr) -> bool {
         ss.iter().any(|s| match &s.k {
             StmtKind::Return(Some(Expr { k: ExprKind::Fn { .. }, .. })) => true,
             StmtKind::Sif { t, f, .. } => in_stmts(t) || in_stmts(f),
-            StmtKind::Try { body, handler, fin, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || fin.as_deref().is_some_and(in_stmts),
+            StmtKind::Try { body, handler, fin, arms, .. } => in_stmts(body) || handler.as_deref().is_some_and(in_stmts) || arms.iter().flatten().any(|a| in_stmts(&a.body)) || fin.as_deref().is_some_and(in_stmts),
             _ => false,
         })
     }
@@ -202,6 +202,8 @@ struct Region {
     is_component_root: bool,
     provides: IndexSet<String>,
     catches: Option<Catch>,
+    /// its boundary dispatches with ordered arms: routes mark the step, for the row reaching it (R-f-4)
+    ordered: bool,
     /// children passed to a component: (the component's root, the site)
     kids: Option<(RId, RId)>,
     sig: Option<CompSig>,
@@ -370,9 +372,12 @@ fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, o
             }
             ExprKind::Pending(_) | ExprKind::Peek(_) => return,
             ExprKind::Fn { params, .. } => locals.extend(params.iter().cloned()),
-            ExprKind::Catch { e: inner, alt, .. } => {
+            ExprKind::Catch { e: inner, alt, arms, .. } => {
                 snapshot_reads(Node::E(inner), true, locals, out);
-                snapshot_reads(Node::E(alt), caught, locals, out);
+                match arms {
+                    Some(arms) => for a in arms { snapshot_reads(Node::E(&a.body), caught, locals, out); },
+                    None => snapshot_reads(Node::E(alt), caught, locals, out),
+                }
                 return;
             }
             _ => {}
@@ -381,14 +386,14 @@ fn snapshot_reads<'a>(n: Node<'a>, caught: bool, locals: &mut HashSet<String>, o
             StmtKind::Let { name, .. } => {
                 locals.insert(name.clone());
             }
-            StmtKind::Try { body, handler, fin, catch_name, .. } => {
+            StmtKind::Try { body, handler, fin, catch_name, arms, .. } => {
                 for x in body {
-                    snapshot_reads(Node::S(x), caught || handler.is_some(), locals, out);
+                    snapshot_reads(Node::S(x), caught || handler.is_some() || arms.is_some(), locals, out);
                 }
                 if let Some(n) = catch_name {
                     locals.insert(n.clone());
                 }
-                for x in handler.iter().chain(fin.iter()).flatten() {
+                for x in handler.iter().chain(arms.iter().flatten().map(|a| &a.body)).chain(fin.iter()).flatten() {
                     snapshot_reads(Node::S(x), caught, locals, out);
                 }
                 return;
@@ -595,15 +600,15 @@ pub(crate) fn free_names(e: &Expr, bound: &HashSet<String>, out: &mut IndexSet<S
             free_names_stmts(body, &b, out);
         }
         ExprKind::Throw(x) => go(x, out),
-        ExprKind::Catch { e, name, alt, .. } => {
+        ExprKind::Catch { e, name, alt, arms, .. } => {
             go(e, out);
-            match name {
-                Some(n) => {
-                    let mut b = bound.clone();
-                    b.insert(n.clone());
-                    free_names(alt, &b, out);
-                }
-                None => free_names(alt, bound, out),
+            let mut b = bound.clone();
+            if let Some(n) = name {
+                b.insert(n.clone());
+            }
+            match arms {
+                Some(arms) => for a in arms { free_names(&a.body, &b, out); },
+                None => free_names(alt, &b, out),
             }
         }
         ExprKind::StyleMap { .. } | ExprKind::ServerFn { .. } => {}
@@ -645,14 +650,17 @@ fn free_names_stmts(ss: &[Stmt], bound0: &HashSet<String>, out: &mut IndexSet<St
                 free_names_stmts(t, &bound, out);
                 free_names_stmts(f, &bound, out);
             }
-            StmtKind::Try { body, catch_name, handler, fin, .. } => {
+            StmtKind::Try { body, catch_name, handler, fin, arms, .. } => {
                 free_names_stmts(body, &bound, out);
+                let mut b = bound.clone();
+                if let Some(n) = catch_name {
+                    b.insert(n.clone());
+                }
                 if let Some(h) = handler {
-                    let mut b = bound.clone();
-                    if let Some(n) = catch_name {
-                        b.insert(n.clone());
-                    }
                     free_names_stmts(h, &b, out);
+                }
+                for a in arms.iter().flatten() {
+                    free_names_stmts(&a.body, &b, out);
                 }
                 if let Some(f) = fin {
                     free_names_stmts(f, &bound, out);
@@ -753,12 +761,106 @@ pub fn js_number(n: f64) -> String {
     }
 }
 
+// ---------------------------------------------------------------- ordered error arms (R-f-4)
+/// An arm that takes every failure reaching it: `_`, `Error` (the top class, R-f-1), `Panic` (whatever reaches it at run time, R-f-10).
+fn takes_all(cls: &str) -> bool {
+    cls == "_" || cls == "Error" || cls == "Panic"
+}
+/// What an ordered dispatch discharges: every class with `_` or an `Error` arm, else its class arms (`Panic` discharges none).
+fn arms_catch<'s>(arms: impl Iterator<Item = &'s str> + Clone) -> Catch {
+    if arms.clone().any(|c| c == "_" || c == "Error") {
+        Catch::All
+    } else {
+        Catch::Set(arms.filter(|c| *c != "Panic").map(|c| c.to_string()).collect())
+    }
+}
+/// What arm `i`'s binding holds, for a rethrow: its class; for `_` (or `Error`) the row the earlier arms leave; nothing for `Panic`.
+fn arm_bound(arms: &[&str], i: usize, row: &IndexSet<String>) -> IndexSet<String> {
+    let a = arms[i];
+    if a == "Panic" {
+        return IndexSet::new();
+    }
+    if a != "_" && a != "Error" {
+        return [a.to_string()].into_iter().collect();
+    }
+    let before: HashSet<&str> = arms[..i].iter().copied().collect();
+    row.iter().filter(|c| !before.contains(c.as_str())).cloned().collect()
+}
+/// A row reaching a dispatch: its classes, and whether part of it is not resolved here (a prop's failures, known per application).
+#[derive(Clone, Default)]
+struct ArmRow {
+    cls: IndexSet<String>,
+    opaque: bool,
+}
+enum DispatchRow<'a> {
+    Expr { e: &'a Expr, env: EId, imp: bool },
+    Stmts { body: &'a [Stmt], env: EId },
+    Region(usize),
+}
+/// Where a dispatch's arms are in the model, for a dead `_`: an `errored` region, or an action's catch (if recorded).
+enum DispatchModel {
+    Region(usize),
+    Catch(Option<(usize, usize)>),
+}
+/// An ordered dispatch, checked against its row once the walk is done.
+struct DispatchRec<'a> {
+    errored: bool,
+    arms: Vec<(String, i64)>,
+    /// each arm's address (`ErrorArm` as usize), for `arm_types`
+    ptrs: Vec<usize>,
+    line: i64,
+    bad: HashSet<usize>,
+    row: DispatchRow<'a>,
+    model: DispatchModel,
+}
+/// One handler of an old typed nest (R-f-4): its classes (none: a catch-all), binding, line, identity, and body as shown.
+struct LegacyMember {
+    classes: Option<Vec<String>>,
+    name: Option<String>,
+    line: Option<i64>,
+    node: usize,
+    body: String,
+}
+/// The arms an old typed handler (or a nest of handlers around the same code, inner first) becomes: one per class, `_` for a catch-all.
+fn legacy_arms(members: &[&LegacyMember]) -> String {
+    let mut arms: Vec<String> = vec![];
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut dflt: Option<&str> = None;
+    for m in members {
+        match &m.classes {
+            None => {
+                if dflt.is_none() {
+                    dflt = Some(&m.body);
+                }
+            }
+            Some(cs) => {
+                for c in cs {
+                    if seen.insert(c) {
+                        arms.push(format!("{c} => {{ {} }}", m.body));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(d) = dflt {
+        arms.push(format!("_ => {{ {d} }}"));
+    }
+    format!("{{ {} }}", arms.join(" "))
+}
+fn list_cls(cs: &IndexSet<String>) -> String {
+    let mut v: Vec<&String> = cs.iter().collect();
+    v.sort();
+    v.into_iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
 // ---------------------------------------------------------------- the checker
 
+/// One step on the way up from a read. `at`: the region id of a boundary with ordered arms (R-f-4).
 #[derive(Clone)]
 struct Step {
     f: Option<Catch>,
     p: Option<Catch>,
+    at: Option<usize>,
 }
 #[derive(Clone)]
 struct PFEntry {
@@ -794,7 +896,7 @@ fn ck(c: &Option<Catch>) -> String {
     }
 }
 fn chain_key(c: &[Step]) -> String {
-    c.iter().map(|x| format!("{}~{}", ck(&x.f), ck(&x.p))).collect::<Vec<_>>().join("/")
+    c.iter().map(|x| format!("{}~{}{}", ck(&x.f), ck(&x.p), x.at.map(|a| format!("@{a}")).unwrap_or_default())).collect::<Vec<_>>().join("/")
 }
 fn dedupe_chains(xs: Vec<Vec<Step>>) -> Vec<Vec<Step>> {
     let mut seen = HashSet::new();
@@ -964,12 +1066,20 @@ pub struct Checker<'a> {
     arg_f: Vec<(usize, String, Fails)>,
     keys: HashMap<*const Decl, String>,
     boundaries: HashMap<*const Markup, usize>,
+    /// R-f-4: ordered dispatches, in walk order; an ordered boundary's region id → the row reaching it; old typed handlers
+    /// already reported as part of a nest
+    dispatches: Vec<DispatchRec<'a>>,
+    arm_rows: HashMap<usize, ArmRow>,
+    legacy_done: HashSet<usize>,
+    pub arm_types: HashMap<usize, Vec<String>>,
 }
 
 pub struct CheckResult {
     pub diags: Vec<Diagnostic>,
     pub sig: ModSig,
     pub model: serde_json::Value,
+    /// R-f-4: each `_` arm (by address) → the classes its binding may hold, sorted (`Error` for an open row)
+    pub arm_types: HashMap<usize, Vec<String>>,
 }
 
 pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
@@ -978,7 +1088,7 @@ pub fn check_with_signature(p: &Program, opts: Opts) -> CheckResult {
     c.run(p);
     let sig = c.signature(p);
     let model = c.build_model(&file);
-    CheckResult { diags: c.diags, sig, model }
+    CheckResult { diags: c.diags, sig, model, arm_types: c.arm_types }
 }
 
 pub struct Checked {
@@ -986,6 +1096,8 @@ pub struct Checked {
     /// Warnings never refuse the program: a host prints them and goes on.
     pub sigs: IndexMap<String, ModSig>,
     pub models: IndexMap<String, serde_json::Value>,
+    /// R-f-4: each `_` arm (by address) → the classes its binding may hold
+    pub arm_types: HashMap<usize, Vec<String>>,
 }
 
 /// AST sites and the matching resolved region IDs. Only the dev emitter consumes these.
@@ -1011,13 +1123,15 @@ pub fn check_modules_in(set: &ModuleSet, spa: bool, root: Option<&str>) -> Check
     let mut sigs: IndexMap<String, ModSig> = set.signatures.clone();
     let mut diags = set.diags.clone();
     let mut models = IndexMap::new();
+    let mut arm_types = HashMap::new();
     for path in &set.order {
         let r = check_with_signature(&set.programs[path], Opts { sigs: &sigs, file: Some(path.clone()), declarations: &set.declarations, spa, root });
         diags.extend(r.diags);
         sigs.insert(path.clone(), r.sig);
         models.insert(path.clone(), r.model);
+        arm_types.extend(r.arm_types);
     }
-    Checked { diags, sigs, models }
+    Checked { diags, sigs, models, arm_types }
 }
 
 impl<'a> Checker<'a> {
@@ -1063,6 +1177,10 @@ impl<'a> Checker<'a> {
             arg_f: vec![],
             keys: HashMap::new(),
             boundaries: HashMap::new(),
+            dispatches: vec![],
+            arm_rows: HashMap::new(),
+            legacy_done: HashSet::new(),
+            arm_types: HashMap::new(),
         }
     }
 
@@ -1078,7 +1196,7 @@ impl<'a> Checker<'a> {
         let r = self.regions.len();
         let depth = parent.map(|p| self.regions[p].depth + 1).unwrap_or(0);
         let comp = if component { Some(r) } else { parent.and_then(|p| self.regions[p].component) };
-        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, kids: None, sig: None });
+        self.regions.push(Region { id, depth, parent, component: comp, is_component_root: component, provides: IndexSet::new(), catches: None, ordered: false, kids: None, sig: None });
         self.model.region(id, kind, parent.map(|p| self.regions[p].id), name);
         r
     }
@@ -1193,7 +1311,8 @@ impl<'a> Checker<'a> {
                     }
                     MarkupKind::Mif { t, f, .. } => { el_classes(t, out); el_classes(f, out); }
                     MarkupKind::Mfor { body, .. } => el_classes(body, out),
-                    MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => { el_classes(fallback, out); el_classes(body, out); }
+                    MarkupKind::Loading { fallback, body, .. } => { el_classes(fallback, out); el_classes(body, out); }
+                    MarkupKind::Errored { fallback, body, arms, .. } => { el_classes(fallback, out); for a in arms.iter().flatten() { el_classes(&a.body, out); } el_classes(body, out); }
                     MarkupKind::Portal { body, .. } => el_classes(body, out),
                     _ => {}
                 }
@@ -2154,10 +2273,13 @@ impl<'a> Checker<'a> {
                     self.osw_direct(t, env, read);
                     self.osw_direct(f, env, read);
                 }
-                StmtKind::Try { body, handler, fin, .. } => {
+                StmtKind::Try { body, handler, fin, arms, .. } => {
                     self.osw_direct(body, env, read);
                     if let Some(h) = handler {
                         self.osw_direct(h, env, read);
+                    }
+                    for a in arms.iter().flatten() {
+                        self.osw_direct(&a.body, env, read);
                     }
                     if let Some(f) = fin {
                         self.osw_direct(f, env, read);
@@ -2220,14 +2342,65 @@ impl<'a> Checker<'a> {
         self.later.push(Later::RowFails { name: name.to_string(), env, fw, written: m0, line });
     }
     /// R-f-1: a name in a catch, a boundary or an import's `fails` must be an error class.
-    fn err_class(&mut self, n: &str, env: EId) {
+    fn err_class(&mut self, n: &str, env: EId) -> bool {
         if n == "Error" || n == "Panic" {
-            return;
+            return true;
         }
         let ok = self.lookup(env, n).is_some_and(|s| matches!(self.syms[s].kind, SymKind::ErrClass | SymKind::Import));
         if !ok {
             self.err("NOT_AN_ERROR_CLASS", "R-f-1", format!("{} is not an error class (declare it: `error {}(…)`)", n, n));
         }
+        ok
+    }
+    /// R-f-4: an ordered dispatch's arms where they are written — each names an error class (R-f-1), at its own line.
+    fn arms_decl<T>(&mut self, arms: &[ErrorArm<T>], env: EId) -> (Vec<ModelArm>, HashSet<usize>) {
+        let save = self.line;
+        let mut bad = HashSet::new();
+        for (i, a) in arms.iter().enumerate() {
+            if a.cls == "_" {
+                continue;
+            }
+            self.line = a.line as i64;
+            if !self.err_class(&a.cls, env) {
+                bad.insert(i);
+            }
+        }
+        self.line = save;
+        (arms.iter().map(|a| ModelArm { cls: a.cls.clone(), line: a.line, dead: false }).collect(), bad)
+    }
+    /// R-f-4: an old typed handler is LEGACY_TYPED_HANDLER, with its arms rewrite. A nest of handlers around the same code
+    /// (one directly inside another) is one error, rewritten as a single dispatch, inner arms first.
+    fn legacy(&mut self, kind: &str, members: Vec<LegacyMember>) {
+        for m in &members {
+            self.legacy_done.insert(m.node);
+        }
+        if !members.iter().any(|m| m.classes.is_some()) {
+            return;
+        }
+        let inner: Vec<&LegacyMember> = members.iter().rev().collect();
+        let name = inner.iter().find_map(|m| m.name.clone()).unwrap_or_else(|| "e".into());
+        let arms = legacy_arms(&inner);
+        if members.len() == 1 {
+            let cls = members[0].classes.as_ref().unwrap().join(" | ");
+            let old = match kind {
+                "await" => format!("catch ({name}: {cls}) => …"),
+                "try" => format!("catch ({name}: {cls}) {{ … }}"),
+                _ => format!("errored fallback({name}: {cls}) {{ … }}"),
+            };
+            let now = if kind == "errored" { format!("errored fallback({name}) {arms}") } else { format!("catch ({name}) {arms}") };
+            let what = if kind == "errored" { "boundary" } else { "catch" };
+            self.err("LEGACY_TYPED_HANDLER", "R-f-4", format!("`{old}` is the old typed {what}: write `{now}` — ordered arms, one per class, the first match wins"));
+            return;
+        }
+        let msg = match kind {
+            "errored" => {
+                let lines = members.iter().map(|m| m.line.unwrap_or(self.line).to_string()).collect::<Vec<_>>().join(", ");
+                format!("nested errored boundaries around the same content (lines {lines}): write one boundary, `errored fallback({name}) {arms}` — the inner boundary's arms first")
+            }
+            "try" => format!("nested `try` statements around the same code: write one `try` whose catch dispatches, `catch ({name}) {arms}` — the inner catch's arms first"),
+            _ => format!("nested catches on one `await`: write one dispatch, `catch ({name}) {arms}` — the inner catch's arms first"),
+        };
+        self.err("LEGACY_TYPED_HANDLER", "R-f-4", msg);
     }
 
     // ---- expressions ----
@@ -2415,7 +2588,7 @@ impl<'a> Checker<'a> {
                 }
             }
             ExprKind::Throw(x) => self.expr(x, env, ctx, None),
-            ExprKind::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Catch { e: inner, name, classes, alt, arms } => {
                 if !matches!(&inner.k, ExprKind::Await { .. }) {
                     self.err(
                         "CATCH_NOT_ON_AWAIT",
@@ -2423,13 +2596,45 @@ impl<'a> Checker<'a> {
                         format!("`{} catch …`: a catch follows an `await` — its rejection becomes an answer. A failure read from a value belongs to its own section: show it under `errored fallback(e) {{ … }} {{ … }}` where it is read", show(inner)),
                     );
                 }
+                if let Some(arms) = arms {
+                    self.expr(inner, env, ctx, None);
+                    let (model, bad) = self.arms_decl(arms, env);
+                    let at = self.model.catch(None, Some(model));
+                    self.dispatches.push(DispatchRec {
+                        errored: false,
+                        arms: arms.iter().map(|a| (a.cls.clone(), a.line as i64)).collect(),
+                        ptrs: arms.iter().map(|a| a as *const ErrorArm<_> as usize).collect(),
+                        line: arms[0].line as i64,
+                        bad,
+                        row: DispatchRow::Expr { e: inner, env, imp: ctx.imperative },
+                        model: DispatchModel::Catch(at),
+                    });
+                    for a in arms {
+                        let region = self.reg(env);
+                        let ienv = self.env(Some(env), region);
+                        if let Some(n) = name {
+                            self.set_value(ienv, n, self.line);
+                        }
+                        self.expr(&a.body, ienv, ctx, None);
+                    }
+                    return;
+                }
+                if !self.legacy_done.contains(&(e as *const Expr as usize)) {
+                    let mut members = vec![LegacyMember { classes: classes.clone(), name: name.clone(), line: None, node: e as *const Expr as usize, body: show(alt) }];
+                    let mut c: &Expr = inner;
+                    while let ExprKind::Catch { e: ci, name: cn, classes: cc, alt: ca, arms: None } = &c.k {
+                        members.push(LegacyMember { classes: cc.clone(), name: cn.clone(), line: None, node: c as *const Expr as usize, body: show(ca) });
+                        c = ci;
+                    }
+                    self.legacy("await", members);
+                }
                 self.expr(inner, env, ctx, None);
                 if let Some(cs) = classes {
                     for n in cs {
                         self.err_class(n, env);
                     }
                 }
-                self.model.catch(classes.as_ref());
+                self.model.catch(classes.as_ref(), None);
                 let region = self.reg(env);
                 let ienv = self.env(Some(env), region);
                 if let Some(n) = name {
@@ -2802,9 +3007,50 @@ impl<'a> Checker<'a> {
                     self.stmts(t, env, ctx);
                     self.stmts(f, env, ctx);
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms } => {
+                    if let Some(arms) = arms {
+                        let (model, bad) = self.arms_decl(arms, env);
+                        let at = self.model.catch(None, Some(model));
+                        self.dispatches.push(DispatchRec {
+                            errored: false,
+                            arms: arms.iter().map(|a| (a.cls.clone(), a.line as i64)).collect(),
+                            ptrs: arms.iter().map(|a| a as *const ErrorArm<_> as usize).collect(),
+                            line: arms[0].line as i64,
+                            bad,
+                            row: DispatchRow::Stmts { body, env },
+                            model: DispatchModel::Catch(at),
+                        });
+                        self.stmts(body, env, ctx);
+                        for a in arms {
+                            let henv = self.env(Some(env), region);
+                            if let Some(n) = catch_name {
+                                self.set_value(henv, n, self.line);
+                            }
+                            self.stmts(&a.body, henv, ctx);
+                        }
+                        if let Some(f) = fin {
+                            self.stmts(f, env, ctx);
+                        }
+                        continue;
+                    }
+                    if handler.is_some() && !self.legacy_done.contains(&(s as *const Stmt as usize)) {
+                        let mut members = vec![LegacyMember { classes: catch_classes.clone(), name: catch_name.clone(), line: None, node: s as *const Stmt as usize, body: "…".into() }];
+                        let mut c: &Stmt = s;
+                        loop {
+                            let StmtKind::Try { body: cb, .. } = &c.k else { break };
+                            let [one] = cb.as_slice() else { break };
+                            match &one.k {
+                                StmtKind::Try { handler: Some(_), arms: None, fin: None, catch_classes: cc, catch_name: cn, .. } => {
+                                    members.push(LegacyMember { classes: cc.clone(), name: cn.clone(), line: None, node: one as *const Stmt as usize, body: "…".into() });
+                                    c = one;
+                                }
+                                _ => break,
+                            }
+                        }
+                        self.legacy("try", members);
+                    }
                     if handler.is_some() {
-                        self.model.catch(catch_classes.as_ref());
+                        self.model.catch(catch_classes.as_ref(), None);
                     }
                     self.stmts(body, env, ctx);
                     if let Some(cs) = catch_classes {
@@ -3090,55 +3336,6 @@ impl<'a> Checker<'a> {
         0
     }
 
-    /// R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead.
-    fn dead_typed(&mut self, m: &Markup, classes: &[String], id: usize) {
-        let Some(inner) = self.covering_catch_all(match &m.kind {
-            MarkupKind::Errored { body, .. } => body,
-            _ => return,
-        }) else { return };
-        let line = m.line.unwrap_or(self.line as usize);
-        let cls = classes.join(" | ");
-        let inner_line = inner.line.unwrap_or(line);
-        self.line = line as i64;
-        self.err("DEAD_TYPED_BOUNDARY", "R-f-4", format!("errored fallback(e: {cls}) at line {line} is dead: the inner catch-all at line {inner_line} catches {cls} first — put the typed boundary inside the catch-all"));
-        if let Some(&by) = self.boundaries.get(&(inner as *const Markup)) {
-            self.model.shadow(id, by);
-        }
-    }
-    /// The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure.
-    fn covering_catch_all<'b>(&self, ms: &'b [Markup]) -> Option<&'b Markup> {
-        let mut inner: Option<&Markup> = None;
-        let mut saw = false;
-        for m in ms {
-            match &m.kind {
-                MarkupKind::Text(_) | MarkupKind::Style(_) => continue,
-                MarkupKind::Errored { classes: None, fallback, .. } if Self::static_fallback(fallback) => {
-                    saw = true;
-                    inner = inner.or(Some(m));
-                }
-                MarkupKind::El { tag, attrs, children } if !is_upper_tag(tag) && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) => {
-                    saw = true;
-                    let Some(c) = self.covering_catch_all(children) else { return None };
-                    inner = inner.or(Some(c));
-                }
-                _ => return None,
-            }
-        }
-        if saw { inner } else { None }
-    }
-
-    /// A fallback runs outside its own catch. Prove it inert without guessing about readers or foreign code.
-    fn static_fallback(ms: &[Markup]) -> bool {
-        ms.iter().all(|m| match &m.kind {
-            MarkupKind::Text(_) | MarkupKind::Style(_) => true,
-            MarkupKind::Read(e) => matches!(e.k, ExprKind::Lit(_)),
-            MarkupKind::El { tag, attrs, children } => tag.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
-                && tag.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-                && attrs.iter().all(|a| matches!(a.e.k, ExprKind::Lit(_))) && Self::static_fallback(children),
-            _ => false,
-        })
-    }
-
     // ---- views ----
     fn markup(&mut self, ms: &'a [Markup], env: EId, view_root: bool) {
         use crate::model::{outline_block, outline_hidden, OutlinePart::*};
@@ -3268,7 +3465,61 @@ impl<'a> Checker<'a> {
                     self.block(decls, body, be, Ctx::reactive());
                     self.later.push(Later::Content { ms: body, env, anc: vec!["body".into()] });
                 }
-                MarkupKind::Errored { fallback, decls, body, err_name, classes } => {
+                MarkupKind::Errored { fallback, decls, body, err_name, classes, arms } => {
+                    if let Some(arms) = arms {
+                        let line = m.line.map(|l| l as i64).unwrap_or(self.line);
+                        let (model, bad) = self.arms_decl(arms, env);
+                        for a in arms {
+                            let fe = self.env(Some(env), region);
+                            if let Some(n) = err_name {
+                                self.set_value(fe, n, self.line);
+                            }
+                            self.markup(&a.body, fe, false);
+                        }
+                        let b = self.region(Some(region), "errored", false, None);
+                        // R-f-4: the classes its arms take, for its content
+                        self.regions[b].catches = Some(arms_catch(arms.iter().map(|a| a.cls.as_str())));
+                        self.regions[b].ordered = true;
+                        let id = self.regions[b].id;
+                        self.model.arms(id, model);
+                        self.boundaries.insert(m as *const Markup, id);
+                        self.model.outline(region, Region(id), m.line);
+                        self.dispatches.push(DispatchRec {
+                            errored: true,
+                            arms: arms.iter().map(|a| (a.cls.clone(), a.line as i64)).collect(),
+                            ptrs: arms.iter().map(|a| a as *const ErrorArm<_> as usize).collect(),
+                            line,
+                            bad,
+                            row: DispatchRow::Region(id),
+                            model: DispatchModel::Region(id),
+                        });
+                        let be = self.env(Some(env), b);
+                        self.block(decls, body, be, Ctx::reactive());
+                        continue;
+                    }
+                    if !self.legacy_done.contains(&(m as *const Markup as usize)) {
+                        let mut members = vec![LegacyMember { classes: classes.clone(), name: err_name.clone(), line: m.line.map(|l| l as i64), node: m as *const Markup as usize, body: "…".into() }];
+                        let mut c: &Markup = m;
+                        while let MarkupKind::Errored { decls: cd, body: cb, .. } = &c.kind {
+                            let kids: Vec<&Markup> = cb.iter().filter(|k| !matches!(&k.kind, MarkupKind::Text(t) if js_trim(t).is_empty())).collect();
+                            if !cd.is_empty() || kids.len() != 1 {
+                                break;
+                            }
+                            match &kids[0].kind {
+                                MarkupKind::Errored { arms: None, classes: kc, err_name: kn, .. } => {
+                                    members.push(LegacyMember { classes: kc.clone(), name: kn.clone(), line: kids[0].line.map(|l| l as i64), node: kids[0] as *const Markup as usize, body: "…".into() });
+                                    c = kids[0];
+                                }
+                                _ => break,
+                            }
+                        }
+                        let save = self.line;
+                        if let Some(l) = m.line {
+                            self.line = l as i64;
+                        }
+                        self.legacy("errored", members);
+                        self.line = save;
+                    }
                     let fe = self.env(Some(env), region);
                     if let Some(n) = err_name {
                         self.set_value(fe, n, self.line);
@@ -3285,10 +3536,6 @@ impl<'a> Checker<'a> {
                     self.regions[b].catches = Some(Catch::of(classes));
                     let be = self.env(Some(env), b);
                     self.block(decls, body, be, Ctx::reactive());
-                    if let Some(cs) = classes.clone().filter(|cs| !cs.is_empty()) {
-                        let rid = self.regions[b].id;
-                        self.dead_typed(m, &cs, rid);
-                    }
                 }
             }
         }
@@ -3382,8 +3629,15 @@ impl<'a> Checker<'a> {
                     self.shape_walk(f, anc, scoped, env, sh, roots);
                 }
                 MarkupKind::Mfor { body, .. } => self.shape_walk(body, anc, scoped, env, sh, roots),
-                MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
+                MarkupKind::Loading { fallback, body, .. } => {
                     self.shape_walk(fallback, anc, scoped, env, sh, roots);
+                    self.shape_walk(body, anc, scoped, env, sh, roots);
+                }
+                MarkupKind::Errored { fallback, body, arms, .. } => {
+                    self.shape_walk(fallback, anc, scoped, env, sh, roots);
+                    for a in arms.iter().flatten() {
+                        self.shape_walk(&a.body, anc, scoped, env, sh, roots);
+                    }
                     self.shape_walk(body, anc, scoped, env, sh, roots);
                 }
                 _ => {}
@@ -3448,8 +3702,15 @@ impl<'a> Checker<'a> {
                     self.content_check(f, env, anc);
                 }
                 MarkupKind::Mfor { body, .. } => self.content_check(body, env, anc),
-                MarkupKind::Loading { fallback, body, .. } | MarkupKind::Errored { fallback, body, .. } => {
+                MarkupKind::Loading { fallback, body, .. } => {
                     self.content_check(fallback, env, anc);
+                    self.content_check(body, env, anc);
+                }
+                MarkupKind::Errored { fallback, body, arms, .. } => {
+                    self.content_check(fallback, env, anc);
+                    for a in arms.iter().flatten() {
+                        self.content_check(&a.body, env, anc);
+                    }
                     self.content_check(body, env, anc);
                 }
                 _ => {}
@@ -3967,7 +4228,9 @@ impl<'a> Checker<'a> {
                 // a statement walked as an expression shares the expression's `throw` case
                 let f = self.fails_of(x, env, imp, bound);
                 out.add(f);
-                out.cls.insert(self.class_of(x, env, bound));
+                for c in self.class_of(x, env, bound).split('|') {
+                    out.cls.insert(c.to_string());
+                }
                 return out;
             }
             Node::S(_) => {
@@ -4045,12 +4308,17 @@ impl<'a> Checker<'a> {
             ExprKind::Throw(x) => {
                 let f = self.fails_of(x, env, imp, bound);
                 out.add(f);
-                out.cls.insert(self.class_of(x, env, bound));
+                for c in self.class_of(x, env, bound).split('|') {
+                    out.cls.insert(c.to_string());
+                }
                 out
             }
-            ExprKind::Catch { e: inner, name, classes, alt } => {
+            ExprKind::Catch { e: inner, name, classes, alt, arms } => {
                 let inn = self.fails_of(inner, env, imp, bound);
-                let c = Catch::of(classes);
+                let c = match arms {
+                    Some(arms) => arms_catch(arms.iter().map(|a| a.cls.as_str())),
+                    None => Catch::of(classes),
+                };
                 let got: IndexSet<String> = inn.cls.iter().filter(|x| c.caught(x)).cloned().collect();
                 for x in &inn.cls {
                     if !c.caught(x) {
@@ -4061,6 +4329,19 @@ impl<'a> Checker<'a> {
                     let mut pre = pr.pre.clone();
                     pre.push(c.clone());
                     out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre });
+                }
+                if let Some(arms) = arms {
+                    // R-f-4: each arm's failures leave the dispatch
+                    let names: Vec<&str> = arms.iter().map(|a| a.cls.as_str()).collect();
+                    for (i, a) in arms.iter().enumerate() {
+                        let mut b2 = bound.clone();
+                        if let Some(n) = name {
+                            b2.insert(n.clone(), arm_bound(&names, i, &inn.cls));
+                        }
+                        let f = self.fails_of(&a.body, env, imp, &b2);
+                        out.add(f);
+                    }
+                    return out;
                 }
                 let mut b2 = bound.clone();
                 if let Some(n) = name {
@@ -4270,9 +4551,35 @@ impl<'a> Checker<'a> {
                     let x = self.stmts_fails(f, env, bound);
                     out.add(x);
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms } => {
                     let b = self.stmts_fails(body, env, bound);
-                    if let Some(h) = handler {
+                    if let Some(arms) = arms {
+                        // R-f-4: what no arm takes, and each arm's own failures
+                        let names: Vec<&str> = arms.iter().map(|a| a.cls.as_str()).collect();
+                        let c = arms_catch(names.iter().copied());
+                        for x in &b.cls {
+                            if !c.caught(x) {
+                                out.cls.insert(x.clone());
+                            }
+                        }
+                        for pr in &b.props {
+                            let mut pre = pr.pre.clone();
+                            pre.push(c.clone());
+                            out.props.push(PropRef { comp: pr.comp, field: pr.field.clone(), pre });
+                        }
+                        for (i, a) in arms.iter().enumerate() {
+                            let mut b2 = bound.clone();
+                            if let Some(n) = catch_name {
+                                b2.insert(n.clone(), arm_bound(&names, i, &b.cls));
+                            }
+                            let henv = self.env(Some(env), region);
+                            if let Some(n) = catch_name {
+                                self.set_value(henv, n, 0);
+                            }
+                            let x = self.stmts_fails(&a.body, henv, &b2);
+                            out.add(x);
+                        }
+                    } else if let Some(h) = handler {
                         let c = Catch::of(catch_classes);
                         for x in &b.cls {
                             if !c.caught(x) {
@@ -4344,7 +4651,7 @@ impl<'a> Checker<'a> {
             let f = self.stmts_fails(body, *env, &HashMap::new());
             act_f.push((name.clone(), *line, f));
         }
-        let pre = |cs: &[Catch]| -> Vec<Step> { cs.iter().map(|f| Step { f: Some(f.clone()), p: None }).collect() };
+        let pre = |cs: &[Catch]| -> Vec<Step> { cs.iter().map(|f| Step { f: Some(f.clone()), p: None, at: None }).collect() };
         let mut occ = vec![];
         for (region, _, _, f) in &reader_f {
             for pr in &f.props {
@@ -4370,13 +4677,13 @@ impl<'a> Checker<'a> {
         let top = self.esc(None);
         for it in top.fails {
             self.line = it.line;
-            let suffix = if it.cls == "Error" { String::new() } else { format!(": {}", it.cls) };
+            let arms = if it.cls == "Error" { "{ … }".to_string() } else { format!("{{ {} => {{ … }} _ => {{ … }} }}", it.cls) };
             self.err(
                 "UNHANDLED_FAILURE",
                 "R-f-5",
                 format!(
-                    "a reader of {} can fail with {} and no catch or errored boundary above it discharges {} — show it where it is read: `errored fallback(e{}) {{ … }} {{ … }}` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)",
-                    it.what, it.cls, it.cls, suffix
+                    "a reader of {} can fail with {} and no catch or errored boundary above it discharges {} — show it where it is read: `errored fallback(e) {} {{ … }}` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)",
+                    it.what, it.cls, it.cls, arms
                 ),
             );
         }
@@ -4421,6 +4728,179 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+        // R-f-4: the row reaching each ordered boundary from its content — each class on a route, up to the first step that takes it
+        fn reach(rows: &mut HashMap<usize, ArmRow>, chain: &[Step], cls: &str) {
+            for st in chain {
+                if let Some(at) = st.at {
+                    rows.entry(at).or_default().cls.insert(cls.to_string());
+                }
+                if st.f.as_ref().is_some_and(|f| f.caught(cls)) {
+                    return;
+                }
+            }
+        }
+        fn opaque(rows: &mut HashMap<usize, ArmRow>, chain: &[Step]) {
+            for st in chain {
+                if let Some(at) = st.at {
+                    rows.entry(at).or_default().opaque = true;
+                }
+                if matches!(st.f, Some(Catch::All)) {
+                    return;
+                }
+            }
+        }
+        let mut rows: HashMap<usize, ArmRow> = HashMap::new();
+        let rf: Vec<(RId, IndexSet<String>, bool)> = self.reader_f.iter().map(|(r, _, _, f)| (*r, f.cls.clone(), !f.props.is_empty())).collect();
+        for (region, cls, props) in rf {
+            for q in self.routes(region) {
+                for c in &cls {
+                    reach(&mut rows, &q, c);
+                }
+                if props {
+                    opaque(&mut rows, &q);
+                }
+            }
+        }
+        for ai in 0..self.apps.len() {
+            let (acomp, asite) = (self.apps[ai].comp, self.apps[ai].site);
+            let e = self.esc(Some(acomp));
+            for q in self.routes(asite) {
+                for it in &e.fails {
+                    reach(&mut rows, &q, &it.cls);
+                }
+            }
+        }
+        for (ai, field, f) in self.arg_f.clone() {
+            let (acomp, asite) = (self.apps[ai].comp, self.apps[ai].site);
+            for p in self.pf(acomp, &field) {
+                if p.term.is_some() {
+                    continue;
+                }
+                for q in self.routes(asite) {
+                    let mut ch = p.chain.clone();
+                    ch.extend(q);
+                    for c in &f.cls {
+                        reach(&mut rows, &ch, c);
+                    }
+                    if !f.props.is_empty() {
+                        opaque(&mut rows, &ch);
+                    }
+                }
+            }
+        }
+        self.arm_rows = rows;
+        self.check_arms();
+    }
+    /// R-f-4: each ordered dispatch against the row reaching it — arms in order (ERROR_ARM_ORDER), each class arm possible
+    /// (UNREACHABLE_ERROR_ARM, only from a closed row: no `Error`, nothing unresolved), and every class covered without `_`
+    /// (MISSING_ERROR_ARMS). A `_` a closed row leaves nothing for is dead in the model (it still takes panics).
+    fn check_arms(&mut self) {
+        let ds = std::mem::take(&mut self.dispatches);
+        for d in &ds {
+            let source = match d.row {
+                DispatchRow::Region(_) => "its content",
+                DispatchRow::Expr { .. } => "the awaited expression",
+                DispatchRow::Stmts { .. } => "the code it protects",
+            };
+            let show = |c: &str| format!("`{c} =>`");
+            let mut all: Option<(String, i64)> = None;
+            let mut seen: HashMap<String, i64> = HashMap::new();
+            let mut out: HashSet<usize> = HashSet::new();
+            for (i, (cls, line)) in d.arms.iter().enumerate() {
+                self.line = *line;
+                if let Some((acls, aline)) = &all {
+                    out.insert(i);
+                    let msg = if acls == "_" {
+                        if cls == "_" {
+                            format!("a second `_ =>` (the first is at line {aline}): `_` takes every failure left, so it appears once, as the last arm")
+                        } else {
+                            format!("{} follows `_ =>` (line {aline}), which takes every failure left: arms match in order — move {} above `_`, the last arm", show(cls), show(cls))
+                        }
+                    } else {
+                        let why = if acls == "Panic" { "takes whatever reaches it at run time (R-f-10)" } else { "takes every failure (Error is the top class)" };
+                        format!("{} follows {} (line {aline}), which {why}: arms match in order — move {} above it", show(cls), show(acls), show(cls))
+                    };
+                    self.err("ERROR_ARM_ORDER", "R-f-4", msg);
+                    continue;
+                }
+                if let Some(l) = seen.get(cls) {
+                    out.insert(i);
+                    let msg = format!("{} repeats the arm at line {l}, which takes every {cls} first: merge the two bodies", show(cls));
+                    self.err("ERROR_ARM_ORDER", "R-f-4", msg);
+                    continue;
+                }
+                if takes_all(cls) {
+                    all = Some((cls.clone(), *line));
+                } else {
+                    seen.insert(cls.clone(), *line);
+                }
+            }
+            let row = match &d.row {
+                DispatchRow::Expr { e, env, imp } => {
+                    let f = self.fails_of(e, *env, *imp, &HashMap::new());
+                    ArmRow { opaque: !f.props.is_empty(), cls: f.cls }
+                }
+                DispatchRow::Stmts { body, env } => {
+                    let f = self.stmts_fails(body, *env, &HashMap::new());
+                    ArmRow { opaque: !f.props.is_empty(), cls: f.cls }
+                }
+                DispatchRow::Region(id) => self.arm_rows.get(id).cloned().unwrap_or_default(),
+            };
+            let closed = !row.opaque && !row.cls.contains("Error");
+            if closed {
+                for (i, (cls, line)) in d.arms.iter().enumerate() {
+                    if takes_all(cls) || out.contains(&i) || d.bad.contains(&i) || row.cls.contains(cls) {
+                        continue;
+                    }
+                    self.line = *line;
+                    let why = if row.cls.is_empty() { "cannot fail".to_string() } else { format!("can fail only with {}", list_cls(&row.cls)) };
+                    self.err("UNREACHABLE_ERROR_ARM", "R-f-4", format!("{} can never match: {source} {why} — remove the arm", show(cls)));
+                }
+            }
+            let class_arms: Vec<&String> = d.arms.iter().map(|(c, _)| c).filter(|c| !takes_all(c)).collect();
+            // a lone `Panic` leaves every failure to the code below it (R-f-10)
+            if !class_arms.is_empty() && !d.arms.iter().any(|(c, _)| c == "_" || c == "Error") {
+                let covered: HashSet<&str> = class_arms.iter().map(|c| c.as_str()).collect();
+                let mut missing: Vec<String> = row.cls.iter().filter(|c| *c != "Error" && !covered.contains(c.as_str())).cloned().collect();
+                missing.sort();
+                let open = row.cls.contains("Error");
+                let subject = if d.errored { "this errored boundary" } else { "this catch" };
+                self.line = d.line;
+                if open {
+                    let what = if missing.is_empty() { "any Error".to_string() } else { format!("{} and any other Error", missing.join(", ")) };
+                    self.err("MISSING_ERROR_ARMS", "R-f-4", format!("{subject} has no `_` arm, and {source} can fail with {what} (its row is open): add `_ => {{ … }}` as the last arm"));
+                } else if !missing.is_empty() {
+                    let add = missing.iter().map(|c| format!("`{c} => {{ … }}`")).collect::<Vec<_>>().join(" ");
+                    self.err("MISSING_ERROR_ARMS", "R-f-4", format!("{subject} has no `_` arm, and {source} can also fail with {}: add {add}, or `_ => {{ … }}` as the last arm", missing.join(", ")));
+                }
+            }
+            for (i, (c, _)) in d.arms.iter().enumerate() {
+                if c != "_" {
+                    continue;
+                }
+                let before: HashSet<&str> = d.arms[..i].iter().map(|(c, _)| c.as_str()).collect();
+                let mut left: Vec<String> = row.cls.iter().filter(|c| !before.contains(c.as_str())).cloned().collect();
+                if row.opaque || left.iter().any(|c| c == "Error") {
+                    left = vec!["Error".into()];
+                } else {
+                    left.sort();
+                }
+                self.arm_types.insert(d.ptrs[i], left);
+            }
+            if let Some(di) = d.arms.iter().position(|(c, _)| c == "_") {
+                if closed && !out.contains(&di) {
+                    let before: HashSet<&str> = d.arms[..di].iter().map(|(c, _)| c.as_str()).collect();
+                    if row.cls.iter().all(|c| before.contains(c.as_str())) {
+                        match d.model {
+                            DispatchModel::Region(id) => self.model.region_default_dead(id),
+                            DispatchModel::Catch(Some((comp, i))) => self.model.catch_default_dead(comp, i),
+                            DispatchModel::Catch(None) => {}
+                        }
+                    }
+                }
+            }
+        }
+        self.dispatches = ds;
     }
     /// The steps from a region up to its component's root (or the program's), through children's reads.
     fn routes(&mut self, r0: RId) -> Vec<Vec<Step>> {
@@ -4440,7 +4920,8 @@ impl<'a> Checker<'a> {
                 (reg.catches.clone(), reg.provides.clone(), reg.kids, reg.is_component_root || reg.parent.is_none())
             };
             if catches.is_some() || !provides.is_empty() {
-                local.push(Step { f: catches, p: if provides.is_empty() { None } else { Some(Catch::Set(provides)) } });
+                let at = if self.regions[ri].ordered { Some(self.regions[ri].id) } else { None };
+                local.push(Step { f: catches, p: if provides.is_empty() { None } else { Some(Catch::Set(provides)) }, at });
             }
             if let Some((comp, site)) = kids {
                 for p in self.pf(comp, "children") {
@@ -4494,9 +4975,9 @@ impl<'a> Checker<'a> {
             let ss: Vec<_> = if field == "*" { sig.props.values().collect() } else { sig.props.get(field).or_else(|| sig.props.get("*")).into_iter().collect() };
             let mut out = vec![];
             for s in ss {
-                out.push(PFEntry { chain: vec![Step { f: Some(s.f.clone()), p: Some(s.p.clone()) }], term: None });
+                out.push(PFEntry { chain: vec![Step { f: Some(s.f.clone()), p: Some(s.p.clone()), at: None }], term: None });
                 if let Some((af, an)) = &s.action {
-                    out.push(PFEntry { chain: vec![Step { f: Some(af.clone()), p: None }], term: Some((-1, an.clone())) });
+                    out.push(PFEntry { chain: vec![Step { f: Some(af.clone()), p: None, at: None }], term: Some((-1, an.clone())) });
                 }
             }
             return out;

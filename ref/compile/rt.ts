@@ -54,6 +54,10 @@ function errorClass(name: string, params: string[], message: (...args: unknown[]
 }
 const PANIC = { panic: true } as const;   // R-f-10: statically discharges nothing; at run time takes whatever reaches it
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
+/** R-f-4: ordered arms — the index of the first arm whose class takes `err` (`undefined`: the default arm, `_`); -1: none. */
+const arm = (err: unknown, classes: unknown[]): number => classes.findIndex(c => isA(err, c === undefined ? undefined : [c]));
+/** R-f-4: ordered arms as a catch's test and handler (`catchMemo`, `catchRead`, `tryCatch`, `settle`): the selected arm handles it. */
+const arms = (classes: unknown[], alts: ((err: unknown) => unknown)[]) => [(err: unknown) => arm(err, classes) >= 0, (err: unknown) => alts[arm(err, classes)](err)] as const;
 /** `e catch (x: C) => alt`, reactive: an error boundary around the read whose fallback is the value (Solid: an errored read
  *  reaches the nearest boundary even inside a JS `try`). The fallback is decided when read, so a change of class re-decides it. */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
@@ -326,7 +330,14 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     /** An imperative read sees σ (H-10): a pending value is a value; a snapshot of an error throws it (R-f-7). */
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     // ---- failures (R-f) ----
-    errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    errorClass, isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead, arm, arms,
+    // a dev build's instrumented calls (rt-web.ts traces them for the live map); here, the calls alone
+    actionArm: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => arm(error, classes),
+    actionCaught: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => isA(error, classes),
+    sourceDev(name: string, init: Acc, guessed = false): [Acc, Writer] { return app.source(name, untrack(init), guessed); },
+    traceCall: (_k: string, f: (...a: unknown[]) => unknown, args: unknown[]) => f(...args),
+    traceCallback: <T,>(f: T): T => f,
+    observeRef: (read: Acc): Acc => read,
     /** 11 CP-4b: a dev build's keyed creating call (rt-web.ts names its nodes); here, the call alone. */
     key: <T,>(_k: string, f: () => T): T => f(),
     throw: (e: unknown): never => { throw e; },
@@ -346,6 +357,19 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
         fallback: (err: Acc) => {
           const owner = getOwner(); const ok = createMemo(() => isA(err(), classes)); let shown: unknown = null;
           return new Fallback(() => ok() ? (shown ??= runWithOwner(owner, () => props.fallback(err))) : new Forward(err()));
+        },
+        get children() { return props.children; },
+      });
+      return createMemo(() => unwrapFallback(typeof out === "function" ? (out as Acc)() : out));
+    },
+    /** `errored fallback(e) { A => { … } _ => { … } }` (R-f-4), as rt-web.ts's. */
+    ArmsErrored(props: { classes: unknown[]; arms: ((err: Acc) => unknown)[]; children: unknown }) {
+      const classes = props.classes, alts = props.arms;
+      const out = R.createComponent(Errored as any, {
+        fallback: (err: Acc) => {
+          const sel = createMemo(() => arm(err(), classes));
+          const shown = createMemo(() => { const i = sel(); return i < 0 ? null : untrack(() => alts[i](err)); });
+          return new Fallback(() => sel() < 0 ? new Forward(err()) : shown());
         },
         get children() { return props.children; },
       });

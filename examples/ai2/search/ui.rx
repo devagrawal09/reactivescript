@@ -24,17 +24,18 @@ export component ResultsPane(props: {}) {
     <section>
       <p>{pending? results ? "searching…" : ""}</p>
       {" "}
-      {errored fallback(e) { <p>search failed: {e.message}</p> } {
-        errored fallback(e: TooShort) { <p>{e.message}</p> } {
-          loading fallback { <p>loading results…</p> } {
-            <h2>{count} results for {latest query}</h2>
-            {" "}
-            <ul class={pending? results ? "dim" : ""}>
-              {for r in results {
-                <ResultRow hit={r} />
-              }}
-            </ul>
-          }
+      {errored fallback(e) {
+        TooShort => { <p>{e.message}</p> }
+        _ => { <p>search failed: {e.message}</p> }
+      } {
+        loading fallback { <p>loading results…</p> } {
+          <h2>{count} results for {latest query}</h2>
+          {" "}
+          <ul class={pending? results ? "dim" : ""}>
+            {for r in results {
+              <ResultRow hit={r} />
+            }}
+          </ul>
         }
       }}
     </section>
@@ -59,10 +60,11 @@ export component DetailPane(props: {}) {
     <section>
       {loading on(selected) fallback { <p>loading…</p> } {
         for id in [selected] {
-          errored fallback(e) { <p>failed: {e.message}</p>{" "}<button onClick={() => { retry() }}>retry</button> } {
-            errored fallback(e: NotFound) { <p>{e.message}</p> } {
-              <ItemView />
-            }
+          errored fallback(e) {
+            NotFound => { <p>{e.message}</p> }
+            _ => { <p>failed: {e.message}</p>{" "}<button onClick={() => { retry() }}>retry</button> }
+          } {
+            <ItemView />
           }
         }
       }}

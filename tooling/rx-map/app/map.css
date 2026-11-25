@@ -87,11 +87,9 @@ svg#edges { position: absolute; left: 0; top: 0; pointer-events: none; overflow:
 
 /* a plate's summary: a card with counts by role and what it exports. It replaces the tokens when the plate is
    collapsed, and lays over them at low zoom (same size, so nothing moves) */
-/* a typed errored boundary that can never show (an inner catch-all catches first): struck through, faded */
-#board .frame.dead { border-style: dotted; opacity: .7 }
-.deadmark { display: inline-flex; gap: 5px; align-items: center; color: var(--fail); font-size: 11px; border: 1px dashed color-mix(in srgb, var(--fail) 60%, transparent); border-radius: 4px; padding: 0 6px }
-.deadmark b { text-transform: uppercase; letter-spacing: .1em; font-size: 9.5px } .deadmark span { color: var(--dim) }
-.frame.dead > .flabel .ctag { text-decoration: line-through; text-decoration-color: var(--fail) }
+.arm-list { font-family: ui-monospace, Menlo, monospace; white-space: nowrap }
+.arm-list > span + span::before { content: " · "; color: var(--dim); font-weight: normal; white-space: pre }
+.arm-list .selected-arm { color: var(--fail); font-weight: 600 }
 /* ---- detail levels: what is drawn, never where (layout.mjs placed everything once) ---------------------------- */
 .lvx { transition: opacity .2s ease }
 /* level 1, the overview: a plate shows its card, filling the same box */

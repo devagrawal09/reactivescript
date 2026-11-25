@@ -225,26 +225,17 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   `e` can fail has `e`'s failures until it is written (found by
   S-ai2-settings: `source draft := peek(props.initial.name)`).
 - **R-f-4 (Discharge).** A failure leaves the row at:
-  - `errored fallback(e: A | B) { … } { … }`, for every reader in its
-    content: `A` and `B`. `fallback(e)` or a bare `fallback` discharges
-    every class. A typed boundary whose children are wrapped by an inner
-    catch-all with a static fallback is dead: the catch-all takes those classes first, so the typed
-    fallback never shows (`DEAD_TYPED_BOUNDARY`, bin S, both lines; the
-    model marks the typed region `deadTyped: true` and `shadowed` by the
-    inner one, for the map). A fallback is outside its own catch and may
-    fail into the outer region. The diagnostic only proves static fallback
-    markup (literal text and literals inside ordinary HTML elements), not
-    fallbacks that read values or render components.
-    Put the typed boundary inside the catch-all. At run time a failure of another class passes the boundary
-    to the next one up — the boundary does not show its fallback for it, and
-    re-decides when the failure it shows changes class (S-fail-1 instant 6).
-  - `await e catch (x: A | B) => alt`, at the `await` only: when the
-    promise rejects with `A` or `B` the answer is `alt`, with `x` the error;
-    other failures and pending pass through untouched. `catch (x) => alt`
-    discharges every class. It binds looser than every operator, `?:`
-    included. A matching rejection is an answer, so it never becomes an
-    errored value: `user = await fetchUser(id) catch (e: NotFound) => null`
-    lands `null`. In imperative scope it follows a statement-level `await`
+  - `errored fallback(e) { A => { … } B => { … } } { … }` discharges
+    `A` and `B` from the row reaching the boundary from its content.
+    `fallback(e)` or a bare `fallback` with ordinary markup discharges
+    every class. A fallback is outside its own dispatch and may fail
+    into the outer region.
+  - `await e catch (x) { A => { alt } B => { other } }`, at the `await`
+    only: a matching rejection becomes the selected arm's expression
+    value, with `x` bound to the error. Pending passes through untouched.
+    `catch (x) => alt` discharges every class. Both forms bind looser
+    than every operator, `?:` included. In imperative scope the catch
+    follows a statement-level `await`
     (AC-1); `try`/`catch` (AC-7) takes any other failure there, a snapshot
     read's included (R-f-7).
     A `catch` after anything but an `await` is `CATCH_NOT_ON_AWAIT` (bin S;
@@ -255,6 +246,17 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
     value (S-fail-4) and gave handlers a quiet way to read another pane's
     failed data (found by the eval board, r15prep: the board reference
     needed no catch once handlers read only their own pane).
+  - In any ordered dispatch, select the first matching arm. `_` matches
+    the remainder and must be unique and last. An earlier arm that
+    already covers a later arm is `ERROR_ARM_ORDER`; an arm proved
+    impossible by the resolved row is `UNREACHABLE_ERROR_ARM`. An opaque
+    row alone does not prove absence. A dispatch must cover the declared
+    row reaching it: `MISSING_ERROR_ARMS` names uncovered classes, and
+    an open remainder requires `_`. `Panic` follows R-f-10. Unmatched
+    runtime errors propagate out. A selected arm's own failures always
+    propagate out; they never enter a later arm. Each arm has its own
+    error binding, narrowed to its class or to the remaining row for `_`
+    (`Error` for an open remainder).
   - An effect: its apply receives the failure as a value (`$0…`, H-12), so
     its inputs are discharged.
   - `pending? e` is a verdict and never reads `e`'s failure; `latest e` and
@@ -280,8 +282,9 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   class it can fail with that no enclosing `catch` in the body discharges
   is `UNCAUGHT_ACTION_FAILURE` (bin S). The handler that launched the action
   does not await it, so nothing after the body could (ruled 2026-10-23).
-  `catch (e: A | B)` discharges `A` and `B` — at run time other classes are
-  rethrown; `catch (e)` or a bare `catch` discharges every class; `finally`
+  Ordered arms must cover the declared row of their protected code
+  (R-f-4); an ordinary `catch (e)` or a bare `catch` discharges every class;
+  `finally`
   discharges nothing; a nested `action` is its own. Awaiting an action fails
   with nothing: it cannot fail. An action reading `props.x` is checked at
   each application against that argument, with no boundary to help.
@@ -304,8 +307,8 @@ tracked. Inspired by solid-yield's typed failure color; the checks are
   failure row narrower than the inferred one is `ROW_NARROWER_THAN_INFERRED`,
   and so is a written prefix that leaves `fails(…)` out of a value that fails.
 
-- **R-f-10 (A boundary for panics).** `Panic` may be listed in a catch or
-  a boundary: `errored fallback(e: Panic) { … } { … }`. Statically it
+- **R-f-10 (A boundary for panics).** `Panic` may be an arm in a catch or
+  a boundary: `errored fallback(e) { Panic => { … } } { … }`. Statically it
   discharges no failure class, so every failure under it must be discharged
   below it; at run time it takes whatever reaches it — which, failures being
   discharged below, can only be a panic. This is the root boundary for an

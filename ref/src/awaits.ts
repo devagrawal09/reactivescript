@@ -24,7 +24,7 @@ export function nonTailAwaits(root: Expr, tail = true): Hoisted[] {
         else if (x.op === "??") walk(x.r, false, [...g, { e: x.l, nullish: true }]);
         else walk(x.r, false, g);
         return;
-      case "catch": walk(x.e, tail, g); walk(x.alt, false, g); return;
+      case "catch": walk(x.e, tail, g); walk(x.alt, false, g); x.arms?.forEach(a => walk(a.body, false, g)); return;
       case "fn": case "draft": return;                                  // a closure's body runs later; a draft's statements are its own
       default:
         for (const v of Object.values(x as object)) {
@@ -63,7 +63,7 @@ export function innerCatches(root: Expr): HoistedCatch[] {
   const walk = (x: Expr, root: boolean, g: Guard[]): void => {
     switch (x.k) {
       case "rec": for (const f of x.fields) { if ("computed" in f) walk(f.computed, false, g); walk("spread" in f ? f.spread : f.v, false, g); } return;
-      case "catch": if (root) { walk(x.e, false, g); walk(x.alt, false, g); } else if (!hasAwait(x)) out.push({ node: x, guards: g }); return;
+      case "catch": if (root) { walk(x.e, false, g); walk(x.alt, false, g); x.arms?.forEach(a => walk(a.body, false, g)); } else if (!hasAwait(x)) out.push({ node: x, guards: g }); return;
       case "if": walk(x.c, false, g); walk(x.t, false, [...g, { e: x.c }]); walk(x.f, false, [...g, { e: x.c, neg: true }]); return;
       case "bin":
         walk(x.l, false, g);

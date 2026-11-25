@@ -29,7 +29,7 @@ export default component App() {
 
   <main>
     <h1>Profile</h1>{" "}
-    {errored fallback(e: NotFound) { <p>{e.message}</p> } {
+    {errored fallback(e) { NotFound => { <p>{e.message}</p> } } {
       {loading fallback { <p>loading user</p> } { <p>{user.name}</p> }}
     }}
     {" "}

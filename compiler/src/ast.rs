@@ -4,6 +4,19 @@
 
 use serde_json::{json, Map, Value};
 
+#[derive(Debug, Clone)]
+pub struct ErrorArm<T> {
+    pub cls: String,
+    pub body: T,
+    pub line: usize,
+}
+
+fn arms_json<T>(arms: &Option<Vec<ErrorArm<T>>>, body: impl Fn(&T) -> Value) -> Option<Value> {
+    arms.as_ref().map(|arms| Value::Array(arms.iter().map(|a| {
+        json!({ "cls": a.cls, "body": body(&a.body), "line": a.line })
+    }).collect()))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Lit {
     Undefined,
@@ -97,7 +110,7 @@ pub enum ExprKind {
     /// R-f-3
     Throw(Box<Expr>),
     /// R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
-    Catch { e: Box<Expr>, name: Option<String>, classes: Option<Vec<String>>, alt: Box<Expr> },
+    Catch { e: Box<Expr>, name: Option<String>, classes: Option<Vec<String>>, alt: Box<Expr>, arms: Option<Vec<ErrorArm<Expr>>> },
     /// 07 CSS-5
     StyleMap { css: String, line: usize },
     /// 12 SF-1d
@@ -141,7 +154,7 @@ pub enum StmtKind {
     Action(Vec<Stmt>),
     Sif { c: Expr, t: Vec<Stmt>, f: Vec<Stmt> },
     Return(Option<Expr>),
-    Try { body: Vec<Stmt>, catch_name: Option<String>, catch_classes: Option<Vec<String>>, handler: Option<Vec<Stmt>>, fin: Option<Vec<Stmt>> },
+    Try { body: Vec<Stmt>, catch_name: Option<String>, catch_classes: Option<Vec<String>>, handler: Option<Vec<Stmt>>, arms: Option<Vec<ErrorArm<Vec<Stmt>>>>, fin: Option<Vec<Stmt>> },
     Throw(Expr),
 }
 impl Stmt {
@@ -342,7 +355,7 @@ pub enum MarkupKind {
     /// H-5/H-6
     Loading { on: Option<Expr>, fallback: Vec<Markup>, decls: Vec<Decl>, body: Vec<Markup> },
     /// H-12, R-f-4
-    Errored { fallback: Vec<Markup>, decls: Vec<Decl>, body: Vec<Markup>, err_name: Option<String>, classes: Option<Vec<String>> },
+    Errored { fallback: Vec<Markup>, decls: Vec<Decl>, body: Vec<Markup>, err_name: Option<String>, classes: Option<Vec<String>>, arms: Option<Vec<ErrorArm<Vec<Markup>>>> },
     /// RG-8
     Portal { to: Option<Expr>, decls: Vec<Decl>, body: Vec<Markup> },
 }
@@ -478,7 +491,7 @@ impl Expr {
             ExprKind::Fn { params, body, stmts } => obj(vec![("k", k), ("params", Some(strs(params))), ("body", b(body)), ("stmts", stmts.as_ref().map(|ss| stmts_json(ss)))]),
             ExprKind::Draft { seed, body } => obj(vec![("k", k), ("seed", b(seed)), ("body", Some(stmts_json(body)))]),
             ExprKind::Use(n) => obj(vec![("k", k), ("name", s(n))]),
-            ExprKind::Catch { e, name, classes, alt } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt))]),
+            ExprKind::Catch { e, name, classes, alt, arms } => obj(vec![("k", k), ("e", b(e)), ("name", os(name)), ("classes", classes.as_ref().map(|c| strs(c))), ("alt", b(alt)), ("arms", arms_json(arms, Expr::to_json))]),
             ExprKind::StyleMap { css, line } => obj(vec![("k", k), ("css", s(css)), ("line", num(*line))]),
             ExprKind::ServerFn { params, ptypes, ret, body } => obj(vec![("k", k), ("params", Some(strs(params))), ("ptypes", Some(ostrs(ptypes))), ("ret", os(ret)), ("body", Some(stmts_json(body)))]),
         }
@@ -506,12 +519,13 @@ impl Stmt {
             StmtKind::Action(body) => obj(vec![("k", k), ("body", Some(stmts_json(body)))]),
             StmtKind::Sif { c, t, f } => obj(vec![("k", k), ("c", Some(c.to_json())), ("t", Some(stmts_json(t))), ("f", Some(stmts_json(f)))]),
             StmtKind::Return(e) => obj(vec![("k", k), ("e", e.as_ref().map(|e| e.to_json()))]),
-            StmtKind::Try { body, catch_name, catch_classes, handler, fin } => obj(vec![
+            StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms } => obj(vec![
                 ("k", k),
                 ("body", Some(stmts_json(body))),
                 ("catchName", os(catch_name)),
                 ("catchClasses", catch_classes.as_ref().map(|c| strs(c))),
                 ("handler", handler.as_ref().map(|h| stmts_json(h))),
+                ("arms", arms_json(arms, |ss| stmts_json(ss))),
                 ("fin", fin.as_ref().map(|h| stmts_json(h))),
             ]),
         }
@@ -656,13 +670,14 @@ impl Markup {
             MarkupKind::Mif { c, t, t_decls, f, f_decls } => obj(vec![("k", s("mif")), ("c", Some(c.to_json())), ("t", ms(t)), ("tDecls", ds(t_decls)), ("f", ms(f)), ("fDecls", ds(f_decls)), ("line", line)]),
             MarkupKind::Mfor { name, xs, decls, body } => obj(vec![("k", s("mfor")), ("name", s(name)), ("xs", Some(xs.to_json())), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
             MarkupKind::Loading { on, fallback, decls, body } => obj(vec![("k", s("loading")), ("on", on.as_ref().map(|e| e.to_json())), ("fallback", ms(fallback)), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),
-            MarkupKind::Errored { fallback, decls, body, err_name, classes } => obj(vec![
+            MarkupKind::Errored { fallback, decls, body, err_name, classes, arms } => obj(vec![
                 ("k", s("errored")),
                 ("fallback", ms(fallback)),
                 ("decls", ds(decls)),
                 ("body", ms(body)),
                 ("errName", os(err_name)),
                 ("classes", classes.as_ref().map(|c| strs(c))),
+                ("arms", arms_json(arms, |ms| Value::Array(ms.iter().map(Markup::to_json).collect()))),
                 ("line", line),
             ]),
             MarkupKind::Portal { to, decls, body } => obj(vec![("k", s("portal")), ("to", to.as_ref().map(|e| e.to_json())), ("decls", ds(decls)), ("body", ms(body)), ("line", line)]),

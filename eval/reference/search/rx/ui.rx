@@ -24,8 +24,10 @@ export component ResultsPane(props: {}) {
     <section data-testid="results">
       <p>{pending? results ? "searching…" : ""}</p>
       {" "}
-      {errored fallback(e) { <p>search failed: {e.message}</p> } {
-        errored fallback(e: TooShort) { <p>{e.message}</p> } {
+      {errored fallback(e) {
+        TooShort => { <p>{e.message}</p> }
+        _ => { <p>search failed: {e.message}</p> }
+      } {
           loading fallback { <p>searching…</p> } {
             <h2>{count} results for {latest query}</h2>
             {" "}
@@ -35,7 +37,6 @@ export component ResultsPane(props: {}) {
               }}
             </ul>
           }
-        }
       }}
     </section>
   }
@@ -59,10 +60,11 @@ export component DetailPane(props: {}) {
     <section data-testid="detail">
       {loading on(selected) fallback { <p>loading…</p> } {
         for id in [selected] {
-          errored fallback(e) { <p>failed: {e.message}</p>{" "}<button data-testid="retry" onClick={() => { retry() }}>retry</button> } {
-            errored fallback(e: NotFound) { <p>{e.message}</p> } {
+          errored fallback(e) {
+            NotFound => { <p>{e.message}</p> }
+            _ => { <p>failed: {e.message}</p>{" "}<button data-testid="retry" onClick={() => { retry() }}>retry</button> }
+          } {
               <ItemView />
-            }
           }
         }
       }}

@@ -118,10 +118,13 @@ named.
 | `ROW_NARROWER_THAN_INFERRED`      | S   | CN-4a (checked only where a row is written); R-f-9 for `fails(…)` | S-check-1, S-fail-1 |
 | `EFFECT_WRITES_OWN_SOURCE`        | S   | C-3 (directly or through equations; not closures the apply creates) | S-check-2 |
 | `UNHANDLED_FAILURE`               | S   | R-f-5 / CN-6a (over the static application tree; props where read, children where rendered) | S-fail-1, S-fail-2 |
-| `DEAD_TYPED_BOUNDARY`             | S   | R-f-4: a typed `errored (e: X)` whose children an inner catch-all wraps, so `X` never reaches it | S-fail-5 |
+| `LEGACY_TYPED_HANDLER`            | S   | R-f-4: a class annotation on a catch or fallback binding; the message is the ordered-arm rewrite. Handlers nested around the same code (a `try` whose body is just a `try`, catches chained on one `await`, a boundary whose content is just a boundary) are one error, rewritten as one dispatch, inner arms first, a catch-all as `_` (replaces `DEAD_TYPED_BOUNDARY`) | S-arms-check-3, S-fail-5 |
+| `ERROR_ARM_ORDER`                 | S   | R-f-4: an arm follows `_`, a second `_`, a class named twice, or an arm after `Error` (the top class) or `Panic` (takes whatever reaches it, R-f-10) | S-arms-check-1 |
+| `UNREACHABLE_ERROR_ARM`           | S   | R-f-4: a closed, resolved row (no `Error`, no prop's failures) proves a class arm cannot match; never `_`, `Error` or `Panic` (a `_` a closed row leaves empty is allowed, `dead` in the model) | S-arms-check-2 |
+| `MISSING_ERROR_ARMS`              | S   | R-f-4: no `_` (or `Error`) arm and the row reaching the dispatch has classes no arm names (named), or is open (`_` required); not for a lone `Panic` arm (R-f-10) | S-arms-check-2, S-fail-1 |
 | `CATCH_NOT_ON_AWAIT` (new)        | S   | R-f-4: a `catch` after anything but an `await` (a failed value is shown by an `errored` region where it is read; 2026-11-19) | S-fail-1, S-catch-snapshot |
 | `UNCAUGHT_ACTION_FAILURE`         | S   | R-f-6 / CN-6a (incl. a prop the action reads, checked at each application) | S-action-1, S-fail-2 |
-| `NOT_AN_ERROR_CLASS`              | S   | R-f-1 | S-fail-1 |
+| `NOT_AN_ERROR_CLASS`              | S   | R-f-1 (an error arm, at its line; an import's `fails`) | S-fail-1, S-arms-check-1 |
 | `WRITE_TO_NON_SOURCE` (MO-2)      | S   | MO-2a: an imported source is read-only | S-module-1 |
 | `IMPORT_ROW_MISMATCH`             | S   | MO-4a: `pure` / `fails` on an `.rx` import | S-module-1 |
 | `MODULE_CYCLE`                    | S   | MO-5  | S-module-1 |

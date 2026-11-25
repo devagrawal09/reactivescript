@@ -78,7 +78,7 @@ fn an_rx_import_type_names_the_plain_import() {
 
 #[test]
 fn a_generated_declaration_binds_and_erases() {
-    let main = "import { fetchUser, saveUser, NotFound, User, fields, createDebounced } from \"./api\"\nexport default component App() {\n  source q := \"a\"\n  user: User | null = await fetchUser(1) catch (e: NotFound) => null\n  slow = createDebounced(q, 100)\n  action save() { try { await saveUser({ id: 1 }) } catch (e) {} }\n  errored fallback(e) { <p>{e.message}</p> } { <p>{user == null ? slow : user.name}</p> }\n}\n";
+    let main = "import { fetchUser, saveUser, NotFound, User, fields, createDebounced } from \"./api\"\nexport default component App() {\n  source q := \"a\"\n  user: User | null = await fetchUser(1) catch (e) { NotFound => { null } }\n  slow = createDebounced(q, 100)\n  action save() { try { await saveUser({ id: 1 }) } catch (e) {} }\n  errored fallback(e) { <p>{e.message}</p> } { <p>{user == null ? slow : user.name}</p> }\n}\n";
     let rec = record("api.ts", GEN);
     assert_eq!(codes(&[("main.rx", main), ("api.ts", API_TS), ("rx-dts:api", &rec)]), Vec::<String>::new());
     // an io fn with no helper stays io
@@ -118,7 +118,7 @@ fn import_rows_are_not_allowed_on_ts() {
     let ok = "import pure { saveUser } from \"./api\"\nexport default component App() {\n  x = await saveUser(1)\n  errored fallback(e) { <p>{e.message}</p> } { <p>{x}</p> }\n}\n";
     let expected = vec![("IMPORT_ROW_ON_TS".into(), "MO-11e".into(), "main.rx".into(), 1)];
     assert_eq!(with(ok), expected);
-    let fails_default = "import { logVisit } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() {\n  action go() { try { await logVisit(\"x\") } catch (e: NotFound) {} }\n  <p>x</p>\n}\n";
+    let fails_default = "import { logVisit } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() {\n  action go() { try { await logVisit(\"x\") } catch (e) { NotFound => {} } }\n  <p>x</p>\n}\n";
     assert_eq!(with(fails_default), expected);
     let fails_helper = "import { fetchUser } from \"./api\" fails NotFound\nimport { NotFound } from \"./api\"\nexport default component App() { <p>x</p> }\n";
     assert_eq!(with(fails_helper), expected);
@@ -183,7 +183,7 @@ fn a_type_import_in_a_declaration_reads_a_ts_module() {
 
 #[test]
 fn the_model_and_the_projection_read_the_generated_lines() {
-    let main = "import { fetchUser, saveUser, NotFound, User, createDebounced } from \"./api\"\nexport default component App() {\n  source q := \"a\"\n  user: User | null = await fetchUser(1) catch (e: NotFound) => null\n  slow = createDebounced(q, 100)\n  action save() { try { await saveUser({ id: 1 }) } catch (e) {} }\n  errored fallback(e) { <p>{e.message}</p> } { <p>{user == null ? slow : user.name}</p> }\n}\n";
+    let main = "import { fetchUser, saveUser, NotFound, User, createDebounced } from \"./api\"\nexport default component App() {\n  source q := \"a\"\n  user: User | null = await fetchUser(1) catch (e) { NotFound => { null } }\n  slow = createDebounced(q, 100)\n  action save() { try { await saveUser({ id: 1 }) } catch (e) {} }\n  errored fallback(e) { <p>{e.message}</p> } { <p>{user == null ? slow : user.name}</p> }\n}\n";
     let rec = record("api.ts", GEN);
     let written = "export fn saveUser(u: User): Promise<void> rejects(Error)\n";
     let m: HashMap<String, String> = [("main.rx", main), ("api.ts", API_TS), ("api.d.rx", written), ("rx-dts:api", rec.as_str())].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();

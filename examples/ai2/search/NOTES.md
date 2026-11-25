@@ -12,7 +12,7 @@ There were 6 runs in total. Runs 2–6 were deliberate: printing signatures, and
 | - | ------------- | ----------- | -------------------------------------- | ----------- |
 | 1 | first draft (with a root `errored fallback(e)` in main.rx) | none (`ok … (+3 modules)`) | — | — |
 | 2 | same, `--signature` | none; rows as expected: `results`/`count: pending fails(Error \| TooShort)`, `item: pending fails(Error \| NotFound)` | — | — |
-| 3 | probe: detail pane's generic boundary narrowed to `fallback(e: NotFound)` | **none**: accepted | — | Reverted the probe. Concluded the root catch-all hides pane-level gaps (see below), so I removed it from main.rx. |
+| 3 | probe: detail pane's generic boundary narrowed to `NotFound` using the old annotated syntax | **none** at the time: accepted | — | Reverted the probe. Concluded the root catch-all hides pane-level gaps (see below), so I removed it from main.rx. Today an arm for `NotFound` alone gives `MISSING_ERROR_ARMS`. |
 | 4 | root boundary removed | none | — | — |
 | 5 | probe as in run 3, without the root boundary | `UNHANDLED_FAILURE` ×2 (`item.name`, `item.blurb` in `<ItemView>` in `<DetailPane>` can fail with `Error`) | Yes. It names the reader, the component chain and the class, and gives both fixes (`errored fallback(e)` or `catch`). One flaw: the location is `main.rx:3`, the import line of `DetailPane`, not the reader's line in ui.rx. With a deeper tree you'd have to hunt for it. | Reverted the probe. |
 | 6 | final | none | — | — |
@@ -43,14 +43,14 @@ The checker forced nothing. These are the places where the language or spec push
 | instant | confidence | rule relied on |
 | ------- | ---------- | -------------- |
 | 0 | high | E-11, RG-1 (empty query mounts nothing) |
-| 1 | high | R-f-3 throw arm, R-f-4 typed boundary |
+| 1 | high | R-f-3 throw, R-f-4 `TooShort` arm |
 | 2 | medium | H-12: errored stays on fallback while content is pending, so the hint `too short: a` stays. H-4: readers behind the fallback don't hold. H-7/H-9: the probe shows ahead. The verdict-on-an-error assumption above. |
 | 3 | high | H-12 (a value replaces the error), H-9 (verdict final at commit) |
 | 4 | medium-high | H-6 (disarmed boundary forwards), H-7 (lane readers `latest query`, `pending? results` show ahead) |
 | 5 | high | H-2 commit as one frame, ST-4a |
 | 6 | medium | Depends on the action-hold reading of AC-1 above. Also H-5 (a fresh armed `loading` catches). |
-| 7 | high | `throw` through a lifted `fn` (R-f-2), typed boundary |
+| 7 | high | `throw` through a lifted `fn` (R-f-2), `NotFound` arm |
 | 8 | medium | H-6 `on` re-arm plus RG-2a row replacement giving a fresh `errored`. Depends on the action-hold reading too. |
-| 9 | high | R-f-4: a typed boundary passes other classes up |
+| 9 | high | R-f-4: the detail boundary's `_` arm takes the other failure |
 | 10 | medium-high | AC-4 quiet re-ask; H-12 "the error stays the display through a retry" |
 | 11 | high | H-12 recovery |

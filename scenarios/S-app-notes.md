@@ -31,6 +31,6 @@ The app and what writing it found: `examples/notes/NOTES.md`.
 - 4–5: `open(2)` changes `route`; the other branch is fresh (RG-1a) and its `loading` takes `current` until `getNote(2)` lands. The editor's drafts are snapshots of the note (E-4).
 - 6–7: the drafts are the editor's own sources; `problem` follows `title`.
 - 8: `save` guesses the list (AC-3) — not on screen — and awaits `saveNote`, an io server fn called from an action (SF-2c).
-- 9: `Conflict` is declared in `api.d.rx`, so it crosses as itself (SV-5a) and the inner typed catch takes it (AC-7).
+- 9: `Conflict` is declared in `api.d.rx`, so it crosses as itself (SV-5a) and the `Conflict` arm takes it (AC-7).
 - 10: the action ended without a save: the guess is gone (AC-1), and the list shows what the server has.
 - 11: the browser answers the client question; the layout follows.

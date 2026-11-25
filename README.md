@@ -86,6 +86,13 @@ Leave out the `errored` boundary and it does not compile:
 profile.rx:10: error UNHANDLED_FAILURE [R-f-5] a reader of user.name (in <Profile>) can fail with Error and no catch or errored boundary above it discharges Error — show it where it is read: `errored fallback(e) { … } { … }` around the reader (or `await … catch (e) => …` at the await, to make the rejection an answer)
 ```
 
+To handle different error classes, put ordered arms in one catch or fallback:
+`catch (e) { Conflict => { showConflict(e.version) } _ => { report(e.message) } }`.
+The first matching arm runs; `_` is the optional final catch-all and is required for
+an open row. An `await` catch takes one expression per arm; an `errored fallback(e)`
+takes markup. See [the surface rules (07 §3–5)](spec/07-surface.md) and
+[ordered error arms](spec/ordered-error-arms.md).
+
 Beyond this the language has structured stores with per-path writes
 ([spec/06](spec/06-stores.md)), optimistic updates and held values while new
 data loads ([spec/05](spec/05-holds.md)), modules that own their state and

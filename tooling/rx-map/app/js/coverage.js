@@ -32,7 +32,7 @@ export function coverageGraph(graph) {
 export function feedCoverage(message, publish) {
   if (!collector) return;
   collector.feed(message);
-  if (["flush", "snapshot", "flight", "boundary", "run", "revert"].includes(message.type) && !queued) {
+  if (["flush", "snapshot", "flight", "boundary", "run", "caught", "revert"].includes(message.type) && !queued) {
     queued = true;
     queueMicrotask(() => { queued = false; publish(collector.result()); });
   }

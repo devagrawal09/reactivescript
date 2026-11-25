@@ -2,13 +2,13 @@
 // Every diagnostic is an error (CN-1a). Codes keep Solid's names where one exists (CN-1b); `rule`
 // is the spec rule enforced. Names resolve lexically (a component body sees its declaration
 // site, never its caller — RG-7a); provisions resolve through the static application tree (RG-7b).
-import type { Decl, Expr, Markup, Program, Stmt } from "./ast.ts";
+import type { Decl, ErrorArm, Expr, Markup, Program, Stmt } from "./ast.ts";
 import { pureGlobal } from "./pure-globals.ts";
 import type { Diagnostic } from "./errors.ts";
 import type { ModuleSet } from "./modules.ts";
 import type { JsDecl, Shape } from "./parse.ts";
 import { helpersOf } from "./parse.ts";
-import type { SymDecl } from "./model.ts";
+import type { ModelArm, SymDecl } from "./model.ts";
 /** MO-11f: a declaration's line, as its file has it. */
 const declLine = (x: JsDecl) => x.src ?? "";
 import { misnested, misnestedInside, P_CLOSERS, P_SCOPE, EMPTY_SHAPE, type Shape } from "./content.ts";
@@ -28,6 +28,7 @@ type Region = {
   appSites: Region[];                  // component roots: the regions it is applied in
   provides: Set<string>;
   catches?: Catch;                     // an `errored` body: what its boundary discharges (R-f-4)
+  ordered?: boolean;                   // its boundary dispatches with ordered arms: routes mark the step, for the row reaching it
   kids?: { comp: Region; site: Region };   // children passed to a component: read where it reads props.children (R-f-5)
   sig?: CompSig;                       // an imported component's root: its signature stands in for its body (MO-3)
 };
@@ -37,8 +38,9 @@ type Catch = Set<string> | "all";
 /** A read of a component's prop: its failures are the argument's, known only at each application (R-f-5). `pre`: catches already applied. */
 type PropRef = { comp: Region; field: string; pre: Catch[] };
 type Fails = { cls: Set<string>; props: PropRef[] };
-/** One step on the way up from a read: what it discharges — failures (`f`: a boundary or a catch) and provisions (`p`). */
-type Step = { f?: Catch; p?: Catch };
+/** One step on the way up from a read: what it discharges — failures (`f`: a boundary or a catch) and provisions (`p`).
+ *  `at`: the region of a boundary with ordered arms, so the row reaching it can be collected (R-f-4). */
+type Step = { f?: Catch; p?: Catch; at?: number };
 /** Where a prop goes once read: up to the component's root (`term` null) or out of an action (an error). */
 type PFEntry = { chain: Step[]; term: null | { line: number; name: string } };
 const caught = (c: Catch, cls: string) => c === "all" || (cls !== "Error" && c.has(cls));
@@ -52,9 +54,37 @@ const noFails = (): Fails => ({ cls: new Set(), props: [] });
 export const keyName = (k: string) => k.split("#").pop()!.replace(/@\d+$/, "");
 const addF = (a: Fails, b: Fails) => { for (const x of b.cls) a.cls.add(x); a.props.push(...b.props); return a; };
 const catchOf = (classes?: string[]): Catch => classes ? new Set(classes) : "all";
+// ---------------------------------------------------------------- ordered error arms (R-f-4)
+/** An arm that takes every failure reaching it: `_`, `Error` (the top class, R-f-1), `Panic` (whatever reaches it at run time, R-f-10). */
+const takesAll = (cls: string) => cls === "_" || cls === "Error" || cls === "Panic";
+/** What an ordered dispatch discharges: every class with `_` or an `Error` arm, else its class arms (`Panic` discharges none, R-f-10). */
+const armsCatch = (arms: { cls: string }[]): Catch => arms.some(a => a.cls === "_" || a.cls === "Error") ? "all" : new Set(arms.filter(a => a.cls !== "Panic").map(a => a.cls));
+/** What arm `i`'s binding holds, for a rethrow: its class; for `_` (or `Error`) the row the earlier arms leave; nothing for `Panic`. */
+function armBound(arms: { cls: string }[], i: number, row: Set<string>): Set<string> {
+  const a = arms[i].cls;
+  if (a === "Panic") return new Set();
+  if (a !== "_" && a !== "Error") return new Set([a]);
+  const before = new Set(arms.slice(0, i).map(x => x.cls));
+  return new Set([...row].filter(c => !before.has(c)));
+}
+/** A row reaching a dispatch: its classes, and whether part of it is not resolved here (a prop's failures, known per application). */
+type ArmRow = { cls: Set<string>; opaque: boolean };
+/** An ordered dispatch, checked against its row once the walk is done (`what`: a catch, at a `try` or an `await`, or a boundary). */
+type Dispatch = { what: "try" | "await" | "errored"; arms: ErrorArm<unknown>[]; line: number; bad: Set<number>; model: ModelArm[]; row: () => ArmRow };
+/** The arms an old typed handler (or a nest of handlers around the same code, inner first) becomes: one per class, `_` for a catch-all. */
+function legacyArms(members: { classes?: string[]; body: string }[]): string {
+  const arms: string[] = []; const seen = new Set<string>(); let dflt: string | null = null;
+  for (const m of members) {
+    if (!m.classes) { dflt ??= m.body; continue; }
+    for (const c of m.classes) if (!seen.has(c)) { seen.add(c); arms.push(`${c} => { ${m.body} }`); }
+  }
+  if (dflt !== null) arms.push(`_ => { ${dflt} }`);
+  return `{ ${arms.join(" ")} }`;
+}
+const listCls = (cs: Iterable<string>) => [...cs].sort().join(", ");
 /** EF-5's cleanup shapes: a `return` of a closure anywhere in the body, a closure as its last expression, or an expression body that is one. */
 function returnsClosure(f: Extract<Expr, { k: "fn" }>): boolean {
-  const inStmts = (ss: Stmt[]): boolean => ss.some(s => (s.k === "return" && s.e?.k === "fn") || (s.k === "sif" && (inStmts(s.t) || inStmts(s.f))) || (s.k === "try" && (inStmts(s.body) || inStmts(s.handler ?? []) || inStmts(s.fin ?? []))));
+  const inStmts = (ss: Stmt[]): boolean => ss.some(s => (s.k === "return" && s.e?.k === "fn") || (s.k === "sif" && (inStmts(s.t) || inStmts(s.f))) || (s.k === "try" && (inStmts(s.body) || inStmts(s.handler ?? []) || (s.arms ?? []).some(a => inStmts(a.body)) || inStmts(s.fin ?? []))));
   if (!f.stmts) return f.body.k === "fn";
   const last = f.stmts[f.stmts.length - 1];
   return inStmts(f.stmts) || (last?.k === "expr" && last.e.k === "fn");
@@ -138,7 +168,7 @@ export function freeNames(e: Expr, bound: Set<string>, out: Set<string>): void {
     case "fn": { const b = new Set([...bound, ...e.params]); freeNames(e.body, b, out); if (e.stmts) freeNamesStmts(e.stmts, b, out); return; }
     case "draft": { go(e.seed); freeNamesStmts(e.body, new Set([...bound, "d"]), out); return; }
     case "throw": go(e.e); return;
-    case "catch": go(e.e); freeNames(e.alt, e.name ? new Set([...bound, e.name]) : bound, out); return;
+    case "catch": { go(e.e); const b = e.name ? new Set([...bound, e.name]) : bound; if (e.arms) for (const a of e.arms) freeNames(a.body, b, out); else freeNames(e.alt, b, out); return; }
   }
 }
 function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void {
@@ -153,7 +183,7 @@ function freeNamesStmts(ss: Stmt[], bound0: Set<string>, out: Set<string>): void
       case "refresh": case "affects": if (!bound.has(s.name)) out.add(s.name); break;
       case "action": freeNamesStmts(s.body, bound, out); break;
       case "sif": go(s.c); freeNamesStmts(s.t, bound, out); freeNamesStmts(s.f, bound, out); break;
-      case "try": freeNamesStmts(s.body, bound, out); if (s.handler) freeNamesStmts(s.handler, new Set([...bound, ...(s.catchName ? [s.catchName] : [])]), out); if (s.fin) freeNamesStmts(s.fin, bound, out); break;
+      case "try": { freeNamesStmts(s.body, bound, out); const h = new Set([...bound, ...(s.catchName ? [s.catchName] : [])]); if (s.handler) freeNamesStmts(s.handler, h, out); for (const a of s.arms ?? []) freeNamesStmts(a.body, h, out); if (s.fin) freeNamesStmts(s.fin, bound, out); break; }
     }
   }
 }
@@ -214,7 +244,7 @@ export type ModSig = { file: string; exports: Map<string, ExportSig> };
 type Opts = { sigs?: Map<string, ModSig>; file?: string; declarations?: Map<string, JsDecl[]>; root?: string };   // root: the project root a key's module is relative to
 
 export function check(p: Program, opts: Opts = {}): Diagnostic[] { const c = new Checker(opts); c.run(p); return c.diags; }
-export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries }; }
+export function checkWithSignature(p: Program, opts: Opts = {}) { const c = new Checker(opts); c.run(p); return { diags: c.diags, sig: c.signature(p), model: c.model.build(opts.file ?? "main.rx"), boundaries: c.boundaries, armTypes: c.armTypes }; }
 /** MO-11e: move import rows into the TS export, or just remove them if the declaration already supplies those facts. */
 export function importRowOnTs(name: string, tsFile: string, pure: boolean, fails: string[] | undefined, side: "server" | "client" | undefined, decl?: JsDecl): string | null {
   const open: string[] = [], words: string[] = [];
@@ -235,14 +265,17 @@ export function checkModules(set: ModuleSet, opts: { root?: string } = {}) {
   const sigs = new Map<string, ModSig>(set.signatures ?? []); const diags: Diagnostic[] = [...set.diags];   // MO-9: a module known by its .d.rx
   const models = new Map<string, Model>();                              // CP-6: each module's resolved model
   const boundaries = new Map<Markup, number>();
-  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); }
-  return { diags, sigs, models, boundaries };
+  const armTypes = new Map<ErrorArm<unknown>, string[]>();                                // R-f-4: what each `_` arm's binding may be
+  for (const path of set.order) { const r = checkWithSignature(set.programs.get(path)!, { sigs, file: path, declarations: set.declarations, root: opts.root }); diags.push(...r.diags); sigs.set(path, r.sig); models.set(path, r.model); for (const [m, id] of r.boundaries) boundaries.set(m, id); for (const [a, t] of r.armTypes) armTypes.set(a, t); }
+  return { diags, sigs, models, boundaries, armTypes };
 }
 
 class Checker {
   diags: Diagnostic[] = [];
   model = new ModelBuilder();                                           // CP-6: the resolved facts, recorded as the walk resolves them
   boundaries = new Map<Markup, number>();
+  /** R-f-4: each `_` arm → the classes its binding may hold (the row the earlier arms leave; `Error` for an open row), sorted. */
+  armTypes = new Map<ErrorArm<unknown>, string[]>();
   private opts: Opts;
   private rootEnv: Env | null = null;
   constructor(opts: Opts = {}) { this.opts = opts; }
@@ -305,7 +338,7 @@ class Checker {
         if (m.k === "el") { for (const a of m.attrs) if (a.name === "class") classExpr(a.e, out); elClasses(m.children, out); }
         else if (m.k === "mif") { elClasses(m.t, out); elClasses(m.f, out); }
         else if (m.k === "mfor") elClasses(m.body, out);
-        else if (m.k === "loading" || m.k === "errored") { elClasses(m.fallback, out); elClasses(m.body, out); }
+        else if (m.k === "loading" || m.k === "errored") { elClasses(m.fallback, out); if (m.k === "errored") m.arms?.forEach(a => elClasses(a.body, out)); elClasses(m.body, out); }
         else if (m.k === "portal") elClasses(m.body, out);
       }
     };
@@ -859,7 +892,7 @@ class Checker {
           if (t && read.has(t)) this.err("EFFECT_WRITES_OWN_SOURCE", "C-3", `the apply block writes ${t.name}, which its compute half reads (${read.get(t)}): a loop across instants — derive it as an equation, or as \`source ${t.name} = …\` (ST-5), or write it from the event that changes the inputs`);
         }
         if (st.k === "sif") { direct(st.t); direct(st.f); }
-        if (st.k === "try") { direct(st.body); if (st.handler) direct(st.handler); if (st.fin) direct(st.fin); }
+        if (st.k === "try") { direct(st.body); if (st.handler) direct(st.handler); st.arms?.forEach(a => direct(a.body)); if (st.fin) direct(st.fin); }
         if (st.k === "action") direct(st.body);
       }
     };
@@ -901,10 +934,40 @@ class Checker {
     });
   }
   /** R-f-1: a name in a catch, a boundary or an import's `fails` must be an error class (declared, or a JS class imported). */
-  private errClass(n: string, env: Env) {
-    if (n === "Error" || n === "Panic") return;                                           // the top class; R-f-10's panics-only
+  private errClass(n: string, env: Env): boolean {
+    if (n === "Error" || n === "Panic") return true;                                      // the top class; R-f-10's panics-only
     const s = env.lookup(n);
-    if (!s || (s.kind !== "errclass" && s.kind !== "import")) this.err("NOT_AN_ERROR_CLASS", "R-f-1", `${n} is not an error class (declare it: \`error ${n}(…)\`)`);
+    if (!s || (s.kind !== "errclass" && s.kind !== "import")) { this.err("NOT_AN_ERROR_CLASS", "R-f-1", `${n} is not an error class (declare it: \`error ${n}(…)\`)`); return false; }
+    return true;
+  }
+  /** R-f-4: an ordered dispatch's arms where they are written — each names an error class (R-f-1), at its own line. */
+  private armsDecl(arms: ErrorArm<unknown>[], env: Env): { model: ModelArm[]; bad: Set<number> } {
+    const save = this.line; const bad = new Set<number>();
+    arms.forEach((a, i) => { if (a.cls === "_") return; this.line = a.line; if (!this.errClass(a.cls, env)) bad.add(i); });
+    this.line = save;
+    return { model: arms.map(a => ({ cls: a.cls, line: a.line })), bad };
+  }
+  private dispatches: Dispatch[] = [];
+  private armRows = new Map<number, ArmRow>();                                             // an ordered boundary's region → the row reaching it
+  private legacyDone = new WeakSet<object>();                                              // handlers already reported as part of a nest
+  /** R-f-4: an old typed handler (`catch (e: A)`, `fallback(e: A)`) is LEGACY_TYPED_HANDLER, with its arms rewrite. A nest of
+   *  handlers around the same code (one directly inside another) is one error, rewritten as a single dispatch, inner arms first. */
+  private legacy(kind: "await" | "try" | "errored", members: { classes?: string[]; name?: string; body: string; line?: number; node: object }[]) {
+    for (const m of members) this.legacyDone.add(m.node);
+    if (!members.some(m => m.classes)) return;
+    const inner = [...members].reverse();
+    const name = inner.find(m => m.name)?.name ?? "e";
+    const arms = legacyArms(inner);
+    if (members.length === 1) {
+      const m = members[0]; const cls = m.classes!.join(" | ");
+      const old = kind === "await" ? `catch (${name}: ${cls}) => …` : kind === "try" ? `catch (${name}: ${cls}) { … }` : `errored fallback(${name}: ${cls}) { … }`;
+      const now = kind === "errored" ? `errored fallback(${name}) ${arms}` : `catch (${name}) ${arms}`;
+      this.err("LEGACY_TYPED_HANDLER", "R-f-4", `\`${old}\` is the old typed ${kind === "errored" ? "boundary" : "catch"}: write \`${now}\` — ordered arms, one per class, the first match wins`);
+      return;
+    }
+    if (kind === "errored") this.err("LEGACY_TYPED_HANDLER", "R-f-4", `nested errored boundaries around the same content (lines ${members.map(m => m.line ?? this.line).join(", ")}): write one boundary, \`errored fallback(${name}) ${arms}\` — the inner boundary's arms first`);
+    else if (kind === "try") this.err("LEGACY_TYPED_HANDLER", "R-f-4", `nested \`try\` statements around the same code: write one \`try\` whose catch dispatches, \`catch (${name}) ${arms}\` — the inner catch's arms first`);
+    else this.err("LEGACY_TYPED_HANDLER", "R-f-4", `nested catches on one \`await\`: write one dispatch, \`catch (${name}) ${arms}\` — the inner catch's arms first`);
   }
 
   // ---- expressions ----
@@ -966,6 +1029,20 @@ class Checker {
       case "throw": go(e.e); return;
       case "catch": {
         if (e.e.k !== "await") this.err("CATCH_NOT_ON_AWAIT", "R-f-4", `\`${show(e.e)} catch …\`: a catch follows an \`await\` — its rejection becomes an answer. A failure read from a value belongs to its own section: show it under \`errored fallback(e) { … } { … }\` where it is read`);
+        if (e.arms) {
+          go(e.e);
+          const arms = e.arms; const { model, bad } = this.armsDecl(arms, env);
+          this.model.catch(undefined, model);
+          const x = e.e; const imp = ctx.scope === "imperative";
+          this.dispatches.push({ what: "await", arms, line: arms[0].line, bad, model, row: () => { const f = this.failsOf(x, env, imp, new Map()); return { cls: f.cls, opaque: f.props.length > 0 }; } });
+          for (const a of arms) { const inner = new Env(env, env.region); if (e.name) inner.vars.set(e.name, { kind: "value", name: e.name, region: env.region, line: this.line }); this.expr(a.body, inner, ctx); }
+          return;
+        }
+        if (!this.legacyDone.has(e)) {
+          const chain: Extract<Expr, { k: "catch" }>[] = [e]; let c = e.e;
+          while (c.k === "catch" && !c.arms) { chain.push(c); c = c.e; }
+          this.legacy("await", chain.map(m => ({ classes: m.classes, name: m.name, body: show(m.alt), node: m })));
+        }
         go(e.e); if (e.classes) for (const n of e.classes) this.errClass(n, env);
         this.model.catch(e.classes);
         const inner = new Env(env, env.region); if (e.name) inner.vars.set(e.name, { kind: "value", name: e.name, region: env.region, line: this.line });
@@ -1108,6 +1185,21 @@ class Checker {
           { const t = this.resolve(s.name, env, ctx); this.model.write(t, "refresh"); if (t && !(t.kind === "eq" || (t.kind === "source" && t.question))) this.err("INVALID_REFRESH_TARGET", "AC-4", `${s.name} has no question to re-ask`); break; }
         case "sif": this.expr(s.c, env, ctx); this.stmts(s.t, env, ctx); this.stmts(s.f, env, ctx); break;
         case "try": {
+          if (s.arms) {
+            const arms = s.arms; const { model, bad } = this.armsDecl(arms, env);
+            this.model.catch(undefined, model);
+            const body = s.body;
+            this.dispatches.push({ what: "try", arms, line: arms[0].line, bad, model, row: () => { const f = this.stmtsFails(body, env, new Map()); return { cls: f.cls, opaque: f.props.length > 0 }; } });
+            this.stmts(s.body, env, ctx);
+            for (const a of arms) { const h = new Env(env, env.region); if (s.catchName) h.vars.set(s.catchName, { kind: "value", name: s.catchName, region: env.region, line: this.line }); this.stmts(a.body, h, ctx); }
+            if (s.fin) this.stmts(s.fin, env, ctx);
+            break;
+          }
+          if (s.handler && !this.legacyDone.has(s)) {
+            const chain: Extract<Stmt, { k: "try" }>[] = [s]; let c = s;
+            while (c.body.length === 1 && c.body[0].k === "try" && c.body[0].handler && !c.body[0].arms && !c.body[0].fin) { c = c.body[0]; chain.push(c); }
+            this.legacy("try", chain.map(m => ({ classes: m.catchClasses, name: m.catchName, body: "…", node: m })));
+          }
           if (s.handler) this.model.catch(s.catchClasses);
           this.stmts(s.body, env, ctx);
           if (s.catchClasses) for (const n of s.catchClasses) this.errClass(n, env);
@@ -1300,6 +1392,29 @@ class Checker {
           break;
         }
         case "errored": {
+          if (m.arms) {
+            const arms = m.arms; const line = m.line ?? this.line; const { model, bad } = this.armsDecl(arms, env);
+            for (const a of arms) { const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line }); this.markup(a.body, f); }
+            const body = this.region(env.region, "errored"); body.catches = armsCatch(arms); body.ordered = true;   // R-f-4: the classes its arms take, for its content
+            this.model.arms(body.id, model);
+            this.boundaries.set(m, body.id);
+            put({ region: body.id, line: m.line });
+            const id = body.id;
+            this.dispatches.push({ what: "errored", arms, line, bad, model, row: () => this.armRows.get(id) ?? { cls: new Set(), opaque: false } });
+            this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
+            break;
+          }
+          if (!this.legacyDone.has(m)) {
+            const chain: Extract<Markup, { k: "errored" }>[] = [m]; let c = m;
+            for (;;) {
+              const kids = c.body.filter(k => !(k.k === "text" && !k.s.trim()));
+              if (c.decls.length || kids.length !== 1 || kids[0].k !== "errored" || kids[0].arms) break;
+              c = kids[0]; chain.push(c);
+            }
+            const save = this.line; this.line = m.line ?? this.line;
+            this.legacy("errored", chain.map(x => ({ classes: x.classes, name: x.errName, body: "…", line: x.line, node: x })));
+            this.line = save;
+          }
           const f = new Env(env, env.region); if (m.errName) f.vars.set(m.errName, { kind: "value", name: m.errName, region: env.region, line: this.line });
           this.markup(m.fallback, f);
           if (m.classes) for (const n of m.classes) this.errClass(n, env);
@@ -1307,46 +1422,10 @@ class Checker {
           this.boundaries.set(m, body.id);
           put({ region: body.id, line: m.line });
           this.block(m.decls, m.body, new Env(env, body), { scope: "reactive" });
-          if (m.classes?.length) this.deadTyped(m, body.id);
           break;
         }
       }
     }
-  }
-
-  /** R-f-4: a typed `errored (e: X)` whose view is wrapped by an inner catch-all. The catch-all takes X first, so the typed fallback is dead. */
-  private deadTyped(m: Extract<Markup, { k: "errored" }>, id: number) {
-    const inner = this.coveringCatchAll(m.body);
-    if (!inner) return;
-    const line = m.line ?? this.line;
-    const cls = m.classes!.join(" | ");
-    this.line = line;
-    this.err("DEAD_TYPED_BOUNDARY", "R-f-4", `errored fallback(e: ${cls}) at line ${line} is dead: the inner catch-all at line ${inner.line ?? line} catches ${cls} first — put the typed boundary inside the catch-all`);
-    const by = this.boundaries.get(inner);
-    if (by !== undefined) this.model.shadow(id, by);
-  }
-  /** The catch-all that wraps every child, if the view is only that (a plain element around it still counts). A reader, a component, or a condition outside one means the typed boundary can still see a failure. */
-  private coveringCatchAll(ms: Markup[]): Extract<Markup, { k: "errored" }> | null {
-    let inner: Extract<Markup, { k: "errored" }> | null = null;
-    let saw = false;
-    for (const m of ms) {
-      if (m.k === "text" || m.k === "style") continue;
-      saw = true;
-      if (m.k === "errored" && !m.classes && this.staticFallback(m.fallback)) { inner = inner ?? m; continue; }
-      if (m.k === "el" && !/^[A-Z]/.test(m.tag) && m.attrs.every(a => a.e.k === "lit")) {
-        const c = this.coveringCatchAll(m.children);
-        if (!c) return null;
-        inner = inner ?? c;
-        continue;
-      }
-      return null;
-    }
-    return saw ? inner : null;
-  }
-  /** A fallback runs outside its own catch. Prove it inert without guessing about readers or foreign code. */
-  private staticFallback(ms: Markup[]): boolean {
-    return ms.every(m => m.k === "text" || m.k === "style" || m.k === "read" && m.e.k === "lit"
-      || m.k === "el" && /^[a-z][a-z0-9]*$/.test(m.tag) && m.attrs.every(a => a.e.k === "lit") && this.staticFallback(m.children));
   }
 
   // ---- SV-7d: the content model across templates ----
@@ -1377,7 +1456,7 @@ class Checker {
         }
         case "mif": walk(m.t, anc, scoped, env); walk(m.f, anc, scoped, env); break;
         case "mfor": walk(m.body, anc, scoped, env); break;
-        case "loading": case "errored": walk(m.fallback, anc, scoped, env); walk(m.body, anc, scoped, env); break;
+        case "loading": case "errored": walk(m.fallback, anc, scoped, env); if (m.k === "errored") m.arms?.forEach(a => walk(a.body, anc, scoped, env)); walk(m.body, anc, scoped, env); break;
       }
     };
     walk(c.comp.view, [], false, c.compEnv);
@@ -1406,7 +1485,7 @@ class Checker {
         }
         case "mif": this.contentCheck(m.t, env, anc); this.contentCheck(m.f, env, anc); break;
         case "mfor": this.contentCheck(m.body, env, anc); break;
-        case "loading": case "errored": this.contentCheck(m.fallback, env, anc); this.contentCheck(m.body, env, anc); break;
+        case "loading": case "errored": this.contentCheck(m.fallback, env, anc); if (m.k === "errored") m.arms?.forEach(a => this.contentCheck(a.body, env, anc)); this.contentCheck(m.body, env, anc); break;
       }
     }
   }
@@ -1439,12 +1518,17 @@ class Checker {
         for (const p of this.provisions) if (p.key === c.key) addF(out, this.failsOf(p.e, p.env, false, new Map())); return out;
       }
       case "await": go(e.e); if (e.init) go(e.init); for (const c of this.rejects(e.e, env, new Set())) out.cls.add(c); return out;
-      case "throw": go(e.e); out.cls.add(this.classOf(e.e, env, bound)); return out;
+      case "throw": go(e.e); for (const c of this.classOf(e.e, env, bound).split("|")) out.cls.add(c); return out;
       case "catch": {
-        const inner = this.failsOf(e.e, env, imp, bound); const c = catchOf(e.classes);
+        const inner = this.failsOf(e.e, env, imp, bound); const c = e.arms ? armsCatch(e.arms) : catchOf(e.classes);
         const got = new Set([...inner.cls].filter(x => caught(c, x)));
         for (const x of inner.cls) if (!caught(c, x)) out.cls.add(x);
         for (const pr of inner.props) out.props.push({ ...pr, pre: [...pr.pre, c] });
+        if (e.arms) {                                                                         // R-f-4: each arm's failures leave the dispatch
+          const arms = e.arms;
+          arms.forEach((a, i) => { const b2 = new Map(bound); if (e.name) b2.set(e.name, armBound(arms, i, inner.cls)); addF(out, this.failsOf(a.body, env, imp, b2)); });
+          return out;
+        }
         const b2 = new Map(bound); if (e.name) b2.set(e.name, c === "all" ? new Set([...inner.cls]) : got);
         return addF(out, this.failsOf(e.alt, env, imp, b2));
       }
@@ -1521,7 +1605,16 @@ class Checker {
         case "sif": ex(s.c); addF(out, this.stmtsFails(s.t, env, bound)); addF(out, this.stmtsFails(s.f, env, bound)); break;
         case "try": {
           const b = this.stmtsFails(s.body, env, bound);
-          if (s.handler) {
+          if (s.arms) {                                                                       // R-f-4: what no arm takes, and each arm's own failures
+            const arms = s.arms; const c = armsCatch(arms);
+            for (const x of b.cls) if (!caught(c, x)) out.cls.add(x);
+            for (const pr of b.props) out.props.push({ ...pr, pre: [...pr.pre, c] });
+            arms.forEach((a, i) => {
+              const b2 = new Map(bound); if (s.catchName) b2.set(s.catchName, armBound(arms, i, b.cls));
+              const h = new Env(env, env.region); if (s.catchName) h.vars.set(s.catchName, { kind: "value", name: s.catchName, region: env.region, line: 0 });
+              addF(out, this.stmtsFails(a.body, h, b2));
+            });
+          } else if (s.handler) {
             const c = catchOf(s.catchClasses);
             for (const x of b.cls) if (!caught(c, x)) out.cls.add(x);
             for (const pr of b.props) out.props.push({ ...pr, pre: [...pr.pre, c] });
@@ -1550,7 +1643,7 @@ class Checker {
     const argF = this.apps.flatMap(a => a.args.map(x => ({ app: a, field: x.field, f: this.failsOf(x.e, x.env, false, new Map()) })));
     const actF = this.actions.map(a => ({ ...a, f: this.stmtsFails(a.body, a.env, new Map()) }));
     const ck = (c?: Catch) => c === undefined ? "-" : c === "all" ? "*" : [...c].sort().join("|");
-    const key = (c: Step[]) => c.map(x => `${ck(x.f)}~${ck(x.p)}`).join("/");
+    const key = (c: Step[]) => c.map(x => `${ck(x.f)}~${ck(x.p)}${x.at !== undefined ? `@${x.at}` : ""}`).join("/");
     const dedupe = <T extends PFEntry | Step[]>(xs: T[]): T[] => { const seen = new Set<string>(); return xs.filter(x => { const k = Array.isArray(x) ? key(x) : key(x.chain) + JSON.stringify(x.term); if (seen.has(k)) return false; seen.add(k); return true; }); };
     const pre = (cs: Catch[]): Step[] => cs.map(f => ({ f }));
     // routes: the steps from a region up to its component's root (or the program's), through children's reads
@@ -1559,7 +1652,7 @@ class Checker {
       if (rMemo.has(R)) return rMemo.get(R)!; if (rBusy.has(R)) return []; rBusy.add(R);
       const local: Step[] = []; let out: Step[][] = [];
       for (let r: Region | null = R; r; r = r.parent) {
-        if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined });
+        if (r.catches || r.provides.size) local.push({ f: r.catches, p: r.provides.size ? r.provides : undefined, ...(r.ordered ? { at: r.id } : {}) });
         if (r.kids) { for (const p of PF(r.kids.comp, "children")) if (p.term === null) for (const q of routes(r.kids.site)) out.push([...local, ...p.chain, ...q]); break; }
         if (r.isComponentRoot || !r.parent) { out = [local]; break; }
       }
@@ -1607,9 +1700,17 @@ class Checker {
       const res = { fails, reqs }; escBusy.delete(C); escMemo.set(C, res); return res;
     };
     const top = esc(null);
-    for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — show it where it is read: \`errored fallback(e${it.cls === "Error" ? "" : `: ${it.cls}`}) { … } { … }\` around the reader (or \`await … catch (e) => …\` at the await, to make the rejection an answer)`); }
+    for (const it of top.fails) { this.line = it.line; this.err("UNHANDLED_FAILURE", "R-f-5", `a reader of ${it.what} can fail with ${it.cls} and no catch or errored boundary above it discharges ${it.cls} — show it where it is read: \`errored fallback(e) ${it.cls === "Error" ? "{ … }" : `{ ${it.cls} => { … } _ => { … } }`} { … }\` around the reader (or \`await … catch (e) => …\` at the await, to make the rejection an answer)`); }
     for (const it of top.reqs) { this.line = it.line; if (it.name === HOLD) { this.err("CLIENT_QUESTION_UNHELD", "SV-7b", `${it.what} awaits \`client\` JS, and no \`loading\` region above it holds it on any path that renders it: the server never asks a client question, so it could never finish this page — put the reader under \`loading fallback { … } { … }\`, or give the await a first paint (\`await f() -> v\`)`); continue; } this.err("CONTEXT_NOT_FOUND", "RG-7b", `${it.what}: no provision of ${keyName(it.name)} (declared in ${it.name.split("#")[0].split("/").pop()}) above this region on any path that renders it`); }
     for (const a of actF) if (a.f.cls.size) { this.line = a.line; this.err("UNCAUGHT_ACTION_FAILURE", "R-f-6", `action ${a.name} can fail with ${[...a.f.cls].join(", ")} and does not catch it: a handler cannot (it does not await the action) — \`try { … } catch (e) { … }\` in the body`); }
+    // R-f-4: the row reaching each ordered boundary from its content — each class on a route, up to the first step that takes it
+    const rowAt = (id: number): ArmRow => { let r = this.armRows.get(id); if (!r) this.armRows.set(id, r = { cls: new Set(), opaque: false }); return r; };
+    const reach = (chain: Step[], cls: string) => { for (const st of chain) { if (st.at !== undefined) rowAt(st.at).cls.add(cls); if (st.f && caught(st.f, cls)) return; } };
+    const opaque = (chain: Step[]) => { for (const st of chain) { if (st.at !== undefined) rowAt(st.at).opaque = true; if (st.f === "all") return; } };
+    for (const r of readerF) for (const q of routes(r.region)) { for (const cls of r.f.cls) reach(q, cls); if (r.f.props.length) opaque(q); }
+    for (const a of this.apps) { const e = esc(a.comp); for (const q of routes(a.site)) for (const it of e.fails) reach(q, it.cls); }
+    for (const a of argF) for (const p of PF(a.app.comp, a.field)) if (!p.term) for (const q of routes(a.app.site)) { const ch = [...p.chain, ...q]; for (const cls of a.f.cls) reach(ch, cls); if (a.f.props.length) opaque(ch); }
+    this.checkArms();
     // MO-3: the summaries an importing module checks against
     const meet = (a: Catch, b: Catch): Catch => a === "all" ? b : b === "all" ? a : new Set([...a].filter(x => b.has(x)));
     const along = (chain: Step[], which: "f" | "p"): Catch => { const out = new Set<string>(); for (const st of chain) { const c = st[which]; if (c === "all") return "all"; if (c) for (const x of c) out.add(x); } return out; };
@@ -1630,4 +1731,54 @@ class Checker {
     };
   }
   compSig: ((G: Region) => CompSig) | null = null;
+
+  /** R-f-4: each ordered dispatch against the row reaching it — arms in order (ERROR_ARM_ORDER), each class arm possible
+   *  (UNREACHABLE_ERROR_ARM, only from a closed row: no `Error`, nothing unresolved), and every class covered without `_`
+   *  (MISSING_ERROR_ARMS). A `_` a closed row leaves nothing for is dead in the model (it still takes panics). */
+  private checkArms() {
+    for (const d of this.dispatches) {
+      const source = d.what === "errored" ? "its content" : d.what === "await" ? "the awaited expression" : "the code it protects";
+      const show = (cls: string) => `\`${cls} =>\``;
+      let all: ErrorArm<unknown> | null = null; const seen = new Map<string, number>(); const out = new Set<number>();
+      d.arms.forEach((a, i) => {
+        this.line = a.line;
+        if (all) {
+          out.add(i);
+          if (all.cls === "_") this.err("ERROR_ARM_ORDER", "R-f-4", a.cls === "_" ? `a second \`_ =>\` (the first is at line ${all.line}): \`_\` takes every failure left, so it appears once, as the last arm` : `${show(a.cls)} follows \`_ =>\` (line ${all.line}), which takes every failure left: arms match in order — move ${show(a.cls)} above \`_\`, the last arm`);
+          else this.err("ERROR_ARM_ORDER", "R-f-4", `${show(a.cls)} follows ${show(all.cls)} (line ${all.line}), which ${all.cls === "Panic" ? "takes whatever reaches it at run time (R-f-10)" : "takes every failure (Error is the top class)"}: arms match in order — move ${show(a.cls)} above it`);
+          return;
+        }
+        if (seen.has(a.cls)) { out.add(i); this.err("ERROR_ARM_ORDER", "R-f-4", `${show(a.cls)} repeats the arm at line ${seen.get(a.cls)}, which takes every ${a.cls} first: merge the two bodies`); return; }
+        if (takesAll(a.cls)) all = a; else seen.set(a.cls, a.line);
+      });
+      const row = d.row();
+      const closed = !row.opaque && !row.cls.has("Error");
+      if (closed) d.arms.forEach((a, i) => {
+        if (takesAll(a.cls) || out.has(i) || d.bad.has(i) || row.cls.has(a.cls)) return;
+        this.line = a.line;
+        this.err("UNREACHABLE_ERROR_ARM", "R-f-4", `${show(a.cls)} can never match: ${source} ${row.cls.size ? `can fail only with ${listCls(row.cls)}` : "cannot fail"} — remove the arm`);
+      });
+      const classArms = d.arms.filter(a => !takesAll(a.cls));
+      if (classArms.length && !d.arms.some(a => a.cls === "_" || a.cls === "Error")) {     // a lone `Panic` leaves every failure to the code below it (R-f-10)
+        const covered = new Set(classArms.map(a => a.cls));
+        const missing = [...row.cls].filter(c => c !== "Error" && !covered.has(c)).sort();
+        const open = row.cls.has("Error");
+        const subject = d.what === "errored" ? "this errored boundary" : "this catch";
+        this.line = d.line;
+        if (open) this.err("MISSING_ERROR_ARMS", "R-f-4", `${subject} has no \`_\` arm, and ${source} can fail with ${missing.length ? `${missing.join(", ")} and any other Error` : "any Error"} (its row is open): add \`_ => { … }\` as the last arm`);
+        else if (missing.length) this.err("MISSING_ERROR_ARMS", "R-f-4", `${subject} has no \`_\` arm, and ${source} can also fail with ${missing.join(", ")}: add ${missing.map(c => `\`${c} => { … }\``).join(" ")}, or \`_ => { … }\` as the last arm`);
+      }
+      d.arms.forEach((a, i) => {
+        if (a.cls !== "_") return;
+        const before = new Set(d.arms.slice(0, i).map(x => x.cls));
+        const left = [...row.cls].filter(c => !before.has(c));
+        this.armTypes.set(a, row.opaque || left.includes("Error") ? ["Error"] : left.sort());
+      });
+      const di = d.arms.findIndex(a => a.cls === "_");
+      if (di >= 0 && closed && !out.has(di)) {
+        const before = new Set(d.arms.slice(0, di).map(a => a.cls));
+        if ([...row.cls].every(c => before.has(c))) d.model[di].dead = true;
+      }
+    }
+  }
 }

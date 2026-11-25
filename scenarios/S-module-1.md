@@ -21,7 +21,7 @@ export component Card(props) {
   errored fallback(e) { <p>?</p> } { <div>{props.children}</div> }
 }
 export component Name(props) {
-  errored fallback(e: NotFound) { <i>nobody</i> } { <i>{props.user.name}</i> }
+  errored fallback(e) { NotFound => { <i>nobody</i> } _ => { {throw e} } } { <i>{props.user.name}</i> }
 }
 export component Badge(props) {
   <b>{initials(use who)}</b>
@@ -84,7 +84,7 @@ export default component App() {
 ```
 
 `user` fails with `Error` (the fetch) and `NotFound` (the throw). `Name`
-discharges `NotFound` with a typed boundary; the `Error` left over leaves `Name` at its
+discharges `NotFound` with a class arm; the default rethrows `Error` at its
 application, which is a child of `Card`, whose boundary takes every class.
 `Badge` needs a provision of `who`, the context `ui.rx` declares and
 exports; `main` imports it and provides it above the place it is applied. `initials` is found in `ui.rx`, where `Badge` is declared, not
@@ -101,11 +101,11 @@ in `main`, which does not import it (MO-6).
 | 4       | reject user "offline"          | `#2 ? Z`       |
 
 Instant 2: the write goes through `store.rx`'s action; `user` throws
-`NotFound` with no await and `Name`'s typed boundary shows its fallback.
+`NotFound` with no await and `Name`'s `NotFound` arm shows its fallback.
 Instant 3: the new question's reader is behind that fallback, which holds
 nothing (H-4, D-41): `#2` shows at once and the fallback stays until an
 answer replaces the error. Instant 4: the answer is an `Error`, which
-`Name`'s boundary passes and `Card` takes.
+`Name`'s default arm rethrows and `Card` takes.
 
 ## Rejected variants
 

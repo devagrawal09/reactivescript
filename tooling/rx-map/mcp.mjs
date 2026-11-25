@@ -4,7 +4,7 @@ import { dirname, resolve, sep } from "node:path";
 import { plain, project } from "./project.mjs";
 import { liveText, queryDiff, queryGraph } from "./query.mjs";
 import { ACT_METHODS, LIVE_METHODS, LIVE_PATH } from "./live-protocol.mjs";
-import { rebase, summary, uncovered, untyped, untypedText } from "./coverage.mjs";
+import { rebase, selectedArm, summary, uncovered, untyped, untypedText } from "./coverage.mjs";
 
 const str = { type: "string", minLength: 1, maxLength: 1024 };
 const integer = minimum => ({ type: "integer", minimum });
@@ -20,10 +20,10 @@ const tools = [
   tool("check", "Check the program for compiler diagnostics."),
   tool("overview", "List modules in dependency order; omit JS imports unless imports is true.", { imports }),
   tool("find", "Find nodes or field paths by name or stable key (case-insensitive).", { query: { type: "string" }, imports }, ["query"]),
-  tool("node", "Describe a node or key.field.path and its static relationships.", { key: str }, ["key"]),
+  tool("node", "Describe a node or key.field.path, its static relationships, and any catch arms.", { key: str }, ["key"]),
   tool("reach", "Trace what a change can affect (down) or what can change a node (up).",
     { key: str, direction: { type: "string", enum: ["down", "up"], default: "down" }, depth: integer(0) }, ["key"]),
-  tool("boundary", "List loading and errored boundaries, or show what can notify one.", { key: str }),
+  tool("boundary", "List loading and errored boundaries and their arms, or show one boundary's notifiers and current selection.", { key: str }),
   tool("diff", "Compare behavior in the working tree against a Git ref (default HEAD).", { ref: str }),
   tool("coverage", "Show covered/total reactive paths by kind for the program or one module, the ignored count, and untyped failures.", { module: str }),
   tool("uncovered", "List at most 50 uncovered reactive paths in priority order.",
@@ -154,6 +154,11 @@ export function createMcp({ dev = process.env.RX_DEV_URL, getProject, live = (me
           answer.data.live = await live("boundary_history", { key: p.key, keys: answer.data.notifiers.map(n => n.key) })
             .catch(() => ({ observation: "unobserved" }));
           answer.text += `\n${liveText("boundary_history", answer.data.live)}`;
+          const arm = selectedArm(answer.data.arms, answer.data.live);
+          if (arm !== undefined) {
+            answer.data.arm = arm;
+            answer.text += `\nselected arm: ${arm}`;
+          }
         }
       }
       // a rebuilt compiler, runtime or map under a running dev server: first, before anything it answers

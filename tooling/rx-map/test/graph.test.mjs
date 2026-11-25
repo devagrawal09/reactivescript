@@ -1,5 +1,5 @@
 // graph.mjs: each control-flow region gets its own header (`head`), read off the source. Nested boundaries must not
-// borrow the catch of the boundary inside them (round-2: IssueDetail's outer `errored (e)` read as `e: NotFound`).
+// borrow the head or the arms of the boundary inside them.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -16,22 +16,40 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
 const rxc = process.env.RXC ?? [resolve(repo, "compiler/target/release/rxc"), resolve(repo, "compiler/target/debug/rxc")].find(existsSync) ?? "rxc";
 
+test("buildGraph copies ordered classes, source lines and dead defaults from the model", () => {
+  const arms = [{ cls: "Conflict", line: 3 }, { cls: "_", line: 4, dead: true }];
+  const catches = [{ classes: null }, { classes: null, arms }];
+  const model = [{
+    file: "fixture.rx",
+    regions: [{ id: 0, kind: "program" }, { id: 1, kind: "errored", parent: 0, arms }],
+    symbols: [{ id: 0, name: "save", kind: "action", line: 1, region: 0 }],
+    computations: [{ id: 0, name: "save", kind: "action", line: 1, region: 0, reads: [], writes: [], calls: [], catches }],
+  }];
+  const graph = buildGraph(model, { source: () => "" });
+  assert.deepEqual(graph.regions[1].arms, arms);
+  assert.deepEqual(graph.nodes[0].catches, catches);
+  assert.notStrictEqual(graph.regions[1].arms[0], arms[0]);
+});
+
 test("nested errored boundaries keep their own catch", () => {
   const model = JSON.parse(execFileSync(rxc, ["model", "fixtures/boundaries.rx"], { cwd: here, encoding: "utf8" }));
   const g = buildGraph(model, { root: here });
-  const heads = g.regions.filter(r => r.kind === "errored" || r.kind === "loading").map(r => [r.kind, r.head?.text, r.head?.line]);
-  assert.deepEqual(heads, [["errored", "errored (e)", 9], ["errored", "errored (e: NotFound)", 13], ["loading", "loading on(issueId)", 16]]);
+  const regions = g.regions.filter(r => r.kind === "errored" || r.kind === "loading");
+  assert.deepEqual(regions.map(r => [r.kind, r.head?.text, r.head?.line]),
+    [["errored", "errored (e)", 9], ["errored", "errored (e)", 13], ["loading", "loading on(issueId)", 17]]);
+  assert.equal(regions[0].arms, undefined);
+  assert.deepEqual(regions[1].arms, [{ cls: "NotFound", line: 14 }, { cls: "ServerError", line: 15 }]);
 });
 
 test("controlHeads works from a graph and its lines alone", () => {
-  const lines = ["{errored fallback(e) {", "  <p/>", "} {", "  {errored fallback(e: A | B) {", "    <p/>", "  } {", "    <h2>{x}</h2>", "  }}", "}}"];
+  const lines = ["{errored fallback(e) {", "  <p/>", "} {", "  {errored fallback(inner) {", "    A => { <p/> }", "  } {", "    <h2>{x}</h2>", "  }}", "}}"];
   const g = {
     regions: [{ id: "r0", mod: 0, kind: "program" }, { id: "r1", mod: 0, kind: "errored", parent: "r0" }, { id: "r2", mod: 0, kind: "errored", parent: "r1" }],
     nodes: [{ id: "n", region: "r2", line: 7 }],
   };
   controlHeads(g, () => lines);
   assert.equal(g.regions[1].head.text, "errored (e)");
-  assert.equal(g.regions[2].head.text, "errored (e: A | B)");
+  assert.equal(g.regions[2].head.text, "errored (inner)");
 });
 
 test("view outlines keep text and original site and region references", () => {

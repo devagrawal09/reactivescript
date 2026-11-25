@@ -170,6 +170,11 @@ like.rx:13:3 - error GUESS_WHILE_LOADING: &lt;button&gt; onClick starts `send`, 
   }}
 }</code></pre>
 
+  <p>To handle errors differently by class, use ordered arms:
+    <code>catch (e) { Conflict =&gt; { showConflict(e.version) } _ =&gt; { report(e.message) } }</code>.
+    The first match wins; <code>_</code> takes the rest and goes last. The same arm syntax works in an
+    <code>errored fallback(e)</code> boundary.</p>
+
   <h2>Races, refused</h2>
   <p>The bugs that come from <code>await</code> in a handler don't show in a demo. They show when the network is slow or two clicks overlap.</p>
   <div class="pair">

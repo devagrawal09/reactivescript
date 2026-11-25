@@ -279,10 +279,12 @@ which showed `A 0` where Solid shows `A 1` — S-hold-3.)
   S-hold-5 instant 2) — unless a `loading` above it is armed (re-armed by
   its `on`): that boundary takes the pending content behind the error
   fallback and shows its own fallback over both (S-hold-6; found by
-  S-ai2-search, Solid's behaviour). A typed boundary (`fallback(e: A | B)`) takes only
-  its classes; another class passes it to the boundary above as if it were
-  not there, and a boundary showing a failure re-decides when the failure
-  changes class (04 R-f-4; S-fail-1). An error that escapes every boundary
+  S-ai2-search, Solid's behaviour). A boundary with ordered error arms
+  selects the first matching arm (04 R-f-4). Changing the selected arm
+  replaces its fallback region and lifetime; changing the failure within
+  the same arm updates its binding. A failure in the fallback goes to the
+  enclosing region, not to another arm. Separate boundaries can nest for
+  distinct content, not as a spelling for class dispatch. An error that escapes every boundary
   halts the instant and the reactive system: for a failure that is a
   compile error (R-f-5), so only a panic can (R-f-3). Apply-block errors
   are imperative and ordinary; compute-half errors are values (E-12).

@@ -44,6 +44,10 @@ function errorClass(name: string, params: string[], message: (...args: unknown[]
 }
 const PANIC = { panic: true } as const;
 const isA = (err: unknown, classes: unknown[] | undefined): boolean => !classes || classes.includes(PANIC) || classes.some(c => { const k = (c as { cls?: unknown })?.cls ?? c; return typeof k === "function" && err instanceof (k as new () => unknown); });
+/** R-f-4: ordered arms — the index of the first arm whose class takes `err` (`undefined`: the default arm, `_`); -1: none. */
+const arm = (err: unknown, classes: unknown[]): number => classes.findIndex(c => isA(err, c === undefined ? undefined : [c]));
+/** R-f-4: ordered arms as a catch's test and handler (`catchMemo`, `catchRead`, `tryCatch`, `settle`): the selected arm handles it. */
+const arms = (classes: unknown[], alts: ((err: unknown) => unknown)[]) => [(err: unknown) => arm(err, classes) >= 0, (err: unknown) => alts[arm(err, classes)](err)] as const;
 /** The server renders once: an errored read throws where it is read, so a catch is an ordinary try around the read. (The
  *  client's is an error boundary: its ids are reserved.) */
 function catchAcc(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
@@ -228,10 +232,10 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     useGet(c: Ctx, owner: Owner) { const e = app.use(c, owner); return e.get ? e.get() : e.value; },
     runWithOwner,
 
-    ...(RX_HARNESS ? { actionCaught: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => isA(error, classes) } : {}),
+    ...(RX_HARNESS ? { actionCaught: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => isA(error, classes), actionArm: (_key: string, _site: number, error: unknown, _names: string[], classes: unknown[]) => arm(error, classes) } : {}),
     snapshot(get: Acc) { try { return untrack(get); } catch (e) { if (e instanceof NotReadyError) return PENDING_MARK; throw e; } },
     errorClass: (name: string, params: string[], message: (...args: unknown[]) => unknown) => errorClass(name, params, message, `${name}#${classSeq++}`),   // a declaration's identity, sent with its failures (SV-5a)
-    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead,
+    isA, PANIC, catchMemo: catchAcc, tryCatch, catchRead, arm, arms,
     /** 11 CP-4b: a dev build's keyed creating call (rt-web.ts names its nodes); here, the call alone. */
     key: <T,>(_k: string, f: () => T): T => f(),
     throw: (e: unknown): never => { throw e; },
@@ -247,6 +251,20 @@ export function createApp(opts: { api?: Record<string, (...a: any[]) => unknown>
     TypedErrored(props: { classes: unknown[]; fallback: (err: Acc) => unknown; children: unknown }) {
       const out = createComponent(Errored as any, {
         fallback: (err: Acc) => { const ok = createMemo(() => isA(err(), props.classes)); if (!ok()) throw err(); return props.fallback(err); },
+        get children() { return props.children; },
+      });
+      reserve();
+      return out;
+    },
+    /** `errored fallback(e) { A => { … } _ => { … } }` (R-f-4): the server renders the selected arm once; a failure no arm
+     *  takes is rethrown from the fallback, to the boundary above. The client's memos, mirrored; its unwrapping memo reserved. */
+    ArmsErrored(props: { classes: unknown[]; arms: ((err: Acc) => unknown)[]; children: unknown }) {
+      const out = createComponent(Errored as any, {
+        fallback: (err: Acc) => {
+          const sel = createMemo(() => arm(err(), props.classes)); if (sel() < 0) throw err();
+          const shown = createMemo(() => untrack(() => props.arms[sel()](err)));
+          return shown();
+        },
         get children() { return props.children; },
       });
       reserve();

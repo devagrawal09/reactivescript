@@ -1,4 +1,4 @@
-# S-fail-1 — typed failures: each typed boundary takes its class, another class passes it
+# S-fail-1 — ordered error arms select a fallback by class
 
 Rules: R-f-1, R-f-3, R-f-4, R-f-5, H-12, D-41.
 
@@ -13,18 +13,19 @@ name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
   errored fallback(e) { <p>down: {e.message}</p> } {
-    <div><p>#{id}</p> {errored fallback(e: BadId) { <p>{e.message}</p> } {
-      errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
-    }}</div>
+    <div><p>#{id}</p> {errored fallback(e) {
+      NotFound => { <p>(nobody)</p> }
+      BadId => { <p>{e.message}</p> }
+      _ => { {throw e} }
+    } { <p>{name}</p> }}</div>
   }
 }
 ```
 
 `name`'s row is `fails(Error | BadId | NotFound)`: `Error` from the fetch
 (a JS promise, R-f-8), `BadId` and `NotFound` from its `throw`s. The
-innermost boundary takes `NotFound`, the next `BadId`, and the root the
-rest. Remove any one of the three and the program is
-refused (below).
+inner boundary shows specific fallbacks for `NotFound` and `BadId`, and
+rethrows the rest to the root, whose fallback replaces the whole page.
 
 ## Frames
 
@@ -40,16 +41,16 @@ refused (below).
 | 7       | handler `id := 4`              | `down: offline`   |
 | 8       | resolve user { name: "Dee" }   | `#4 Dee`          |
 
-Instant 3: `NotFound` is taken by the innermost boundary — it shows
-`(nobody)` and no other boundary moves. Instant 4: `BadId` is thrown with no
-await; the typed boundary takes it in the same frame as `#0`. Instant 5:
+Instant 3: the `NotFound` arm shows `(nobody)` and the root boundary does
+not move. Instant 4: `BadId` is thrown with no await; its arm takes it in
+the same frame as `#0`. Instant 5:
 the content is pending behind an error fallback, which holds nothing
 (H-4) and stays until an answer replaces the error (D-41). Instant 6: the
-rejection is an `Error`: the `BadId` boundary does not take it, the root
-does. Instants 7–8: a new question, then its answer recovers through both
+rejection is an `Error`: the default arm rethrows it and the root shows
+its fallback. Instants 7–8: a new question, then its answer recovers through both
 boundaries in one frame.
 
-## Variant: a boundary that lists `Error` takes everything
+## Variant: a final `Error` arm covers the remaining declared failures
 
 ```rx
 error BadId(id) => `bad id ${id}`
@@ -59,9 +60,10 @@ user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
-  errored fallback(e: Error | NotFound) { <p>down: {e.message}</p> } {
-    errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
-  }
+  errored fallback(e) {
+    NotFound => { <p>(nobody)</p> }
+    Error => { <p>down: {e.message}</p> }
+  } { <p>{name}</p> }
 }
 ```
 
@@ -71,13 +73,13 @@ export default component App() {
 | 1       | resolve user { name: "Ann" }   | `Ann`             |
 | 2       | handler `id := 0`              | `down: bad id 0`  |
 
-`Error` is the top class (R-f-1): a list that names it discharges every
-failure, so `BadId` lands here although it is not listed.
+`Error` is the top class (R-f-1), so `BadId` matches its arm. `NotFound`
+gets its own fallback because its arm comes first.
 
 ## Rejected variants
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: MISSING_ERROR_ARMS
 error BadId(id) => `bad id ${id}`
 error NotFound(id) => `no user ${id}`
 source id := 1
@@ -86,17 +88,17 @@ name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
   <p>#{id}</p>
-  errored fallback(e: BadId) { <p>{e.message}</p> } {
-    errored fallback(e: NotFound) { <p>(nobody)</p> } { <p>{name}</p> }
-  }
+  errored fallback(e) {
+    NotFound => { <p>(nobody)</p> }
+    BadId => { <p>{e.message}</p> }
+  } { <p>{name}</p> }
 }
 ```
 
-R-f-5: without the root boundary, the fetch's `Error` passes the `BadId`
-boundary and nothing above discharges it.
+R-f-4: the fetch's `Error` is missing from the dispatch.
 
 ```rx
--- reject: UNHANDLED_FAILURE
+-- reject: MISSING_ERROR_ARMS
 error BadId(id) => `bad id ${id}`
 error NotFound(id) => `no user ${id}`
 source id := 1
@@ -104,7 +106,7 @@ user = id > 0 ? await fetch("u:" + id) : throw BadId(id)
 name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
-  errored fallback(e: BadId) { <p>{e.message}</p> } {
+  errored fallback(e) { BadId => { <p>{e.message}</p> } } {
     <p>{name}</p>
   }
 }
@@ -121,7 +123,7 @@ name = user == null ? throw NotFound(id) : user.name
 
 export default component App() {
   errored fallback(e) { <p>down</p> } {
-    <p>{name catch (e: NotFound) => "(nobody)"}</p>
+    <p>{name catch (e) { NotFound => { "(nobody)" } _ => { throw e } }}</p>
   }
 }
 ```
@@ -135,7 +137,7 @@ export default component App() {
   source id := 1
   user = await fetch("u:" + id)
 
-  errored fallback(e: Missing) { <p>{e.message}</p> } { <p>{user}</p> }
+  errored fallback(e) { Missing => { <p>{e.message}</p> } _ => { <p>down</p> } } { <p>{user}</p> }
 }
 ```
 

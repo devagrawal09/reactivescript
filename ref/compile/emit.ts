@@ -357,9 +357,9 @@ class Gen {
     return innerCatches(e).map(h => {
       const v = `c$${name}$${this.hoistSeq++}`;
       const guards = h.guards.map(g => { const x = this.expr(g.e, env, { imp: false }); return g.nullish ? `(${x}) == null` : g.neg ? `!(${x})` : `(${x})`; });
-      const c = h.node; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+      const c = h.node;
       const body = this.expr(c.e, env, { imp: false });
-      const out = `${pad}const ${v} = ${this.under(key, `__rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })})`)};`;
+      const out = `${pad}const ${v} = ${this.under(key, `__rt.catchMemo(() => ${guards.length ? `(${guards.join(" && ")}) ? ${body} : undefined` : body}, ${this.catcher(c, env, { imp: false })})`)};`;
       this.hoistedCatch.set(c, v);
       return out;
     }).join("\n");
@@ -397,10 +397,10 @@ class Gen {
     const fx = this.foreign(d, env, b, pad); if (fx !== null) return `${fx}${reg}`;
     if (d.key) return `${pad}const ${b.js} = ${k(`__rt.keyed(${J(d.name)}, ${J(d.key)}, () => ${this.expr(d.e, env, { imp: false, tail: true })}, ${d.e.k === "rec"})`)};${reg}`;
     if (d.e.k === "catch" && !d.deferred) {                                                    // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
-      const c = d.e; const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
-      const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const m = `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)})`, a = `(${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })}`;
-      const body = c.e.k === "await" ? `__rt.settle(${x}, ${m}, ${a})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
-      return `${pad}const i$${d.name} = ${k(`__rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)})`)};\n${pad}const ${b.js} = ${k(`__rt.catchMemo(() => i$${d.name}(), (__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${c.name ? mg(c.name) : "__e"}) => ${this.expr(c.alt, inner, { imp: false })})`)};${reg}`;
+      const c = d.e;
+      const x = this.expr(c.e, env, { imp: false, tail: true, self: d.name }); const ma = this.catcher(c, env, { imp: false });
+      const body = c.e.k === "await" ? `__rt.settle(${x}, ${ma})` : x;                       // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
+      return `${pad}const i$${d.name} = ${k(`__rt.memo(${J(d.name)}, (__prev) => ${body}, ${this.loadingValue(c.e, env)})`)};\n${pad}const ${b.js} = ${k(`__rt.catchMemo(() => i$${d.name}(), ${this.catcher(c, env, { imp: false })})`)};${reg}`;
     }
     const fn = d.deferred ? "deferred" : "memo";
     return `${pad}const ${b.js} = ${k(`__rt.${fn}(${J(d.name)}, (__prev) => ${this.expr(d.e, env, { imp: false, tail: true, self: d.name })}, ${this.loadingValue(d.e, env)})`)};${reg}`;
@@ -511,8 +511,7 @@ class Gen {
       case "catch": {                                                                           // R-f-4: over a sync value, or the tail await's promise/stream
         if (!ctx.imp && this.hoistedCatch.has(e)) return `${this.hoistedCatch.get(e)}()`;
         if (ctx.imp && this.hasAwait(e.e)) throw new CompileError("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
-        const inner = new Env(env); if (e.name) inner.vars.set(e.name, { kind: "val", js: mg(e.name) });
-        return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, (__e) => __rt.isA(__e, ${this.classes(e.classes, env)}), (${e.name ? mg(e.name) : "__e"}) => ${this.expr(e.alt, inner, sub)})`;
+        return `__rt.${ctx.imp ? "tryCatch" : "catchRead"}(() => ${this.expr(e.e, env, sub)}, ${this.catcher(e, env, sub)})`;
       }
       case "tpl": return `(${e.parts.map(p => typeof p === "string" ? J(p) : `__rt.fmt(${go(p)})`).join(" + ") || '""'})`;
       case "member": return `${go(e.o)}?.${e.p}`;
@@ -571,6 +570,25 @@ class Gen {
     const t = ctx.actionTrace;
     return t && names ? `__rt.actionCaught(${J(t.key)}, ${t.next++}, ${error}, ${J(names)}, ${values})` : `__rt.isA(${error}, ${values})`;
   }
+  /** R-f-4: a catch's test and handler, as the two arguments `catchMemo`/`catchRead`/`tryCatch`/`settle` take: its classes
+   *  and `alt`, or its ordered arms (`__rt.arms`: the first arm that takes the failure handles it). */
+  private catcher(c: Extract<Expr, { k: "catch" }>, env: Env, ctx: Ctx): string {
+    const inner = new Env(env); if (c.name) inner.vars.set(c.name, { kind: "val", js: mg(c.name) });
+    const p = c.name ? mg(c.name) : "__e";
+    if (!c.arms) return `(__e) => __rt.isA(__e, ${this.classes(c.classes, env)}), (${p}) => ${this.expr(c.alt, inner, ctx)}`;
+    return `...__rt.arms(${this.armClasses(c.arms, env)}, [${c.arms.map(a => `(${p}) => ${this.expr(a.body, inner, ctx)}`).join(", ")}])`;
+  }
+  /** R-f-4: each arm's class value, in order; `_` is `undefined` (every failure). */
+  private armClasses(arms: { cls: string }[], env: Env): string { return `[${arms.map(a => a.cls === "_" ? "undefined" : this.classes([a.cls], env).slice(1, -1)).join(", ")}]`; }
+  /** R-f-4 in imperative scope: the selected arm's index for the caught `error`; in a named action's dev build, traced (`caught`). */
+  private armSelect(ctx: Ctx, arms: { cls: string }[], error: string, env: Env): string {
+    const t = ctx.actionTrace, values = this.armClasses(arms, env);
+    return t ? `__rt.actionArm(${J(t.key)}, ${t.next++}, ${error}, ${J(arms.map(a => a.cls))}, ${values})` : `__rt.arm(${error}, ${values})`;
+  }
+  /** R-f-4: the selected arm runs; no arm (no `_`): rethrow. A failure inside an arm leaves the dispatch. */
+  private armDispatch(sel: string, error: string, bodies: string[], hasDefault: boolean, pad: string): string {
+    return `${pad}  const __a = ${sel};\n${hasDefault ? "" : `${pad}  if (__a < 0) throw ${error};\n`}${bodies.map((b, i) => `${pad}  if (__a === ${i}) {\n${b}\n${pad}  }`).join("\n")}`;
+  }
   private hasAwait(ss: unknown): boolean { const s = JSON.stringify(ss); return s.includes('"k":"await"'); }
 
   // ---- imperative scope ----
@@ -584,6 +602,13 @@ class Gen {
         const v = s.k === "let" ? mg(s.name) : null; const set = (x: string) => `${pad}  ${v ? `${v} = ` : ""}${x};`;
         const h = new Env(env); if (c.name) h.vars.set(c.name, { kind: "val", js: mg(c.name) });
         const ev = c.name ? mg(c.name) : "__e";
+        if (c.arms) {                                                                             // R-f-4: ordered arms, one expression each
+          const tried = set(e(c.e)), sel = this.armSelect(ctx, c.arms, ev, env);
+          const bodies = c.arms.map(a => `  ${set(this.expr(a.body, h, { ...ctx, tail: false }))}`);
+          out.push(`${v ? `${pad}let ${v};\n` : ""}${pad}try {\n${tried}\n${pad}} catch (${ev}) {\n${this.armDispatch(sel, ev, bodies, c.arms.at(-1)!.cls === "_", pad)}\n${pad}}`);
+          if (v) env.vars.set(s.name, { kind: "val", js: v });
+          return;
+        }
         out.push(`${v ? `${pad}let ${v};\n` : ""}${pad}try {\n${set(e(c.e))}\n${pad}} catch (${ev}) {\n${pad}  if (!${this.catchMatch(ctx, c.classes, ev, env)}) throw ${ev};\n${set(this.expr(c.alt, h, { ...ctx, tail: false }))}\n${pad}}`);
         if (v) env.vars.set(s.name, { kind: "val", js: v });
         return;
@@ -610,7 +635,13 @@ class Gen {
         case "try": {
           const v = s.catchName ? mg(s.catchName) : "__e";
           const match = s.catchClasses ? this.catchMatch(ctx, s.catchClasses, v, env) : null;
+          const sel = s.arms ? this.armSelect(ctx, s.arms, v, env) : null;
           let t = `${pad}try {\n${this.stmts(s.body, env, ctx, ind + 1)}\n${pad}}`;
+          if (s.arms) {                                                                         // R-f-4: ordered arms; the site is the dispatch's, numbered before its body's
+            const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: v });
+            const bodies = s.arms.map(a => this.stmts(a.body, h, ctx, ind + 2));
+            t += ` catch (${v}) {\n${this.armDispatch(sel!, v, bodies, s.arms.at(-1)!.cls === "_", pad)}\n${pad}}`;
+          }
           if (s.handler) { const h = new Env(env); if (s.catchName) h.vars.set(s.catchName, { kind: "val", js: v }); t += ` catch (${v}) {\n${match ? `${pad}  if (!${match}) throw ${v};   // R-f-6: a typed catch rethrows other classes\n` : ""}${this.stmts(s.handler, h, ctx, ind + 1)}\n${pad}}`; }
           if (s.fin) t += ` finally {\n${this.stmts(s.fin, env, ctx, ind + 1)}\n${pad}}`;
           out.push(t); break;
@@ -669,6 +700,14 @@ class Gen {
         return `<__rt.Portal${to}>${this.region(m.decls, m.body, env, ind + 1)}</__rt.Portal>`;
       }
       case "errored": {
+        if (m.arms) {                                                                          // R-f-4: the selected arm owns the fallback; unmatched passes up
+          const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
+          const p = m.errName ? mg(m.errName) : "__err";
+          const arms = `arms={[${m.arms.map(a => `(${p}) => ${this.markup(a.body, fbEnv, ind + 1)}`).join(", ")}]}`;
+          const body = this.region(m.decls, m.body, env, ind + 1);
+          const region = this.boundary(m); const names = region ? ` names={${J(m.arms.map(a => a.cls))}}` : "";
+          return `<__rt.ArmsErrored${region}${names} classes={${this.armClasses(m.arms, env)}} ${arms}>${body}</__rt.ArmsErrored>`;
+        }
         const fbEnv = new Env(env); if (m.errName) fbEnv.vars.set(m.errName, { kind: "acc", js: mg(m.errName) });
         const fallback = `fallback={(${m.errName ? mg(m.errName) : "__err"}) => ${this.markup(m.fallback, fbEnv, ind + 1)}}`;
         const body = this.region(m.decls, m.body, env, ind + 1);

@@ -26,14 +26,19 @@ export type Write = { sym: number; op: "write" | "optimistic" | "refresh" | "aff
 export type RegionKind = "program" | "component" | "imported" | "fn" | "then" | "else" | "for" | "loading" | "portal" | "errored" | "children";
 export type CompKind = "memo" | "deferred" | "keyed" | "question" | "seed" | "reader" | "prop" | "handler" | "effect" | "apply" | "action" | "server" | "fn" | "provide" | "default";
 export type OutlinePart = ({ text: string; attr?: string } | { site: number } | { region: number } | { br: true }) & { line?: number };
-export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; shadowed?: number; deadTyped?: true };
+/** R-f-4: one arm of an ordered error dispatch, in source order. `cls` is a class name or `_`. `dead`: only on `_`, when the
+ *  checker proves the row left after the class arms is empty (it still takes panics at run time). */
+export type ModelArm = { cls: string; line: number; dead?: true };
+/** `arms`: an `errored` region whose boundary dispatches with ordered arms. */
+export type ModelRegion = { id: number; kind: RegionKind; parent?: number; name?: string; outline: OutlinePart[]; arms?: ModelArm[] };
 /** MO-11f: a JS import's declaration — its effective `.d.rx` line, the file it is from (the written `.d.rx`, or the TS module it
  *  was generated from), and where its facts came from: `written`, `helper` (with the helpers) or `default`. */
 export type SymDecl = { line: string; from: string; origin: "written" | "helper" | "default"; helpers: string[] };
 export type ModelSymbol = { id: number; name: string; kind: string; region: number; line: number; question?: boolean; io?: true; from?: string; key?: string; decl?: SymDecl };
 /** An action's own catch (R-f-6): a `try … catch` or an `await … catch` in its body, in source order. `classes`: the error
- *  classes it handles, null for a catch-all. No line: a statement has none in the AST (the map finds it in the source). */
-export type ActionCatch = { classes: string[] | null };
+ *  classes it handles, null for a catch-all (an untyped catch, or arms with `_`). `arms`: an ordered dispatch's arms (R-f-4).
+ *  No line for the catch itself: a statement has none in the AST (the map finds it in the source); each arm has its own. */
+export type ActionCatch = { classes: string[] | null; arms?: ModelArm[] };
 export type Computation = { id: number; kind: CompKind; region: number; line: number; name?: string; at?: string; in?: number; reads: Read[]; writes: Write[]; calls: number[]; catches?: ActionCatch[] };
 export type Model = { file: string; regions: ModelRegion[]; symbols: ModelSymbol[]; computations: Computation[] };
 
@@ -74,7 +79,8 @@ export function declKeys(p: Program, module: string): Map<Decl, string> {
       case "el": markup(m.children, scope); break;
       case "mif": decls(m.tDecls, scope); markup(m.t, scope); decls(m.fDecls, scope); markup(m.f, scope); break;
       case "mfor": decls(m.decls, scope); markup(m.body, scope); break;
-      case "loading": case "errored": markup(m.fallback, scope); decls(m.decls, scope); markup(m.body, scope); break;
+      case "loading": markup(m.fallback, scope); decls(m.decls, scope); markup(m.body, scope); break;
+      case "errored": markup(m.fallback, scope); m.arms?.forEach(a => markup(a.body, scope)); decls(m.decls, scope); markup(m.body, scope); break;
       case "portal": decls(m.decls, scope); markup(m.body, scope); break;
     }
   };
@@ -98,8 +104,8 @@ export class ModelBuilder {
   private outlines = new Map<number, OutlinePart[]>();
   private clipped = new Set<number>();
   hideOutline = 0;
-  /** R-f-4: a typed `errored` region whose children an inner catch-all wraps. `by` is that catch-all's region. */
-  shadow(id: number, by: number) { const r = this.regions.find(x => x.id === id); if (r) { r.deadTyped = true; r.shadowed = by; } }
+  /** R-f-4: an `errored` region's ordered arms (the checker marks a dead `_` later, on the same objects). */
+  arms(id: number, arms: ModelArm[]) { const r = this.regions.find(x => x.id === id); if (r) r.arms = arms; }
   region(id: number, kind: RegionKind, parent: { id: number } | null, name?: string) {
     const outline: OutlinePart[] = [];
     this.outlines.set(id, outline);
@@ -157,7 +163,11 @@ export class ModelBuilder {
       this.cur.writes.push({ sym: id, op, ...(path ? { path: true as const } : {}), ...(field ? { field } : {}) });
   }
   /** An action's own catch: recorded on the action's computation, only there (present when non-empty). */
-  catch(classes: string[] | undefined) { const c = this.cur; if (c?.kind === "action") (c.catches ??= []).push({ classes: classes ? [...classes] : null }); }
+  catch(classes: string[] | undefined, arms?: ModelArm[]) {
+    const c = this.cur; if (c?.kind !== "action") return;
+    if (arms) (c.catches ??= []).push({ classes: arms.some(a => a.cls === "_") ? null : arms.map(a => a.cls), arms });
+    else (c.catches ??= []).push({ classes: classes ? [...classes] : null });
+  }
   call(s: SymLike | undefined) { const id = s && this.ids.get(s); if (!this.cur || id === undefined || !CALL_KINDS.has(s!.kind) || this.cur.calls.includes(id)) return; this.cur.calls.push(id); }
   build(file: string): Model {
     return { file, regions: this.regions.map(r => {

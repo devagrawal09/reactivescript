@@ -20,8 +20,26 @@
 
 - MO-8c: a real `./api` implementation beside the importing module wins over the injected test API, even if
   `createApp({ api })` is set. A test API call with no injected implementation now throws `MISSING_TEST_API`.
-- `DEAD_TYPED_BOUNDARY` rejects a typed error boundary proven shadowed by an inner catch-all. Put the typed
-  boundary inside the catch-all.
+- Ordered error arms replace annotated catches and fallbacks and same-content nested typed handlers.
+  Put the inner handler first and a catch-all last as `_`. `LEGACY_TYPED_HANDLER`, `ERROR_ARM_ORDER`,
+  `UNREACHABLE_ERROR_ARM`, and `MISSING_ERROR_ARMS` are new errors; `DEAD_TYPED_BOUNDARY` is removed.
+  See [the surface rules](spec/07-surface.md#5-imperative-scope-02-sc-2-06-ac) and
+  [ordered error arms](spec/ordered-error-arms.md).
+
+  Before:
+  ```rx
+  try {
+    try { await save() } catch (e: Conflict) { showConflict(e.version) }
+  } catch (e) { report(e.message) }
+  ```
+
+  After:
+  ```rx
+  try { await save() } catch (e) {
+    Conflict => { showConflict(e.version) }
+    _ => { report(e.message) }
+  }
+  ```
 - `STYLE_SCOPE` rejects a style block outside a supported style scope; move it into the component that owns the view.
 - String and template escapes are cooked in the compiler; programs relying on the previous literal backslashes
   must escape those backslashes explicitly.

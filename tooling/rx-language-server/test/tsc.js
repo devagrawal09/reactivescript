@@ -123,7 +123,7 @@ check("the imported .d.rx type rejects the sibling TS type", wrongType.status !=
 const usersTs = [
   'import { pure, ref, rejects } from "@reactivescript/js";',
   "export type User = { name: string; age: number };",
-  "export class NotFound extends Error {}",
+  "export class NotFound extends Error { missingId = 1; }",
   "export const initials = pure((name: string) => name.slice(0, 1));",
   "export const loadUser = pure(rejects([NotFound], async (id: number): Promise<User> => { if (id < 0) throw new NotFound(); return { name: 'Ada', age: 36 }; }));",
   "export const createUpper = ref({ args: [0], result: true }, (source: () => string) => () => source().toUpperCase());",
@@ -137,13 +137,13 @@ const usersRx = [
   '  source name := "ada"',
   '  source status := ""',
   "  first = initials(name)",
-  "  user: User | null = await loadUser(1) catch (e: NotFound) => null",
+  "  user: User | null = await loadUser(1) catch (e) { NotFound => { e.missingId > 0 ? null : null } }",
   "  loud = createUpper(name)",
   "  shout = loud.trim()",
   '  label = user == null ? "" : `${user.name} ${user.age}`',
   "  action store() {",
   '    try { await save({ name: name, age: 1 }); status := "saved" }',
-  '    catch (e: NotFound) { status := "missing" }',
+  '    catch (e) { NotFound => { status := `missing ${e.missingId}` } }',
   "  }",
   "  errored fallback(e) { <p>{e.message}</p> } { <p>{first}{shout}{label}{status}</p> }",
   "}",
@@ -161,6 +161,10 @@ check("a .ts with no .d.rx: a helper-stated pure fn in an equation, a type impor
 const badArg = tsModule({ file: "main.rx", text: () => usersRx.replace("loadUser(1)", 'loadUser("1")') });
 const badLine = usersRx.split("\n").findIndex(l => l.includes("loadUser(1)")) + 1;
 check("a type error against the .ts's own types fails, on the .rx line", badArg.status !== 0 && new RegExp(`main\\.rx\\(${badLine},\\d+\\): error TS2345`).test(badArg.out), badArg);
+
+const badArm = tsModule({ file: "main.rx", text: () => usersRx.replace("e.missingId > 0", "e.retryAfter > 0") });
+const armColumn = usersRx.split("\n")[badLine - 1].indexOf("missingId") + 1;
+check("an error arm rejects a foreign field at its .rx span", badArm.status !== 0 && badArm.out.includes(`main.rx(${badLine},${armColumn}): error TS2339`) && !badArm.out.includes("instanceof"), badArm);
 
 const refAsT = tsModule({ file: "main.rx", text: () => usersRx.replace("shout = loud.trim()", "shout: number = loud") });
 check("a Ref result reads as its T (TY-4d): `string` is not `number`", refAsT.status !== 0 && /main\.rx\(\d+,\d+\): error TS2322/.test(refAsT.out), refAsT);

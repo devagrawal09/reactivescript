@@ -36,6 +36,11 @@ ref/check.ts [--signature] file.rx…` prints diagnostics for files and the
 signature as `.d.rx` text — the text an importer is checked against when
 the module's `.rx` is not there (MO-9, `src/signature.ts`).
 
+For a quick parser-only check of the top-level examples, run
+`node --experimental-strip-types ref/examples.ts`. For the row checks and
+frame behavior of [ordered error arms](../spec/ordered-error-arms.md), run
+the scenarios with `npm --prefix ref test`.
+
 Resolved model (spec/11 CP-6): `src/model.ts`, filled by the checker's walk.
 `node --experimental-strip-types ref/model.ts file.rx…` prints, per module, its
 regions, symbols and computations, each computation with its reads (tracked,

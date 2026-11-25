@@ -48,15 +48,14 @@ is the statement's value, the body goes on, and the write lands with the
 action's end. Instant 5: the reader re-asks with `more` true; the held
 `loading` keeps showing the settled frame while `z` is in flight (H-5).
 
-## Variant: a typed catch passes other classes to the `try` around it
+## Variant: a catch arm can rethrow to the `try` around it
 
 ```rx
-error Declined(reason: string) => `declined: ${reason}`
 export default component App() {
   source status := ""
   action place() {
     try {
-      let r = await fetch("checkout") catch (e: Declined) => "declined"
+      let r = await fetch("checkout") catch (e) { Error => { throw e } }
       status := `got ${r}`
     } catch (e) {
       status := `failed: ${e.message}`
@@ -73,9 +72,9 @@ export default component App() {
 | 1       | handler `place()`         | ``             |
 | 2       | reject "checkout" "no"    | `failed: no`   |
 
-The prelude's `fetch` fails with `Error`, which `catch (e: Declined)` does
-not take: it is rethrown at the `await` (R-f-4, AC-7), and the `try` around
-the statement catches it.
+The prelude's `fetch` fails with `Error`. The arm rethrows it (R-f-4,
+AC-7); it leaves the expression catch and the `try` around the statement
+catches it.
 
 ## Rejected variants
 
@@ -96,16 +95,14 @@ refused: bind it first (`let r = await fetch("checkout")`).
 
 ```rx
 -- reject: UNCAUGHT_ACTION_FAILURE
-error Declined(reason: string) => `declined: ${reason}`
 export default component App() {
   source status := ""
   action place() {
-    let r = await fetch("checkout") catch (e: Declined) => "declined"
+    let r = await fetch("checkout") catch (e) { Error => { throw e } }
     status := `got ${r}`
   }
   <p>{status}</p>
 }
 ```
 
-R-f-6: the typed catch discharges `Declined` only; `fetch` fails with
-`Error`, which the body lets out.
+R-f-6: the arm rethrows `Error`, which the body lets out.

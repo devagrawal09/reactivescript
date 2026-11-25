@@ -25,11 +25,13 @@ export type Expr =
   | { k: "spread"; e: Expr }                                   // only inside an array literal
   | { k: "omit"; e: Expr; keys: string[] }                      // RG-4b: an object rest, `{ a, ...rest } = e` (the parser's own; Solid's `omit`)
   | { k: "throw"; e: Expr }                                    // R-f-3: a failure; an expression in reactive scope too
-  | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr }
+  | { k: "catch"; e: Expr; name?: string; classes?: string[]; alt: Expr; arms?: ErrorArm<Expr>[] }
   | { k: "stylemap"; css: string; line?: number }                // 07 CSS-5: `styles = <style>…</style>` — a class map, a constant
   | { k: "serverfn"; params: string[]; ptypes?: (string | undefined)[]; ret?: string; body: Stmt[] };   // 12 SF-1d: `server fn (a) { … }`, an expression — for a wrapper (`GET(server fn …)`)   // R-f-4: `e catch (x: A | B) => alt`; classes absent: every failure
 
 export type Target = { name: string; path: (string | Expr)[]; ctx?: boolean };   // ctx: `use name` — a provided source (RG-7, O-4)
+
+export type ErrorArm<T> = { cls: string; body: T; line: number };                // R-f-4: `_` is the default arm
 
 export type Stmt =
   | { k: "write"; target: Target; e: Expr }
@@ -41,7 +43,7 @@ export type Stmt =
   | { k: "action"; body: Stmt[] }                               // AC-1 inline
   | { k: "sif"; c: Expr; t: Stmt[]; f: Stmt[] }                 // imperative `if`
   | { k: "return"; e?: Expr }
-  | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; fin?: Stmt[] }   // AC-7: traditional try/catch/finally in imperative scope
+  | { k: "try"; body: Stmt[]; catchName?: string; catchClasses?: string[]; handler?: Stmt[]; arms?: ErrorArm<Stmt[]>[]; fin?: Stmt[] }   // AC-7
   | { k: "throw"; e: Expr };
 
 export type Param = { name: string; ref: boolean; type?: string };   // E-9; types are TS's, kept as text (07 §2)
@@ -67,7 +69,7 @@ export type Markup = (
   | { k: "mif"; c: Expr; t: Markup[]; tDecls: Decl[]; f: Markup[]; fDecls: Decl[] }
   | { k: "mfor"; name: string; xs: Expr; decls: Decl[]; body: Markup[] }
   | { k: "loading"; on?: Expr; fallback: Markup[]; decls: Decl[]; body: Markup[] }    // H-5/H-6
-  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[] }   // H-12; errName: `fallback(e)`; classes: `fallback(e: A | B)` (R-f-4), absent: every failure
+  | { k: "errored"; fallback: Markup[]; decls: Decl[]; body: Markup[]; errName?: string; classes?: string[]; arms?: ErrorArm<Markup[]>[] }   // H-12
   | { k: "portal"; to?: Expr; decls: Decl[]; body: Markup[] }                     // RG-8: rendered at the end of the document (or `to(e)`), owned here
 ) & { line?: number };                                                                   // the source line, for diagnostics
 

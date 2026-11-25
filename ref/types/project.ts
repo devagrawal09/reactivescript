@@ -5,9 +5,10 @@
 //   which checks `v` against the target; an equation's `await` is `__.await(e)`, its answer's type, and an equation is `__.eq(e)`, never a promise (R-1); a view is JSX over
 //   Solid's JSX types, so a component's props and what a reader may insert are checked where they are written.
 // The projection is for checking only: it is never run, and its order is the dependency order (E-7).
-import type { Decl, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
+import type { Decl, ErrorArm, Expr, Markup, Program, Stmt, Target } from "../src/ast.ts";
 import { transform } from "@solidjs/compiler";
 import type { ModuleSet } from "../src/modules.ts";
+import { checkModules, type ModSig } from "../src/check.ts";
 import type { JsDecl, Shape } from "../src/parse.ts";
 import { shapeHasRef } from "../src/parse.ts";
 /** TY-4d: a primitive's result shape as `__.ReadResult` takes it. */
@@ -16,8 +17,6 @@ const shapeType = (s?: Shape): string => {
   if (!s || typeof s === "string") return part(s ?? "value");
   return "items" in s ? `[${s.items.map(part).join(", ")}]` : `{ ${s.fields.map(([k, p]) => `${JSON.stringify(k)}: ${part(p)}`).join("; ")} }`;
 };
-import type { ModSig } from "../src/check.ts";
-
 const ROW_WORDS = /^((?:io|pending|lane|fails\([^)]*\))\s+)+/;
 const BUILTINS = new Set(["len", "str", "map", "filter", "sum", "fail", "fetch", "every", "log", "until", "onSettled", "onFlush"]);
 const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
@@ -42,6 +41,9 @@ export declare function pending(v: unknown): boolean;
 /** RG-4b: an object rest, \`{ a, ...rest } = e\` (Solid's \`omit\`). */
 export declare function omit<T, K extends string>(v: T, ...keys: K[]): Omit<T, K>;
 export declare function caught<T, R>(v: T, alt: (e: any) => R): T | R;
+export declare function caughtArms<T, F extends readonly ((e: never) => unknown)[]>(v: T, ...arms: F): T | ReturnType<F[number]>;
+export declare function matchesArm(): boolean;
+export declare function armError<E>(): E;
 export declare function raise(e: unknown): never;
 /** W-1/W-6: a write checks its value (or its function of the slot) against the target — whose type alone decides it. */
 export declare function set<T>(target: T): (v: T | ((p: T) => T)) => void;
@@ -102,13 +104,20 @@ class W {
 /** The file a module projects to: `main.rx` → `main.rx.tsx`, so `import … from "./lib.rx"` resolves to the projection. */
 export const projectedPath = (rx: string) => `${rx}.tsx`;
 
-export function projectModules(set: ModuleSet): Projected[] {
+function hasDefaultArm(x: unknown): boolean {
+  if (!x || typeof x !== "object") return false;
+  if ("cls" in x && x.cls === "_" && "body" in x) return true;
+  return Object.values(x).some(hasDefaultArm);
+}
+
+export function projectModules(set: ModuleSet, checked?: ReturnType<typeof checkModules>): Projected[] {
   const out: Projected[] = [];
   const jsStubs = new Map<string, Set<string>>();          // a JS module with no declaration file: every name it is asked for is `any`
+  const armTypes = (checked ?? ([...set.programs.values()].some(hasDefaultArm) ? checkModules(set) : undefined))?.armTypes ?? new Map();
   for (const path of set.order) {
     const p = set.programs.get(path)!;
     const w = new W();
-    new Proj(w, set, path, jsStubs).module(p);
+    new Proj(w, set, path, jsStubs, armTypes).module(p);
     out.push({ path: projectedPath(path), code: w.out.join("\n"), lines: w.lines, rx: path });
   }
   for (const [rx, sig] of set.signatures ?? []) out.push({ path: `${rx}.d.ts`, code: signatureStub(sig), lines: [], rx: rx.replace(/\.rx$/, ".d.rx") });   // TY-4c
@@ -221,7 +230,8 @@ class Proj {
   private rename: Map<string, string> | null = null;       // inside a handler, a snap name reads as its snapshot binding
   private ambients = new Set<string>();                    // a JS module's `.d.rx`, emitted once as the types the import is checked against (TY-4b)
   private bridged = new Set<string>();                     // MO-8e: a type bridge already emitted in this projection
-  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; }
+  private armTypes: ReadonlyMap<ErrorArm<unknown>, readonly string[]>;
+  constructor(w: W, set: ModuleSet, path: string, jsStubs: Map<string, Set<string>>, armTypes: ReadonlyMap<ErrorArm<unknown>, readonly string[]>) { this.w = w; this.set = set; this.path = path; this.jsStubs = jsStubs; this.armTypes = armTypes; }
 
   module(p: Program) {
     const body = new W(); const saved = this.w; this.w = body;
@@ -311,10 +321,17 @@ class Proj {
   private handlerSnaps(fn: Extract<Expr, { k: "fn" }>): string[] {
     const bound = new Set(fn.params);
     const out = new Set<string>();
+    const inArm = (name: string | undefined, visit: () => void) => {
+      const saved = new Set(bound);
+      if (name) bound.add(name);
+      visit();
+      bound.clear(); for (const n of saved) bound.add(n);
+    };
     const expr = (e: Expr) => {
       if (!e?.k) return;
       if (e.k === "fn" || e.k === "serverfn" || e.k === "draft") return;
       if (e.k === "id") { if (this.snap.has(e.name) && !bound.has(e.name)) out.add(e.name); return; }
+      if (e.k === "catch" && e.arms) { expr(e.e); for (const a of e.arms) inArm(e.name, () => expr(a.body)); return; }
       for (const v of Object.values(e)) {
         if (Array.isArray(v)) { for (const x of v) if (x && typeof x === "object") { if ("k" in x) expr(x as Expr); else if ("v" in x) expr((x as { v: Expr }).v); else if ("spread" in x) expr((x as { spread: Expr }).spread); } }
         else if (v && typeof v === "object" && "k" in v) expr(v as Expr);
@@ -325,7 +342,7 @@ class Proj {
         if (s.k === "let") { expr(s.e); bound.add(s.name); continue; }
         if (s.k === "write" || s.k === "optimistic") { for (const p of s.target.path) if (typeof p !== "string") expr(p); expr(s.e); continue; }
         if (s.k === "sif") { expr(s.c); stmts(s.t); stmts(s.f); continue; }
-        if (s.k === "try") { stmts(s.body); if (s.handler) stmts(s.handler); if (s.fin) stmts(s.fin); continue; }
+        if (s.k === "try") { stmts(s.body); for (const a of s.arms ?? []) inArm(s.catchName, () => stmts(a.body)); if (s.handler) stmts(s.handler); if (s.fin) stmts(s.fin); continue; }
         if (s.k === "action") { stmts(s.body); continue; }
         if (s.k === "throw" || s.k === "expr") expr(s.k === "throw" ? s.e : s.e);
         if (s.k === "return" && s.e) expr(s.e);
@@ -419,7 +436,15 @@ class Proj {
         case "sif": this.w.emit(`${ind}if (${e(s.c)}) {`, 0); this.stmts(s.t, ind + "  "); this.w.emit(`${ind}} else {`, 0); this.stmts(s.f, ind + "  "); this.w.emit(`${ind}}`, 0); break;
         case "try": {
           this.w.emit(`${ind}try {`, 0); this.stmts(s.body, ind + "  ");
-          if (s.handler) { this.w.emit(`${ind}} catch (__e) {${s.catchName ? ` const ${s.catchName} = __e as ${s.catchClasses ? s.catchClasses.join(" | ") : "Error"};` : ""}`, 0); this.stmts(s.handler, ind + "  "); }
+          if (s.arms) {
+            this.w.emit(`${ind}} catch {`, 0);
+            s.arms.forEach((a, i) => {
+              this.w.emit(`${ind}  ${i ? "else " : ""}${a.cls === "_" ? "" : "if (__.matchesArm()) "}{ const ${s.catchName} = __.armError<${this.armType(a)}>();`, a.line);
+              this.armBinding(s.catchName, () => this.stmts(a.body, ind + "    "));
+              this.w.emit(`${ind}  }`, a.line);
+            });
+            if (s.arms.at(-1)?.cls !== "_") this.w.emit(`${ind}  else { throw __.armError<Error>(); }`, 0);
+          } else if (s.handler) { this.w.emit(`${ind}} catch (__e) {${s.catchName ? ` const ${s.catchName} = __e as ${s.catchClasses ? s.catchClasses.join(" | ") : "Error"};` : ""}`, 0); this.stmts(s.handler, ind + "  "); }
           if (s.fin) { this.w.emit(`${ind}} finally {`, 0); this.stmts(s.fin, ind + "  "); }
           this.w.emit(`${ind}}`, 0); break;
         }
@@ -459,7 +484,14 @@ class Proj {
       }
       case "if": return `(${go(e.c)} ? ${go(e.t)} : ${go(e.f)})`;
       case "throw": return `__.raise(${go(e.e)})`;
-      case "catch": return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
+      case "catch": {
+        if (!e.arms) return `__.caught(${go(e.e)}, (${e.name ?? "__e"}: ${e.classes ? e.classes.join(" | ") : "Error"}) => ${go(e.alt)})`;
+        const value = go(e.e);
+        const arm = (a: ErrorArm<Expr>) => this.armBinding(e.name, () => go(a.body));
+        if (!imp) return `__.caughtArms(${value}${e.arms.map(a => `, (${e.name}: ${this.armType(a)}) => ${arm(a)}`).join("")})`;
+        const arms = e.arms.map((a, i) => `${i ? "else " : ""}${a.cls === "_" ? "" : "if (__.matchesArm()) "}{ const ${e.name} = __.armError<${this.armType(a)}>(); return ${arm(a)}; }`).join(" ");
+        return `(await (async () => { try { return ${value}; } catch { ${arms}${e.arms.at(-1)?.cls === "_" ? "" : " else { throw __.armError<Error>(); }"} } })())`;
+      }
       case "tpl": return "`" + e.parts.map(p => typeof p === "string" ? p.replace(/[`\\]|\$\{|[\x00-\x1f]/g, m => m.charCodeAt(0) < 32 ? "\\x" + m.charCodeAt(0).toString(16).padStart(2, "0") : "\\" + m) : "${" + go(p) + "}").join("") + "`";
       case "member": return `${go(e.o)}${e.opt ? "?." : "."}${e.p}`;
       case "index": return `${go(e.o)}${e.opt ? "?.[" : "["}${go(e.i)}]`;
@@ -536,9 +568,34 @@ class Proj {
         this.w.emit(`${ind}{(`, line); this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
       }
       case "errored": {
+        if (m.arms) {
+          for (const a of m.arms) {
+            this.w.emit(`${ind}{((${m.errName}: ${this.armType(a)}) => (`, a.line);
+            this.armBinding(m.errName, () => this.markup(a.body, ind + "  "));
+            this.w.emit(`${ind}))(null!)}`, a.line);
+          }
+          this.w.emit(`${ind}{(`, line);
+          this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
+        }
         this.w.emit(`${ind}{((${m.errName ?? "__err"}: ${m.classes ? m.classes.join(" | ") : "Error"}) => (`, line); this.markup(m.fallback, ind + "  "); this.w.emit(`${ind}))(null!)}{(`, line);
         this.region(m.decls, m.body, ind + "  ", line); this.w.emit(`${ind})}`, line); return;
       }
+    }
+  }
+
+  private armType(a: ErrorArm<unknown>): string {
+    if (a.cls === "_") return this.armTypes.get(a)?.join(" | ") || "Error";
+    return a.cls === "Panic" ? "__.Panic" : a.cls;
+  }
+
+  private armBinding<T>(name: string | undefined, body: () => T): T {
+    const alias = name ? this.rename?.get(name) : undefined;
+    if (!name) return body();
+    const snap = this.snap.delete(name);
+    if (alias) this.rename!.delete(name);
+    try { return body(); } finally {
+      if (alias) this.rename!.set(name, alias);
+      if (snap) this.snap.add(name);
     }
   }
 }

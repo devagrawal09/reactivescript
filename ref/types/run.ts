@@ -37,15 +37,19 @@ const units: Unit[] = [];
 const filter = process.argv[2];
 const sdir = new URL("../../scenarios/", import.meta.url);
 let seq = 0;
-function add(sc: Scenario, title: string, src: string, expect: string | null) {
-  let set; try { set = moduleSet(sc, src); } catch { return; }
-  if (checkModules(set).diags.length) return;                                    // the checker refused it: no types are asked
+function add(sc: Scenario, title: string, src: string, expect: string | null, requireChecked = false) {
+  let set; try { set = moduleSet(sc, src); } catch (e) { if (requireChecked) throw e; return; }
+  const checked = checkModules(set);
+  if (checked.diags.length) {
+    if (requireChecked) throw new Error(`${sc.name} (${title}) did not pass RX checks: ${JSON.stringify(checked.diags)}`);
+    return;                                                                     // the checker refused it: no types are asked
+  }
   const dir = join(out, `${sc.name}.${seq++}`); const root = dirname(set.entry.startsWith("/") ? set.entry : "/" + set.entry);
   const files = new Map<string, Projected>();
   for (const [k, text] of sc.modules) if (!/\.rx$/.test(k)) {             // MO-11: a TS module (and what it imports) is TypeScript's to read, beside the projection
     const f = join(dir, relative(root, k.startsWith("/") ? k : "/" + k)); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text);
   }
-  for (const p of process.env.RX_CRATE ? crateProjection(sc, src) : projectModules(set)) {
+  for (const p of process.env.RX_CRATE ? crateProjection(sc, src) : projectModules(set, checked)) {
     const rel = relative(root, p.path.startsWith("/") ? p.path : "/" + p.path); const f = join(dir, rel);
     mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, p.code); files.set(f, p);
   }
@@ -57,6 +61,42 @@ for (const f of readdirSync(sdir).filter(f => f.endsWith(".md") && f !== "TEMPLA
   add(sc, "Program", sc.program, null);
   for (const t of sc.tables) if (t.program) add(sc, t.title, t.program, null);
   for (const rj of sc.rejected) if (rj.types) add(sc, `types ${rj.rule}`, rj.program, rj.rule);
+}
+if (!filter || "ordered-error-arms".includes(filter)) {
+  const sc = parseScenario("ordered-error-arms", "", fileURLToPath(sdir));
+  const source = `
+error Conflict(version: number)
+error Offline(retryAfter: number)
+import { load } from "./api"
+export default component App() {
+  source count := 0
+  result: string | number | null = await load() catch (e) {
+    Conflict => { e.version }
+    _ => { e.retryAfter || null }
+  }
+  action save() {
+    let status: string | number = await load() catch (e) {
+      Offline => { e.retryAfter }
+      _ => { e.version }
+    }
+    try { await load() } catch (e) {
+      Conflict => { count := e.version }
+      _ => { count := e.retryAfter }
+    }
+    log(status)
+  }
+  errored fallback(e) {
+    Offline => { <p>{e.retryAfter}</p> }
+    _ => { <p>{e.version}</p> }
+  } { <p>{await load()}{result}{count}</p> }
+}
+`;
+  sc.modules.set(join(dirname(sc.entry), "api.d.rx"), "export pure fn load(): Promise<string> rejects(Conflict | Offline)\n");
+  add(sc, "each arm sees its own instance, and `_` sees only the residual", source, null, true);
+  add(sc, "statement arm rejects a foreign field", source.replace("count := e.version", "count := e.retryAfter"), "TS2339", true);
+  add(sc, "await arm rejects a foreign field", source.replace("Conflict => { e.version }", "Conflict => { e.retryAfter }"), "TS2339", true);
+  add(sc, "fallback arm rejects a foreign field", source.replace("<p>{e.retryAfter}</p>", "<p>{e.version}</p>"), "TS2339", true);
+  add(sc, "await result includes the types of all arms", source.replace("string | number | null", "string"), "TS2322", true);
 }
 const roots = units.flatMap(u => [...u.files.keys()].filter(f => f.endsWith(".tsx")));
 const t0 = Date.now();
@@ -76,7 +116,7 @@ for (const u of units) {
   }
   const lines = scenarios.get(u.sc) ?? []; scenarios.set(u.sc, lines);
   if (u.expect === null) { if (got.length) { fail++; lines.push(`  ✗ ${u.title}: ${got.join("\n      ")}`); } else { pass++; lines.push(`  ✓ ${u.title}: types check`); } }
-  else { const hit = got.find(g => g.startsWith(u.expect! + " ")); if (hit) { pass++; lines.push(`  ✓ ${u.title}: ${hit}`); } else { fail++; lines.push(`  ✗ ${u.title}: expected ${u.expect}, got ${got.join(" | ") || "no error"}`); } }
+  else { const hit = got.find(g => g.startsWith(u.expect! + " ")); if (hit && (u.sc !== "ordered-error-arms" || got.length === 1)) { pass++; lines.push(`  ✓ ${u.title}: ${hit}`); } else { fail++; lines.push(`  ✗ ${u.title}: expected ${u.expect}, got ${got.join(" | ") || "no error"}`); } }
 }
 for (const d of byFile.get("(global)") ?? []) { fail++; console.log(`✗ global: TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, " ")}`); }
 for (const [sc, lines] of scenarios) { console.log(`${lines.some(l => l.includes("✗")) ? "FAIL" : "PASS"} ${sc}`); for (const l of lines) console.log(l); }

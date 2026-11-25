@@ -852,17 +852,23 @@ export pure fn g(x: number): number
 
 Import `Card`, not `fetch`.
 
-### DEAD_TYPED_BOUNDARY
+### LEGACY_TYPED_HANDLER
 
-A typed `errored fallback(e: X)` wraps a catch-all with a static fallback. The catch-all takes `X` first and its static
-fallback cannot fail into the typed region (R-f-4). Put the typed boundary inside the catch-all. The model marks the typed region
-`deadTyped: true` and `shadowed` by the inner one, which is what the map draws.
+A catch or fallback binding names error classes, the old typed spelling (R-f-4). Dispatch on the class with ordered
+arms instead. The first matching arm wins, and `_` takes the rest. The message gives the exact rewrite. A union becomes
+one arm per class: `catch (e: A | B) { … }` becomes `catch (e) { A => { … } B => { … } }`. For an `await`,
+`catch (e: A) => alt` becomes `catch (e) { A => { alt } }`, one expression per arm. Handlers nested around the same code,
+a `try` directly inside another `try`, or a boundary whose content is just another boundary, are one error. Its rewrite
+is one dispatch, inner arms first, and a catch-all becomes `_`. A typed boundary whose content is a catch-all was
+`DEAD_TYPED_BOUNDARY`. That catch-all took the class first. It gets the same rewrite, with the class before `_`.
 
 ```rx before
 error NotFound
 export default component App() {
-  errored fallback(e: NotFound) { <p>{e.message}</p> } {
-    errored fallback { <p>failed</p> } { <p>x</p> }
+  source id := 1
+  user = await fetch("u:" + id)
+  errored fallback(e) { <p>failed: {e.message}</p> } {
+    errored fallback(e: NotFound) { <p>nobody</p> } { <p>{user}</p> }
   }
 }
 ```
@@ -870,9 +876,100 @@ export default component App() {
 ```rx after
 error NotFound
 export default component App() {
-  errored fallback(e) { <p>{e.message}</p> } {
-    errored fallback(e: NotFound) { <p>{e.message}</p> } { <p>x</p> }
+  source id := 1
+  user = await fetch("u:" + id)
+  errored fallback(e) {
+    NotFound => { <p>nobody</p> }
+    _ => { <p>failed: {e.message}</p> }
+  } { <p>{user}</p> }
+}
+```
+
+### ERROR_ARM_ORDER
+
+Arms match in source order (R-f-4), so an arm that an earlier arm already takes never runs. Examples are an arm after
+`_`, a second `_`, a class named twice, and an arm after `Error`, the top class. An arm after `Panic` is also never
+reached, since `Panic` takes whatever reaches it at run time (R-f-10). Move `_` last, merge repeated arms, or drop the
+dead one.
+
+```rx before
+error Conflict
+export default component App() {
+  source note := ""
+  action save() {
+    try { await fetch("save") } catch (e) {
+      _ => { note := e.message }
+      Conflict => { note := "conflict" }
+    }
   }
+  <button onClick={() => { save() }}>{note}</button>
+}
+```
+
+```rx after
+error Conflict
+export default component App() {
+  source note := ""
+  action save() {
+    try { await fetch("save") } catch (e) {
+      Conflict => { note := "conflict" }
+      _ => { note := e.message }
+    }
+  }
+  <button onClick={() => { save() }}>{note}</button>
+}
+```
+
+### UNREACHABLE_ERROR_ARM
+
+A class arm names a class that the row reaching the dispatch cannot contain (R-f-4). That row is the `try` body's, the
+awaited expression's, or the boundary content's. Only a closed, resolved row proves it. A row that includes `Error`
+(an undeclared JS rejection, `fetch`) or a prop's failures never does. Remove the arm, or fix the row the code declares.
+A `_` that a closed row leaves empty is not an error. It still takes panics, and the model marks it `dead`.
+
+```rx before
+error NotFound
+error Offline
+failed = throw Offline()
+export default component App() {
+  errored fallback(e) {
+    NotFound => { <p>gone</p> }
+    _ => { <p>{e.message}</p> }
+  } { <p>{failed}</p> }
+}
+```
+
+```rx after
+error Offline
+failed = throw Offline()
+export default component App() {
+  errored fallback(e) {
+    Offline => { <p>offline</p> }
+  } { <p>{failed}</p> }
+}
+```
+
+### MISSING_ERROR_ARMS
+
+A dispatch without `_` must cover every class in the row that reaches it (R-f-4). The message names the classes left
+over. An open row (`Error`: an undeclared rejection, `fetch`, a rethrown catch-all) needs `_`. A dispatch whose only arm
+is `Panic` is the exception (R-f-10). It discharges nothing, so the failures below it must be handled there.
+
+```rx before
+error NotFound
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id) catch (e) { NotFound => { null } }
+  <p>{user}</p>
+}
+```
+
+```rx after
+error NotFound
+export default component App() {
+  source id := 1
+  user = await fetch("u:" + id) catch (e) { NotFound => { null } _ => { "unavailable" } }
+  <p>{user}</p>
 }
 ```
 
@@ -927,14 +1024,14 @@ export default component App() {
 
 ### NOT_AN_ERROR_CLASS
 
-A `catch` or `errored` that names a class narrows to error classes declared with `error` (R-f-1). Declare the class,
-or drop the name to take any failure.
+An error arm (or an import's `fails`) names a class that is not an error class declared with `error` or imported
+(R-f-1). Declare the class, or use `_` to take any failure.
 
 ```rx before
 export default component App() {
   source id := 1
   user = await fetch("u:" + id)
-  {errored fallback(e: Missing) { <p>{e.message}</p> } { <p>{user}</p> }}
+  {errored fallback(e) { Missing => { <p>{e.message}</p> } _ => { <p>failed</p> } } { <p>{user}</p> }}
 }
 ```
 

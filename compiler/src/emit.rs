@@ -4,7 +4,7 @@
 //! `const`. Names are mangled (`v$x` the value or accessor, `w$x` a source's writer, `p$x` a companion `pre` memo). The
 //! module is a tree (`js.rs`), never text (CP-3).
 
-use crate::ast::{Decl, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
+use crate::ast::{Decl, ErrorArm, Expr, ExprKind, Lit, Markup, MarkupKind, PathSeg, Program, Stmt, StmtKind};
 use crate::awaits::{inner_catches, is_handler, non_tail_awaits, view_readers};
 use crate::check::{children, unwrap_server, Node};
 use crate::js::*;
@@ -1068,7 +1068,7 @@ impl<'p> Gen<'p> {
     fn hoist_catches(&mut self, name: &str, e: &Expr, env: Env, key: Option<&str>) -> R<Vec<S>> {
         let mut out = vec![];
         for h in inner_catches(e) {
-            let ExprKind::Catch { e: x, name: cn, classes, alt } = &h.node.k else { unreachable!() };
+            let ExprKind::Catch { e: x, name: cn, classes, alt, arms } = &h.node.k else { unreachable!() };
             let v = format!("c${}${}", name, self.hoist_seq);
             self.hoist_seq += 1;
             let mut guards = vec![];
@@ -1076,14 +1076,8 @@ impl<'p> Gen<'p> {
                 let x = self.expr(g.e, env, &reactive())?;
                 guards.push(if g.nullish { bin("==", x, E::Null) } else if g.neg { not(x) } else { x });
             }
-            let inner = self.new_env(Some(env));
-            if let Some(n) = cn {
-                self.set(inner, n, val(mg(n)));
-            }
             let body = self.expr(x, env, &reactive())?;
-            let cls = self.classes(classes.as_deref(), env)?;
-            let a = self.expr(alt, inner, &reactive())?;
-            let p = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+            let mut args = self.catcher(cn, classes, alt, arms, env, &reactive())?;
             let f = if guards.is_empty() {
                 body
             } else {
@@ -1093,7 +1087,8 @@ impl<'p> Gen<'p> {
                 E::Cond(Box::new(c), Box::new(body), Box::new(undef()))
             };
             self.hoisted_catch.insert(h.node as *const Expr, v.clone());
-            out.push(konst(v, Self::under(key, rtc("catchMemo", vec![thunk(f), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)]))));
+            args.insert(0, thunk(f));
+            out.push(konst(v, Self::under(key, rtc("catchMemo", args))));
         }
         Ok(out)
     }
@@ -1187,30 +1182,28 @@ impl<'p> Gen<'p> {
                     return fin(vec![konst(b.js.clone(), k(rtc("keyed", vec![str(name.clone()), str(sk.clone()), thunk(x), E::Bool(matches!(e.k, ExprKind::Rec(_)))])))], self);
                 }
                 // R-f-4 over a tail await: the flight is an inner memo, read through a boundary
-                if let (ExprKind::Catch { e: ce, name: cn, classes, alt }, false) = (&e.k, deferred) {
-                    let inner = self.new_env(Some(env));
-                    if let Some(n) = cn {
-                        self.set(inner, n, val(mg(n)));
-                    }
+                if let (ExprKind::Catch { e: ce, name: cn, classes, alt, arms }, false) = (&e.k, deferred) {
                     let x = self.expr(ce, env, &Ctx { tail: true, self_: Some(name.clone()), ..Ctx::default() })?;
                     let lv = self.loading_value(ce, env)?;
                     let i = format!("i${name}");
-                    let cls = self.classes(classes.as_deref(), env)?;
-                    let a = self.expr(alt, inner, &reactive())?;
-                    let pn = cn.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+                    let ma = self.catcher(cn, classes, alt, arms, env, &reactive())?;
                     // a matching rejection is an answer (R-f-4): caught where it is awaited, not by the boundary
                     let body = if matches!(ce.k, ExprKind::Await { .. }) {
-                        rtc("settle", vec![x, arrow(&["__e"], rtc("isA", vec![id("__e"), cls.clone()])), arrow(&[&pn], a.clone())])
+                        let mut args = vec![x];
+                        args.extend(ma.iter().cloned());
+                        rtc("settle", args)
                     } else {
                         x
                     };
+                    let mut cm = vec![thunk(call(id(i.clone()), vec![]))];
+                    cm.extend(ma);
                     let out = vec![
                         konst(i.clone(), k(rtc("memo", vec![str(name.clone()), arrow(&["__prev"], body), lv]))),
                         konst(
                             b.js.clone(),
                             k(rtc(
                                 "catchMemo",
-                                vec![thunk(call(id(i), vec![])), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&pn], a)],
+                                cm,
                             )),
                         ),
                     ];
@@ -1488,19 +1481,14 @@ impl<'p> Gen<'p> {
             ExprKind::Throw(x) => rtc("throw", vec![self.expr(x, env, &sub)?]),
             // R-f-4: over a sync value, or the tail await's promise/stream
             ExprKind::Catch { .. } if !ctx.imp && self.hoisted_catch.contains_key(&(e as *const Expr)) => call(id(self.hoisted_catch[&(e as *const Expr)].clone()), vec![]),
-            ExprKind::Catch { e: x, name, classes, alt } => {
+            ExprKind::Catch { e: x, name, classes, alt, arms } => {
                 if ctx.imp && has_await_json(&x.to_json()) {
                     return fail("`await … catch` inside an expression of imperative scope (AWAIT_IN_EXPRESSION, AC-1)");
                 }
-                let inner = self.new_env(Some(env));
-                if let Some(n) = name {
-                    self.set(inner, n, val(mg(n)));
-                }
                 let body = self.expr(x, env, &sub)?;
-                let cls = self.classes(classes.as_deref(), env)?;
-                let a = self.expr(alt, inner, &sub)?;
-                let p = name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
-                rtc(if ctx.imp { "tryCatch" } else { "catchRead" }, vec![thunk(body), arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)])
+                let mut args = self.catcher(name, classes, alt, arms, env, &sub)?;
+                args.insert(0, thunk(body));
+                rtc(if ctx.imp { "tryCatch" } else { "catchRead" }, args)
             }
             ExprKind::Tpl(parts) => {
                 let mut xs = vec![];
@@ -1659,6 +1647,62 @@ impl<'p> Gen<'p> {
         Ok(E::Arr(out))
     }
 
+    /// R-f-4: a catch's test and handler, as the two arguments `catchMemo`/`catchRead`/`tryCatch`/`settle` take: its classes
+    /// and `alt`, or its ordered arms (`...__rt.arms(classes, handlers)`: the first arm that takes the failure handles it).
+    fn catcher(&mut self, name: &Option<String>, classes: &Option<Vec<String>>, alt: &Expr, arms: &Option<Vec<ErrorArm<Expr>>>, env: Env, ctx: &Ctx) -> R<Vec<E>> {
+        let inner = self.new_env(Some(env));
+        if let Some(n) = name {
+            self.set(inner, n, val(mg(n)));
+        }
+        let p = name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
+        let Some(arms) = arms else {
+            let cls = self.classes(classes.as_deref(), env)?;
+            let a = self.expr(alt, inner, ctx)?;
+            return Ok(vec![arrow(&["__e"], rtc("isA", vec![id("__e"), cls])), arrow(&[&p], a)]);
+        };
+        let cls = self.arm_classes(arms.iter().map(|a| a.cls.as_str()), env)?;
+        let mut hs = vec![];
+        for a in arms {
+            hs.push(arrow(&[&p], self.expr(&a.body, inner, ctx)?));
+        }
+        Ok(vec![E::Spread(Box::new(rtc("arms", vec![cls, E::Arr(hs)])))])
+    }
+    /// R-f-4: each arm's class value, in order; `_` is `undefined` (every failure).
+    fn arm_classes<'a>(&mut self, arms: impl Iterator<Item = &'a str>, env: Env) -> R<E> {
+        let mut out = vec![];
+        for c in arms {
+            out.push(if c == "_" {
+                undef()
+            } else {
+                let E::Arr(mut x) = self.classes(Some(&[c.to_string()]), env)? else { unreachable!() };
+                x.remove(0)
+            });
+        }
+        Ok(E::Arr(out))
+    }
+    /// R-f-4 in imperative scope: the selected arm's index for the caught `error`; in a named action's dev build, traced (`caught`).
+    fn arm_select<T>(&mut self, ctx: &Ctx, arms: &[ErrorArm<T>], error: &str, env: Env) -> R<E> {
+        let values = self.arm_classes(arms.iter().map(|a| a.cls.as_str()), env)?;
+        let Some((key, next)) = &ctx.action_trace else {
+            return Ok(rtc("arm", vec![id(error), values]));
+        };
+        let site = next.get();
+        next.set(site + 1);
+        let names = E::Arr(arms.iter().map(|a| str(a.cls.clone())).collect());
+        Ok(rtc("actionArm", vec![str(key.clone()), E::Num(site as f64), id(error), names, values]))
+    }
+    /// R-f-4: the selected arm runs; no arm (no `_`): rethrow. A failure inside an arm leaves the dispatch.
+    fn arm_dispatch(sel: E, error: &str, bodies: Vec<Vec<S>>, has_default: bool) -> Vec<S> {
+        let mut out = vec![konst("__a", sel)];
+        if !has_default {
+            out.push(S::IfThen(bin("<", id("__a"), E::Num(0.0)), Box::new(S::Throw(id(error)))));
+        }
+        for (i, b) in bodies.into_iter().enumerate() {
+            out.push(S::If(bin("===", id("__a"), E::Num(i as f64)), b, None));
+        }
+        out
+    }
+
     // ---- imperative scope
     fn stmts(&mut self, ss: &[Stmt], env0: Env, ctx: &Ctx, return_last: bool) -> R<Vec<S>> {
         let env = self.new_env(Some(env0));
@@ -1670,7 +1714,7 @@ impl<'p> Gen<'p> {
                 StmtKind::Let { e: c @ Expr { k: ExprKind::Catch { e: inner, .. }, .. }, .. } | StmtKind::Expr(c @ Expr { k: ExprKind::Catch { e: inner, .. }, .. }) if matches!(&inner.k, ExprKind::Await { .. }) => Some(c),
                 _ => None,
             };
-            if let Some(Expr { k: ExprKind::Catch { e: ce, name: cn, classes, alt }, .. }) = c {
+            if let Some(Expr { k: ExprKind::Catch { e: ce, name: cn, classes, alt, arms }, .. }) = c {
                 let v = if let StmtKind::Let { name, .. } = &s.k { Some(mg(name)) } else { None };
                 let set = |x: E| match &v {
                     Some(v) => sexpr(E::Assign("=", Box::new(id(v.clone())), Box::new(x))),
@@ -1685,6 +1729,20 @@ impl<'p> Gen<'p> {
                     out.push(S::Let(v.clone(), None));
                 }
                 let body = self.expr(ce, env, &sub)?;
+                if let Some(arms) = arms {
+                    // R-f-4: ordered arms, one expression each
+                    let sel = self.arm_select(ctx, arms, &ev, env)?;
+                    let mut bodies = vec![];
+                    for a in arms {
+                        bodies.push(vec![set(self.expr(&a.body, h, &sub)?)]);
+                    }
+                    let has_default = arms.last().is_some_and(|a| a.cls == "_");
+                    out.push(S::Try { block: vec![set(body)], param: Some(ev.clone()), handler: Some(Self::arm_dispatch(sel, &ev, bodies, has_default)), fin: None });
+                    if let (Some(v), StmtKind::Let { name, .. }) = (&v, &s.k) {
+                        self.set(env, name, val(v.clone()));
+                    }
+                    continue;
+                }
                 let match_error = self.catch_match(ctx, classes.as_deref(), &ev, env)?;
                 let a = self.expr(alt, h, &sub)?;
                 let mut handler = vec![S::IfThen(not(match_error), Box::new(S::Throw(id(ev.clone()))))];
@@ -1769,11 +1827,26 @@ impl<'p> Gen<'p> {
                     let f = self.stmts(f, env, ctx, false)?;
                     out.push(S::If(c, t, Some(f)));
                 }
-                StmtKind::Try { body, catch_name, catch_classes, handler, fin } => {
+                StmtKind::Try { body, catch_name, catch_classes, handler, fin, arms } => {
                     let v = catch_name.as_ref().map(|n| mg(n)).unwrap_or("__e".into());
                     let match_error = catch_classes.as_deref().map(|cs| self.catch_match(ctx, Some(cs), &v, env)).transpose()?;
+                    // R-f-4: ordered arms; the site is the dispatch's, numbered before its body's
+                    let sel = arms.as_deref().map(|a| self.arm_select(ctx, a, &v, env)).transpose()?;
                     let block = self.stmts(body, env, ctx, false)?;
-                    let (param, handler) = match handler {
+                    let (param, handler) = match (handler, arms, sel) {
+                        (_, Some(arms), Some(sel)) => {
+                            let h = self.new_env(Some(env));
+                            if let Some(n) = catch_name {
+                                self.set(h, n, val(mg(n)));
+                            }
+                            let mut bodies = vec![];
+                            for a in arms {
+                                bodies.push(self.stmts(&a.body, h, ctx, false)?);
+                            }
+                            let has_default = arms.last().is_some_and(|a| a.cls == "_");
+                            (Some(v.clone()), Some(Self::arm_dispatch(sel, &v, bodies, has_default)))
+                        }
+                        (handler, _, _) => match handler {
                         Some(hs) => {
                             let h = self.new_env(Some(env));
                             if let Some(n) = catch_name {
@@ -1788,6 +1861,7 @@ impl<'p> Gen<'p> {
                             (Some(v), Some(hb))
                         }
                         None => (None, None),
+                        },
                     };
                     let fin = match fin {
                         Some(f) => Some(self.stmts(f, env, ctx, false)?),
@@ -1951,7 +2025,29 @@ impl<'p> Gen<'p> {
                 let r = self.region(decls, body, env)?;
                 el(JsxName::Member("__rt".into(), "Portal".into()), xs, vec![r], false)
             }
-            MarkupKind::Errored { fallback, decls, body, err_name, classes } => {
+            MarkupKind::Errored { decls, body, err_name, arms: Some(arms), .. } => {
+                // R-f-4: the selected arm owns the fallback; unmatched passes up
+                let fb_env = self.new_env(Some(env));
+                if let Some(n) = err_name {
+                    self.set(fb_env, n, bind(Kind::Acc, mg(n)));
+                }
+                let p = err_name.as_ref().map(|n| mg(n)).unwrap_or("__err".into());
+                let mut hs = vec![];
+                for a in arms {
+                    hs.push(arrow(&[&p], self.markup(&a.body, fb_env)?));
+                }
+                let b = self.region(decls, body, env)?;
+                let region = self.boundaries.get(&(m as *const Markup));
+                let mut attrs = vec![];
+                if let Some(id) = region {
+                    attrs.push(("region".into(), AttrValue::Expr(str(format!("{}|{id}", self.dev_module)))));
+                    attrs.push(("names".into(), AttrValue::Expr(E::Arr(arms.iter().map(|a| str(a.cls.clone())).collect()))));
+                }
+                attrs.push(("classes".into(), AttrValue::Expr(self.arm_classes(arms.iter().map(|a| a.cls.as_str()), env)?)));
+                attrs.push(("arms".into(), AttrValue::Expr(E::Arr(hs))));
+                el(JsxName::Member("__rt".into(), "ArmsErrored".into()), attrs, vec![b], false)
+            }
+            MarkupKind::Errored { fallback, decls, body, err_name, classes, .. } => {
                 let fb_env = self.new_env(Some(env));
                 if let Some(n) = err_name {
                     self.set(fb_env, n, bind(Kind::Acc, mg(n)));

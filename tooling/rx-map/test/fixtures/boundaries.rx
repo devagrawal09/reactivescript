@@ -1,5 +1,5 @@
 // Nested boundaries: each one is labelled with its own catch, not the one inside it.
-import pure { fetchIssue, NotFound } from "./api"
+import pure { fetchIssue, NotFound, ServerError } from "./api"
 
 source issueId: number := 1
 title = await fetchIssue(issueId)
@@ -10,8 +10,9 @@ export component IssueDetail() {
       <p class="error">Something failed: {e.message}</p>
     } {
       <div>
-        {errored fallback(e: NotFound) {
-          <p>No such issue</p>
+        {errored fallback(e) {
+          NotFound => { <p>No such issue</p> }
+          ServerError => { {throw e} }
         } {
           {loading on(issueId) fallback { <p>Loading issue…</p> } {
             <h2>{title}</h2>

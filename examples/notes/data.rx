@@ -36,14 +36,11 @@ export action save(id: number, title: string, body: string) {
   saveError := ""
   guess notes := ns => ns.map(n => n.id == id ? { ...n, title: title, body: body } : n)
   try {
-    try {
-      let saved = await saveNote(id, title, body)
-      notes := ns => ns.map(n => n.id == id ? saved : n)
-      refresh current
-    } catch (e: Conflict) {
-      saveError := `someone else saved first: ${e.message}`
-    }
+    let saved = await saveNote(id, title, body)
+    notes := ns => ns.map(n => n.id == id ? saved : n)
+    refresh current
   } catch (e) {
-    saveError := e.message
+    Conflict => { saveError := `someone else saved first: ${e.message}` }
+    _ => { saveError := e.message }
   }
 }

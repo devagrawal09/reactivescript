@@ -6,6 +6,12 @@ const sorted = entries => Object.fromEntries([...entries].sort(([a], [b]) => cmp
 const unique = list => [...new Set(list)].sort(cmp);
 const keyOf = key => typeof key === "string" ? key.replace(/~i\d+$/, "") : null;
 const classOf = error => typeof error === "string" ? error.split(":", 1)[0] : null;
+/** Resolve the selected model arm for current boundary state, including old traces without `arm`. */
+export function selectedArm(arms, state) {
+  if (!arms?.length || state?.state !== "error") return undefined;
+  if (state.arm != null) return arms.find(a => a.cls === state.arm)?.cls;
+  return (arms.find(a => a.cls === classOf(state.error)) ?? arms.find(a => a.cls === "_"))?.cls;
+}
 const classes = text => unique((text ?? "").split("|").map(x => x.trim()).filter(Boolean));
 const KINDS = ["node", "edge", "loading", "errored", "guess", "action"];
 const PRIORITY = ["errored", "action", "guess", "loading", "node", "edge"];
@@ -64,7 +70,7 @@ function ignores(graph) {
 }
 
 function describe(graph) {
-  const paths = new Map(), inputs = [], guesses = [], catches = [], untyped = new Map(), warnings = new Map();
+  const paths = new Map(), inputs = [], guesses = [], boundaries = new Map(), untyped = new Map(), warnings = new Map();
   const nodes = new Map(graph.nodes.map(n => [n.id, n]));
   const calls = indexBy(graph.edges.filter(e => e.type === "call"), e => e.from);
   const children = indexBy(graph.regions, r => r.parent);
@@ -86,10 +92,10 @@ function describe(graph) {
     if (reactive(n)) add("node", n.key, module, n.line, n.key, `${n.name} changes`);
     if (n.kind !== "action" || !n.key || n.world || n.site) continue;
     add("action", `${n.key}:ok`, module, n.line, n.key, `${n.name} succeeds`);
-    const typed = (n.catches ?? []).filter(c => c.classes !== null);
-    typed.forEach(({ classes }, site) => {
-      for (const name of classes) add("action", `${n.key}:caught:${name}:${site}`, module, n.line, n.key,
-        `${n.name}'s typed catch ${site + 1} catches ${name}`);
+    const dispatches = (n.catches ?? []).filter(c => c.arms);
+    dispatches.forEach(({ arms }, site) => {
+      for (const a of arms) if (!a.dead) add("action", `${n.key}:caught:${a.cls}:${site}`, module, a.line, n.key,
+        `${n.name}'s catch ${site + 1} takes ${a.cls}`);
     });
     // A class one of the action's own catches handles can't reject it. Catch-alls have no named paths.
     const handled = name => (n.catches ?? []).some(c => c.classes == null || c.classes.includes(name));
@@ -128,18 +134,15 @@ function describe(graph) {
     }
   }
   for (const r of graph.regions) {
-    if (!r.key || (r.kind !== "loading" && (r.kind !== "errored" || r.deadTyped))) continue;
+    if (!r.key || (r.kind !== "loading" && r.kind !== "errored")) continue;
     const head = r.head?.text ?? r.kind, module = graph.modules[r.mod];
     const first = r.head?.line ?? r.line ?? firstLine(r), line = Number.isFinite(first) ? first : 1;
     if (r.kind === "loading") add("loading", r.key, module, line, r.key, `${head} shows`);
     else {
-      const typed = /^errored\s*\(([^:()]+):\s*([^)]*)\)/.exec(head);
-      for (const name of typed ? classes(typed[2]) : [null]) {
-        const text = name ? `errored (${typed[1].trim()}: ${name})` : head;
-        const id = add("errored", name ? `${r.key}:${name}` : r.key, module, line, r.key,
-          `${text} shows its fallback`);
-        catches.push({ region: r.key, name, id });
-      }
+      boundaries.set(r.key, r);
+      if (!r.arms) add("errored", r.key, module, line, r.key, `${head} shows its fallback`);
+      else for (const a of r.arms) if (!a.dead) add("errored", `${r.key}:${a.cls}`, module, a.line, r.key,
+        `${head} shows its ${a.cls} fallback`);
     }
   }
   for (const ig of ignores(graph)) {
@@ -162,7 +165,7 @@ function describe(graph) {
     if (!matched) warnings.set(`ignore:${where}`, { module: ig.module, line: ig.line,
       message: `rx-coverage-ignore${ig.kind ? ` ${ig.kind}` : ""} matches no coverage path on line ${ig.at}` });
   }
-  return { paths, inputs, guesses, catches, untyped, warnings };
+  return { paths, inputs, guesses, boundaries, untyped, warnings };
 }
 
 export function universe(graph) {
@@ -185,7 +188,7 @@ export function untypedFailures(graph) { return Object.values(extras([describe(g
 export function createCollector({ graphs = [], tool }) {
   // Dev builds may register more graphs after attach. Hosts can supply a live getter.
   const registered = typeof graphs === "function" ? graphs : () => graphs;
-  let previous = [], paths = new Map(), inputs, writers, writes, catches, more = {};
+  let previous = [], paths = new Map(), inputs, writers, writes, boundaries, more = {};
   function refresh() {
     const list = registered();
     if (list.length === previous.length && list.every((g, i) => g === previous[i])) return;
@@ -197,7 +200,7 @@ export function createCollector({ graphs = [], tool }) {
     const pairs = [...new Map(all.flatMap(d => d.guesses).map(x => [x.pair, x])).values()];
     writers = indexBy(pairs, x => x.to);
     writes = indexBy(pairs, x => x.from);
-    catches = indexBy([...new Map(all.flatMap(d => d.catches).map(x => [x.id, x])).values()], x => x.region);
+    boundaries = new Map(all.flatMap(d => [...d.boundaries]));
   }
 
   const hits = new Map(), last = new Map(), pending = new Set(), active = new Map(), recent = new Map();
@@ -215,9 +218,12 @@ export function createCollector({ graphs = [], tool }) {
     const region = keyOf(b.region);
     if (b.state === "fallback") hit(`loading:${region}`);
     if (b.state !== "error") return;
-    const options = catches?.get(region) ?? [];
-    for (const { name, id } of options) {
-      if (!name || name === classOf(b.error) || (b.error == null && options.length === 1)) hit(id);
+    const r = boundaries?.get(region);
+    if (!r) return;
+    if (!r.arms) hit(`errored:${region}`);
+    else {
+      const arm = selectedArm(r.arms, b);
+      if (arm !== undefined) hit(`errored:${region}:${arm}`);
     }
   }
   const stateOf = v => v.error !== undefined ? `error:${v.error}` : v.preview !== undefined ? `value:${v.preview}` : undefined;
@@ -464,9 +470,9 @@ function missing(p) {
     case "node": return `changes ${p.label.replace(/ changes$/, "")}`;
     case "edge": return `carries a change ${p.label.replace(/^a change carries /, "")}`;
     case "loading": return `shows ${p.label.replace(/ shows$/, "")}`;
-    case "errored": return `makes ${p.label.replace(/ shows its fallback$/, "")} show its fallback`;
+    case "errored": return `makes ${p.label.replace(/ shows (its .*fallback)$/, " show $1")}`;
     case "guess": return `sees ${p.label}`;
-    case "action": return `makes ${p.label.replace(/ succeeds$/, " succeed").replace(/ rejects with /, " reject with ")}`;
+    case "action": return `makes ${p.label.replace(/ succeeds$/, " succeed").replace(/ rejects with /, " reject with ").replace(/ takes (?=\S+$)/, " take ")}`;
   }
 }
 

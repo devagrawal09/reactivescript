@@ -30,14 +30,15 @@ follows its `.rx` imports, and each module gets a column. The output is one HTML
   - Branches (`if` / `else`) are sky and solid. Rows (`for`) are silver and stacked.
   - Boundaries are dashed: `loading` amber, `errored` red.
   - Each header shows the construct from the source (`if isEditing`, `for u in users`, `loading on(query)`,
-    `errored (e: NotFound)`), plus a `reads …` chip for what its condition, list or key reads.
+    `errored (e)`), plus a `reads …` chip for what its condition, list or key reads. Errored frames list their arms
+    in source order; select an action to see its catches and their arms.
 - **Boundaries list what can notify them.**
   - A `loading` boundary lists the names that can be pending under it ("pending from users"). They are found by
     walking up from the readers it covers, through tracked reads only.
   - Readers under a nested boundary of the same kind don't count. Readers in components rendered inside it do.
   - Probes (`latest`, `pending?`) and handlers never notify.
-  - An `errored` boundary lists the async names under it, because every `await` can reject. A typed
-    `fallback(e: C)` lets other failures through to the boundary above.
+  - An `errored` boundary lists the async names under it, because every `await` can reject. If none of its arms
+    match an error, the error passes through to the boundary above.
   - Dotted amber or red edges point from a boundary up to its notifiers. Select a boundary to see which reader brings
     each one in.
 - **Colour is the role, and only the role.** Each property gets its own channel, so any combination reads at a glance:
@@ -228,12 +229,11 @@ The live page speaks the trace protocol (`TRACE-CONTRACT` v0.3): every message h
   load, `travel` and `resume` from the timeline, `select` when a token is selected. An in-page host can also call
   `window.__RX_VIEW__.connect()` (subscribe and say hello) and `window.__RX_VIEW__.receive(msg)`.
 
-- `snapshot` (`{ values: [{key, preview}], flights: [{key, since}], boundaries: [{region, state, error?}] }`, the
+- `snapshot` (`{ values: [{key, preview}], flights: [{key, since}], boundaries: [{region, state, error?, arm?}] }`, the
   coming v0.3): what the app shows right now, applied quietly. `region` is a region key (or id). A boundary in
   `fallback` / `error` looks tripped: a loading boundary in amber stripes, an errored one in rose with its error, and a
   dashed rose arrow from each failing name it caught (an async root that notifies it, a name its sites read, or else a
-  failing name with the same error) to it. A typed `errored (e: X)` region the model marks `deadTyped` (an inner
-  catch-all catches first, so it never shows) is drawn dotted and faded, its tag struck through, with a "dead" mark.
+  failing name with the same error) to it. On an errored frame with arms, the active arm is highlighted.
 
 **Time travel (real host):** with a Solid that has `openView` (`solid-js/attribution`, solidjs/solid#5089), the
 timeline travels the running app, DOM included. The recorder keeps a ring of 2000 steps (one per flush; set
@@ -560,7 +560,7 @@ and reverts; a recording cannot travel without the running app.
 - `.rx` imports are folded into the symbol they name, so module state is drawn once, where it lives. JS imports are
   drawn in the "outside the program" column.
 - The model does not yet carry failure rows (`fails C`) or `server`/`client` placement. So "can fail from" means every
-  async name, and a typed fallback's class isn't matched against what each name throws. "Can be pending" is read off
+  async name, and the arm list isn't matched against what each name throws. "Can be pending" is read off
   the declaration (does it `await`?), because the model's question flag also marks sources with a standing question
   that never await.
 - Edges into a `for` row are drawn once per site, not per row.

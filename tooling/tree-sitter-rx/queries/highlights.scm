@@ -369,7 +369,16 @@
   parameter: (identifier) @variable.parameter)
 
 (catch_expression
-  parameter: (identifier) @variable.parameter)
+    parameter: (identifier) @variable.parameter)
+
+(catch_clause
+    parameter: (identifier) @variable.parameter)
+
+[
+  (statement_error_arm class: "_" @keyword)
+  (expression_error_arm class: "_" @keyword)
+  (markup_error_arm class: "_" @keyword)
+]
 
 (pre_expression
   name: (identifier) @variable)

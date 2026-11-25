@@ -58,6 +58,7 @@ values. Arrays and strings have their usual methods: `xs.filter(f)`, `xs.map(f)`
 | `latest x` | the value `x` is moving toward (what was typed, before the answer lands) |
 | `peek(x)` | `x` read once, without depending on it |
 | `await e catch (err) => alt` | `alt` is the answer when the `await` rejects (only after an `await`) |
+| `await e catch (err) { NotFound => { null } _ => { throw err } }` | first matching error arm supplies one expression; here other errors are rethrown |
 | `c ? a : throw NotFound(id)` | a failure as a value of an arm |
 | `use name` / `provide name = e` | context: the nearest provision above, read-only (provide actions to let readers write) |
 

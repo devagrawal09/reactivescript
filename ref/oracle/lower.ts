@@ -30,6 +30,9 @@ const NO_PROVISION = { k: "const", value: undefined } as const;
 class Returned { value: unknown; constructor(v: unknown) { this.value = v; } }
 /** R-f-4: a typed `errored` boundary's fallback for a failure of another class — the wrapper throws it to the next boundary up. */
 class Forward { err: unknown; constructor(e: unknown) { this.err = e; } }
+type CatchExpr = Extract<Expr, { k: "catch" }>;
+/** R-f-4: ordered arms — the first arm whose classes take `err` (`undefined`: the default arm `_`); -1: none does. */
+function armOf(err: unknown, arms: (unknown[] | undefined)[]): number { return arms.findIndex(cs => isA(err, cs)); }
 /** R-f-4: `e catch (x: C) => alt` as Solid code. A read of an errored node reaches the nearest boundary even inside a JS `try`
  *  (the status flows through the graph), so the catch is an error boundary around the read whose fallback is the value. */
 function boundaryRead(f: () => unknown, match: (err: unknown) => boolean, alt: (err: unknown) => unknown): () => unknown {
@@ -234,6 +237,21 @@ export class Oracle {
     return this.fragment(view, scope);
   }
   /** R-f-4: error class names → their values; undefined: every failure. */
+  /** R-f-4: each arm's classes, in order; `_` takes every failure. */
+  armClasses(arms: { cls: string }[], scope: Scope): (unknown[] | undefined)[] { return arms.map(a => a.cls === "_" ? undefined : this.classValues([a.cls], scope)); }
+  /** R-f-4: a catch's test and its handler — its classes and `alt`, or its ordered arms (the first that takes the failure; a
+   *  failure in that arm is not offered to the others). */
+  catcher(c: CatchExpr, scope: Scope, env: Map<string, unknown> = new Map()): { match: (err: unknown) => boolean; alt: (err: unknown) => unknown } {
+    const bind = (err: unknown) => { const en = new Map(env); if (c.name) en.set(c.name, err); return en; };
+    if (!c.arms) { const classes = this.classValues(c.classes, scope); return { match: err => isA(err, classes), alt: err => this.ev(c.alt, scope, bind(err)) }; }
+    const arms = c.arms, ac = this.armClasses(arms, scope);
+    return { match: err => armOf(err, ac) >= 0, alt: err => this.ev(arms[armOf(err, ac)].body, scope, bind(err)) };
+  }
+  /** R-f-4 / R-f-6: the statements that handle `err` in a `try`: its catch block, or its first arm that takes it; null: rethrow. */
+  handlerOf(s: Extract<Stmt, { k: "try" }>, err: unknown, scope: Scope): Stmt[] | null {
+    if (s.arms) { const i = armOf(err, this.armClasses(s.arms, scope)); return i < 0 ? null : s.arms[i].body; }
+    return s.handler && isA(err, this.classValues(s.catchClasses, scope)) ? s.handler : null;
+  }
   classValues(names: string[] | undefined, scope: Scope): unknown[] | undefined {
     if (!names) return undefined;
     return names.map(n => { if (n === "Error") return Error; if (n === "Panic") return PANIC; const b = scope.lookup(n); if (!b || b.k !== "const") throw new Error(`${n} is not an error class`); return b.value; });
@@ -340,16 +358,16 @@ export class Oracle {
           const fnDecl = this.fnOf(d.e, scope);
           if (fnDecl && (fnDecl.params.some(p => p.ref) || fnDecl.decls.length > 0)) { scope.vars.set(d.name, { k: "memo", get: this.instantiateFn(d.e as Extract<Expr, { k: "call" }>, fnDecl, scope) }); break; }   // RG-6
           if (d.e.k === "catch" && d.e.e.k === "await" && !d.deferred) {   // R-f-4 over a tail await: a matching rejection is the answer, where it is awaited (as the compiled `settle`)
-            const c = d.e; const classes = this.classValues(c.classes, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
-            const alt = (err: unknown) => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return untrack(() => this.ev(c.alt, scope, en)); };
-            const get = createMemo(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (isA(err, classes)) return alt(err); throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
+            const c = d.e; const { match, alt: alt0 } = this.catcher(c, scope); const compute = this.computeOf(d.name, c.e, scope) as (p: unknown) => unknown;
+            const alt = (err: unknown) => untrack(() => alt0(err));
+            const get = createMemo(((prev: unknown) => { const r0 = compute(prev); const r = r0 instanceof Flight ? r0.first : r0; return r instanceof Promise ? r.then(v => v, err => { if (match(err)) return alt(err); throw err; }) : r; }) as any, this.loadingValue(c.e, scope) as any);
             scope.vars.set(d.name, { k: "memo", get });
             break;
           }
           if (d.e.k === "catch" && !d.deferred) {                      // R-f-4 over a tail await: the equation's flight is an inner memo, read through a boundary
-            const c = d.e; const classes = this.classValues(c.classes, scope);
+            const c = d.e; const { match, alt } = this.catcher(c, scope);
             const inner = createMemo(this.computeOf(d.name, c.e, scope) as any, this.loadingValue(c.e, scope) as any);
-            const get = boundaryRead(() => inner(), err => isA(err, classes), err => { const en = new Map<string, unknown>(); if (c.name) en.set(c.name, err); return this.ev(c.alt, scope, en); });
+            const get = boundaryRead(() => inner(), match, alt);
             scope.vars.set(d.name, { k: "memo", get });
             break;
           }
@@ -486,9 +504,7 @@ export class Oracle {
       case "throw": throw this.ev(e.e, scope, env);                    // R-f-3
       case "serverfn": { let f = this.serverFns.get(e); if (!f) this.serverFns.set(e, (f = this.serverFn({ name: this.serverNames.get(e) ?? "server fn", params: e.params, body: e.body }, scope))); return f; }   // SF-1d
       case "catch": {                                                  // R-f-4: a matching failure becomes a value
-        const classes = this.classValues(e.classes, scope);
-        const match = (err: unknown) => isA(err, classes);
-        const alt = (err: unknown) => { const en = new Map(env); if (e.name) en.set(e.name, err); return this.ev(e.alt, scope, en); };
+        const { match, alt } = this.catcher(e, scope, env);
         if (this.imperative) { try { return this.ev(e.e, scope, env); } catch (err) { if (err instanceof NotReadyError || !match(err)) throw err; return alt(err); } }
         return boundaryRead(() => { const v = this.ev(e.e, scope, env); noFlight(v); return v; }, match, alt)();   // Solid: an error read inside try still reaches the boundary — a catch is a boundary around the read
       }
@@ -541,7 +557,7 @@ export class Oracle {
       case "sif": { for (const st of untrack(() => this.ev(s.c, scope, env)) ? s.t : s.f) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; }
       case "try": {
         const runBlock = (ss: Stmt[]) => { for (const st of ss) { const r = this.stmt(st, scope, env); if (r instanceof Returned) return r; } return undefined; };
-        try { const r = runBlock(s.body); if (r) return r; } catch (e) { if (!s.handler || !isA(e, this.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(s.handler); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
+        try { const r = runBlock(s.body); if (r) return r; } catch (e) { const h = this.handlerOf(s, e, scope); if (!h) throw e; if (s.catchName) env.set(s.catchName, e); const r = runBlock(h); if (r) return r; } finally { if (s.fin) { const r = runBlock(s.fin); if (r) return r; } }
         return undefined;
       }
       case "throw": throw untrack(() => this.ev(s.e, scope, env));
@@ -626,14 +642,14 @@ export class Oracle {
         if (awaited) {                                                  // AC-1 / R-f-4: with its catch, a try around the yield
           let r: unknown;
           try { const v = untrack(() => self.ev(awaited.e, scope, env)); r = v instanceof Flight ? yield v.first : v instanceof Promise ? yield v : v; }
-          catch (e) { if (!caught || e instanceof NotReadyError || !isA(e, self.classValues(caught.classes, scope))) throw e; const en = new Map(env); if (caught.name) en.set(caught.name, e); self.imperative++; try { r = untrack(() => self.ev(caught.alt, scope, en)); } finally { self.imperative--; } }
+          catch (e) { const c = caught && self.catcher(caught, scope, env); if (!c || e instanceof NotReadyError || !c.match(e)) throw e; self.imperative++; try { r = untrack(() => c.alt(e)); } finally { self.imperative--; } }
           if (s.k === "let") env.set(s.name, r);
           continue;
         }
         if (s.k === "sif") { const r = yield* block(untrack(() => self.ev(s.c, scope, env)) ? s.t : s.f, env); if (r) return r; continue; }
         if (s.k === "try") {
           try { const r = yield* block(s.body, env); if (r) return r; }
-          catch (e) { if (!s.handler || !isA(e, self.classValues(s.catchClasses, scope))) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(s.handler, env); if (r) return r; }   // R-f-6: a typed catch rethrows other classes
+          catch (e) { const h = self.handlerOf(s, e, scope); if (!h) throw e; if (s.catchName) env.set(s.catchName, e); const r = yield* block(h, env); if (r) return r; }   // R-f-6: a typed catch rethrows other classes
           finally { if (s.fin) { const r = yield* block(s.fin, env); if (r) return r; } }
           continue;
         }
@@ -701,6 +717,18 @@ export class Oracle {
         return R.createComponent(Loading as any, props);
       }
       case "errored": {
+        if (m.arms) {                                                  // R-f-4: the arm the failure selects owns the fallback; another arm replaces the region, the same arm keeps it and its `e` follows
+          const arms = m.arms, ac = this.armClasses(arms, scope);
+          const out = R.createComponent(Errored as any, {
+            fallback: (err: () => unknown) => {
+              const sel = createMemo(() => armOf(err(), ac));
+              const shown = createMemo(() => { const i = sel(); if (i < 0) return null; return untrack(() => { const s2 = new Scope(scope); if (m.errName) s2.vars.set(m.errName, { k: "memo", get: err }); return self.fragment(arms[i].body, s2); }); });
+              return new Fallback(() => sel() < 0 ? new Forward(err()) : shown());
+            },
+            get children() { const s2 = new Scope(scope); return self.region(m.decls, m.body, s2); },
+          });
+          return createMemo(() => unwrapFallback(typeof out === "function" ? (out as () => unknown)() : out));   // unmatched: to the boundary above, as a typed boundary passed other classes
+        }
         const classes = this.classValues(m.classes, scope);
         const view = (err: () => unknown) => { const s2 = new Scope(scope); if (m.errName) s2.vars.set(m.errName, { k: "memo", get: err }); return self.fragment(m.fallback, s2); };
         const out = R.createComponent(Errored as any, {

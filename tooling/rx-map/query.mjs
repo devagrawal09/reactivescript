@@ -69,23 +69,24 @@ export function queryGraph(g, method, p) {
   }
   function regionRef(r) {
     const file = g.modules[r.mod];
-    let line = first(r);
-    if (isBoundary(r)) {
+    let line = r.head?.line ?? first(r);
+    if (isBoundary(r) && r.head?.line == null) {
       const ls = g.lines[file] ?? {};
       const pattern = new RegExp(`\\{\\s*${r.kind}\\b|^\\s*${r.kind}\\s+(?:on|fallback)\\b`);
       const hits = Object.keys(ls).map(Number).filter(i => pattern.test(ls[i]));
       const siblings = g.regions.filter(x => x.mod === r.mod && x.kind === r.kind);
       line = (hits.length === siblings.length ? hits[siblings.indexOf(r)] : hits.findLast(i => i <= line)) ?? line;
     }
-    return { key: r.key, kind: r.kind, file, line: Number.isFinite(line) ? line : null };
+    return { key: r.key, kind: r.kind, file, line: Number.isFinite(line) ? line : null, ...(r.arms ? { arms: r.arms } : {}) };
   }
+  const armsText = arms => arms ? `  arms: ${arms.map(a => `${a.cls} (L${a.line})`).join(" · ")}` : "";
+  const describeBoundary = r => describe(r) + armsText(r.arms);
   function notifiers(r) {
     const visited = new Set(), sites = new Set(), roots = new Map();
     function cover(region, nested = false) {
       if (visited.has(region.id)) return;
       if (nested && region.kind === r.kind) {
-        const line = regionRef(region).line;
-        if (r.kind !== "errored" || !/fallback\s*\(\s*\w+\s*:/.test(g.lines[g.modules[region.mod]]?.[line] ?? "")) return;
+        if (r.kind !== "errored" || !region.arms || region.arms.some(a => a.cls === "_" || a.cls === "Panic")) return;
       }
       visited.add(region.id);
       for (const n of members.get(region.id) ?? []) if (n.site && ["reader", "prop", "effect", "provide"].includes(n.kind)) sites.add(n.id);
@@ -153,13 +154,13 @@ export function queryGraph(g, method, p) {
   if (method === "boundary") {
     if (p.key === undefined) {
       const data = boundaries.map(regionRef);
-      return result(data, data.map(describe), "no loading or errored boundaries");
+      return result(data, data.map(describeBoundary), "no loading or errored boundaries");
     }
     const r = boundaries.find(r => r.key === p.key);
     if (!r) throw unknownKey(p.key, boundaries.map(r => r.key), "boundary");
     const outline = quoteOutline(r, nodes, inc);
     const data = { ...regionRef(r), notifiers: notifiers(r), ...(outline ? { outline } : {}) };
-    return result(data, [describe(data), ...data.notifiers.map(n => `  ${describe(n)} via ${describe(n.via)}`),
+    return result(data, [describeBoundary(data), ...data.notifiers.map(n => `  ${describe(n)} via ${describe(n.via)}`),
       ...(!data.notifiers.length ? ["  no known notifiers"] : []), ...(outline ? [`  view: ${outline}`] : [])]);
   }
   const root = byKey.has(p.key) ? p.key : [...byKey.keys()].filter(k => p.key.startsWith(`${k}.`)).sort((a, b) => b.length - a.length)[0];
@@ -175,7 +176,7 @@ export function queryGraph(g, method, p) {
     }
     const data = { ...ref(n), ...(field ? { key: p.key, field, store: root } : {}), role: roles[n.kind] ?? "other",
       marks: { pending: !!n.async, question: !!n.question, io: !!n.io, trust: !!n.world },
-      declaration: g.lines[n.file]?.[n.line] ?? "", component: null, boundaries: [],
+      declaration: g.lines[n.file]?.[n.line] ?? "", component: null, boundaries: [], ...(n.catches ? { catches: n.catches } : {}),
       reads: linked("read", "in"), writes: linked("write", "out"), calls: linked("call", "out"),
       readBy: linked("read", "out"), writtenBy: linked("write", "in") };
     // a JS import's effective declaration (09 MO-11): a written `.d.rx` line, else the one generated from the TS module
@@ -200,7 +201,8 @@ export function queryGraph(g, method, p) {
       ...(data.imported ? [`  imported: ${data.imported.line}  from ${data.imported.from}  (${data.imported.origin}${data.imported.helpers ? `: ${data.imported.helpers.join(", ")}` : ""})`] : []),
       ...(outline ? [`  view: ${outline}`] : []),
       ...(data.component ? [`  component ${describe(data.component)}`] : []),
-      ...data.boundaries.map(b => `  boundary ${describe(b)}`),
+      ...data.boundaries.map(b => `  boundary ${describeBoundary(b)}`),
+      ...(data.catches ?? []).map(c => `  catch${armsText(c.arms) || " (catch-all)"}`),
       ...Object.entries({ "read-by": data.readBy, "written-by": data.writtenBy, reads: data.reads, writes: data.writes, calls: data.calls })
         .flatMap(([k, list]) => list.map(x => `  ${k} ${describe(x)}${[x.mode, x.probe, x.op, x.field].filter(Boolean).map(v => `  ${v}`).join("")}`)),
       ...(data.fields ?? []).map(f => `  field ${f.field}: read-by ${[...new Set(f.readBy.map(r => r.key))].join(", ") || "none"}; written-by ${[...new Set(f.writtenBy.map(w => w.key))].join(", ") || "none"}`),

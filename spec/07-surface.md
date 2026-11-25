@@ -130,7 +130,7 @@ Added:
 | `type T = …` | a TS type declaration, kept as text | — |
 | `e as T` | a type assertion, TypeScript's, erased at run time; the projection keeps it so the type layer checks it (13 TY-2). Same line as `e` — a newline is the next statement | TY-2 |
 | `throw e` | a failure, in either scope: `x > 0 ? x : throw BadInput(x)` (TC39's throw expression) | R-f-3 |
-| `await e catch (x: A \| B) => alt` | `alt` is the answer when the promise rejects with `A` or `B`; `catch (x) =>` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
+| `await e catch (x) { A => { alt } _ => { other } }` | first matching arm supplies the answer; `catch (x) => alt` takes every class; only after an `await` (`CATCH_NOT_ON_AWAIT`) | R-f-4 |
 
 `from` is contextual in an import and can be used as a name elsewhere.
 `new` expressions are not part of RX. An RX error is constructed by
@@ -198,10 +198,10 @@ attributes are equations, children are readers, components are applied as
   child (`<b>x</b> text`). Write `{" "}` to force a space across a line
   break between elements.
 - `errored fallback(e)` binds the error value; `fallback` without a
-  parameter ignores it. `fallback(e: A | B)` takes only those classes;
-  others pass to the boundary above (R-f-4). `fallback(e: Panic)` takes
-  only panics (R-f-10) — the root boundary that leaves every failure to the
-  panes.
+  parameter ignores it. For class dispatch, put ordered arms in the
+  fallback: `errored fallback(e) { A => { <Notice /> } _ => { <Retry /> } } { … }`.
+  A sole `Panic => { … }` arm is the root boundary that leaves declared
+  failures to the panes (R-f-10).
 
 ## 5. Imperative scope (02 SC-2, 06 AC)
 
@@ -519,9 +519,16 @@ Expr      ::= TSExpr with §3's removals and additions
     `provide`/`use` name the declaration (RG-7). Keyword `context`, and
     defaults, ruled 2026-10-26. (`source` contexts withdrawn 2026-10-31, O-4.)
 
-14. **One `catch` per `try`** (ruled 2026-10-25): TypeScript's statement
-    form; a typed `catch (e: A)` rethrows other classes (AC-7), and two
-    kinds of failure handled differently nest two `try`s (examples/notes).
+14. **One `catch` per `try`, one ordered dispatch for its errors**:
+    `try { … } catch (e) { A => { … } B => { … } _ => { … } }`.
+    Each arm names a single class or `_`; each body is braced.
+    `_`, if used, is last. Without `_`, name every class in the declared
+    rejection row. There is no `instanceof` expression. Replace
+    `catch (e: A) { … }` with `catch (e) { A => { … } }`, moving any
+    enclosing same-failure handlers into later arms. For expressions,
+    rewrite `catch (e: A) => alt` as `catch (e) { A => { alt } }`;
+    for markup, rewrite `fallback(e: A) { … }` as
+    `fallback(e) { A => { … } }`. Use separate arms for a former union.
 15. **The entry is `export default component App`** (ruled 2026-10-25):
     no markup at a module's top level. Module-level state stays, as app
     state (MO-1b, SV-4); weighed against components-only state, which would
@@ -529,7 +536,7 @@ Expr      ::= TSExpr with §3's removals and additions
     safety, since a module is already instantiated per request.
 16. **In imperative scope, `await` is a statement** (taken by default
     2026-10-26, veto here): `await e` or `let v = await e`, either with a
-    `catch (x: C) => alt` (06 AC-1, which already said a run suspends only
+    `catch (x) { C => { alt } }` (06 AC-1, which already said a run suspends only
     there); elsewhere `AWAIT_IN_EXPRESSION`. In reactive scope `await` goes
     anywhere (§3). The alternative is JavaScript's rule — an `await` inside
     any imperative expression. The compiler lowers that today (a body is a

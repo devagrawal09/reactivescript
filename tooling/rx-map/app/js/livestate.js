@@ -39,7 +39,7 @@ export function freshLive() {
     flying: {},        // key → requests in the air
     runs: {},          // run id → key (actions running)
     held: {},          // key → { by: Key[], since }
-    boundaries: {},    // region ref (key or id) → { state, error? }
+    boundaries: {},    // region ref (key or id) → { state, error?, arm? }
     inexact: {},       // key → true: can't be shown exactly at the viewed seq
     recordedErrors: {}, // error copied from history, not replayed by the app
     flushes: 0,
@@ -147,7 +147,7 @@ export function reduce(s, m, M) {
     case "hmr": return onHmr(s, m, M);
     case "snapshot": return onSnapshot(s, m, M);
     case "revert": emit(s, { k: "revert", key: m.key }); return;
-    case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null }; if (isTrip(M, m.region, m.state)) s.trips++; return;
+    case "boundary": s.boundaries[m.region] = { state: m.state, error: m.error ?? null, ...(m.arm != null ? { arm: m.arm } : {}) }; if (isTrip(M, m.region, m.state)) s.trips++; return;
     case "held": s.held[m.key] = { by: [...(m.by ?? [])], since: m.at ?? null }; return;
     case "released": del(s.held, m.key); return;   // a key not held: nothing to do
     case "run": callRun(s, m, M); if (m.state === "start") s.runs[m.id] = m.key; else del(s.runs, m.id); return;
@@ -410,7 +410,7 @@ function onSnapshot(s, d, M) {
   }
   if (Array.isArray(d.boundaries)) {
     s.boundaries = {};
-    for (const b of d.boundaries) if (b?.region) { s.boundaries[b.region] = { state: b.state, error: b.error ?? null }; if (isTrip(M, b.region, b.state)) s.trips++; }
+    for (const b of d.boundaries) if (b?.region) { s.boundaries[b.region] = { state: b.state, error: b.error ?? null, ...(b.arm != null ? { arm: b.arm } : {}) }; if (isTrip(M, b.region, b.state)) s.trips++; }
   }
   if (Array.isArray(d.runs)) {
     s.runs = {};
