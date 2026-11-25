@@ -4,3 +4,5 @@ export function register(graph: unknown, options?: { hot?: unknown }): void;
 export function mount(el: HTMLElement): () => void;
 export function preview(value: unknown, max?: number, depth?: number): string;
 export function mergeGraphs(list: unknown[]): unknown;
+/** Attaches a view (a pop-out map window) to the bridge directly; `post` receives host → view messages. */
+export function connectView(post: (msg: unknown) => void): { send(msg: unknown): void; graph(): unknown; close(): void };

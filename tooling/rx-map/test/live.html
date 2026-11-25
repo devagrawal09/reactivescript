@@ -151,7 +151,9 @@ try {
   await sleep(30);
   check("snapshot: boundaries back to ok, flights cleared", !doc.querySelector(".frame.tripped") && !chip("query").classList.contains("flying"));
 
-  // pop-out: the same live map in its own window, fed through this one
+  // pop-out: the same live map in its own window, fed through this one (no bridge to attach to: the relay)
+  const realConnect = globalThis.__RX__.connect;
+  delete globalThis.__RX__.connect;
   win.popOut();
   await sleep(300);
   const pw = win.open("", "rx-map-popout");
@@ -170,6 +172,13 @@ try {
   check("pop-out: its travel goes to the host", sent.some(m => m.type === "travel"), sent);
   pw.close();
   await sleep(50);
+  win.popOut();
+  await sleep(300);
+  const pw2 = win.open("", "rx-map-popout");
+  check("pop-out: the button works again after closing one", !!pw2?.document?.getElementById("liveBadge"), pw2?.document?.title);
+  pw2?.close();
+  await sleep(50);
+  globalThis.__RX__.connect = realConnect;
   post({ v: 1, type: "flush", seq: 5, at: 50, changes: [ch("page", "2")] });
   await sleep(40);
   check("pop-out closed: the map carries on", chip("page").querySelector(".lv")?.dataset.value === "2" && !errors.length, errors);
@@ -225,8 +234,43 @@ try {
     post({ type: "reset" });
     await sleep(50);
     check("reset clears values, glow and count", badge() === "live · 0 flushes" && !doc.querySelector("#board .lv, #board .flying"));
+    // pop-out, direct: it attaches to the app page's bridge (__RX__.connect), so it outlives the dock's iframe, says
+    // "disconnected" when the feed stops, and says hello again after the app reloads
+    const feed = { posts: [], sends: [] };
+    const bridge = tag => postTo => {
+      feed.posts.push(postTo);
+      return {
+        send(m) {
+          feed.sends.push({ tag, ...m });
+          if (m.type !== "hello") return;
+          postTo({ source: "rx-map", v: 1, type: "snapshot", values: [{ key: K("total").key, preview: "41" }, { key: K("users").key, error: "ServerError: 503" }], flights: [], boundaries: [], held: [{ key: K("page").key, by: [K("users").key], since: 1 }] });
+          postTo({ source: "rx-map", v: 1, type: "timeline", head: 0, viewing: null, steps: [], capacity: 2000 });
+        },
+        graph: () => graph,
+        close() {},
+      };
+    };
+    const rxBefore = globalThis.__RX__;
+    globalThis.__RX__.connect = bridge("a");
+    win.popOut();
+    await sleep(400);
+    const qw = win.open("", "rx-map-popout"), qd = qw.document;
+    const qchip = name => qd.querySelector(`#board .chip[data-id="${K(name).id}"]`);
+    check("pop-out direct: says hello to the app's bridge", feed.sends.some(m => m.tag === "a" && m.type === "hello"), feed.sends);
+    check("pop-out direct: current values, failures and held writes on open", qchip("total")?.querySelector(".lv")?.dataset.value === "41" && qchip("users")?.classList.contains("failed") && /503/.test(qchip("users")?.querySelector(".lverr")?.textContent ?? "") && /waiting on users/.test(qchip("page")?.querySelector(".hm")?.textContent ?? ""), qchip("page")?.innerHTML.slice(-200));
     dispose();
     check("dispose removes the iframe", !document.querySelector("#host iframe"));
+    feed.posts.at(-1)({ source: "rx-map", v: 1, type: "flush", seq: 1, at: 1, changes: [ch("total", "42")] });
+    await sleep(60);
+    check("pop-out direct: keeps streaming after the dock's iframe is gone", qchip("total")?.querySelector(".lv")?.dataset.value === "42" && /^live/.test(qd.getElementById("liveBadge").textContent), qd.getElementById("liveBadge").textContent);
+    globalThis.__RX__ = undefined;
+    await sleep(1200);
+    check("pop-out direct: says disconnected when the feed stops", /^disconnected/.test(qd.getElementById("liveBadge").textContent) && qd.body.classList.contains("disconnected"), qd.getElementById("liveBadge").textContent);
+    globalThis.__RX__ = { ...rxBefore, connect: bridge("b") };
+    await sleep(1200);
+    check("pop-out direct: reconnects and says hello again after the app reloads", feed.sends.some(m => m.tag === "b" && m.type === "hello") && /^live/.test(qd.getElementById("liveBadge").textContent) && qchip("total")?.querySelector(".lv")?.dataset.value === "41", qd.getElementById("liveBadge").textContent);
+    qw.close();
+    globalThis.__RX__ = rxBefore; globalThis.__RX__.connect = realConnect;
     done();
   }
 } catch (e) {

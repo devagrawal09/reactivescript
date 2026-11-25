@@ -154,6 +154,9 @@
   .chip:focus-visible { outline: 2px solid #fff; outline-offset: 3px }
   .chip.io::after { content: ""; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M5 11 11 5M6.5 5H11v4.5' fill='none' stroke='%230f1115' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; background-size: 12px 12px !important; background-position: center !important; background-repeat: no-repeat !important; position: absolute; top: -8px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: #e5e7eb; color: #0f1115; font: 700 11px/16px system-ui; text-align: center; box-shadow: 0 0 0 2px #0f1115, 0 2px 4px rgba(0, 0, 0, .5) }
   .chip.io.chg-io::after { box-shadow: 0 0 0 2px #0f1115, 0 0 0 4px var(--d-chg) }
+  #qwrap { position: relative; display: inline-flex; align-items: center }
+  #qcount { position: absolute; right: 26px; font-size: 10.5px; color: var(--micro); pointer-events: none }
+  .chip.hit.cur { box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgba(255, 255, 255, .35), 0 0 22px 4px rgba(255, 255, 255, .45) }
   .chip.hit { box-shadow: 0 0 0 2px #fff, 0 0 16px 2px rgba(255, 255, 255, .35) }
   .chip.sel { box-shadow: 0 0 0 2px #fff, 0 0 22px 4px color-mix(in srgb, var(--c) 70%, transparent) }
   .chip.compref { --r: 5px }
@@ -321,6 +324,9 @@
      stay reserved -------------------------------------------------------------------------------------------------- */
   #liveBadge { display: inline-flex; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text); border: 1px solid rgba(150, 180, 255, .25); border-radius: 999px; padding: 2px 10px 2px 8px; background: rgba(255, 255, 255, .04); font-variant-numeric: tabular-nums }
   #liveBadge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: .45 }
+  body.disconnected #liveBadge { color: var(--fail); border-color: rgba(251, 113, 133, .6) }
+  body.disconnected #liveBadge::before { background: var(--fail); opacity: 1 }
+  body.disconnected #canvas { filter: saturate(.55) }
   #liveBadge.beat::before { animation: rx-beat .6s ease-out }
   @keyframes rx-beat { from { opacity: 1; box-shadow: 0 0 0 0 rgba(255, 255, 255, .8) } to { opacity: .45; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0) } }
   .chip.pulse::before { content: ""; position: absolute; inset: -4px; border-radius: calc(var(--r) + 4px); border: 2px solid #fff; pointer-events: none; box-shadow: 0 0 12px rgba(255, 255, 255, .6), inset 0 0 8px rgba(255, 255, 255, .35); animation: rx-pulse 1s ease-out var(--pd, 0ms) both }
@@ -502,7 +508,7 @@
 <div id="rewind"></div>
 <header class="hud">
   <h1><span class="logo"></span>RX·MAP <small class="mono"><!--__TITLE__--></small></h1>
-  <input type="search" id="q" placeholder="find a name…  (/)">
+  <span id="qwrap"><input type="search" id="q" placeholder="find a name…  (/)" aria-describedby="qcount"><span id="qcount" class="mono" aria-live="polite"></span></span>
   <label><input type="checkbox" id="all"> all edges</label>
   <button id="hiddenBtn" hidden title="open the legend to show them again"></button>
   <span id="diffbar"><select id="view"><option value="both">before + after</option><option value="before">before</option><option value="after">after</option></select></span>
@@ -1398,10 +1404,10 @@ function applyCam() {
   world.style.transform = `translate(${vw / 2}px,${vh / 2}px) rotateX(${(TILT + cam.rx).toFixed(3)}deg) rotateY(${cam.ry.toFixed(3)}deg) translate(${-vw / 2}px,${-vh / 2}px) translate(${cam.x.toFixed(2)}px,${cam.y.toFixed(2)}px) scale(${(cam.s / LZ).toFixed(5)})`;
   zoomPct.textContent = `${Math.round(cam.s * 100)}%`;
   drawMiniView();
-  clearTimeout(crispT); crispT = setTimeout(crisp, 200);
+  clearTimeout(crispT); crispT = setTimeout(crisp, 70);
 }
 function crisp() {
-  if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 120); return; }
+  if (fly || inertia || drag?.moved || pinch) { crispT = setTimeout(crisp, 60); return; }
   const L = Math.round(clamp(cam.s, .3, 3) * 20) / 20;
   if (L === LZ) return;
   LZ = L;
@@ -1444,7 +1450,16 @@ function flyTo(bx, by, s = cam.s, dur = 560) {
 }
 function flyToEl(el, s) { const b = boxOf(el); if (b) flyTo(b.x, b.y, s ?? clamp(Math.max(cam.s, .9), .3, 2.6)); }
 function fitScale() { const fr = freeRect(), m = compact() ? 16 : 40; return clamp(Math.min((fr.w - m) / BW, (fr.h - m / 2) / (BH * Math.cos(rad(TILT)))), .08, 1.15); }
-function frameAll(dur = 600) { flyTo(BW / 2, BH / 2, fitScale(), dur); }
+// Frame: the whole board when it can be read that way; a tall one is fitted to the width instead, staying where you are
+// (a whole 8-module app at 10% is a strip nobody can read)
+function frameAll(dur = 600) {
+  const whole = fitScale(), fr = freeRect();
+  if (whole >= .5) return flyTo(BW / 2, BH / 2, whole, dur);
+  const s = clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1);
+  const half = fr.h / 2 / s, y = clamp(toBoard(fr.cx, fr.cy)[1], half - 20, Math.max(half - 20, BH - half + 20));
+  flyTo(BW / 2, y, s, dur);
+}
+const framed = () => { const fr = freeRect(); const [bx] = toBoard(fr.cx, fr.cy); return Math.abs(bx - BW / 2) < 4 && (Math.abs(cam.s - fitScale()) < .01 || Math.abs(cam.s - clamp((fr.w - (compact() ? 12 : 40)) / BW, .3, 1)) < .01); };
 function home() {
   // a small map is framed whole; a big one starts at the top, as wide as the screen
   const fr = freeRect(), fit = fitScale();
@@ -1540,10 +1555,13 @@ canvas.addEventListener("click", ev => { if (suppressClick) { ev.stopPropagation
 canvas.addEventListener("wheel", ev => {
   ev.preventDefault();
   const unit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? vh : 1;
-  if (ev.shiftKey) { cam.x -= ev.deltaY * unit; camChanged(); return; }
-  // a trackpad's two-finger scroll comes with deltaX: pan; a wheel or a pinch (ctrl) zooms toward the pointer
-  if (!ev.ctrlKey && ev.deltaX !== 0) { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; fly = null; camChanged(); return; }
-  zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey ? .01 : .0016)));
+  // the wheel scrolls the map (shift: sideways); ctrl / ⌘ + wheel, and a trackpad pinch (which comes as ctrl), zoom
+  // toward the pointer
+  if (ev.ctrlKey || ev.metaKey) { zoomAt(ev.clientX, ev.clientY, Math.exp(-ev.deltaY * unit * (ev.ctrlKey && ev.deltaMode === 0 && Math.abs(ev.deltaY) < 50 ? .01 : .0022))); return; }
+  fly = null; inertia = null;
+  if (ev.shiftKey && !ev.deltaX) cam.x -= ev.deltaY * unit;
+  else { cam.x -= ev.deltaX * unit; cam.y -= ev.deltaY * unit; }
+  camChanged();
 }, { passive: false });
 addEventListener("resize", () => { vw = innerWidth; vh = innerHeight; readInsets(); camChanged(); sizeScrub(); renderScrub(); });
 document.getElementById("zoomIn").innerHTML = ICON.plus;
@@ -1696,13 +1714,40 @@ board.addEventListener("dblclick", ev => {
   if (selected !== c.dataset.id) select(c.dataset.id);
   flyToEl(c, clamp(Math.max(cam.s * 1.25, 1.15), .3, 2.2));
 });
-document.getElementById("q").addEventListener("input", ev => {
+// search: every match lights; ↑ / ↓ go from one to the next, Enter selects it and opens it in the panel
+const qEl = document.getElementById("q"), qCount = document.getElementById("qcount");
+const search = { hits: [], i: -1 };
+function searchGo(i) {
+  if (!search.hits.length) return;
+  search.i = (i + search.hits.length) % search.hits.length;
+  document.querySelectorAll(".chip.hit.cur").forEach(c => c.classList.remove("cur"));
+  const el = anchors.get(search.hits[search.i]);
+  el?.classList.add("cur");
+  if (el) flyToEl(el, Math.max(cam.s, .8));
+  qCount.textContent = `${search.i + 1}/${search.hits.length}`;
+}
+qEl.addEventListener("input", ev => {
   const q = ev.target.value.trim().toLowerCase();
-  document.querySelectorAll(".chip.hit").forEach(c => c.classList.remove("hit"));
+  document.querySelectorAll(".chip.hit").forEach(c => c.classList.remove("hit", "cur"));
+  search.hits = []; search.i = -1; qCount.textContent = "";
   if (!q) return;
-  let first = null;
-  for (const [id, el] of anchors) if (nodes.get(id)?.name?.toLowerCase().includes(q)) { el.classList.add("hit"); first ??= el; }
-  if (first) flyToEl(first, Math.max(cam.s, .8));
+  // names first (exact, then prefix, then anywhere), in reading order
+  const score = n => (n.name.toLowerCase() === q ? 0 : n.name.toLowerCase().startsWith(q) ? 1 : 2) + (n.site ? 3 : 0);
+  const found = [...anchors].filter(([id, el]) => el.classList.contains("chip") && el.offsetParent && nodes.get(id)?.name?.toLowerCase().includes(q)).map(([id]) => id);
+  found.sort((a, b) => score(nodes.get(a)) - score(nodes.get(b)) || nodes.get(a).mod - nodes.get(b).mod || nodes.get(a).line - nodes.get(b).line);
+  search.hits = [...new Set(found)];
+  for (const id of search.hits) anchors.get(id)?.classList.add("hit");
+  if (search.hits.length) searchGo(0); else qCount.textContent = "0";
+});
+qEl.addEventListener("keydown", ev => {
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") { ev.preventDefault(); searchGo(search.i + (ev.key === "ArrowDown" ? 1 : -1)); }
+  else if (ev.key === "Enter") {
+    ev.preventDefault();
+    if (!search.hits.length) return;
+    if (ev.shiftKey) return searchGo(search.i - 1);
+    const id = search.hits[Math.max(0, search.i)];
+    select(id, true);
+  }
 });
 board.addEventListener("keydown", ev => {
   const c = ev.target.closest?.("[data-id]");
@@ -1721,7 +1766,7 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "Escape") {
     if (typing()) { document.activeElement.blur(); return; }
     if (selected) select(null);
-    else if (Math.abs(cam.s - fitScale()) > .01) frameAll();
+    else if (!framed()) frameAll();
     else if (open) closePanel();
     return;
   }
@@ -1980,6 +2025,7 @@ const tl = { steps: [], head: 0, viewing: null, capacity: 2000, flights: [], hmr
 // (`window.__RX_FAKE__`, with post/subscribe) takes them itself; otherwise the parent window is the host.
 const popups = new Set();   // pop-out windows this map relays to: { win, receive }
 let opener = null;          // in a pop-out: the link to the map that opened it
+let connected = true;       // in a pop-out: whether the feed it gets is still running
 const host = {
   post(m) {
     const msg = { source: "rx-map", v: 1, ...m };
@@ -2035,17 +2081,58 @@ if (LIVE) {
   if (!POPOUT) addEventListener("message", ev => { if (ev.source !== window) receive(ev.data); });
 }
 // ---- pop-out: the same live map in a window of its own --------------------------------------------------------------
+let popWin = null;   // the pop-out this map opened, while it is open
 function popOut() {
-  const existing = [...popups].find(p => !p.win.closed);
-  if (existing) { existing.win.focus(); return; }
+  if (popWin && !popWin.closed) { popWin.focus(); return; }
   const w = window.open("", "rx-map-popout", "width=1280,height=820");
   if (!w) { toast(`<span class="micro">pop-out</span> the browser blocked the window`); return; }
-  w.document.open(); w.document.write(PRISTINE); w.document.close();
+  popWin = w;
+  try { w.document.open(); w.document.write(PRISTINE); w.document.close(); }
+  catch (e) { popWin = null; toast(`<span class="micro">pop-out</span> could not write the window: ${esc(e.message ?? e)}`); return; }
   SFX.toggle();
 }
-function joinOpener() {
+// A pop-out talks to the app page itself when it can (`__RX__.connect` from @reactivescript/map/live, in the page that
+// holds the dock), so it keeps streaming when the dock's iframe goes away and reconnects after the app reloads. Without
+// it (fake mode, an older bridge) it is fed through the map that opened it.
+let appWin = null, rxRef = null, bridgeLink = null;
+const rxOf = w => { try { return w && !w.closed ? w.__RX__ ?? null : null; } catch { return null; } };
+function setConnected(ok) {
+  if (connected === ok) return;
+  connected = ok;
+  document.body.classList.toggle("disconnected", !ok);
+  liveBadge();
+  toast(ok ? `<span class="micro">pop-out</span> connected to the app again` : `<span class="micro">pop-out</span> disconnected: the app stopped sending (closed, reloading or navigated away)`, ok ? 2400 : 5000);
+}
+function attachDirect() {
+  try { bridgeLink?.close(); } catch {}
+  const rx = rxOf(appWin);
+  rxRef = rx;
+  const l = rx.connect(m => receive(m));
+  bridgeLink = l;
+  opener = { post: m => l.send(m) };
+  // after a reload the app may run new code: take its graph if it is not the one drawn
   try {
-    const o = window.opener;
+    const g = l.graph(), sig = x => JSON.stringify([x.modules, x.nodes.map(n => n.key)]);
+    if (g?.nodes && sig(g) !== sig(G)) { loadGraph(JSON.parse(JSON.stringify(g))); render(); renderPanel(); }
+  } catch {}
+  onReset();
+  host.post({ type: "hello", want: ["live", "timeline", "travel", "hmr"] });
+}
+function joinOpener() {
+  const o = window.opener;
+  try { const p = o.parent; appWin = p && p !== o ? p : null; } catch { appWin = null; }
+  if (appWin && rxOf(appWin)?.connect) {
+    attachDirect();
+    addEventListener("pagehide", () => { try { bridgeLink?.close(); } catch {} });
+    setInterval(() => {
+      const rx = rxOf(appWin);
+      if (!rx?.connect) return setConnected(false);
+      if (rx !== rxRef) attachDirect();   // the app reloaded: a new bridge, a new hello
+      setConnected(true);
+    }, 1000);
+    return;
+  }
+  try {
     opener = o.__RX_VIEW__.attach(window, receive);
     const st = opener.state();
     if (st.graph) { loadGraph(JSON.parse(JSON.stringify(st.graph))); render(); }
@@ -2054,12 +2141,12 @@ function joinOpener() {
     onSnapshot(st.snapshot);
     addEventListener("pagehide", () => { try { opener?.detach(); } catch {} });
     // the map that opened this one can go away (its dock closed): say so, and stop
-    const watch = setInterval(() => { let gone = true; try { gone = o.closed || !o.__RX_VIEW__; } catch {} if (gone) { clearInterval(watch); opener = null; document.body.classList.add("orphan"); toast(`<span class="micro">pop-out</span> the map that opened this window is gone: no more live updates`, 6000); } }, 1000);
+    const watch = setInterval(() => { let gone = true; try { gone = o.closed || !o.__RX_VIEW__; } catch {} if (gone) { clearInterval(watch); opener = null; document.body.classList.add("orphan"); setConnected(false); } }, 1000);
   } catch (e) { console.error(e); }
 }
 function liveBadge() {
   const b = document.getElementById("liveBadge");
-  if (b) b.textContent = `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
+  if (b) b.textContent = connected ? `live · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}` : `disconnected · ${live.flushes} flush${live.flushes === 1 ? "" : "es"}`;
 }
 const chipsOf = key => (keyIds.get(key) ?? []).map(id => anchors.get(id)).filter(el => el?.classList.contains("chip"));
 const liveRuns = new Map();

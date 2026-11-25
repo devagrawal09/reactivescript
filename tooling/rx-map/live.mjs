@@ -484,3 +484,30 @@ export function mergeGraphs(list) {
   });
   return out;
 }
+
+// ---- pop-outs: a map window attaches to the bridge itself ------------------------------------------------------------
+// A pop-out is opened by the map in the dock's iframe, but it must outlive that iframe (the dock leaves the Map tab) and
+// the app's reloads. `__RX__.connect(post)` gives it the same stream a mounted map gets, straight from this page:
+// `post(msg)` receives host → view messages; `send(msg)` takes the view's (hello, snapshot?, travel, resume); `graph()`
+// is the merged graph; `close()` detaches. A post that throws (its window is gone) detaches it.
+export function connectView(post) {
+  const recorder = getRecorder();
+  let ready = false, closed = false;
+  const deliver = msg => {
+    if (!ready || closed) return;
+    try { post(msg); } catch { close(); }
+  };
+  const close = () => { closed = true; recorder.listeners.delete(deliver); };
+  recorder.listeners.add(deliver);
+  return {
+    send(data) {
+      if (closed || data?.source !== SOURCE || data.v !== 1) return;
+      if (data.type === "hello") { ready = true; deliver(recorder.snapshot()); deliver(recorder.timeline()); }
+      else if (data.type === "snapshot?") deliver(recorder.snapshot());
+      else if (data.type === "travel" || data.type === "resume") deliver(message({ type: "travel-denied", to: data.to ?? recorder.timeline().head, reason: "unsupported" }));
+    },
+    graph: () => mergeGraphs(graphs),
+    close,
+  };
+}
+if (typeof globalThis !== "undefined") (globalThis.__RX__ ??= {}).connect = connectView;
