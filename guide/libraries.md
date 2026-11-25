@@ -23,6 +23,10 @@ export pure fn createEventListener(target: EventTarget, type: string, handler: (
   only for a primitive with no `ref` on either side (one that registers a listener, or returns a store).
 - `pure fn` is right for a primitive: making it writes nothing but its own state.
 
+A declaration can use type parameters (`export pure fn identity<T>(value: T): T`)
+and private type aliases. `rejects(Offline, Stopped)` and `rejects(Offline | Stopped)`
+declare the same row.
+
 Where the file goes:
 
 - **Your own JS module:** `./media.js` with `./media.d.rx` beside it.
